@@ -318,6 +318,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'agent-runs:read',
   ],
   [
+    'agent-run-trace',
+    'Agent run trace',
+    'One bounded run chronology over safe action, lifecycle, approval, and outcome evidence without raw payloads, scope snapshots, or execution leases.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/trace',
+    'venue',
+    'agent-runs:read',
+  ],
+  [
     'events',
     'Operational events',
     'Venue-scoped operational attention events and recovery guidance.',
@@ -420,9 +428,27 @@ const resultSchema = strictObject(
 
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
+  agentRunId: Identifier.optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(100).default(25),
-}).strict()
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (value.resource === 'agent-run-trace' && !value.agentRunId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['agentRunId'],
+        message: 'agentRunId is required for an agent run trace.',
+      })
+    }
+    if (value.resource !== 'agent-run-trace' && value.agentRunId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['agentRunId'],
+        message: 'agentRunId is only accepted for an agent run trace.',
+      })
+    }
+  })
 export type McpReadInput = z.infer<typeof McpReadInput>
 
 export const McpAccountContextInput = McpRequestedScope.extend({
@@ -1111,6 +1137,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       {
         ...scopeProperties,
         resource: { type: 'string', enum: resourceSeeds.map(([name]) => name) },
+        agentRunId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 120,
+          description: 'Required only when resource is agent-run-trace.',
+        },
         cursor: { type: 'string', minLength: 1, maxLength: 500 },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
       },

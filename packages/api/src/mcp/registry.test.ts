@@ -236,6 +236,19 @@ describe('PathFinder MCP server-side adapter registry', () => {
         { credential },
       ),
     ).rejects.toThrow('Capability denied')
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        {
+          resource: 'agent-run-trace',
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          agentRunId: 'run-1',
+          limit: 25,
+        },
+        { credential },
+      ),
+    ).rejects.toThrow('Capability denied')
     expect(domain.read).not.toHaveBeenCalled()
   })
 

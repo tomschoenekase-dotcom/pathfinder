@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { db } from '@pathfinder/db'
+import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 
 import type { TRPCContext } from '../../context'
+import { createSafeOperationalMcpRegistry } from '../../mcp/composition'
 import { adminAgentRunTraceRouter } from './agent-run-trace'
 
 const enabled =
@@ -157,6 +159,66 @@ describe.skipIf(!enabled)('agent run trace disposable integration', () => {
       limit: 3,
     })
     expect(second.items.map((item) => `${item.kind}:${item.id}`)).toEqual([`ACTION:${action.id}`])
+
+    const credential: VerifiedMcpCredentialScope = {
+      credentialId: `credential-${suffix}`,
+      tenantId: tenant.id,
+      clientId: tenant.id,
+      venueIds: [venue.id],
+      capabilities: ['resources:read', 'agent-runs:read'],
+    }
+    const registry = createSafeOperationalMcpRegistry(db)
+    const agentTrace = await registry.callTool(
+      'pathfinder.read',
+      {
+        resource: 'agent-run-trace',
+        clientId: tenant.id,
+        venueId: venue.id,
+        agentRunId: run.id,
+        limit: 3,
+      },
+      { credential },
+    )
+    const agentTraceData = agentTrace.structuredContent.data as {
+      items: Array<{ kind: string; id: string }>
+      nextCursor: string
+      excludes: string[]
+    }
+    expect(agentTraceData.items.map((item) => item.kind)).toEqual(['OUTCOME', 'APPROVAL', 'EVENT'])
+    expect(JSON.stringify(agentTraceData)).not.toContain('must-not-leak')
+    expect(agentTraceData.excludes).toContain('EVENT_DATA')
+    const agentTraceContinuation = await registry.callTool(
+      'pathfinder.read',
+      {
+        resource: 'agent-run-trace',
+        clientId: tenant.id,
+        venueId: venue.id,
+        agentRunId: run.id,
+        cursor: agentTraceData.nextCursor,
+        limit: 3,
+      },
+      { credential },
+    )
+    expect(
+      (
+        agentTraceContinuation.structuredContent.data as {
+          items: Array<{ kind: string; id: string }>
+        }
+      ).items,
+    ).toMatchObject([{ kind: 'ACTION', id: action.id }])
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        {
+          resource: 'agent-run-trace',
+          clientId: tenant.id,
+          venueId: venue.id,
+          agentRunId: `missing-${run.id}`,
+          limit: 3,
+        },
+        { credential },
+      ),
+    ).rejects.toMatchObject({ code: 'RESOURCE_UNAVAILABLE' })
 
     await expect(
       caller.listAgentRunTrace({

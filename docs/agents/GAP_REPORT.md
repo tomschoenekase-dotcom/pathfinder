@@ -29,10 +29,10 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 2. Deterministic location and time simulation are reusable across four scenario shapes; scheduled-update and client-configuration simulation remain incomplete.
 3. Report generation/regeneration, source inspection, explanation, and delivery status lack a coherent agent namespace.
 4. System jobs, queues, migrations, service health, integration health, feature flags, and deployment identity are only partially visible to agents.
-5. The platform-admin run workspace now presents actions, lifecycle events, approvals, and outcome
-   observations as one bounded reverse-chronological trace. A similarly safe agent-facing trace
-   namespace remains open; raw payloads, scope snapshots, and execution leases are intentionally
-   excluded rather than treated as operator-visible trace data.
+5. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
+   lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
+   exact-run trace. Raw payloads, scope snapshots, event data, and execution leases are
+   intentionally excluded rather than treated as trace data.
 6. The new tool-coverage CI gate classifies mounted routers, but it does not yet measure operation-level parity within each router.
 
 ## Intentionally restricted or deferred
@@ -62,5 +62,4 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
   execution without granting broad autonomous mutation.
 - Added canonical worker-evidence schema v2 across runs, actions, approval decisions, quality
   evaluations, and customer signals, plus one bounded operator trace over those evidence classes.
-  Raw execution material remains deliberately gated; safe agent-facing trace retrieval is separate
-  future work.
+  Raw execution material remains deliberately gated.

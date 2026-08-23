@@ -42,6 +42,9 @@ authority. Approval grants one reviewed action; it never supplies broad autonomy
   run detail. Raw action payloads, scope snapshots, and lease tokens remain hidden.
 - One mobile-friendly, read-only run trace merges bounded action summaries, lifecycle events,
   approval history, and outcome evidence in exact reverse chronology with a heterogeneous cursor.
+- The same safe chronology is available to an exact venue-scoped MCP credential holding
+  `resources:read` and `agent-runs:read`; it requires the exact run id and grants no execution or
+  approval authority.
 - An append-only run conversation combining operator prompts, agent questions, operator answers,
   and agent results. Answering a blocking question dispatches a new resume job when the runtime is
   enabled.

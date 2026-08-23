@@ -37,6 +37,9 @@ type ReadDb = Pick<
   | 'visitorSession'
   | 'externalAccessCredential'
   | 'agentRun'
+  | 'agentAction'
+  | 'agentTimelineEvent'
+  | 'approvalRequest'
   | 'operationalEvent'
   | 'nativeVenueDeploymentRelease'
   | 'tenantFeatureFlag'
@@ -159,6 +162,15 @@ export async function readMcpResource(
       return readIntegrations(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'agent-runs':
       return readAgentRuns(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'agent-run-trace':
+      return readAgentRunTrace(
+        db,
+        context.credential.tenantId,
+        input.venueId!,
+        input.agentRunId!,
+        limit,
+        cursor,
+      )
     case 'events':
       return readEvents(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'deployments':
@@ -886,6 +898,185 @@ async function readAgentRuns(
     },
   })
   return result('agent-runs', mapPage(page('agent-runs', rows, limit, (row) => row.createdAt)))
+}
+
+type AgentRunTraceKind = 'ACTION' | 'EVENT' | 'APPROVAL' | 'OUTCOME'
+
+function decodeAgentRunTraceCursor(cursor?: CursorPayload) {
+  if (!cursor) return undefined
+  const match = /^(ACTION|EVENT|APPROVAL|OUTCOME):(.+)$/u.exec(cursor.id)
+  if (!match) {
+    throw new McpReadBindingError('INVALID_CURSOR', 'The agent run trace cursor is invalid.')
+  }
+  return {
+    createdAt: new Date(cursor.sortAt),
+    kind: match[1] as AgentRunTraceKind,
+    id: match[2]!,
+  }
+}
+
+function agentRunTraceWhere(
+  kind: AgentRunTraceKind,
+  cursor?: ReturnType<typeof decodeAgentRunTraceCursor>,
+) {
+  if (!cursor) return {}
+  const kindOrder = kind.localeCompare(cursor.kind)
+  return {
+    OR: [
+      { createdAt: { lt: cursor.createdAt } },
+      ...(kindOrder < 0
+        ? [{ createdAt: cursor.createdAt }]
+        : kindOrder === 0
+          ? [{ createdAt: cursor.createdAt, id: { lt: cursor.id } }]
+          : []),
+    ],
+  }
+}
+
+function agentRunTraceState(
+  approval: { decision: { decision: string } | null; expiresAt: Date | null },
+  now: Date,
+) {
+  if (approval.decision) return approval.decision.decision
+  if (approval.expiresAt && approval.expiresAt.getTime() <= now.getTime()) return 'EXPIRED'
+  return 'PENDING'
+}
+
+async function readAgentRunTrace(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  agentRunId: string,
+  limit: number,
+  opaqueCursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const cursor = decodeAgentRunTraceCursor(opaqueCursor)
+  const where = { tenantId, venueId, agentRunId }
+  const take = limit + 1
+  const [run, actions, events, approvals, outcomes] = await Promise.all([
+    db.agentRun.findFirst({ where: { id: agentRunId, tenantId, venueId }, select: { id: true } }),
+    db.agentAction.findMany({
+      where: { ...where, ...agentRunTraceWhere('ACTION', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        requestedOperation: true,
+        actionName: true,
+        inputSummary: true,
+        modelProvider: true,
+        modelName: true,
+        costE8Usd: true,
+        status: true,
+        errorCode: true,
+        beforeVersionRef: true,
+        afterVersionRef: true,
+        approvalDecisionId: true,
+      },
+    }),
+    db.agentTimelineEvent.findMany({
+      where: { ...where, ...agentRunTraceWhere('EVENT', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        agentActionId: true,
+        eventType: true,
+        message: true,
+      },
+    }),
+    db.approvalRequest.findMany({
+      where: { ...where, ...agentRunTraceWhere('APPROVAL', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        requestedByType: true,
+        requestedById: true,
+        proposedAction: true,
+        reason: true,
+        riskCategory: true,
+        expiresAt: true,
+        decision: { select: { decision: true, reason: true, createdAt: true } },
+      },
+    }),
+    db.agentOutcomeObservation.findMany({
+      where: { ...where, ...agentRunTraceWhere('OUTCOME', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        signalKind: true,
+        verdict: true,
+        summary: true,
+        evidenceRef: true,
+        taskClass: true,
+        modelProvider: true,
+        modelName: true,
+      },
+    }),
+  ])
+  if (!run) {
+    throw new McpReadBindingError('RESOURCE_UNAVAILABLE', 'The requested agent run is unavailable.')
+  }
+
+  const now = new Date()
+  const items = [
+    ...actions.map((item) => ({ ...item, kind: 'ACTION' as const })),
+    ...events.map((item) => ({ ...item, kind: 'EVENT' as const })),
+    ...approvals.map((item) => ({
+      ...item,
+      kind: 'APPROVAL' as const,
+      state: agentRunTraceState(item, now),
+    })),
+    ...outcomes.map((item) => ({ ...item, kind: 'OUTCOME' as const })),
+  ].sort(
+    (left, right) =>
+      right.createdAt.getTime() - left.createdAt.getTime() ||
+      right.kind.localeCompare(left.kind) ||
+      right.id.localeCompare(left.id),
+  )
+  const visible = items.slice(0, limit)
+  const last = visible.at(-1)
+  return result('agent-run-trace', {
+    items: visible.map((item) => ({
+      ...normalizeRecord(item),
+      ...(item.kind === 'APPROVAL' && item.decision
+        ? {
+            decision: {
+              ...item.decision,
+              createdAt: item.decision.createdAt.toISOString(),
+            },
+          }
+        : {}),
+    })),
+    nextCursor:
+      items.length > limit && last
+        ? encodeMcpReadCursor({
+            resource: 'agent-run-trace',
+            sortAt: last.createdAt.toISOString(),
+            id: `${last.kind}:${last.id}`,
+          })
+        : null,
+    bounded: true,
+    excludes: [
+      'RAW_ACTION_OUTPUT',
+      'RAW_ACTION_INPUT_REFERENCE',
+      'SCOPE_SNAPSHOT',
+      'EVENT_DATA',
+      'EXECUTION_LEASE',
+    ],
+  })
 }
 
 async function readEvents(

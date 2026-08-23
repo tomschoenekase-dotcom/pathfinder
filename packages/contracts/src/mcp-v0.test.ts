@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   assertMcpScope,
+  McpReadInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpScopeError,
@@ -40,6 +41,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.conversations',
       'pathfinder.integrations',
       'pathfinder.agent-runs',
+      'pathfinder.agent-run-trace',
       'pathfinder.events',
       'pathfinder.deployments',
       'pathfinder.feature-flags',
@@ -82,6 +84,28 @@ describe('Torchiko MCP v0 contracts', () => {
       approvalRequired: false,
     })
     expect(customerAccess.description).toContain('never contacts Clerk')
+  })
+
+  it('requires an exact run id only for the bounded agent run trace resource', () => {
+    const read = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.read')!
+    expect(read.inputSchema).toMatchObject({
+      properties: { agentRunId: { type: 'string', maxLength: 120 } },
+    })
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-trace',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-runs',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+      }),
+    ).toThrow()
   })
 
   it('rejects cross-client, cross-venue, and missing-capability scope attempts', () => {

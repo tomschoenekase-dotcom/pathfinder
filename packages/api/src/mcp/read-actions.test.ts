@@ -61,7 +61,10 @@ function database() {
     weeklyReport: { findMany: vi.fn() },
     visitorSession: { findMany: vi.fn() },
     externalAccessCredential: { findMany: vi.fn() },
-    agentRun: { findMany: vi.fn() },
+    agentRun: { findFirst: vi.fn(), findMany: vi.fn() },
+    agentAction: { findMany: vi.fn() },
+    agentTimelineEvent: { findMany: vi.fn() },
+    approvalRequest: { findMany: vi.fn() },
     operationalEvent: { findMany: vi.fn() },
     nativeVenueDeploymentRelease: { findMany: vi.fn() },
     tenantFeatureFlag: { findMany: vi.fn() },
@@ -576,6 +579,10 @@ describe('MCP v0 concrete read bindings', () => {
       db.visitorSession,
       db.externalAccessCredential,
       db.agentRun,
+      db.agentAction,
+      db.agentTimelineEvent,
+      db.approvalRequest,
+      db.agentOutcomeObservation,
       db.operationalEvent,
       db.nativeVenueDeploymentRelease,
       db.tenantFeatureFlag,
@@ -587,12 +594,20 @@ describe('MCP v0 concrete read bindings', () => {
       'conversations',
       'integrations',
       'agent-runs',
+      'agent-run-trace',
       'events',
       'deployments',
     ] as const) {
+      if (resource === 'agent-run-trace') db.agentRun.findFirst.mockResolvedValue({ id: 'run-1' })
       await readMcpResource(
         db as never,
-        { resource, clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+        {
+          resource,
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          ...(resource === 'agent-run-trace' ? { agentRunId: 'run-1' } : {}),
+          limit: 25,
+        },
         { credential },
       )
     }
@@ -613,6 +628,10 @@ describe('MCP v0 concrete read bindings', () => {
     expect(db.externalAccessCredential.findMany.mock.calls[0]![0].select).not.toHaveProperty(
       'secretPrefix',
     )
+    expect(db.agentAction.findMany.mock.calls[0]![0].select).not.toHaveProperty('inputReference')
+    expect(db.agentAction.findMany.mock.calls[0]![0].select).not.toHaveProperty('output')
+    expect(db.agentTimelineEvent.findMany.mock.calls[0]![0].select).not.toHaveProperty('data')
+    expect(db.approvalRequest.findMany.mock.calls[0]![0].select).not.toHaveProperty('scopeSnapshot')
     expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('requestPrompt')
     expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('scopeSnapshot')
     expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('artifacts')
@@ -641,5 +660,114 @@ describe('MCP v0 concrete read bindings', () => {
     expect(db.tenantFeatureFlag.findMany.mock.calls[0]![0].where).toMatchObject({
       tenantId: 'tenant-1',
     })
+  })
+
+  it('merges one exact agent run trace and pages equal-time evidence without exposing authority', async () => {
+    const db = database()
+    const at = (value: string) => new Date(value)
+    db.agentRun.findFirst.mockResolvedValue({ id: 'run-1' })
+    db.agentAction.findMany.mockResolvedValue([
+      {
+        id: 'action-1',
+        createdAt: at('2026-08-23T12:00:00.000Z'),
+        actorType: 'AGENT',
+        actorId: 'agent-1',
+        actionName: 'support.prepare',
+        costE8Usd: 25_000_000n,
+        status: 'SUCCEEDED',
+      },
+    ])
+    db.agentTimelineEvent.findMany.mockResolvedValue([
+      {
+        id: 'event-1',
+        createdAt: at('2026-08-23T12:03:00.000Z'),
+        actorType: 'SYSTEM',
+        actorId: 'runtime',
+        eventType: 'RUN_COMPLETED',
+      },
+    ])
+    db.approvalRequest.findMany.mockResolvedValue([
+      {
+        id: 'approval-1',
+        createdAt: at('2026-08-23T12:01:00.000Z'),
+        requestedByType: 'AGENT',
+        requestedById: 'agent-1',
+        proposedAction: 'support.publish',
+        reason: 'External effect',
+        riskCategory: 'HIGH',
+        expiresAt: null,
+        decision: {
+          decision: 'APPROVED',
+          reason: 'Reviewed',
+          createdAt: at('2026-08-23T12:02:00.000Z'),
+        },
+      },
+    ])
+    db.agentOutcomeObservation.findMany.mockResolvedValue([
+      {
+        id: 'outcome-1',
+        createdAt: at('2026-08-23T12:02:00.000Z'),
+        actorType: 'HUMAN',
+        actorId: 'operator-1',
+        signalKind: 'HUMAN_REVIEW',
+        verdict: 'POSITIVE',
+        summary: 'Useful result.',
+      },
+    ])
+
+    const response = await readMcpResource(
+      db as never,
+      {
+        resource: 'agent-run-trace',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        limit: 3,
+      },
+      { credential },
+    )
+    const data = response.data as {
+      items: Array<Record<string, unknown>>
+      nextCursor: string
+      excludes: string[]
+    }
+    expect(data.items.map((item) => `${item.kind}:${item.id}`)).toEqual([
+      'EVENT:event-1',
+      'OUTCOME:outcome-1',
+      'APPROVAL:approval-1',
+    ])
+    expect(data.items[1]).toMatchObject({ createdAt: '2026-08-23T12:02:00.000Z' })
+    expect(data.items[2]).toMatchObject({
+      decision: { decision: 'APPROVED', createdAt: '2026-08-23T12:02:00.000Z' },
+    })
+    expect(data.excludes).toContain('EXECUTION_LEASE')
+
+    db.agentAction.findMany.mockResolvedValue([])
+    db.agentTimelineEvent.findMany.mockResolvedValue([])
+    db.approvalRequest.findMany.mockResolvedValue([])
+    db.agentOutcomeObservation.findMany.mockResolvedValue([])
+    await readMcpResource(
+      db as never,
+      {
+        resource: 'agent-run-trace',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        cursor: data.nextCursor,
+        limit: 3,
+      },
+      { credential },
+    )
+    expect(db.agentTimelineEvent.findMany.mock.calls[1]![0].where.OR).toEqual([
+      { createdAt: { lt: at('2026-08-23T12:01:00.000Z') } },
+    ])
+    expect(db.agentAction.findMany.mock.calls[1]![0].where.OR).toEqual([
+      { createdAt: { lt: at('2026-08-23T12:01:00.000Z') } },
+      { createdAt: at('2026-08-23T12:01:00.000Z') },
+    ])
+    expect(db.approvalRequest.findMany.mock.calls[1]![0].where.OR).toEqual([
+      { createdAt: { lt: at('2026-08-23T12:01:00.000Z') } },
+      { createdAt: at('2026-08-23T12:01:00.000Z'), id: { lt: 'approval-1' } },
+    ])
   })
 })
