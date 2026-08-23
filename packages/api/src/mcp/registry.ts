@@ -3,6 +3,7 @@ import {
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
   McpAgentImprovementProposalInput,
+  McpAgentImprovementValidationInput,
   McpAccountContextInput,
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
@@ -62,6 +63,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.locations.propose_draft'
         | 'torchiko.agent_improvements.propose'
+        | 'torchiko.agent_improvements.record_validation'
         | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
         | 'torchiko.reports.get_lifecycle'
@@ -122,6 +124,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeAgentImprovement: (
     input: McpAgentImprovementProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  recordAgentImprovementValidation: (
+    input: McpAgentImprovementValidationInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   prepareCustomerAccessInvitation: (
@@ -310,6 +316,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.proposeAgentImprovement(input, context)
           break
         }
+        case 'torchiko.agent_improvements.record_validation': {
+          const input = McpAgentImprovementValidationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.recordAgentImprovementValidation(input, context)
+          break
+        }
         case 'torchiko.customer_access.prepare_invitation': {
           const input = McpCustomerAccessPreparationInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -422,6 +434,7 @@ async function verifyApproval(
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.locations.propose_draft'
     | 'torchiko.agent_improvements.propose'
+    | 'torchiko.agent_improvements.record_validation'
     | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
     | 'torchiko.reports.get_lifecycle'

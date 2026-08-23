@@ -17,6 +17,7 @@ import {
   listConversationKnowledgeGaps,
   prepareCustomerAccessRequestAction,
   prepareAgentImprovementProposalAction,
+  recordAgentImprovementValidationAction,
   prepareLocationDraftProposalAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
@@ -46,6 +47,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
   'torchiko.agent_improvements.propose',
+  'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
   'torchiko.reports.get_lifecycle',
@@ -90,6 +92,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeAgentImprovement'
+    | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
     | 'reportLifecycle'
@@ -111,6 +114,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeAgentImprovement'
+    | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
   > = {
     async verifyApprovalGrant(request, context) {
@@ -551,6 +555,91 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           implementationRequiredAfterApproval: true,
           agentBehaviorChanged: false,
           agentAuthorityChanged: false,
+        }),
+      }
+    },
+    async recordAgentImprovementValidation(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Agent improvement validation requires venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'agent-improvements:validate' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) {
+        throw new McpActionBindingError('Verified agent validation worker is unavailable')
+      }
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+          requestedOperation: 'agent-improvement.validate',
+        },
+        select: { id: true },
+      })
+      if (!run) {
+        throw new McpActionBindingError('Verified agent validation run is unavailable')
+      }
+
+      const result = await recordAgentImprovementValidationAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          proposalId: input.proposalId,
+          baselineEvalRunId: input.baselineEvalRunId,
+          candidateEvalRunId: input.candidateEvalRunId,
+          implementationKind: input.implementationKind,
+          implementationRef: input.implementationRef,
+          ...(input.implementationVersion
+            ? { implementationVersion: input.implementationVersion }
+            : {}),
+          implementationHash: input.implementationHash,
+          changeDimensions: input.changeDimensions,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'agent-improvements:validate',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.agent-improvement-validation',
+        summary: result.replayed
+          ? 'Existing validation evidence returned; agent behavior and authority are unchanged.'
+          : 'Immutable before/after validation evidence recorded; no behavior was promoted.',
+        data: jsonData({
+          validationEvidenceId: result.id,
+          proposalId: result.proposalId,
+          comparisonHash: result.comparisonHash,
+          replayed: result.replayed,
+          agentBehaviorChanged: false,
+          agentAuthorityChanged: false,
+          promotionDecisionRecorded: false,
         }),
       }
     },

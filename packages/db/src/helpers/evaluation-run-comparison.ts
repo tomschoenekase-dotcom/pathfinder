@@ -93,7 +93,13 @@ function runSummary(
 }
 
 export async function compareEvaluationRuns(
-  input: { tenantId: string; venueId: string; baselineRunId: string; candidateRunId: string },
+  input: {
+    tenantId: string
+    venueId: string
+    baselineRunId: string
+    candidateRunId: string
+    allowedMismatchReasons?: readonly EvaluationComparisonMismatch[]
+  },
   client: EvaluationComparisonClient = db,
 ) {
   if (!input.tenantId.trim() || !input.venueId.trim())
@@ -159,14 +165,28 @@ export async function compareEvaluationRuns(
   )
     mismatchReasons.add('EVIDENCE')
 
+  const allowedMismatchReasons = new Set(input.allowedMismatchReasons ?? [])
+  const unsupportedAllowances = [...allowedMismatchReasons].filter(
+    (reason) => reason === 'CORPUS' || reason === 'EVIDENCE',
+  )
+  if (unsupportedAllowances.length > 0)
+    throw new EvaluationRunComparisonError(
+      'INVALID_INPUT',
+      'Corpus and evaluation evidence differences can never be declared comparable.',
+    )
+
+  const undeclaredMismatchReasons = [...mismatchReasons].filter(
+    (reason) => !allowedMismatchReasons.has(reason),
+  )
   const base = runSummary(baseline as never)
   const next = runSummary(candidate as never)
-  if (mismatchReasons.size > 0)
+  if (undeclaredMismatchReasons.length > 0)
     return {
       status: 'INCOMPARABLE' as const,
       baseline: base,
       candidate: next,
-      mismatchReasons: [...mismatchReasons].sort(),
+      mismatchReasons: undeclaredMismatchReasons.sort(),
+      declaredChangeReasons: [...allowedMismatchReasons].sort(),
       cases: [],
       totals: null,
     }
@@ -184,6 +204,7 @@ export async function compareEvaluationRuns(
       baseline: base,
       candidate: next,
       mismatchReasons: ['EVIDENCE' as const],
+      declaredChangeReasons: [...allowedMismatchReasons].sort(),
       cases: [],
       totals: null,
     }
@@ -244,6 +265,7 @@ export async function compareEvaluationRuns(
       baseline: base,
       candidate: next,
       mismatchReasons: ['EVIDENCE' as const],
+      declaredChangeReasons: [...allowedMismatchReasons].sort(),
       cases: [],
       totals: null,
     }
@@ -301,10 +323,14 @@ export async function compareEvaluationRuns(
   const candidateCost = rows.reduce((sum, row) => sum + BigInt(row.candidate?.costE8Usd ?? '0'), 0n)
 
   return {
-    status: 'COMPARABLE' as const,
+    status:
+      mismatchReasons.size > 0
+        ? ('COMPARABLE_WITH_DECLARED_CHANGE' as const)
+        : ('COMPARABLE' as const),
     baseline: base,
     candidate: next,
     mismatchReasons: [],
+    declaredChangeReasons: [...allowedMismatchReasons].sort(),
     cases: rows,
     totals: {
       caseCount: rows.length,

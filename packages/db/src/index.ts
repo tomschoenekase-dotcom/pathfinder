@@ -1029,6 +1029,14 @@ export type {
   PrepareAgentImprovementProposalInput,
 } from './helpers/agent-improvement-proposal-actions'
 export {
+  AgentImprovementValidationActionError,
+  recordAgentImprovementValidationAction,
+} from './helpers/agent-improvement-validation-actions'
+export type {
+  AgentImprovementValidationActionClient,
+  RecordAgentImprovementValidationInput,
+} from './helpers/agent-improvement-validation-actions'
+export {
   ProductEntitlementError,
   requireProductEntitlement,
   resolveProductEntitlement,

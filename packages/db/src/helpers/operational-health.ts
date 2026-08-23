@@ -1,6 +1,6 @@
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260823233000_add_agent_improvement_proposals'
+export const EXPECTED_LATEST_MIGRATION = '20260824010000_add_agent_improvement_validation_evidence'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 export const WORKER_HEARTBEAT_FRESHNESS_MS = 90_000
 export const OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS = 15 * 60 * 1000

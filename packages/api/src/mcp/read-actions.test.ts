@@ -96,6 +96,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   proposeKnowledgeCorrection: vi.fn(),
   proposeLocationDraft: vi.fn(),
   proposeAgentImprovement: vi.fn(),
+  recordAgentImprovementValidation: vi.fn(),
   prepareCustomerAccessInvitation: vi.fn(),
   integrationHealth: vi.fn(),
   reportLifecycle: vi.fn(),
@@ -791,6 +792,16 @@ describe('MCP v0 concrete read bindings', () => {
     expect(query.select).not.toHaveProperty('createdById')
     expect(query.select).not.toHaveProperty('tenantId')
     expect(query.select).not.toHaveProperty('venueId')
+    expect(query.select.validationEvidence.select).toMatchObject({
+      implementationRef: true,
+      implementationVersion: true,
+      implementationHash: true,
+      comparisonSnapshot: true,
+      comparisonHash: true,
+    })
+    expect(query.select.validationEvidence.select).not.toHaveProperty('recordedById')
+    expect(query.select.validationEvidence.select).not.toHaveProperty('operationId')
+    expect(query.select.validationEvidence.select).not.toHaveProperty('approvalDecision')
   })
 
   it('adds privacy-bounded operational intelligence without selecting secrets or raw payloads', async () => {

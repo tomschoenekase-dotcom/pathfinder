@@ -1479,6 +1479,23 @@ async function readAgentImprovements(
         orderBy: { outcomeObservationId: 'asc' },
         select: { outcomeObservationId: true },
       },
+      validationEvidence: {
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          baselineEvalRunId: true,
+          candidateEvalRunId: true,
+          implementationKind: true,
+          implementationRef: true,
+          implementationVersion: true,
+          implementationHash: true,
+          changeDimensions: true,
+          comparisonSnapshot: true,
+          comparisonHash: true,
+          recordedByType: true,
+          createdAt: true,
+        },
+      },
     },
   })
   return result(

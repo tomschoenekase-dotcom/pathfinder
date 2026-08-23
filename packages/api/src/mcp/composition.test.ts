@@ -9,6 +9,7 @@ const {
   prepareCustomerAccess,
   prepareLocationDraft,
   prepareAgentImprovement,
+  recordAgentImprovementValidation,
   publishEvent,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
@@ -19,6 +20,7 @@ const {
   prepareCustomerAccess: vi.fn(),
   prepareLocationDraft: vi.fn(),
   prepareAgentImprovement: vi.fn(),
+  recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
 }))
 
@@ -32,6 +34,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
   prepareLocationDraftProposalAction: prepareLocationDraft,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
+  recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
 }))
 
@@ -301,6 +304,72 @@ describe('safe operational MCP composition', () => {
         }),
       }),
     )
+  })
+
+  it('records approved before/after validation evidence without promoting the implementation', async () => {
+    recordAgentImprovementValidation.mockResolvedValue({
+      id: 'validation-1',
+      proposalId: 'proposal-1',
+      comparisonHash: '9'.repeat(64),
+      replayed: false,
+    })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-validator',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const validationCredential = {
+      ...credential,
+      capabilities: ['agent-improvements:validate'],
+    } satisfies VerifiedMcpCredentialScope
+
+    const result = await registry.callTool(
+      'torchiko.agent_improvements.record_validation',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '55555555-5555-4555-8555-555555555555',
+        agentIdentityId: 'validator-agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        proposalId: 'proposal-1',
+        baselineEvalRunId: '11111111-1111-4111-8111-111111111111',
+        candidateEvalRunId: '22222222-2222-4222-8222-222222222222',
+        implementationKind: 'CODE_COMMIT',
+        implementationRef: 'git:3e3d8a3',
+        implementationVersion: '3e3d8a3',
+        implementationHash: 'a'.repeat(64),
+        changeDimensions: ['MODEL'],
+      },
+      { credential: validationCredential },
+    )
+
+    expect(recordAgentImprovementValidation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: 'proposal-1',
+        actor: expect.objectContaining({
+          capability: 'agent-improvements:validate',
+          modelProvider: 'openai',
+          modelName: 'gpt-validator',
+        }),
+      }),
+      database,
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.agent-improvement-validation',
+      data: {
+        validationEvidenceId: 'validation-1',
+        agentBehaviorChanged: false,
+        agentAuthorityChanged: false,
+        promotionDecisionRecorded: false,
+      },
+    })
   })
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {

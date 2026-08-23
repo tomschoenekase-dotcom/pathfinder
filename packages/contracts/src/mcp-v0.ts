@@ -56,6 +56,7 @@ export const McpCapability = z.enum([
   'outcomes:read',
   'agent-improvements:read',
   'agent-improvements:propose',
+  'agent-improvements:validate',
   'accounts:read',
   'knowledge:read',
   'knowledge:draft',
@@ -608,6 +609,33 @@ export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
 
+export const McpAgentImprovementValidationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  proposalId: Identifier,
+  baselineEvalRunId: z.string().uuid(),
+  candidateEvalRunId: z.string().uuid(),
+  implementationKind: z.enum([
+    'CODE_COMMIT',
+    'CONFIG_VERSION',
+    'PROMPT_VERSION',
+    'SKILL_VERSION',
+    'WORKFLOW_VERSION',
+    'TOOL_VERSION',
+    'MODEL_POLICY_VERSION',
+  ]),
+  implementationRef: z.string().trim().min(1).max(500),
+  implementationVersion: z.string().trim().min(1).max(191).optional(),
+  implementationHash: z.string().regex(/^[0-9a-f]{64}$/),
+  changeDimensions: z
+    .array(z.enum(['CONTENT', 'MODEL', 'CONFIG']))
+    .min(1)
+    .max(3),
+}).strict()
+export type McpAgentImprovementValidationInput = z.infer<typeof McpAgentImprovementValidationInput>
+
 export const McpCustomerAccessPreparationInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -806,6 +834,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.locations.propose_draft'
   | 'torchiko.agent_improvements.propose'
+  | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
   | 'torchiko.reports.get_lifecycle'
@@ -1300,6 +1329,75 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'agent-improvements:propose', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.agent_improvements.record_validation',
+    title: 'Record reviewed agent improvement validation evidence',
+    description:
+      'Bind an approved proposal to one immutable implementation reference and comparable before/after evaluation runs. This records evidence only and never promotes behavior or authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', minLength: 1, maxLength: 120 },
+        baselineEvalRunId: { type: 'string', format: 'uuid' },
+        candidateEvalRunId: { type: 'string', format: 'uuid' },
+        implementationKind: {
+          type: 'string',
+          enum: [
+            'CODE_COMMIT',
+            'CONFIG_VERSION',
+            'PROMPT_VERSION',
+            'SKILL_VERSION',
+            'WORKFLOW_VERSION',
+            'TOOL_VERSION',
+            'MODEL_POLICY_VERSION',
+          ],
+        },
+        implementationRef: { type: 'string', minLength: 1, maxLength: 500 },
+        implementationVersion: { type: 'string', minLength: 1, maxLength: 191 },
+        implementationHash: {
+          type: 'string',
+          minLength: 64,
+          maxLength: 64,
+          pattern: '^[0-9a-f]{64}$',
+        },
+        changeDimensions: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['CONTENT', 'MODEL', 'CONFIG'] },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'baselineEvalRunId',
+        'candidateEvalRunId',
+        'implementationKind',
+        'implementationRef',
+        'implementationHash',
+        'changeDimensions',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:validate', 'interaction'),
     },
   },
   {

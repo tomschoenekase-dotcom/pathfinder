@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   findManyProposals: vi.fn(),
   record: vi.fn(),
   prepareProposal: vi.fn(),
+  recordValidation: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -25,7 +26,16 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  AgentImprovementValidationActionError: class AgentImprovementValidationActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   prepareAgentImprovementProposalAction: mocks.prepareProposal,
+  recordAgentImprovementValidationAction: mocks.recordValidation,
   recordAgentOutcomeAction: mocks.record,
   withTenantIsolationBypass: mocks.bypass,
   db: {
@@ -196,5 +206,49 @@ describe('admin agent outcomes router', () => {
         take: 26,
       }),
     )
+  })
+
+  it('records reviewed implementation and before/after evidence with session authority', async () => {
+    mocks.recordValidation.mockResolvedValue({ id: 'validation-1', replayed: false })
+    const result = await testRouter.createCaller(context()).admin.recordAgentImprovementValidation({
+      operationId: 'ca99cd03-9310-4aa2-84d7-4fe808b3f0df',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      proposalId: 'proposal-1',
+      baselineEvalRunId: '11111111-1111-4111-8111-111111111111',
+      candidateEvalRunId: '22222222-2222-4222-8222-222222222222',
+      implementationKind: 'CODE_COMMIT',
+      implementationRef: 'git:3e3d8a3',
+      implementationVersion: '3e3d8a3',
+      implementationHash: 'a'.repeat(64),
+      changeDimensions: ['MODEL'],
+    })
+
+    expect(result).toEqual({ id: 'validation-1', replayed: false })
+    expect(mocks.recordValidation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: 'proposal-1',
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('rejects non-admin validation records before bypassing tenant isolation', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).admin.recordAgentImprovementValidation({
+        operationId: 'ca99cd03-9310-4aa2-84d7-4fe808b3f0df',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: 'proposal-1',
+        baselineEvalRunId: '11111111-1111-4111-8111-111111111111',
+        candidateEvalRunId: '22222222-2222-4222-8222-222222222222',
+        implementationKind: 'CODE_COMMIT',
+        implementationRef: 'git:3e3d8a3',
+        implementationHash: 'a'.repeat(64),
+        changeDimensions: ['MODEL'],
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.recordValidation).not.toHaveBeenCalled()
   })
 })

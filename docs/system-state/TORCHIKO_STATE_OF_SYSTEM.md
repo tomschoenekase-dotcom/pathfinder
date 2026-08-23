@@ -195,7 +195,7 @@ Hermes is therefore an adapter choice, not a separate owned subsystem in this re
 
 ### Do agents improve as they work?
 
-**No, not in the strong autonomous sense.** Humans can append an `AgentOutcomeObservation`, and agents/operators can read it. An authorized quality worker or platform admin can now prepare one versioned `AgentImprovementProposal` from exact same-scope observations; the proposal freezes a descriptive baseline, hypothesis, proposed change, validation plan, and approval. Approval performs no application and changes no authority. There is still no runtime that rewrites instructions, changes routing/models, selects specialists, updates memory, or promotes permissions automatically. This is a bounded reviewed improvement loop, not autonomous self-modification.
+**No, not in the strong autonomous sense.** Humans can append an `AgentOutcomeObservation`, and agents/operators can read it. An authorized quality worker or platform admin can prepare one versioned `AgentImprovementProposal` from exact same-scope observations. After human approval, they can append an immutable implementation reference plus a same-corpus before/after evaluation comparison; corpus and evidence drift remain fail-closed, while content/model/config differences must be declared. Approval and validation perform no application and change no authority. There is still no runtime that rewrites instructions, changes routing/models, selects specialists, updates memory, or promotes permissions automatically. This is a bounded reviewed improvement loop, not autonomous self-modification.
 
 ### Human-in-the-loop and operations inbox
 

@@ -4,8 +4,10 @@ import { z } from 'zod'
 import {
   AgentOutcomeActionError,
   AgentImprovementProposalActionError,
+  AgentImprovementValidationActionError,
   db,
   prepareAgentImprovementProposalAction,
+  recordAgentImprovementValidationAction,
   recordAgentOutcomeAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -89,6 +91,25 @@ export const adminAgentOutcomesRouter = router({
                     createdAt: true,
                   },
                 },
+              },
+            },
+            validationEvidence: {
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              select: {
+                id: true,
+                approvalDecisionId: true,
+                baselineEvalRunId: true,
+                candidateEvalRunId: true,
+                implementationKind: true,
+                implementationRef: true,
+                implementationVersion: true,
+                implementationHash: true,
+                changeDimensions: true,
+                comparisonSnapshot: true,
+                comparisonHash: true,
+                recordedByType: true,
+                recordedById: true,
+                createdAt: true,
               },
             },
           },
@@ -233,6 +254,64 @@ export const adminAgentOutcomesRouter = router({
           )
         } catch (error) {
           if (error instanceof AgentImprovementProposalActionError) {
+            throw new TRPCError({
+              code:
+                error.code === 'INVALID_INPUT'
+                  ? 'BAD_REQUEST'
+                  : error.code === 'NOT_FOUND'
+                    ? 'NOT_FOUND'
+                    : 'CONFLICT',
+              message: error.message,
+            })
+          }
+          throw error
+        }
+      }),
+    ),
+
+  recordAgentImprovementValidation: adminProcedure
+    .input(
+      z.object({
+        operationId: z.string().uuid(),
+        tenantId: z.string().min(1),
+        venueId: z.string().min(1),
+        proposalId: z.string().min(1),
+        baselineEvalRunId: z.string().uuid(),
+        candidateEvalRunId: z.string().uuid(),
+        implementationKind: z.enum([
+          'CODE_COMMIT',
+          'CONFIG_VERSION',
+          'PROMPT_VERSION',
+          'SKILL_VERSION',
+          'WORKFLOW_VERSION',
+          'TOOL_VERSION',
+          'MODEL_POLICY_VERSION',
+        ]),
+        implementationRef: z.string().trim().min(1).max(500),
+        implementationVersion: z.string().trim().min(1).max(191).optional(),
+        implementationHash: z.string().regex(/^[0-9a-f]{64}$/),
+        changeDimensions: z
+          .array(z.enum(['CONTENT', 'MODEL', 'CONFIG']))
+          .min(1)
+          .max(3),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          return await recordAgentImprovementValidationAction(
+            {
+              ...input,
+              actor: {
+                type: 'HUMAN',
+                id: ctx.session.userId,
+                role: 'PLATFORM_ADMIN',
+              },
+            },
+            db,
+          )
+        } catch (error) {
+          if (error instanceof AgentImprovementValidationActionError) {
             throw new TRPCError({
               code:
                 error.code === 'INVALID_INPUT'

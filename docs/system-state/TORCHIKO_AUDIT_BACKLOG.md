@@ -218,11 +218,11 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.5 — Turn agent outcomes into a reviewed improvement loop
 
-- **Status (2026-08-23):** **FOUNDATION IMPLEMENTED.** Exact venue/identity/task-class outcome sets can now become immutable, versioned `AgentImprovementProposal` hypotheses with descriptive baselines, explicit validation plans, normal human approval, admin reads, and MCP read/propose bindings. The disposable database shakedown proves operator- and agent-authored proposals, replay, append-only evidence, and that approval changes neither agent behavior nor authority.
-- **Retained gap:** Applying an approved change and attaching before/after evaluation evidence remain separate Codex/admin work. No runtime consumer rewrites prompts, changes routing/models, or promotes permissions automatically.
-- **Evidence:** `AgentOutcomeObservation`; `AgentImprovementProposal`; `AgentImprovementProposalEvidence`; `prepareAgentImprovementProposalAction`; `torchiko.agent_improvements.propose`; `pathfinder.agent-improvements`; `pnpm test:agent-improvement:disposable`.
+- **Status (2026-08-23):** **VALIDATION EVIDENCE IMPLEMENTED.** Exact venue/identity/task-class outcome sets can become immutable, versioned `AgentImprovementProposal` hypotheses. After human approval, an authorized quality worker or platform admin can append an immutable implementation reference and a same-corpus before/after `EvalRun` comparison. Only explicitly declared content, model, or configuration changes may differ; corpus or evidence drift is always incomparable. Approval and validation change neither behavior nor authority.
+- **Retained gap:** Applying the proposed change remains separate Codex/admin work. No runtime consumer rewrites prompts, changes routing/models, promotes permissions, or interprets a comparison as an automatic promotion threshold.
+- **Evidence:** `AgentImprovementValidationEvidence`; `recordAgentImprovementValidationAction`; `torchiko.agent_improvements.record_validation`; `pathfinder.agent-improvements`; `pnpm test:agent-improvement:disposable`.
 - **Affected system:** Agents, evaluations, model routing.
-- **Recommended next change:** Attach separately implemented version references and before/after eval comparisons to approved proposals; define promotion policy only with founder review.
+- **Recommended next change:** Accumulate real comparable runs and define any promotion policy only with founder review.
 - **Why it matters:** This makes “improvement” measurable without unsafe self-modification.
 - **Effort:** M
 - **Dependencies:** Enough real runs and outcome labels.

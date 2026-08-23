@@ -36,30 +36,30 @@ model ClerkWebhookReceipt {
 /// Default-disabled machine credential for the platform-internal, read-only policy surface.
 /// This is deliberately unrelated to tenant/customer MCP credentials.
 model PlatformWorkerPolicyCredential {
-  id                    String   @id @default(cuid())
-  issueOperationId      String   @unique @map("issue_operation_id") @db.Uuid
-  issueOperationHash    String   @map("issue_operation_hash") @db.Char(64)
-  workerId              String   @map("worker_id") @db.VarChar(191)
-  label                 String   @db.VarChar(200)
+  id                    String                          @id @default(cuid())
+  issueOperationId      String                          @unique @map("issue_operation_id") @db.Uuid
+  issueOperationHash    String                          @map("issue_operation_hash") @db.Char(64)
+  workerId              String                          @map("worker_id") @db.VarChar(191)
+  label                 String                          @db.VarChar(200)
   capabilities          String[]
-  secretPrefix          String   @unique @map("secret_prefix") @db.VarChar(24)
-  secretHash            String   @map("secret_hash") @db.VarChar(255)
+  secretPrefix          String                          @unique @map("secret_prefix") @db.VarChar(24)
+  secretHash            String                          @map("secret_hash") @db.VarChar(255)
   hashAlgorithm         ExternalCredentialHashAlgorithm @default(ARGON2ID) @map("hash_algorithm")
-  enabled               Boolean  @default(false)
-  expiresAt             DateTime? @map("expires_at")
-  revokedAt             DateTime? @map("revoked_at")
-  lastUsedAt            DateTime? @map("last_used_at")
-  createdBy             String   @map("created_by") @db.VarChar(191)
-  activatedBy           String?  @map("activated_by") @db.VarChar(191)
-  activatedAt           DateTime? @map("activated_at")
-  activationOperationId String?  @unique @map("activation_operation_id") @db.Uuid
-  activationHash        String?  @map("activation_hash") @db.Char(64)
-  revokedBy             String?  @map("revoked_by") @db.VarChar(191)
-  revokeReason          String?  @map("revoke_reason") @db.VarChar(100)
-  revocationOperationId String?  @unique @map("revocation_operation_id") @db.Uuid
-  revocationHash        String?  @map("revocation_hash") @db.Char(64)
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  enabled               Boolean                         @default(false)
+  expiresAt             DateTime?                       @map("expires_at")
+  revokedAt             DateTime?                       @map("revoked_at")
+  lastUsedAt            DateTime?                       @map("last_used_at")
+  createdBy             String                          @map("created_by") @db.VarChar(191)
+  activatedBy           String?                         @map("activated_by") @db.VarChar(191)
+  activatedAt           DateTime?                       @map("activated_at")
+  activationOperationId String?                         @unique @map("activation_operation_id") @db.Uuid
+  activationHash        String?                         @map("activation_hash") @db.Char(64)
+  revokedBy             String?                         @map("revoked_by") @db.VarChar(191)
+  revokeReason          String?                         @map("revoke_reason") @db.VarChar(100)
+  revocationOperationId String?                         @unique @map("revocation_operation_id") @db.Uuid
+  revocationHash        String?                         @map("revocation_hash") @db.Char(64)
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  updatedAt             DateTime                        @updatedAt @map("updated_at")
 
   @@index([workerId, enabled, revokedAt], map: "platform_worker_policy_worker_state_idx")
   @@map("platform_worker_policy_credentials")
@@ -187,6 +187,7 @@ model Tenant {
   agentOutcomeObservations       AgentOutcomeObservation[]
   agentImprovementProposals      AgentImprovementProposal[]
   agentImprovementEvidence       AgentImprovementProposalEvidence[]
+  agentImprovementValidations    AgentImprovementValidationEvidence[]
   approvalDecisions              ApprovalDecision[]
   approvalGrants                 ApprovalGrant[]
   approvalGrantConsumptions      ApprovalGrantConsumption[]
@@ -1302,6 +1303,7 @@ model Venue {
   agentMessages                       AgentMessage[]
   agentOutcomeObservations            AgentOutcomeObservation[]
   agentImprovementProposals           AgentImprovementProposal[]
+  agentImprovementValidations         AgentImprovementValidationEvidence[]
   approvalDecisions                   ApprovalDecision[]
   approvalGrants                      ApprovalGrant[]
   approvalGrantConsumptions           ApprovalGrantConsumption[]
@@ -3203,50 +3205,53 @@ model EvalCase {
 /// One declaredBudgetCeilingE8Usd unit is exactly 10^-8 USD.
 /// The helper makes (tenant, venue, idempotencyKey) an exact replay boundary.
 model EvalRun {
-  id                         String                                    @id @db.Uuid
-  tenantId                   String                                    @map("tenant_id")
-  venueId                    String                                    @map("venue_id")
-  idempotencyKey             String                                    @map("idempotency_key") @db.VarChar(191)
-  identityHash               String                                    @map("identity_hash") @db.Char(64)
-  corpusHash                 String                                    @map("corpus_hash") @db.Char(64)
-  caseManifestSnapshot       Json                                      @map("case_manifest_snapshot")
-  promptContractVersion      String                                    @map("prompt_contract_version") @db.VarChar(64)
-  promptContractHash         String                                    @map("prompt_contract_hash") @db.Char(64)
-  packageSnapshotRef         String?                                   @map("package_snapshot_ref") @db.VarChar(191)
-  packageSnapshotHash        String?                                   @map("package_snapshot_hash") @db.Char(64)
-  contentSnapshotKind        EvalContentSnapshotKind                   @default(LEGACY_VENUE_CONTENT_V1) @map("content_snapshot_kind")
-  contentSnapshotRef         String?                                   @map("content_snapshot_ref") @db.VarChar(191)
-  contentSnapshotVersion     BigInt                                    @map("content_snapshot_version")
-  contentSnapshotHash        String                                    @map("content_snapshot_hash") @db.Char(64)
-  modelProvider              String                                    @map("model_provider") @db.VarChar(64)
-  modelName                  String                                    @map("model_name") @db.VarChar(191)
-  modelSnapshotHash          String                                    @map("model_snapshot_hash") @db.Char(64)
-  modelSnapshot              Json                                      @map("model_snapshot")
-  runConfigSnapshot          Json                                      @map("run_config_snapshot")
-  identitySnapshot           Json                                      @map("identity_snapshot")
-  declaredBudgetCeilingE8Usd BigInt                                    @map("declared_budget_ceiling_e8_usd")
-  budgetAccountedE8Usd       BigInt                                    @default(0) @map("budget_accounted_e8_usd")
-  createdBy                  String                                    @map("created_by") @db.VarChar(191)
-  triggerType                String                                    @map("trigger_type") @db.VarChar(64)
-  status                     EvalRunStatus                             @default(STAGED)
-  attemptNumber              Int                                       @default(0) @map("attempt_number")
-  maxAttempts                Int?                                      @map("max_attempts")
-  startedAt                  DateTime?                                 @map("started_at")
-  completedAt                DateTime?                                 @map("completed_at")
-  cancellationRequestedAt    DateTime?                                 @map("cancellation_requested_at")
-  cancellationRequestedBy    String?                                   @map("cancellation_requested_by") @db.VarChar(191)
-  lastErrorCode              String?                                   @map("last_error_code") @db.VarChar(100)
-  executionLeaseToken        String?                                   @map("execution_lease_token") @db.Uuid
-  executionLeaseExpiresAt    DateTime?                                 @map("execution_lease_expires_at")
-  createdAt                  DateTime                                  @default(now()) @map("created_at")
-  tenant                     Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                      Venue                                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  results                    EvalResult[]
-  costReservations           EvalRunCostReservation[]
-  nativeDeploymentEvidence   NativeVenueDeploymentEvaluationEvidence[]
+  id                           String                                    @id @db.Uuid
+  tenantId                     String                                    @map("tenant_id")
+  venueId                      String                                    @map("venue_id")
+  idempotencyKey               String                                    @map("idempotency_key") @db.VarChar(191)
+  identityHash                 String                                    @map("identity_hash") @db.Char(64)
+  corpusHash                   String                                    @map("corpus_hash") @db.Char(64)
+  caseManifestSnapshot         Json                                      @map("case_manifest_snapshot")
+  promptContractVersion        String                                    @map("prompt_contract_version") @db.VarChar(64)
+  promptContractHash           String                                    @map("prompt_contract_hash") @db.Char(64)
+  packageSnapshotRef           String?                                   @map("package_snapshot_ref") @db.VarChar(191)
+  packageSnapshotHash          String?                                   @map("package_snapshot_hash") @db.Char(64)
+  contentSnapshotKind          EvalContentSnapshotKind                   @default(LEGACY_VENUE_CONTENT_V1) @map("content_snapshot_kind")
+  contentSnapshotRef           String?                                   @map("content_snapshot_ref") @db.VarChar(191)
+  contentSnapshotVersion       BigInt                                    @map("content_snapshot_version")
+  contentSnapshotHash          String                                    @map("content_snapshot_hash") @db.Char(64)
+  modelProvider                String                                    @map("model_provider") @db.VarChar(64)
+  modelName                    String                                    @map("model_name") @db.VarChar(191)
+  modelSnapshotHash            String                                    @map("model_snapshot_hash") @db.Char(64)
+  modelSnapshot                Json                                      @map("model_snapshot")
+  runConfigSnapshot            Json                                      @map("run_config_snapshot")
+  identitySnapshot             Json                                      @map("identity_snapshot")
+  declaredBudgetCeilingE8Usd   BigInt                                    @map("declared_budget_ceiling_e8_usd")
+  budgetAccountedE8Usd         BigInt                                    @default(0) @map("budget_accounted_e8_usd")
+  createdBy                    String                                    @map("created_by") @db.VarChar(191)
+  triggerType                  String                                    @map("trigger_type") @db.VarChar(64)
+  status                       EvalRunStatus                             @default(STAGED)
+  attemptNumber                Int                                       @default(0) @map("attempt_number")
+  maxAttempts                  Int?                                      @map("max_attempts")
+  startedAt                    DateTime?                                 @map("started_at")
+  completedAt                  DateTime?                                 @map("completed_at")
+  cancellationRequestedAt      DateTime?                                 @map("cancellation_requested_at")
+  cancellationRequestedBy      String?                                   @map("cancellation_requested_by") @db.VarChar(191)
+  lastErrorCode                String?                                   @map("last_error_code") @db.VarChar(100)
+  executionLeaseToken          String?                                   @map("execution_lease_token") @db.Uuid
+  executionLeaseExpiresAt      DateTime?                                 @map("execution_lease_expires_at")
+  createdAt                    DateTime                                  @default(now()) @map("created_at")
+  tenant                       Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue                                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  results                      EvalResult[]
+  costReservations             EvalRunCostReservation[]
+  nativeDeploymentEvidence     NativeVenueDeploymentEvaluationEvidence[]
+  improvementBaselineEvidence  AgentImprovementValidationEvidence[]      @relation("AgentImprovementBaselineRun")
+  improvementCandidateEvidence AgentImprovementValidationEvidence[]      @relation("AgentImprovementCandidateRun")
 
   @@unique([tenantId, venueId, idempotencyKey])
   @@unique([id, identityHash, tenantId, venueId])
+  @@unique([id, tenantId, venueId], map: "eval_runs_id_tenant_venue_key")
   @@index([tenantId, venueId, createdAt])
   @@index([status, createdAt])
   @@map("eval_runs")
@@ -4248,27 +4253,27 @@ model AgentTimelineEvent {
 
 /// Immutable proposal. Pending is represented by the absence of a decision.
 model ApprovalRequest {
-  id                    String                 @id @default(cuid())
-  tenantId              String                 @map("tenant_id")
-  venueId               String?                @map("venue_id")
-  agentIdentityId       String                 @map("agent_identity_id")
-  agentRunId            String?                @map("agent_run_id")
-  requestedByType       ActorType              @map("requested_by_type")
-  requestedById         String                 @map("requested_by_id") @db.VarChar(191)
-  proposedAction        String                 @map("proposed_action") @db.VarChar(191)
-  scopeSnapshot         Json                   @map("scope_snapshot")
-  reason                String                 @db.VarChar(2000)
-  riskCategory          ApprovalRiskCategory   @map("risk_category")
-  artifacts             Json                   @default("[]")
-  expiresAt             DateTime?              @map("expires_at")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue?                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity         AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun              AgentRun?              @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  decision              ApprovalDecision?
-  billingAgentCommand   BillingAgentCommand?
-  customerAccessRequest CustomerAccessRequest?
+  id                       String                    @id @default(cuid())
+  tenantId                 String                    @map("tenant_id")
+  venueId                  String?                   @map("venue_id")
+  agentIdentityId          String                    @map("agent_identity_id")
+  agentRunId               String?                   @map("agent_run_id")
+  requestedByType          ActorType                 @map("requested_by_type")
+  requestedById            String                    @map("requested_by_id") @db.VarChar(191)
+  proposedAction           String                    @map("proposed_action") @db.VarChar(191)
+  scopeSnapshot            Json                      @map("scope_snapshot")
+  reason                   String                    @db.VarChar(2000)
+  riskCategory             ApprovalRiskCategory      @map("risk_category")
+  artifacts                Json                      @default("[]")
+  expiresAt                DateTime?                 @map("expires_at")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity            AgentIdentity             @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun                 AgentRun?                 @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  decision                 ApprovalDecision?
+  billingAgentCommand      BillingAgentCommand?
+  customerAccessRequest    CustomerAccessRequest?
   agentImprovementProposal AgentImprovementProposal?
 
   @@unique([id, tenantId])
@@ -4376,26 +4381,26 @@ enum AgentOutcomeVerdict {
 /// A terminal run status is execution evidence, not a quality verdict; routing and
 /// reputation must use these explicit observations instead of completion alone.
 model AgentOutcomeObservation {
-  id              String                 @id @default(cuid())
-  operationId     String                 @map("operation_id") @db.Uuid
-  tenantId        String                 @map("tenant_id")
-  venueId         String                 @map("venue_id")
-  agentRunId      String                 @map("agent_run_id")
-  agentIdentityId String                 @map("agent_identity_id")
-  signalKind      AgentOutcomeSignalKind @map("signal_kind")
-  verdict         AgentOutcomeVerdict
-  summary         String                 @db.VarChar(2000)
-  evidenceRef     String?                @map("evidence_ref") @db.VarChar(500)
-  taskClass       String                 @map("task_class") @db.VarChar(100)
-  modelProvider   String?                @map("model_provider") @db.VarChar(100)
-  modelName       String?                @map("model_name") @db.VarChar(191)
-  actorType       ActorType              @map("actor_type")
-  actorId         String                 @map("actor_id") @db.VarChar(191)
-  createdAt       DateTime               @default(now()) @map("created_at")
-  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue           Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun        AgentRun               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity   AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                  String                             @id @default(cuid())
+  operationId         String                             @map("operation_id") @db.Uuid
+  tenantId            String                             @map("tenant_id")
+  venueId             String                             @map("venue_id")
+  agentRunId          String                             @map("agent_run_id")
+  agentIdentityId     String                             @map("agent_identity_id")
+  signalKind          AgentOutcomeSignalKind             @map("signal_kind")
+  verdict             AgentOutcomeVerdict
+  summary             String                             @db.VarChar(2000)
+  evidenceRef         String?                            @map("evidence_ref") @db.VarChar(500)
+  taskClass           String                             @map("task_class") @db.VarChar(100)
+  modelProvider       String?                            @map("model_provider") @db.VarChar(100)
+  modelName           String?                            @map("model_name") @db.VarChar(191)
+  actorType           ActorType                          @map("actor_type")
+  actorId             String                             @map("actor_id") @db.VarChar(191)
+  createdAt           DateTime                           @default(now()) @map("created_at")
+  tenant              Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun            AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity       AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   improvementEvidence AgentImprovementProposalEvidence[]
 
   @@unique([id, tenantId])
@@ -4417,35 +4422,52 @@ enum AgentImprovementTargetKind {
   MODEL_SELECTION
 }
 
+enum AgentImprovementImplementationKind {
+  CODE_COMMIT
+  CONFIG_VERSION
+  PROMPT_VERSION
+  SKILL_VERSION
+  WORKFLOW_VERSION
+  TOOL_VERSION
+  MODEL_POLICY_VERSION
+}
+
+enum AgentImprovementChangeDimension {
+  CONTENT
+  MODEL
+  CONFIG
+}
+
 /// Immutable, evidence-backed hypothesis for improving one exact agent/task scope.
 /// Its linked approval reviews the proposal only; it never applies the change.
 model AgentImprovementProposal {
-  id                    String                     @id @default(cuid())
-  operationId           String                     @map("operation_id") @db.Uuid
-  tenantId              String                     @map("tenant_id")
-  venueId               String                     @map("venue_id")
-  agentIdentityId       String                     @map("agent_identity_id")
-  approvalRequestId     String                     @unique @map("approval_request_id")
-  proposalKey           String                     @map("proposal_key") @db.VarChar(191)
+  id                    String                               @id @default(cuid())
+  operationId           String                               @map("operation_id") @db.Uuid
+  tenantId              String                               @map("tenant_id")
+  venueId               String                               @map("venue_id")
+  agentIdentityId       String                               @map("agent_identity_id")
+  approvalRequestId     String                               @unique @map("approval_request_id")
+  proposalKey           String                               @map("proposal_key") @db.VarChar(191)
   revision              Int
-  supersedesProposalId  String?                    @map("supersedes_proposal_id")
-  taskClass             String                     @map("task_class") @db.VarChar(100)
-  targetKind            AgentImprovementTargetKind @map("target_kind")
-  title                 String                     @db.VarChar(191)
-  hypothesis            String                     @db.VarChar(2000)
-  proposedChange        String                     @map("proposed_change") @db.VarChar(10000)
-  validationPlan        String                     @map("validation_plan") @db.VarChar(5000)
-  baselineSnapshot      Json                       @map("baseline_snapshot")
-  createdByType         ActorType                  @map("created_by_type")
-  createdById           String                     @map("created_by_id") @db.VarChar(191)
-  createdAt             DateTime                   @default(now()) @map("created_at")
-  tenant                Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity         AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  approvalRequest       ApprovalRequest            @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supersedesProposal    AgentImprovementProposal?  @relation("AgentImprovementProposalRevisions", fields: [supersedesProposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supersededByProposals AgentImprovementProposal[] @relation("AgentImprovementProposalRevisions")
+  supersedesProposalId  String?                              @map("supersedes_proposal_id")
+  taskClass             String                               @map("task_class") @db.VarChar(100)
+  targetKind            AgentImprovementTargetKind           @map("target_kind")
+  title                 String                               @db.VarChar(191)
+  hypothesis            String                               @db.VarChar(2000)
+  proposedChange        String                               @map("proposed_change") @db.VarChar(10000)
+  validationPlan        String                               @map("validation_plan") @db.VarChar(5000)
+  baselineSnapshot      Json                                 @map("baseline_snapshot")
+  createdByType         ActorType                            @map("created_by_type")
+  createdById           String                               @map("created_by_id") @db.VarChar(191)
+  createdAt             DateTime                             @default(now()) @map("created_at")
+  tenant                Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                                @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity         AgentIdentity                        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest       ApprovalRequest                      @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersedesProposal    AgentImprovementProposal?            @relation("AgentImprovementProposalRevisions", fields: [supersedesProposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersededByProposals AgentImprovementProposal[]           @relation("AgentImprovementProposalRevisions")
   evidence              AgentImprovementProposalEvidence[]
+  validationEvidence    AgentImprovementValidationEvidence[]
 
   @@unique([id, tenantId])
   @@unique([approvalRequestId, tenantId], map: "agent_improvement_proposals_approval_scope_key")
@@ -4459,36 +4481,74 @@ model AgentImprovementProposal {
 /// Exact outcome membership for a proposal. This prevents review summaries from
 /// becoming detached from the immutable observations that justified them.
 model AgentImprovementProposalEvidence {
-  tenantId             String                      @map("tenant_id")
-  proposalId           String                      @map("proposal_id")
-  outcomeObservationId String                      @map("outcome_observation_id")
-  createdAt            DateTime                    @default(now()) @map("created_at")
-  tenant               Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  proposal             AgentImprovementProposal    @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  outcomeObservation   AgentOutcomeObservation     @relation(fields: [outcomeObservationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenantId             String                   @map("tenant_id")
+  proposalId           String                   @map("proposal_id")
+  outcomeObservationId String                   @map("outcome_observation_id")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  proposal             AgentImprovementProposal @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  outcomeObservation   AgentOutcomeObservation  @relation(fields: [outcomeObservationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@id([proposalId, outcomeObservationId])
   @@index([tenantId, outcomeObservationId], map: "agent_improvement_evidence_outcome_idx")
   @@map("agent_improvement_proposal_evidence")
 }
 
+/// Append-only proof that one approved proposal was implemented at an immutable
+/// reference and evaluated against the same corpus/cases. This is evidence only:
+/// it never applies the implementation or changes agent authority.
+model AgentImprovementValidationEvidence {
+  id                    String                             @id @default(cuid())
+  operationId           String                             @map("operation_id") @db.Uuid
+  tenantId              String                             @map("tenant_id")
+  venueId               String                             @map("venue_id")
+  proposalId            String                             @map("proposal_id")
+  approvalDecisionId    String                             @map("approval_decision_id")
+  baselineEvalRunId     String                             @map("baseline_eval_run_id") @db.Uuid
+  candidateEvalRunId    String                             @map("candidate_eval_run_id") @db.Uuid
+  implementationKind    AgentImprovementImplementationKind @map("implementation_kind")
+  implementationRef     String                             @map("implementation_ref") @db.VarChar(500)
+  implementationVersion String?                            @map("implementation_version") @db.VarChar(191)
+  implementationHash    String                             @map("implementation_hash") @db.Char(64)
+  changeDimensions      AgentImprovementChangeDimension[]  @map("change_dimensions")
+  comparisonSnapshot    Json                               @map("comparison_snapshot")
+  comparisonHash        String                             @map("comparison_hash") @db.Char(64)
+  recordedByType        ActorType                          @map("recorded_by_type")
+  recordedById          String                             @map("recorded_by_id") @db.VarChar(191)
+  createdAt             DateTime                           @default(now()) @map("created_at")
+  tenant                Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal              AgentImprovementProposal           @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision      ApprovalDecision                   @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  baselineEvalRun       EvalRun                            @relation("AgentImprovementBaselineRun", fields: [baselineEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  candidateEvalRun      EvalRun                            @relation("AgentImprovementCandidateRun", fields: [candidateEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, operationId], map: "agent_improvement_validations_tenant_operation_key")
+  @@unique([proposalId, baselineEvalRunId, candidateEvalRunId, implementationHash], map: "agent_improvement_validations_exact_evidence_key")
+  @@index([tenantId, venueId, createdAt, id], map: "agent_improvement_validations_scope_created_idx")
+  @@index([tenantId, proposalId, createdAt], map: "agent_improvement_validations_proposal_created_idx")
+  @@map("agent_improvement_validation_evidence")
+}
+
 /// A single append-only terminal decision for an ApprovalRequest. Any action
 /// executed under it points back through AgentAction.approvalDecisionId.
 model ApprovalDecision {
-  id                String                  @id @default(cuid())
-  tenantId          String                  @map("tenant_id")
-  venueId           String?                 @map("venue_id")
-  approvalRequestId String                  @map("approval_request_id")
-  decision          ApprovalDecisionOutcome
-  decidedByType     ActorType               @map("decided_by_type")
-  decidedById       String                  @map("decided_by_id") @db.VarChar(191)
-  reason            String?                 @db.VarChar(2000)
-  createdAt         DateTime                @default(now()) @map("created_at")
-  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue             Venue?                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  approvalRequest   ApprovalRequest         @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  resultingAction   AgentAction?
-  grant             ApprovalGrant?
+  id                          String                               @id @default(cuid())
+  tenantId                    String                               @map("tenant_id")
+  venueId                     String?                              @map("venue_id")
+  approvalRequestId           String                               @map("approval_request_id")
+  decision                    ApprovalDecisionOutcome
+  decidedByType               ActorType                            @map("decided_by_type")
+  decidedById                 String                               @map("decided_by_id") @db.VarChar(191)
+  reason                      String?                              @db.VarChar(2000)
+  createdAt                   DateTime                             @default(now()) @map("created_at")
+  tenant                      Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                       Venue?                               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest             ApprovalRequest                      @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  resultingAction             AgentAction?
+  grant                       ApprovalGrant?
+  agentImprovementValidations AgentImprovementValidationEvidence[]
 
   @@unique([id, tenantId])
   @@unique([approvalRequestId, tenantId])
@@ -6538,41 +6598,41 @@ model ProspectEmailThreadProvider {
 }
 
 model ProspectEmailMessage {
-  id                 String                         @id @default(cuid())
-  threadId           String                         @map("thread_id")
-  organizationId     String                         @map("organization_id")
-  venueId            String?                        @map("venue_id")
-  contactId          String?                        @map("contact_id")
-  sendItemId         String?                        @unique @map("send_item_id")
-  direction          ProspectEmailDirection
-  status             ProspectEmailMessageStatus
-  providerAccountId  String?                        @map("provider_account_id")
-  providerMessageId  String?                        @map("provider_message_id") @db.VarChar(191)
-  internetMessageId  String?                        @map("internet_message_id") @db.VarChar(998)
-  inReplyTo          String?                        @map("in_reply_to") @db.VarChar(998)
-  references         String[]                       @default([])
-  fromAddress        String                         @map("from_address") @db.VarChar(320)
-  toAddresses        String[]                       @map("to_addresses")
-  ccAddresses        String[]                       @default([]) @map("cc_addresses")
-  bccAddresses       String[]                       @default([]) @map("bcc_addresses")
-  subject            String                         @db.VarChar(998)
-  textBody           String?                        @map("text_body")
-  htmlBody           String?                        @map("html_body")
-  bodyPreview        String?                        @map("body_preview") @db.VarChar(500)
-  bodyRetentionState GmailBodyRetentionState        @default(NOT_STORED) @map("body_retention_state")
-  bodyExpiresAt      DateTime?                      @map("body_expires_at")
-  bodyRemovedAt      DateTime?                      @map("body_removed_at")
-  sourceReference    String?                        @map("source_reference") @db.VarChar(1000)
-  attachmentMetadata Json                           @default("[]") @map("attachment_metadata")
-  occurredAt         DateTime                       @map("occurred_at")
-  createdAt          DateTime                       @default(now()) @map("created_at")
-  thread             ProspectEmailThread            @relation(fields: [threadId], references: [id], onDelete: Restrict)
-  organization       ProspectOrganization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue              ProspectVenue?                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  contact            ProspectContact?               @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  sendItem           ProspectSendItem?              @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
-  providerAccount    CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
-  events             ProspectEmailEvent[]
+  id                          String                                    @id @default(cuid())
+  threadId                    String                                    @map("thread_id")
+  organizationId              String                                    @map("organization_id")
+  venueId                     String?                                   @map("venue_id")
+  contactId                   String?                                   @map("contact_id")
+  sendItemId                  String?                                   @unique @map("send_item_id")
+  direction                   ProspectEmailDirection
+  status                      ProspectEmailMessageStatus
+  providerAccountId           String?                                   @map("provider_account_id")
+  providerMessageId           String?                                   @map("provider_message_id") @db.VarChar(191)
+  internetMessageId           String?                                   @map("internet_message_id") @db.VarChar(998)
+  inReplyTo                   String?                                   @map("in_reply_to") @db.VarChar(998)
+  references                  String[]                                  @default([])
+  fromAddress                 String                                    @map("from_address") @db.VarChar(320)
+  toAddresses                 String[]                                  @map("to_addresses")
+  ccAddresses                 String[]                                  @default([]) @map("cc_addresses")
+  bccAddresses                String[]                                  @default([]) @map("bcc_addresses")
+  subject                     String                                    @db.VarChar(998)
+  textBody                    String?                                   @map("text_body")
+  htmlBody                    String?                                   @map("html_body")
+  bodyPreview                 String?                                   @map("body_preview") @db.VarChar(500)
+  bodyRetentionState          GmailBodyRetentionState                   @default(NOT_STORED) @map("body_retention_state")
+  bodyExpiresAt               DateTime?                                 @map("body_expires_at")
+  bodyRemovedAt               DateTime?                                 @map("body_removed_at")
+  sourceReference             String?                                   @map("source_reference") @db.VarChar(1000)
+  attachmentMetadata          Json                                      @default("[]") @map("attachment_metadata")
+  occurredAt                  DateTime                                  @map("occurred_at")
+  createdAt                   DateTime                                  @default(now()) @map("created_at")
+  thread                      ProspectEmailThread                       @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  organization                ProspectOrganization                      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue                       ProspectVenue?                            @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact                     ProspectContact?                          @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  sendItem                    ProspectSendItem?                         @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  providerAccount             CorrespondenceProviderAccount?            @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  events                      ProspectEmailEvent[]
   attachmentRetentionRequests ProspectEmailAttachmentRetentionRequest[]
 
   @@unique([providerAccountId, providerMessageId], map: "prospect_email_messages_provider_message_key")
@@ -6602,25 +6662,25 @@ enum ProspectEmailAttachmentRetentionStatus {
 /// request snapshots provider metadata only; approval does not download bytes,
 /// import an asset, call Gmail, or establish a retention duration.
 model ProspectEmailAttachmentRetentionRequest {
-  id                   String                                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  operationId          String                                     @unique @map("operation_id") @db.Uuid
-  emailMessageId       String                                     @map("email_message_id")
-  providerAttachmentId String                                     @map("provider_attachment_id") @db.VarChar(512)
-  filename             String                                     @db.VarChar(255)
-  mimeType             String                                     @map("mime_type") @db.VarChar(255)
-  sizeBytes            BigInt                                     @map("size_bytes")
+  id                   String                                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId          String                                   @unique @map("operation_id") @db.Uuid
+  emailMessageId       String                                   @map("email_message_id")
+  providerAttachmentId String                                   @map("provider_attachment_id") @db.VarChar(512)
+  filename             String                                   @db.VarChar(255)
+  mimeType             String                                   @map("mime_type") @db.VarChar(255)
+  sizeBytes            BigInt                                   @map("size_bytes")
   category             ProspectEmailAttachmentRetentionCategory
-  purpose              String                                     @db.VarChar(2000)
-  sourceReference      String?                                    @map("source_reference") @db.VarChar(1000)
-  status               ProspectEmailAttachmentRetentionStatus     @default(AWAITING_REVIEW)
-  requestedById        String                                     @map("requested_by_id") @db.VarChar(191)
-  reviewOperationId    String?                                    @unique @map("review_operation_id") @db.Uuid
-  reviewedById         String?                                    @map("reviewed_by_id") @db.VarChar(191)
-  reviewReason         String?                                    @map("review_reason") @db.VarChar(2000)
-  reviewedAt           DateTime?                                  @map("reviewed_at")
-  createdAt            DateTime                                   @default(now()) @map("created_at")
-  updatedAt            DateTime                                   @updatedAt @map("updated_at")
-  emailMessage         ProspectEmailMessage                       @relation(fields: [emailMessageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  purpose              String                                   @db.VarChar(2000)
+  sourceReference      String?                                  @map("source_reference") @db.VarChar(1000)
+  status               ProspectEmailAttachmentRetentionStatus   @default(AWAITING_REVIEW)
+  requestedById        String                                   @map("requested_by_id") @db.VarChar(191)
+  reviewOperationId    String?                                  @unique @map("review_operation_id") @db.Uuid
+  reviewedById         String?                                  @map("reviewed_by_id") @db.VarChar(191)
+  reviewReason         String?                                  @map("review_reason") @db.VarChar(2000)
+  reviewedAt           DateTime?                                @map("reviewed_at")
+  createdAt            DateTime                                 @default(now()) @map("created_at")
+  updatedAt            DateTime                                 @updatedAt @map("updated_at")
+  emailMessage         ProspectEmailMessage                     @relation(fields: [emailMessageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([emailMessageId, createdAt, id], map: "prospect_email_attachment_retention_message_idx")
   @@index([status, createdAt, id], map: "prospect_email_attachment_retention_review_idx")

@@ -692,13 +692,17 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
       databasePrefix: 'pathfinder_disposable_agent_improvement_',
       optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_AGENT_IMPROVEMENT_SHAKEDOWN',
       lifecycleEvent: 'test:agent-improvement:disposable',
-      successAction: 'agent-improvement.review-loop.disposable-shakedown.passed',
+      successAction: 'agent-improvement.validation-loop.disposable-shakedown.passed',
       proofScope: [
         'exact-outcome-evidence',
         'versioned-improvement-hypothesis',
         'human-review-only-approval',
         'no-agent-authority-mutation',
         'append-only-proposal-evidence',
+        'immutable-implementation-reference',
+        'same-corpus-before-after-evaluation',
+        'declared-change-only-comparability',
+        'no-automatic-promotion',
       ],
       integration: {
         packageDirectory: 'packages/db',

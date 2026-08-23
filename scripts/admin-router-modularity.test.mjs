@@ -195,6 +195,7 @@ const expectedAdminProcedures = [
   'recheckProspectFollowup',
   'reconcileClientAndVenue',
   'reconcileClientBilling',
+  'recordAgentImprovementValidation',
   'recordAgentRunOutcome',
   'recordApprovalDecision',
   'recordManualPayment',

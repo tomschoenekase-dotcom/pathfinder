@@ -10,37 +10,23 @@ const sql = readFileSync(
   ),
   'utf8',
 )
-const capabilitySql = `${sql}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260821201000_add_meeting_processing_capability/migration.sql',
-    import.meta.url,
+const capabilityMigrationPaths = [
+  '20260821201000_add_meeting_processing_capability',
+  '20260822223000_add_conversation_review_knowledge_draft_capabilities',
+  '20260823030000_add_customer_access_requests',
+  '20260823210000_add_location_proposal_capability',
+  '20260823233000_add_agent_improvement_proposals',
+  '20260824010000_add_agent_improvement_validation_evidence',
+]
+const capabilitySql = [
+  sql,
+  ...capabilityMigrationPaths.map((migration) =>
+    readFileSync(
+      new URL(`../../prisma/migrations/${migration}/migration.sql`, import.meta.url),
+      'utf8',
+    ),
   ),
-  'utf8',
-)}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260822223000_add_conversation_review_knowledge_draft_capabilities/migration.sql',
-    import.meta.url,
-  ),
-  'utf8',
-)}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260823030000_add_customer_access_requests/migration.sql',
-    import.meta.url,
-  ),
-  'utf8',
-)}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260823210000_add_location_proposal_capability/migration.sql',
-    import.meta.url,
-  ),
-  'utf8',
-)}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260823233000_add_agent_improvement_proposals/migration.sql',
-    import.meta.url,
-  ),
-  'utf8',
-)}`
+].join('\n')
 
 describe('MCP credential database capability parity', () => {
   it('admits every typed MCP capability while preserving the fail-closed evidence trigger', () => {
