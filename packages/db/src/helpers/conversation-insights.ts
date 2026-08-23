@@ -24,6 +24,7 @@ const signalSchema = z
       'STAFF_ASSISTANCE_NEEDED',
       'CONTENT_UPDATE_CANDIDATE',
       'SENTIMENT_SIGNAL',
+      'VISITOR_NEGATIVE_FEEDBACK',
     ]),
     confidence: z.number().min(0).max(1),
     severity: z.enum(['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('INFO'),

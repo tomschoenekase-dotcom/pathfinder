@@ -42,6 +42,7 @@ import {
   GUEST_CHAT_TURN_LEASE_MS,
   getIntakeProposalReview,
   hashEvalObservation,
+  listConversationKnowledgeGaps,
   markEvaluationRunQueued,
   markGuestChatProviderDispatchedAction,
   recordApprovedPackageEvaluationMilestones,
@@ -1120,6 +1121,56 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           },
         }),
       ).resolves.toBe(1)
+
+      // Explicit negative feedback enters the existing governed answer-quality queue without
+      // a model call or inferred severity. The durable insight remains historical evidence,
+      // while the queue follows the visitor's current rating.
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'NOT_HELPFUL',
+          reason: 'The visitor corrected the rating for review.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      await expect(
+        listConversationKnowledgeGaps({ tenantId, venueId, limit: 25 }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: 'VISITOR_NEGATIVE_FEEDBACK',
+            guestChatTurnId: expect.any(String),
+            visitorQuestion: 'Which entrance has the step-free route?',
+            assistantAnswer: 'Use the Oak Street entrance for the step-free route.',
+            evidenceMessageIds: expect.arrayContaining([assistantMessageId]),
+          }),
+        ]),
+      )
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'The visitor restored the helpful rating.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        (await listConversationKnowledgeGaps({ tenantId, venueId, limit: 25 })).some(
+          (insight) => insight.category === 'VISITOR_NEGATIVE_FEEDBACK',
+        ),
+      ).toBe(false)
+      await expect(
+        db.conversationInsight.count({
+          where: {
+            tenantId,
+            venueId,
+            guestChatTurnId: { not: null },
+            category: 'VISITOR_NEGATIVE_FEEDBACK',
+          },
+        }),
+      ).resolves.toBe(1)
       _setAnthropicClientForTesting(null)
 
       // 18. Exact rollback restores the content base after the public interaction evidence.
@@ -1373,7 +1424,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
 
       // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
       // requests in the fixed window and rejects the next request without another write.
-      for (let attempt = 1; attempt < 30; attempt += 1) {
+      // Three feedback submissions above established helpful -> not helpful -> helpful.
+      for (let attempt = 1; attempt < 28; attempt += 1) {
         await publicCaller.feedback.submit({
           venueId,
           anonymousToken,

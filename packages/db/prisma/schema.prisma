@@ -2466,6 +2466,7 @@ enum ConversationInsightCategory {
   STAFF_ASSISTANCE_NEEDED
   CONTENT_UPDATE_CANDIDATE
   SENTIMENT_SIGNAL
+  VISITOR_NEGATIVE_FEEDBACK
 }
 
 enum ConversationInsightSeverity {

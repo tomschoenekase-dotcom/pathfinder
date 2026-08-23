@@ -1,0 +1,1 @@
+ALTER TYPE "ConversationInsightCategory" ADD VALUE 'VISITOR_NEGATIVE_FEEDBACK';

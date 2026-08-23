@@ -9,6 +9,7 @@ const reviewableCategories = [
   'LOW_CONFIDENCE_ANSWER',
   'KNOWLEDGE_GAP',
   'CONTENT_UPDATE_CANDIDATE',
+  'VISITOR_NEGATIVE_FEEDBACK',
 ] as const
 
 const correctionKinds = [
@@ -122,7 +123,21 @@ export async function listConversationKnowledgeGaps(
     where: {
       tenantId: parsed.tenantId,
       venueId: parsed.venueId,
-      category: { in: [...reviewableCategories] },
+      OR: [
+        {
+          category: {
+            in: reviewableCategories.filter((category) => category !== 'VISITOR_NEGATIVE_FEEDBACK'),
+          },
+        },
+        {
+          category: 'VISITOR_NEGATIVE_FEEDBACK',
+          guestChatTurn: {
+            assistantMessage: {
+              feedback: { some: { rating: 'NOT_HELPFUL' } },
+            },
+          },
+        },
+      ],
       reviewStatus: { in: ['UNREVIEWED', 'ACKNOWLEDGED'] },
       guestChatTurnId: { not: null },
       session: { experienceScope: 'PUBLIC' },

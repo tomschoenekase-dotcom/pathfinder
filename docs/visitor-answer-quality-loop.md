@@ -1,8 +1,14 @@
 # Visitor answer quality loop
 
 Torchiko records deterministic low-confidence and knowledge-gap insights after a public guest turn
-when the answer lacks sufficiently strong trusted retrieval evidence. The guest response remains
-available immediately; post-response intelligence is best effort and cannot fail the chat turn.
+when the answer lacks sufficiently strong trusted retrieval evidence. An explicit visitor
+`NOT_HELPFUL` rating also records one idempotent `VISITOR_NEGATIVE_FEEDBACK` insight for the exact
+turn. No model judges that signal and no severity is inferred. The guest response remains available
+immediately; post-response retrieval intelligence is best effort and cannot fail the chat turn.
+
+The durable feedback insight preserves historical evidence. The review projection additionally
+checks the assistant message's current rating, so a visitor changing the rating to `HELPFUL` removes
+the negative-feedback item from the active queue without deleting history.
 
 ## Governed machine workflow
 

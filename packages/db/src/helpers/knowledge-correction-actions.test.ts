@@ -114,6 +114,18 @@ describe('knowledge correction actions', () => {
         take: 5,
       }),
     )
+    expect(findMany.mock.calls[0]?.[0]?.where).toEqual(
+      expect.objectContaining({
+        OR: expect.arrayContaining([
+          expect.objectContaining({
+            category: 'VISITOR_NEGATIVE_FEEDBACK',
+            guestChatTurn: {
+              assistantMessage: { feedback: { some: { rating: 'NOT_HELPFUL' } } },
+            },
+          }),
+        ]),
+      }),
+    )
   })
 
   it('creates one review-only agent proposal from server-derived message evidence', async () => {
