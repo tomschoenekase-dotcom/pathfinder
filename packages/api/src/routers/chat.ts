@@ -17,6 +17,7 @@ import {
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
   finalizeGuestChatTurnAction,
+  GuestChatReplayMetadata,
   GuestChatTurnActionError,
   isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
@@ -46,6 +47,7 @@ import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { buildGuestCitations } from '../lib/guest-citations'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -483,6 +485,7 @@ export const chatRouter = router({
         assistantMessageId: reservation.assistantMessageId,
         sessionId: reservation.sessionId,
         places: reservation.places,
+        citations: reservation.citations,
         replayed: true,
       }
     }
@@ -517,6 +520,7 @@ export const chatRouter = router({
         assistantMessageId: claimed.assistantMessageId,
         sessionId: claimed.sessionId,
         places: claimed.places,
+        citations: claimed.citations,
         replayed: true,
       }
     }
@@ -837,6 +841,9 @@ export const chatRouter = router({
           areaName: true,
           hours: true,
           photoUrl: true,
+          sourceType: true,
+          sourceName: true,
+          sourceUrl: true,
           importanceScore: true,
         },
         orderBy: { importanceScore: 'desc' },
@@ -1115,6 +1122,27 @@ export const chatRouter = router({
       hasLiveLocation,
       places: relevantPlaces,
     })
+    const citations = buildGuestCitations({
+      assistantResponse,
+      candidates: [
+        ...relevantPlaces.map((place) => ({
+          entityId: place.id,
+          entityLabel: place.name,
+          entityKind: 'place' as const,
+          sourceType: place.sourceType,
+          sourceName: place.sourceName,
+          sourceUrl: place.sourceUrl,
+        })),
+        ...relevantKnowledgeEntries.map((entry) => ({
+          entityId: entry.id,
+          entityLabel: entry.title,
+          entityKind: 'knowledge' as const,
+          sourceType: entry.sourceType,
+          sourceName: entry.sourceName,
+          sourceUrl: entry.sourceUrl,
+        })),
+      ],
+    })
     let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
     try {
       finalized = await finalizeGuestChatTurnAction({
@@ -1124,7 +1152,7 @@ export const chatRouter = router({
           turnId: reservation.turnId,
           claimId,
           assistantResponse,
-          replayMetadata: { places: mentionedPlaces },
+          replayMetadata: { places: mentionedPlaces, citations },
           fallbackCode: fallbackFailureCode,
           nextPending: engagementAskedThisTurn
             ? selectedEngagementQuestion
@@ -1359,6 +1387,7 @@ export const chatRouter = router({
       assistantMessageId: finalized.assistantMessageId,
       sessionId: finalized.sessionId,
       places: finalized.places,
+      citations: finalized.citations,
       replayed: finalized.replayed,
     }
   }),
@@ -1441,15 +1470,37 @@ export const chatRouter = router({
       where: { sessionId: session.id, tenantId: session.tenantId },
       orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
       take: HISTORY_LOAD_LIMIT,
-      select: { id: true, role: true, content: true },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        guestChatTurn: { select: { replayMetadata: true } },
+      },
     })
 
     return {
-      messages: rows.reverse().map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
+      messages: rows.reverse().map((m) => {
+        const replay =
+          m.role === 'assistant'
+            ? GuestChatReplayMetadata.safeParse(m.guestChatTurn?.replayMetadata)
+            : null
+        return {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
+          ...(replay?.success && replay.data.citations.length
+            ? {
+                blocks: [
+                  {
+                    type: 'citations' as const,
+                    citations: replay.data.citations,
+                  },
+                ],
+              }
+            : {}),
+        }
+      }),
     }
   }),
 })

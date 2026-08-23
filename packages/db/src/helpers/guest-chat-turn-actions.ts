@@ -68,8 +68,19 @@ const placeCardSchema = z
   })
   .strict()
 
+const citationSchema = z
+  .object({
+    label: z.string().trim().min(1).max(300),
+    href: z.string().url().max(2048).optional(),
+    detail: z.string().trim().min(1).max(500),
+  })
+  .strict()
+
 export const GuestChatReplayMetadata = z
-  .object({ places: z.array(placeCardSchema).max(20) })
+  .object({
+    places: z.array(placeCardSchema).max(20),
+    citations: z.array(citationSchema).max(12).default([]),
+  })
   .strict()
 
 const finalizeSchema = requestObjectSchema
@@ -258,7 +269,17 @@ async function projectExistingTurn(
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
     const responseHash = createHash('sha256')
-      .update(JSON.stringify({ response: assistant.content, places: metadata.data.places }))
+      .update(
+        JSON.stringify({
+          response: assistant.content,
+          places: metadata.data.places,
+          ...(typeof turn.replayMetadata === 'object' &&
+          turn.replayMetadata !== null &&
+          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'citations')
+            ? { citations: metadata.data.citations }
+            : {}),
+        }),
+      )
       .digest('hex')
     if (responseHash !== turn.responseHash) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
@@ -271,6 +292,7 @@ async function projectExistingTurn(
       assistantMessageId,
       response: assistant.content,
       places: metadata.data.places,
+      citations: metadata.data.citations,
       replayed: true,
     }
   }
@@ -1032,7 +1054,13 @@ export async function finalizeGuestChatTurnAction(args: {
     typeof GuestChatReplayMetadata
   >
   const responseHash = createHash('sha256')
-    .update(JSON.stringify({ response: input.assistantResponse, places: replayMetadata.places }))
+    .update(
+      JSON.stringify({
+        response: input.assistantResponse,
+        places: replayMetadata.places,
+        citations: replayMetadata.citations,
+      }),
+    )
     .digest('hex')
 
   const run = () =>
@@ -1210,6 +1238,7 @@ export async function finalizeGuestChatTurnAction(args: {
           assistantMessageId,
           response: input.assistantResponse,
           places: replayMetadata.places,
+          citations: replayMetadata.citations,
           replayed: false,
         }
       },

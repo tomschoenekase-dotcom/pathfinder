@@ -192,7 +192,7 @@ export function VenueChatExperience({
               ...(secondLayerKey ? { secondLayerKey } : {}),
             })
             if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
-              setMessages(history.messages)
+              setMessages(history.messages as ChatMessage[])
           } catch {
             // History is optional; a failed read starts an empty conversation.
           }
@@ -297,7 +297,7 @@ export function VenueChatExperience({
         ...(secondLayerKey ? { secondLayerKey } : {}),
       })
       if (!turnIsCurrent(turn)) return false
-      setMessages(history.messages)
+      setMessages(history.messages as ChatMessage[])
       reconciliationRequiredRef.current = false
       return true
     } catch {
@@ -328,6 +328,7 @@ export function VenueChatExperience({
       if (!turnIsCurrent(turn)) return
       const response = result.response
       const resultPlaces = result.places
+      const resultCitations = Array.isArray(result.citations) ? result.citations : []
       if (typeof response !== 'string' || !Array.isArray(resultPlaces)) {
         throw new Error('The completed chat turn response was incomplete.')
       }
@@ -342,6 +343,16 @@ export function VenueChatExperience({
           role: 'assistant',
           content: response,
           places: resultPlaces as NonNullable<ChatMessage['places']>,
+          ...(resultCitations.length
+            ? {
+                blocks: [
+                  {
+                    type: 'citations' as const,
+                    citations: resultCitations,
+                  },
+                ],
+              }
+            : {}),
         },
       ])
       setSessionId(result.sessionId)

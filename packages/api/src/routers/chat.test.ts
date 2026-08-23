@@ -269,6 +269,7 @@ describe('chat router', () => {
         userMessageId: '55555555-5555-4555-8555-555555555555',
         response: input.assistantResponse,
         places: input.replayMetadata.places,
+        citations: input.replayMetadata.citations,
         replayed: false,
       }
     })
@@ -585,6 +586,7 @@ describe('chat router', () => {
         assistantMessageId: 'assistant-message-1',
         response: 'Previously committed response.',
         places: [],
+        citations: [],
         replayed: true,
       })
 
@@ -598,6 +600,7 @@ describe('chat router', () => {
         assistantMessageId: 'assistant-message-1',
         sessionId: SESSION_ID,
         places: [],
+        citations: [],
         replayed: true,
       })
       expect(embeddingCreate).not.toHaveBeenCalled()
@@ -852,6 +855,39 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    it('persists and returns safe provenance for retrieved entities explicitly named in the answer', async () => {
+      setupHappyPath('The Elephants habitat is open today.')
+      semanticSearch.places.mockResolvedValueOnce([
+        {
+          ...placeRows[0]!,
+          itemType: null,
+          longDescription: null,
+          photoUrl: null,
+          distance: 0.05,
+          sourceType: 'official-website',
+          sourceName: 'Official zoo visitor guide',
+          sourceUrl: 'https://zoo.example/elephants',
+        },
+      ])
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.citations).toEqual([
+        {
+          label: 'Official zoo visitor guide',
+          href: 'https://zoo.example/elephants',
+          detail: 'Place: Elephants',
+        },
+      ])
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({ citations: result.citations }),
+          }),
+        }),
+      )
+    })
 
     it('admits employee-only knowledge for a same-tenant member without emitting visitor analytics', async () => {
       const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
@@ -2200,6 +2236,55 @@ describe('chat router', () => {
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).resolves.toEqual({ messages: [] })
       expect(messageFindMany).not.toHaveBeenCalled()
+    })
+
+    it('restores persisted place cards and citations for completed assistant turns', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      messageFindMany.mockResolvedValueOnce([
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Visit the Elephants habitat.',
+          guestChatTurn: {
+            replayMetadata: {
+              places: [],
+              citations: [
+                {
+                  label: 'Official zoo visitor guide',
+                  href: 'https://zoo.example/elephants',
+                  detail: 'Place: Elephants',
+                },
+              ],
+            },
+          },
+        },
+      ])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).resolves.toEqual({
+        messages: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Visit the Elephants habitat.',
+            blocks: [
+              {
+                type: 'citations',
+                citations: [
+                  {
+                    label: 'Official zoo visitor guide',
+                    href: 'https://zoo.example/elephants',
+                    detail: 'Place: Elephants',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
     })
 
     it('does not expose second-layer history through the public experience', async () => {

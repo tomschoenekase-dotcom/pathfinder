@@ -106,8 +106,12 @@ export function ResponseRenderer({
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
   const sectionHeadingId = useId()
+  const supplementalCitationsOnly =
+    blocks?.length && blocks.every((block) => block.type === 'citations')
   const renderedBlocks: GuestResponseBlock[] = blocks?.length
-    ? blocks
+    ? supplementalCitationsOnly
+      ? [...legacyGuestResponseToBlocks({ content, ...(places ? { places } : {}) }), ...blocks]
+      : blocks
     : legacyGuestResponseToBlocks({ content, ...(places ? { places } : {}) })
 
   return (

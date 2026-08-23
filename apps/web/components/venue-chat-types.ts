@@ -1,5 +1,6 @@
 import type { GuestPlaceCard } from '@pathfinder/api'
 import type { PublicVenueBotPresentation } from '@pathfinder/contracts/venue-bot-configuration'
+import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 
 export type VenueSummary = {
   id: string
@@ -26,6 +27,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
   places?: GuestPlaceCard[]
+  blocks?: GuestResponseBlock[]
   /** Client-only identity for an optimistic, not-yet-confirmed guest turn. */
   pendingOperationId?: string
 }

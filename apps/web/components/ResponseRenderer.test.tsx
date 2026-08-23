@@ -82,6 +82,44 @@ describe('ResponseRenderer', () => {
     expect(screen.queryByText('Legacy fallback should not be duplicated.')).toBeNull()
   })
 
+  it('treats citations-only blocks as supplements to legacy text and place cards', () => {
+    const citedPlace = {
+      id: 'elephant-house',
+      name: 'Elephant House',
+      type: 'EXHIBIT',
+      photoUrl: null,
+      shortDescription: null,
+      areaName: null,
+      hours: null,
+      lat: null,
+      lng: null,
+    }
+    render(
+      <ResponseRenderer
+        content="The Elephant House is open."
+        places={[citedPlace]}
+        blocks={[
+          {
+            type: 'citations',
+            citations: [
+              {
+                label: 'Official visitor guide',
+                href: 'https://example.org/visit',
+                detail: 'Place: Elephant House',
+              },
+            ],
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('The Elephant House is open.')).toBeTruthy()
+    expect(screen.getByText(citedPlace.name)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Official visitor guide/ }).getAttribute('href')).toBe(
+      'https://example.org/visit',
+    )
+  })
+
   it('renders choices as keyboard-native labeled controls and returns only their bounded value', () => {
     const onChoiceSelect = vi.fn()
     render(

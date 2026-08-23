@@ -233,6 +233,13 @@ describe('guest chat turn actions', () => {
   it('preserves the production chat incident invariant when finalizing durable messages', async () => {
     const claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
     const turnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const citations = [
+      {
+        label: 'Official visitor guide',
+        href: 'https://museum.example/visit',
+        detail: 'Place: Cafe',
+      },
+    ]
     const createMany = vi.fn().mockResolvedValue({ count: 2 })
     const tx = {
       $executeRaw: vi.fn(),
@@ -273,13 +280,18 @@ describe('guest chat turn actions', () => {
           turnId,
           claimId,
           assistantResponse: 'The cafe is downstairs.',
-          replayMetadata: { places: [] },
+          replayMetadata: { places: [], citations },
           fallbackCode: null,
           nextPending: { kind: 'NONE' },
         },
         now: new Date('2026-08-22T12:00:00.000Z'),
       }),
-    ).resolves.toMatchObject({ state: 'COMPLETE', sessionId: 'session-1', replayed: false })
+    ).resolves.toMatchObject({
+      state: 'COMPLETE',
+      sessionId: 'session-1',
+      citations,
+      replayed: false,
+    })
 
     const rows = createMany.mock.calls[0]![0].data
     expect(rows).toEqual([
@@ -302,6 +314,11 @@ describe('guest chat turn actions', () => {
         role: 'assistant',
       }),
     ])
+    expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ replayMetadata: { places: [], citations } }),
+      }),
+    )
   })
 
   it('terminalizes an expired pre-claim orphan before reserving a new request identity', async () => {

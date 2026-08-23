@@ -35,6 +35,19 @@ remain inside one durable response-generation operation.
 
 `totalMs` ends after the response and engagement state are durably persisted; it intentionally excludes best-effort analytics emission. These are completed-request timings, not time-to-first-token measurements because guest chat is not yet streamed.
 
+## Bounded guest citations
+
+Guest chat projects a citation only when the visible answer explicitly names a retrieved public
+place or venue-knowledge entry and that exact record carries useful source provenance. Citations
+are deterministic post-generation evidence: they do not claim sentence-level semantic support,
+and the generator is not instructed to invent or select citations. Unmentioned retrieval results
+are omitted. Credential-bearing, secret-like, or invalid source URLs are never returned.
+
+The citation list and place cards are committed inside the existing idempotent turn replay
+metadata and response hash. Exact retries and conversation reloads therefore reproduce the same
+visible provenance even if venue content changes later. Legacy turns without citation metadata
+retain their original response-hash contract and replay with an empty citation list.
+
 ## Daily rollups
 
 The nightly `daily-rollup` worker derives tenant- and venue-scoped metrics from server-emitted `message.received` events:

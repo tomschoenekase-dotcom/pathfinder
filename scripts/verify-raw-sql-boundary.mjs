@@ -564,7 +564,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '80267ca4cc54cc7a3c2c57c621a999d7dd87ec119af9398c3a6bf6425518b7fd',
+    hash: '432e3793aad3435f27b780e999a8548b1d34e3c42ea130ef26a2af7a4b0f3993',
     policy: 'tenant-and-venue',
   },
   {
@@ -588,7 +588,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '531d881c910f52622ce1d8df88593e09077817bba661d80e0eebe7b994692954',
+    hash: 'afa1d9a5c2b9bf70adf8eb6569e9ad01c918266aaf82efe861dbbed52c4d5ab8',
     policy: 'tenant-and-venue',
   },
   {
