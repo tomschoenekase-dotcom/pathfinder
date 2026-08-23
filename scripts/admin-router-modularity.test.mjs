@@ -17,6 +17,7 @@ const expectedAdminProcedures = [
   'admitProspectStagingPackage',
   'answerAgentQuestion',
   'appendEvaluationConclusion',
+  'applyFounderDecisionPacket',
   'applyNativeVenueDeployment',
   'applyVenuePackage',
   'approveNativeVenueDeployment',

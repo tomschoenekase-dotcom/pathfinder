@@ -67,7 +67,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
   // Platform-admin Company Brain browse/create operations are bounded, audited,
   // and use canonical knowledge actions rather than direct agent-side writes.
-  ['packages/api/src/routers/admin/company-brain.ts', 4],
+  ['packages/api/src/routers/admin/company-brain.ts', 5],
   // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
   // the mutation records the platform-admin actor and before/after state in the same transaction.
   ['packages/api/src/routers/admin/billing-rollout.ts', 2],

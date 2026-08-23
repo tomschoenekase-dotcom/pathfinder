@@ -30,6 +30,61 @@ export const CompanyKnowledgeAuthority = z.enum([
 ])
 export type CompanyKnowledgeAuthority = z.infer<typeof CompanyKnowledgeAuthority>
 
+const FounderDecisionScopeValue = z.union([
+  z.string().max(1000),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+])
+
+export const FounderDecisionPacketDecision = z
+  .object({
+    key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+    title: z.string().trim().min(1).max(500),
+    summary: z.string().trim().min(1).max(4000),
+    decision: z.string().trim().min(1).max(20_000),
+    rationale: z.string().trim().min(1).max(10_000),
+    affectedSystems: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+    scope: z.record(z.string().trim().min(1).max(100), FounderDecisionScopeValue).default({}),
+  })
+  .strict()
+
+export const FounderDecisionPacket = z
+  .object({
+    schemaVersion: z.literal('founder-decision-packet.v1'),
+    packetId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(191)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+    title: z.string().trim().min(1).max(500),
+    effectiveAt: z.string().datetime({ offset: true }),
+    sourceRef: z.string().trim().min(1).max(1000),
+    decisions: z.array(FounderDecisionPacketDecision).min(1).max(50),
+  })
+  .strict()
+  .superRefine((packet, context) => {
+    const keys = new Set<string>()
+    packet.decisions.forEach((decision, index) => {
+      if (keys.has(decision.key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['decisions', index, 'key'],
+          message: 'Decision keys must be unique within a packet',
+        })
+      }
+      keys.add(decision.key)
+    })
+  })
+
+export type FounderDecisionPacket = z.input<typeof FounderDecisionPacket>
+
 export const AccountContextRequest = z
   .object({
     clientId: z.string().trim().min(1).max(191),

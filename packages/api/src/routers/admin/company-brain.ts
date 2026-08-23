@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
-import { CompanyKnowledgeType } from '@pathfinder/contracts/company-brain'
+import { CompanyKnowledgeType, FounderDecisionPacket } from '@pathfinder/contracts/company-brain'
 import { env } from '@pathfinder/config'
 import {
   createAgentTaskAction,
+  applyFounderDecisionPacketAction,
   createCompanyKnowledgeCandidateAction,
   db,
   promoteCompanyKnowledgeAction,
@@ -166,6 +167,17 @@ export const adminCompanyBrainRouter = router({
           db,
         )
       }),
+    ),
+
+  applyFounderDecisionPacket: adminProcedure
+    .input(FounderDecisionPacket)
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        applyFounderDecisionPacketAction({
+          packet: input,
+          actor: { type: 'HUMAN', actorId: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        }),
+      ),
     ),
 
   createCompanyPriority: adminProcedure

@@ -445,6 +445,10 @@ export {
   supersedeCompanyKnowledgeAction,
 } from './helpers/company-knowledge-actions'
 export {
+  applyFounderDecisionPacketAction,
+  FounderDecisionPacketActionError,
+} from './helpers/founder-decision-packet-actions'
+export {
   CompanyMeetingActionError,
   completeCompanyMeetingProcessingAction,
   ingestCompanyMeetingAction,
