@@ -41,6 +41,21 @@ if (
   fixture.expectedQuestions.some((entry) => !entry.question || !entry.expectedFacts?.length)
 )
   throw new Error('Golden Venue expected-answer evidence is incomplete')
+const proof = fixture.disposableProof
+const declaredProofPhases = [
+  ...(proof?.coveredPhases ?? []),
+  ...(proof?.partialPhases ?? []),
+  ...(proof?.remainingPhases ?? []),
+]
+if (
+  proof?.command !== 'pnpm golden-venue:disposable' ||
+  proof?.providerBacked !== false ||
+  new Set(declaredProofPhases).size !== required.length ||
+  required.some((phase) => !declaredProofPhases.includes(phase)) ||
+  !proof.coveredPhases.includes('release') ||
+  !proof.remainingPhases.includes('guest-retrieval-chat')
+)
+  throw new Error('Golden Venue disposable proof scope must be complete and truthful')
 console.log(
-  `Golden Venue fixture validated: ${fixture.fixtureId}; ${required.length} phases; ${failures.length} failure injections.`,
+  `Golden Venue fixture validated: ${fixture.fixtureId}; ${required.length} phases; ${failures.length} failure injections; ${proof.coveredPhases.length} disposable phases verified by contract.`,
 )

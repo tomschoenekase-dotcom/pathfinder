@@ -6,6 +6,27 @@
   "venueId": "demo-venue-riverside-aquarium",
   "venueSlug": "riverside-aquarium",
   "seedCommand": "pnpm --filter @pathfinder/db seed",
+  "disposableProof": {
+    "command": "pnpm golden-venue:disposable",
+    "coveredPhases": [
+      "client",
+      "venue",
+      "onboarding",
+      "upload-intake",
+      "review",
+      "content-package-eval",
+      "release"
+    ],
+    "partialPhases": ["support"],
+    "remainingPhases": [
+      "guest-retrieval-chat",
+      "feedback",
+      "report",
+      "update",
+      "export-offboarding"
+    ],
+    "providerBacked": false
+  },
   "requiredPhases": [
     "client",
     "venue",

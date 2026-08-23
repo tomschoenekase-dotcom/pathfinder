@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-intake-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
-const DATABASE_PATTERN = /^pathfinder_disposable_intake_worker_[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+const DATABASE_PATTERN = /^pathfinder_disposable_(?:intake_worker|golden_venue)_[a-f0-9]{12}$/u
 export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
   postgres:
     'pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b',
@@ -247,7 +247,7 @@ export function buildShakedownChildEnv(parentEnv, resources) {
   return child
 }
 
-export function validateVitestReport(output) {
+export function validateVitestReport(output, expectedPassed = 1) {
   let report
   try {
     report = JSON.parse(String(output))
@@ -257,18 +257,20 @@ export function validateVitestReport(output) {
   const assertions = report.testResults?.flatMap((result) => result.assertionResults ?? []) ?? []
   if (
     report.success !== true ||
-    report.numPassedTests !== 1 ||
+    report.numPassedTests !== expectedPassed ||
     report.numFailedTests !== 0 ||
     report.numPendingTests !== 0 ||
     (report.numSkippedTests ?? 0) !== 0 ||
     report.numTodoTests !== 0 ||
-    report.numTotalTests !== 1 ||
-    assertions.length !== 1 ||
-    assertions[0]?.status !== 'passed'
+    report.numTotalTests !== expectedPassed ||
+    assertions.length !== expectedPassed ||
+    assertions.some((assertion) => assertion.status !== 'passed')
   ) {
-    fail('Shakedown must execute exactly one passing, zero skipped or todo integration test')
+    fail(
+      `Shakedown must execute exactly ${expectedPassed} passing, zero skipped or todo integration tests`,
+    )
   }
-  return { passed: 1 }
+  return { passed: expectedPassed }
 }
 
 function redact(value, sensitiveTokens) {
@@ -331,19 +333,21 @@ function runIntegration({
   reportPath,
   spawnSyncImpl,
   sensitiveTokens,
+  integration,
 }) {
   const childEnv = buildShakedownChildEnv(env, resources)
+  Object.assign(childEnv, integration.environment)
   const result = runNative(
     spawnSyncImpl,
     process.execPath,
     [
       packageManagerCli,
       '--dir',
-      'apps/workers',
+      integration.packageDirectory,
       'exec',
       'vitest',
       'run',
-      'src/intake-upload-verification.disposable.integration.test.ts',
+      integration.testFile,
       '--pool=forks',
       '--maxWorkers=1',
       '--reporter=json',
@@ -377,34 +381,35 @@ function runIntegration({
     )
     fail(`Shakedown test failed. ${detail.slice(-8_000)}`)
   }
-  return validateVitestReport(readFileSync(reportPath, 'utf8'))
+  return validateVitestReport(readFileSync(reportPath, 'utf8'), integration.expectedPassed)
 }
 
-export async function runDisposableIntakeVerificationShakedown({
+export async function runDisposableServiceShakedown({
   env = process.env,
   spawnSyncImpl = spawnSync,
   fetchImpl = fetch,
   waitImpl = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds)),
   stdout = process.stdout,
   repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url))),
+  configuration,
 } = {}) {
   const packageManagerCli = env.npm_execpath
   if (!packageManagerCli) refuse('Run this shakedown through pnpm')
   if (
-    env.PATHFINDER_ALLOW_DISPOSABLE_INTAKE_SHAKEDOWN !== '1' &&
-    env.npm_lifecycle_event !== 'test:intake-upload-verification:disposable'
+    env[configuration.optInEnvironmentKey] !== '1' &&
+    env.npm_lifecycle_event !== configuration.lifecycleEvent
   ) {
-    refuse('Use the disposable intake package lifecycle or its exact opt-in')
+    refuse(`Use the ${configuration.lifecycleEvent} package lifecycle or its exact opt-in`)
   }
   const runtime = initializeDockerRuntime(env, spawnSyncImpl)
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
   const names = {
-    postgres: `pathfinder-disposable-intake-postgres-${suffix}`,
-    redis: `pathfinder-disposable-intake-redis-${suffix}`,
-    minio: `pathfinder-disposable-intake-minio-${suffix}`,
-    clamav: `pathfinder-disposable-intake-clamav-${suffix}`,
+    postgres: `pathfinder-disposable-${configuration.resourceFamily}-postgres-${suffix}`,
+    redis: `pathfinder-disposable-${configuration.resourceFamily}-redis-${suffix}`,
+    minio: `pathfinder-disposable-${configuration.resourceFamily}-minio-${suffix}`,
+    clamav: `pathfinder-disposable-${configuration.resourceFamily}-clamav-${suffix}`,
   }
-  const database = `pathfinder_disposable_intake_worker_${suffix}`
+  const database = `${configuration.databasePrefix}${suffix}`
   if (
     !DATABASE_PATTERN.test(database) ||
     Object.values(names).some((name) => !CONTAINER_PATTERN.test(name))
@@ -570,6 +575,7 @@ export async function runDisposableIntakeVerificationShakedown({
       reportPath,
       spawnSyncImpl,
       sensitiveTokens,
+      integration: configuration.integration,
     })
   } catch (error) {
     primaryError = error
@@ -592,12 +598,71 @@ export async function runDisposableIntakeVerificationShakedown({
 
   stdout.write(
     `${JSON.stringify({
-      action: 'intake-upload-verification.disposable-shakedown.passed',
+      action: configuration.successAction,
       testsPassed: result.passed,
       services: ['postgresql', 'redis', 'minio', 'clamav'],
       outboundProviderWorkersEnabled: false,
+      ...(configuration.proofScope ? { proofScope: configuration.proofScope } : {}),
       cleanup: 'verified-absent',
     })}\n`,
   )
   return 0
+}
+
+export async function runDisposableIntakeVerificationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'intake',
+      databasePrefix: 'pathfinder_disposable_intake_worker_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_INTAKE_SHAKEDOWN',
+      lifecycleEvent: 'test:intake-upload-verification:disposable',
+      successAction: 'intake-upload-verification.disposable-shakedown.passed',
+      integration: {
+        packageDirectory: 'apps/workers',
+        testFile: 'src/intake-upload-verification.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {},
+      },
+    },
+  })
+}
+
+export async function runDisposableGoldenVenueShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'golden',
+      databasePrefix: 'pathfinder_disposable_golden_venue_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_GOLDEN_VENUE_SHAKEDOWN',
+      lifecycleEvent: 'golden-venue:disposable',
+      successAction: 'golden-venue.core-lifecycle.disposable-shakedown.passed',
+      proofScope: [
+        'client',
+        'venue',
+        'onboarding',
+        'upload-intake',
+        'review',
+        'content-package-eval',
+        'release-rollback',
+        'support-handoff',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/remote-onboarding-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
 }

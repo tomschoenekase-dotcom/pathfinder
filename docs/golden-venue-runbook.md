@@ -5,9 +5,18 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
 ## Setup and reset
 
 1. Run `pnpm golden-venue:validate`.
-2. Start disposable/local staging and run the disposable migration gate.
-3. For an authorized synthetic staging seed, satisfy every host/database confirmation required by `assertStagingSeedTarget`, then run the fixture's `seedCommand`. This is an environment-changing action and is not authorized by this packet alone.
-4. Reset by recreating the disposable database. Never broad-delete a shared staging or production database.
+2. Run `pnpm golden-venue:disposable` for the provider-dark core lifecycle. The command creates fresh,
+   digest-pinned PostgreSQL, Redis, MinIO, and ClamAV containers on exact loopback ports, applies the
+   complete migration lineage, executes exactly one non-skipped integration, and removes every exact
+   container even after failure. It refuses remote Docker endpoints and strips inherited credentials.
+3. Treat its `proofScope` output as authoritative. It proves client/venue creation, remote intake,
+   authoritative upload evidence, review, a support-question handoff, immutable package/evaluation
+   evidence, explicit release, and exact rollback. It does **not** prove provider-backed guest chat,
+   visitor message feedback, report delivery, a routine operational update, or offboarding/export.
+4. For an authorized synthetic staging seed, satisfy every host/database confirmation required by
+   `assertStagingSeedTarget`, then run the fixture's `seedCommand`.
+5. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a
+   shared staging or production database.
 
 ## Lifecycle evidence checklist
 
