@@ -51,7 +51,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
-  ['packages/api/src/routers/admin/agent-questions.ts', 5],
+  ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
+  ['packages/api/src/routers/admin/agent-questions.ts', 4],
   ['packages/api/src/routers/admin/agent-outcomes.ts', 2],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],

@@ -171,6 +171,7 @@ const expectedAdminProcedures = [
   'previewUniversalContent',
   'projectNativeVenueDeployment',
   'promoteAgentAnswer',
+  'promoteAgentAnswerToFounderDecision',
   'publishUniversalContent',
   'publishWeeklyReport',
   'queueCompanyMeetingProcessing',

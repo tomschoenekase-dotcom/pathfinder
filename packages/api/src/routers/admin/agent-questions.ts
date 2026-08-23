@@ -1,50 +1,27 @@
+import { createHash } from 'node:crypto'
+
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { env } from '@pathfinder/config'
 
 import {
   AgentQuestionActionError,
-  OnboardingQuestionActionError,
+  FounderDecisionPacketActionError,
+  applyFounderDecisionPacketAction,
   answerAgentQuestionAction,
   createCompanyKnowledgeCandidateAction,
-  createClientOnboardingQuestionAction,
   db,
   promoteCompanyKnowledgeAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-operations-shared'
+import { adminAgentQuestionClientRoutingRouter } from './agent-question-client-routing'
 
-export const adminAgentQuestionsRouter = router({
-  listOnboardingQuestionRecipients: adminProcedure
-    .input(
-      z.object({
-        tenantId: z.string().min(1),
-        venueId: z.string().min(1),
-      }),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const venue = await db.venue.findFirst({
-          where: { id: input.venueId, tenantId: input.tenantId },
-          select: { id: true },
-        })
-        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-        return db.tenantMembership.findMany({
-          where: { tenantId: input.tenantId, status: 'ACTIVE' },
-          orderBy: [{ role: 'desc' }, { userId: 'asc' }],
-          select: {
-            userId: true,
-            role: true,
-            user: { select: { fullName: true, email: true } },
-          },
-        })
-      }),
-    ),
-
+const adminAgentQuestionCoreRouter = router({
   listAgentQuestions: adminProcedure
     .input(
       tenantScopeInput.merge(pageInput).extend({
@@ -280,61 +257,130 @@ export const adminAgentQuestionsRouter = router({
       }),
     ),
 
-  routeAgentQuestionToClient: adminProcedure
+  promoteAgentAnswerToFounderDecision: adminProcedure
     .input(
       z
         .object({
-          operationId: z.string().uuid(),
           tenantId: z.string().min(1),
           venueId: z.string().min(1),
           questionId: z.string().min(1),
-          expectedUpdatedAt: z.string().datetime(),
-          recipientUserId: z.string().min(1),
-          category: z
-            .enum([
-              'CONTENT_CORRECTION',
-              'OPERATIONAL_UPDATE',
-              'BRANDING',
-              'EXPERIENCE_BEHAVIOR',
-              'ACCESSIBILITY',
-              'GENERAL',
-            ])
-            .default('GENERAL'),
-          subject: z.string().trim().min(1).max(200),
-          why: z.string().trim().min(1).max(2000),
-          whatWasFound: z.string().trim().min(1).max(2000).optional(),
-          effect: z.string().trim().min(1).max(1000),
+          decisionKey: z
+            .string()
+            .trim()
+            .min(1)
+            .max(100)
+            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          title: z.string().trim().min(1).max(500),
+          summary: z.string().trim().min(1).max(4000),
+          rationale: z.string().trim().min(1).max(10_000),
+          affectedSystems: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+          scope: z.record(
+            z.string().trim().min(1).max(100),
+            z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()]),
+          ),
         })
-        .strict(),
+        .strict()
+        .superRefine((value, refinement) => {
+          if (Object.keys(value.scope).length === 0) {
+            refinement.addIssue({
+              code: 'custom',
+              path: ['scope'],
+              message: 'Founder decision promotion requires an explicit policy scope.',
+            })
+          }
+        }),
     )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
+        const question = await db.agentQuestion.findFirst({
+          where: {
+            id: input.questionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'ANSWERED',
+          },
+          select: {
+            id: true,
+            question: true,
+            answer: true,
+            answeredAt: true,
+            answeredById: true,
+            agentRunId: true,
+          },
+        })
+        if (!question?.answer || !question.answeredAt || !question.answeredById) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Only a durable human-answered question may become founder policy.',
+          })
+        }
+        if (question.answeredById !== ctx.session.userId) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Founder policy promotion requires the administrator who supplied the answer.',
+          })
+        }
+        const packetId = `agent-question-${createHash('sha256')
+          .update(question.id)
+          .digest('hex')
+          .slice(0, 32)}`
         try {
-          return await createClientOnboardingQuestionAction(
+          const result = await applyFounderDecisionPacketAction(
             {
-              operationId: input.operationId,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              agentQuestionId: input.questionId,
-              expectedQuestionUpdatedAt: new Date(input.expectedUpdatedAt),
-              recipientUserId: input.recipientUserId,
-              category: input.category,
-              subject: input.subject,
-              why: input.why,
-              ...(input.whatWasFound ? { whatWasFound: input.whatWasFound } : {}),
-              effect: input.effect,
-              actor: { actorId: ctx.session.userId, auditRole: 'PLATFORM_ADMIN' },
+              packet: {
+                schemaVersion: 'founder-decision-packet.v1',
+                packetId,
+                title: `Founder answer: ${input.title}`,
+                effectiveAt: question.answeredAt.toISOString(),
+                sourceRef: `agent-question:${question.id}`,
+                decisions: [
+                  {
+                    key: input.decisionKey,
+                    title: input.title,
+                    summary: input.summary,
+                    decision: question.answer,
+                    rationale: input.rationale,
+                    affectedSystems: input.affectedSystems,
+                    scope: input.scope,
+                  },
+                ],
+              },
+              actor: {
+                type: 'HUMAN',
+                actorId: ctx.session.userId,
+                role: 'PLATFORM_ADMIN',
+              },
             },
             db,
           )
+          const promoted = result.results[0]!
+          return {
+            schemaVersion: 'agent-answer-founder-decision-promotion.v1' as const,
+            decisionKey: promoted.key,
+            knowledgeItemId: promoted.knowledgeItemId,
+            state: promoted.state,
+            supersededKnowledgeItemId: promoted.supersededKnowledgeItemId,
+            source: {
+              questionId: question.id,
+              agentRunId: question.agentRunId,
+              answeredById: question.answeredById,
+              answeredAt: question.answeredAt.toISOString(),
+            },
+          }
         } catch (error) {
-          if (error instanceof OnboardingQuestionActionError)
+          if (error instanceof FounderDecisionPacketActionError) {
             throw new TRPCError({
               code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
               message: error.message,
             })
+          }
           throw error
         }
       }),
     ),
 })
+
+export const adminAgentQuestionsRouter = mergeRouters(
+  adminAgentQuestionCoreRouter,
+  adminAgentQuestionClientRoutingRouter,
+)

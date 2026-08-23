@@ -24,3 +24,17 @@ details, customer promises, and live-money authority are not converted into deci
 The file is not applied automatically during migration or deployment. That prevents a code rollout
 from silently changing operational policy. A human platform administrator must deliberately submit
 the exact validated packet to the admin procedure in the intended environment.
+
+## Promoting an answered founder question
+
+`admin.promoteAgentAnswerToFounderDecision` closes the deliberate human-resolution loop for a
+question that has already been answered in the Founder Control Room. The answering platform
+administrator must invoke the promotion explicitly and provide a stable decision key, rationale,
+affected systems, and a non-empty policy scope. The action uses the durable answer as decision text,
+the answer timestamp as its effective time, and `agent-question:<id>` as source provenance.
+
+An unanswered, dismissed, machine-only, or differently authored answer cannot be promoted through
+this route. The resulting one-decision packet uses the same replay, supersession, ambiguity, audit,
+and newer-current-truth checks as any other founder packet. Promotion records policy only: it does
+not resume a run, approve a request, execute a tool, contact a customer, deploy, or create a billing
+effect.

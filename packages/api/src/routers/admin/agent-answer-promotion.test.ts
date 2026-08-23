@@ -5,13 +5,18 @@ const mocks = vi.hoisted(() => ({
   question: vi.fn(),
   candidate: vi.fn(),
   promote: vi.fn(),
+  founderDecision: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: { AGENT_RUNNER_ENABLED: false } }))
 vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: vi.fn() }))
 vi.mock('@pathfinder/db', () => ({
   AgentQuestionActionError: class AgentQuestionActionError extends Error {},
+  FounderDecisionPacketActionError: class FounderDecisionPacketActionError extends Error {
+    code = 'CONFLICT'
+  },
   OnboardingQuestionActionError: class OnboardingQuestionActionError extends Error {},
+  applyFounderDecisionPacketAction: mocks.founderDecision,
   answerAgentQuestionAction: vi.fn(),
   createClientOnboardingQuestionAction: vi.fn(),
   createCompanyKnowledgeCandidateAction: mocks.candidate,
@@ -93,5 +98,123 @@ describe('agent answer promotion', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(mocks.question).not.toHaveBeenCalled()
+  })
+
+  it('promotes an explicitly classified human answer into exact founder current truth', async () => {
+    const answeredAt = new Date('2026-08-22T18:30:00.000Z')
+    mocks.question.mockResolvedValue({
+      id: 'question_1',
+      question: 'Should routine support require founder approval?',
+      answer: 'Routine support should be handled autonomously within policy.',
+      answeredAt,
+      answeredById: 'operator_1',
+      agentRunId: 'run_1',
+    })
+    mocks.founderDecision.mockResolvedValue({
+      results: [
+        {
+          key: 'routine-support-authority',
+          knowledgeItemId: 'knowledge_1',
+          state: 'APPLIED',
+          supersededKnowledgeItemId: null,
+        },
+      ],
+    })
+
+    const result = await testRouter
+      .createCaller(context)
+      .questions.promoteAgentAnswerToFounderDecision({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        questionId: 'question_1',
+        decisionKey: 'routine-support-authority',
+        title: 'Routine support authority',
+        summary: 'Routine support does not need founder approval when policy permits it.',
+        rationale: 'Founder attention should be reserved for consequential judgment.',
+        affectedSystems: ['support', 'agent-policy'],
+        scope: { appliesTo: 'torchiko-operations' },
+      })
+
+    expect(result).toEqual({
+      schemaVersion: 'agent-answer-founder-decision-promotion.v1',
+      decisionKey: 'routine-support-authority',
+      knowledgeItemId: 'knowledge_1',
+      state: 'APPLIED',
+      supersededKnowledgeItemId: null,
+      source: {
+        questionId: 'question_1',
+        agentRunId: 'run_1',
+        answeredById: 'operator_1',
+        answeredAt: answeredAt.toISOString(),
+      },
+    })
+    expect(mocks.founderDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packet: expect.objectContaining({
+          schemaVersion: 'founder-decision-packet.v1',
+          effectiveAt: answeredAt.toISOString(),
+          sourceRef: 'agent-question:question_1',
+          decisions: [
+            expect.objectContaining({
+              key: 'routine-support-authority',
+              decision: 'Routine support should be handled autonomously within policy.',
+              scope: { appliesTo: 'torchiko-operations' },
+            }),
+          ],
+        }),
+        actor: { type: 'HUMAN', actorId: 'operator_1', role: 'PLATFORM_ADMIN' },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('refuses to promote an unanswered or non-human answer as founder policy', async () => {
+    mocks.question.mockResolvedValue({
+      id: 'question_1',
+      question: 'What should happen?',
+      answer: 'A machine-generated draft.',
+      answeredAt: new Date('2026-08-22T18:30:00.000Z'),
+      answeredById: null,
+      agentRunId: 'run_1',
+    })
+
+    await expect(
+      testRouter.createCaller(context).questions.promoteAgentAnswerToFounderDecision({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        questionId: 'question_1',
+        decisionKey: 'unverified-policy',
+        title: 'Unverified policy',
+        summary: 'This must not be promoted.',
+        rationale: 'There is no verified human answer.',
+        scope: { appliesTo: 'torchiko-operations' },
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.founderDecision).not.toHaveBeenCalled()
+  })
+
+  it('requires the administrator who answered to explicitly promote the founder policy', async () => {
+    mocks.question.mockResolvedValue({
+      id: 'question_1',
+      question: 'What should happen?',
+      answer: 'Use the durable option.',
+      answeredAt: new Date('2026-08-22T18:30:00.000Z'),
+      answeredById: 'different_operator',
+      agentRunId: 'run_1',
+    })
+
+    await expect(
+      testRouter.createCaller(context).questions.promoteAgentAnswerToFounderDecision({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        questionId: 'question_1',
+        decisionKey: 'durable-option',
+        title: 'Durable option',
+        summary: 'Use the durable option.',
+        rationale: 'The answering administrator must explicitly promote it.',
+        scope: { appliesTo: 'torchiko-operations' },
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.founderDecision).not.toHaveBeenCalled()
   })
 })
