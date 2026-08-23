@@ -29,6 +29,11 @@ export function EvaluationRunRequestPanel(props: {
   initialCases: EvaluationCaseListItem[]
   initialNextCursor: Cursor | null
   runnerEnabled: boolean
+  regressionAlerts?: {
+    configured: boolean
+    minimumPassRateDrop: number | null
+    errorPassRateDrop: number | null
+  }
   maximumCases: number
   approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
 }) {
@@ -184,6 +189,20 @@ export function EvaluationRunRequestPanel(props: {
           gate must all be enabled before a run identity can be created or queued.
         </p>
       ) : null}
+      {props.regressionAlerts?.configured ? (
+        <p className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+          Automatic same-corpus regression alerts use the explicit durable policy: warning at a{' '}
+          {Math.round((props.regressionAlerts.minimumPassRateDrop ?? 0) * 1000) / 10}% pass-rate
+          drop and error at{' '}
+          {Math.round((props.regressionAlerts.errorPassRateDrop ?? 0) * 1000) / 10}%.
+        </p>
+      ) : (
+        <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+          Automatic regression alerts are dark because no explicit durable threshold policy is
+          configured. Stored runs can still be compared manually; Torchiko will not infer alert or
+          severity thresholds.
+        </p>
+      )}
       {cases.length === 0 ? (
         <p className="mt-4 text-sm text-pf-deep/65">
           No evaluation cases are ready for this venue.

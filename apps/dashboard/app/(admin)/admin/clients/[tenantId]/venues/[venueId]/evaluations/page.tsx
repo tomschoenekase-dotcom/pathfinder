@@ -48,6 +48,7 @@ export default async function EvaluationOperationsPage({
         cases={cases.items}
         caseNextCursor={cases.nextCursor}
         runnerEnabled={cases.runnerEnabled}
+        regressionAlerts={cases.regressionAlerts}
         maximumCases={cases.maximumCases}
         requestPanelEnabled
         approvedPackages={approvedPackages}

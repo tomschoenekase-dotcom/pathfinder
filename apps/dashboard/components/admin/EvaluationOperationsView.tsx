@@ -85,6 +85,11 @@ type EvaluationOperationsViewProps = {
   cases?: EvaluationCaseListItem[]
   caseNextCursor?: { createdAt: string; id: string } | null
   runnerEnabled?: boolean
+  regressionAlerts?: {
+    configured: boolean
+    minimumPassRateDrop: number | null
+    errorPassRateDrop: number | null
+  }
   maximumCases?: number
   requestPanelEnabled?: boolean
   approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
@@ -166,6 +171,7 @@ export function EvaluationOperationsView({
   cases = [],
   caseNextCursor = null,
   runnerEnabled = false,
+  regressionAlerts,
   maximumCases = 50,
   requestPanelEnabled = false,
   approvedPackages = [],
@@ -212,6 +218,7 @@ export function EvaluationOperationsView({
             initialCases={cases}
             initialNextCursor={caseNextCursor}
             runnerEnabled={runnerEnabled}
+            {...(regressionAlerts ? { regressionAlerts } : {})}
             maximumCases={maximumCases}
             approvedPackages={approvedPackages}
           />

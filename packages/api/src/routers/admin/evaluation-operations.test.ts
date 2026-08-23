@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   enqueueRun: vi.fn(),
   cancelRun: vi.fn(),
   durableEnabled: vi.fn(),
+  regressionPolicy: vi.fn(),
   markQueued: vi.fn(),
   compareRuns: vi.fn(),
   appendReview: vi.fn(),
@@ -63,6 +64,7 @@ vi.mock('@pathfinder/db', () => ({
   createOrReplayEvaluationRun: mocks.createRun,
   requestEvaluationRunCancellation: mocks.cancelRun,
   isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  getEvaluationRegressionAlertPolicy: mocks.regressionPolicy,
   markEvaluationRunQueued: mocks.markQueued,
   db: {
     $transaction: vi.fn(async (operation) =>
@@ -111,6 +113,7 @@ describe('admin evaluation operations router', () => {
     mocks.enqueueRun.mockResolvedValue({ enqueued: false })
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
+    mocks.regressionPolicy.mockResolvedValue(null)
     mocks.markQueued.mockResolvedValue(true)
     mocks.venueFind.mockResolvedValue({ id: 'venue_1' })
     mocks.milestoneFindMany.mockResolvedValue([])
@@ -480,6 +483,11 @@ describe('admin evaluation operations router', () => {
         durableGlobalEnabled: true,
         tenantEnabled: false,
       },
+      regressionAlerts: {
+        configured: false,
+        minimumPassRateDrop: null,
+        errorPassRateDrop: null,
+      },
       maximumCases: 50,
       maximumBudgetE8Usd: '100000000',
       items: [{ caseKey: 'known' }],
@@ -494,6 +502,25 @@ describe('admin evaluation operations router', () => {
         }),
       }),
     )
+  })
+
+  it('reports only explicitly configured regression alert thresholds', async () => {
+    mocks.caseFindMany.mockResolvedValue([])
+    mocks.regressionPolicy.mockResolvedValue({
+      version: 1,
+      minimumPassRateDrop: 0.08,
+      errorPassRateDrop: 0.2,
+    })
+
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.listEvaluationCases({ tenantId: 'tenant_1', venueId: 'venue_1' })
+
+    expect(result.regressionAlerts).toEqual({
+      configured: true,
+      minimumPassRateDrop: 0.08,
+      errorPassRateDrop: 0.2,
+    })
   })
 
   it('rejects more than 50 requested cases before any scoped write work', async () => {

@@ -4,6 +4,7 @@ import {
   compareEvaluationRuns,
   db,
   EvaluationRunComparisonError,
+  getEvaluationRegressionAlertPolicy,
   isEvaluationRuntimeDurablyEnabled,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -118,7 +119,7 @@ const adminEvaluationOperationReadsRouter = router({
   listEvaluationCases: adminProcedure.input(caseListInputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const cursorDate = input.cursor ? new Date(input.cursor.createdAt) : null
-      const [rows, flag, durableGlobalEnabled] = await Promise.all([
+      const [rows, flag, durableGlobalEnabled, regressionAlertPolicy] = await Promise.all([
         db.evalCase.findMany({
           where: {
             tenantId: input.tenantId,
@@ -156,6 +157,7 @@ const adminEvaluationOperationReadsRouter = router({
           select: { enabled: true },
         }),
         isEvaluationRuntimeDurablyEnabled(db),
+        getEvaluationRegressionAlertPolicy(db),
       ])
       const hasMore = rows.length > input.limit
       const items = rows.slice(0, input.limit)
@@ -169,6 +171,17 @@ const adminEvaluationOperationReadsRouter = router({
           durableGlobalEnabled,
           tenantEnabled: flag?.enabled === true,
         },
+        regressionAlerts: regressionAlertPolicy
+          ? {
+              configured: true as const,
+              minimumPassRateDrop: regressionAlertPolicy.minimumPassRateDrop,
+              errorPassRateDrop: regressionAlertPolicy.errorPassRateDrop,
+            }
+          : {
+              configured: false as const,
+              minimumPassRateDrop: null,
+              errorPassRateDrop: null,
+            },
         maximumCases: MAX_RUN_CASES,
         maximumBudgetE8Usd: MAX_RUN_BUDGET_E8_USD.toString(),
         nextCursor:

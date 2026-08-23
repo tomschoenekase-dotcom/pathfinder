@@ -195,7 +195,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 ### P2.3 — Complete production answer-quality evaluation
 
 - **Problem:** Eval infrastructure is strong, but current datasets/runs and automated hallucination/retrieval quality from real conversations were not observed.
-- **Evidence:** evaluation models/contracts/worker/admin; low-confidence and explicit-negative-feedback insights; governed, human-sanitized conversation-to-evaluation-case preparation with immutable provenance.
+- **Evidence:** evaluation models/contracts/worker/admin; low-confidence and explicit-negative-feedback insights; governed, human-sanitized conversation-to-evaluation-case preparation with immutable provenance; automatic regression alerts now fail dark unless an explicit durable policy supplies both alert and severity thresholds.
 - **Affected system:** AI quality, reporting, operations.
 - **Recommended change:** Continue expanding venue-specific golden questions, adversarial/out-of-scope cases, citation/retrieval metrics, provider-backed regression baselines, and human-review calibration. Sanitized production-failure sampling now has an operator workflow; it still needs staging corpus use and calibrated run history.
 - **Why it matters:** Passing code tests does not prove truthful answers.

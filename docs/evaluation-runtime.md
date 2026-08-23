@@ -38,6 +38,19 @@ The platform-admin evaluation console can prepare an immutable regression case f
 
 This workflow deliberately does not call an AI provider, spend an evaluation budget, define aggregate pass thresholds, or approve a release. Human-defined phrases are per-case truth assertions; release calibration remains a separate founder/product-quality decision.
 
+## Regression alert policy
+
+Automatic same-corpus regression alerts are capability-gated separately from evaluation execution.
+The worker reads `PlatformConfig[evaluation-regression-alert-policy-v1]` and publishes no automatic
+quality alert when that record is absent, disabled, malformed, or unavailable. An enabled version 1
+record must explicitly provide both `minimumPassRateDrop` and `errorPassRateDrop`; the error drop
+must be at least the minimum alert drop. The evaluation console reports whether this durable policy
+is configured and, when it is, displays the exact thresholds.
+
+Torchiko does not supply fallback percentages or infer a severity boundary. Stored runs remain
+available for explicit human comparison when automatic alerts are dark. This preserves the
+regression-detection capability without turning an unresolved product-quality judgment into policy.
+
 ## Lifecycle and failure semantics
 
 Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state advances through compare-and-set transitions:

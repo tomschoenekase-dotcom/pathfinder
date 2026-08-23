@@ -18,6 +18,7 @@ const lifecycleMocks = vi.hoisted(() => ({
   finishEvaluationRunAttempt: vi.fn(),
   failEvaluationRunAttempt: vi.fn(),
   recordApprovedPackageEvaluationMilestones: vi.fn(),
+  getEvaluationRegressionAlertPolicy: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -29,6 +30,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   failEvaluationRunAttempt: lifecycleMocks.failEvaluationRunAttempt,
   recordApprovedPackageEvaluationMilestones:
     lifecycleMocks.recordApprovedPackageEvaluationMilestones,
+  getEvaluationRegressionAlertPolicy: lifecycleMocks.getEvaluationRegressionAlertPolicy,
 }))
 
 vi.mock('@pathfinder/ai', async (importOriginal) => ({
@@ -59,6 +61,7 @@ describe('evaluation regression detection', () => {
         currentScored: 10,
         previousPassed: 10,
         previousScored: 10,
+        minimumDrop: 0.05,
       }),
     ).toMatchObject({ currentRate: 0.8, previousRate: 1, drop: 0.2 })
     expect(
@@ -67,6 +70,7 @@ describe('evaluation regression detection', () => {
         currentScored: 100,
         previousPassed: 98,
         previousScored: 100,
+        minimumDrop: 0.05,
       }),
     ).toBeNull()
   })
@@ -78,6 +82,7 @@ describe('evaluation regression detection', () => {
         currentScored: 0,
         previousPassed: 4,
         previousScored: 5,
+        minimumDrop: 0.05,
       }),
     ).toBeNull()
   })
@@ -567,6 +572,7 @@ describe('processEvaluationRunJob lifecycle', () => {
       eligible: true,
       recorded: 0,
     })
+    lifecycleMocks.getEvaluationRegressionAlertPolicy.mockResolvedValue(null)
   })
   it('brackets an exact attempt with JobRecord evidence without calling a provider', async () => {
     lifecycleMocks.claimEvaluationRunAttempt.mockResolvedValueOnce({

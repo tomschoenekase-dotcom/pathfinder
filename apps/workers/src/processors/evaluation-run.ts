@@ -32,6 +32,7 @@ import {
   db,
   EVALUATION_RUN_EXECUTION_LEASE_MS,
   evaluationSnapshotHash,
+  getEvaluationRegressionAlertPolicy,
   hashEvalCase,
   hashEvalObservation,
   failEvaluationRunAttempt,
@@ -77,13 +78,13 @@ export function detectEvaluationRegression(input: {
   currentScored: number
   previousPassed: number
   previousScored: number
-  minimumDrop?: number
+  minimumDrop: number
 }) {
   if (input.currentScored <= 0 || input.previousScored <= 0) return null
   const currentRate = input.currentPassed / input.currentScored
   const previousRate = input.previousPassed / input.previousScored
   const drop = Math.round((previousRate - currentRate) * 1_000_000_000_000) / 1_000_000_000_000
-  if (drop < (input.minimumDrop ?? 0.05)) return null
+  if (drop < input.minimumDrop) return null
   return { currentRate, previousRate, drop }
 }
 
@@ -91,6 +92,8 @@ async function publishEvaluationRegressionIfPresent(
   payload: EvaluationRunJobPayload,
 ): Promise<void> {
   await withTenantIsolationBypass(async () => {
+    const policy = await getEvaluationRegressionAlertPolicy(db)
+    if (!policy) return
     const current = await db.evalRun.findFirst({
       where: {
         id: payload.runId,
@@ -129,6 +132,7 @@ async function publishEvaluationRegressionIfPresent(
       currentScored: current.results.length,
       previousPassed: previous.results.filter((result) => result.passed === true).length,
       previousScored: previous.results.length,
+      minimumDrop: policy.minimumPassRateDrop,
     })
     if (!regression) return
     const percent = (value: number) => `${Math.round(value * 1000) / 10}%`
@@ -139,9 +143,9 @@ async function publishEvaluationRegressionIfPresent(
         venueId: payload.venueId,
         eventType: 'evaluation.regression.detected',
         sourceSubsystem: 'evaluation-runner',
-        severity: regression.drop >= 0.15 ? 'ERROR' : 'WARNING',
+        severity: regression.drop >= policy.errorPassRateDrop ? 'ERROR' : 'WARNING',
         title: 'Evaluation quality regression detected',
-        summary: `Pass rate declined from ${percent(regression.previousRate)} to ${percent(regression.currentRate)} on the same evaluation corpus.`,
+        summary: `Pass rate declined from ${percent(regression.previousRate)} to ${percent(regression.currentRate)} on the same evaluation corpus, exceeding the explicitly configured ${percent(policy.minimumPassRateDrop)} alert threshold.`,
         actionRequired: true,
         linkedObjectType: 'evaluation-run',
         linkedObjectId: current.id,

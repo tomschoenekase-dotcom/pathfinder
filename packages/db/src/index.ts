@@ -560,6 +560,11 @@ export {
   isEvaluationRuntimeDurablyEnabled,
 } from './helpers/evaluation-runtime-admission'
 export {
+  EVALUATION_REGRESSION_ALERT_POLICY_KEY,
+  getEvaluationRegressionAlertPolicy,
+} from './helpers/evaluation-regression-policy'
+export type { EvaluationRegressionAlertPolicy } from './helpers/evaluation-regression-policy'
+export {
   createOrReplayEvaluationResult,
   EvaluationResultIdentityError,
   EvaluationResultReplayConflictError,

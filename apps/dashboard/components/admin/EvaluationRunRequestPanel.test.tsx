@@ -60,6 +60,27 @@ describe('EvaluationRunRequestPanel', () => {
       (screen.getByRole('button', { name: 'Request run' }) as HTMLButtonElement).disabled,
     ).toBe(true)
   })
+  it('shows that automatic regression alerts require an explicit durable policy', () => {
+    const { rerender } = renderPanel()
+    expect(screen.getByText(/Automatic regression alerts are dark/)).toBeTruthy()
+
+    rerender(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialCases={[item]}
+        initialNextCursor={null}
+        runnerEnabled
+        maximumCases={50}
+        regressionAlerts={{
+          configured: true,
+          minimumPassRateDrop: 0.08,
+          errorPassRateDrop: 0.2,
+        }}
+      />,
+    )
+    expect(screen.getByText(/warning at a 8% pass-rate drop and error at 20%/)).toBeTruthy()
+  })
   it('sends exact IDs and E8 budget without caller-controlled hashes or model fields', async () => {
     renderPanel()
     fireEvent.click(screen.getByRole('checkbox'))
