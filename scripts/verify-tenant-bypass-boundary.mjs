@@ -67,8 +67,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
   ['packages/api/src/routers/admin/client-analytics.ts', 2],
-  // Platform-admin client lifecycle includes an exact-tenant payment-due mutation.
-  ['packages/api/src/routers/admin/client-management.ts', 8],
+  // Platform-admin client lifecycle includes exact-tenant payment-due and retry-fenced
+  // prospect-to-customer conversion mutations.
+  ['packages/api/src/routers/admin/client-management.ts', 9],
   ['packages/api/src/routers/admin/client-search.ts', 1],
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
