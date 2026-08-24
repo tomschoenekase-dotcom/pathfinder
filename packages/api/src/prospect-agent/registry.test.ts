@@ -93,6 +93,18 @@ describe('prospect agent registry', () => {
           typeof tool.humanReviewRequired === 'boolean',
       ),
     ).toBe(true)
+    expect(
+      tools.every(
+        (tool) =>
+          tool.inputSchema.type === 'object' &&
+          tool.inputSchema.additionalProperties === false &&
+          tool.outputSchema &&
+          tool.examples.length > 0 &&
+          tool.relatedTools.length > 0,
+      ),
+    ).toBe(true)
+    const nameSet = new Set<string>(names)
+    expect(tools.flatMap((tool) => tool.relatedTools).every((name) => nameSet.has(name))).toBe(true)
   })
 
   it('rejects caller capability escalation because authority comes from the resolver', async () => {

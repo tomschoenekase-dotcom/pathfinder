@@ -114,27 +114,35 @@ function mcpToolMetadata(source, runtimeBindings) {
   )
 }
 
-function prospectToolMetadata(source) {
+function prospectToolMetadata(source, contracts) {
   const start = source.indexOf('export const PROSPECT_AGENT_TOOL_DEFINITIONS')
   const end = source.indexOf('] as const', start)
   if (start < 0 || end < 0) return []
   return [...source.slice(start, end).matchAll(/\{([\s\S]*?)\n\s*\},?/gu)]
     .map((match) => match[1])
     .filter((block) => /name:\s*'torchiko\.prospects\./u.test(block))
-    .map((block) => ({
-      name: block.match(/name:\s*'([^']+)'/u)?.[1],
-      family: 'prospect-agent',
-      title: block.match(/title:\s*'([^']+)'/u)?.[1],
-      capability: block.match(/capability:\s*'([^']+)'/u)?.[1],
-      effect: block.match(/effect:\s*'([^']+)'/u)?.[1],
-      approvalRequired: false,
-      humanReviewRequired: /humanReviewRequired:\s*true/u.test(block),
-      idempotent: /idempotent:\s*true/u.test(block),
-      defaultEnabled: true,
-      runtimeAvailability: 'bound',
-      transport: 'authenticated-agent-bridge',
-      source: 'packages/api/src/prospect-agent/registry.ts',
-    }))
+    .map((block) => {
+      const name = block.match(/name:\s*'([^']+)'/u)?.[1]
+      const contract = contracts.tools[name]
+      return {
+        name,
+        family: 'prospect-agent',
+        title: block.match(/title:\s*'([^']+)'/u)?.[1],
+        capability: block.match(/capability:\s*'([^']+)'/u)?.[1],
+        effect: block.match(/effect:\s*'([^']+)'/u)?.[1],
+        approvalRequired: false,
+        humanReviewRequired: /humanReviewRequired:\s*true/u.test(block),
+        idempotent: /idempotent:\s*true/u.test(block),
+        defaultEnabled: true,
+        runtimeAvailability: 'bound',
+        transport: 'authenticated-agent-bridge',
+        source: 'packages/api/src/prospect-agent/registry.ts',
+        inputSchema: contract?.inputSchema,
+        outputSchema: contract?.outputSchema,
+        examples: contract?.examples ?? [],
+        relatedTools: contract?.relatedTools ?? [],
+      }
+    })
 }
 
 export async function buildRepositoryMap(root) {
@@ -289,9 +297,10 @@ export async function buildDoctorReport(root, environment = process.env) {
 }
 
 export async function listAgentTools(root) {
-  const [mcp, prospect, composition] = await Promise.all([
+  const [mcp, prospect, prospectContracts, composition] = await Promise.all([
     readFile(path.join(root, 'packages/contracts/src/mcp-v0.ts'), 'utf8'),
     readFile(path.join(root, 'packages/api/src/prospect-agent/registry.ts'), 'utf8'),
+    readJson(path.join(root, 'packages/api/src/prospect-agent/tool-contracts.json')),
     readFile(path.join(root, 'packages/api/src/mcp/composition.ts'), 'utf8'),
   ])
   const runtimeBindings = safeOperationalToolBindings(composition)
@@ -302,9 +311,10 @@ export async function listAgentTools(root) {
       family: 'operational-mcp-resource',
       source: 'packages/contracts/src/mcp-v0.ts',
     })),
-    tools: [...mcpToolMetadata(mcp, runtimeBindings), ...prospectToolMetadata(prospect)].sort(
-      (a, b) => a.name.localeCompare(b.name),
-    ),
+    tools: [
+      ...mcpToolMetadata(mcp, runtimeBindings),
+      ...prospectToolMetadata(prospect, prospectContracts),
+    ].sort((a, b) => a.name.localeCompare(b.name)),
   }
 }
 

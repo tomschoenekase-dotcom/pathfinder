@@ -9,6 +9,8 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
+import prospectToolContracts from './tool-contracts.json'
+
 const prospectCapability = z.enum([
   'prospects.read',
   'prospects.research',
@@ -132,6 +134,7 @@ const releaseResearchInput = z
 
 export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
   {
+    ...prospectToolContracts.tools['torchiko.prospects.search'],
     name: 'torchiko.prospects.search',
     title: 'Search prospects',
     description: 'Search bounded prospect organizations inside the frozen run scope.',
@@ -142,6 +145,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.get_intelligence'],
     name: 'torchiko.prospects.get_intelligence',
     title: 'Get prospect intelligence',
     description: 'Read grounded CRM and linked live-venue intelligence for one prospect.',
@@ -152,6 +156,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.list_campaign_members'],
     name: 'torchiko.prospects.list_campaign_members',
     title: 'List campaign members',
     description: 'List bounded campaign membership inside the frozen prospect scope.',
@@ -162,6 +167,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.claim_research_job'],
     name: 'torchiko.prospects.claim_research_job',
     title: 'Claim next prospect research job',
     description: 'Claim one unfinished in-scope prospect under a bounded durable lease.',
@@ -172,6 +178,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.complete_research_job'],
     name: 'torchiko.prospects.complete_research_job',
     title: 'Complete prospect research job',
     description: 'Record a bounded research outcome, usage, cost, and exact attempt lineage.',
@@ -182,6 +189,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.release_research_job'],
     name: 'torchiko.prospects.release_research_job',
     title: 'Release prospect research job',
     description: 'Release an unfinished claim back to the queue without changing prospect facts.',
@@ -192,6 +200,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.save_outreach_draft'],
     name: 'torchiko.prospects.save_outreach_draft',
     title: 'Save outreach draft',
     description: 'Save a grounded, versioned outreach draft that cannot be sent or approved.',
@@ -202,6 +211,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: true,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.ask_operator'],
     name: 'torchiko.prospects.ask_operator',
     title: 'Ask prospect operator',
     description: 'Create or replay a durable scoped question without granting approval.',

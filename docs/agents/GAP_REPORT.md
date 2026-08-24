@@ -12,7 +12,12 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    Approval-bound machine attribution and the first governed write are also implemented. Broader
    write parity remains a policy/capability gap, not a transport gap.
 2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Agents can now create exact-scope private support drafts and `NOTES`-only onboarding proposals under evidence-backed grants, but cannot open support requests, process files, extract or apply intake, publish, contact customers, grant participants, or resolve requests. Provider-specific and global AI control state is explicitly visible through bounded integration health, while broad conversation replay, venue lifecycle, file intake, report operations, incident mutation, and offboarding still lack adequate agent interfaces.
-3. **Tool metadata has a common core but not full schema parity.** Operational and prospect tools now expose effect, capability, review/approval, idempotency, default state, and transport through `pnpm torchiko tools list --json`. Prospect tools still need formal input/output JSON Schemas, examples, and related-tool links for complete parity with MCP definitions.
+3. **Closed — prospect tool schema and discovery parity.** All eight authenticated prospect tools
+   now expose strict input JSON Schemas, bounded output schemas, representative input/output
+   examples, and validated related-tool links through both the runtime registry and
+   `pnpm torchiko tools list --json`. The canonical contract adjunct is data-only and the discovery
+   test fails closed if a schema, example, or related tool is missing. This improves composition
+   metadata without adding send, approval, pricing, or customer-contact authority.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
 5. **Closed — provider integration health baseline.** Agents can query one secret-free,
    tenant/venue-scoped projection across Gmail, billing, worker runtime, AI providers, embeddings,

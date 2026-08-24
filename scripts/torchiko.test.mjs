@@ -81,6 +81,21 @@ test('tool and fixture discovery reuse canonical sources', async () => {
       .humanReviewRequired,
     true,
   )
+  const prospectTools = tools.tools.filter((tool) => tool.family === 'prospect-agent')
+  const prospectNames = new Set(prospectTools.map((tool) => tool.name))
+  assert.equal(prospectTools.length, 8)
+  assert.equal(
+    prospectTools.every(
+      (tool) =>
+        tool.inputSchema?.type === 'object' &&
+        tool.inputSchema?.additionalProperties === false &&
+        tool.outputSchema &&
+        tool.examples?.length > 0 &&
+        tool.relatedTools?.length > 0 &&
+        tool.relatedTools.every((name) => prospectNames.has(name)),
+    ),
+    true,
+  )
   assert.equal(
     tools.tools.find((tool) => tool.name === 'pathfinder.create_update_draft').runtimeAvailability,
     'bound',

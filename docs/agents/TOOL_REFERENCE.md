@@ -8,7 +8,7 @@ pnpm torchiko tools list --json
 
 The inventory normalizes core metadata across operational and prospect tools: capability, effect, approval or human-review boundary, idempotency, default state, runtime availability, transport, and canonical source. `bound` means the safe runtime has a concrete domain binding; `declared-unbound` means only the reviewed contract exists and calls still fail closed.
 
-The canonical operational schemas and security annotations are in `packages/contracts/src/mcp-v0.ts`. Server enforcement is in `packages/api/src/mcp/registry.ts`; concrete bounded reads are in `packages/api/src/mcp/read-actions.ts`. Prospect tools are defined and enforced in `packages/api/src/prospect-agent/registry.ts` and mounted through the authenticated agent bridge.
+The canonical operational schemas and security annotations are in `packages/contracts/src/mcp-v0.ts`. Server enforcement is in `packages/api/src/mcp/registry.ts`; concrete bounded reads are in `packages/api/src/mcp/read-actions.ts`. Prospect tools are defined and enforced in `packages/api/src/prospect-agent/registry.ts`, their data-only input/output schemas, examples, and related-tool links are in `packages/api/src/prospect-agent/tool-contracts.json`, and they are mounted through the authenticated agent bridge. The registry and developer inventory both consume that same contract adjunct.
 
 ## Operational MCP
 
