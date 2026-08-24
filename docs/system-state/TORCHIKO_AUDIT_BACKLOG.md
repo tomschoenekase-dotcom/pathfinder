@@ -87,17 +87,17 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **No** for policy text; **yes** for implementation after approval.
 
-### P1.4 — Deliver P0/P1 operational events outside the admin UI
+### P1.4 — Deliver P0/P1 operational events outside the admin UI — IMPLEMENTED BUT EXTERNAL GATED 2026-08-24
 
-- **Problem:** The event center is persistent and deduplicated but passive. Email/SMS/push/Slack/webhook delivery types exist without a dispatcher.
-- **Evidence:** `OperationalEvent`/`OperationalEventDelivery` in `schema.prisma`; `packages/db/src/helpers/operational-events.ts`; attention console; no delivery producer/worker found.
+- **Outcome:** Tenant-owned operational events have a dark-by-default operator-email route with severity policy, destination hashing, durable materialization, deduplication, bounded batch processing, exponential retry, terminal suppression, sanitized append-only attempt audit, a non-production development sink, and a recurring BullMQ worker. Activation now fails configuration validation unless the provider-worker runtime, Redis, explicit sender/recipient, and Resend credential are all present; external and development routes cannot be selected ambiguously.
+- **Evidence:** `OperationalEvent`/`OperationalEventDelivery`/`OperationalEventDeliveryAttempt` in `schema.prisma`; `packages/db/src/helpers/operational-event-deliveries.ts`; `apps/workers/src/processors/operational-event-delivery.ts`; worker scheduler integration; `docs/operational-event-delivery.md`; config, routing, processor, retry, suppression, batch-bound, and default-dark tests.
 - **Affected system:** Incident response, agents, evaluations, chat, voice, intake/support.
-- **Recommended change:** Select one channel (operator email or Slack), implement subscription policy, transactional outbox/worker, retry/suppression/dedupe, delivery audit, test mode, and escalation timing.
-- **Why it matters:** An inbox nobody is looking at does not protect live venues.
+- **Retained gates:** No external route is enabled here. Recipient selection, minimum severity, credentials, staging/live delivery proof, quiet-hours/escalation policy, and any channel beyond operator email remain owner/configuration decisions. Platform-owned pre-conversion CRM/provider events remain Founder Control Room-only and are not claimed as externally delivered.
+- **Why it matters:** The delivery capability exists without inventing a wake-up policy or permitting accidental outbound alerts.
 - **Effort:** M
-- **Dependencies:** Channel/provider choice, recipient policy, secrets, quiet-hours/escalation decisions.
+- **Dependencies:** Owner-selected recipient/severity, provider credentials, and an authorized staging delivery canary for activation.
 - **Before more venue acquisition:** **Yes** for high-severity events.
-- **Codex autonomous:** **Partly**; provider/account decisions require Tom.
+- **Codex autonomous:** **Implemented** for the local dark-by-default route and fail-closed configuration; external activation and escalation policy require Tom.
 
 ### P1.5 — Expand health from connectivity to service readiness — PARTIALLY IMPLEMENTED 2026-08-24
 

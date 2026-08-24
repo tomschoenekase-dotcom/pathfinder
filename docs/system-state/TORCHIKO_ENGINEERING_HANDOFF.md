@@ -127,9 +127,9 @@ Direct provider mode is text-only. Tool use and specialist delegation require th
 
 ### Events, quality, analytics and reports
 
-- Operational events: `packages/db/src/helpers/operational-events.ts`, event models, admin attention console.
-- Producers currently include chat, voice, evaluation regression and knowledge proposals.
-- `OperationalEventDelivery` is schema ahead of runtime; no multichannel dispatcher exists.
+- Operational events: tenant/platform helpers and models plus the admin attention console.
+- Producers include chat, voice, evaluation regression, knowledge proposals, CRM, and provider health.
+- Tenant events have a dark-by-default operator-email route with durable delivery/attempt state, a BullMQ worker, bounded retry/suppression, and a non-production sink. No external route is enabled or provider-proven here; platform-owned events and other advertised channels remain in-app or unimplemented.
 - Evaluations: contracts in `packages/contracts/src/evaluation.ts`; DB helpers; admin evaluation modules; `apps/workers/src/processors/evaluation-run.ts` and dispatch.
 - Analytics: `packages/analytics`, `packages/api/src/routers/analytics.ts`, daily rollup/answer analysis/enrichment processors.
 - Reports: report configuration/lifecycle in API/DB; `weekly-report.ts`, `weekly-digest.ts`; client sees only published reports.
