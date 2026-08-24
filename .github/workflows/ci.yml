@@ -205,7 +205,19 @@ jobs:
       - name: Install the pinned Chromium runtime for visual smoke tests
         run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
       - name: Verify phone, tablet, and desktop core-product rendering
-        run: pnpm test:visual-browser
+        run: |
+          set -o pipefail
+          visual_log="$(mktemp)"
+          if ! pnpm test:visual-browser 2>&1 | tee "$visual_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Responsive browser gate failed::$safe_line"
+            done < <(tail -n 80 "$visual_log")
+            exit 1
+          fi
       - name: Build and verify browser bundles contain no server secrets
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
