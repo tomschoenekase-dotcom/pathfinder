@@ -36,6 +36,12 @@ revisions, delta digests, release-report hash, migration-chain hash, approved no
 resource identities, required owner actions, and retained production/customer/billing/data gates.
 Re-run it after any candidate or staging-base change; never reuse a manifest for another revision.
 
+Release verification writes a secret-free `release-progress` JSON line to stderr when verification
+starts, whenever a gate starts or completes, every 30 seconds while a gate is still running, and
+when the complete assessment finishes. Each event includes the immutable revision, profile, gate
+position, and elapsed time. The final machine-readable summary remains the single stdout line, and
+progress reporting never changes a gate result or grants release authority.
+
 ## Current service boundaries
 
 - Staging project: `serene-inspiration`

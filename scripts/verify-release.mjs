@@ -3,6 +3,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import {
+  createReleaseProgressReporter,
   parseReleaseVerificationArgs,
   runReleaseVerification,
 } from './lib/release-verification.mjs'
@@ -26,6 +27,7 @@ try {
     requestedRevision: options.revision,
     reportPath: options.report,
     repositoryState,
+    progressReporter: createReleaseProgressReporter(process.stderr),
   })
   process.stdout.write(
     `${JSON.stringify({

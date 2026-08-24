@@ -5,6 +5,7 @@ import path from 'node:path'
 import { validateReleaseSha, verifyStagingHealth } from './staging-health-admission.mjs'
 
 const PROFILES = new Set(['static', 'candidate', 'staging'])
+export const DEFAULT_RELEASE_HEARTBEAT_INTERVAL_MS = 30_000
 
 const staticGates = [
   ['repository-onboarding', ['pnpm', 'repository:index:verify']],
@@ -90,6 +91,20 @@ export function defaultCommandRunner(command, args, { cwd }) {
   })
 }
 
+export function createReleaseProgressReporter(stream = process.stderr) {
+  return (event) => {
+    stream.write(`release-progress ${JSON.stringify(event)}\n`)
+  }
+}
+
+function safeReportProgress(progressReporter, event) {
+  try {
+    progressReporter(event)
+  } catch {
+    // Progress is best-effort observability and must not change release-gate outcomes.
+  }
+}
+
 async function readPolicy(root) {
   const source = await readFile(path.join(root, 'scripts/release-verification-policy.json'), 'utf8')
   const policy = JSON.parse(source)
@@ -113,7 +128,15 @@ export async function runReleaseVerification({
   repositoryState,
   stagingVerifier = verifyStagingHealth,
   now = () => new Date(),
+  elapsedNow = Date.now,
+  progressReporter = () => {},
+  heartbeatIntervalMs = DEFAULT_RELEASE_HEARTBEAT_INTERVAL_MS,
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval,
 }) {
+  if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs <= 0) {
+    fail('invalid-heartbeat-interval')
+  }
   const policy = await readPolicy(root)
   const state = await repositoryState()
   validateReleaseSha(state.revision)
@@ -123,42 +146,79 @@ export async function runReleaseVerification({
   }
   const revision = requestedRevision ?? state.revision
   const gates = []
+  const plannedGates = buildReleaseGates(profile)
+  const totalGates = 1 + plannedGates.length + (profile === 'staging' ? 1 : 0)
+  const verificationStarted = elapsedNow()
+  const commonProgress = { schemaVersion: 1, profile, revision, totalGates }
 
-  gates.push({
-    id: 'clean-worktree',
-    status: state.clean ? 'pass' : 'fail',
-    durationMs: 0,
+  safeReportProgress(progressReporter, {
+    ...commonProgress,
+    event: 'verification-started',
   })
 
-  for (const [id, [command, ...args]] of buildReleaseGates(profile)) {
-    const started = Date.now()
-    const result = await commandRunner(command, args, { cwd: root })
-    gates.push({
-      id,
-      status: result.code === 0 ? 'pass' : 'fail',
-      durationMs: Date.now() - started,
+  async function observeGate(id, index, execute) {
+    const started = elapsedNow()
+    safeReportProgress(progressReporter, {
+      ...commonProgress,
+      event: 'gate-started',
+      gateId: id,
+      gateIndex: index,
+      elapsedMs: 0,
     })
-    if (result.code !== 0) break
+    const heartbeat = setIntervalImpl(() => {
+      safeReportProgress(progressReporter, {
+        ...commonProgress,
+        event: 'gate-heartbeat',
+        gateId: id,
+        gateIndex: index,
+        elapsedMs: Math.max(0, elapsedNow() - started),
+      })
+    }, heartbeatIntervalMs)
+    try {
+      const status = await execute()
+      const durationMs = Math.max(0, elapsedNow() - started)
+      safeReportProgress(progressReporter, {
+        ...commonProgress,
+        event: 'gate-completed',
+        gateId: id,
+        gateIndex: index,
+        elapsedMs: durationMs,
+        status,
+      })
+      return { id, status, durationMs }
+    } finally {
+      clearIntervalImpl(heartbeat)
+    }
+  }
+
+  gates.push(await observeGate('clean-worktree', 1, async () => (state.clean ? 'pass' : 'fail')))
+
+  for (const [gateOffset, [id, [command, ...args]]] of plannedGates.entries()) {
+    const result = await observeGate(id, gateOffset + 2, async () => {
+      const commandResult = await commandRunner(command, args, { cwd: root })
+      return commandResult.code === 0 ? 'pass' : 'fail'
+    })
+    gates.push(result)
+    if (result.status !== 'pass') break
   }
 
   if (profile === 'staging' && gates.every((gate) => gate.status === 'pass')) {
-    const started = Date.now()
-    try {
-      await stagingVerifier({
-        healthUrl: policy.staging.healthUrl,
-        expectedRevision: revision,
-        confirmEnvironment: 'staging',
-        confirmHost: policy.staging.host,
-        expectedResources: policy.staging.resources,
-      })
-      gates.push({ id: 'exact-staging-health', status: 'pass', durationMs: Date.now() - started })
-    } catch {
-      gates.push({
-        id: 'exact-staging-health',
-        status: 'blocked',
-        durationMs: Date.now() - started,
-      })
-    }
+    gates.push(
+      await observeGate('exact-staging-health', totalGates, async () => {
+        try {
+          await stagingVerifier({
+            healthUrl: policy.staging.healthUrl,
+            expectedRevision: revision,
+            confirmEnvironment: 'staging',
+            confirmHost: policy.staging.host,
+            expectedResources: policy.staging.resources,
+          })
+          return 'pass'
+        } catch {
+          return 'blocked'
+        }
+      }),
+    )
   }
 
   const summary = {
@@ -198,5 +258,14 @@ export async function runReleaseVerification({
   await mkdir(path.dirname(jsonPath), { recursive: true })
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'w' })
   await writeFile(markdownPath, markdownReport(report), { flag: 'w' })
+  safeReportProgress(progressReporter, {
+    ...commonProgress,
+    event: 'verification-completed',
+    elapsedMs: Math.max(0, elapsedNow() - verificationStarted),
+    readiness,
+    passed: summary.passed,
+    failed: summary.failed,
+    blocked: summary.blocked,
+  })
   return { report, jsonPath, markdownPath }
 }

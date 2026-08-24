@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   buildReleaseGates,
+  createReleaseProgressReporter,
   defaultCommandRunner,
   parseReleaseVerificationArgs,
   runReleaseVerification,
@@ -63,6 +64,13 @@ test('default runner contains command startup failures as a failed gate', async 
   )
 })
 
+test('progress reporter emits one prefixed JSON line without changing the event', () => {
+  let output = ''
+  const event = { schemaVersion: 1, event: 'gate-started', gateId: 'test' }
+  createReleaseProgressReporter({ write: (value) => (output += value) })(event)
+  assert.equal(output, `release-progress ${JSON.stringify(event)}\n`)
+})
+
 async function expectCode(resultPromise) {
   const result = await resultPromise
   assert.equal(result.code, 1)
@@ -100,6 +108,69 @@ test('verification stops at first failed gate and never claims readiness', async
   assert.equal(result.report.readiness, 'not-ready')
   assert.equal(result.report.summary.failed, 1)
   assert.equal(calls, 2)
+})
+
+test('verification reports ordered gate progress and heartbeats without changing failure policy', async () => {
+  const root = await fixture()
+  const events = []
+  let activeHeartbeat
+  let elapsedMs = 0
+  const cleared = []
+  const result = await runReleaseVerification({
+    root,
+    profile: 'static',
+    repositoryState: async () => ({ revision: SHA, clean: true }),
+    commandRunner: async () => {
+      elapsedMs = 31_000
+      activeHeartbeat()
+      elapsedMs = 31_250
+      return { code: 1 }
+    },
+    elapsedNow: () => elapsedMs,
+    progressReporter: (event) => events.push(event),
+    setIntervalImpl: (callback, interval) => {
+      assert.equal(interval, 30_000)
+      activeHeartbeat = callback
+      return callback
+    },
+    clearIntervalImpl: (timer) => cleared.push(timer),
+  })
+
+  assert.equal(result.report.readiness, 'not-ready')
+  assert.deepEqual(
+    events.map(({ event, gateId, gateIndex, status }) => [event, gateId, gateIndex, status]),
+    [
+      ['verification-started', undefined, undefined, undefined],
+      ['gate-started', 'clean-worktree', 1, undefined],
+      ['gate-completed', 'clean-worktree', 1, 'pass'],
+      ['gate-started', 'repository-onboarding', 2, undefined],
+      ['gate-heartbeat', 'repository-onboarding', 2, undefined],
+      ['gate-completed', 'repository-onboarding', 2, 'fail'],
+      ['verification-completed', undefined, undefined, undefined],
+    ],
+  )
+  assert.equal(events[4].elapsedMs, 31_000)
+  assert.equal(events[5].elapsedMs, 31_250)
+  assert.equal(events[0].totalGates, 15)
+  assert.equal(cleared.length, 2)
+})
+
+test('invalid heartbeat intervals fail before any release gate executes', async () => {
+  const root = await fixture()
+  let inspected = false
+  await assert.rejects(
+    runReleaseVerification({
+      root,
+      profile: 'static',
+      heartbeatIntervalMs: 0,
+      repositoryState: async () => {
+        inspected = true
+        return { revision: SHA, clean: true }
+      },
+    }),
+    /invalid-heartbeat-interval/u,
+  )
+  assert.equal(inspected, false)
 })
 
 test('staging is blocked rather than green when exact hosted proof is unavailable', async () => {
