@@ -96,6 +96,8 @@ import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
 import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
+import { adminSupportReversionApprovalRouter } from './support-package-reversion-approval'
+import { supportPackageRollbackManifestDigest } from '../../lib/support-package-reversion-actions'
 
 const testRouter = router({
   agentOperations: mergeRouters(
@@ -107,6 +109,7 @@ const testRouter = router({
     adminSupportCompletionApprovalRouter,
     adminSupportDraftApprovalRouter,
     adminSupportApplicationApprovalRouter,
+    adminSupportReversionApprovalRouter,
   ),
 })
 
@@ -967,6 +970,104 @@ describe('admin agent operations router', () => {
           supportHandoff,
         },
         approvalDecisionId: 'decision_package_application_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('issues exact package reversion authority without executing rollback or changing support', async () => {
+    const expectedUpdatedAt = '2030-01-02T00:00:00.000Z'
+    const appliedAt = '2030-01-01T00:00:00.000Z'
+    const appliedEntities = { rollbackContractVersion: 1, schemaVersion: 3, knowledgeEntries: [] }
+    const rollbackManifestDigest = supportPackageRollbackManifestDigest(appliedEntities)
+    const supportHandoff = {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 4,
+    }
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_package_reversion_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_package_reversion',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        expectedUpdatedAt,
+        fromStatus: 'APPLIED',
+        toStatus: 'REVERTED',
+        payloadHash: 'a'.repeat(64),
+        baseDigest: 'b'.repeat(64),
+        rollbackManifestDigest,
+        appliedAt,
+        appliedBy: 'agent_application_1',
+        appliedCommandKey: '88888888-8888-4888-8888-888888888888',
+        supportHandoff,
+        supportRequestVersion: 6,
+        supportRequestStatus: 'IN_REVIEW',
+        currentContentMutation: true,
+        visitorVisibleChangePossible: true,
+        canonicalDriftCheckRequired: true,
+        automaticRollbackPolicyApplied: false,
+        supportRequestChanged: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.transactionPackageFindFirst.mockResolvedValue({
+      status: 'APPLIED',
+      updatedAt: new Date(expectedUpdatedAt),
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      appliedEntities,
+      appliedAt: new Date(appliedAt),
+      appliedBy: 'agent_application_1',
+      appliedCommandKey: '88888888-8888-4888-8888-888888888888',
+      supportHandoffs: [
+        {
+          supportRequestId: 'request_1',
+          requestVersion: 4,
+          supportRequest: { version: 6, status: 'IN_REVIEW' },
+        },
+      ],
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_package_reversion_1' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_package_reversion_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportPackageReversionProposal({
+        operationId: '99999999-9999-4999-8999-999999999999',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_package_reversion_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_package_reversion_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_reversion',
+        capability: 'packages:revert',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({
+          effect: 'EXACT_APPLIED_SUPPORT_PACKAGE_CANONICAL_REVERSION',
+          canonicalDriftCheckRequired: true,
+          automaticRollbackPolicyIncluded: false,
+          supportRequestChangeIncluded: false,
+          customerContactIncluded: false,
+        }),
+        parameters: expect.objectContaining({
+          packageId: 'package_1',
+          rollbackManifestDigest,
+          supportRequestVersion: 6,
+          supportRequestStatus: 'IN_REVIEW',
+        }),
+        approvalDecisionId: 'decision_package_reversion_1',
       }),
       expect.anything(),
     )

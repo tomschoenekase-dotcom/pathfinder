@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   decidePackageDraft: vi.fn(),
   decidePackageApproval: vi.fn(),
   decidePackageApplication: vi.fn(),
+  decidePackageReversion: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -24,6 +25,7 @@ vi.mock('../../lib/trpc', () => ({
       decideSupportPackageDraftProposal: { mutate: mocks.decidePackageDraft },
       decideSupportPackageApprovalProposal: { mutate: mocks.decidePackageApproval },
       decideSupportPackageApplicationProposal: { mutate: mocks.decidePackageApplication },
+      decideSupportPackageReversionProposal: { mutate: mocks.decidePackageReversion },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -284,6 +286,38 @@ describe('ApprovalDecisionForm', () => {
     )
     expect(mocks.decidePackageApplication).toHaveBeenCalledWith({
       operationId: '88888888-8888-4888-8888-888888888888',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+  })
+
+  it('issues exact canonical rollback authority without executing or creating automatic policy', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '99999999-9999-4999-8999-999999999999',
+    )
+    mocks.decidePackageReversion.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_package_reversion"
+      />,
+    )
+    expect(screen.getByText(/canonical drift-checked rollback/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/no automatic rollback policy was created/)).toBeTruthy(),
+    )
+    expect(mocks.decidePackageReversion).toHaveBeenCalledWith({
+      operationId: '99999999-9999-4999-8999-999999999999',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       approvalRequestId: 'approval_1',

@@ -101,9 +101,9 @@ function requireLifecycleActor(kind: LifecycleKind, actor: VenuePackageLifecycle
   try {
     const verified = parseVerifiedActorContext(actor)
     if (
-      kind === 'apply' &&
+      (kind === 'apply' || kind === 'revert') &&
       verified.type === 'AGENT' &&
-      verified.capability === 'packages:apply' &&
+      verified.capability === (kind === 'apply' ? 'packages:apply' : 'packages:revert') &&
       verified.approvalGrantId &&
       verified.idempotencyKey
     ) {
@@ -114,7 +114,7 @@ function requireLifecycleActor(kind: LifecycleKind, actor: VenuePackageLifecycle
   }
   throw new VenuePackageLifecycleError(
     'INVALID_INPUT',
-    'Agent venue-package application requires verified packages:apply capability, approval grant, and idempotency lineage',
+    `Agent venue-package ${kind} requires verified packages:${kind} capability, approval grant, and idempotency lineage`,
   )
 }
 

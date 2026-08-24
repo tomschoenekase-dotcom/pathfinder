@@ -112,6 +112,17 @@ worker, credential, grant, model, and idempotency lineage to the verified agent.
 converges and parameter drift fails closed. The grant includes no support completion, customer
 contact, external delivery, or revert authority; each remains separate.
 
+Support-linked package reversion is a fourth, recovery-only boundary. The
+`packages:revert` proposal freezes one exact unchanged `APPLIED` package, its rollback-manifest
+digest, immutable handoff, and the current version/status of an active `OPEN` or `IN_REVIEW`
+support request. Completed requests are rejected so fulfillment history is not silently
+invalidated. Founder approval issues one exact one-shot grant and executes nothing. Only
+`pathfinder.apply_support_package_reversion` may consume it, and execution delegates to the
+canonical rollback lifecycle, which independently refuses unsafe content drift. Replay converges;
+package, manifest, request, handoff, parameter, or decision drift fails closed. This grant creates
+no automatic rollback policy and includes no support-state change, customer contact, or external
+delivery authority.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.

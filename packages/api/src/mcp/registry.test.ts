@@ -15,6 +15,7 @@ const credential: VerifiedMcpCredentialScope = {
     'packages:draft',
     'packages:approve',
     'packages:apply',
+    'packages:revert',
     'evaluations:request',
     'questions:ask',
     'delegations:create',
@@ -59,6 +60,8 @@ function actions(): PathfinderMcpDomainActions {
     applySupportPackageApproval: vi.fn().mockResolvedValue(result),
     proposeSupportPackageApplication: vi.fn().mockResolvedValue(result),
     applySupportPackageApplication: vi.fn().mockResolvedValue(result),
+    proposeSupportPackageReversion: vi.fn().mockResolvedValue(result),
+    applySupportPackageReversion: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
@@ -557,6 +560,59 @@ describe('PathFinder MCP server-side adapter registry', () => {
       expect.objectContaining({ credential }),
     )
     expect(domain.applySupportPackageApplication).toHaveBeenCalledOnce()
+  })
+
+  it('routes package-reversion proposals inertly and requires packages:revert execution authority', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const common = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '99999999-9999-4999-8999-999999999999',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      packageId: 'package-1',
+      expectedUpdatedAt: '2030-01-02T00:00:00.000Z',
+    }
+    await registry.callTool(
+      'pathfinder.propose_support_package_reversion',
+      { ...common, reason: 'The applied package needs exact founder rollback review.' },
+      { credential },
+    )
+    expect(domain.proposeSupportPackageReversion).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+    await registry.callTool(
+      'pathfinder.apply_support_package_reversion',
+      {
+        ...common,
+        payloadHash: 'a'.repeat(64),
+        baseDigest: 'b'.repeat(64),
+        rollbackManifestDigest: 'c'.repeat(64),
+        appliedAt: '2030-01-01T00:00:00.000Z',
+        appliedBy: 'agent-application-1',
+        appliedCommandKey: '88888888-8888-4888-8888-888888888888',
+        supportHandoff: {
+          handoffId: 'handoff-1',
+          supportRequestId: 'request-1',
+          supportRequestVersion: 5,
+        },
+        supportRequestVersion: 7,
+        supportRequestStatus: 'IN_REVIEW',
+      },
+      { credential, approvalGrantId: 'grant-package-reversion-1' },
+    )
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-package-reversion-1',
+        toolName: 'pathfinder.apply_support_package_reversion',
+        capability: 'packages:revert',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.applySupportPackageReversion).toHaveBeenCalledOnce()
   })
 
   it('allows a scoped operator question without converting it into an approval or write grant', async () => {

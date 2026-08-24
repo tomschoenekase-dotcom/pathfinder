@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   SupportPackageApprovalApplyParameters,
   SupportPackageApplicationApplyParameters,
+  SupportPackageReversionApplyParameters,
   SupportPackageDraftApplyParameters,
 } from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
@@ -77,6 +78,7 @@ export const McpCapability = z.enum([
   'packages:draft',
   'packages:approve',
   'packages:apply',
+  'packages:revert',
   'support:draft',
   'support:open',
   'support:note',
@@ -810,6 +812,48 @@ export type McpSupportPackageApplicationApplyInput = z.infer<
   typeof McpSupportPackageApplicationApplyInput
 >
 
+const SupportPackageReversionFields = {
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  payloadHash: SupportPackageReversionApplyParameters.shape.payloadHash,
+  baseDigest: SupportPackageReversionApplyParameters.shape.baseDigest,
+  rollbackManifestDigest: SupportPackageReversionApplyParameters.shape.rollbackManifestDigest,
+  appliedAt: SupportPackageReversionApplyParameters.shape.appliedAt,
+  appliedBy: SupportPackageReversionApplyParameters.shape.appliedBy,
+  appliedCommandKey: SupportPackageReversionApplyParameters.shape.appliedCommandKey,
+  supportHandoff: SupportPackageReversionApplyParameters.shape.supportHandoff,
+  supportRequestVersion: SupportPackageReversionApplyParameters.shape.supportRequestVersion,
+  supportRequestStatus: SupportPackageReversionApplyParameters.shape.supportRequestStatus,
+}
+
+export const McpSupportPackageReversionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageReversionProposalInput = z.infer<
+  typeof McpSupportPackageReversionProposalInput
+>
+
+export const McpSupportPackageReversionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageReversionFields,
+}).strict()
+export type McpSupportPackageReversionApplyInput = z.infer<
+  typeof McpSupportPackageReversionApplyInput
+>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1132,6 +1176,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.apply_support_package_approval'
   | 'pathfinder.propose_support_package_application'
   | 'pathfinder.apply_support_package_application'
+  | 'pathfinder.propose_support_package_reversion'
+  | 'pathfinder.apply_support_package_reversion'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -2148,6 +2194,119 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'packages:apply', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_reversion',
+    title: 'Propose reversion of an applied support package',
+    description:
+      'Freeze one exact unchanged APPLIED support-linked package and active support request for founder review. This proposal does not alter venue content.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:revert', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_reversion',
+    title: 'Revert an exact applied support package',
+    description:
+      'Under one founder-issued one-shot grant, invoke the canonical drift-checked rollback for the exact reviewed package. It never contacts the customer or changes support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        baseDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        rollbackManifestDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        appliedAt: { type: 'string', format: 'date-time' },
+        appliedBy: { type: 'string', minLength: 1, maxLength: 191 },
+        appliedCommandKey: { type: 'string', format: 'uuid' },
+        supportHandoff: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['handoffId', 'supportRequestId', 'supportRequestVersion'],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestVersion: { type: 'integer', minimum: 1 },
+          },
+        },
+        supportRequestVersion: { type: 'integer', minimum: 1 },
+        supportRequestStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'payloadHash',
+        'baseDigest',
+        'rollbackManifestDigest',
+        'appliedAt',
+        'appliedBy',
+        'appliedCommandKey',
+        'supportHandoff',
+        'supportRequestVersion',
+        'supportRequestStatus',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:revert', 'approved-transition'),
     },
   },
   {

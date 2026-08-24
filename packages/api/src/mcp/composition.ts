@@ -8,6 +8,9 @@ import {
   SUPPORT_PACKAGE_APPLICATION_APPLY_ACTION,
   SUPPORT_PACKAGE_APPLICATION_CAPABILITY,
   SupportPackageApplicationApplyParameters,
+  SUPPORT_PACKAGE_REVERSION_APPLY_ACTION,
+  SUPPORT_PACKAGE_REVERSION_CAPABILITY,
+  SupportPackageReversionApplyParameters,
   SupportCompletionProposalApprovalSnapshot,
 } from '@pathfinder/contracts'
 import {
@@ -55,7 +58,15 @@ import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { prepareSupportPackageApprovalProposalAction } from '../lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from '../lib/support-package-application-actions'
-import { applyVenuePackageLifecycle, approveVenuePackageLifecycle } from '../lib/venue-package-core'
+import {
+  prepareSupportPackageReversionProposalAction,
+  supportPackageRollbackManifestDigest,
+} from '../lib/support-package-reversion-actions'
+import {
+  applyVenuePackageLifecycle,
+  approveVenuePackageLifecycle,
+  revertVenuePackageLifecycle,
+} from '../lib/venue-package-core'
 import { VenuePackagePayloadV3 } from '../schemas/venue-package'
 import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
@@ -90,6 +101,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_package_approval',
   'pathfinder.propose_support_package_application',
   'pathfinder.apply_support_package_application',
+  'pathfinder.propose_support_package_reversion',
+  'pathfinder.apply_support_package_reversion',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -185,6 +198,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportPackageApproval'
     | 'proposeSupportPackageApplication'
     | 'applySupportPackageApplication'
+    | 'proposeSupportPackageReversion'
+    | 'applySupportPackageReversion'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -228,6 +243,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportPackageApproval'
     | 'proposeSupportPackageApplication'
     | 'applySupportPackageApplication'
+    | 'proposeSupportPackageReversion'
+    | 'applySupportPackageReversion'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -2360,6 +2377,355 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           customerContacted: false,
           externalDeliveryTriggered: false,
           revertTriggered: false,
+        }),
+      }
+    },
+    async proposeSupportPackageReversion(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package-reversion proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_REVERSION_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified package-reversion worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified package-reversion worker run is unavailable')
+      const result = await prepareSupportPackageReversionProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          packageId: input.packageId,
+          expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: SUPPORT_PACKAGE_REVERSION_CAPABILITY,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-package-reversion.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'CRITICAL',
+            title: 'Applied support package needs founder rollback approval',
+            summary:
+              'An AI worker froze one exact APPLIED package and active request. Canonical execution will refuse unsafe content drift.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the exact rollback evidence. Approval issues one-shot reversion authority only and creates no automatic rollback policy.',
+            deduplicationKey: `support-package-reversion-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-package-reversion-proposal',
+        summary: result.replayed
+          ? 'Existing package-reversion proposal returned; current venue content remains unchanged.'
+          : 'Exact applied package prepared for founder rollback review; current venue content remains unchanged.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          packageId: result.snapshot.packageId,
+          packageStatus: 'APPLIED',
+          rollbackManifestDigest: result.snapshot.rollbackManifestDigest,
+          supportRequestId: result.snapshot.supportHandoff.supportRequestId,
+          supportRequestVersion: result.snapshot.supportRequestVersion,
+          supportRequestStatus: result.snapshot.supportRequestStatus,
+          replayed: result.replayed,
+          approvalRequired: true,
+          canonicalDriftCheckRequired: true,
+          automaticRollbackPolicyApplied: false,
+          currentContentMutation: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportPackageReversion(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package reversion requires venue scope')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const approvalGrantId = context.approvalGrantId
+      const parameters = SupportPackageReversionApplyParameters.parse({
+        clientId: context.credential.clientId,
+        venueId,
+        packageId: input.packageId,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        payloadHash: input.payloadHash,
+        baseDigest: input.baseDigest,
+        rollbackManifestDigest: input.rollbackManifestDigest,
+        appliedAt: input.appliedAt,
+        appliedBy: input.appliedBy,
+        appliedCommandKey: input.appliedCommandKey,
+        supportHandoff: input.supportHandoff,
+        supportRequestVersion: input.supportRequestVersion,
+        supportRequestStatus: input.supportRequestStatus,
+      })
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_REVERSION_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified package-reversion worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true, requestedOperation: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified package-reversion worker run is unavailable')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId,
+        capability: SUPPORT_PACKAGE_REVERSION_CAPABILITY,
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const grant = await tx.approvalGrant.findFirst({
+          where: {
+            id: approvalGrantId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: SUPPORT_PACKAGE_REVERSION_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_REVERSION_CAPABILITY,
+          },
+          select: { approvalDecision: { select: { decision: true, decidedByType: true } } },
+        })
+        if (
+          grant?.approvalDecision?.decision !== 'APPROVED' ||
+          grant.approvalDecision.decidedByType !== 'HUMAN'
+        ) {
+          throw new McpActionBindingError(
+            'Package reversion requires exact founder decision evidence',
+          )
+        }
+        const pkg = await tx.venuePackage.findFirst({
+          where: {
+            id: parameters.packageId,
+            tenantId: context.credential.tenantId,
+            venueId,
+          },
+          select: {
+            status: true,
+            updatedAt: true,
+            payloadHash: true,
+            baseDigest: true,
+            appliedEntities: true,
+            appliedAt: true,
+            appliedBy: true,
+            appliedCommandKey: true,
+            supportHandoffs: {
+              where: { id: parameters.supportHandoff.handoffId },
+              take: 1,
+              select: {
+                id: true,
+                supportRequestId: true,
+                requestVersion: true,
+                supportRequest: { select: { version: true, status: true } },
+              },
+            },
+          },
+        })
+        const handoff = pkg?.supportHandoffs[0]
+        if (
+          !pkg ||
+          pkg.status !== 'APPLIED' ||
+          pkg.updatedAt.toISOString() !== parameters.expectedUpdatedAt ||
+          pkg.payloadHash !== parameters.payloadHash ||
+          pkg.baseDigest !== parameters.baseDigest ||
+          supportPackageRollbackManifestDigest(pkg.appliedEntities) !==
+            parameters.rollbackManifestDigest ||
+          pkg.appliedAt?.toISOString() !== parameters.appliedAt ||
+          pkg.appliedBy !== parameters.appliedBy ||
+          pkg.appliedCommandKey !== parameters.appliedCommandKey ||
+          !handoff ||
+          handoff.supportRequestId !== parameters.supportHandoff.supportRequestId ||
+          handoff.requestVersion !== parameters.supportHandoff.supportRequestVersion ||
+          handoff.supportRequest.version !== parameters.supportRequestVersion ||
+          handoff.supportRequest.status !== parameters.supportRequestStatus
+        ) {
+          throw new McpActionBindingError('Founder-approved package reversion evidence changed')
+        }
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId,
+            operationId: input.operationId,
+            actionName: SUPPORT_PACKAGE_REVERSION_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_REVERSION_CAPABILITY,
+            parameters,
+            actor,
+            now,
+          },
+          sameTransaction,
+        )
+        const reverted = await revertVenuePackageLifecycle({
+          db: tx as never,
+          tenantId: context.credential.tenantId,
+          venueId,
+          actor,
+          command: {
+            id: parameters.packageId,
+            expectedUpdatedAt: new Date(parameters.expectedUpdatedAt),
+            commandKey: input.operationId,
+          },
+        })
+        if (reverted.status !== 'REVERTED' || reverted.payloadHash !== parameters.payloadHash) {
+          throw new McpActionBindingError('Reverted package outcome does not match exact authority')
+        }
+        const resultReference = `VenuePackage:${reverted.id}:${reverted.updatedAt.toISOString()}:REVERTED`
+        if (consumption.replayed) {
+          if (consumption.consumption.resultReference !== resultReference) {
+            throw new McpActionBindingError('Reverted package replay is incomplete')
+          }
+          return { reverted, replayed: true as const }
+        }
+        const action = await tx.agentAction.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentIdentityId: input.agentIdentityId,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            requestedOperation: run.requestedOperation,
+            actionName: 'torchiko.support.apply_package_reversion',
+            inputSummary: `Execute founder-approved canonical rollback for package ${reverted.id}.`,
+            inputReference: `ApprovalGrant:${approvalGrantId}`,
+            output: {
+              venuePackageId: reverted.id,
+              packageStatus: reverted.status,
+              canonicalDriftCheckPassed: true,
+              supportRequestChanged: false,
+              customerContacted: false,
+              externalDeliveryTriggered: false,
+            },
+            modelProvider: worker.modelProvider ?? null,
+            modelName: worker.modelName ?? null,
+            status: 'SUCCEEDED',
+            beforeVersionRef: `VenuePackage:${reverted.id}:${parameters.expectedUpdatedAt}:APPLIED`,
+            afterVersionRef: resultReference,
+          },
+          select: { id: true },
+        })
+        await tx.agentTimelineEvent.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentActionId: action.id,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            eventType: 'support-package-reversion.reverted',
+            message:
+              'The exact founder-approved package was reverted through the canonical drift-checked lifecycle.',
+            data: {
+              venuePackageId: reverted.id,
+              supportPackageHandoffId: handoff.id,
+              packageStatus: 'REVERTED',
+              canonicalDriftCheckPassed: true,
+              supportRequestChanged: false,
+              customerContacted: false,
+              externalDeliveryTriggered: false,
+            },
+          },
+        })
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference },
+        })
+        return { reverted, replayed: false as const }
+      })
+      return {
+        kind: 'torchiko.support-package-reverted',
+        summary: result.replayed
+          ? 'Existing founder-authorized package reversion returned; no duplicate rollback occurred.'
+          : 'Exact support-linked package reverted under founder-issued one-shot authority and canonical drift checks.',
+        data: jsonData({
+          packageId: result.reverted.id,
+          packageStatus: result.reverted.status,
+          replayed: result.replayed,
+          currentContentMutated: true,
+          visitorVisibleChangePossible: true,
+          canonicalDriftCheckPassed: true,
+          automaticRollbackPolicyApplied: false,
+          supportRequestChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
         }),
       }
     },

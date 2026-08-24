@@ -10,6 +10,7 @@ import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
 import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
+import { adminSupportReversionApprovalRouter } from './support-package-reversion-approval'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
@@ -95,6 +96,7 @@ export const adminRouter = mergeRouters(
   adminSupportCompletionApprovalRouter,
   adminSupportDraftApprovalRouter,
   adminSupportApplicationApprovalRouter,
+  adminSupportReversionApprovalRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,

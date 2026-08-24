@@ -21,6 +21,10 @@ const agentActor = {
   capability: 'packages:apply',
   idempotencyKey: 'command-1',
 } as const
+const reversionAgentActor = {
+  ...agentActor,
+  capability: 'packages:revert',
+} as const
 
 function record(status: string): {
   id: string
@@ -244,6 +248,44 @@ describe('venue package lifecycle actions', () => {
     )
     expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ actorType: 'AGENT' }) }),
+    )
+  })
+
+  it('permits a fully verified packages:revert agent for reversion only and preserves lineage', async () => {
+    const before = record('APPLIED')
+    const after = {
+      ...record('REVERTED'),
+      revertedBy: reversionAgentActor.actorId,
+      updatedAt: new Date(revision.getTime() + 1),
+    }
+    const { tx, load, client } = fixture([before, before, after])
+    await revertVenuePackageAction(
+      {
+        tenantId: 'tenant-1',
+        id: 'package-1',
+        expectedUpdatedAt: revision,
+        commandKey: 'command-1',
+        actor: reversionAgentActor,
+        load,
+        validate,
+        auditState,
+      },
+      client as never,
+    )
+    expect(tx.venuePackage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ revertedBy: 'agent-1', status: 'REVERTED' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          capability: 'packages:revert',
+          approvalGrantId: 'grant-1',
+          idempotencyKey: 'command-1',
+        }),
+      }),
     )
   })
 

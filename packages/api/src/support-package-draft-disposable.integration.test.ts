@@ -6,6 +6,7 @@ import {
   SupportCompletionApplyParameters,
   SupportPackageApprovalApplyParameters,
   SupportPackageApplicationApplyParameters,
+  SupportPackageReversionApplyParameters,
 } from '@pathfinder/contracts'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
@@ -65,7 +66,12 @@ import { supportAgentReviewedDraftFinalizer } from './lib/admin-reviewed-draft-f
 import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-package-evaluation'
 import { prepareSupportPackageApprovalProposalAction } from './lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from './lib/support-package-application-actions'
-import { applyVenuePackageLifecycle, approveVenuePackageLifecycle } from './lib/venue-package-core'
+import { prepareSupportPackageReversionProposalAction } from './lib/support-package-reversion-actions'
+import {
+  applyVenuePackageLifecycle,
+  approveVenuePackageLifecycle,
+  revertVenuePackageLifecycle,
+} from './lib/venue-package-core'
 import { VenuePackageDraftInput } from './schemas/venue-package'
 import { createVenuePackageDraftService } from './routers/venue-package'
 
@@ -1141,6 +1147,205 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         status: 'COMPLETED',
         version: request.version + 2,
         clientVersion: request.clientVersion + 1,
+      })
+
+      const reversionIdentityId = `identity-package-reversion-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: reversionIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `support-package-reversion.${suffix}`,
+          name: 'Support package reversion worker',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['packages:revert'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const reversionRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: reversionIdentityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'support.package-reversion.propose',
+          scopeSnapshot: { accessCapabilities: ['packages:revert'] },
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: new Date(),
+        },
+      })
+      const appliedRevision = await db.venuePackage.findUniqueOrThrow({
+        where: { id: applied.value.id },
+        select: { updatedAt: true },
+      })
+      const completedReversionOperationId = randomUUID()
+      const reversionActorBase = {
+        type: 'AGENT' as const,
+        actorId: reversionIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: reversionIdentityId,
+        agentRunId: reversionRun.id,
+        workerId: `reversion-worker-${suffix}`,
+        credentialId: `reversion-credential-${suffix}`,
+        capability: 'packages:revert',
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+      }
+      await expect(
+        prepareSupportPackageReversionProposalAction({
+          operationId: completedReversionOperationId,
+          tenantId,
+          venueId,
+          packageId: applied.value.id,
+          expectedUpdatedAt: appliedRevision.updatedAt,
+          reason: 'Completed support history must not be silently invalidated.',
+          evidence: [{ type: 'SupportRequest', id: request.id }],
+          actor: { ...reversionActorBase, idempotencyKey: completedReversionOperationId },
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('active') })
+
+      // Simulate an explicit human correction reopening this disposable fixture. The
+      // governed reversion path itself is intentionally unable to perform this transition.
+      const reopened = await db.supportRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'IN_REVIEW',
+          statusChangedAt: new Date(),
+          version: { increment: 1 },
+          updatedByKind: 'OPERATOR',
+          updatedById: operatorId,
+        },
+        select: { version: true },
+      })
+      const reversionProposalOperationId = randomUUID()
+      const reversionProposal = await prepareSupportPackageReversionProposalAction({
+        operationId: reversionProposalOperationId,
+        tenantId,
+        venueId,
+        packageId: applied.value.id,
+        expectedUpdatedAt: appliedRevision.updatedAt,
+        reason: 'Restore the exact pre-package state through canonical drift checks.',
+        evidence: [{ type: 'SupportRequest', id: request.id }],
+        actor: { ...reversionActorBase, idempotencyKey: reversionProposalOperationId },
+      })
+      expect(reversionProposal).toMatchObject({
+        replayed: false,
+        snapshot: {
+          fromStatus: 'APPLIED',
+          toStatus: 'REVERTED',
+          supportRequestVersion: reopened.version,
+          supportRequestStatus: 'IN_REVIEW',
+          canonicalDriftCheckRequired: true,
+          automaticRollbackPolicyApplied: false,
+          executionAuthorized: false,
+        },
+      })
+      const reversionDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: reversionProposalOperationId,
+        decision: 'APPROVED',
+        reason: 'Authorize this exact canonical rollback once.',
+        actor: { actorType: 'HUMAN', actorId: operatorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const reversionParameters = SupportPackageReversionApplyParameters.parse({
+        clientId: tenantId,
+        venueId,
+        packageId: reversionProposal.snapshot.packageId,
+        expectedUpdatedAt: reversionProposal.snapshot.expectedUpdatedAt,
+        payloadHash: reversionProposal.snapshot.payloadHash,
+        baseDigest: reversionProposal.snapshot.baseDigest,
+        rollbackManifestDigest: reversionProposal.snapshot.rollbackManifestDigest,
+        appliedAt: reversionProposal.snapshot.appliedAt,
+        appliedBy: reversionProposal.snapshot.appliedBy,
+        appliedCommandKey: reversionProposal.snapshot.appliedCommandKey,
+        supportHandoff: reversionProposal.snapshot.supportHandoff,
+        supportRequestVersion: reversionProposal.snapshot.supportRequestVersion,
+        supportRequestStatus: reversionProposal.snapshot.supportRequestStatus,
+      })
+      const reversionGrant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: reversionIdentityId,
+        actionName: 'pathfinder.apply_support_package_reversion',
+        capability: 'packages:revert',
+        mode: 'ONE_SHOT',
+        scope: {
+          contractVersion: 1,
+          tenantId,
+          venueId,
+          approvalRequestId: reversionProposalOperationId,
+          effect: 'EXACT_APPLIED_SUPPORT_PACKAGE_CANONICAL_REVERSION',
+        },
+        parameters: reversionParameters,
+        approvalDecisionId: reversionDecision.id,
+        issueReason: 'Execute this exact reviewed canonical rollback once.',
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const reversionOperationId = randomUUID()
+      const reversionActor = {
+        ...reversionActorBase,
+        approvalGrantId: reversionGrant.id,
+        idempotencyKey: reversionOperationId,
+      }
+      const revertCurrentContent = () =>
+        db.$transaction(async (tx) => {
+          const sameTransaction = {
+            $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+          } as never
+          const consumption = await consumeApprovalGrantAction(
+            {
+              tenantId,
+              venueId,
+              approvalGrantId: reversionGrant.id,
+              operationId: reversionOperationId,
+              actionName: 'pathfinder.apply_support_package_reversion',
+              capability: 'packages:revert',
+              parameters: reversionParameters,
+              actor: reversionActor,
+            },
+            sameTransaction,
+          )
+          const revertedPackage = await revertVenuePackageLifecycle({
+            db: tx as never,
+            tenantId,
+            venueId,
+            actor: reversionActor,
+            command: {
+              id: reversionParameters.packageId,
+              expectedUpdatedAt: new Date(reversionParameters.expectedUpdatedAt),
+              commandKey: reversionOperationId,
+            },
+          })
+          const resultReference = `VenuePackage:${revertedPackage.id}:${revertedPackage.updatedAt.toISOString()}:REVERTED`
+          if (consumption.replayed) {
+            expect(consumption.consumption.resultReference).toBe(resultReference)
+          } else {
+            await tx.approvalGrantConsumption.update({
+              where: { id: consumption.consumption.id },
+              data: { resultReference },
+            })
+          }
+          return { revertedPackage, replayed: consumption.replayed }
+        })
+      await expect(revertCurrentContent()).resolves.toMatchObject({
+        replayed: false,
+        revertedPackage: {
+          id: applied.value.id,
+          status: 'REVERTED',
+          revertedBy: reversionIdentityId,
+        },
+      })
+      await expect(revertCurrentContent()).resolves.toMatchObject({
+        replayed: true,
+        revertedPackage: { id: applied.value.id, status: 'REVERTED' },
       })
     })
   })

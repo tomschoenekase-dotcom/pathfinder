@@ -23,6 +23,8 @@ import {
   SupportPackageApprovalProposalSnapshot,
   SupportPackageApplicationApplyParameters,
   SupportPackageApplicationProposalSnapshot,
+  SupportPackageReversionApplyParameters,
+  SupportPackageReversionProposalSnapshot,
   defaultSupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
@@ -209,6 +211,74 @@ describe('support package application authority contract', () => {
       SupportPackageApplicationProposalSnapshot.parse({
         ...snapshot,
         visitorVisibleChangePossible: false,
+      }),
+    ).toThrow()
+  })
+})
+
+describe('support package reversion authority contract', () => {
+  const parameters = {
+    clientId: 'tenant_1',
+    venueId: 'venue_1',
+    packageId: 'package_1',
+    expectedUpdatedAt: '2030-01-02T00:00:00.000Z',
+    payloadHash: 'a'.repeat(64),
+    baseDigest: 'b'.repeat(64),
+    rollbackManifestDigest: 'c'.repeat(64),
+    appliedAt: '2030-01-01T00:00:00.000Z',
+    appliedBy: 'agent_1',
+    appliedCommandKey: '88888888-8888-4888-8888-888888888888',
+    supportHandoff: {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 4,
+    },
+    supportRequestVersion: 6,
+    supportRequestStatus: 'IN_REVIEW' as const,
+  }
+
+  it('freezes exact active-request and rollback evidence without reusable policy', () => {
+    expect(SupportPackageReversionApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportPackageReversionApplyParameters.parse({
+        ...parameters,
+        supportRequestStatus: 'COMPLETED',
+      }),
+    ).toThrow()
+  })
+
+  it('requires canonical drift checks and keeps the proposal inert', () => {
+    const snapshot = {
+      contractVersion: 1 as const,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      packageId: parameters.packageId,
+      expectedUpdatedAt: parameters.expectedUpdatedAt,
+      fromStatus: 'APPLIED' as const,
+      toStatus: 'REVERTED' as const,
+      payloadHash: parameters.payloadHash,
+      baseDigest: parameters.baseDigest,
+      rollbackManifestDigest: parameters.rollbackManifestDigest,
+      appliedAt: parameters.appliedAt,
+      appliedBy: parameters.appliedBy,
+      appliedCommandKey: parameters.appliedCommandKey,
+      supportHandoff: parameters.supportHandoff,
+      supportRequestVersion: parameters.supportRequestVersion,
+      supportRequestStatus: parameters.supportRequestStatus,
+      currentContentMutation: true as const,
+      visitorVisibleChangePossible: true as const,
+      canonicalDriftCheckRequired: true as const,
+      automaticRollbackPolicyApplied: false as const,
+      supportRequestChanged: false as const,
+      customerContacted: false as const,
+      externalDeliveryTriggered: false as const,
+      executionAuthorized: false as const,
+    }
+    expect(SupportPackageReversionProposalSnapshot.parse(snapshot)).toEqual(snapshot)
+    expect(() =>
+      SupportPackageReversionProposalSnapshot.parse({
+        ...snapshot,
+        automaticRollbackPolicyApplied: true,
       }),
     ).toThrow()
   })

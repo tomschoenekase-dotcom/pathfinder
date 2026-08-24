@@ -105,6 +105,14 @@ current venue content and may be visitor-visible; the executing agent receives f
 lineage while the earlier human approver remains preserved. Support completion, customer contact,
 external delivery, and revert are not included.
 
+`pathfinder.propose_support_package_reversion` and
+`pathfinder.apply_support_package_reversion` provide the separately governed recovery transition.
+Proposal requires `packages:revert`, live credential-bound worker/run lineage, one unchanged
+`APPLIED` support-linked package with rollback evidence, and an active `OPEN` or `IN_REVIEW`
+request. Completed cases fail closed. Founder approval issues one exact grant and changes nothing.
+Apply atomically consumes that grant and invokes the canonical content-drift-checked rollback.
+Support state, customer contact, external delivery, and automatic rollback policy are unavailable.
+
 `pathfinder.propose_support_completion` and `pathfinder.apply_support_completion` close the
 package-backed support loop only after fulfillment. Proposal requires an empty missing-information
 checklist and freezes exact applied identity for every package linked to the request; any unfinished
