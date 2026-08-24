@@ -178,14 +178,38 @@ The provider secret store—not a shell history, repository file, command argume
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `RAILWAY_ENVIRONMENT=staging`, the provider release SHA, the
 matching PathFinder release SHA, exact pooled/direct host and database confirmations, matching
 runtime/operator database resource identities, `PATHFINDER_ALLOW_STAGING_MIGRATIONS=1`,
-`PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only`, and a staging spend ceiling no greater than 10. The wrapper rejects the known production project, SHA drift, resource drift, host/database
-drift, non-synthetic policy, missing opt-in, or a larger ceiling before Prisma starts. Remove the
-one-run opt-in after a successful migration.
+an explicitly admitted staging data policy, and a staging spend ceiling no greater than 10. For
+disposable data, set `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only`. The wrapper rejects the
+known production project, SHA drift, resource drift, host/database drift, an unreviewed data policy,
+missing opt-in, or a larger ceiling before Prisma starts. Remove the one-run opt-in after a
+successful migration.
 
-This authorization is for an empty or already synthetic-only staging database. It does not permit
-restoring the production-lineage archive that was previously uploaded to the private staging
-container. Record migration output and a second no-pending result against the same release and
-resource identity.
+If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.
+Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remains blocked until the
+operator supplies all of the following secret-free evidence from a separately stored logical backup
+and a disposable restore rehearsal completed no more than 24 hours earlier:
+
+- `PATHFINDER_STAGING_BACKUP_RELEASE_SHA` — the exact release being admitted;
+- `PATHFINDER_STAGING_BACKUP_DATABASE_RESOURCE` — the same database resource being migrated;
+- `PATHFINDER_STAGING_BACKUP_STORAGE_RESOURCE` and the identical
+  `PATHFINDER_CONFIRM_STAGING_BACKUP_STORAGE_RESOURCE` — a non-production storage resource distinct
+  from the database resource;
+- `PATHFINDER_STAGING_BACKUP_LEDGER_COUNT` — the migration ledger count observed in the backup and
+  required to match the live predeploy ledger;
+- canonical UTC `PATHFINDER_STAGING_BACKUP_CREATED_AT` and
+  `PATHFINDER_STAGING_BACKUP_RESTORE_VERIFIED_AT` timestamps;
+- exact `PATHFINDER_STAGING_BACKUP_SHA256` and
+  `PATHFINDER_STAGING_BACKUP_RESTORE_PROOF_SHA256` digests.
+
+These fields attest evidence; they do not create the backup. Do not populate them from an unverified
+claim. Backup storage provisioning, credentials, and the restore rehearsal remain owner/external
+gates until a separate reviewed backup mechanism and resource are available. A missing, stale,
+misordered, cross-resource, same-resource, wrong-release, malformed, or ledger-mismatched proof stops
+before Prisma runs. This path does not authorize a staging reset, wipe, or production-lineage restore.
+
+Neither policy permits restoring the production-lineage archive that was previously uploaded to the
+private staging container. Record migration output and a second no-pending result against the same
+release and resource identity.
 
 The synthetic seed does not trust the `staging` label alone. Before a separately authorized
 synthetic seed, independently read the non-secret pooled host, direct host, and database name from

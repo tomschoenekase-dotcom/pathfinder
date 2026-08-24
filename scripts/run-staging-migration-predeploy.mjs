@@ -223,6 +223,13 @@ function remainingMigrationNames(rows, manifest) {
   return manifest.names.slice(rows.length)
 }
 
+export function assertBackupEvidenceMatchesLedger(admission, rows) {
+  if (admission.dataPolicy !== 'preserve-existing') return
+  if (!admission.backupEvidence || admission.backupEvidence.ledgerCount !== rows.length) {
+    fail('backup evidence ledger count does not match the target database')
+  }
+}
+
 async function assertVerifiedBaselineSchema(database, rows) {
   const weeklyRow = rows.find(
     ({ migration_name }) => migration_name === '20260413120000_add_weekly_digest',
@@ -319,7 +326,7 @@ function runPrismaDeploy(cli, schema, environment) {
 }
 
 async function main() {
-  assertStagingMigrationAdmission(process.env)
+  const admission = assertStagingMigrationAdmission(process.env)
   assertApprovedTarget(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
@@ -333,6 +340,7 @@ async function main() {
   try {
     const initialLedger = await ledgerRows(database)
     const initialState = ledgerState(initialLedger, manifest)
+    assertBackupEvidenceMatchesLedger(admission, initialLedger)
     await assertVerifiedBaselineSchema(database, initialLedger)
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {

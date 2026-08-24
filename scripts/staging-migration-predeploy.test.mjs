@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
   EXPECTED,
   VERIFIED_BASELINE_CHECKSUMS,
   assertApprovedTarget,
+  assertBackupEvidenceMatchesLedger,
   assertFrozenManifest,
   ledgerState,
   remainingMigrationNames,
@@ -35,6 +37,38 @@ test('accepts only the exact private Railway staging target', () => {
       /staging-migration-stop/u,
     )
   }
+})
+
+test('staging image pins the same exact migration approval as the predeploy', async () => {
+  const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
+  assert.match(
+    dockerfile,
+    new RegExp(`^ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${EXPECTED.approval}$`, 'mu'),
+  )
+})
+
+test('preserved-data backup evidence must match the live migration ledger boundary', () => {
+  const rows = Array.from({ length: EXPECTED.migrationCount }, () => ({}))
+  assert.doesNotThrow(() =>
+    assertBackupEvidenceMatchesLedger(
+      {
+        dataPolicy: 'preserve-existing',
+        backupEvidence: { ledgerCount: EXPECTED.migrationCount },
+      },
+      rows,
+    ),
+  )
+  assert.throws(
+    () =>
+      assertBackupEvidenceMatchesLedger(
+        { dataPolicy: 'preserve-existing', backupEvidence: { ledgerCount: 134 } },
+        rows,
+      ),
+    /backup evidence ledger count/u,
+  )
+  assert.doesNotThrow(() =>
+    assertBackupEvidenceMatchesLedger({ dataPolicy: 'synthetic-only', backupEvidence: null }, rows),
+  )
 })
 
 test('repository migration manifest remains frozen at the reviewed 159-file chain', async () => {
