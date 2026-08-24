@@ -5,16 +5,19 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { recordApprovalDecisionAction } from './approval-decisions'
+import { consumeApprovalGrantAction, issueApprovalGrantAction } from './approval-grants'
+import { triageSupportRequestAction } from './support-triage-actions'
 import { prepareSupportTriageProposalAction } from './support-triage-proposal-actions'
 
 const enabled =
-  process.env.RUN_SUPPORT_TRIAGE_PROPOSAL_DB_INTEGRATION === '1' &&
+  (process.env.RUN_SUPPORT_TRIAGE_PROPOSAL_DB_INTEGRATION === '1' ||
+    process.env.RUN_SUPPORT_TRIAGE_APPLICATION_DB_INTEGRATION === '1') &&
   /\/pathfinder_disposable_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? '')
 
 describe.skipIf(!enabled)('support triage proposal disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
 
-  it('preserves exact triage evidence while approval remains execution-free', async () => {
+  it('preserves exact review evidence and applies only the approved triage once', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)
       const tenantId = `tenant-support-triage-${suffix}`
@@ -119,7 +122,7 @@ describe.skipIf(!enabled)('support triage proposal disposable lifecycle', () => 
         replayed: false,
         approvalRequest: {
           id: operationId,
-          proposedAction: 'torchiko.support.triage',
+          proposedAction: 'pathfinder.apply_support_triage',
           scopeSnapshot: {
             requestId: request.id,
             expectedVersion: request.version,
@@ -137,12 +140,12 @@ describe.skipIf(!enabled)('support triage proposal disposable lifecycle', () => 
         approvalRequest: { id: operationId },
       })
 
-      await recordApprovalDecisionAction({
+      const decision = await recordApprovalDecisionAction({
         tenantId,
         venueId,
         approvalRequestId: operationId,
         decision: 'APPROVED',
-        reason: 'The recommendation is approved for separate human application.',
+        reason: 'The exact recommendation is approved for one-shot machine application.',
         actor: {
           actorType: 'HUMAN',
           actorId: 'integration-operator',
@@ -156,8 +159,145 @@ describe.skipIf(!enabled)('support triage proposal disposable lifecycle', () => 
           select: requestProjection,
         }),
       ).toEqual(before)
+
+      const parameters = {
+        clientId: tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version,
+        category: 'CONTENT_CORRECTION' as const,
+        missingInformation: ['Current admission price', 'Effective date'],
+      }
+      const grant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.apply_support_triage',
+        capability: 'support:triage',
+        mode: 'ONE_SHOT',
+        scope: {
+          contractVersion: 1,
+          tenantId,
+          venueId,
+          approvalRequestId: operationId,
+          effect: 'EXACT_TRIAGE_ONLY',
+        },
+        parameters,
+        approvalDecisionId: decision.id,
+        issueReason: 'Apply the exact approved synthetic support triage once.',
+        actor: { type: 'HUMAN', id: 'integration-operator', role: 'PLATFORM_ADMIN' },
+      })
+      const applicationOperationId = randomUUID()
+      const machineActor = {
+        type: 'AGENT' as const,
+        role: 'AGENT' as const,
+        actorId: identityId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: `worker-${suffix}`,
+        credentialId: `credential-${suffix}`,
+        approvalGrantId: grant.id,
+        capability: 'support:triage',
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+        idempotencyKey: applicationOperationId,
+      }
+      const applied = await db.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId,
+            venueId,
+            approvalGrantId: grant.id,
+            operationId: applicationOperationId,
+            actionName: 'pathfinder.apply_support_triage',
+            capability: 'support:triage',
+            parameters,
+            actor: machineActor,
+          },
+          sameTransaction,
+        )
+        const result = await triageSupportRequestAction(
+          {
+            tenantId,
+            venueId,
+            requestId: request.id,
+            expectedVersion: request.version,
+            category: parameters.category,
+            missingInformation: parameters.missingInformation,
+            actor: {
+              actorType: 'AGENT',
+              participantKind: 'AGENT',
+              actorId: identityId,
+              auditRole: 'AGENT',
+              agentIdentityId: identityId,
+              agentRunId: run.id,
+              workerId: machineActor.workerId,
+              credentialId: machineActor.credentialId,
+              approvalGrantId: grant.id,
+              capability: 'support:triage',
+              modelProvider: 'deterministic',
+              modelName: 'fixture',
+              idempotencyKey: applicationOperationId,
+            },
+          },
+          sameTransaction,
+        )
+        const resultReference = `SupportRequest:${result.id}:v${result.version}:TRIAGED`
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference },
+        })
+        return { result, resultReference }
+      })
+      expect(applied.result).toMatchObject({
+        id: request.id,
+        status: 'OPEN',
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current admission price', 'Effective date'],
+        version: request.version + 1,
+        clientVersion: request.clientVersion + 1,
+      })
+      await expect(
+        consumeApprovalGrantAction({
+          tenantId,
+          venueId,
+          approvalGrantId: grant.id,
+          operationId: applicationOperationId,
+          actionName: 'pathfinder.apply_support_triage',
+          capability: 'support:triage',
+          parameters,
+          actor: machineActor,
+        }),
+      ).resolves.toMatchObject({
+        replayed: true,
+        consumption: { resultReference: applied.resultReference },
+      })
+      await expect(
+        consumeApprovalGrantAction({
+          tenantId,
+          venueId,
+          approvalGrantId: grant.id,
+          operationId: applicationOperationId,
+          actionName: 'pathfinder.apply_support_triage',
+          capability: 'support:triage',
+          parameters: { ...parameters, category: 'BRANDING' },
+          actor: machineActor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+
       expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(0)
-      expect(await db.supportRequestAuditEvent.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(await db.supportRequestAuditEvent.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.supportRequestParticipant.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(
+        await db.approvalGrant.findUniqueOrThrow({
+          where: { id: grant.id },
+          select: { mode: true, useCount: true, maxUses: true },
+        }),
+      ).toEqual({ mode: 'ONE_SHOT', useCount: 1, maxUses: 1 })
       expect(
         await db.agentAction.count({
           where: {

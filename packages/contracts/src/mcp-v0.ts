@@ -607,6 +607,21 @@ export const McpSupportTriageProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportTriageProposalInput = z.infer<typeof McpSupportTriageProposalInput>
 
+export const McpSupportTriageApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  category: SupportRequestCategory,
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+}).strict()
+export type McpSupportTriageApplyInput = z.infer<typeof McpSupportTriageApplyInput>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -918,6 +933,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
+  | 'pathfinder.apply_support_triage'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1320,6 +1336,51 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'support:triage', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_triage',
+    title: 'Apply approved support triage',
+    description:
+      'Apply the exact reviewed category and missing-information change to one unchanged support request under a one-shot approval grant. It cannot send messages, add participants, change status, execute work, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        category: { type: 'string', enum: SupportRequestCategory.options },
+        missingInformation: {
+          type: 'array',
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'category',
+        'missingInformation',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:triage', 'approved-transition'),
+    },
   },
   {
     name: 'torchiko.locations.propose_draft',

@@ -43,17 +43,30 @@ export function ApprovalDecisionForm({
     setPending(true)
     setFeedback(null)
     try {
-      const result = await client.admin.recordApprovalDecision.mutate({
-        tenantId,
-        venueId,
-        approvalRequestId,
-        decision,
-        ...(reason.trim() ? { reason: reason.trim() } : {}),
-      })
+      const result =
+        proposedAction === 'pathfinder.apply_support_triage'
+          ? await client.admin.decideSupportTriageProposal.mutate({
+              operationId: crypto.randomUUID(),
+              tenantId,
+              venueId,
+              approvalRequestId,
+              decision,
+              ...(reason.trim() ? { reason: reason.trim() } : {}),
+            })
+          : await client.admin.recordApprovalDecision.mutate({
+              tenantId,
+              venueId,
+              approvalRequestId,
+              decision,
+              ...(reason.trim() ? { reason: reason.trim() } : {}),
+            })
       if (result.executionTriggered !== false) throw new Error('Unexpected execution state')
       setFeedback({
         kind: 'success',
-        text: `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
+        text:
+          proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'
+            ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
+            : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
       })
       setRequiresRefresh(true)
       router.refresh()
@@ -114,8 +127,9 @@ export function ApprovalDecisionForm({
     >
       <p className="font-semibold text-amber-950">Record a terminal decision</p>
       <p className="mt-1 text-xs leading-5 text-amber-900">
-        Approval records evidence only. It does not run, apply, publish, retry, or enqueue “
-        {proposedAction}”.
+        {proposedAction === 'pathfinder.apply_support_triage'
+          ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
+          : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
       </p>
       <fieldset disabled={pending || requiresRefresh} className="mt-3">
         <legend className="sr-only">Decision</legend>

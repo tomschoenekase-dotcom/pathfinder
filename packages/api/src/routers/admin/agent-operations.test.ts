@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   approvalRequestFindMany: vi.fn(),
   approvalRequestFindFirst: vi.fn(),
   approvalGrantFindMany: vi.fn(),
+  transactionApprovalFindFirst: vi.fn(),
+  dbTransaction: vi.fn(),
   issueApprovalGrant: vi.fn(),
   revokeApprovalGrant: vi.fn(),
   recordDecision: vi.fn(),
@@ -65,6 +67,7 @@ vi.mock('@pathfinder/db', () => ({
   enableAgentIdentity: mocks.enableIdentity,
   withTenantIsolationBypass: mocks.bypass,
   db: {
+    $transaction: mocks.dbTransaction,
     agentIdentity: {
       findMany: mocks.agentIdentityFindMany,
       findFirst: mocks.agentIdentityFindFirst,
@@ -112,7 +115,14 @@ function context(isPlatformAdmin = true): TRPCContext {
 }
 
 describe('admin agent operations router', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.dbTransaction.mockImplementation(async (operation) =>
+      operation({
+        approvalRequest: { findFirst: mocks.transactionApprovalFindFirst },
+      }),
+    )
+  })
 
   it('rejects a non-admin before entering the tenant isolation bypass', async () => {
     await expect(
@@ -425,6 +435,106 @@ describe('admin agent operations router', () => {
       maxUses: 1,
       actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
     })
+  })
+
+  it('records one support-triage approval and derives exact one-shot authority from its snapshot', async () => {
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_triage',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 4,
+        proposedCategory: 'CONTENT_CORRECTION',
+        proposedMissingInformation: ['Current exhibit label photograph'],
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        customerContacted: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_1', decision: 'APPROVED' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_1', replayed: false })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportTriageProposal({
+        operationId: '47444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_1',
+        decision: 'APPROVED',
+        reason: 'Evidence and exact category reviewed.',
+      })
+    expect(result).toMatchObject({ executionTriggered: false, approvalGrant: { id: 'grant_1' } })
+    expect(mocks.recordDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_1',
+        decision: 'APPROVED',
+        actor: { actorType: 'HUMAN', actorId: 'operator_1', auditRole: 'PLATFORM_ADMIN' },
+      }),
+      expect.anything(),
+    )
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: '47444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentIdentityId: 'agent_1',
+        actionName: 'pathfinder.apply_support_triage',
+        capability: 'support:triage',
+        mode: 'ONE_SHOT',
+        approvalDecisionId: 'decision_1',
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'request_1',
+          expectedVersion: 4,
+          category: 'CONTENT_CORRECTION',
+          missingInformation: ['Current exhibit label photograph'],
+        },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('records rejected support triage without issuing execution authority', async () => {
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_triage',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 4,
+        proposedCategory: 'GENERAL',
+        proposedMissingInformation: [],
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        customerContacted: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_1', decision: 'REJECTED' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportTriageProposal({
+        operationId: '48444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_1',
+        decision: 'REJECTED',
+      })
+    expect(result).toMatchObject({ approvalGrant: null, executionTriggered: false })
+    expect(mocks.issueApprovalGrant).not.toHaveBeenCalled()
   })
 
   it('issues exactly one evidence-backed attachment-free internal support note', async () => {

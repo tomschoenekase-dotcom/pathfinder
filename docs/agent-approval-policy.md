@@ -46,6 +46,14 @@ The Founder Control Room always issues this policy with `maxUses: 1`. The canoni
 records full machine/grant lineage while leaving client version/activity, participants, request
 status, triage, and package lifecycle unchanged. Customer-visible replies remain human-only.
 
+Support triage uses the exact-parameter approval path rather than a reusable policy. The proposal
+freezes request ID/version, category, and the normalized missing-information list. One founder
+decision records approval and atomically issues a one-shot grant for those exact parameters while
+performing no triage itself. `pathfinder.apply_support_triage` then consumes that grant and uses the
+canonical CAS-protected triage action. It increments the support request and client versions once,
+but cannot change status, add participants, send messages, contact the customer, execute a package,
+or authorize later work. Replays return the recorded result and parameter drift fails closed.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.

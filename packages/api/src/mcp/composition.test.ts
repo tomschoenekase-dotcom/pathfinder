@@ -13,6 +13,7 @@ const {
   prepareCustomerAccess,
   prepareLocationDraft,
   prepareSupportTriage,
+  triageSupport,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
   publishEvent,
@@ -32,6 +33,7 @@ const {
   prepareCustomerAccess: vi.fn(),
   prepareLocationDraft: vi.fn(),
   prepareSupportTriage: vi.fn(),
+  triageSupport: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
   prepareLocationDraftProposalAction: prepareLocationDraft,
   prepareSupportTriageProposalAction: prepareSupportTriage,
+  triageSupportRequestAction: triageSupport,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
@@ -335,6 +338,101 @@ describe('safe operational MCP composition', () => {
         }),
       }),
     )
+  })
+
+  it('consumes exact one-shot authority and applies only the approved support triage fields', async () => {
+    consumeApproval.mockResolvedValue({
+      consumption: { id: 'consumption-1', resultReference: null },
+      replayed: false,
+    })
+    triageSupport.mockResolvedValue({
+      id: 'support-1',
+      status: 'OPEN',
+      category: 'CONTENT_CORRECTION',
+      missingInformation: ['Current exhibit label photograph'],
+      version: 4,
+      clientVersion: 8,
+    })
+    const tx = {
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
+      supportRequest: { findFirst: vi.fn() },
+    }
+    const database = {
+      approvalGrant: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'grant-1', maxUses: 1, useCount: 0 }),
+      },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (operation: (value: typeof tx) => unknown) => operation(tx)),
+    }
+    const triageCredential = {
+      ...credential,
+      capabilities: ['support:triage'],
+    } satisfies VerifiedMcpCredentialScope
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.apply_support_triage',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '45444444-4444-4444-8444-444444444444',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        requestId: 'support-1',
+        expectedVersion: 3,
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current exhibit label photograph'],
+      },
+      { credential: triageCredential, approvalGrantId: 'grant-1' },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-1',
+        actionName: 'pathfinder.apply_support_triage',
+        capability: 'support:triage',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          requestId: 'support-1',
+          expectedVersion: 3,
+          category: 'CONTENT_CORRECTION',
+          missingInformation: ['Current exhibit label photograph'],
+        },
+      }),
+      expect.anything(),
+    )
+    expect(triageSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'support-1',
+        expectedVersion: 3,
+        actor: expect.objectContaining({
+          approvalGrantId: 'grant-1',
+          capability: 'support:triage',
+          workerId: 'worker-1',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-triage-applied',
+      data: {
+        status: 'OPEN',
+        version: 4,
+        replayed: false,
+        messageSent: false,
+        customerContacted: false,
+        participantGranted: false,
+        lifecycleChanged: false,
+        executionTriggered: false,
+      },
+    })
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {

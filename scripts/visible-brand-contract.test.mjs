@@ -16,6 +16,28 @@ const explicitFiles = [
 
 const technicalAllowlist = new Map([
   [
+    'apps/dashboard/components/admin/ApprovalDecisionForm.tsx',
+    new Set([
+      "proposedAction === 'pathfinder.apply_support_triage'",
+      "proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'",
+      "{proposedAction === 'pathfinder.apply_support_triage'",
+    ]),
+  ],
+  [
+    'packages/contracts/src/agent-approval-policy.ts',
+    new Set([
+      "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
+    ]),
+  ],
+  [
+    'packages/contracts/src/mcp-v0.ts',
+    new Set(["| 'pathfinder.apply_support_triage'", "name: 'pathfinder.apply_support_triage',"]),
+  ],
+  [
+    'packages/api/src/mcp/registry.ts',
+    new Set(["case 'pathfinder.apply_support_triage': {", "'pathfinder.apply_support_triage',"]),
+  ],
+  [
     'packages/ui/src/brand.test.ts',
     new Set([
       "['PathFinder Staging QA', 'Torchiko Staging QA'],",

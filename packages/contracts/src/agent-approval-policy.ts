@@ -6,6 +6,8 @@ export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_dr
 export const SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY = 'support:draft' as const
 export const SUPPORT_REQUEST_OPEN_POLICY_ACTION = 'pathfinder.open_support_request' as const
 export const SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY = 'support:open' as const
+export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const
+export const SUPPORT_TRIAGE_APPLY_CAPABILITY = 'support:triage' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -167,6 +169,48 @@ export function defaultSupportRequestOpenPolicyConstraints(): SupportRequestOpen
     allowedToStatuses: ['OPEN'],
   }
 }
+
+/** Exact one-shot authority derived from an approved triage proposal. This is
+ * intentionally not a reusable policy: every category and missing-information
+ * change must match the reviewed proposal and request version. */
+export const SupportTriageApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    category: SupportRequestDraftCategory,
+    missingInformation: z
+      .array(z.string().trim().min(1).max(500))
+      .max(30)
+      .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+  })
+  .strict()
+
+export type SupportTriageApplyParameters = z.infer<typeof SupportTriageApplyParameters>
+
+export const SupportTriageProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    proposedCategory: SupportRequestDraftCategory,
+    proposedMissingInformation: z
+      .array(z.string().trim().min(1).max(500))
+      .max(30)
+      .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+    supportRequestChanged: z.literal(false),
+    clientActivityChanged: z.literal(false),
+    customerContacted: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportTriageProposalApprovalSnapshot = z.infer<
+  typeof SupportTriageProposalApprovalSnapshot
+>
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this
  * policy at one use; no attachment, customer visibility, or lifecycle effect is permitted. */

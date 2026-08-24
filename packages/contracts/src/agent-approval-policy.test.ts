@@ -13,6 +13,8 @@ import {
   defaultSupportRequestOpenPolicyConstraints,
   SupportRequestOpenPolicyConstraints,
   SupportRequestOpenPolicyParameters,
+  SupportTriageApplyParameters,
+  SupportTriageProposalApprovalSnapshot,
   defaultSupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
@@ -112,6 +114,36 @@ describe('support request open policy contract', () => {
     expect(() =>
       SupportRequestOpenPolicyParameters.parse({ ...parameters, sendMessage: true }),
     ).toThrow()
+  })
+})
+
+describe('support triage approval contract', () => {
+  it('freezes one exact reviewed request version without communication or lifecycle authority', () => {
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 3,
+      category: 'CONTENT_CORRECTION' as const,
+      missingInformation: ['Current exhibit label photograph'],
+    }
+    expect(SupportTriageApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(() => SupportTriageApplyParameters.parse({ ...parameters, sendMessage: true })).toThrow()
+    expect(
+      SupportTriageProposalApprovalSnapshot.parse({
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 3,
+        proposedCategory: 'CONTENT_CORRECTION',
+        proposedMissingInformation: ['Current exhibit label photograph'],
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        customerContacted: false,
+        executionAuthorized: false,
+      }),
+    ).toMatchObject({ requestId: 'request_1', expectedVersion: 3 })
   })
 })
 

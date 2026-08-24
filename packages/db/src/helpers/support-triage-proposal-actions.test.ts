@@ -34,7 +34,7 @@ function harness() {
     venueId: input.venueId,
     agentIdentityId: input.actor.agentIdentityId,
     agentRunId: input.actor.agentRunId,
-    proposedAction: 'torchiko.support.triage',
+    proposedAction: 'pathfinder.apply_support_triage',
     scopeSnapshot: {},
     reason: input.reason,
     createdAt: new Date(),
@@ -75,7 +75,7 @@ describe('support triage proposal action', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           id: input.operationId,
-          proposedAction: 'torchiko.support.triage',
+          proposedAction: 'pathfinder.apply_support_triage',
           riskCategory: 'LOW',
           scopeSnapshot: {
             contractVersion: 1,
@@ -135,7 +135,7 @@ describe('support triage proposal action', () => {
       venueId: input.venueId,
       agentIdentityId: input.actor.agentIdentityId,
       agentRunId: input.actor.agentRunId,
-      proposedAction: 'torchiko.support.triage',
+      proposedAction: 'pathfinder.apply_support_triage',
       scopeSnapshot: {
         contractVersion: 1,
         tenantId: input.tenantId,
@@ -205,7 +205,7 @@ describe('support triage proposal action', () => {
       venueId: input.venueId,
       agentIdentityId: input.actor.agentIdentityId,
       agentRunId: input.actor.agentRunId,
-      proposedAction: 'torchiko.support.triage',
+      proposedAction: 'pathfinder.apply_support_triage',
       scopeSnapshot: { different: true },
       artifacts: input.evidence,
       reason: input.reason,

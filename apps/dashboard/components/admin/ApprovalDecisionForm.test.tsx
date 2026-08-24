@@ -3,11 +3,17 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), query: vi.fn(), refresh: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  decideTriage: vi.fn(),
+  query: vi.fn(),
+  refresh: vi.fn(),
+}))
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       recordApprovalDecision: { mutate: mocks.mutate },
+      decideSupportTriageProposal: { mutate: mocks.decideTriage },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -19,6 +25,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 describe('ApprovalDecisionForm', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     vi.clearAllMocks()
   })
 
@@ -74,5 +81,38 @@ describe('ApprovalDecisionForm', () => {
       expect(screen.getByRole('alert').textContent).toContain('could not be confirmed'),
     )
     expect(screen.getByRole('button', { name: 'Refresh approval state' })).toBeTruthy()
+  })
+
+  it('turns an approved triage proposal into exact one-shot authority without executing it', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '22222222-2222-4222-8222-222222222222',
+    )
+    mocks.decideTriage.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_triage"
+      />,
+    )
+    expect(screen.getByText(/issues exact one-shot authority/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/Exact one-shot triage authority was issued/)).toBeTruthy(),
+    )
+    expect(mocks.decideTriage).toHaveBeenCalledWith({
+      operationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
 })

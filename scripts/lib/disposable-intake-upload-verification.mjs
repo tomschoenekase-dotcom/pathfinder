@@ -736,24 +736,29 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
   })
 }
 
-export async function runDisposableSupportTriageProposalShakedown(options = {}) {
+export async function runDisposableSupportTriageApplicationShakedown(options = {}) {
   return runDisposableServiceShakedown({
     ...options,
     configuration: {
       resourceFamily: 'supporttriage',
       databasePrefix: 'pathfinder_disposable_support_triage_',
       optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_SUPPORT_TRIAGE_SHAKEDOWN',
-      lifecycleEvent: 'test:support-triage-proposal:disposable',
-      successAction: 'support-triage-proposal.disposable-shakedown.passed',
+      lifecycleEvent: 'test:support-triage-application:disposable',
+      successAction: 'support-triage-application.disposable-shakedown.passed',
       proofScope: [
         'exact-request-version',
         'evidence-backed-recommendation',
         'idempotent-replay',
-        'human-review-only-approval',
-        'no-support-request-mutation',
-        'no-client-activity',
+        'human-approval-before-authority',
+        'exact-one-shot-grant',
+        'approved-triage-only',
+        'optimistic-version-enforcement',
+        'client-version-single-increment',
+        'no-status-change',
+        'no-participant-grant',
+        'no-message',
         'no-customer-contact',
-        'no-execution-authority',
+        'no-package-execution',
       ],
       integration: {
         packageDirectory: 'packages/db',
@@ -761,6 +766,7 @@ export async function runDisposableSupportTriageProposalShakedown(options = {}) 
         expectedPassed: 1,
         environment: {
           RUN_SUPPORT_TRIAGE_PROPOSAL_DB_INTEGRATION: '1',
+          RUN_SUPPORT_TRIAGE_APPLICATION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
@@ -774,6 +780,9 @@ export async function runDisposableSupportTriageProposalShakedown(options = {}) 
     },
   })
 }
+
+export const runDisposableSupportTriageProposalShakedown =
+  runDisposableSupportTriageApplicationShakedown
 
 export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
   return runDisposableServiceShakedown({

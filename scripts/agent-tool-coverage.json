@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 404,
-    "sha256": "03f5ece636a6e92bfbd16e8ccbcec118d06ca9e95e56fa677fdd9850cf6c8f7d",
+    "count": 405,
+    "sha256": "b8c8020b817653f794c4e102b1ad567b0a394ed962a1aeb47de1d9ad0d23c6bc",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "03f5ece636a6e92bfbd16e8ccbcec118d06ca9e95e56fa677fdd9850cf6c8f7d",
-      "sha256": "39be5d6f399490a3269e028227e02055242e8c6bdf9a345ecaa0e60af6d837a2"
+      "operationInventorySha256": "b8c8020b817653f794c4e102b1ad567b0a394ed962a1aeb47de1d9ad0d23c6bc",
+      "sha256": "d923c27eb8eccac06b5677ec65f77f2b5e7d8bb225ba911a736e65b76ca3fcca"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -265,12 +265,15 @@
         "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
       },
       {
-        "id": "bounded-support-triage-proposal",
+        "id": "bounded-support-triage-lifecycle",
         "kind": "bounded-alternative",
         "operations": ["admin.triageSupportRequest"],
-        "surfaces": ["tool:pathfinder.propose_support_triage"],
-        "decision": "The machine tool prepares an exact-version, evidence-backed category and missing-information recommendation for human review. It cannot mutate the support request, change client activity, contact a customer, or authorize execution.",
-        "evidence": "packages/db/src/helpers/support-triage-proposal-actions.test.ts"
+        "surfaces": [
+          "tool:pathfinder.propose_support_triage",
+          "tool:pathfinder.apply_support_triage"
+        ],
+        "decision": "The proposal tool prepares exact-version, evidence-backed triage without mutation. The separate application tool can consume only a human-approved, exact-parameter one-shot grant against the unchanged request version; it changes category and missing-information only, with no message, participant, status, customer-contact, package, or later-action authority.",
+        "evidence": "packages/db/src/helpers/support-triage-proposal-disposable.integration.test.ts"
       },
       {
         "id": "bounded-update-reads",

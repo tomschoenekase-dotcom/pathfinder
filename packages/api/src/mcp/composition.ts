@@ -25,6 +25,7 @@ import {
   recordAgentImprovementValidationAction,
   prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
+  triageSupportRequestAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
@@ -55,6 +56,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
+  'pathfinder.apply_support_triage',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -106,6 +108,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
+    | 'applySupportTriage'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -138,6 +141,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
+    | 'applySupportTriage'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1202,12 +1206,12 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
             severity: 'WARNING',
             title: 'Support triage needs review',
             summary:
-              'An AI worker prepared structured support triage. The request and client activity remain unchanged until a human separately applies triage.',
+              'An AI worker prepared structured support triage. The request and client activity remain unchanged until a human approves and the exact one-shot action is separately applied.',
             actionRequired: true,
             linkedObjectType: 'approval-request',
             linkedObjectId: result.approvalRequest.id,
             recommendedAction:
-              'Review the proposed category, missing information, evidence, and exact request version before separately applying triage.',
+              'Review the proposed category, missing information, evidence, and exact request version. Approval issues only one-shot authority; application remains separate.',
             deduplicationKey: `support-triage-proposal:${result.approvalRequest.id}`,
           },
         }).catch(() => undefined)
@@ -1228,6 +1232,159 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           clientActivityChanged: false,
           customerContacted: false,
           executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportTriage(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support triage application requires venue scope')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:triage' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified support-triage worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified support-triage worker run is unavailable')
+      const actor = {
+        actorType: 'AGENT' as const,
+        participantKind: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        auditRole: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'support:triage' as const,
+        ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+        ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        idempotencyKey: input.operationId,
+      }
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        category: input.category,
+        missingInformation: input.missingInformation,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.apply_support_triage',
+            capability: 'support:triage',
+            parameters,
+            actor: {
+              type: 'AGENT',
+              role: 'AGENT',
+              actorId: input.agentIdentityId,
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:triage',
+              ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+              ...(worker.modelName ? { modelName: worker.modelName } : {}),
+              idempotencyKey: input.operationId,
+            },
+            now,
+          },
+          sameTransaction,
+        )
+        if (consumption.replayed) {
+          const expectedReference = `SupportRequest:${input.requestId}:v${input.expectedVersion + 1}:TRIAGED`
+          if (consumption.consumption.resultReference !== expectedReference) {
+            throw new McpActionBindingError('Approved support triage replay is incomplete')
+          }
+          const request = await tx.supportRequest.findFirst({
+            where: {
+              id: input.requestId,
+              tenantId: context.credential.tenantId,
+              venueId,
+              version: input.expectedVersion + 1,
+              category: input.category,
+              missingInformation: { equals: input.missingInformation },
+            },
+            select: {
+              id: true,
+              category: true,
+              missingInformation: true,
+              status: true,
+              version: true,
+              clientVersion: true,
+            },
+          })
+          if (!request) throw new McpActionBindingError('Triaged support request is unavailable')
+          return { request, replayed: true as const }
+        }
+        const request = await triageSupportRequestAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            requestId: input.requestId,
+            expectedVersion: input.expectedVersion,
+            category: input.category,
+            missingInformation: input.missingInformation,
+            actor,
+          },
+          sameTransaction,
+        )
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: {
+            resultReference: `SupportRequest:${request.id}:v${request.version}:TRIAGED`,
+          },
+        })
+        return { request, replayed: false as const }
+      })
+      return {
+        kind: 'torchiko.support-triage-applied',
+        summary: result.replayed
+          ? 'Existing approved support triage result returned; no message or lifecycle action was performed.'
+          : 'Exact approved support triage applied; no message was sent and lifecycle state is unchanged.',
+        data: jsonData({
+          requestId: result.request.id,
+          category: result.request.category,
+          missingInformation: result.request.missingInformation,
+          status: result.request.status,
+          version: result.request.version,
+          clientVersion: result.request.clientVersion,
+          replayed: result.replayed,
+          messageSent: false,
+          customerContacted: false,
+          participantGranted: false,
+          lifecycleChanged: false,
+          executionTriggered: false,
         }),
       }
     },

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SUPPORT_TRIAGE_APPLY_ACTION } from '@pathfinder/contracts'
 
 import { MachineActorContext } from '@pathfinder/contracts/actor'
 import { SupportRequestCategory } from '@pathfinder/contracts/support-workflow'
@@ -155,7 +156,7 @@ export async function prepareSupportTriageProposalAction(
           existing.venueId !== parsed.venueId ||
           existing.agentIdentityId !== parsed.actor.agentIdentityId ||
           existing.agentRunId !== parsed.actor.agentRunId ||
-          existing.proposedAction !== 'torchiko.support.triage' ||
+          existing.proposedAction !== SUPPORT_TRIAGE_APPLY_ACTION ||
           existing.reason !== parsed.reason ||
           !exactJson(existing.scopeSnapshot, snapshot) ||
           !exactJson(existing.artifacts, parsed.evidence)
@@ -239,7 +240,7 @@ export async function prepareSupportTriageProposalAction(
           agentRunId: run.id,
           requestedByType: 'AGENT',
           requestedById: identity.id,
-          proposedAction: 'torchiko.support.triage',
+          proposedAction: SUPPORT_TRIAGE_APPLY_ACTION,
           scopeSnapshot: snapshot,
           reason: parsed.reason,
           riskCategory: 'LOW',

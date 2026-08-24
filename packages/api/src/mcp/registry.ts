@@ -26,6 +26,7 @@ import {
   McpSupportOpenInput,
   McpSupportInternalNoteInput,
   McpSupportTriageProposalInput,
+  McpSupportTriageApplyInput,
   McpToolResult,
   McpUpdateDraftInput,
   McpWeeklyReportDraftInput,
@@ -130,6 +131,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeSupportTriage: (
     input: McpSupportTriageProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  applySupportTriage: (
+    input: McpSupportTriageApplyInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeAgentImprovement: (
@@ -340,6 +345,19 @@ export function createPathfinderMcpRegistry(
           const input = McpSupportTriageProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
           result = await actions.proposeSupportTriage(input, context)
+          break
+        }
+        case 'pathfinder.apply_support_triage': {
+          const input = McpSupportTriageApplyInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.apply_support_triage',
+            input,
+            metadata.capability,
+            context,
+          )
+          result = await actions.applySupportTriage(input, context)
           break
         }
         case 'torchiko.agent_improvements.propose': {
