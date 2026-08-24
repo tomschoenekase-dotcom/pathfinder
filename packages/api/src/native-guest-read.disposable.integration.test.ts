@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
@@ -12,9 +12,11 @@ vi.mock('@pathfinder/config', () => ({
   env: { OPENAI_API_KEY: 'provider-dark-test-key' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
-vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn().mockResolvedValue(undefined) }))
+const analyticsMocks = vi.hoisted(() => ({ emitEvent: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@pathfinder/analytics', () => analyticsMocks)
 vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('./lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
+const embeddingMocks = vi.hoisted(() => ({ queryEmbedding: null as number[] | null }))
 vi.mock('./lib/guest-query-embedding', () => ({
   generateGuestQueryEmbedding: vi.fn(
     async (
@@ -26,7 +28,7 @@ vi.mock('./lib/guest-query-embedding', () => ({
       onBeforeFirstDispatch: (() => Promise<void>) | undefined,
     ) => {
       await onBeforeFirstDispatch?.()
-      return null
+      return embeddingMocks.queryEmbedding
     },
   ),
 }))
@@ -34,6 +36,7 @@ vi.mock('./lib/guest-query-embedding', () => ({
 import { logger } from '@pathfinder/config'
 import {
   applyNativeVenueDeploymentAction,
+  acquireEmbeddingWork,
   approveNativeVenueDeploymentAction,
   claimEvaluationRunAttempt,
   createOrReplayEvaluationRun,
@@ -43,6 +46,8 @@ import {
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
   recordNativeDeploymentEvaluationEvidenceAction,
+  storeKnowledgeEntryEmbeddingForScope,
+  storePlaceEmbeddingForScope,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
@@ -72,6 +77,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       const controlVenueId = `venue-guestread-control-${suffix}`
       const publicPlaceId = `place-public-${suffix}`
       const employeePlaceId = `place-employee-${suffix}`
+      const publicKnowledgeId = randomUUID()
+      const employeeKnowledgeId = randomUUID()
       const secondLayerKey = randomUUID()
       const actor = {
         type: 'HUMAN' as const,
@@ -143,6 +150,28 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             visibility: 'PUBLIC',
             importanceScore: 100,
             tags: ['control'],
+          },
+        ],
+      })
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          {
+            id: publicKnowledgeId,
+            tenantId,
+            venueId,
+            title: 'Native Public Arrival Guide',
+            category: 'ACCESSIBILITY',
+            content: 'Public semantic native knowledge says to use the east entrance.',
+            visibility: 'PUBLIC',
+          },
+          {
+            id: employeeKnowledgeId,
+            tenantId,
+            venueId,
+            title: 'Native Staff Arrival Procedure',
+            category: 'OPERATIONS',
+            content: 'Second-layer semantic native knowledge says to use the service entrance.',
+            visibility: 'SECOND_LAYER',
           },
         ],
       })
@@ -323,6 +352,99 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         db,
       )
 
+      const semanticEmbedding = Array(1_536).fill(0)
+      semanticEmbedding[0] = 1
+      const storePlaceEmbedding = async (placeId: string) => {
+        const place = await db.place.findFirstOrThrow({ where: { id: placeId, tenantId, venueId } })
+        const leaseToken = randomUUID()
+        const claim = await acquireEmbeddingWork({
+          tenantId,
+          venueId,
+          entityType: 'PLACE',
+          entityId: place.id,
+          contentUpdatedAt: place.updatedAt,
+          sourceHash: createHash('sha256')
+            .update(
+              [
+                place.name,
+                place.type,
+                place.shortDescription ?? '',
+                place.longDescription ?? '',
+              ].join('. '),
+            )
+            .digest('hex'),
+          embeddingProfile: 'openai:text-embedding-3-small:1536',
+          leaseToken,
+        })
+        if (claim.state !== 'acquired')
+          throw new Error(`Place embedding was not acquired: ${claim.state}`)
+        await expect(
+          storePlaceEmbeddingForScope({
+            placeId: place.id,
+            tenantId,
+            venueId,
+            contentUpdatedAt: place.updatedAt,
+            source: {
+              name: place.name,
+              type: place.type,
+              itemType: place.itemType,
+              shortDescription: place.shortDescription,
+              longDescription: place.longDescription,
+              tags: place.tags,
+              areaName: place.areaName,
+              hours: place.hours,
+              isActive: place.isActive,
+            },
+            embedding: semanticEmbedding,
+            claimId: claim.claimId,
+            leaseToken,
+          }),
+        ).resolves.toEqual({ claimCompleted: true, stored: true })
+      }
+      const storeKnowledgeEmbedding = async (entryId: string) => {
+        const entry = await db.venueKnowledgeEntry.findFirstOrThrow({
+          where: { id: entryId, tenantId, venueId },
+        })
+        const leaseToken = randomUUID()
+        const claim = await acquireEmbeddingWork({
+          tenantId,
+          venueId,
+          entityType: 'KNOWLEDGE_ENTRY',
+          entityId: entry.id,
+          contentUpdatedAt: entry.updatedAt,
+          sourceHash: createHash('sha256')
+            .update([entry.title, entry.category, entry.content].join('. '))
+            .digest('hex'),
+          embeddingProfile: 'openai:text-embedding-3-small:1536',
+          leaseToken,
+        })
+        if (claim.state !== 'acquired')
+          throw new Error(`Knowledge embedding was not acquired: ${claim.state}`)
+        await expect(
+          storeKnowledgeEntryEmbeddingForScope({
+            entryId: entry.id,
+            tenantId,
+            venueId,
+            contentUpdatedAt: entry.updatedAt,
+            source: {
+              title: entry.title,
+              category: entry.category,
+              content: entry.content,
+              isEnabled: entry.isEnabled,
+            },
+            embedding: semanticEmbedding,
+            claimId: claim.claimId,
+            leaseToken,
+          }),
+        ).resolves.toEqual({ claimCompleted: true, stored: true })
+      }
+      await Promise.all([
+        storePlaceEmbedding(publicPlaceId),
+        storePlaceEmbedding(employeePlaceId),
+        storeKnowledgeEmbedding(publicKnowledgeId),
+        storeKnowledgeEmbedding(employeeKnowledgeId),
+      ])
+
       const policy = (mode: 'DARK' | 'ACTIVE') => ({
         schemaVersion: 1,
         mode,
@@ -363,8 +485,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           ? { userId: actor.id, activeTenantId: tenantId, role: 'OWNER', isPlatformAdmin: false }
           : { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
       })
-      const promptAt = (index: number) =>
-        (anthropicCreate.mock.calls[index]![0].system as Array<{ text: string }>)
+      const latestPrompt = () =>
+        (anthropicCreate.mock.calls.at(-1)![0].system as Array<{ text: string }>)
           .map((block) => block.text)
           .join('')
       const send = async (input: { venueId?: string; employee?: boolean; secondLayer?: boolean }) =>
@@ -377,8 +499,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         })
 
       await send({})
-      expect(promptAt(0)).toContain('Native Public Gallery')
-      expect(promptAt(0)).not.toContain('Native Staff Room')
+      expect(latestPrompt()).toContain('Native Public Gallery')
+      expect(latestPrompt()).not.toContain('Native Staff Room')
       expect(logger.info).toHaveBeenLastCalledWith(
         expect.objectContaining({
           action: 'guest-chat.native-content-read',
@@ -389,8 +511,53 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       )
 
       await send({ employee: true, secondLayer: true })
-      expect(promptAt(1)).toContain('Native Public Gallery')
-      expect(promptAt(1)).toContain('Native Staff Room')
+      expect(latestPrompt()).toContain('Native Public Gallery')
+      expect(latestPrompt()).toContain('Native Staff Room')
+
+      embeddingMocks.queryEmbedding = semanticEmbedding
+      await send({})
+      expect(latestPrompt()).toContain('Native Public Gallery')
+      expect(latestPrompt()).toContain('Native Public Arrival Guide')
+      expect(latestPrompt()).toContain(
+        'Public semantic native knowledge says to use the east entrance.',
+      )
+      expect(latestPrompt()).not.toContain('Native Staff Room')
+      expect(latestPrompt()).not.toContain('Native Staff Arrival Procedure')
+      expect(logger.info).toHaveBeenLastCalledWith(
+        expect.objectContaining({ readPath: 'NATIVE', gateReason: 'NATIVE_READY' }),
+      )
+
+      await send({ employee: true, secondLayer: true })
+      expect(latestPrompt()).toContain('Native Public Gallery')
+      expect(latestPrompt()).toContain('Native Staff Room')
+      expect(latestPrompt()).toContain('Native Public Arrival Guide')
+      expect(latestPrompt()).toContain('Native Staff Arrival Procedure')
+
+      const lowConfidenceEmbedding = Array(1_536).fill(0)
+      lowConfidenceEmbedding[1] = 1
+      embeddingMocks.queryEmbedding = lowConfidenceEmbedding
+      analyticsMocks.emitEvent.mockClear()
+      await send({})
+      const lowConfidenceEvent = analyticsMocks.emitEvent.mock.calls.find(
+        (call) => (call[0] as { eventType?: string }).eventType === 'message.low_confidence',
+      )?.[0] as { metadata?: { score?: number } } | undefined
+      expect(lowConfidenceEvent?.metadata?.score).toBeGreaterThan(0.55)
+      await expect(
+        db.conversationInsight.count({
+          where: {
+            tenantId,
+            venueId,
+            category: { in: ['LOW_CONFIDENCE_ANSWER', 'KNOWLEDGE_GAP'] },
+          },
+        }),
+      ).resolves.toBe(2)
+      await expect(
+        db.operationalEvent.count({
+          where: { tenantId, venueId, eventType: 'knowledge.gap.detected' },
+        }),
+      ).resolves.toBe(1)
+
+      embeddingMocks.queryEmbedding = null
 
       await db.tenantFeatureFlag.update({
         where: { tenantId_flagKey: { tenantId, flagKey: nativeGuestReadTenantFlagKey(venueId) } },
@@ -402,7 +569,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       )
 
       await send({ venueId: controlVenueId })
-      expect(promptAt(3)).toContain('Legacy Control Gallery')
+      expect(latestPrompt()).toContain('Legacy Control Gallery')
       expect(logger.info).toHaveBeenLastCalledWith(
         expect.objectContaining({
           tenantId: controlTenantId,
@@ -430,7 +597,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         },
       })
       await send({})
-      expect(promptAt(4)).toContain(legacyOnlyName)
+      expect(latestPrompt()).toContain(legacyOnlyName)
       expect(logger.info).toHaveBeenLastCalledWith(
         expect.objectContaining({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' }),
       )
@@ -447,7 +614,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       } finally {
         process.env.NATIVE_GUEST_CONTENT_READ_ENABLED = 'true'
       }
-      expect(promptAt(5)).toContain('Kill Switch Compatibility Gallery')
+      expect(latestPrompt()).toContain('Kill Switch Compatibility Gallery')
       expect(vi.mocked(logger.info).mock.calls).toHaveLength(logCountBeforeKillSwitch)
     })
   }, 120_000)
