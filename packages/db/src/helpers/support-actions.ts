@@ -42,7 +42,7 @@ export type SupportActionActor =
       workerId?: string | undefined
       credentialId?: string | undefined
       approvalGrantId?: string | undefined
-      capability?: 'support:draft' | undefined
+      capability?: 'support:draft' | 'support:note' | undefined
       modelProvider?: string | undefined
       modelName?: string | undefined
       idempotencyKey?: string | undefined
@@ -82,7 +82,7 @@ const supportActionActor = z.union([
       workerId: scopedId.optional(),
       credentialId: scopedId.optional(),
       approvalGrantId: scopedId.optional(),
-      capability: z.literal('support:draft').optional(),
+      capability: z.enum(['support:draft', 'support:note']).optional(),
       modelProvider: scopedId.optional(),
       modelName: scopedId.optional(),
       idempotencyKey: z.string().uuid().optional(),
@@ -167,6 +167,24 @@ const appendSupportMessageActionInput = z
       (!isClient && value.expectedClientVersion !== undefined)
     )
       context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid support version field' })
+    if (
+      value.actor.participantKind === 'AGENT' &&
+      (value.visibility !== 'INTERNAL_ONLY' ||
+        value.attachments.length !== 0 ||
+        !value.actor.agentIdentityId ||
+        !value.actor.agentRunId ||
+        !value.actor.workerId ||
+        !value.actor.credentialId ||
+        !value.actor.approvalGrantId ||
+        value.actor.capability !== 'support:note' ||
+        !value.actor.idempotencyKey)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['actor'],
+        message: 'Agent support notes require complete machine lineage and internal-only content',
+      })
+    }
   })
 const createPreviewFeedbackRequestActionInput = z
   .object({
@@ -1159,23 +1177,61 @@ async function appendSupportMessageActionOnce(
       },
       select: { id: true },
     })
-    await writeAuditLogStrict(
-      {
-        tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: evidence.action,
-        targetType: 'SupportRequest',
-        targetId: request.id,
-        beforeState: { version: request.version },
-        afterState: {
-          version: nextVersion,
-          attachmentCount: attachments.length,
-          ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
-        },
+    const auditEvidence = {
+      tenantId: parsed.tenantId,
+      action: evidence.action,
+      targetType: 'SupportRequest',
+      targetId: request.id,
+      beforeState: { version: request.version },
+      afterState: {
+        version: nextVersion,
+        attachmentCount: attachments.length,
+        ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
+        ...(parsed.actor.participantKind === 'AGENT'
+          ? {
+              visibility: 'INTERNAL_ONLY',
+              customerContacted: false,
+              participantGranted: false,
+              statusChanged: false,
+              triageChanged: false,
+              packageLifecycleChanged: false,
+              executionTriggered: false,
+            }
+          : {}),
       },
-      tx,
-    )
+    }
+    if (parsed.actor.participantKind === 'AGENT') {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actor: {
+            type: 'AGENT' as const,
+            role: 'AGENT',
+            actorId: parsed.actor.actorId,
+            agentIdentityId: parsed.actor.agentIdentityId!,
+            agentRunId: parsed.actor.agentRunId!,
+            workerId: parsed.actor.workerId!,
+            credentialId: parsed.actor.credentialId!,
+            approvalGrantId: parsed.actor.approvalGrantId!,
+            capability: parsed.actor.capability!,
+            ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+            ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+            idempotencyKey: parsed.actor.idempotencyKey!,
+          },
+        },
+        tx,
+      )
+    } else {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actorId: parsed.actor.actorId,
+          actorRole: parsed.actor.auditRole,
+          actorType: parsed.actor.actorType,
+        },
+        tx,
+      )
+    }
     return {
       message,
       requestVersion: nextVersion,

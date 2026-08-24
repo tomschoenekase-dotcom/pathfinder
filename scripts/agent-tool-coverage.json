@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 403,
-    "sha256": "7d7c244cae186cab34256fd4c6c9ef7a78f15719045131b27b135788aaa896a6",
+    "count": 404,
+    "sha256": "03f5ece636a6e92bfbd16e8ccbcec118d06ca9e95e56fa677fdd9850cf6c8f7d",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "7d7c244cae186cab34256fd4c6c9ef7a78f15719045131b27b135788aaa896a6",
-      "sha256": "f8da016aeac63ec86d4c8b6827d80320284aa22a2eae55b8a89f1a6ccd15f31f"
+      "operationInventorySha256": "03f5ece636a6e92bfbd16e8ccbcec118d06ca9e95e56fa677fdd9850cf6c8f7d",
+      "sha256": "2cd8e8f8776f545452b9eb83f72b90420c0a4720e49822822b6241ae508a7c19"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -254,6 +254,14 @@
         "operations": ["admin.transitionSupportRequestStatus"],
         "surfaces": ["tool:pathfinder.open_support_request"],
         "decision": "The machine tool reuses the canonical status action but permits only one exact DRAFT-to-OPEN transition under evidence-backed one-use authority. It cannot add participants or messages, contact a customer, execute work, or perform later transitions.",
+        "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-internal-note",
+        "kind": "bounded-alternative",
+        "operations": ["admin.addSupportMessage"],
+        "surfaces": ["tool:pathfinder.add_support_internal_note"],
+        "decision": "The machine tool reuses the canonical support-message action but permits only one exact attachment-free INTERNAL_ONLY note under evidence-backed one-use authority. It cannot create customer-visible activity, add participants, change status or triage, or execute package lifecycle work.",
         "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
       },
       {

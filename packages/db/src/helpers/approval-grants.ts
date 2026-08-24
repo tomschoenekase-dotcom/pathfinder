@@ -18,6 +18,10 @@ import {
   SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY,
   SupportRequestOpenPolicyConstraints,
   SupportRequestOpenPolicyParameters,
+  SUPPORT_INTERNAL_NOTE_POLICY_ACTION,
+  SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY,
+  SupportInternalNotePolicyConstraints,
+  SupportInternalNotePolicyParameters,
   WEEKLY_REPORT_DRAFT_POLICY_ACTION,
   WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY,
   WeeklyReportDraftPolicyConstraints,
@@ -211,6 +215,19 @@ function validatePolicyConstraints(
     return parsed.data
   }
   if (
+    actionName === SUPPORT_INTERNAL_NOTE_POLICY_ACTION &&
+    capability === SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportInternalNotePolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support internal-note policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
     actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
     capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
   ) {
@@ -330,6 +347,33 @@ function assertPolicyParameters(
       throw new ApprovalGrantActionError(
         'PARAMETER_MISMATCH',
         'Action parameters are outside the reviewed support-request open policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === SUPPORT_INTERNAL_NOTE_POLICY_ACTION &&
+    input.capability === SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY
+  ) {
+    const policy = SupportInternalNotePolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support internal-note policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportInternalNotePolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedVisibilities.includes(parameters.data.visibility) ||
+      parameters.data.attachmentCount > policy.data.maxAttachments ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support internal-note policy',
       )
     }
     return

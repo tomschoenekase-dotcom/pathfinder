@@ -42,6 +42,7 @@ function policyLimits(constraints: unknown) {
     value.contractVersion !== 1 ||
     (value.effect !== 'DRAFT_ONLY' &&
       value.effect !== 'DRAFT_TO_OPEN_ONLY' &&
+      value.effect !== 'INTERNAL_NOTE_ONLY' &&
       value.effect !== 'PROPOSAL_ONLY' &&
       value.effect !== 'DRAFT_GENERATION_ONLY')
   )
@@ -60,6 +61,8 @@ function policyLimits(constraints: unknown) {
     }
   if (typeof value.maxNotesChars === 'number')
     return { heading: 'Notes', maxHeadingChars: value.maxNotesChars, maxBodyChars: null }
+  if (value.effect === 'INTERNAL_NOTE_ONLY' && typeof value.maxBodyChars === 'number')
+    return { heading: 'Body', maxHeadingChars: value.maxBodyChars, maxBodyChars: null }
   if (typeof value.maxTitleChars === 'number' && typeof value.maxRangeDays === 'number')
     return {
       heading: 'Title',
@@ -84,7 +87,7 @@ export function AgentApprovalPolicyControl(props: {
   const [message, setMessage] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [policyKind, setPolicyKind] = useState<
-    'UPDATE' | 'SUPPORT' | 'SUPPORT_OPEN' | 'INTAKE' | 'REPORT'
+    'UPDATE' | 'SUPPORT' | 'SUPPORT_OPEN' | 'SUPPORT_NOTE' | 'INTAKE' | 'REPORT'
   >(() =>
     props.identity.accessCapabilities.includes('updates:draft')
       ? 'UPDATE'
@@ -92,9 +95,11 @@ export function AgentApprovalPolicyControl(props: {
         ? 'SUPPORT'
         : props.identity.accessCapabilities.includes('support:open')
           ? 'SUPPORT_OPEN'
-          : props.identity.accessCapabilities.includes('intake:draft')
-            ? 'INTAKE'
-            : 'REPORT',
+          : props.identity.accessCapabilities.includes('support:note')
+            ? 'SUPPORT_NOTE'
+            : props.identity.accessCapabilities.includes('intake:draft')
+              ? 'INTAKE'
+              : 'REPORT',
   )
   const [maxTitleChars, setMaxTitleChars] = useState(() =>
     props.identity.accessCapabilities.includes('updates:draft') ? '160' : '200',
@@ -108,12 +113,13 @@ export function AgentApprovalPolicyControl(props: {
   const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>([])
   const defaultPolicyKey = useMemo(
     () =>
-      `${props.identity.identityKey.replaceAll('.', '-')}-${policyKind === 'UPDATE' ? 'operational-update-drafts' : policyKind === 'SUPPORT' ? 'support-request-drafts' : policyKind === 'SUPPORT_OPEN' ? 'support-request-open-once' : policyKind === 'INTAKE' ? 'intake-notes-proposals' : 'weekly-report-drafts'}`,
+      `${props.identity.identityKey.replaceAll('.', '-')}-${policyKind === 'UPDATE' ? 'operational-update-drafts' : policyKind === 'SUPPORT' ? 'support-request-drafts' : policyKind === 'SUPPORT_OPEN' ? 'support-request-open-once' : policyKind === 'SUPPORT_NOTE' ? 'support-internal-note-once' : policyKind === 'INTAKE' ? 'intake-notes-proposals' : 'weekly-report-drafts'}`,
     [props.identity.identityKey, policyKind],
   )
   const canIssueUpdate = props.identity.accessCapabilities.includes('updates:draft')
   const canIssueSupport = props.identity.accessCapabilities.includes('support:draft')
   const canIssueSupportOpen = props.identity.accessCapabilities.includes('support:open')
+  const canIssueSupportNote = props.identity.accessCapabilities.includes('support:note')
   const canIssueIntake = props.identity.accessCapabilities.includes('intake:draft')
   const canIssueReport = props.identity.accessCapabilities.includes('reports:draft')
   const canIssue =
@@ -124,9 +130,11 @@ export function AgentApprovalPolicyControl(props: {
         ? canIssueSupport
         : policyKind === 'SUPPORT_OPEN'
           ? canIssueSupportOpen
-          : policyKind === 'INTAKE'
-            ? canIssueIntake
-            : canIssueReport)
+          : policyKind === 'SUPPORT_NOTE'
+            ? canIssueSupportNote
+            : policyKind === 'INTAKE'
+              ? canIssueIntake
+              : canIssueReport)
 
   async function issue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -167,6 +175,18 @@ export function AgentApprovalPolicyControl(props: {
           outcomeObservationIds: common.outcomeObservationIds,
           ...(common.expiresAt === undefined ? {} : { expiresAt: common.expiresAt }),
         })
+      } else if (policyKind === 'SUPPORT_NOTE') {
+        await client.admin.issueSupportInternalNotePolicy.mutate({
+          operationId: common.operationId,
+          tenantId: common.tenantId,
+          venueId: common.venueId,
+          agentIdentityId: common.agentIdentityId,
+          policyKey: `${common.policyKey}-${common.operationId.slice(0, 8)}`,
+          issueReason: common.issueReason,
+          outcomeObservationIds: common.outcomeObservationIds,
+          maxBodyChars: Number(maxBodyChars),
+          ...(common.expiresAt === undefined ? {} : { expiresAt: common.expiresAt }),
+        })
       } else if (policyKind === 'INTAKE') {
         await client.admin.issueIntakeNotesProposalPolicy.mutate({
           ...common,
@@ -186,9 +206,11 @@ export function AgentApprovalPolicyControl(props: {
             ? 'Support-draft policy enabled. Customer contact remains unavailable.'
             : policyKind === 'SUPPORT_OPEN'
               ? 'One approved support-draft opening enabled. Participants and customer contact remain unavailable.'
-              : policyKind === 'INTAKE'
-                ? 'Intake-notes policy enabled. Extraction, application, and publication remain unavailable.'
-                : 'Weekly-report draft policy enabled. Publication and delivery remain unavailable.',
+              : policyKind === 'SUPPORT_NOTE'
+                ? 'One approved internal support note enabled. Attachments, customer contact, and request-state changes remain unavailable.'
+                : policyKind === 'INTAKE'
+                  ? 'Intake-notes policy enabled. Extraction, application, and publication remain unavailable.'
+                  : 'Weekly-report draft policy enabled. Publication and delivery remain unavailable.',
       )
       setReason('')
       setSelectedOutcomeIds([])
@@ -233,8 +255,9 @@ export function AgentApprovalPolicyControl(props: {
           <h5 className="text-sm font-semibold text-sky-950">Progressive approval policy</h5>
           <p className="mt-1 text-xs leading-5 text-sky-950/75">
             Reviewed policies can let this agent prepare informational update drafts or private
-            support drafts, onboarding-notes proposals, or internal weekly-report drafts. They
-            cannot apply or publish content, contact a customer, or widen venue access.
+            support drafts, perform one-use support actions, prepare onboarding-notes proposals, or
+            create internal weekly-report drafts. They cannot apply or publish content, contact a
+            customer, or widen venue access.
           </p>
         </div>
         <button
@@ -382,6 +405,21 @@ export function AgentApprovalPolicyControl(props: {
               <input
                 type="radio"
                 name="policy-kind"
+                checked={policyKind === 'SUPPORT_NOTE'}
+                disabled={!canIssueSupportNote}
+                onChange={() => {
+                  setPolicyKind('SUPPORT_NOTE')
+                  setMaxBodyChars('20000')
+                  setMaxUses('')
+                }}
+              />
+              Add one attachment-free internal support note; never contacts a customer or changes
+              request state.
+            </label>
+            <label className="flex items-start gap-2 text-xs text-pf-deep/75">
+              <input
+                type="radio"
+                name="policy-kind"
                 checked={policyKind === 'INTAKE'}
                 disabled={!canIssueIntake}
                 onChange={() => {
@@ -448,7 +486,9 @@ export function AgentApprovalPolicyControl(props: {
             />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            {policyKind !== 'INTAKE' && policyKind !== 'SUPPORT_OPEN' ? (
+            {policyKind !== 'INTAKE' &&
+            policyKind !== 'SUPPORT_OPEN' &&
+            policyKind !== 'SUPPORT_NOTE' ? (
               <label className="text-xs font-medium text-pf-deep">
                 Maximum {policyKind === 'SUPPORT' ? 'subject' : 'title'} characters
                 <input
@@ -489,9 +529,9 @@ export function AgentApprovalPolicyControl(props: {
                 />
               </label>
             )}
-            {policyKind === 'SUPPORT_OPEN' ? (
+            {policyKind === 'SUPPORT_OPEN' || policyKind === 'SUPPORT_NOTE' ? (
               <p className="self-end rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                This authority is always exhausted after one successful opening.
+                This authority is always exhausted after one successful action.
               </p>
             ) : (
               <label className="text-xs font-medium text-pf-deep">
@@ -524,7 +564,9 @@ export function AgentApprovalPolicyControl(props: {
               ? 'Saving policy…'
               : policyKind === 'SUPPORT_OPEN'
                 ? 'Enable one support opening'
-                : 'Enable bounded draft policy'}
+                : policyKind === 'SUPPORT_NOTE'
+                  ? 'Enable one internal note'
+                  : 'Enable bounded draft policy'}
           </button>
         </form>
       ) : null}

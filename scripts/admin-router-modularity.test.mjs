@@ -122,6 +122,7 @@ const expectedAdminProcedures = [
   'issueIntakeNotesProposalPolicy',
   'issueOperationalUpdateDraftPolicy',
   'issuePlatformWorkerPolicyCredential',
+  'issueSupportInternalNotePolicy',
   'issueSupportRequestDraftPolicy',
   'issueSupportRequestOpenPolicy',
   'issueWeeklyReportDraftPolicy',

@@ -5,6 +5,9 @@ import {
   defaultSupportRequestOpenPolicyConstraints,
   SUPPORT_REQUEST_OPEN_POLICY_ACTION,
   SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY,
+  defaultSupportInternalNotePolicyConstraints,
+  SUPPORT_INTERNAL_NOTE_POLICY_ACTION,
+  SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY,
 } from '@pathfinder/contracts'
 import {
   ApprovalGrantActionError,
@@ -66,6 +69,55 @@ export const adminSupportOpenPolicyRouter = router({
               effect: 'DRAFT_TO_OPEN_ONLY',
             },
             constraints: defaultSupportRequestOpenPolicyConstraints(),
+            issueReason: input.issueReason,
+            outcomeObservationIds: input.outcomeObservationIds,
+            maxUses: 1,
+            ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          })
+        } catch (error) {
+          approvalGrantError(error)
+        }
+      }),
+    ),
+  issueSupportInternalNotePolicy: adminProcedure
+    .input(
+      z
+        .object({
+          operationId: z.string().uuid(),
+          tenantId: z.string().min(1),
+          venueId: z.string().min(1),
+          agentIdentityId: z.string().min(1),
+          policyKey: agentApprovalPolicyKey,
+          issueReason: z.string().trim().min(3).max(2000),
+          outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
+          maxBodyChars: z.number().int().min(1).max(20_000),
+          expiresAt: z.coerce.date().optional(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          return await issueApprovalGrantAction({
+            operationId: input.operationId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: SUPPORT_INTERNAL_NOTE_POLICY_ACTION,
+            capability: SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY,
+            mode: 'POLICY_BACKED',
+            policyKey: input.policyKey,
+            scope: {
+              contractVersion: 1,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              effect: 'INTERNAL_NOTE_ONLY',
+            },
+            constraints: {
+              ...defaultSupportInternalNotePolicyConstraints(),
+              maxBodyChars: input.maxBodyChars,
+            },
             issueReason: input.issueReason,
             outcomeObservationIds: input.outcomeObservationIds,
             maxUses: 1,

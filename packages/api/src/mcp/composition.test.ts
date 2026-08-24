@@ -5,6 +5,7 @@ const {
   createUpdate,
   createSupport,
   transitionSupport,
+  appendSupportMessage,
   createIntake,
   buildPreview,
   listGaps,
@@ -22,6 +23,7 @@ const {
   createUpdate: vi.fn(),
   createSupport: vi.fn(),
   transitionSupport: vi.fn(),
+  appendSupportMessage: vi.fn(),
   createIntake: vi.fn(),
   buildPreview: vi.fn(),
   listGaps: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   createOperationalUpdateAction: createUpdate,
   createSupportRequestAction: createSupport,
   transitionSupportRequestStatusAction: transitionSupport,
+  appendSupportMessageAction: appendSupportMessage,
   createIntakeProposal: createIntake,
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
@@ -680,6 +683,98 @@ describe('safe operational MCP composition', () => {
       data: { id: 'support-1', status: 'OPEN', version: 2, replayed: false },
     })
     expect(result.structuredContent.summary).toContain('no participant was added')
+  })
+
+  it('adds one attachment-free internal support note through exact approval', async () => {
+    consumeApproval.mockResolvedValue({
+      replayed: false,
+      consumption: { id: 'consumption-note', resultReference: null },
+    })
+    appendSupportMessage.mockResolvedValue({
+      message: { id: 'message-note-1', visibility: 'INTERNAL_ONLY' },
+      requestVersion: 3,
+      clientVersion: 1,
+      replayed: false,
+    })
+    const tx = { approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) } }
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-note' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+    }
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '4c5f9673-d43d-4e40-a01d-cf188431ab81',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 2,
+      body: 'Internal diagnostic confirms the visitor-answer source was stale.',
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.add_support_internal_note',
+      input,
+      {
+        credential: { ...credential, capabilities: ['support:note'] },
+        approvalGrantId: 'grant-note',
+      },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.add_support_internal_note',
+        capability: 'support:note',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          requestId: 'support-1',
+          expectedVersion: 2,
+          visibility: 'INTERNAL_ONLY',
+          body: input.body,
+          attachmentCount: 0,
+        },
+      }),
+      expect.anything(),
+    )
+    expect(appendSupportMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'support-1',
+        expectedVersion: 2,
+        visibility: 'INTERNAL_ONLY',
+        attachments: [],
+        actor: expect.objectContaining({
+          participantKind: 'AGENT',
+          capability: 'support:note',
+          approvalGrantId: 'grant-note',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith({
+      where: { id: 'consumption-note' },
+      data: { resultReference: 'SupportMessage:message-note-1:INTERNAL_ONLY' },
+    })
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-internal-note-added',
+      data: {
+        messageId: 'message-note-1',
+        requestId: 'support-1',
+        visibility: 'INTERNAL_ONLY',
+        requestVersion: 3,
+        clientVersionUnchanged: true,
+        replayed: false,
+      },
+    })
+    expect(result.structuredContent.summary).toContain('no customer was contacted')
   })
 
   it('creates only a review-pending NOTES intake proposal through exact machine and grant scope', async () => {

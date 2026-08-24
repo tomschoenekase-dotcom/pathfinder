@@ -87,6 +87,7 @@ function database() {
 
 const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   accountContext: vi.fn(),
+  addSupportInternalNote: vi.fn(),
   accountTimeline: vi.fn(),
   accountMeetings: vi.fn(),
   accountMeetingGet: vi.fn(),

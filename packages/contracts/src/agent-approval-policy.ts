@@ -6,6 +6,8 @@ export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_dr
 export const SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY = 'support:draft' as const
 export const SUPPORT_REQUEST_OPEN_POLICY_ACTION = 'pathfinder.open_support_request' as const
 export const SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY = 'support:open' as const
+export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
+export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
   'pathfinder.create_intake_notes_proposal' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY = 'intake:draft' as const
@@ -163,6 +165,48 @@ export function defaultSupportRequestOpenPolicyConstraints(): SupportRequestOpen
     effect: 'DRAFT_TO_OPEN_ONLY',
     allowedFromStatuses: ['DRAFT'],
     allowedToStatuses: ['OPEN'],
+  }
+}
+
+/** Reviewed authority for one internal-only support note. Issuers must cap this
+ * policy at one use; no attachment, customer visibility, or lifecycle effect is permitted. */
+export const SupportInternalNotePolicyConstraints = z
+  .object({
+    contractVersion: z.literal(1),
+    effect: z.literal('INTERNAL_NOTE_ONLY'),
+    allowedVisibilities: z.tuple([z.literal('INTERNAL_ONLY')]),
+    maxAttachments: z.literal(0),
+    maxBodyChars: z.number().int().min(1).max(20_000),
+  })
+  .strict()
+
+export type SupportInternalNotePolicyConstraints = z.infer<
+  typeof SupportInternalNotePolicyConstraints
+>
+
+export const SupportInternalNotePolicyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    visibility: z.literal('INTERNAL_ONLY'),
+    body: z.string().trim().min(1).max(20_000),
+    attachmentCount: z.literal(0),
+  })
+  .strict()
+
+export type SupportInternalNotePolicyParameters = z.infer<
+  typeof SupportInternalNotePolicyParameters
+>
+
+export function defaultSupportInternalNotePolicyConstraints(): SupportInternalNotePolicyConstraints {
+  return {
+    contractVersion: 1,
+    effect: 'INTERNAL_NOTE_ONLY',
+    allowedVisibilities: ['INTERNAL_ONLY'],
+    maxAttachments: 0,
+    maxBodyChars: 20_000,
   }
 }
 

@@ -1,10 +1,11 @@
 # Progressive agent approval policy
 
 Torchiko separates an agent's capability from the operating policy that determines whether one
-use needs a fresh human approval. Five executable policy-backed action classes are intentionally
+use needs a fresh human approval. Six executable policy-backed action classes are intentionally
 narrow: `pathfinder.create_update_draft` with `updates:draft` authority and
 `pathfinder.create_support_draft` with `support:draft` authority, and
 `pathfinder.open_support_request` with `support:open` authority, and
+`pathfinder.add_support_internal_note` with `support:note` authority, and
 `pathfinder.create_intake_notes_proposal` with `intake:draft` authority, and
 `pathfinder.generate_weekly_report_draft` with `reports:draft` authority.
 
@@ -39,6 +40,12 @@ policy with `maxUses: 1`. The canonical status action records full machine/grant
 adding a participant or message, changing client activity, contacting a customer, executing work,
 or permitting any later transition. Human operators retain cancellation and all later states.
 
+The separate support-note evaluator accepts only exact client/venue scope, an existing request and
+version, `INTERNAL_ONLY` visibility, an empty attachment list, and a body inside the reviewed bound.
+The Founder Control Room always issues this policy with `maxUses: 1`. The canonical message action
+records full machine/grant lineage while leaving client version/activity, participants, request
+status, triage, and package lifecycle unchanged. Customer-visible replies remain human-only.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.
@@ -61,7 +68,7 @@ pnpm test:agent-approval-policy:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact
-outcome membership, policy issuance replay, bounded policy consumption for all five registered
-action classes, fail-closed parameter rejection, private support visibility, approval-bound one-use opening,
-durable evidence, and cleanup. It performs no provider call, publication, customer contact, or real
-billing action.
+outcome membership, policy issuance replay, bounded policy consumption for all six registered
+action classes, fail-closed parameter rejection, private support visibility, approval-bound one-use
+opening and internal note, durable evidence, and cleanup. It performs no provider call,
+publication, customer contact, or real billing action.

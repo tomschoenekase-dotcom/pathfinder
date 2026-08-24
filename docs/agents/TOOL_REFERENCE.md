@@ -22,6 +22,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.create_update_draft`              | Reviewable operational-update draft      | Canonical action policy    | Verified approval grant                   | Bound; exact grant still required                |
 | `pathfinder.create_support_draft`             | Private internal support draft           | Operation UUID             | Verified approval grant                   | Bound; opening is a separate authority           |
 | `pathfinder.open_support_request`             | One internal `DRAFT` → `OPEN` transition | Operation UUID             | Evidence-backed one-use approval          | Bound; no participant/message/customer contact   |
+| `pathfinder.add_support_internal_note`        | One attachment-free internal note        | Operation UUID             | Evidence-backed one-use approval          | Bound; no client activity or lifecycle change    |
 | `pathfinder.create_intake_notes_proposal`     | Reviewable onboarding-notes proposal     | Operation UUID             | Verified approval grant                   | Bound; extraction/application remain separate    |
 | `pathfinder.request_evaluation`               | Bounded evaluation request               | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding                |
 | `torchiko.account.get_context`                | Compact CRM/account context              | Safe repeat                | No                                        | Credential capability scoped                     |
@@ -63,6 +64,12 @@ version, and an existing `DRAFT`. It reuses the canonical support status action 
 only `OPEN`. The operation is replay-safe and audited; it does not change client activity, add a
 participant or message, contact a customer, execute a package, or authorize any later transition.
 Human operators retain cancellation and the rest of the support lifecycle.
+
+`pathfinder.add_support_internal_note` requires the separate `support:note` capability, a live
+credential-bound worker/run, an evidence-backed policy fixed to one use, and the exact request
+version. It reuses the canonical support-message action but fixes visibility to `INTERNAL_ONLY`
+and attachments to empty. It is replay-safe, keeps client version/activity unchanged, and cannot
+contact a customer, add a participant, change status or triage, or execute package lifecycle work.
 
 `pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
 and run, and an exact verified approval grant. It creates only a `NOTES` intake run in
@@ -123,8 +130,8 @@ the same bounded projection. This does not widen the tenant MCP `jobs` resource.
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 401-operation inventory contains 5
-direct-tool bindings, 102 bounded alternatives, and 294 explicit unbound gaps. A binding is rejected
+agent/developer coverage, and exact binding state. The current 404-operation inventory contains 6
+direct-tool bindings, 104 bounded alternatives, and 294 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
 not callable proof.
@@ -143,4 +150,4 @@ not callable proof.
 
 The safe operational catalog is composed through `createSafeOperationalMcpRegistry` and mounted on the existing authenticated, rate-limited, default-dark agent bridge as `listOperationalTools` and `callOperationalTool`. The bridge derives client and venue scope from its verified machine credential and overwrites caller-supplied scope. Reads, operator questions, specialist delegation, and billing proposals reuse canonical domain actions.
 
-Canonical actions now support honest human, machine, system, and integration attribution. Operational-update, private support, and onboarding-notes proposals are enabled approval-bound machine writes and consume exact verified grants. `pathfinder.open_support_request` separately permits one exact existing support draft to move from `DRAFT` to `OPEN` under evidence-backed one-use authority; it cannot add participants or messages, contact a customer, execute work, or perform later transitions. Intake extraction/package application, package and evaluation execution, publication, outreach, billing effects, deployment, customer contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.
+Canonical actions now support honest human, machine, system, and integration attribution. Operational-update, private support, and onboarding-notes proposals are enabled approval-bound machine writes and consume exact verified grants. Separate one-use support authorities permit one exact existing draft to move from `DRAFT` to `OPEN` or one attachment-free `INTERNAL_ONLY` note to be appended; neither can add participants, contact a customer, create client activity, change triage, execute work, or perform later transitions. Intake extraction/package application, package and evaluation execution, publication, outreach, billing effects, deployment, customer contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.

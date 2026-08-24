@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const issue = vi.fn().mockResolvedValue({ id: 'grant_new' })
 const issueSupport = vi.fn().mockResolvedValue({ id: 'grant_support' })
 const issueSupportOpen = vi.fn().mockResolvedValue({ id: 'grant_support_open' })
+const issueSupportNote = vi.fn().mockResolvedValue({ id: 'grant_support_note' })
 const issueIntake = vi.fn().mockResolvedValue({ id: 'grant_intake' })
 const issueReport = vi.fn().mockResolvedValue({ id: 'grant_report' })
 const revoke = vi.fn().mockResolvedValue({ id: 'grant_1' })
@@ -18,6 +19,7 @@ vi.mock('../../lib/trpc', () => ({
       issueOperationalUpdateDraftPolicy: { mutate: issue },
       issueSupportRequestDraftPolicy: { mutate: issueSupport },
       issueSupportRequestOpenPolicy: { mutate: issueSupportOpen },
+      issueSupportInternalNotePolicy: { mutate: issueSupportNote },
       issueIntakeNotesProposalPolicy: { mutate: issueIntake },
       issueWeeklyReportDraftPolicy: { mutate: issueReport },
       revokeAgentApprovalPolicy: { mutate: revoke },
@@ -189,6 +191,35 @@ describe('AgentApprovalPolicyControl', () => {
       }),
     )
     expect(issueSupportOpen.mock.calls[0]?.[0]).not.toHaveProperty('maxUses')
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
+  it('issues exactly one attachment-free internal support note', async () => {
+    const props = {
+      ...baseProps,
+      identity: { ...baseProps.identity, accessCapabilities: ['support:note'] },
+    }
+    const { container } = render(<AgentApprovalPolicyControl {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed support outcomes justify one internal continuity note.' },
+    })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable one internal note' }))
+
+    await waitFor(() => expect(issueSupportNote).toHaveBeenCalledOnce())
+    expect(issueSupportNote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyKey: expect.stringMatching(
+          /^support-primary-support-internal-note-once-[0-9a-f]{8}$/u,
+        ),
+        maxBodyChars: 20000,
+        outcomeObservationIds: ['outcome_1'],
+      }),
+    )
+    expect(issueSupportNote.mock.calls[0]?.[0]).not.toHaveProperty('maxUses')
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])

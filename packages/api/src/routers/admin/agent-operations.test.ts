@@ -427,6 +427,47 @@ describe('admin agent operations router', () => {
     })
   })
 
+  it('issues exactly one evidence-backed attachment-free internal support note', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_note', replayed: false })
+    await testRouter.createCaller(context()).agentOperations.issueSupportInternalNotePolicy({
+      operationId: '46444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      policyKey: 'support-internal-note-once',
+      issueReason: 'Reviewed outcomes justify one internal continuity note.',
+      outcomeObservationIds: ['outcome_1'],
+      maxBodyChars: 4000,
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith({
+      operationId: '46444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      actionName: 'pathfinder.add_support_internal_note',
+      capability: 'support:note',
+      mode: 'POLICY_BACKED',
+      policyKey: 'support-internal-note-once',
+      scope: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        effect: 'INTERNAL_NOTE_ONLY',
+      },
+      constraints: {
+        contractVersion: 1,
+        effect: 'INTERNAL_NOTE_ONLY',
+        allowedVisibilities: ['INTERNAL_ONLY'],
+        maxAttachments: 0,
+        maxBodyChars: 4000,
+      },
+      issueReason: 'Reviewed outcomes justify one internal continuity note.',
+      outcomeObservationIds: ['outcome_1'],
+      maxUses: 1,
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+  })
+
   it('issues bounded internal weekly-report draft generation authority', async () => {
     mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_report', replayed: false })
     await testRouter.createCaller(context()).agentOperations.issueWeeklyReportDraftPolicy({

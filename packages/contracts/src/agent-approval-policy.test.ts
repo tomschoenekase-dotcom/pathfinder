@@ -13,6 +13,9 @@ import {
   defaultSupportRequestOpenPolicyConstraints,
   SupportRequestOpenPolicyConstraints,
   SupportRequestOpenPolicyParameters,
+  defaultSupportInternalNotePolicyConstraints,
+  SupportInternalNotePolicyConstraints,
+  SupportInternalNotePolicyParameters,
 } from './agent-approval-policy'
 
 describe('operational update draft policy contract', () => {
@@ -108,6 +111,33 @@ describe('support request open policy contract', () => {
     expect(SupportRequestOpenPolicyParameters.parse(parameters)).toEqual(parameters)
     expect(() =>
       SupportRequestOpenPolicyParameters.parse({ ...parameters, sendMessage: true }),
+    ).toThrow()
+  })
+})
+
+describe('support internal note policy contract', () => {
+  it('permits only one bounded internal-only attachment-free note', () => {
+    expect(
+      SupportInternalNotePolicyConstraints.parse(defaultSupportInternalNotePolicyConstraints()),
+    ).toEqual({
+      contractVersion: 1,
+      effect: 'INTERNAL_NOTE_ONLY',
+      allowedVisibilities: ['INTERNAL_ONLY'],
+      maxAttachments: 0,
+      maxBodyChars: 20_000,
+    })
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 2,
+      visibility: 'INTERNAL_ONLY' as const,
+      body: 'Internal investigation context for the support team.',
+      attachmentCount: 0 as const,
+    }
+    expect(SupportInternalNotePolicyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportInternalNotePolicyParameters.parse({ ...parameters, customerVisible: true }),
     ).toThrow()
   })
 })

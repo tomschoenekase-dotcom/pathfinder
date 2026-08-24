@@ -6,6 +6,7 @@ import {
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
   defaultSupportRequestOpenPolicyConstraints,
+  defaultSupportInternalNotePolicyConstraints,
   defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 import {
@@ -449,6 +450,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'updates:draft',
             'support:draft',
             'support:open',
+            'support:note',
             'intake:draft',
             'reports:draft',
             'meetings.process',
@@ -476,6 +478,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'updates:draft',
           'support:draft',
           'support:open',
+          'support:note',
           'intake:draft',
           'reports:draft',
           'agent-runs:execute',
@@ -526,6 +529,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'updates:draft',
             'support:draft',
             'support:open',
+            'support:note',
             'intake:draft',
             'reports:draft',
           ],
@@ -1002,6 +1006,141 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           customerContacted: false,
           participantGranted: false,
           messageSent: false,
+          executionTriggered: false,
+        },
+      })
+
+      const supportNotePolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.add_support_internal_note',
+        capability: 'support:note',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'INTERNAL_NOTE_ONLY' },
+        policyKey: `reviewed-support-note-once-${suffix}`,
+        constraints: {
+          ...defaultSupportInternalNotePolicyConstraints(),
+          maxBodyChars: 300,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes one internal continuity note.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 1,
+        actor: credentialActor,
+      })
+      const supportNoteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: randomUUID(),
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        requestId: supportDraft.id,
+        expectedVersion: 2,
+        body: 'Internal diagnosis: the lobby map answer used stale source material.',
+      }
+      const supportNoteContext = { credential, approvalGrantId: supportNotePolicy.id }
+      const noteAdded = await registry.callTool(
+        'pathfinder.add_support_internal_note',
+        supportNoteInput,
+        supportNoteContext,
+      )
+      const noteReplayed = await registry.callTool(
+        'pathfinder.add_support_internal_note',
+        supportNoteInput,
+        supportNoteContext,
+      )
+      expect(noteAdded.structuredContent).toMatchObject({
+        kind: 'torchiko.support-internal-note-added',
+        data: {
+          requestId: supportDraft.id,
+          visibility: 'INTERNAL_ONLY',
+          requestVersion: 3,
+          clientVersionUnchanged: true,
+          replayed: false,
+        },
+      })
+      expect(JSON.stringify(noteReplayed)).toContain('Existing approved internal support note')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: supportNotePolicy.id },
+        }),
+      ).toBe(1)
+      const supportAfterNote = await db.supportRequest.findUniqueOrThrow({
+        where: { id: supportDraft.id },
+        select: {
+          status: true,
+          version: true,
+          clientVersion: true,
+          clientActivityAt: true,
+          missingInformation: true,
+          participants: true,
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              authorKind: true,
+              authorId: true,
+              visibility: true,
+              body: true,
+              attachments: { select: { id: true } },
+            },
+          },
+        },
+      })
+      expect(supportAfterNote).toMatchObject({
+        status: 'OPEN',
+        version: 3,
+        clientVersion: 1,
+        clientActivityAt: supportDraft.clientActivityAt,
+        missingInformation: supportDraft.missingInformation,
+        participants: [],
+      })
+      expect(supportAfterNote.messages).toHaveLength(2)
+      expect(supportAfterNote.messages[1]).toMatchObject({
+        authorKind: 'AGENT',
+        authorId: identityId,
+        visibility: 'INTERNAL_ONLY',
+        body: supportNoteInput.body,
+        attachments: [],
+      })
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'SupportRequest',
+            targetId: supportDraft.id,
+            action: 'support-request.agent-internal-note-added',
+          },
+          select: {
+            actorType: true,
+            agentIdentityId: true,
+            agentRunId: true,
+            workerId: true,
+            credentialId: true,
+            approvalGrantId: true,
+            capability: true,
+            idempotencyKey: true,
+            afterState: true,
+          },
+        }),
+      ).toMatchObject({
+        actorType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: supportNotePolicy.id,
+        capability: 'support:note',
+        idempotencyKey: supportNoteInput.operationId,
+        afterState: {
+          visibility: 'INTERNAL_ONLY',
+          attachmentCount: 0,
+          customerContacted: false,
+          participantGranted: false,
+          statusChanged: false,
+          triageChanged: false,
+          packageLifecycleChanged: false,
           executionTriggered: false,
         },
       })

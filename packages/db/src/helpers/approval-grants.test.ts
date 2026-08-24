@@ -10,6 +10,7 @@ import {
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
   defaultSupportRequestOpenPolicyConstraints,
+  defaultSupportInternalNotePolicyConstraints,
   defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 
@@ -510,6 +511,74 @@ describe('approval grants', () => {
       ),
     ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
     expect(rejected.tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('consumes support-note policy only for a bounded attachment-free internal note', async () => {
+    const noteParameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 2,
+      visibility: 'INTERNAL_ONLY',
+      body: 'Internal diagnostic note.',
+      attachmentCount: 0,
+    }
+    const accepted = harness()
+    accepted.tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_note',
+      mode: 'POLICY_BACKED',
+      constraints: { ...defaultSupportInternalNotePolicyConstraints(), maxBodyChars: 100 },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: 1,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_note',
+          actionName: 'pathfinder.add_support_internal_note',
+          capability: 'support:note',
+          parameters: noteParameters,
+          actor: { ...machineActor, capability: 'support:note' },
+        }),
+        accepted.client,
+      ),
+    ).resolves.toMatchObject({ replayed: false })
+
+    for (const parameters of [
+      { ...noteParameters, visibility: 'CUSTOMER_VISIBLE' },
+      { ...noteParameters, attachmentCount: 1 },
+      { ...noteParameters, body: 'x'.repeat(101) },
+    ]) {
+      const rejected = harness()
+      rejected.tx.approvalGrant.findFirst.mockResolvedValueOnce({
+        id: 'grant_note',
+        mode: 'POLICY_BACKED',
+        constraints: { ...defaultSupportInternalNotePolicyConstraints(), maxBodyChars: 100 },
+        parameterHash: null,
+        useCount: 0,
+        maxUses: 1,
+        notBefore: new Date('2029-12-31T12:00:00.000Z'),
+        expiresAt: null,
+        revokedAt: null,
+      })
+      await expect(
+        consumeApprovalGrantAction(
+          consumeInput({
+            approvalGrantId: 'grant_note',
+            actionName: 'pathfinder.add_support_internal_note',
+            capability: 'support:note',
+            parameters,
+            actor: { ...machineActor, capability: 'support:note' },
+          }),
+          rejected.client,
+        ),
+      ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+      expect(rejected.tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+    }
   })
 
   it('consumes only a private support draft inside reviewed policy bounds', async () => {

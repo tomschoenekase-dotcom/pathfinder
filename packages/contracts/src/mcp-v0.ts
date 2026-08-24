@@ -71,6 +71,7 @@ export const McpCapability = z.enum([
   'packages:draft',
   'support:draft',
   'support:open',
+  'support:note',
   'intake:draft',
   'updates:draft',
   'evaluations:request',
@@ -758,6 +759,17 @@ export const McpSupportOpenInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportOpenInput = z.infer<typeof McpSupportOpenInput>
 
+export const McpSupportInternalNoteInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  body: z.string().trim().min(1).max(20_000),
+}).strict()
+export type McpSupportInternalNoteInput = z.infer<typeof McpSupportInternalNoteInput>
+
 export const McpIntakeNotesProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -895,6 +907,7 @@ export type PathfinderMcpToolName =
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.open_support_request'
+  | 'pathfinder.add_support_internal_note'
   | 'pathfinder.create_intake_notes_proposal'
   | 'pathfinder.generate_weekly_report_draft'
   | 'pathfinder.request_evaluation'
@@ -1762,6 +1775,42 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     _meta: {
       'com.pathfinder/security': security('venue', 'support:open', 'approved-transition'),
     },
+  },
+  {
+    name: 'pathfinder.add_support_internal_note',
+    title: 'Add an internal support note',
+    description:
+      'Append one attachment-free INTERNAL_ONLY note to an existing nonclosed support request under exact approval. It cannot contact a customer, add participants, change lifecycle state or triage, or make the note client-visible.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        body: { type: 'string', minLength: 1, maxLength: 20000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'body',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'support:note', 'draft') },
   },
   {
     name: 'pathfinder.create_intake_notes_proposal',

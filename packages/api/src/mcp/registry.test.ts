@@ -56,6 +56,7 @@ function actions(): PathfinderMcpDomainActions {
     createUpdateDraft: vi.fn().mockResolvedValue(result),
     createSupportDraft: vi.fn().mockResolvedValue(result),
     openSupportRequest: vi.fn().mockResolvedValue(result),
+    addSupportInternalNote: vi.fn().mockResolvedValue(result),
     createIntakeNotesProposal: vi.fn().mockResolvedValue(result),
     generateWeeklyReportDraft: vi.fn().mockResolvedValue(result),
     requestEvaluation: vi.fn().mockResolvedValue(result),
