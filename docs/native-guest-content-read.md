@@ -31,3 +31,19 @@ while this executor depends on their authorization and semantic index.
 This mechanism does not authorize staging or production activation, does not establish a quality
 threshold, and does not create production release approval. Those references must point to genuine
 reviewed evidence; placeholder values are policy violations even though their shape is valid.
+
+## Read-only activation preflight
+
+Platform administrators can query `admin.getNativeGuestReadActivationPreflight` for one exact
+tenant and venue. The response combines the authoritative runtime read-gate assessment with the
+existing native-head convergence measurement. It reports server and venue gates, strict policy
+validity, target-head identity, exact passing evaluation evidence, evidence-reference presence,
+production-approval requirements, compatibility retention, and observed blockers.
+Runtime-read and materialized-convergence evidence remain separate and are also summarized by an
+explicit alignment projection so an immutable PASS cannot hide mutable state drift.
+
+The preflight is diagnostic only. It never changes environment configuration, feature flags,
+deployment state, evaluation evidence, or guest traffic. A populated reference proves only that a
+strictly shaped reference exists; the preflight does not invent or certify a quality threshold,
+rollback policy, or production approval. State hashes and immutable plan bodies are not returned by
+the admin projection.

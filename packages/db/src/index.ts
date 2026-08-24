@@ -1,8 +1,11 @@
 export { db } from './client'
 export {
   applyNativeGuestContentRead,
+  assessNativeGuestReadActivationAction,
   resolveNativeGuestReadSnapshotAction,
+  type NativeGuestReadActivationPreflight,
   type NativeGuestReadPath,
+  type NativeGuestReadPreflightBlocker,
   type NativeGuestReadReason,
 } from './helpers/native-guest-content-read'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'

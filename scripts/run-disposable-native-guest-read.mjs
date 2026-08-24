@@ -24,6 +24,8 @@ async function run() {
         'tenant-venue-isolation',
         'whole-request-fallback',
         'server-kill-switch-rollback',
+        'read-only-activation-preflight',
+        'preflight-cross-tenant-isolation',
       ],
       integration: {
         packageDirectory: 'packages/api',

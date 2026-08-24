@@ -55,13 +55,14 @@ import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
 import type { TRPCContext } from './context'
 import { router } from './core'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
+import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
   /\/pathfinder_disposable_native_guest_read_[a-z0-9_]+$/u.test(process.env.DATABASE_URL ?? '')
 
 describe.skipIf(!enabled)('native guest content read disposable rehearsal', () => {
-  const testRouter = router({ chat: chatRouter })
+  const testRouter = router({ chat: chatRouter, admin: adminNativeVenueDeploymentsRouter })
 
   afterAll(async () => {
     _setAnthropicClientForTesting(null)
@@ -478,13 +479,16 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         messages: { create: anthropicCreate },
       } as AnthropicMessagesClient)
 
-      const context = (employee = false): TRPCContext => ({
+      const context = (employee = false, platformAdmin = false): TRPCContext => ({
         db,
         headers: new Headers(),
-        session: employee
-          ? { userId: actor.id, activeTenantId: tenantId, role: 'OWNER', isPlatformAdmin: false }
-          : { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+        session: platformAdmin
+          ? { userId: actor.id, activeTenantId: null, role: null, isPlatformAdmin: true }
+          : employee
+            ? { userId: actor.id, activeTenantId: tenantId, role: 'OWNER', isPlatformAdmin: false }
+            : { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
       })
+      const adminCaller = testRouter.createCaller(context(false, true)).admin
       const latestPrompt = () =>
         (anthropicCreate.mock.calls.at(-1)![0].system as Array<{ text: string }>)
           .map((block) => block.text)
@@ -497,6 +501,67 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           message: 'What should I know?',
           ...(input.secondLayer ? { secondLayerKey } : {}),
         })
+
+      const activePreflight = await adminCaller.getNativeGuestReadActivationPreflight({
+        tenantId,
+        venueId,
+      })
+      expect(activePreflight).toMatchObject({
+        contractVersion: 1,
+        activation: {
+          runtime: { serverGateEnabled: true, production: false },
+          policy: {
+            present: true,
+            enabled: true,
+            valid: true,
+            mode: 'ACTIVE',
+            targetReleaseId: release.id,
+            evaluationEvidenceId: evidence.id,
+            qualityPolicyReferencePresent: true,
+            rollbackRehearsalReferencePresent: true,
+            productionApprovalReferencePresent: false,
+          },
+          head: { present: true, valid: true, targetMatches: true, releaseId: release.id },
+          evaluation: { valid: true, evidenceId: evidence.id },
+          path: 'NATIVE',
+          reason: 'NATIVE_READY',
+          blockers: [],
+          mutationPerformed: false,
+        },
+        convergence: {
+          phase: 'NATIVE_HEAD_IN_SYNC',
+          headValid: true,
+          stateMatchesHead: true,
+          readyForLegacyRetirement: false,
+          head: { releaseId: release.id, releaseStatus: 'APPLIED' },
+        },
+        alignment: {
+          runtimeReadGateOpen: true,
+          materializedStateInSync: true,
+          allObservedTechnicalEvidenceAligned: true,
+        },
+        boundaries: {
+          readOnly: true,
+          activationAuthorized: false,
+          qualityThresholdInferred: false,
+          compatibilityDataRetentionRequired: true,
+        },
+      })
+      expect(JSON.stringify(activePreflight)).not.toMatch(/stateHash|desiredStateHash/u)
+
+      const controlPreflight = await adminCaller.getNativeGuestReadActivationPreflight({
+        tenantId: controlTenantId,
+        venueId: controlVenueId,
+      })
+      expect(controlPreflight.activation).toMatchObject({
+        policy: { present: false },
+        head: { present: false, releaseId: null },
+        evaluation: { valid: false, evidenceId: null },
+        path: 'LEGACY',
+        reason: 'POLICY_MISSING',
+      })
+      expect(JSON.stringify(controlPreflight)).not.toContain(release.id)
+      expect(JSON.stringify(controlPreflight)).not.toContain(evidence.id)
 
       await send({})
       expect(latestPrompt()).toContain('Native Public Gallery')
@@ -610,6 +675,32 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       process.env.NATIVE_GUEST_CONTENT_READ_ENABLED = 'false'
       const logCountBeforeKillSwitch = vi.mocked(logger.info).mock.calls.length
       try {
+        const disabledPreflight = await adminCaller.getNativeGuestReadActivationPreflight({
+          tenantId,
+          venueId,
+        })
+        expect(disabledPreflight.activation).toMatchObject({
+          runtime: { serverGateEnabled: false },
+          policy: { present: true, enabled: true, valid: true, mode: 'ACTIVE' },
+          head: { present: true, valid: true, targetMatches: true },
+          evaluation: { valid: true, evidenceId: evidence.id },
+          path: 'LEGACY',
+          reason: 'SERVER_DISABLED',
+          nativeExecutionReady: false,
+          mutationPerformed: false,
+        })
+        expect(disabledPreflight.activation.blockers).toEqual(['SERVER_GATE_DISABLED'])
+        expect(disabledPreflight.convergence).toMatchObject({
+          phase: 'NATIVE_HEAD_DRIFTED',
+          headValid: true,
+          stateMatchesHead: false,
+          needsOperatorAttention: true,
+        })
+        expect(disabledPreflight.alignment).toEqual({
+          runtimeReadGateOpen: false,
+          materializedStateInSync: false,
+          allObservedTechnicalEvidenceAligned: false,
+        })
         await send({})
       } finally {
         process.env.NATIVE_GUEST_CONTENT_READ_ENABLED = 'true'

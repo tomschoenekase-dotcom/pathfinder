@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 395,
-    "sha256": "2354c8c9de4bc26cbcd5db25ed06363f29248ce13582aa3ee3b44cac25c38f13",
+    "count": 396,
+    "sha256": "ad8138ec9131656ab51e79b847c6241462be3d867ff92385e6cd58b0b76a7991",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "2354c8c9de4bc26cbcd5db25ed06363f29248ce13582aa3ee3b44cac25c38f13",
-      "sha256": "f1c3e72aeef9211f1d3bf59aa78d89851330f7320dec835c195c129a21aede41"
+      "operationInventorySha256": "ad8138ec9131656ab51e79b847c6241462be3d867ff92385e6cd58b0b76a7991",
+      "sha256": "54ebe809645e69280d6608a36f4f8bebac6fc572e80a9bb6ef9941be83a42700"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -359,10 +359,14 @@
       {
         "id": "bounded-readiness-reads",
         "kind": "bounded-alternative",
-        "operations": ["admin.getNativeContentConvergence", "admin.getOnboardingMilestoneRollup"],
+        "operations": [
+          "admin.getNativeContentConvergence",
+          "admin.getNativeGuestReadActivationPreflight",
+          "admin.getOnboardingMilestoneRollup"
+        ],
         "surfaces": ["resource:pathfinder.readiness"],
-        "decision": "Agents receive compact onboarding and native-head convergence evidence; this does not switch guest retrieval or authorize activation, release, publication, or legacy retirement.",
-        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+        "decision": "Agents receive compact onboarding and native-head convergence evidence through the readiness resource; the platform-admin API additionally exposes the exact read-only activation diagnostic. Neither surface switches guest retrieval or authorizes activation, release, publication, or legacy retirement.",
+        "evidence": "packages/api/src/routers/admin/native-venue-deployments.test.ts"
       },
       {
         "id": "bounded-question-reads",

@@ -4,6 +4,7 @@ import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
 
 import {
   applyNativeGuestContentRead,
+  assessNativeGuestReadActivationAction,
   resolveNativeGuestReadSnapshotAction,
 } from './native-guest-content-read'
 
@@ -80,7 +81,7 @@ const state = {
 function client(metadata: unknown = policy()) {
   const hash = nativeCoreVisibleStateHash(state)
   return {
-    tenantFeatureFlag: { findFirst: vi.fn().mockResolvedValue({ metadata }) },
+    tenantFeatureFlag: { findFirst: vi.fn().mockResolvedValue({ enabled: true, metadata }) },
     nativeVenueDeploymentHead: {
       findFirst: vi.fn().mockResolvedValue({
         releaseId,
@@ -163,6 +164,63 @@ describe('native guest content read', () => {
       environment: { NATIVE_GUEST_CONTENT_READ_ENABLED: 'true', RAILWAY_ENVIRONMENT: 'production' },
     })
     expect(production).toMatchObject({ path: 'LEGACY', reason: 'PRODUCTION_APPROVAL_MISSING' })
+  })
+
+  it('reports every observed gate while the server kill switch remains disabled', async () => {
+    const db = client(policy('DARK'))
+    const preflight = await assessNativeGuestReadActivationAction({
+      client: db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      environment: { RAILWAY_ENVIRONMENT: 'staging' },
+    })
+    expect(preflight).toMatchObject({
+      contractVersion: 1,
+      runtime: { serverGateEnabled: false, production: false },
+      policy: {
+        present: true,
+        enabled: true,
+        valid: true,
+        mode: 'DARK',
+        qualityPolicyReferencePresent: true,
+        rollbackRehearsalReferencePresent: true,
+        productionApprovalReferencePresent: false,
+      },
+      head: { present: true, valid: true, targetMatches: true, releaseId },
+      evaluation: { valid: true, evidenceId },
+      path: 'LEGACY',
+      reason: 'SERVER_DISABLED',
+      readyForConfiguredMode: false,
+      nativeExecutionReady: false,
+      blockers: ['SERVER_GATE_DISABLED'],
+      compatibilityDataRetentionRequired: true,
+      mutationPerformed: false,
+    })
+    expect(db.tenantFeatureFlag.findFirst).toHaveBeenCalledTimes(1)
+  })
+
+  it('distinguishes disabled venue policy and production approval without inventing quality gates', async () => {
+    const db = client(policy())
+    db.tenantFeatureFlag.findFirst.mockResolvedValue({ enabled: false, metadata: policy() })
+    db.nativeVenueDeploymentEvaluationEvidence.findFirst.mockResolvedValue(null)
+    const preflight = await assessNativeGuestReadActivationAction({
+      client: db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      environment: {
+        NATIVE_GUEST_CONTENT_READ_ENABLED: 'true',
+        RAILWAY_ENVIRONMENT: 'production',
+      },
+    })
+    expect(preflight.path).toBe('LEGACY')
+    expect(preflight.reason).toBe('POLICY_MISSING')
+    expect(preflight.blockers).toEqual([
+      'VENUE_POLICY_DISABLED',
+      'PRODUCTION_APPROVAL_REQUIRED',
+      'EVALUATION_EVIDENCE_INVALID',
+    ])
+    expect(preflight.policy.qualityPolicyRef).toBe('policy://founder-reviewed-quality-v1')
+    expect(preflight).not.toHaveProperty('qualityThreshold')
   })
 
   it('uses compatibility rows only for authorization/ranking and preserves ranking metadata', () => {

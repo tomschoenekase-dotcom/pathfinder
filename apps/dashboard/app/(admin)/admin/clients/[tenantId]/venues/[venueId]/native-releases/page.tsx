@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { NativeContentConvergenceCard } from '../../../../../../../../components/admin/NativeContentConvergenceCard'
+import { NativeGuestReadActivationPreflightCard } from '../../../../../../../../components/admin/NativeGuestReadActivationPreflightCard'
 import { NativeVenueDeploymentCreateForm } from '../../../../../../../../components/admin/NativeVenueDeploymentCreateForm'
 import { NativeVenueDeploymentDetail } from '../../../../../../../../components/admin/NativeVenueDeploymentDetail'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
@@ -27,7 +28,7 @@ export default async function NativeReleasesPage({
 }) {
   const [{ tenantId, venueId }, query] = await Promise.all([params, searchParams])
   const caller = await createAdminCaller()
-  const [page, convergence] = await Promise.all([
+  const [page, convergence, activationPreflight] = await Promise.all([
     caller.admin.listNativeVenueDeployments({
       tenantId,
       venueId,
@@ -35,6 +36,7 @@ export default async function NativeReleasesPage({
       cursor: query.cursor ?? null,
     }),
     caller.admin.getNativeContentConvergence({ tenantId, venueId }).catch(() => null),
+    caller.admin.getNativeGuestReadActivationPreflight({ tenantId, venueId }).catch(() => null),
   ])
   const selectedId = query.releaseId ?? (page.items[0]?.id ? String(page.items[0].id) : null)
   let selected: Awaited<ReturnType<typeof caller.admin.getNativeVenueDeployment>> | null = null
@@ -69,6 +71,8 @@ export default async function NativeReleasesPage({
       </header>
 
       <NativeContentConvergenceCard convergence={convergence} />
+
+      <NativeGuestReadActivationPreflightCard preflight={activationPreflight} />
 
       <NativeVenueDeploymentCreateForm tenantId={tenantId} venueId={venueId} />
 
