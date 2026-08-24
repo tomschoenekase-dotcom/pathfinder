@@ -45,8 +45,9 @@ The support-package handoff is the narrow reference example: exact tenant, venue
 request version and existing `DRAFT` package; HUMAN operator; CAS; append-only lineage; atomic audit;
 zero package lifecycle writes. Do not broaden that helper into implicit create/approve/apply or
 support completion. Support transitions use a closed graph, HUMAN `OPERATOR` authorization except
-for the exact founder-approved, one-shot client information-request action, exact scope, expected
-version/current-status CAS, and transactional append-only support/platform audit.
+for the exact founder-approved, one-shot client information-request and completion actions, exact
+scope, expected version/current-status CAS, resolved-information enforcement for completion, and
+transactional append-only support/platform audit.
 They have no lifecycle execution side effects. `VALIDATING` includes validation/evaluation review
 because the persisted enum has no separate evaluation state.
 

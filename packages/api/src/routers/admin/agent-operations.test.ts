@@ -90,6 +90,7 @@ import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminSupportOpenPolicyRouter } from './support-open-policy'
+import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
 
 const testRouter = router({
   agentOperations: mergeRouters(
@@ -98,6 +99,7 @@ const testRouter = router({
     adminAgentApprovalDecisionsRouter,
     adminAgentRunCancellationRouter,
     adminSupportOpenPolicyRouter,
+    adminSupportCompletionApprovalRouter,
   ),
 })
 
@@ -593,6 +595,66 @@ describe('admin agent operations router', () => {
           missingInformation: ['Current exhibit label photograph'],
         },
         approvalDecisionId: 'decision_info_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('derives exact one-shot support-completion authority from founder approval', async () => {
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_completion_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_completion',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 5,
+        fromStatus: 'IN_REVIEW',
+        toStatus: 'COMPLETED',
+        body: 'Your requested venue update is complete.',
+        missingInformationCount: 0,
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        clientVisibleMessageCreated: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_completion_1', decision: 'APPROVED' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_completion_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportCompletionProposal({
+        operationId: '50444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_completion_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_completion_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_completion',
+        capability: 'support:complete',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({ effect: 'EXACT_CLIENT_COMPLETION_ONLY' }),
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'request_1',
+          expectedVersion: 5,
+          fromStatus: 'IN_REVIEW',
+          toStatus: 'COMPLETED',
+          body: 'Your requested venue update is complete.',
+        },
+        approvalDecisionId: 'decision_completion_1',
       }),
       expect.anything(),
     )

@@ -42,7 +42,12 @@ export type SupportActionActor =
       workerId?: string | undefined
       credentialId?: string | undefined
       approvalGrantId?: string | undefined
-      capability?: 'support:draft' | 'support:note' | 'support:request-information' | undefined
+      capability?:
+        | 'support:draft'
+        | 'support:note'
+        | 'support:request-information'
+        | 'support:complete'
+        | undefined
       modelProvider?: string | undefined
       modelName?: string | undefined
       idempotencyKey?: string | undefined
@@ -83,7 +88,7 @@ const supportActionActor = z.union([
       credentialId: scopedId.optional(),
       approvalGrantId: scopedId.optional(),
       capability: z
-        .enum(['support:draft', 'support:note', 'support:request-information'])
+        .enum(['support:draft', 'support:note', 'support:request-information', 'support:complete'])
         .optional(),
       modelProvider: scopedId.optional(),
       modelName: scopedId.optional(),
@@ -217,7 +222,7 @@ const operatorConversationActor = z
   })
   .strict()
 
-const approvedInformationRequestAgentActor = z
+const approvedClientVisibleSupportAgentActor = z
   .object({
     actorType: z.literal('AGENT'),
     participantKind: z.literal('AGENT'),
@@ -228,7 +233,7 @@ const approvedInformationRequestAgentActor = z
     workerId: scopedId,
     credentialId: scopedId,
     approvalGrantId: scopedId,
-    capability: z.literal('support:request-information'),
+    capability: z.enum(['support:request-information', 'support:complete']),
     modelProvider: scopedId.optional(),
     modelName: scopedId.optional(),
     idempotencyKey: z.string().uuid(),
@@ -252,11 +257,23 @@ const operatorConversationInput = z
     requestId: scopedId,
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
-    actor: operatorConversationActor,
+    actor: z.union([
+      operatorConversationActor,
+      approvedClientVisibleSupportAgentActor.refine(
+        (actor) => actor.capability === 'support:complete',
+        'The exact support:complete capability is required',
+      ),
+    ]),
   })
   .strict()
 const requestInformationInput = operatorConversationInput.extend({
-  actor: z.union([operatorConversationActor, approvedInformationRequestAgentActor]),
+  actor: z.union([
+    operatorConversationActor,
+    approvedClientVisibleSupportAgentActor.refine(
+      (actor) => actor.capability === 'support:request-information',
+      'The exact support:request-information capability is required',
+    ),
+  ]),
   missingInformation: z
     .array(z.string().trim().min(1).max(500))
     .min(1)
@@ -1516,7 +1533,7 @@ async function manualSupportLoopActionOnce(
         missingInformationCount: requestedItems.length,
         attachmentCount: resolvedAttachments.length,
         clientVisibleMessageCreated: true,
-        customerContacted: kind === 'REQUEST_INFORMATION',
+        customerContacted: kind !== 'RESPOND_INFORMATION',
         externalDeliveryTriggered: false,
         emailSent: false,
         participantChanged: false,

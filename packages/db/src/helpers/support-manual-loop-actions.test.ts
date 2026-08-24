@@ -355,6 +355,54 @@ describe('manual Support loop actions', () => {
     expect(blocked.tx.supportRequest.updateMany).not.toHaveBeenCalled()
   })
 
+  it('attributes approved agent completion and records customer contact truthfully', async () => {
+    const h = harness()
+    h.message.authorKind = 'AGENT'
+    h.message.authorId = 'agent_1'
+    const result = await completeSupportRequestAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Your requested update is complete.',
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:complete',
+          idempotencyKey: operationId,
+        },
+      },
+      h.client as never,
+    )
+    expect(result.status).toBe('COMPLETED')
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          capability: 'support:complete',
+          approvalGrantId: 'grant_1',
+        }),
+        afterState: expect.objectContaining({
+          clientVisibleMessageCreated: true,
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        }),
+      }),
+      h.tx,
+    )
+  })
+
   it('rolls back the action when strict audit fails', async () => {
     const h = harness()
     audit.mockRejectedValueOnce(new Error('audit unavailable'))

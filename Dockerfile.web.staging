@@ -21,7 +21,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PATHFINDER_PRISMA_DIR=/migration/prisma
 ENV PATHFINDER_PRISMA_CLI=/migration/node_modules/.bin/prisma
-ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-169-20260824
+ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-170-20260824
 
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static

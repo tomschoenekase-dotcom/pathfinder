@@ -27,6 +27,8 @@ import {
   prepareSupportTriageProposalAction,
   prepareSupportInformationRequestProposalAction,
   requestSupportInformationAction,
+  prepareSupportCompletionProposalAction,
+  completeSupportRequestAction,
   triageSupportRequestAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
@@ -61,6 +63,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_triage',
   'pathfinder.propose_support_information_request',
   'pathfinder.apply_support_information_request',
+  'pathfinder.propose_support_completion',
+  'pathfinder.apply_support_completion',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -115,6 +119,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportTriage'
     | 'proposeSupportInformationRequest'
     | 'applySupportInformationRequest'
+    | 'proposeSupportCompletion'
+    | 'applySupportCompletion'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -150,6 +156,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportTriage'
     | 'proposeSupportInformationRequest'
     | 'applySupportInformationRequest'
+    | 'proposeSupportCompletion'
+    | 'applySupportCompletion'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1375,6 +1383,249 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         summary: result.replayed
           ? 'Existing approved in-app client information request returned; no duplicate contact occurred.'
           : 'Exact approved in-app client information request created and the request is waiting for the client.',
+        data: jsonData({
+          messageId: result.message.id,
+          requestId: input.requestId,
+          status: result.status,
+          requestVersion: result.requestVersion,
+          clientVersion: result.clientVersion,
+          missingInformation: result.missingInformation,
+          replayed: result.replayed,
+          clientVisibleMessageCreated: true,
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          emailSent: false,
+          participantChanged: false,
+          triageChanged: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        }),
+      }
+    },
+    async proposeSupportCompletion(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support completion proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:complete' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified support-completion worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified support-completion worker run is unavailable')
+
+      const result = await prepareSupportCompletionProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          fromStatus: input.fromStatus,
+          body: input.body,
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: 'support:complete',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-completion.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Support completion needs review',
+            summary:
+              'An AI worker prepared one exact in-app completion message. No client contact or support-request change has occurred.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the exact message, status, request version, and resolved-information invariant. Approval issues one-shot authority; application remains separate.',
+            deduplicationKey: `support-completion-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-completion-proposal',
+        summary: result.replayed
+          ? 'Existing support completion proposal returned; no client contact occurred.'
+          : 'Support completion prepared for human review; no client contact occurred.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          replayed: result.replayed,
+          approvalRequired: true,
+          separateApplicationRequired: true,
+          supportRequestChanged: false,
+          clientActivityChanged: false,
+          clientVisibleMessageCreated: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportCompletion(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support completion application requires venue scope')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:complete' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified support-completion worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified support-completion worker run is unavailable')
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: input.fromStatus,
+        toStatus: 'COMPLETED' as const,
+        body: input.body,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.apply_support_completion',
+            capability: 'support:complete',
+            parameters,
+            actor: {
+              type: 'AGENT',
+              role: 'AGENT',
+              actorId: input.agentIdentityId,
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:complete',
+              ...(worker.modelProvider && worker.modelName
+                ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+                : {}),
+              idempotencyKey: input.operationId,
+            },
+            now,
+          },
+          sameTransaction,
+        )
+        const applied = await completeSupportRequestAction(
+          {
+            operationId: input.operationId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            requestId: input.requestId,
+            expectedVersion: input.expectedVersion,
+            body: input.body,
+            actor: {
+              actorType: 'AGENT',
+              participantKind: 'AGENT',
+              actorId: input.agentIdentityId,
+              auditRole: 'AGENT',
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:complete',
+              ...(worker.modelProvider && worker.modelName
+                ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+                : {}),
+              idempotencyKey: input.operationId,
+            },
+          },
+          sameTransaction,
+        )
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:COMPLETED`
+        if (consumption.replayed) {
+          if (consumption.consumption.resultReference !== resultReference) {
+            throw new McpActionBindingError('Approved support completion replay is incomplete')
+          }
+        } else {
+          await tx.approvalGrantConsumption.update({
+            where: { id: consumption.consumption.id },
+            data: { resultReference },
+          })
+        }
+        return applied
+      })
+      return {
+        kind: 'torchiko.support-completion-applied',
+        summary: result.replayed
+          ? 'Existing approved in-app support completion returned; no duplicate contact occurred.'
+          : 'Exact approved in-app completion message created and the request is completed.',
         data: jsonData({
           messageId: result.message.id,
           requestId: input.requestId,

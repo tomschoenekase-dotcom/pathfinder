@@ -378,6 +378,12 @@ export {
   respondToSupportInformationAction,
   SupportActionError,
 } from './helpers/support-actions'
+export {
+  prepareSupportCompletionProposalAction,
+  SupportCompletionProposalActionError,
+  type PrepareSupportCompletionProposalInput,
+  type SupportCompletionProposalActionErrorCode,
+} from './helpers/support-completion-proposal-actions'
 export type {
   PreviewFeedbackEligibilityAssertion,
   SupportActionActor,

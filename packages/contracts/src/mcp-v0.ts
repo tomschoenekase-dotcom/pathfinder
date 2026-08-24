@@ -75,6 +75,7 @@ export const McpCapability = z.enum([
   'support:note',
   'support:triage',
   'support:request-information',
+  'support:complete',
   'intake:draft',
   'updates:draft',
   'evaluations:request',
@@ -658,6 +659,36 @@ export const McpSupportInformationRequestApplyInput = McpRequestedScope.extend({
   workerKey: Identifier,
   ...SupportInformationRequestFields,
 }).strict()
+
+const SupportCompletionFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  body: z.string().trim().min(1).max(20_000),
+}
+
+export const McpSupportCompletionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportCompletionFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportCompletionProposalInput = z.infer<typeof McpSupportCompletionProposalInput>
+
+export const McpSupportCompletionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportCompletionFields,
+}).strict()
+export type McpSupportCompletionApplyInput = z.infer<typeof McpSupportCompletionApplyInput>
 export type McpSupportInformationRequestApplyInput = z.infer<
   typeof McpSupportInformationRequestApplyInput
 >
@@ -976,6 +1007,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.apply_support_triage'
   | 'pathfinder.propose_support_information_request'
   | 'pathfinder.apply_support_information_request'
+  | 'pathfinder.propose_support_completion'
+  | 'pathfinder.apply_support_completion'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1538,6 +1571,102 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'support:request-information',
         'approved-transition',
       ),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_completion',
+    title: 'Propose support completion',
+    description:
+      'Prepare one exact-version, client-visible completion message after all requested information is resolved. It creates a review item only and does not message the client, change status, or trigger external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:complete', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_completion',
+    title: 'Apply an approved support completion',
+    description:
+      'Create the exact reviewed in-app completion message and move one unchanged OPEN or IN_REVIEW request with no missing information to COMPLETED under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:complete', 'approved-transition'),
     },
   },
   {

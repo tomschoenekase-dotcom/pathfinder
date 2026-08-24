@@ -19,6 +19,7 @@ const technicalAllowlist = new Map([
     'apps/dashboard/components/admin/ApprovalDecisionForm.tsx',
     new Set([
       "proposedAction === 'pathfinder.apply_support_information_request'",
+      "const isSupportCompletion = proposedAction === 'pathfinder.apply_support_completion'",
       ": proposedAction === 'pathfinder.apply_support_triage'",
       ": proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'",
     ]),
@@ -28,6 +29,7 @@ const technicalAllowlist = new Map([
     new Set([
       "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
       "'pathfinder.apply_support_information_request' as const",
+      "export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const",
     ]),
   ],
   [
@@ -37,6 +39,8 @@ const technicalAllowlist = new Map([
       "| 'pathfinder.apply_support_information_request'",
       "name: 'pathfinder.apply_support_triage',",
       "name: 'pathfinder.apply_support_information_request',",
+      "| 'pathfinder.apply_support_completion'",
+      "name: 'pathfinder.apply_support_completion',",
     ]),
   ],
   [
@@ -46,6 +50,8 @@ const technicalAllowlist = new Map([
       "'pathfinder.apply_support_triage',",
       "case 'pathfinder.apply_support_information_request': {",
       "'pathfinder.apply_support_information_request',",
+      "case 'pathfinder.apply_support_completion': {",
+      "'pathfinder.apply_support_completion',",
     ]),
   ],
   [

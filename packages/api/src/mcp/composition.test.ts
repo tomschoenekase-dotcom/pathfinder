@@ -16,6 +16,8 @@ const {
   triageSupport,
   prepareSupportInformationRequest,
   requestSupportInformation,
+  prepareSupportCompletion,
+  completeSupport,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
   publishEvent,
@@ -38,6 +40,8 @@ const {
   triageSupport: vi.fn(),
   prepareSupportInformationRequest: vi.fn(),
   requestSupportInformation: vi.fn(),
+  prepareSupportCompletion: vi.fn(),
+  completeSupport: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
@@ -63,6 +67,8 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   triageSupportRequestAction: triageSupport,
   prepareSupportInformationRequestProposalAction: prepareSupportInformationRequest,
   requestSupportInformationAction: requestSupportInformation,
+  prepareSupportCompletionProposalAction: prepareSupportCompletion,
+  completeSupportRequestAction: completeSupport,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
@@ -587,6 +593,157 @@ describe('safe operational MCP composition', () => {
       kind: 'torchiko.support-information-request-applied',
       data: {
         status: 'WAITING_FOR_CLIENT',
+        replayed: false,
+        clientVisibleMessageCreated: true,
+        customerContacted: true,
+        externalDeliveryTriggered: false,
+        participantChanged: false,
+        triageChanged: false,
+        packageLifecycleChanged: false,
+      },
+    })
+  })
+
+  it('prepares an exact support completion without contact or state change', async () => {
+    prepareSupportCompletion.mockResolvedValue({
+      approvalRequest: { id: '48444444-4444-4444-8444-444444444444' },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-1' })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const supportCredential = {
+      ...credential,
+      capabilities: ['support:complete'],
+    } satisfies VerifiedMcpCredentialScope
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.propose_support_completion',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '48444444-4444-4444-8444-444444444444',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        requestId: 'support-1',
+        expectedVersion: 4,
+        fromStatus: 'IN_REVIEW',
+        body: 'Your requested venue update is complete.',
+        reason: 'The requested work passed review and no information remains unresolved.',
+        evidence: [{ type: 'SupportRequest', id: 'support-1' }],
+      },
+      { credential: supportCredential },
+    )
+    expect(prepareSupportCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'support-1',
+        fromStatus: 'IN_REVIEW',
+        actor: expect.objectContaining({ capability: 'support:complete', workerId: 'worker-1' }),
+      }),
+      database,
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-completion-proposal',
+      data: {
+        approvalRequired: true,
+        supportRequestChanged: false,
+        clientVisibleMessageCreated: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+      },
+    })
+  })
+
+  it('consumes exact one-shot authority with the canonical support completion action', async () => {
+    consumeApproval.mockResolvedValue({
+      consumption: { id: 'consumption-1', resultReference: null },
+      replayed: false,
+    })
+    completeSupport.mockResolvedValue({
+      message: { id: 'message-1' },
+      status: 'COMPLETED',
+      missingInformation: [],
+      requestVersion: 5,
+      clientVersion: 10,
+      replayed: false,
+    })
+    const tx = {
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
+    }
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (operation: (value: typeof tx) => unknown) => operation(tx)),
+    }
+    const supportCredential = {
+      ...credential,
+      capabilities: ['support:complete'],
+    } satisfies VerifiedMcpCredentialScope
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.apply_support_completion',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '49444444-4444-4444-8444-444444444444',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        requestId: 'support-1',
+        expectedVersion: 4,
+        fromStatus: 'IN_REVIEW',
+        body: 'Your requested venue update is complete.',
+      },
+      { credential: supportCredential, approvalGrantId: 'grant-1' },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_completion',
+        capability: 'support:complete',
+        parameters: expect.objectContaining({
+          fromStatus: 'IN_REVIEW',
+          toStatus: 'COMPLETED',
+          body: 'Your requested venue update is complete.',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(completeSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          approvalGrantId: 'grant-1',
+          capability: 'support:complete',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          resultReference: 'SupportMessage:message-1:SupportRequest:support-1:v5:COMPLETED',
+        },
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-completion-applied',
+      data: {
+        status: 'COMPLETED',
         replayed: false,
         clientVisibleMessageCreated: true,
         customerContacted: true,

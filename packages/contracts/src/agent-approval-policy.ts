@@ -11,6 +11,8 @@ export const SUPPORT_TRIAGE_APPLY_CAPABILITY = 'support:triage' as const
 export const SUPPORT_INFORMATION_REQUEST_APPLY_ACTION =
   'pathfinder.apply_support_information_request' as const
 export const SUPPORT_INFORMATION_REQUEST_CAPABILITY = 'support:request-information' as const
+export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const
+export const SUPPORT_COMPLETION_CAPABILITY = 'support:complete' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -264,6 +266,47 @@ export const SupportInformationRequestProposalApprovalSnapshot = z
 
 export type SupportInformationRequestProposalApprovalSnapshot = z.infer<
   typeof SupportInformationRequestProposalApprovalSnapshot
+>
+
+/** Exact one-shot authority derived from an approved completion proposal. The
+ * reviewed message and request version are immutable; this is never reusable
+ * customer-contact or lifecycle authority. */
+export const SupportCompletionApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    toStatus: z.literal('COMPLETED'),
+    body: z.string().trim().min(1).max(20_000),
+  })
+  .strict()
+
+export type SupportCompletionApplyParameters = z.infer<typeof SupportCompletionApplyParameters>
+
+export const SupportCompletionProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    toStatus: z.literal('COMPLETED'),
+    body: z.string().trim().min(1).max(20_000),
+    missingInformationCount: z.literal(0),
+    supportRequestChanged: z.literal(false),
+    clientActivityChanged: z.literal(false),
+    clientVisibleMessageCreated: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportCompletionProposalApprovalSnapshot = z.infer<
+  typeof SupportCompletionProposalApprovalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

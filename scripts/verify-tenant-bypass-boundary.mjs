@@ -62,6 +62,7 @@ const approvedCallCounts = new Map([
   // Human-only issuance of one-use support-opening and exact-triage authority is exact-tenant and
   // exact-venue scoped; approval and grant issuance remain atomic and do not execute the action.
   ['packages/api/src/routers/admin/support-open-policy.ts', 4],
+  ['packages/api/src/routers/admin/support-completion-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],

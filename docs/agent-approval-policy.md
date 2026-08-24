@@ -45,7 +45,7 @@ version, `INTERNAL_ONLY` visibility, an empty attachment list, and a body inside
 The Founder Control Room always issues this policy with `maxUses: 1`. The canonical message action
 records full machine/grant lineage while leaving client version/activity, participants, request
 status, triage, and package lifecycle unchanged. Customer-visible replies remain human-only except
-for the exact founder-approved information-request path described below.
+for the exact founder-approved information-request and completion paths described below.
 
 Support triage uses the exact-parameter approval path rather than a reusable policy. The proposal
 freezes request ID/version, category, and the normalized missing-information list. One founder
@@ -65,6 +65,16 @@ client versions once, and move the request to `WAITING_FOR_CLIENT`. It cannot se
 participants or triage, execute package work, or authorize later contact. Exact replays do not
 duplicate the message; parameter or version drift fails closed.
 
+Support completion uses the same exact-parameter separation. The proposal freezes request
+ID/version/current status and the full client-visible completion message, and it fails closed unless
+the missing-information checklist is empty. A founder decision atomically issues one one-shot grant
+without contacting the client or changing lifecycle state. Only
+`pathfinder.apply_support_completion` can consume that exact grant: it reuses the canonical
+CAS-protected action to create one in-app completion message, increment request and client versions
+once, and move the request to `COMPLETED`. It cannot send email, add participants, alter triage,
+execute package work, or authorize later contact. Exact replays do not duplicate the message;
+parameter or version drift fails closed.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.
@@ -77,7 +87,7 @@ or make a report client-visible; those remain separate human-only transitions.
 
 Reusable policy does not authorize publication, scheduling, customer contact, billing, access
 changes, or any action outside the venue. Exact one-shot approval is required for the bounded
-in-app information request described above. The existing exact-parameter approval path remains
+in-app information request or completion described above. The existing exact-parameter approval path remains
 available. No policy is created by a migration, fixture, startup routine, or agent; a human platform
 administrator must enable it explicitly and can revoke it from the same mobile-responsive surface.
 
@@ -85,6 +95,7 @@ Disposable proof is available through:
 
 ```text
 pnpm test:agent-approval-policy:disposable
+pnpm test:support-completion:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact

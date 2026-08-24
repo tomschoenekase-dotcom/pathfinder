@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 406,
-    "sha256": "4c85f3bd68cd1e4d8fa8789d0f347d6966e1f61fd2e0282d924897a35298b7a4",
+    "count": 407,
+    "sha256": "010efb0a576021ff12fa7d651e455c806762c337faa7b6ce715a8b88ce42c1be",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "4c85f3bd68cd1e4d8fa8789d0f347d6966e1f61fd2e0282d924897a35298b7a4",
-      "sha256": "e2cd5424ec97ae19fd415989ab15660e71ae5bc6967544ec073e2f4edd27ffda"
+      "operationInventorySha256": "010efb0a576021ff12fa7d651e455c806762c337faa7b6ce715a8b88ce42c1be",
+      "sha256": "6a45f19beedb43b2903ac17b6babcc16051fe2fcb25dfed43f3aa645427c983e"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -285,6 +285,17 @@
         ],
         "decision": "The proposal tool freezes one exact reviewed in-app prompt against the unchanged triage checklist and request version without contact. The separate application tool consumes only a founder-approved exact one-shot grant and reuses the canonical support action to create one client-visible prompt and move that request to WAITING_FOR_CLIENT; it cannot email, add participants, change triage, execute packages, or authorize later contact.",
         "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-support-completion-lifecycle",
+        "kind": "bounded-alternative",
+        "operations": ["admin.completeSupportRequest"],
+        "surfaces": [
+          "tool:pathfinder.propose_support_completion",
+          "tool:pathfinder.apply_support_completion"
+        ],
+        "decision": "The proposal freezes one exact completion message against an unchanged OPEN or IN_REVIEW request only after its missing-information checklist is empty, without contact. The separate application tool consumes only a founder-approved exact one-shot grant and reuses the canonical support action to create one client-visible completion message and move that request to COMPLETED; it cannot email, add participants, alter triage, execute packages, or authorize later contact.",
+        "evidence": "packages/db/src/helpers/support-completion-disposable.integration.test.ts"
       },
       {
         "id": "bounded-update-reads",

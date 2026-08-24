@@ -49,6 +49,8 @@ function actions(): PathfinderMcpDomainActions {
     applySupportTriage: vi.fn().mockResolvedValue(result),
     proposeSupportInformationRequest: vi.fn().mockResolvedValue(result),
     applySupportInformationRequest: vi.fn().mockResolvedValue(result),
+    proposeSupportCompletion: vi.fn().mockResolvedValue(result),
+    applySupportCompletion: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),

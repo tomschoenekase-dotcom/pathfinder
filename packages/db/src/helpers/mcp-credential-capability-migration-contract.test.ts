@@ -23,6 +23,7 @@ const capabilityMigrationPaths = [
   '20260824190000_add_support_note_capability',
   '20260824200000_add_support_triage_capability',
   '20260824210000_add_support_information_request_capability',
+  '20260824220000_add_support_completion_capability',
 ]
 const capabilitySql = [
   sql,

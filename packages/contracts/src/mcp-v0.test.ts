@@ -6,6 +6,7 @@ import {
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpSupportInformationRequestApplyInput,
+  McpSupportCompletionApplyInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -181,6 +182,31 @@ describe('Torchiko MCP v0 contracts', () => {
       )?._meta['com.pathfinder/security'],
     ).toMatchObject({
       capability: 'support:request-information',
+      approvalRequired: true,
+      defaultEnabled: false,
+    })
+  })
+
+  it('requires exact bounded fields and approval for support completion', () => {
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 3,
+      fromStatus: 'IN_REVIEW' as const,
+      body: 'Your requested update is complete.',
+    }
+    expect(McpSupportCompletionApplyInput.parse(input)).toEqual(input)
+    expect(() => McpSupportCompletionApplyInput.parse({ ...input, email: true })).toThrow()
+    expect(
+      PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.apply_support_completion')
+        ?._meta['com.pathfinder/security'],
+    ).toMatchObject({
+      capability: 'support:complete',
       approvalRequired: true,
       defaultEnabled: false,
     })
