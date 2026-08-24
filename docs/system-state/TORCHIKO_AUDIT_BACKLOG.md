@@ -262,10 +262,11 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.8 — Remove the remaining UI/build warnings
 
-- **Problem:** Lint warns on raw `<img>`; Next builds warn on Sentry/OpenTelemetry dynamic requires and Windows standalone link names.
-- **Evidence:** `apps/web/components/PlaceCard.tsx:70`; `pnpm build` output.
+- **Status:** **LOCALLY RESOLVED 2026-08-24** for the actionable application warnings. The venue-photo `<img>` is now an explicit security-boundary exception, and both Next applications externalize the Sentry/OpenTelemetry instrumentation chain while preserving those packages in standalone output. Focused production builds complete without the raw-image lint warning, `Critical dependency`, `require-in-the-middle`, or `Compiled with warnings` output.
+- **Historical problem:** Lint warned on raw `<img>`; Next builds warned on Sentry/OpenTelemetry dynamic requires and Windows standalone link names.
+- **Evidence:** `apps/web/components/PlaceCard.tsx`; both `next.config.ts` files; focused web/dashboard lint and production builds; standalone-package trace inspection.
 - **Affected system:** Web performance, build signal quality.
-- **Recommended change:** Use an appropriate optimized image path or document the exception; pin/configure supported Sentry instrumentation; test the standalone-copy behavior on the actual Linux deployment path.
+- **Remaining deployment proof:** Exercise the generated standalone artifacts on the actual Linux staging path. Windows-specific standalone-link behavior is not treated as Linux deployment evidence.
 - **Why it matters:** Warning-free gates preserve useful signal, though none blocked this audit.
 - **Effort:** S
 - **Dependencies:** Image-domain/loader decision; Sentry version guidance.

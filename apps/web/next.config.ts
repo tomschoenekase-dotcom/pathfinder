@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
   },
   output: 'standalone',
   outputFileTracingRoot: workspaceRoot,
+  serverExternalPackages: [
+    '@opentelemetry/instrumentation',
+    '@sentry/nextjs',
+    'require-in-the-middle',
+  ],
   transpilePackages: ['@pathfinder/config'],
   images: {
     dangerouslyAllowSVG: true,

@@ -67,6 +67,9 @@ export function PlaceCard({
     >
       {photoUrl ? (
         <div className="h-36 w-full overflow-hidden bg-[var(--chat-bg)]">
+          {/* Deliberately bypass Next's optimizer: live-location cards admit bounded arbitrary HTTPS
+              venue URLs, and proxying those through the server would widen the remote-fetch boundary. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={photoUrl}
             alt={name}
