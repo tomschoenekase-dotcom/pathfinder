@@ -5,6 +5,7 @@ import {
   defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
+  defaultSupportRequestOpenPolicyConstraints,
   defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 import {
@@ -21,7 +22,6 @@ import {
   recordAgentOutcomeAction,
   searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
-  transitionSupportRequestStatusAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -448,6 +448,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           accessCapabilities: [
             'updates:draft',
             'support:draft',
+            'support:open',
             'intake:draft',
             'reports:draft',
             'meetings.process',
@@ -474,6 +475,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'integrations:read',
           'updates:draft',
           'support:draft',
+          'support:open',
           'intake:draft',
           'reports:draft',
           'agent-runs:execute',
@@ -523,6 +525,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'meetings:process',
             'updates:draft',
             'support:draft',
+            'support:open',
             'intake:draft',
             'reports:draft',
           ],
@@ -909,27 +912,99 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       expect(
         await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
       ).toBe(1)
-      const promoted = await transitionSupportRequestStatusAction({
+      const supportOpenPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
         tenantId,
         venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.open_support_request',
+        capability: 'support:open',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_TO_OPEN_ONLY' },
+        policyKey: `reviewed-support-open-once-${suffix}`,
+        constraints: defaultSupportRequestOpenPolicyConstraints(),
+        issueReason: 'Synthetic reviewed evidence authorizes one internal draft opening.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 1,
+        actor: credentialActor,
+      })
+      const supportOpenInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: randomUUID(),
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
         requestId: supportDraft.id,
         expectedVersion: supportDraft.version,
-        toStatus: 'OPEN',
-        actor: {
-          actorType: 'HUMAN',
-          participantKind: 'OPERATOR',
-          actorId: human.actorId,
-          auditRole: 'PLATFORM_ADMIN',
-        },
+      }
+      const supportOpenContext = { credential, approvalGrantId: supportOpenPolicy.id }
+      const promoted = await registry.callTool(
+        'pathfinder.open_support_request',
+        supportOpenInput,
+        supportOpenContext,
+      )
+      const promotedReplay = await registry.callTool(
+        'pathfinder.open_support_request',
+        supportOpenInput,
+        supportOpenContext,
+      )
+      expect(promoted.structuredContent).toMatchObject({
+        kind: 'torchiko.support-request-opened',
+        data: { id: supportDraft.id, status: 'OPEN', version: 2, clientVersion: 1 },
       })
-      expect(promoted).toMatchObject({ status: 'OPEN', clientVersion: 1 })
-      expect(promoted).not.toHaveProperty('clientActivityAt')
+      expect(JSON.stringify(promotedReplay)).toContain('Existing approved support opening')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: supportOpenPolicy.id },
+        }),
+      ).toBe(1)
+      expect(
+        await db.supportRequest.findUniqueOrThrow({
+          where: { id: supportDraft.id },
+          select: { status: true, version: true, clientVersion: true, participants: true },
+        }),
+      ).toMatchObject({ status: 'OPEN', version: 2, clientVersion: 1, participants: [] })
       expect(
         await db.supportMessage.findFirstOrThrow({
           where: { supportRequestId: supportDraft.id },
           select: { visibility: true },
         }),
       ).toEqual({ visibility: 'INTERNAL_ONLY' })
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'SupportRequest',
+            targetId: supportDraft.id,
+            action: 'support-request.status-changed',
+          },
+          select: {
+            actorType: true,
+            agentIdentityId: true,
+            agentRunId: true,
+            workerId: true,
+            credentialId: true,
+            approvalGrantId: true,
+            capability: true,
+            afterState: true,
+          },
+        }),
+      ).toMatchObject({
+        actorType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: supportOpenPolicy.id,
+        capability: 'support:open',
+        afterState: {
+          customerContacted: false,
+          participantGranted: false,
+          messageSent: false,
+          executionTriggered: false,
+        },
+      })
 
       const intakePolicy = await issueApprovalGrantAction({
         operationId: randomUUID(),

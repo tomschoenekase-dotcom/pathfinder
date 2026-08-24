@@ -1,9 +1,10 @@
 # Progressive agent approval policy
 
 Torchiko separates an agent's capability from the operating policy that determines whether one
-use needs a fresh human approval. Four executable policy-backed action classes are intentionally
+use needs a fresh human approval. Five executable policy-backed action classes are intentionally
 narrow: `pathfinder.create_update_draft` with `updates:draft` authority and
 `pathfinder.create_support_draft` with `support:draft` authority, and
+`pathfinder.open_support_request` with `support:open` authority, and
 `pathfinder.create_intake_notes_proposal` with `intake:draft` authority, and
 `pathfinder.generate_weekly_report_draft` with `reports:draft` authority.
 
@@ -27,11 +28,16 @@ The operational-update evaluator accepts only a schema-valid informational `GENE
 tenant and venue and requires expiry after start. Unknown constraint versions, action classes, or
 capabilities fail closed. A rejected attempt does not increment use count.
 
-The support evaluator accepts only one of the established support categories within the reviewed
+The support-draft evaluator accepts only one of the established support categories within the reviewed
 subject/body bounds. The canonical write creates a `DRAFT` request with one `INTERNAL_ONLY`
 message, no customer requester, no participant, and no customer activity/version marker for the
-message. Only a human platform support operator can move it to `OPEN` or `CANCELLED`; opening the
-draft does not send a message or grant access.
+message.
+
+The separate support-open evaluator accepts only exact client/venue scope, an existing request and
+version, and the literal `DRAFT` to `OPEN` transition. The Founder Control Room always issues this
+policy with `maxUses: 1`. The canonical status action records full machine/grant lineage without
+adding a participant or message, changing client activity, contacting a customer, executing work,
+or permitting any later transition. Human operators retain cancellation and all later states.
 
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
@@ -55,7 +61,7 @@ pnpm test:agent-approval-policy:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact
-outcome membership, policy issuance replay, bounded policy consumption for all four registered
-action classes, fail-closed parameter rejection, private support visibility, human-only draft promotion,
+outcome membership, policy issuance replay, bounded policy consumption for all five registered
+action classes, fail-closed parameter rejection, private support visibility, approval-bound one-use opening,
 durable evidence, and cleanup. It performs no provider call, publication, customer contact, or real
 billing action.

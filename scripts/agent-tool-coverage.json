@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 402,
-    "sha256": "2b1530547f77ece3e5f28e674f9da9d2d50def37e0d2c7502de07d50e44317d8",
+    "count": 403,
+    "sha256": "7d7c244cae186cab34256fd4c6c9ef7a78f15719045131b27b135788aaa896a6",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "2b1530547f77ece3e5f28e674f9da9d2d50def37e0d2c7502de07d50e44317d8",
-      "sha256": "b38a2b4c0fd1ff7656cae4f86f75e6b123483f1dff3d00e2cc3dca6afe682457"
+      "operationInventorySha256": "7d7c244cae186cab34256fd4c6c9ef7a78f15719045131b27b135788aaa896a6",
+      "sha256": "f8da016aeac63ec86d4c8b6827d80320284aa22a2eae55b8a89f1a6ccd15f31f"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -245,8 +245,16 @@
         "kind": "bounded-alternative",
         "operations": ["support.createRequest"],
         "surfaces": ["tool:pathfinder.create_support_draft"],
-        "decision": "The machine tool is deliberately narrower than customer request creation: it creates an exact-venue DRAFT with one INTERNAL_ONLY message, requires verified worker/run/grant lineage, and cannot contact a customer or grant participant access. A human operator must explicitly open or cancel it.",
+        "decision": "The machine tool is deliberately narrower than customer request creation: it creates an exact-venue DRAFT with one INTERNAL_ONLY message, requires verified worker/run/grant lineage, and cannot contact a customer or grant participant access.",
         "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-support-draft-opening",
+        "kind": "bounded-alternative",
+        "operations": ["admin.transitionSupportRequestStatus"],
+        "surfaces": ["tool:pathfinder.open_support_request"],
+        "decision": "The machine tool reuses the canonical status action but permits only one exact DRAFT-to-OPEN transition under evidence-backed one-use authority. It cannot add participants or messages, contact a customer, execute work, or perform later transitions.",
+        "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
       },
       {
         "id": "bounded-update-reads",

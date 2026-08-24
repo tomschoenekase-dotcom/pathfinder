@@ -67,7 +67,7 @@ describe('agent operations views', () => {
     expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
     expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Add draft policy' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add action policy' })).toBeTruthy()
     expect(
       screen.getByText(
         /cannot apply or publish content, contact a customer, or widen venue access/,

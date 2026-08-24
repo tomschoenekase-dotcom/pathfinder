@@ -70,6 +70,7 @@ export const McpCapability = z.enum([
   'agent-runs:execute',
   'packages:draft',
   'support:draft',
+  'support:open',
   'intake:draft',
   'updates:draft',
   'evaluations:request',
@@ -145,7 +146,7 @@ export type PathfinderMcpSecurityMetadata = Readonly<{
   clientBound: true
   venueBound: boolean | 'conditional'
   risk: 'low' | 'moderate'
-  effect: 'read' | 'interaction' | 'draft' | 'bounded-evaluation-request'
+  effect: 'read' | 'interaction' | 'draft' | 'approved-transition' | 'bounded-evaluation-request'
   defaultEnabled: boolean
   approvalRequired: boolean
 }>
@@ -181,7 +182,10 @@ function security(
   effect: PathfinderMcpSecurityMetadata['effect'],
 ): PathfinderMcpSecurityMetadata {
   const readOnly = effect === 'read'
-  const approvalRequired = effect === 'draft' || effect === 'bounded-evaluation-request'
+  const approvalRequired =
+    effect === 'draft' ||
+    effect === 'approved-transition' ||
+    effect === 'bounded-evaluation-request'
   return {
     scope,
     capability,
@@ -744,6 +748,16 @@ export const McpSupportDraftInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportDraftInput = z.infer<typeof McpSupportDraftInput>
 
+export const McpSupportOpenInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+}).strict()
+export type McpSupportOpenInput = z.infer<typeof McpSupportOpenInput>
+
 export const McpIntakeNotesProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -880,6 +894,7 @@ export type PathfinderMcpToolName =
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
+  | 'pathfinder.open_support_request'
   | 'pathfinder.create_intake_notes_proposal'
   | 'pathfinder.generate_weekly_report_draft'
   | 'pathfinder.request_evaluation'
@@ -1713,6 +1728,42 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     _meta: { 'com.pathfinder/security': security('venue', 'support:draft', 'draft') },
   },
   {
+    name: 'pathfinder.open_support_request',
+    title: 'Open an internal support draft',
+    description:
+      'Promote one existing internal support request from DRAFT to OPEN under exact approval. It cannot add participants, send messages, contact a customer, or perform later workflow transitions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:open', 'approved-transition'),
+    },
+  },
+  {
     name: 'pathfinder.create_intake_notes_proposal',
     title: 'Prepare onboarding notes for review',
     description:
@@ -1829,7 +1880,9 @@ export function validatePathfinderMcpCatalog(): void {
       throw new Error(`Tool ${tool.name} risk metadata is contradictory`)
     }
     if (
-      (metadata.effect === 'draft' || metadata.effect === 'bounded-evaluation-request') &&
+      (metadata.effect === 'draft' ||
+        metadata.effect === 'approved-transition' ||
+        metadata.effect === 'bounded-evaluation-request') &&
       (metadata.defaultEnabled || !metadata.approvalRequired)
     ) {
       throw new Error(`Tool ${tool.name} must remain default-off and approval-gated`)

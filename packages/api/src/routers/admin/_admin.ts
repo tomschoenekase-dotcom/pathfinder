@@ -6,6 +6,7 @@ import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentBridgeOperationsRouter } from './agent-bridge-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
+import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
@@ -87,6 +88,7 @@ export const adminRouter = mergeRouters(
   adminAgentOperationsRouter,
   adminAgentBridgeOperationsRouter,
   adminAgentIdentityConfigurationRouter,
+  adminSupportOpenPolicyRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,

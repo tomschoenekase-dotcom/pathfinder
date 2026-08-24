@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const issue = vi.fn().mockResolvedValue({ id: 'grant_new' })
 const issueSupport = vi.fn().mockResolvedValue({ id: 'grant_support' })
+const issueSupportOpen = vi.fn().mockResolvedValue({ id: 'grant_support_open' })
 const issueIntake = vi.fn().mockResolvedValue({ id: 'grant_intake' })
 const issueReport = vi.fn().mockResolvedValue({ id: 'grant_report' })
 const revoke = vi.fn().mockResolvedValue({ id: 'grant_1' })
@@ -16,6 +17,7 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       issueOperationalUpdateDraftPolicy: { mutate: issue },
       issueSupportRequestDraftPolicy: { mutate: issueSupport },
+      issueSupportRequestOpenPolicy: { mutate: issueSupportOpen },
       issueIntakeNotesProposalPolicy: { mutate: issueIntake },
       issueWeeklyReportDraftPolicy: { mutate: issueReport },
       revokeAgentApprovalPolicy: { mutate: revoke },
@@ -61,11 +63,10 @@ describe('AgentApprovalPolicyControl', () => {
 
   it('issues only the bounded draft policy and remains accessible', async () => {
     const { container } = render(<AgentApprovalPolicyControl {...baseProps} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
-    fireEvent.change(
-      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
-      { target: { value: 'Reviewed evidence supports bounded informational drafts.' } },
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed evidence supports bounded informational drafts.' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
 
@@ -96,12 +97,11 @@ describe('AgentApprovalPolicyControl', () => {
       },
     }
     const { container } = render(<AgentApprovalPolicyControl {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
     fireEvent.click(screen.getByLabelText(/Internal support-request draft/))
-    fireEvent.change(
-      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
-      { target: { value: 'Reviewed support outcomes justify private drafting.' } },
-    )
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed support outcomes justify private drafting.' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
 
@@ -166,17 +166,44 @@ describe('AgentApprovalPolicyControl', () => {
     )
   })
 
+  it('issues exactly one approval-bound internal support opening', async () => {
+    const props = {
+      ...baseProps,
+      identity: { ...baseProps.identity, accessCapabilities: ['support:open'] },
+    }
+    const { container } = render(<AgentApprovalPolicyControl {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed support outcomes justify one lifecycle promotion.' },
+    })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable one support opening' }))
+
+    await waitFor(() => expect(issueSupportOpen).toHaveBeenCalledOnce())
+    expect(issueSupportOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyKey: expect.stringMatching(
+          /^support-primary-support-request-open-once-[0-9a-f]{8}$/u,
+        ),
+        outcomeObservationIds: ['outcome_1'],
+      }),
+    )
+    expect(issueSupportOpen.mock.calls[0]?.[0]).not.toHaveProperty('maxUses')
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
   it('issues a NOTES-only intake proposal policy without apply or publication authority', async () => {
     const props = {
       ...baseProps,
       identity: { ...baseProps.identity, accessCapabilities: ['intake:draft'] },
     }
     const { container } = render(<AgentApprovalPolicyControl {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
-    fireEvent.change(
-      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
-      { target: { value: 'Reviewed onboarding outcomes justify notes-only proposals.' } },
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed onboarding outcomes justify notes-only proposals.' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
 
@@ -201,11 +228,10 @@ describe('AgentApprovalPolicyControl', () => {
       identity: { ...baseProps.identity, accessCapabilities: ['reports:draft'] },
     }
     const { container } = render(<AgentApprovalPolicyControl {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
-    fireEvent.change(
-      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
-      { target: { value: 'Reviewed report outcomes justify bounded internal drafting.' } },
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Add action policy' }))
+    fireEvent.change(screen.getByLabelText(/Why this authority is justified/), {
+      target: { value: 'Reviewed report outcomes justify bounded internal drafting.' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
 
@@ -229,7 +255,7 @@ describe('AgentApprovalPolicyControl', () => {
   it('keeps policy issuance unavailable until exact outcome evidence exists', () => {
     render(<AgentApprovalPolicyControl {...baseProps} outcomeObservations={[]} />)
     expect(screen.getByText(/No reviewed outcome observations exist/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Add draft policy' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'Add action policy' })).toHaveProperty(
       'disabled',
       true,
     )

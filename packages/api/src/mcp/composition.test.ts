@@ -4,6 +4,7 @@ const {
   consumeApproval,
   createUpdate,
   createSupport,
+  transitionSupport,
   createIntake,
   buildPreview,
   listGaps,
@@ -20,6 +21,7 @@ const {
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
   createSupport: vi.fn(),
+  transitionSupport: vi.fn(),
   createIntake: vi.fn(),
   buildPreview: vi.fn(),
   listGaps: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   consumeApprovalGrantAction: consumeApproval,
   createOperationalUpdateAction: createUpdate,
   createSupportRequestAction: createSupport,
+  transitionSupportRequestStatusAction: transitionSupport,
   createIntakeProposal: createIntake,
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
@@ -591,6 +594,92 @@ describe('safe operational MCP composition', () => {
         replayed: false,
       },
     })
+  })
+
+  it('opens one internal support draft through exact approval without customer contact', async () => {
+    consumeApproval.mockResolvedValue({
+      replayed: false,
+      consumption: { id: 'consumption-open', resultReference: null },
+    })
+    transitionSupport.mockResolvedValue({
+      id: 'support-1',
+      status: 'OPEN',
+      version: 2,
+      clientVersion: 1,
+      statusChangedAt: new Date('2030-01-01T12:00:00.000Z'),
+    })
+    const tx = {
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+      supportRequest: { findFirst: vi.fn() },
+    }
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-open' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+    }
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '3c5f9673-d43d-4e40-a01d-cf188431ab81',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 1,
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.open_support_request',
+      input,
+      {
+        credential: { ...credential, capabilities: ['support:open'] },
+        approvalGrantId: 'grant-open',
+      },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.open_support_request',
+        capability: 'support:open',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          requestId: 'support-1',
+          expectedVersion: 1,
+          fromStatus: 'DRAFT',
+          toStatus: 'OPEN',
+        },
+      }),
+      expect.anything(),
+    )
+    expect(transitionSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'support-1',
+        expectedVersion: 1,
+        toStatus: 'OPEN',
+        actor: expect.objectContaining({
+          participantKind: 'AGENT',
+          capability: 'support:open',
+          approvalGrantId: 'grant-open',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith({
+      where: { id: 'consumption-open' },
+      data: { resultReference: 'SupportRequest:support-1:OPEN' },
+    })
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-request-opened',
+      data: { id: 'support-1', status: 'OPEN', version: 2, replayed: false },
+    })
+    expect(result.structuredContent.summary).toContain('no participant was added')
   })
 
   it('creates only a review-pending NOTES intake proposal through exact machine and grant scope', async () => {

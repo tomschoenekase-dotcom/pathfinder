@@ -4,6 +4,8 @@ export const OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION = 'pathfinder.create_update_
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY = 'updates:draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY = 'support:draft' as const
+export const SUPPORT_REQUEST_OPEN_POLICY_ACTION = 'pathfinder.open_support_request' as const
+export const SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY = 'support:open' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
   'pathfinder.create_intake_notes_proposal' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY = 'intake:draft' as const
@@ -124,6 +126,43 @@ export function defaultSupportRequestDraftPolicyConstraints(): SupportRequestDra
     ],
     maxSubjectChars: 200,
     maxBodyChars: 20_000,
+  }
+}
+
+/** Reviewed authority for one internal lifecycle promotion. Issuers must cap
+ * this policy at one use; it cannot add participants, messages, or execute work. */
+export const SupportRequestOpenPolicyConstraints = z
+  .object({
+    contractVersion: z.literal(1),
+    effect: z.literal('DRAFT_TO_OPEN_ONLY'),
+    allowedFromStatuses: z.tuple([z.literal('DRAFT')]),
+    allowedToStatuses: z.tuple([z.literal('OPEN')]),
+  })
+  .strict()
+
+export type SupportRequestOpenPolicyConstraints = z.infer<
+  typeof SupportRequestOpenPolicyConstraints
+>
+
+export const SupportRequestOpenPolicyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.literal('DRAFT'),
+    toStatus: z.literal('OPEN'),
+  })
+  .strict()
+
+export type SupportRequestOpenPolicyParameters = z.infer<typeof SupportRequestOpenPolicyParameters>
+
+export function defaultSupportRequestOpenPolicyConstraints(): SupportRequestOpenPolicyConstraints {
+  return {
+    contractVersion: 1,
+    effect: 'DRAFT_TO_OPEN_ONLY',
+    allowedFromStatuses: ['DRAFT'],
+    allowedToStatuses: ['OPEN'],
   }
 }
 

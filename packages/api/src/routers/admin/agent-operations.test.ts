@@ -86,6 +86,7 @@ import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
+import { adminSupportOpenPolicyRouter } from './support-open-policy'
 
 const testRouter = router({
   agentOperations: mergeRouters(
@@ -93,6 +94,7 @@ const testRouter = router({
     adminAgentIdentityConfigurationRouter,
     adminAgentApprovalDecisionsRouter,
     adminAgentRunCancellationRouter,
+    adminSupportOpenPolicyRouter,
   ),
 })
 
@@ -384,6 +386,45 @@ describe('admin agent operations router', () => {
         actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
       }),
     )
+  })
+
+  it('issues exactly one evidence-backed support draft opening', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_open', replayed: false })
+    await testRouter.createCaller(context()).agentOperations.issueSupportRequestOpenPolicy({
+      operationId: '45444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      policyKey: 'support-request-open-once',
+      issueReason: 'Reviewed outcomes justify one internal lifecycle promotion.',
+      outcomeObservationIds: ['outcome_1'],
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith({
+      operationId: '45444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      actionName: 'pathfinder.open_support_request',
+      capability: 'support:open',
+      mode: 'POLICY_BACKED',
+      policyKey: 'support-request-open-once',
+      scope: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        effect: 'DRAFT_TO_OPEN_ONLY',
+      },
+      constraints: {
+        contractVersion: 1,
+        effect: 'DRAFT_TO_OPEN_ONLY',
+        allowedFromStatuses: ['DRAFT'],
+        allowedToStatuses: ['OPEN'],
+      },
+      issueReason: 'Reviewed outcomes justify one internal lifecycle promotion.',
+      outcomeObservationIds: ['outcome_1'],
+      maxUses: 1,
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
   })
 
   it('issues bounded internal weekly-report draft generation authority', async () => {

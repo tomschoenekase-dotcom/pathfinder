@@ -10,6 +10,9 @@ import {
   defaultSupportRequestDraftPolicyConstraints,
   SupportRequestDraftPolicyConstraints,
   SupportRequestDraftPolicyParameters,
+  defaultSupportRequestOpenPolicyConstraints,
+  SupportRequestOpenPolicyConstraints,
+  SupportRequestOpenPolicyParameters,
 } from './agent-approval-policy'
 
 describe('operational update draft policy contract', () => {
@@ -80,6 +83,31 @@ describe('support request draft policy contract', () => {
     expect(SupportRequestDraftPolicyParameters.parse(parameters)).toEqual(parameters)
     expect(() =>
       SupportRequestDraftPolicyParameters.parse({ ...parameters, customerVisible: true }),
+    ).toThrow()
+  })
+})
+
+describe('support request open policy contract', () => {
+  it('permits only an exact DRAFT-to-OPEN lifecycle promotion', () => {
+    expect(
+      SupportRequestOpenPolicyConstraints.parse(defaultSupportRequestOpenPolicyConstraints()),
+    ).toEqual({
+      contractVersion: 1,
+      effect: 'DRAFT_TO_OPEN_ONLY',
+      allowedFromStatuses: ['DRAFT'],
+      allowedToStatuses: ['OPEN'],
+    })
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 1,
+      fromStatus: 'DRAFT' as const,
+      toStatus: 'OPEN' as const,
+    }
+    expect(SupportRequestOpenPolicyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportRequestOpenPolicyParameters.parse({ ...parameters, sendMessage: true }),
     ).toThrow()
   })
 })

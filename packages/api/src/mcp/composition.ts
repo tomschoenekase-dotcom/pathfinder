@@ -6,6 +6,7 @@ import {
   consumeApprovalGrantAction,
   createIntakeProposal,
   createSupportRequestAction,
+  transitionSupportRequestStatusAction,
   createOperationalUpdateAction,
   db,
   getCompactAccountContext,
@@ -61,6 +62,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.propose_billing_action',
   'pathfinder.create_update_draft',
   'pathfinder.create_support_draft',
+  'pathfinder.open_support_request',
   'pathfinder.create_intake_notes_proposal',
   'pathfinder.generate_weekly_report_draft',
 ] as const satisfies readonly PathfinderMcpToolName[]
@@ -107,6 +109,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
     | 'createSupportDraft'
+    | 'openSupportRequest'
     | 'createIntakeNotesProposal'
     | 'generateWeeklyReportDraft'
   > = {
@@ -121,6 +124,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
     | 'createSupportDraft'
+    | 'openSupportRequest'
     | 'createIntakeNotesProposal'
     | 'generateWeeklyReportDraft'
     | 'processMeeting'
@@ -392,6 +396,141 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.request.status,
           category: result.request.category,
           messageVisibility: result.message.visibility,
+          replayed: result.replayed,
+        }),
+      }
+    },
+    async openSupportRequest(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Support opening requires venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:open' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified support worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified support worker run is unavailable')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const actor = {
+        actorType: 'AGENT' as const,
+        participantKind: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        auditRole: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'support:open' as const,
+        ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+        ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        idempotencyKey: input.operationId,
+      }
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: 'DRAFT' as const,
+        toStatus: 'OPEN' as const,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.open_support_request',
+            capability: 'support:open',
+            parameters,
+            actor: {
+              type: 'AGENT',
+              actorId: input.agentIdentityId,
+              role: 'AGENT',
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:open',
+              ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+              ...(worker.modelName ? { modelName: worker.modelName } : {}),
+              idempotencyKey: input.operationId,
+            },
+            now,
+          },
+          sameTransaction,
+        )
+        if (consumption.replayed) {
+          if (
+            consumption.consumption.resultReference !== `SupportRequest:${input.requestId}:OPEN`
+          ) {
+            throw new McpActionBindingError('Approved support transition replay is incomplete')
+          }
+          const request = await tx.supportRequest.findFirst({
+            where: {
+              id: input.requestId,
+              tenantId: context.credential.tenantId,
+              venueId,
+              status: 'OPEN',
+            },
+            select: { id: true, status: true, version: true, clientVersion: true },
+          })
+          if (!request) throw new McpActionBindingError('Opened support request is unavailable')
+          return { request, replayed: true as const }
+        }
+        const request = await transitionSupportRequestStatusAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            requestId: input.requestId,
+            expectedVersion: input.expectedVersion,
+            toStatus: 'OPEN',
+            actor,
+            changedAt: now,
+          },
+          sameTransaction,
+        )
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference: `SupportRequest:${request.id}:OPEN` },
+        })
+        return { request, replayed: false as const }
+      })
+      return {
+        kind: 'torchiko.support-request-opened',
+        summary: result.replayed
+          ? 'Existing approved support opening returned; no participant was added and no customer was contacted.'
+          : 'Internal support draft opened under approval; no participant was added and no customer was contacted.',
+        data: jsonData({
+          id: result.request.id,
+          status: result.request.status,
+          version: result.request.version,
+          clientVersion: result.request.clientVersion,
           replayed: result.replayed,
         }),
       }

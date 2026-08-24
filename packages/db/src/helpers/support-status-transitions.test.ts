@@ -116,6 +116,62 @@ describe('support status transition domain action', () => {
     )
   })
 
+  it('lets an approval-bound agent perform only DRAFT-to-OPEN with machine lineage', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'DRAFT',
+      version: 2,
+      clientVersion: 1,
+    })
+    const agent = {
+      actorType: 'AGENT',
+      participantKind: 'AGENT',
+      actorId: 'agent_1',
+      auditRole: 'AGENT',
+      agentIdentityId: 'agent_1',
+      agentRunId: 'run_1',
+      workerId: 'worker_1',
+      credentialId: 'credential_1',
+      approvalGrantId: 'grant_1',
+      capability: 'support:open',
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    } as const
+    await transitionSupportRequestStatusAction(
+      { ...input, actor: agent, toStatus: 'OPEN' },
+      actionClient,
+    )
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ updatedByKind: 'AGENT', updatedById: 'agent_1' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          agentRunId: 'run_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:open',
+          afterState: expect.objectContaining({
+            customerContacted: false,
+            participantGranted: false,
+            messageSent: false,
+          }),
+        }),
+      }),
+    )
+
+    const later = harness()
+    await expect(
+      transitionSupportRequestStatusAction(
+        { ...input, actor: agent, toStatus: 'IN_REVIEW' },
+        later.actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(later.client.$transaction).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['IN_REVIEW', 'COMPLETED'],
     ['PATCH_DRAFTED', 'APPLYING'],

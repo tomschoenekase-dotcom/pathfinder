@@ -23,6 +23,7 @@ import {
   McpReportLifecycleInput,
   McpReadInput,
   McpSupportDraftInput,
+  McpSupportOpenInput,
   McpToolResult,
   McpUpdateDraftInput,
   McpWeeklyReportDraftInput,
@@ -166,6 +167,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   createSupportDraft: (
     input: McpSupportDraftInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  openSupportRequest: (
+    input: McpSupportOpenInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createIntakeNotesProposal: (
@@ -405,6 +410,19 @@ export function createPathfinderMcpRegistry(
             context,
           )
           result = await actions.createSupportDraft(input, context)
+          break
+        }
+        case 'pathfinder.open_support_request': {
+          const input = McpSupportOpenInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.open_support_request',
+            input,
+            metadata.capability,
+            context,
+          )
+          result = await actions.openSupportRequest(input, context)
           break
         }
         case 'pathfinder.create_intake_notes_proposal': {

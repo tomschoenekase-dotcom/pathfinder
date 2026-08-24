@@ -14,6 +14,10 @@ import {
   SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
   SupportRequestDraftPolicyConstraints,
   SupportRequestDraftPolicyParameters,
+  SUPPORT_REQUEST_OPEN_POLICY_ACTION,
+  SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY,
+  SupportRequestOpenPolicyConstraints,
+  SupportRequestOpenPolicyParameters,
   WEEKLY_REPORT_DRAFT_POLICY_ACTION,
   WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY,
   WeeklyReportDraftPolicyConstraints,
@@ -194,6 +198,19 @@ function validatePolicyConstraints(
     return parsed.data
   }
   if (
+    actionName === SUPPORT_REQUEST_OPEN_POLICY_ACTION &&
+    capability === SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportRequestOpenPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support-request open policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
     actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
     capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
   ) {
@@ -287,6 +304,32 @@ function assertPolicyParameters(
       throw new ApprovalGrantActionError(
         'PARAMETER_MISMATCH',
         'Action parameters are outside the reviewed support-request draft policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === SUPPORT_REQUEST_OPEN_POLICY_ACTION &&
+    input.capability === SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY
+  ) {
+    const policy = SupportRequestOpenPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support-request open policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportRequestOpenPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedFromStatuses.includes(parameters.data.fromStatus) ||
+      !policy.data.allowedToStatuses.includes(parameters.data.toStatus)
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support-request open policy',
       )
     }
     return

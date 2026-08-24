@@ -12,30 +12,31 @@ The canonical operational schemas and security annotations are in `packages/cont
 
 ## Operational MCP
 
-| Tool                                          | Effect                                  | Idempotency                | Approval                                  | Default                                          |
-| --------------------------------------------- | --------------------------------------- | -------------------------- | ----------------------------------------- | ------------------------------------------------ |
-| `pathfinder.read`                             | Bounded client/venue resource read      | Safe repeat                | No                                        | Enabled after verified credential composition    |
-| `pathfinder.ask_operator`                     | Durable operator question               | Operation UUID             | No; never grants approval                 | Enabled after verified credential composition    |
-| `pathfinder.delegate_specialist`              | Same-scope child agent run              | Operation UUID             | No domain mutation authority              | Enabled after verified credential composition    |
-| `pathfinder.propose_billing_action`           | Billing proposal only                   | Operation UUID             | Downstream human approval                 | Enabled after verified credential composition    |
-| `pathfinder.create_package_draft`             | Reviewable package draft                | Canonical action policy    | Verified approval grant                   | Declared; no safe-runtime binding                |
-| `pathfinder.create_update_draft`              | Reviewable operational-update draft     | Canonical action policy    | Verified approval grant                   | Bound; exact grant still required                |
-| `pathfinder.create_support_draft`             | Private internal support draft          | Operation UUID             | Verified approval grant                   | Bound; human open/cancel review remains          |
-| `pathfinder.create_intake_notes_proposal`     | Reviewable onboarding-notes proposal    | Operation UUID             | Verified approval grant                   | Bound; extraction/application remain separate    |
-| `pathfinder.request_evaluation`               | Bounded evaluation request              | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding                |
-| `torchiko.account.get_context`                | Compact CRM/account context             | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.account.timeline`                   | Paginated relationship timeline         | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.account.meetings`                   | Bounded meeting summaries               | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.account.meeting_get`                | Exact meeting/extraction detail         | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.meeting.process`                    | Candidate extraction + completion       | Operation UUID             | No; promotion remains separate            | Live worker/run + capability scoped              |
-| `torchiko.account.correspondence`             | Bounded correspondence snippets         | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.knowledge.search`                   | Governed institutional search           | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.knowledge.get`                      | Exact governed knowledge item           | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.locations.propose_draft`            | Typed location proposal only            | Operation UUID             | Human review, then separate application   | Live worker/run + exact venue scope              |
-| `torchiko.customer_access.prepare_invitation` | Provider-dark member invitation request | Operation UUID             | Founder review before any external effect | Live worker/run + exact owner-authored evidence  |
-| `torchiko.integrations.health`                | Secret-free integration/control health  | Safe repeat                | No                                        | Credential capability scoped                     |
-| `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle           | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped     |
-| `pathfinder.generate_weekly_report_draft`     | Internal report draft generation        | Idempotent operation ID    | Yes; evidence-backed grant                | Exact venue and `reports:draft`; never publishes |
+| Tool                                          | Effect                                   | Idempotency                | Approval                                  | Default                                          |
+| --------------------------------------------- | ---------------------------------------- | -------------------------- | ----------------------------------------- | ------------------------------------------------ |
+| `pathfinder.read`                             | Bounded client/venue resource read       | Safe repeat                | No                                        | Enabled after verified credential composition    |
+| `pathfinder.ask_operator`                     | Durable operator question                | Operation UUID             | No; never grants approval                 | Enabled after verified credential composition    |
+| `pathfinder.delegate_specialist`              | Same-scope child agent run               | Operation UUID             | No domain mutation authority              | Enabled after verified credential composition    |
+| `pathfinder.propose_billing_action`           | Billing proposal only                    | Operation UUID             | Downstream human approval                 | Enabled after verified credential composition    |
+| `pathfinder.create_package_draft`             | Reviewable package draft                 | Canonical action policy    | Verified approval grant                   | Declared; no safe-runtime binding                |
+| `pathfinder.create_update_draft`              | Reviewable operational-update draft      | Canonical action policy    | Verified approval grant                   | Bound; exact grant still required                |
+| `pathfinder.create_support_draft`             | Private internal support draft           | Operation UUID             | Verified approval grant                   | Bound; opening is a separate authority           |
+| `pathfinder.open_support_request`             | One internal `DRAFT` → `OPEN` transition | Operation UUID             | Evidence-backed one-use approval          | Bound; no participant/message/customer contact   |
+| `pathfinder.create_intake_notes_proposal`     | Reviewable onboarding-notes proposal     | Operation UUID             | Verified approval grant                   | Bound; extraction/application remain separate    |
+| `pathfinder.request_evaluation`               | Bounded evaluation request               | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding                |
+| `torchiko.account.get_context`                | Compact CRM/account context              | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.account.timeline`                   | Paginated relationship timeline          | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.account.meetings`                   | Bounded meeting summaries                | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.account.meeting_get`                | Exact meeting/extraction detail          | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.meeting.process`                    | Candidate extraction + completion        | Operation UUID             | No; promotion remains separate            | Live worker/run + capability scoped              |
+| `torchiko.account.correspondence`             | Bounded correspondence snippets          | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.knowledge.search`                   | Governed institutional search            | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.knowledge.get`                      | Exact governed knowledge item            | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.locations.propose_draft`            | Typed location proposal only             | Operation UUID             | Human review, then separate application   | Live worker/run + exact venue scope              |
+| `torchiko.customer_access.prepare_invitation` | Provider-dark member invitation request  | Operation UUID             | Founder review before any external effect | Live worker/run + exact owner-authored evidence  |
+| `torchiko.integrations.health`                | Secret-free integration/control health   | Safe repeat                | No                                        | Credential capability scoped                     |
+| `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle            | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped     |
+| `pathfinder.generate_weekly_report_draft`     | Internal report draft generation         | Idempotent operation ID    | Yes; evidence-backed grant                | Exact venue and `reports:draft`; never publishes |
 
 `pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage and cost protection, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, an exact-run unified trace, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets. `agent-run-trace` additionally requires `agentRunId`, uses the existing `agent-runs:read` capability, and merges only safe action, lifecycle, approval, and outcome evidence.
 
@@ -52,10 +53,16 @@ surface cannot activate the read path or certify quality/production approval.
 run, and an exact verified approval grant. It creates one venue-scoped `DRAFT` request with an
 `INTERNAL_ONLY` first message and complete audit/grant lineage. The customer requester is null,
 no participant is granted, and no client version or activity marker is written for the private
-message. A human platform support operator must explicitly move the draft to `OPEN` or
-`CANCELLED`; opening it still sends no message and grants no customer access. Subject/body bounds
+message. Subject/body bounds
 and allowed categories are enforced by the registered policy evaluator, and rejected attempts do
 not consume a policy use.
+
+`pathfinder.open_support_request` requires the separate `support:open` capability, live
+credential-bound worker/run lineage, an evidence-backed policy fixed to one use, the exact request
+version, and an existing `DRAFT`. It reuses the canonical support status action and may produce
+only `OPEN`. The operation is replay-safe and audited; it does not change client activity, add a
+participant or message, contact a customer, execute a package, or authorize any later transition.
+Human operators retain cancellation and the rest of the support lifecycle.
 
 `pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
 and run, and an exact verified approval grant. It creates only a `NOTES` intake run in
@@ -136,4 +143,4 @@ not callable proof.
 
 The safe operational catalog is composed through `createSafeOperationalMcpRegistry` and mounted on the existing authenticated, rate-limited, default-dark agent bridge as `listOperationalTools` and `callOperationalTool`. The bridge derives client and venue scope from its verified machine credential and overwrites caller-supplied scope. Reads, operator questions, specialist delegation, and billing proposals reuse canonical domain actions.
 
-Canonical actions now support honest human, machine, system, and integration attribution. Operational-update, private support, and onboarding-notes proposals are enabled approval-bound machine writes and consume exact verified grants. Support promotion/opening and intake extraction/package application remain human/system-gated; package, evaluation, publication, outreach, billing-effect, deployment, customer-contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.
+Canonical actions now support honest human, machine, system, and integration attribution. Operational-update, private support, and onboarding-notes proposals are enabled approval-bound machine writes and consume exact verified grants. `pathfinder.open_support_request` separately permits one exact existing support draft to move from `DRAFT` to `OPEN` under evidence-backed one-use authority; it cannot add participants or messages, contact a customer, execute work, or perform later transitions. Intake extraction/package application, package and evaluation execution, publication, outreach, billing effects, deployment, customer contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.

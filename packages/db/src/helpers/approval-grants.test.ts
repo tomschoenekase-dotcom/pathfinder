@@ -9,6 +9,7 @@ import {
   defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
+  defaultSupportRequestOpenPolicyConstraints,
   defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 
@@ -448,6 +449,67 @@ describe('approval grants', () => {
       ),
     ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
     expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('consumes support-open policy only for DRAFT-to-OPEN parameters', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_open',
+      mode: 'POLICY_BACKED',
+      constraints: defaultSupportRequestOpenPolicyConstraints(),
+      parameterHash: null,
+      useCount: 0,
+      maxUses: 1,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    const openParameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 1,
+      fromStatus: 'DRAFT',
+      toStatus: 'OPEN',
+    }
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_open',
+          actionName: 'pathfinder.open_support_request',
+          capability: 'support:open',
+          parameters: openParameters,
+          actor: { ...machineActor, capability: 'support:open' },
+        }),
+        client,
+      ),
+    ).resolves.toMatchObject({ replayed: false })
+
+    const rejected = harness()
+    rejected.tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_open',
+      mode: 'POLICY_BACKED',
+      constraints: defaultSupportRequestOpenPolicyConstraints(),
+      parameterHash: null,
+      useCount: 0,
+      maxUses: 1,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_open',
+          actionName: 'pathfinder.open_support_request',
+          capability: 'support:open',
+          parameters: { ...openParameters, toStatus: 'IN_REVIEW' },
+          actor: { ...machineActor, capability: 'support:open' },
+        }),
+        rejected.client,
+      ),
+    ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+    expect(rejected.tx.approvalGrant.updateMany).not.toHaveBeenCalled()
   })
 
   it('consumes only a private support draft inside reviewed policy bounds', async () => {
