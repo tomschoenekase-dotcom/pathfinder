@@ -40,6 +40,8 @@ export function ApprovalDecisionForm({
   const isSupportCompletion = proposedAction === 'pathfinder.apply_support_completion'
   const isSupportPackageDraft = proposedAction === 'pathfinder.apply_support_package_draft'
   const isSupportPackageApproval = proposedAction === 'pathfinder.apply_support_package_approval'
+  const isSupportPackageApplication =
+    proposedAction === 'pathfinder.apply_support_package_application'
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -48,8 +50,8 @@ export function ApprovalDecisionForm({
     setPending(true)
     setFeedback(null)
     try {
-      const result = isSupportPackageApproval
-        ? await client.admin.decideSupportPackageApprovalProposal.mutate({
+      const result = isSupportPackageApplication
+        ? await client.admin.decideSupportPackageApplicationProposal.mutate({
             operationId: crypto.randomUUID(),
             tenantId,
             venueId,
@@ -57,8 +59,8 @@ export function ApprovalDecisionForm({
             decision,
             ...(reason.trim() ? { reason: reason.trim() } : {}),
           })
-        : isSupportPackageDraft
-          ? await client.admin.decideSupportPackageDraftProposal.mutate({
+        : isSupportPackageApproval
+          ? await client.admin.decideSupportPackageApprovalProposal.mutate({
               operationId: crypto.randomUUID(),
               tenantId,
               venueId,
@@ -66,8 +68,8 @@ export function ApprovalDecisionForm({
               decision,
               ...(reason.trim() ? { reason: reason.trim() } : {}),
             })
-          : isSupportCompletion
-            ? await client.admin.decideSupportCompletionProposal.mutate({
+          : isSupportPackageDraft
+            ? await client.admin.decideSupportPackageDraftProposal.mutate({
                 operationId: crypto.randomUUID(),
                 tenantId,
                 venueId,
@@ -75,8 +77,8 @@ export function ApprovalDecisionForm({
                 decision,
                 ...(reason.trim() ? { reason: reason.trim() } : {}),
               })
-            : isSupportInformationRequest
-              ? await client.admin.decideSupportInformationRequestProposal.mutate({
+            : isSupportCompletion
+              ? await client.admin.decideSupportCompletionProposal.mutate({
                   operationId: crypto.randomUUID(),
                   tenantId,
                   venueId,
@@ -84,8 +86,8 @@ export function ApprovalDecisionForm({
                   decision,
                   ...(reason.trim() ? { reason: reason.trim() } : {}),
                 })
-              : proposedAction === 'pathfinder.apply_support_triage'
-                ? await client.admin.decideSupportTriageProposal.mutate({
+              : isSupportInformationRequest
+                ? await client.admin.decideSupportInformationRequestProposal.mutate({
                     operationId: crypto.randomUUID(),
                     tenantId,
                     venueId,
@@ -93,28 +95,40 @@ export function ApprovalDecisionForm({
                     decision,
                     ...(reason.trim() ? { reason: reason.trim() } : {}),
                   })
-                : await client.admin.recordApprovalDecision.mutate({
-                    tenantId,
-                    venueId,
-                    approvalRequestId,
-                    decision,
-                    ...(reason.trim() ? { reason: reason.trim() } : {}),
-                  })
+                : proposedAction === 'pathfinder.apply_support_triage'
+                  ? await client.admin.decideSupportTriageProposal.mutate({
+                      operationId: crypto.randomUUID(),
+                      tenantId,
+                      venueId,
+                      approvalRequestId,
+                      decision,
+                      ...(reason.trim() ? { reason: reason.trim() } : {}),
+                    })
+                  : await client.admin.recordApprovalDecision.mutate({
+                      tenantId,
+                      venueId,
+                      approvalRequestId,
+                      decision,
+                      ...(reason.trim() ? { reason: reason.trim() } : {}),
+                    })
       if (result.executionTriggered !== false) throw new Error('Unexpected execution state')
       setFeedback({
         kind: 'success',
         text:
-          isSupportPackageApproval && decision === 'APPROVED'
-            ? 'APPROVED decision recorded. Exact one-shot DRAFT-to-APPROVED authority was issued; the package was not yet approved, applied, published, or delivered.'
-            : isSupportPackageDraft && decision === 'APPROVED'
-              ? 'APPROVED decision recorded. Exact one-shot package-DRAFT authority was issued; no package was created, approved, applied, or published.'
-              : isSupportCompletion && decision === 'APPROVED'
-                ? 'APPROVED decision recorded. Exact one-shot support-completion authority was issued; no message was sent and no lifecycle state changed.'
-                : isSupportInformationRequest && decision === 'APPROVED'
-                  ? 'APPROVED decision recorded. Exact one-shot client information-request authority was issued; no message was sent and no lifecycle state changed.'
-                  : proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'
-                    ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
-                    : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
+          isSupportPackageApplication && decision === 'APPROVED'
+            ? 'APPROVED decision recorded. Exact one-shot authority to mutate current venue content was issued; no content was changed, no support request was completed, and no customer was contacted by this decision.'
+            : isSupportPackageApproval && decision === 'APPROVED'
+              ? 'APPROVED decision recorded. Exact one-shot DRAFT-to-APPROVED authority was issued; the package was not yet approved, applied, published, or delivered.'
+              : isSupportPackageDraft && decision === 'APPROVED'
+                ? 'APPROVED decision recorded. Exact one-shot package-DRAFT authority was issued; no package was created, approved, applied, or published.'
+                : isSupportCompletion && decision === 'APPROVED'
+                  ? 'APPROVED decision recorded. Exact one-shot support-completion authority was issued; no message was sent and no lifecycle state changed.'
+                  : isSupportInformationRequest && decision === 'APPROVED'
+                    ? 'APPROVED decision recorded. Exact one-shot client information-request authority was issued; no message was sent and no lifecycle state changed.'
+                    : proposedAction === 'pathfinder.apply_support_triage' &&
+                        decision === 'APPROVED'
+                      ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
+                      : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
       })
       setRequiresRefresh(true)
       router.refresh()
@@ -175,17 +189,19 @@ export function ApprovalDecisionForm({
     >
       <p className="font-semibold text-amber-950">Record a terminal decision</p>
       <p className="mt-1 text-xs leading-5 text-amber-900">
-        {isSupportPackageApproval
-          ? 'Approval issues exact one-shot authority to move only the reviewed, unchanged support-linked package from DRAFT to APPROVED. The decision itself changes no package or support state and cannot apply, publish, revert, or contact a customer.'
-          : isSupportPackageDraft
-            ? 'Approval issues exact one-shot authority to create and link only the reviewed V3 package DRAFT. The decision itself creates no package, changes no support state, and cannot approve, apply, publish, or roll back content.'
-            : isSupportCompletion
-              ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible completion message and move this unchanged request to COMPLETED. The decision itself does not contact the client or change lifecycle state.'
-              : isSupportInformationRequest
-                ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible prompt and move this unchanged request to WAITING FOR CLIENT. The decision itself does not contact the client or change lifecycle state.'
-                : proposedAction === 'pathfinder.apply_support_triage'
-                  ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
-                  : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
+        {isSupportPackageApplication
+          ? 'Approval issues exact one-shot authority to apply this unchanged APPROVED package to current venue content. Execution may become visitor-visible immediately. The decision itself changes nothing and includes no support completion, customer contact, external delivery, or revert authority.'
+          : isSupportPackageApproval
+            ? 'Approval issues exact one-shot authority to move only the reviewed, unchanged support-linked package from DRAFT to APPROVED. The decision itself changes no package or support state and cannot apply, publish, revert, or contact a customer.'
+            : isSupportPackageDraft
+              ? 'Approval issues exact one-shot authority to create and link only the reviewed V3 package DRAFT. The decision itself creates no package, changes no support state, and cannot approve, apply, publish, or roll back content.'
+              : isSupportCompletion
+                ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible completion message and move this unchanged request to COMPLETED. The decision itself does not contact the client or change lifecycle state.'
+                : isSupportInformationRequest
+                  ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible prompt and move this unchanged request to WAITING FOR CLIENT. The decision itself does not contact the client or change lifecycle state.'
+                  : proposedAction === 'pathfinder.apply_support_triage'
+                    ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
+                    : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
       </p>
       <fieldset disabled={pending || requiresRefresh} className="mt-3">
         <legend className="sr-only">Decision</legend>

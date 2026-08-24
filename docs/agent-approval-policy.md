@@ -98,6 +98,17 @@ recording the executing agent/run/worker/credential/grant lineage separately. Ex
 converges; package, handoff, parameter, or decision drift fails closed. This authority cannot apply,
 publish, revert, contact a customer, or change the support request.
 
+Support-linked package application is a third, explicitly consequential boundary. The
+`packages:apply` proposal freezes one exact unchanged `APPROVED` package, its human approval
+evidence, immutable support handoff, warning identity, and bounded evaluation references. The
+proposal and founder decision mutate nothing. The founder surface states that later execution
+changes current venue content and may be visitor-visible immediately. An `APPROVED` decision
+issues one exact one-shot grant; only `pathfinder.apply_support_package_application` may consume
+it. Execution reuses the canonical application lifecycle and attributes `appliedBy`, audit, run,
+worker, credential, grant, model, and idempotency lineage to the verified agent. Exact replay
+converges and parameter drift fails closed. The grant includes no support completion, customer
+contact, external delivery, or revert authority; each remains separate.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.

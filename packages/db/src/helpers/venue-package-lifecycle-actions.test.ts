@@ -275,7 +275,8 @@ describe('venue package lifecycle actions', () => {
     [{ ...agentActor, approvalGrantId: undefined }, 'missing grant'],
     [{ ...agentActor, idempotencyKey: undefined }, 'missing idempotency lineage'],
     [{ ...agentActor, idempotencyKey: 'another-command' }, 'mismatched idempotency lineage'],
-  ] as const)('rejects agent apply with %s (%s)', async (invalidActor) => {
+  ] as const)('rejects agent apply with %s (%s)', async (invalidActor, label) => {
+    void label
     const { client, load } = fixture([])
     await expect(
       applyVenuePackageAction(

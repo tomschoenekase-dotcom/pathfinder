@@ -95,6 +95,16 @@ canonical package approval action, preserving the human approver and separate ag
 lineage. It is replay-safe and cannot apply, publish, revert, message/contact the customer, or
 change support state.
 
+`pathfinder.propose_support_package_application` and
+`pathfinder.apply_support_package_application` expose the next lifecycle transition without
+mislabeling it as inert. Proposal requires `packages:apply`, live credential-bound worker/run
+lineage, and one unchanged `APPROVED` support-linked package with complete deterministic evidence.
+It changes nothing. Founder approval issues one exact one-shot grant and also executes nothing.
+Apply atomically consumes the grant and calls the canonical package application path. It mutates
+current venue content and may be visitor-visible; the executing agent receives full application
+lineage while the earlier human approver remains preserved. Support completion, customer contact,
+external delivery, and revert are not included.
+
 `pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
 and run, and an exact verified approval grant. It creates only a `NOTES` intake run in
 `AWAITING_REVIEW` with complete run, worker, credential, grant, model, and idempotency lineage.

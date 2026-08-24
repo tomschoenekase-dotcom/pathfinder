@@ -95,6 +95,7 @@ import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
 import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
+import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
 
 const testRouter = router({
   agentOperations: mergeRouters(
@@ -105,6 +106,7 @@ const testRouter = router({
     adminSupportOpenPolicyRouter,
     adminSupportCompletionApprovalRouter,
     adminSupportDraftApprovalRouter,
+    adminSupportApplicationApprovalRouter,
   ),
 })
 
@@ -842,6 +844,113 @@ describe('admin agent operations router', () => {
           supportHandoff,
         },
         approvalDecisionId: 'decision_package_approval_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('issues exact one-shot current-content package authority without executing it', async () => {
+    const expectedUpdatedAt = '2030-01-02T00:00:00.000Z'
+    const approvedAt = '2030-01-01T00:00:00.000Z'
+    const payloadHash = 'a'.repeat(64)
+    const baseDigest = 'b'.repeat(64)
+    const warningDigest = 'c'.repeat(64)
+    const supportHandoff = {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 6,
+    }
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_package_application_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_package_application',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        expectedUpdatedAt,
+        fromStatus: 'APPROVED',
+        toStatus: 'APPLIED',
+        payloadHash,
+        baseDigest,
+        warningDigest,
+        warningCodes: [],
+        approvedAt,
+        approvedBy: 'operator_1',
+        supportHandoff,
+        evaluationEvidence: {
+          exactPackageRunIds: [],
+          truncated: false,
+          thresholdApplied: false,
+        },
+        currentContentMutation: true,
+        visitorVisibleChangePossible: true,
+        supportRequestChanged: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        supportCompletionTriggered: false,
+        revertTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.transactionPackageFindFirst.mockResolvedValue({
+      status: 'APPROVED',
+      updatedAt: new Date(expectedUpdatedAt),
+      payloadHash,
+      baseDigest,
+      approvedAt: new Date(approvedAt),
+      approvedBy: 'operator_1',
+      previewPlan: { warningDigest },
+      supportHandoffs: [
+        {
+          supportRequestId: supportHandoff.supportRequestId,
+          requestVersion: supportHandoff.supportRequestVersion,
+        },
+      ],
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_package_application_1' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_package_application_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportPackageApplicationProposal({
+        operationId: '88888888-8888-4888-8888-888888888888',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_package_application_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_package_application_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_application',
+        capability: 'packages:apply',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({
+          effect: 'EXACT_APPROVED_SUPPORT_PACKAGE_TO_CURRENT_CONTENT',
+          currentContentMutation: true,
+          visitorVisibleChangePossible: true,
+          supportCompletionIncluded: false,
+          customerContactIncluded: false,
+          revertIncluded: false,
+        }),
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          packageId: 'package_1',
+          expectedUpdatedAt,
+          payloadHash,
+          baseDigest,
+          warningDigest,
+          approvedAt,
+          approvedBy: 'operator_1',
+          supportHandoff,
+        },
+        approvalDecisionId: 'decision_package_application_1',
       }),
       expect.anything(),
     )

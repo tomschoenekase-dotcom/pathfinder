@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 409,
-    "sha256": "14cb98dcc52a668541ae1ea346ee69b25065ab47954222da0e28ecc6956b5b06",
+    "count": 410,
+    "sha256": "36e6c8625a24cdf3d99b774bb6142011514551c70a6d1d06aad8e9fbdae4f878",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "14cb98dcc52a668541ae1ea346ee69b25065ab47954222da0e28ecc6956b5b06",
-      "sha256": "e127433d5d6bd70e7589df5fb29da95d74bab7cf872ca5196177452369177fe6"
+      "operationInventorySha256": "36e6c8625a24cdf3d99b774bb6142011514551c70a6d1d06aad8e9fbdae4f878",
+      "sha256": "c4d2f481fea9bb0851074a18a6fa2d2b62a54f3b4cbc95cd87bf40c20156ba52"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -317,6 +317,17 @@
           "tool:pathfinder.apply_support_package_approval"
         ],
         "decision": "The proposal freezes one exact unchanged support-linked DRAFT, warning digest, handoff, and bounded evaluation references without changing package or support state and without inventing a quality threshold. A founder decision issues only one exact one-shot packages:approve grant. The separate executor reuses the canonical package approval action, preserves the human approver plus agent execution lineage, and cannot apply, publish, revert, contact the customer, or change the support request.",
+        "evidence": "packages/api/src/support-package-draft-disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-package-application-lifecycle",
+        "kind": "bounded-alternative",
+        "operations": ["admin.applyVenuePackage"],
+        "surfaces": [
+          "tool:pathfinder.propose_support_package_application",
+          "tool:pathfinder.apply_support_package_application"
+        ],
+        "decision": "The proposal freezes one exact unchanged APPROVED support-linked package, human approval evidence, warning digest, handoff, and bounded evaluation references while mutating nothing. A founder decision issues one exact one-shot packages:apply grant. The executor atomically consumes it and reuses canonical package application, attributing the current-content mutation to the verified agent. The change may be visitor-visible; support completion, customer contact, external delivery, and revert remain separate.",
         "evidence": "packages/api/src/support-package-draft-disposable.integration.test.ts"
       },
       {

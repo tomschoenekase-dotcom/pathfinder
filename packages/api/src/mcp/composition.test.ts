@@ -26,6 +26,8 @@ const {
   enqueueReportKick,
   preparePackageApproval,
   approvePackage,
+  preparePackageApplication,
+  applyPackage,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -52,6 +54,8 @@ const {
   enqueueReportKick: vi.fn(),
   preparePackageApproval: vi.fn(),
   approvePackage: vi.fn(),
+  preparePackageApplication: vi.fn(),
+  applyPackage: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -87,8 +91,13 @@ vi.mock('../lib/support-package-approval-actions', () => ({
   prepareSupportPackageApprovalProposalAction: preparePackageApproval,
 }))
 
+vi.mock('../lib/support-package-application-actions', () => ({
+  prepareSupportPackageApplicationProposalAction: preparePackageApplication,
+}))
+
 vi.mock('../lib/venue-package-core', () => ({
   approveVenuePackageLifecycle: approvePackage,
+  applyVenuePackageLifecycle: applyPackage,
 }))
 
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
@@ -1933,6 +1942,154 @@ describe('safe operational MCP composition', () => {
       packageApplied: false,
       packagePublished: false,
       supportRequestChanged: false,
+    })
+  })
+
+  it('applies current content only under exact founder grant and agent lineage', async () => {
+    const updatedAt = new Date('2030-01-02T00:00:01.000Z')
+    const snapshot = {
+      packageId: 'package-1',
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      warningDigest: 'c'.repeat(64),
+      approvedAt: '2030-01-01T00:00:00.000Z',
+      approvedBy: 'founder-1',
+      supportHandoff: {
+        handoffId: 'handoff-1',
+        supportRequestId: 'request-1',
+        supportRequestVersion: 5,
+      },
+      warningCodes: [],
+      evaluationEvidence: { exactPackageRunIds: [], truncated: false, thresholdApplied: false },
+    }
+    preparePackageApplication.mockResolvedValue({
+      approvalRequest: { id: 'approval-request-1' },
+      snapshot,
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-application-1' })
+    consumeApproval.mockResolvedValue({
+      consumption: { id: 'consumption-1', resultReference: null },
+      replayed: false,
+    })
+    applyPackage.mockResolvedValue({
+      id: 'package-1',
+      status: 'APPLIED',
+      payloadHash: snapshot.payloadHash,
+      baseDigest: snapshot.baseDigest,
+      approvedAt: new Date(snapshot.approvedAt),
+      approvedBy: snapshot.approvedBy,
+      updatedAt,
+    })
+    const tx = {
+      approvalGrant: {
+        findFirst: vi.fn().mockResolvedValue({
+          approvalDecision: { decision: 'APPROVED', decidedByType: 'HUMAN' },
+        }),
+      },
+      supportPackageHandoff: { findFirst: vi.fn().mockResolvedValue({ id: 'handoff-1' }) },
+      agentAction: { create: vi.fn().mockResolvedValue({ id: 'action-1' }) },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline-1' }) },
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
+    }
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'deterministic',
+          modelName: 'fixture',
+        }),
+      },
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ id: 'run-1', requestedOperation: 'support.package-application' }),
+      },
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+      $transaction: vi.fn(async (callback) => callback(tx)),
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const scopedCredential: VerifiedMcpCredentialScope = {
+      ...credential,
+      capabilities: ['packages:apply'],
+    }
+    await registry.callTool(
+      'pathfinder.propose_support_package_application',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '77777777-7777-4777-8777-777777777777',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        packageId: 'package-1',
+        expectedUpdatedAt: '2030-01-02T00:00:00.000Z',
+        reason: 'The approved package is ready for founder application review.',
+      },
+      { credential: scopedCredential },
+    )
+    expect(preparePackageApplication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageId: 'package-1',
+        actor: expect.objectContaining({ capability: 'packages:apply' }),
+      }),
+      database,
+    )
+    const result = await registry.callTool(
+      'pathfinder.apply_support_package_application',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '88888888-8888-4888-8888-888888888888',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        packageId: 'package-1',
+        expectedUpdatedAt: '2030-01-02T00:00:00.000Z',
+        payloadHash: snapshot.payloadHash,
+        baseDigest: snapshot.baseDigest,
+        warningDigest: snapshot.warningDigest,
+        approvedAt: snapshot.approvedAt,
+        approvedBy: snapshot.approvedBy,
+        supportHandoff: snapshot.supportHandoff,
+      },
+      { credential: scopedCredential, approvalGrantId: 'grant-1' },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_application',
+        capability: 'packages:apply',
+        actor: expect.objectContaining({
+          agentIdentityId: 'agent-1',
+          approvalGrantId: 'grant-1',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(applyPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({ type: 'AGENT', capability: 'packages:apply' }),
+        command: expect.objectContaining({ id: 'package-1' }),
+      }),
+    )
+    expect(tx.agentAction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actionName: 'torchiko.support.apply_package_application',
+          actorType: 'AGENT',
+          actorId: 'agent-1',
+        }),
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      packageStatus: 'APPLIED',
+      currentContentMutated: true,
+      visitorVisibleChangePossible: true,
+      supportRequestChanged: false,
+      supportCompletionTriggered: false,
+      customerContacted: false,
+      revertTriggered: false,
     })
   })
 })

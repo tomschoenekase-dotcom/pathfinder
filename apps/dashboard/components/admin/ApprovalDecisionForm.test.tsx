@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   decideCompletion: vi.fn(),
   decidePackageDraft: vi.fn(),
   decidePackageApproval: vi.fn(),
+  decidePackageApplication: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -22,6 +23,7 @@ vi.mock('../../lib/trpc', () => ({
       decideSupportCompletionProposal: { mutate: mocks.decideCompletion },
       decideSupportPackageDraftProposal: { mutate: mocks.decidePackageDraft },
       decideSupportPackageApprovalProposal: { mutate: mocks.decidePackageApproval },
+      decideSupportPackageApplicationProposal: { mutate: mocks.decidePackageApplication },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -247,6 +249,41 @@ describe('ApprovalDecisionForm', () => {
     )
     expect(mocks.decidePackageApproval).toHaveBeenCalledWith({
       operationId: '66666666-6666-4666-8666-666666666666',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+  })
+
+  it('warns that later package application mutates current content while the decision stays inert', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '88888888-8888-4888-8888-888888888888',
+    )
+    mocks.decidePackageApplication.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_package_application"
+      />,
+    )
+    expect(
+      screen.getByText(/apply this unchanged APPROVED package to current venue content/),
+    ).toBeTruthy()
+    expect(screen.getByText(/may become visitor-visible immediately/i)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/no content was changed.*no customer was contacted/)).toBeTruthy(),
+    )
+    expect(mocks.decidePackageApplication).toHaveBeenCalledWith({
+      operationId: '88888888-8888-4888-8888-888888888888',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       approvalRequestId: 'approval_1',

@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
-import { SupportPackageApprovalApplyParameters } from '@pathfinder/contracts'
+import {
+  SupportPackageApprovalApplyParameters,
+  SupportPackageApplicationApplyParameters,
+} from '@pathfinder/contracts'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
@@ -58,7 +61,8 @@ import {
 import { supportAgentReviewedDraftFinalizer } from './lib/admin-reviewed-draft-finalizers'
 import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-package-evaluation'
 import { prepareSupportPackageApprovalProposalAction } from './lib/support-package-approval-actions'
-import { approveVenuePackageLifecycle } from './lib/venue-package-core'
+import { prepareSupportPackageApplicationProposalAction } from './lib/support-package-application-actions'
+import { applyVenuePackageLifecycle, approveVenuePackageLifecycle } from './lib/venue-package-core'
 import { VenuePackageDraftInput } from './schemas/venue-package'
 import { createVenuePackageDraftService } from './routers/venue-package'
 
@@ -69,7 +73,7 @@ const enabled =
 describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
 
-  it('creates, evaluates, and founder-approves one exact support-linked V3 package without applying it', async () => {
+  it('creates, evaluates, approves, and founder-authorizes exact agent application without completing support', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)
       const tenantId = `tenant-support-package-${suffix}`
@@ -668,6 +672,242 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         approvedAt: expect.any(Date),
         appliedAt: null,
         revertedAt: null,
+      })
+
+      const applicationIdentityId = `identity-package-application-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: applicationIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `support-package-application.${suffix}`,
+          name: 'Support package application worker',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['packages:apply'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const applicationRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: applicationIdentityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'support.package-application.propose',
+          scopeSnapshot: { accessCapabilities: ['packages:apply'] },
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: new Date(),
+        },
+      })
+      const approvedRevision = await db.venuePackage.findUniqueOrThrow({
+        where: { id: applied.value.id },
+        select: { updatedAt: true },
+      })
+      const applicationProposalOperationId = randomUUID()
+      const applicationProposal = await prepareSupportPackageApplicationProposalAction({
+        operationId: applicationProposalOperationId,
+        tenantId,
+        venueId,
+        packageId: applied.value.id,
+        expectedUpdatedAt: approvedRevision.updatedAt,
+        reason: 'The exact approved package is ready for current-content founder review.',
+        evidence: [{ type: 'SupportRequest', id: request.id }],
+        actor: {
+          type: 'AGENT',
+          actorId: applicationIdentityId,
+          role: 'AGENT',
+          agentIdentityId: applicationIdentityId,
+          agentRunId: applicationRun.id,
+          workerId: `application-worker-${suffix}`,
+          credentialId: `application-credential-${suffix}`,
+          capability: 'packages:apply',
+          modelProvider: 'deterministic',
+          modelName: 'fixture',
+          idempotencyKey: applicationProposalOperationId,
+        },
+      })
+      expect(applicationProposal).toMatchObject({
+        replayed: false,
+        snapshot: {
+          packageId: applied.value.id,
+          fromStatus: 'APPROVED',
+          toStatus: 'APPLIED',
+          approvedBy: operatorId,
+          currentContentMutation: true,
+          visitorVisibleChangePossible: true,
+          supportRequestChanged: false,
+          supportCompletionTriggered: false,
+          customerContacted: false,
+          revertTriggered: false,
+          executionAuthorized: false,
+        },
+      })
+      const applicationDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: applicationProposalOperationId,
+        decision: 'APPROVED',
+        reason: 'Authorize this exact current-content mutation once.',
+        actor: { actorType: 'HUMAN', actorId: operatorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const applicationParameters = SupportPackageApplicationApplyParameters.parse({
+        clientId: tenantId,
+        venueId,
+        packageId: applicationProposal.snapshot.packageId,
+        expectedUpdatedAt: applicationProposal.snapshot.expectedUpdatedAt,
+        payloadHash: applicationProposal.snapshot.payloadHash,
+        baseDigest: applicationProposal.snapshot.baseDigest,
+        warningDigest: applicationProposal.snapshot.warningDigest,
+        approvedAt: applicationProposal.snapshot.approvedAt,
+        approvedBy: applicationProposal.snapshot.approvedBy,
+        supportHandoff: applicationProposal.snapshot.supportHandoff,
+      })
+      const applicationGrant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: applicationIdentityId,
+        actionName: 'pathfinder.apply_support_package_application',
+        capability: 'packages:apply',
+        mode: 'ONE_SHOT',
+        scope: {
+          contractVersion: 1,
+          tenantId,
+          venueId,
+          approvalRequestId: applicationProposalOperationId,
+          effect: 'EXACT_APPROVED_SUPPORT_PACKAGE_TO_CURRENT_CONTENT',
+        },
+        parameters: applicationParameters,
+        approvalDecisionId: applicationDecision.id,
+        issueReason: 'Execute this exact reviewed current-content application once.',
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const applicationOperationId = randomUUID()
+      const applicationActor = {
+        type: 'AGENT' as const,
+        actorId: applicationIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: applicationIdentityId,
+        agentRunId: applicationRun.id,
+        workerId: `application-worker-${suffix}`,
+        credentialId: `application-credential-${suffix}`,
+        approvalGrantId: applicationGrant.id,
+        capability: 'packages:apply',
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+        idempotencyKey: applicationOperationId,
+      }
+      const applyCurrentContent = () =>
+        db.$transaction(async (tx) => {
+          const sameTransaction = {
+            $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+          } as never
+          const consumption = await consumeApprovalGrantAction(
+            {
+              tenantId,
+              venueId,
+              approvalGrantId: applicationGrant.id,
+              operationId: applicationOperationId,
+              actionName: 'pathfinder.apply_support_package_application',
+              capability: 'packages:apply',
+              parameters: applicationParameters,
+              actor: applicationActor,
+            },
+            sameTransaction,
+          )
+          const appliedPackage = await applyVenuePackageLifecycle({
+            db: tx as never,
+            tenantId,
+            venueId,
+            actor: applicationActor,
+            command: {
+              id: applicationParameters.packageId,
+              expectedUpdatedAt: new Date(applicationParameters.expectedUpdatedAt),
+              commandKey: applicationOperationId,
+            },
+          })
+          const resultReference = `VenuePackage:${appliedPackage.id}:${appliedPackage.updatedAt.toISOString()}:APPLIED`
+          if (consumption.replayed) {
+            expect(consumption.consumption.resultReference).toBe(resultReference)
+          } else {
+            await tx.approvalGrantConsumption.update({
+              where: { id: consumption.consumption.id },
+              data: { resultReference },
+            })
+          }
+          return { appliedPackage, replayed: consumption.replayed }
+        })
+      const firstApplication = await applyCurrentContent()
+      expect(firstApplication).toMatchObject({
+        replayed: false,
+        appliedPackage: {
+          id: applied.value.id,
+          status: 'APPLIED',
+          approvedBy: operatorId,
+          appliedBy: applicationIdentityId,
+          revertedAt: null,
+        },
+      })
+      const replayedApplication = await applyCurrentContent()
+      expect(replayedApplication).toMatchObject({
+        replayed: true,
+        appliedPackage: { id: applied.value.id, status: 'APPLIED' },
+      })
+      await expect(
+        consumeApprovalGrantAction({
+          tenantId,
+          venueId,
+          approvalGrantId: applicationGrant.id,
+          operationId: applicationOperationId,
+          actionName: 'pathfinder.apply_support_package_application',
+          capability: 'packages:apply',
+          parameters: { ...applicationParameters, approvedBy: 'another-founder' },
+          actor: applicationActor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'VenuePackage',
+            targetId: applied.value.id,
+            action: 'venue-package.applied',
+          },
+          select: {
+            actorType: true,
+            actorId: true,
+            agentIdentityId: true,
+            agentRunId: true,
+            credentialId: true,
+            approvalGrantId: true,
+            capability: true,
+            idempotencyKey: true,
+          },
+        }),
+      ).toEqual({
+        actorType: 'AGENT',
+        actorId: applicationIdentityId,
+        agentIdentityId: applicationIdentityId,
+        agentRunId: applicationRun.id,
+        credentialId: `application-credential-${suffix}`,
+        approvalGrantId: applicationGrant.id,
+        capability: 'packages:apply',
+        idempotencyKey: applicationOperationId,
+      })
+      expect(
+        await db.venueKnowledgeEntry.findFirstOrThrow({
+          where: { tenantId, venueId, title: 'Visitor guidance' },
+          select: { content: true, isEnabled: true },
+        }),
+      ).toEqual({
+        content: 'The reviewed visitor guidance is current.',
+        isEnabled: true,
       })
       expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(0)
       expect(

@@ -33,6 +33,8 @@ import {
   McpSupportPackageDraftApplyInput,
   McpSupportPackageApprovalProposalInput,
   McpSupportPackageApprovalApplyInput,
+  McpSupportPackageApplicationProposalInput,
+  McpSupportPackageApplicationApplyInput,
   McpSupportTriageProposalInput,
   McpSupportTriageApplyInput,
   McpToolResult,
@@ -80,6 +82,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'pathfinder.propose_support_information_request'
         | 'pathfinder.propose_support_completion'
         | 'pathfinder.propose_support_package_approval'
+        | 'pathfinder.propose_support_package_application'
         | 'torchiko.agent_improvements.propose'
         | 'torchiko.agent_improvements.record_validation'
         | 'torchiko.customer_access.prepare_invitation'
@@ -178,6 +181,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   applySupportPackageApproval: (
     input: McpSupportPackageApprovalApplyInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeSupportPackageApplication: (
+    input: McpSupportPackageApplicationProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  applySupportPackageApplication: (
+    input: McpSupportPackageApplicationApplyInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeAgentImprovement: (
@@ -479,6 +490,25 @@ export function createPathfinderMcpRegistry(
           result = await actions.applySupportPackageApproval(input, context)
           break
         }
+        case 'pathfinder.propose_support_package_application': {
+          const input = McpSupportPackageApplicationProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeSupportPackageApplication(input, context)
+          break
+        }
+        case 'pathfinder.apply_support_package_application': {
+          const input = McpSupportPackageApplicationApplyInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.apply_support_package_application',
+            input,
+            metadata.capability,
+            context,
+          )
+          result = await actions.applySupportPackageApplication(input, context)
+          break
+        }
         case 'torchiko.agent_improvements.propose': {
           const input = McpAgentImprovementProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -666,6 +696,7 @@ async function verifyApproval(
     | 'pathfinder.ask_operator'
     | 'pathfinder.delegate_specialist'
     | 'pathfinder.propose_billing_action'
+    | 'pathfinder.propose_support_package_application'
   >,
   scope: Readonly<{ clientId: string; venueId?: string | undefined }>,
   capability: string,
