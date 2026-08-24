@@ -58,7 +58,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
   // Identity configuration includes human-only policy issuance/revocation for one exact venue.
-  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 6],
+  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 7],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
