@@ -83,13 +83,32 @@ pnpm torchiko replay conversation large-museum --json
 
 Replay preparation emits a synthetic transcript and required-fact assertions. Provider-backed execution and scoring remain separate, explicitly enabled evaluation operations.
 
+Each canonical world can also be created or reset in an already migrated disposable PostgreSQL
+database. The command requires an exact loopback URL whose database name starts with
+`pathfinder_disposable_`, a separate environment opt-in, and the same database name twice:
+
+```powershell
+$env:PATHFINDER_ALLOW_DISPOSABLE_SCENARIO_RESET='1'
+$env:PATHFINDER_DISPOSABLE_DATABASE_URL='<loopback disposable PostgreSQL URL>'
+pnpm torchiko scenarios reset small-museum --database pathfinder_disposable_scenarios --confirm-database pathfinder_disposable_scenarios --json
+```
+
+Reset restores only deterministic, inactive rows carrying the exact scenario-owned tenant marker.
+Their visibility values remain schema-valid, but the tenant and venue are synthetic and the venue,
+places, and anchors are all inactive. Unknown core rows, a colliding tenant, a non-loopback target,
+or a non-disposable database fail transactionally. Other domain records are not erased; add an
+explicit scenario-layer reset before treating reports, incidents, support, or similar state as
+reset. The command never calls an AI or external provider and is not a staging or production
+seeder. Existing rows are updated in place so append-only content history remains intact.
+
 The Golden Venue contract is reused rather than replaced:
 
 ```powershell
 pnpm torchiko golden validate
 ```
 
-Seeding or resetting data remains separately guarded. Follow `docs/golden-venue-runbook.md`; never broad-delete a shared database.
+Golden Venue seeding remains separately guarded. Follow `docs/golden-venue-runbook.md`; never
+broad-delete a shared database.
 
 ## Common workflow
 

@@ -151,7 +151,7 @@ test('verification reports ordered gate progress and heartbeats without changing
   )
   assert.equal(events[4].elapsedMs, 31_000)
   assert.equal(events[5].elapsedMs, 31_250)
-  assert.equal(events[0].totalGates, 15)
+  assert.equal(events[0].totalGates, buildReleaseGates('static').length + 1)
   assert.equal(cleared.length, 2)
 })
 

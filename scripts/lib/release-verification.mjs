@@ -22,6 +22,7 @@ const staticGates = [
   ['character-assets', ['node', 'scripts/verify-character-assets.mjs']],
   ['agent-tool-coverage', ['node', 'scripts/torchiko.mjs', 'tools', 'coverage', '--json']],
   ['agent-scenarios', ['node', 'scripts/torchiko.mjs', 'scenarios', 'validate', '--json']],
+  ['scenario-worlds', ['node', '--test', 'scripts/synthetic-scenario-worlds.test.mjs']],
 ]
 
 const candidateGates = [

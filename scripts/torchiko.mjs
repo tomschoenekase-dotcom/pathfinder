@@ -18,6 +18,7 @@ import {
   simulateScenarioLocation,
   simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
+import { executeSyntheticScenarioReset } from './lib/synthetic-scenario-worlds.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -25,7 +26,7 @@ const json = args.includes('--json')
 const positional = args.filter((arg) => arg !== '--json')
 
 function usage() {
-  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  tests find <query> [--json]\n  golden validate\n`
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  scenarios reset <scenario> --database <name> --confirm-database <name> [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  tests find <query> [--json]\n  golden validate\n`
 }
 
 function emit(value) {
@@ -56,6 +57,17 @@ async function main() {
     emit(report)
     if (!report.healthy) process.exitCode = 1
     return
+  }
+  if (group === 'scenarios' && action === 'reset' && rest.length > 0) {
+    try {
+      return emit(await executeSyntheticScenarioReset({ root, args: rest }))
+    } catch (error) {
+      process.stderr.write(
+        `Synthetic scenario reset refused: ${error instanceof Error ? error.message : 'scenario-reset-failed'}\n`,
+      )
+      process.exitCode = 1
+      return
+    }
   }
   if (group === 'company-brain' && action === 'status') {
     const report = await buildCompanyBrainStatus(root)

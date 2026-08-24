@@ -18,7 +18,13 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    `pnpm torchiko tools list --json`. The canonical contract adjunct is data-only and the discovery
    test fails closed if a schema, example, or related tool is missing. This improves composition
    metadata without adding send, approval, pricing, or customer-contact authority.
-4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
+4. **Partially closed — resettable core database scenarios.** The four canonical provider-free venue worlds
+   can now be created or reset through the developer interface in an already migrated exact-loopback
+   `pathfinder_disposable_*` PostgreSQL database. Deterministic scenario-owned tenant, inactive venue,
+   inactive place, and inactive structured-location rows are restored in one transaction while
+   append-only content history remains intact. Exact marker and row-set checks refuse collisions or
+   drift, and no provider is called. Degraded operations, rich-report state, and other
+   domain-specific scenario layers remain incomplete and are not silently erased by the core reset.
 5. **Closed — provider integration health baseline.** Agents can query one secret-free,
    tenant/venue-scoped projection across Gmail, billing, worker runtime, AI providers, embeddings,
    object storage, analytics, native deployment, and external worker access. The projection
