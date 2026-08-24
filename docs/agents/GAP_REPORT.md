@@ -39,7 +39,13 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 
 ## P1 gaps
 
-1. Synthetic conversation replay preparation is available through the developer interface; provider-backed execution, expected/actual comparison, grounding explanation, and “why did the AI do that?” remain incomplete.
+1. **Partially closed — provider-free conversation assessment.** Synthetic replay preparation now
+   includes fixture-owned match terms and location/hours evidence, and the developer interface can
+   compare an answer supplied over bounded stdin with every required fact. It retains only the
+   response digest and length, explains each lexical match or miss, never calls a provider, and
+   exits nonzero on missing requirements. Arbitrary unsupported-claim detection, answer-usefulness
+   judgment, provider-backed execution, provider trace explanation, and “why did the model do
+   that?” remain incomplete.
 2. Deterministic location and time simulation are reusable across four scenario shapes; scheduled-update and client-configuration simulation remain incomplete.
 3. **Partially closed — coherent report lifecycle read.** An exact `reports:read` tool now reuses
    the canonical report lifecycle query and returns generation/attempt state, persisted source

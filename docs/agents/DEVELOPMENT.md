@@ -83,6 +83,18 @@ pnpm torchiko replay conversation large-museum --json
 
 Replay preparation emits a synthetic transcript and required-fact assertions. Provider-backed execution and scoring remain separate, explicitly enabled evaluation operations.
 
+To compare one already-produced answer without sending it to a provider, pipe it over stdin. The
+assessment retains only its SHA-256 and byte length, reports each required fact as matched or
+missing, links the result to fixture-owned location/hours evidence, and exits nonzero when a
+required fact is absent:
+
+```powershell
+'Visit the Family Lab.' | pnpm torchiko replay assess large-museum --stdin --json
+```
+
+This is deliberately a deterministic lexical coverage gate. It does not claim to detect arbitrary
+unsupported claims, judge overall usefulness, explain provider internals, or prove a live model.
+
 Each canonical world can also be created or reset in an already migrated disposable PostgreSQL
 database. The command requires an exact loopback URL whose database name starts with
 `pathfinder_disposable_`, a separate environment opt-in, and the same database name twice:

@@ -1,6 +1,8 @@
 import { readdir, readFile, access, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+
+import { assessSyntheticConversationResponse } from './synthetic-conversation-assessment.mjs'
 import ts from 'typescript'
 
 const TEST_PATTERN = /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/u
@@ -795,8 +797,32 @@ export async function loadScenarioRegistry(root) {
     }
     if (!Array.isArray(scenario.conversation?.messages) || !scenario.conversation.messages.length)
       errors.push(`${scenario.id}: conversation messages are required`)
-    if (!Array.isArray(scenario.conversation?.expectedFacts))
+    if (
+      !Array.isArray(scenario.conversation?.expectedFacts) ||
+      !scenario.conversation.expectedFacts.length
+    )
       errors.push(`${scenario.id}: expected facts are required`)
+    const assertionIds = new Set()
+    for (const assertion of scenario.conversation?.expectedFacts ?? []) {
+      if (!assertion?.id || assertionIds.has(assertion.id))
+        errors.push(`${scenario.id}: expected fact ids must be present and unique`)
+      assertionIds.add(assertion?.id)
+      if (!assertion?.fact) errors.push(`${scenario.id}: expected fact label is required`)
+      if (!Array.isArray(assertion?.matchTerms) || assertion.matchTerms.length === 0)
+        errors.push(`${scenario.id}:${assertion?.id ?? 'unknown'}: match terms are required`)
+      if (!Array.isArray(assertion?.evidenceRefs) || assertion.evidenceRefs.length === 0)
+        errors.push(`${scenario.id}:${assertion?.id ?? 'unknown'}: evidence refs are required`)
+      for (const reference of assertion?.evidenceRefs ?? []) {
+        if (reference === 'weekly-hours') continue
+        const locationId = reference.startsWith('location:')
+          ? reference.slice('location:'.length)
+          : null
+        if (!locationId || !scenario.locations.some((location) => location.id === locationId))
+          errors.push(
+            `${scenario.id}:${assertion?.id ?? 'unknown'}: unknown evidence ref ${reference}`,
+          )
+      }
+    }
   }
   return { ...registry, errors, healthy: errors.length === 0 }
 }
@@ -963,10 +989,35 @@ export async function buildConversationReplay(root, id) {
     scenarioId: id,
     venue: scenario.venue,
     messages: scenario.conversation.messages,
-    assertions: scenario.conversation.expectedFacts.map((fact) => ({ fact, required: true })),
+    assertions: scenario.conversation.expectedFacts.map((assertion) => ({
+      id: assertion.id,
+      fact: assertion.fact,
+      required: true,
+      matchTerms: assertion.matchTerms,
+      evidence: assertion.evidenceRefs.map((reference) => {
+        if (reference === 'weekly-hours')
+          return {
+            ref: reference,
+            kind: 'scenario-weekly-hours',
+            label: `Weekly hours for ${scenario.venue.timezone}`,
+          }
+        const location = scenario.locations.find(
+          (candidate) => `location:${candidate.id}` === reference,
+        )
+        return {
+          ref: reference,
+          kind: 'scenario-location',
+          label: location.name,
+        }
+      }),
+    })),
     providerDispatch: false,
     note: 'Replay preparation is deterministic and does not call an AI provider.',
   }
+}
+
+export async function buildConversationAssessment(root, id, response) {
+  return assessSyntheticConversationResponse(await buildConversationReplay(root, id), response)
 }
 
 export async function findTests(root, query) {

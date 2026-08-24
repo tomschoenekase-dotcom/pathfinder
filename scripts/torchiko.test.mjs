@@ -7,6 +7,7 @@ import {
   buildBootstrapReport,
   buildCompanyBrainStatus,
   buildConversationReplay,
+  buildConversationAssessment,
   buildDoctorReport,
   buildOperationBindings,
   buildRepositoryMap,
@@ -298,4 +299,12 @@ test('conversation replay emits assertions without visitor identity or provider 
   assert.equal(replay.providerDispatch, false)
   assert.ok(replay.assertions.some((item) => item.fact === 'Family Lab'))
   assert.doesNotMatch(JSON.stringify(replay), /visitorId|email|phone|coordinate/iu)
+})
+
+test('conversation assessment explains required-fact grounding without retaining the response', async () => {
+  const report = await buildConversationAssessment(root, 'large-museum', 'Visit the Family Lab.')
+  assert.equal(report.verdict, 'pass')
+  assert.equal(report.response.retained, false)
+  assert.equal(report.assertions[0].evidence[0].ref, 'location:family')
+  assert.equal(report.grounding.unsupportedClaimsEvaluated, false)
 })

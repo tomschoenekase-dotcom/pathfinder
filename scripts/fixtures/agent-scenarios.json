@@ -30,7 +30,14 @@
       },
       "conversation": {
         "messages": [{ "role": "visitor", "text": "Where is the harbor exhibit?" }],
-        "expectedFacts": ["Harbor Gallery"]
+        "expectedFacts": [
+          {
+            "id": "harbor-gallery",
+            "fact": "Harbor Gallery",
+            "matchTerms": ["Harbor Gallery"],
+            "evidenceRefs": ["location:gallery"]
+          }
+        ]
       }
     },
     {
@@ -63,7 +70,14 @@
       },
       "conversation": {
         "messages": [{ "role": "visitor", "text": "Where do I start the trail?" }],
-        "expectedFacts": ["South Trailhead"]
+        "expectedFacts": [
+          {
+            "id": "south-trailhead",
+            "fact": "South Trailhead",
+            "matchTerms": ["South Trailhead"],
+            "evidenceRefs": ["location:trailhead"]
+          }
+        ]
       }
     },
     {
@@ -88,7 +102,20 @@
       "weeklyHours": { "0": ["11:00", "20:00"], "5": ["11:00", "22:00"], "6": ["11:00", "22:00"] },
       "conversation": {
         "messages": [{ "role": "visitor", "text": "When can I ride the observation wheel?" }],
-        "expectedFacts": ["Observation Wheel", "venue operating hours"]
+        "expectedFacts": [
+          {
+            "id": "observation-wheel",
+            "fact": "Observation Wheel",
+            "matchTerms": ["Observation Wheel"],
+            "evidenceRefs": ["location:wheel"]
+          },
+          {
+            "id": "venue-operating-hours",
+            "fact": "venue operating hours",
+            "matchTerms": ["operating hours", "hours", "open"],
+            "evidenceRefs": ["weekly-hours"]
+          }
+        ]
       }
     },
     {
@@ -128,7 +155,14 @@
       },
       "conversation": {
         "messages": [{ "role": "visitor", "text": "What is a good family activity?" }],
-        "expectedFacts": ["Family Lab"]
+        "expectedFacts": [
+          {
+            "id": "family-lab",
+            "fact": "Family Lab",
+            "matchTerms": ["Family Lab"],
+            "evidenceRefs": ["location:family"]
+          }
+        ]
       }
     }
   ]

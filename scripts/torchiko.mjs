@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import {
   buildBootstrapReport,
   buildConversationReplay,
+  buildConversationAssessment,
   buildCompanyBrainStatus,
   buildDoctorReport,
   buildRepositoryMap,
@@ -26,7 +27,19 @@ const json = args.includes('--json')
 const positional = args.filter((arg) => arg !== '--json')
 
 function usage() {
-  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  scenarios reset <scenario> --database <name> --confirm-database <name> [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  tests find <query> [--json]\n  golden validate\n`
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  scenarios reset <scenario> --database <name> --confirm-database <name> [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  replay assess <scenario> --stdin [--json]\n  tests find <query> [--json]\n  golden validate\n`
+}
+
+async function readBoundedStdin(limitBytes = 32 * 1024) {
+  const chunks = []
+  let bytes = 0
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    bytes += buffer.length
+    if (bytes > limitBytes) throw new Error('synthetic-response-too-large')
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 function emit(value) {
@@ -87,6 +100,20 @@ async function main() {
     return emit(await simulateScenarioLocation(root, rest[0], Number(rest[1]), Number(rest[2])))
   if (group === 'replay' && action === 'conversation' && rest.length === 1)
     return emit(await buildConversationReplay(root, rest[0]))
+  if (group === 'replay' && action === 'assess' && rest.length === 2 && rest[1] === '--stdin') {
+    try {
+      const report = await buildConversationAssessment(root, rest[0], await readBoundedStdin())
+      emit(report)
+      if (report.verdict !== 'pass') process.exitCode = 1
+      return
+    } catch (error) {
+      process.stderr.write(
+        `Synthetic replay assessment refused: ${error instanceof Error ? error.message : 'assessment-failed'}\n`,
+      )
+      process.exitCode = 1
+      return
+    }
+  }
   if (group === 'tests' && action === 'find' && rest.length > 0)
     return emit(await findTests(root, rest.join(' ')))
   if (group === 'golden' && action === 'validate') {
