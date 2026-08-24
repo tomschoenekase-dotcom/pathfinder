@@ -30,6 +30,20 @@ const baseProps = {
     enabled: true,
     accessCapabilities: ['updates:draft'],
   },
+  outcomeObservations: [
+    {
+      id: 'outcome_1',
+      agentRunId: 'run_1',
+      signalKind: 'HUMAN_REVIEW',
+      verdict: 'SUCCESS',
+      summary: 'The reviewed draft was correct and stayed within scope.',
+      evidenceRef: 'review:1',
+      taskClass: 'OPERATIONAL_UPDATE_DRAFT',
+      modelProvider: 'openai',
+      modelName: 'gpt-5',
+      createdAt: new Date('2030-01-01T10:00:00.000Z'),
+    },
+  ],
   policies: [],
 }
 
@@ -46,6 +60,7 @@ describe('AgentApprovalPolicyControl', () => {
       screen.getByLabelText('Why this agent may stop requiring per-draft approval'),
       { target: { value: 'Reviewed evidence supports bounded informational drafts.' } },
     )
+    fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
 
     await waitFor(() => expect(issue).toHaveBeenCalledOnce())
@@ -57,6 +72,7 @@ describe('AgentApprovalPolicyControl', () => {
         policyKey: 'support-primary-operational-update-drafts',
         maxTitleChars: 160,
         maxBodyChars: 4000,
+        outcomeObservationIds: ['outcome_1'],
       }),
     )
     expect(issue.mock.calls[0]?.[0]).not.toHaveProperty('publish')
@@ -89,6 +105,12 @@ describe('AgentApprovalPolicyControl', () => {
               maxBodyChars: 2000,
             },
             _count: { consumptions: 2 },
+            authorityEvidence: [
+              {
+                createdAt: new Date('2030-01-01T10:05:00.000Z'),
+                outcomeObservation: baseProps.outcomeObservations[0]!,
+              },
+            ],
           },
         ]}
       />,
@@ -102,6 +124,15 @@ describe('AgentApprovalPolicyControl', () => {
         approvalGrantId: 'grant_1',
         reason: 'Revoked by the founder from the Agent workspace.',
       }),
+    )
+  })
+
+  it('keeps policy issuance unavailable until exact outcome evidence exists', () => {
+    render(<AgentApprovalPolicyControl {...baseProps} outcomeObservations={[]} />)
+    expect(screen.getByText(/No reviewed outcome observations exist/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add draft policy' })).toHaveProperty(
+      'disabled',
+      true,
     )
   })
 })

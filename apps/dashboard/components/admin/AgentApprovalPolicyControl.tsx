@@ -19,6 +19,20 @@ type Policy = {
   state: 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'EXHAUSTED' | 'SCHEDULED'
   constraints: unknown
   _count: { consumptions: number }
+  authorityEvidence: Array<{ createdAt: Date; outcomeObservation: OutcomeObservation }>
+}
+
+type OutcomeObservation = {
+  id: string
+  agentRunId: string
+  signalKind: string
+  verdict: string
+  summary: string
+  evidenceRef: string | null
+  taskClass: string
+  modelProvider: string | null
+  modelName: string | null
+  createdAt: Date
 }
 
 function policyLimits(constraints: unknown) {
@@ -40,6 +54,7 @@ export function AgentApprovalPolicyControl(props: {
   venueId: string
   identity: { id: string; identityKey: string; enabled: boolean; accessCapabilities: string[] }
   policies: Policy[]
+  outcomeObservations: OutcomeObservation[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -51,6 +66,7 @@ export function AgentApprovalPolicyControl(props: {
   const [maxBodyChars, setMaxBodyChars] = useState('4000')
   const [maxUses, setMaxUses] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
+  const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>([])
   const defaultPolicyKey = useMemo(
     () => `${props.identity.identityKey.replaceAll('.', '-')}-operational-update-drafts`,
     [props.identity.identityKey],
@@ -70,6 +86,7 @@ export function AgentApprovalPolicyControl(props: {
         agentIdentityId: props.identity.id,
         policyKey: defaultPolicyKey,
         issueReason: reason,
+        outcomeObservationIds: selectedOutcomeIds,
         maxTitleChars: Number(maxTitleChars),
         maxBodyChars: Number(maxBodyChars),
         ...(maxUses ? { maxUses: Number(maxUses) } : {}),
@@ -77,6 +94,7 @@ export function AgentApprovalPolicyControl(props: {
       })
       setMessage('Draft policy enabled. Publication remains unavailable.')
       setReason('')
+      setSelectedOutcomeIds([])
       setExpanded(false)
       router.refresh()
     } catch {
@@ -84,6 +102,12 @@ export function AgentApprovalPolicyControl(props: {
     } finally {
       setBusy(false)
     }
+  }
+
+  function toggleOutcome(id: string) {
+    setSelectedOutcomeIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+    )
   }
 
   async function revoke(approvalGrantId: string) {
@@ -117,7 +141,7 @@ export function AgentApprovalPolicyControl(props: {
         </div>
         <button
           type="button"
-          disabled={!canIssue || busy}
+          disabled={!canIssue || busy || props.outcomeObservations.length === 0}
           onClick={() => setExpanded((value) => !value)}
           className="min-h-10 rounded-xl border border-sky-300 bg-white px-3 text-xs font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -129,6 +153,13 @@ export function AgentApprovalPolicyControl(props: {
         <p className="mt-3 text-xs text-amber-900">
           Enable this identity with the updates:draft capability before granting policy-backed
           authority.
+        </p>
+      ) : null}
+
+      {canIssue && props.outcomeObservations.length === 0 ? (
+        <p className="mt-3 text-xs text-amber-900">
+          No reviewed outcome observations exist for this identity and venue. Record outcomes from
+          completed one-shot runs before reducing per-draft approval.
         </p>
       ) : null}
 
@@ -155,6 +186,31 @@ export function AgentApprovalPolicyControl(props: {
                   {policy.maxUses === null ? '' : ` of ${policy.maxUses}`}
                   {policy.expiresAt ? ` · expires ${policy.expiresAt.toLocaleString()}` : ''}
                 </p>
+                {policy.authorityEvidence.length ? (
+                  <details className="mt-2 text-xs text-pf-deep/65">
+                    <summary className="cursor-pointer font-semibold">
+                      {policy.authorityEvidence.length} reviewed outcome{' '}
+                      {policy.authorityEvidence.length === 1 ? 'observation' : 'observations'}
+                    </summary>
+                    <ul className="mt-2 space-y-2">
+                      {policy.authorityEvidence.map(({ outcomeObservation }) => (
+                        <li key={outcomeObservation.id} className="rounded-lg bg-sky-50 p-2">
+                          <span className="font-semibold">
+                            {outcomeObservation.verdict.replaceAll('_', ' ')} ·{' '}
+                            {outcomeObservation.signalKind.replaceAll('_', ' ')}
+                          </span>{' '}
+                          · {outcomeObservation.taskClass} ·{' '}
+                          {outcomeObservation.createdAt.toLocaleString()}
+                          <p className="mt-1">{outcomeObservation.summary}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : (
+                  <p className="mt-2 text-xs font-medium text-amber-800">
+                    Legacy policy without structured authority evidence.
+                  </p>
+                )}
                 {policy.state === 'ACTIVE' ? (
                   <button
                     type="button"
@@ -175,12 +231,41 @@ export function AgentApprovalPolicyControl(props: {
         <p className="mt-3 text-xs text-pf-deep/55">No policy-backed authority is recorded.</p>
       )}
 
-      {expanded && canIssue ? (
+      {expanded && canIssue && props.outcomeObservations.length > 0 ? (
         <form
           onSubmit={issue}
           className="mt-4 grid gap-3 rounded-xl border border-sky-200 bg-white p-4"
         >
           <p className="text-xs font-semibold text-pf-deep">{defaultPolicyKey}</p>
+          <fieldset className="grid gap-2 rounded-xl border border-sky-200 p-3">
+            <legend className="px-1 text-xs font-semibold text-pf-deep">
+              Outcomes reviewed for this authority decision
+            </legend>
+            <p className="text-xs leading-5 text-pf-deep/65">
+              Select the immutable outcomes you reviewed. They preserve provenance; they do not
+              score this worker or recommend approval automatically.
+            </p>
+            {props.outcomeObservations.map((observation) => (
+              <label key={observation.id} className="flex gap-3 rounded-lg bg-sky-50 p-3 text-xs">
+                <input
+                  type="checkbox"
+                  checked={selectedOutcomeIds.includes(observation.id)}
+                  onChange={() => toggleOutcome(observation.id)}
+                  className="mt-1 size-4"
+                />
+                <span>
+                  <span className="font-semibold text-pf-deep">
+                    {observation.verdict.replaceAll('_', ' ')} ·{' '}
+                    {observation.signalKind.replaceAll('_', ' ')} · {observation.taskClass}
+                  </span>
+                  <span className="mt-1 block text-pf-deep/65">{observation.summary}</span>
+                  <span className="mt-1 block text-pf-deep/50">
+                    {observation.createdAt.toLocaleString()} · run {observation.agentRunId}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <label className="text-xs font-medium text-pf-deep">
             Why this agent may stop requiring per-draft approval
             <textarea
@@ -239,7 +324,7 @@ export function AgentApprovalPolicyControl(props: {
           </div>
           <button
             type="submit"
-            disabled={busy || !reason.trim()}
+            disabled={busy || !reason.trim() || selectedOutcomeIds.length === 0}
             className="min-h-11 rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
           >
             {busy ? 'Saving policy…' : 'Enable bounded draft policy'}

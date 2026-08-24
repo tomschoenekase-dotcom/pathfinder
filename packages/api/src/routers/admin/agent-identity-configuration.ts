@@ -77,6 +77,7 @@ export const adminAgentIdentityConfigurationRouter = router({
             .max(191)
             .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
           issueReason: z.string().trim().min(3).max(2000),
+          outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
           maxTitleChars: z.number().int().min(1).max(160),
           maxBodyChars: z.number().int().min(1).max(4000),
           maxUses: z.number().int().min(1).optional(),
@@ -108,6 +109,7 @@ export const adminAgentIdentityConfigurationRouter = router({
               maxBodyChars: input.maxBodyChars,
             },
             issueReason: input.issueReason,
+            outcomeObservationIds: input.outcomeObservationIds,
             ...(input.maxUses === undefined ? {} : { maxUses: input.maxUses }),
             ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
             actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },

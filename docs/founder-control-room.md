@@ -97,7 +97,11 @@ reviewed low-risk action class. A founder can let one exact enabled agent prepar
 informational operational-update drafts without approving each draft. The policy remains
 draft-only, venue-scoped, idempotently issued, revocable, optionally use/expiry bounded, and fully
 audited. It cannot publish the draft or expand the agent's configured capability. No policy is
-enabled automatically from the descriptive trust summary.
+enabled automatically from the descriptive trust summary. Before enabling a new policy, the
+founder must select one or more immutable outcome observations from that exact agent and venue.
+Those observations remain visible on the policy as provenance; Torchiko does not turn them into a
+score, promotion threshold, or automatic recommendation. Legacy policies without that structured
+membership are surfaced honestly rather than backfilled with invented evidence.
 
 The evidence contract also names what it cannot yet measure honestly. Rollback rate is unavailable
 until rollback records have a canonical link to the responsible run/action; policy-violation rate

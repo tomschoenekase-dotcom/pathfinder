@@ -188,6 +188,7 @@ model Tenant {
   agentImprovementProposals      AgentImprovementProposal[]
   agentImprovementEvidence       AgentImprovementProposalEvidence[]
   agentImprovementValidations    AgentImprovementValidationEvidence[]
+  approvalGrantEvidence          ApprovalGrantEvidence[]
   approvalDecisions              ApprovalDecision[]
   approvalGrants                 ApprovalGrant[]
   approvalGrantConsumptions      ApprovalGrantConsumption[]
@@ -4382,27 +4383,28 @@ enum AgentOutcomeVerdict {
 /// A terminal run status is execution evidence, not a quality verdict; routing and
 /// reputation must use these explicit observations instead of completion alone.
 model AgentOutcomeObservation {
-  id                  String                             @id @default(cuid())
-  operationId         String                             @map("operation_id") @db.Uuid
-  tenantId            String                             @map("tenant_id")
-  venueId             String                             @map("venue_id")
-  agentRunId          String                             @map("agent_run_id")
-  agentIdentityId     String                             @map("agent_identity_id")
-  signalKind          AgentOutcomeSignalKind             @map("signal_kind")
-  verdict             AgentOutcomeVerdict
-  summary             String                             @db.VarChar(2000)
-  evidenceRef         String?                            @map("evidence_ref") @db.VarChar(500)
-  taskClass           String                             @map("task_class") @db.VarChar(100)
-  modelProvider       String?                            @map("model_provider") @db.VarChar(100)
-  modelName           String?                            @map("model_name") @db.VarChar(191)
-  actorType           ActorType                          @map("actor_type")
-  actorId             String                             @map("actor_id") @db.VarChar(191)
-  createdAt           DateTime                           @default(now()) @map("created_at")
-  tenant              Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue               Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun            AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity       AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  improvementEvidence AgentImprovementProposalEvidence[]
+  id                    String                             @id @default(cuid())
+  operationId           String                             @map("operation_id") @db.Uuid
+  tenantId              String                             @map("tenant_id")
+  venueId               String                             @map("venue_id")
+  agentRunId            String                             @map("agent_run_id")
+  agentIdentityId       String                             @map("agent_identity_id")
+  signalKind            AgentOutcomeSignalKind             @map("signal_kind")
+  verdict               AgentOutcomeVerdict
+  summary               String                             @db.VarChar(2000)
+  evidenceRef           String?                            @map("evidence_ref") @db.VarChar(500)
+  taskClass             String                             @map("task_class") @db.VarChar(100)
+  modelProvider         String?                            @map("model_provider") @db.VarChar(100)
+  modelName             String?                            @map("model_name") @db.VarChar(191)
+  actorType             ActorType                          @map("actor_type")
+  actorId               String                             @map("actor_id") @db.VarChar(191)
+  createdAt             DateTime                           @default(now()) @map("created_at")
+  tenant                Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun              AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity         AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  improvementEvidence   AgentImprovementProposalEvidence[]
+  approvalGrantEvidence ApprovalGrantEvidence[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_outcome_observations_tenant_operation_key")
@@ -4600,6 +4602,7 @@ model ApprovalGrant {
   approvalDecision   ApprovalDecision?          @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   agentIdentity      AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   consumptions       ApprovalGrantConsumption[]
+  authorityEvidence  ApprovalGrantEvidence[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "approval_grants_tenant_operation_key")
@@ -4607,6 +4610,22 @@ model ApprovalGrant {
   @@index([tenantId, venueId, actionName, revokedAt, expiresAt], map: "approval_grants_scope_action_active_idx")
   @@index([tenantId, agentIdentityId, createdAt], map: "approval_grants_agent_created_idx")
   @@map("approval_grants")
+}
+
+/// Exact immutable outcome membership reviewed by the human who issued a
+/// policy-backed grant. Membership is provenance, not an automatic trust score.
+model ApprovalGrantEvidence {
+  tenantId             String                  @map("tenant_id")
+  approvalGrantId      String                  @map("approval_grant_id")
+  outcomeObservationId String                  @map("outcome_observation_id")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  approvalGrant        ApprovalGrant           @relation(fields: [approvalGrantId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  outcomeObservation   AgentOutcomeObservation @relation(fields: [outcomeObservationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([approvalGrantId, outcomeObservationId])
+  @@index([tenantId, outcomeObservationId], map: "approval_grant_evidence_outcome_idx")
+  @@map("approval_grant_evidence")
 }
 
 /// Append-only evidence for one successful exercise of a grant. Operation IDs

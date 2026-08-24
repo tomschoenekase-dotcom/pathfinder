@@ -48,6 +48,27 @@ export const adminAgentApprovalPolicyReadsRouter = router({
             createdAt: true,
             updatedAt: true,
             agentIdentity: { select: { id: true, name: true, enabled: true } },
+            authorityEvidence: {
+              orderBy: { createdAt: 'desc' },
+              select: {
+                createdAt: true,
+                outcomeObservation: {
+                  select: {
+                    id: true,
+                    agentRunId: true,
+                    agentIdentityId: true,
+                    signalKind: true,
+                    verdict: true,
+                    summary: true,
+                    evidenceRef: true,
+                    taskClass: true,
+                    modelProvider: true,
+                    modelName: true,
+                    createdAt: true,
+                  },
+                },
+              },
+            },
             _count: { select: { consumptions: true } },
           },
         })

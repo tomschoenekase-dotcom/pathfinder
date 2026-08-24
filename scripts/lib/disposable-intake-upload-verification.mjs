@@ -748,6 +748,7 @@ export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
       proofScope: [
         'human-issued-policy-only',
         'tenant-venue-agent-action-capability-scope',
+        'exact-scope-authority-outcome-membership',
         'idempotent-policy-issuance',
         'registered-draft-only-constraint-evaluator',
         'policy-consumption-machine-lineage',

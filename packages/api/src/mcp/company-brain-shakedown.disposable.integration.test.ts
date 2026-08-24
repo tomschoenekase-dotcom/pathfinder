@@ -13,6 +13,7 @@ import {
   promoteCompanyKnowledgeAction,
   registerAgentWorkerAction,
   recordApprovalDecisionAction,
+  recordAgentOutcomeAction,
   searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
   verifyAgentBridgeCredential,
@@ -717,6 +718,35 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         capability: 'updates:draft',
       })
 
+      const evidenceRun = await db.agentRun.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'review-operational-update-draft',
+          requestPrompt: 'Review the bounded informational draft workflow.',
+          scopeSnapshot: { tenantId, venueId },
+          status: 'COMPLETED',
+          modelProvider: 'fixture',
+          modelName: 'deterministic',
+          initiatedByType: 'HUMAN',
+          initiatedById: human.actorId,
+          startedAt: new Date(now.getTime() - 120_000),
+          completedAt: new Date(now.getTime() - 60_000),
+        },
+      })
+      const authorityOutcome = await recordAgentOutcomeAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentRunId: evidenceRun.id,
+        verdict: 'POSITIVE',
+        summary: 'The reviewed synthetic draft workflow stayed informational and venue-scoped.',
+        evidenceRef: `OperationalUpdate:${String((created as { id?: string }).id ?? 'synthetic')}`,
+        actor: { type: 'HUMAN', id: human.actorId, role: 'PLATFORM_ADMIN' },
+      })
+
       const policyOperationId = randomUUID()
       const policyInput = {
         operationId: policyOperationId,
@@ -734,13 +764,28 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           maxBodyChars: 200,
         },
         issueReason: 'Synthetic reviewed evidence authorizes bounded informational drafts.',
+        outcomeObservationIds: [authorityOutcome.id],
         maxUses: 2,
         actor: credentialActor,
       }
+      await expect(
+        issueApprovalGrantAction({
+          ...policyInput,
+          operationId: randomUUID(),
+          policyKey: `rejected-unscoped-evidence-${suffix}`,
+          outcomeObservationIds: ['missing-or-out-of-scope-observation'],
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
       const policyGrant = await issueApprovalGrantAction(policyInput)
       const policyReplay = await issueApprovalGrantAction(policyInput)
       expect(policyGrant.replayed).toBe(false)
       expect(policyReplay).toMatchObject({ id: policyGrant.id, replayed: true })
+      expect(
+        await db.approvalGrantEvidence.findMany({
+          where: { tenantId, approvalGrantId: policyGrant.id },
+          select: { outcomeObservationId: true },
+        }),
+      ).toEqual([{ outcomeObservationId: authorityOutcome.id }])
 
       const policyContext = { credential, approvalGrantId: policyGrant.id }
       const policyWriteInput = {

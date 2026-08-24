@@ -40,6 +40,21 @@ function harness() {
       }),
     },
     agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'agent_1' }) },
+    agentOutcomeObservation: {
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: 'outcome_1',
+          agentRunId: 'run_1',
+          signalKind: 'HUMAN_REVIEW',
+          verdict: 'SUCCESS',
+          taskClass: 'OPERATIONAL_UPDATE_DRAFT',
+          modelProvider: 'openai',
+          modelName: 'gpt-5',
+          createdAt: now,
+        },
+      ]),
+    },
+    approvalGrantEvidence: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     approvalGrant: {
       create: vi.fn().mockResolvedValue({
         id: 'grant_1',
@@ -65,6 +80,7 @@ function harness() {
         createdById: 'admin_1',
         createdAt: now,
         updatedAt: now,
+        authorityEvidence: [],
       }),
       findFirst: vi.fn().mockResolvedValue({
         id: 'grant_1',
@@ -78,6 +94,10 @@ function harness() {
         revokedAt: null,
       }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      findFirstOrThrow: vi.fn().mockResolvedValue({
+        id: 'grant_1',
+        authorityEvidence: [],
+      }),
     },
     approvalGrantConsumption: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -114,6 +134,25 @@ function consumeInput(overrides = {}) {
     parameters,
     actor: machineActor,
     now,
+    ...overrides,
+  }
+}
+
+function policyIssueInput(overrides = {}) {
+  return {
+    operationId: '33333333-3333-4333-8333-333333333333',
+    tenantId: 'tenant_1',
+    venueId: 'venue_1',
+    agentIdentityId: 'agent_1',
+    actionName: 'pathfinder.create_update_draft',
+    capability: 'updates:draft',
+    mode: 'POLICY_BACKED' as const,
+    scope: { tenantId: 'tenant_1', venueId: 'venue_1', effect: 'DRAFT_ONLY' },
+    policyKey: 'support-operational-update-drafts',
+    constraints: defaultOperationalUpdateDraftPolicyConstraints(),
+    issueReason: 'Reviewed outcome evidence supports bounded draft authority.',
+    outcomeObservationIds: ['outcome_1'],
+    actor: { type: 'HUMAN' as const, id: 'admin_1', role: 'PLATFORM_ADMIN' as const },
     ...overrides,
   }
 }
@@ -172,6 +211,75 @@ describe('approval grants', () => {
         data: expect.objectContaining({ action: 'approval-grant.issued', actorType: 'HUMAN' }),
       }),
     )
+  })
+
+  it('binds a policy grant to exact outcome evidence in the same agent and venue scope', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    tx.approvalGrant.create.mockResolvedValueOnce({
+      id: 'grant_policy',
+      operationId: '33333333-3333-4333-8333-333333333333',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalDecisionId: null,
+      policyKey: 'support-operational-update-drafts',
+      agentIdentityId: 'agent_1',
+      actionName: 'pathfinder.create_update_draft',
+      capability: 'updates:draft',
+      mode: 'POLICY_BACKED',
+      scope: { tenantId: 'tenant_1', venueId: 'venue_1', effect: 'DRAFT_ONLY' },
+      parameterHash: null,
+      constraints: defaultOperationalUpdateDraftPolicyConstraints(),
+      issueReason: 'Reviewed outcome evidence supports bounded draft authority.',
+      maxUses: null,
+      useCount: 0,
+      notBefore: now,
+      expiresAt: null,
+      revokedAt: null,
+      createdByType: 'HUMAN',
+      createdById: 'admin_1',
+      createdAt: now,
+      updatedAt: now,
+      authorityEvidence: [{ outcomeObservationId: 'outcome_1' }],
+    })
+
+    const result = await issueApprovalGrantAction(policyIssueInput({ notBefore: now }), client)
+
+    expect(result.replayed).toBe(false)
+    expect(tx.agentOutcomeObservation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          agentIdentityId: 'agent_1',
+          id: { in: ['outcome_1'] },
+        }),
+      }),
+    )
+    expect(tx.approvalGrantEvidence.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          {
+            tenantId: 'tenant_1',
+            approvalGrantId: 'grant_policy',
+            outcomeObservationId: 'outcome_1',
+          },
+        ],
+      }),
+    )
+  })
+
+  it('rejects policy evidence outside the exact agent or venue scope', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    tx.agentOutcomeObservation.findMany.mockResolvedValueOnce([])
+
+    await expect(
+      issueApprovalGrantAction(policyIssueInput({ notBefore: now }), client),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(tx.approvalGrant.create).not.toHaveBeenCalled()
   })
 
   it('atomically consumes exact authority with machine lineage', async () => {

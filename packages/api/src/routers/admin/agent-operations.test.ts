@@ -273,6 +273,7 @@ describe('admin agent operations router', () => {
         agentIdentityId: 'agent_1',
         policyKey: 'support-operational-update-drafts',
         issueReason: 'This reviewed workflow has produced safe informational drafts.',
+        outcomeObservationIds: ['outcome_1'],
         maxTitleChars: 120,
         maxBodyChars: 2000,
         maxUses: 25,
@@ -305,6 +306,7 @@ describe('admin agent operations router', () => {
         maxBodyChars: 2000,
       },
       issueReason: 'This reviewed workflow has produced safe informational drafts.',
+      outcomeObservationIds: ['outcome_1'],
       maxUses: 25,
       expiresAt: new Date('2030-01-02T12:00:00.000Z'),
       actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
@@ -320,6 +322,7 @@ describe('admin agent operations router', () => {
         agentIdentityId: 'agent_1',
         policyKey: 'support-operational-update-drafts',
         issueReason: 'Reviewed evidence supports this bounded draft authority.',
+        outcomeObservationIds: ['outcome_1'],
         maxTitleChars: 160,
         maxBodyChars: 4000,
       }),
@@ -356,6 +359,15 @@ describe('admin agent operations router', () => {
           mode: 'POLICY_BACKED',
         }),
         take: 51,
+        select: expect.objectContaining({
+          authorityEvidence: expect.objectContaining({
+            select: expect.objectContaining({
+              outcomeObservation: expect.objectContaining({
+                select: expect.objectContaining({ id: true, summary: true, verdict: true }),
+              }),
+            }),
+          }),
+        }),
       }),
     )
   })

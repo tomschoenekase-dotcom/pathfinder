@@ -25,6 +25,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       approvals,
       questions,
       approvalPolicies,
+      outcomeObservations,
       bridgeSessions,
       questionRecipients,
     ] = await Promise.all([
@@ -55,6 +56,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
         ...(cursor(query, 'questionCursor') ? { cursor: cursor(query, 'questionCursor') } : {}),
       }),
       caller.admin.listAgentApprovalPolicies({ tenantId, venueId, limit: 100 }),
+      caller.admin.listAgentOutcomeObservations({ tenantId, venueId, limit: 100 }),
       caller.admin.listAgentBridgeSessions({ tenantId, venueId }),
       caller.admin.listOnboardingQuestionRecipients({ tenantId, venueId }),
     ])
@@ -67,6 +69,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
         approvals={approvals}
         questions={questions}
         approvalPolicies={approvalPolicies}
+        outcomeObservations={outcomeObservations.items}
         questionRecipients={questionRecipients}
         runtime={{ agentRunnerEnabled: env.AGENT_RUNNER_ENABLED }}
         bridgeSessions={bridgeSessions}

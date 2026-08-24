@@ -30,6 +30,7 @@ const grantPolicyKey = z
   .max(191)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
 const grantIssueReason = z.string().trim().min(3).max(2000)
+const grantOutcomeObservationId = z.string().trim().min(1).max(191)
 
 export class ApprovalGrantActionError extends Error {
   constructor(
@@ -95,6 +96,7 @@ function modeRules(input: {
   constraints?: Record<string, unknown>
   maxUses?: number
   expiresAt?: Date
+  outcomeObservationIds?: string[]
 }) {
   if ((input.approvalDecisionId === undefined) === (input.policyKey === undefined)) {
     throw new ApprovalGrantActionError(
@@ -127,6 +129,19 @@ function modeRules(input: {
     throw new ApprovalGrantActionError(
       'CONFLICT',
       'Policy-backed grants require reviewed constraints, not exact parameters',
+    )
+  }
+  const evidenceCount = input.outcomeObservationIds?.length ?? 0
+  if (input.mode === 'POLICY_BACKED' && (evidenceCount < 1 || evidenceCount > 25)) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Policy-backed grants require between 1 and 25 reviewed outcome observations',
+    )
+  }
+  if (input.mode !== 'POLICY_BACKED' && evidenceCount > 0) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Only policy-backed grants may cite authority outcome evidence',
     )
   }
 }
@@ -227,6 +242,10 @@ const grantSelect = {
   createdById: true,
   createdAt: true,
   updatedAt: true,
+  authorityEvidence: {
+    orderBy: { outcomeObservationId: 'asc' as const },
+    select: { outcomeObservationId: true },
+  },
 } as const
 
 type IssueInput = {
@@ -246,6 +265,7 @@ type IssueInput = {
   maxUses?: number
   notBefore?: Date
   expiresAt?: Date
+  outcomeObservationIds?: string[]
   actor: ApprovalGrantHumanActor
 }
 
@@ -267,12 +287,14 @@ function sameGrantIssue(
     expiresAt: Date | null
     createdByType: string
     createdById: string
+    authorityEvidence?: Array<{ outcomeObservationId: string }>
   },
   input: IssueInput,
   normalized: {
     parameterHash: string | null
     constraints: Record<string, unknown>
     issueReason: string
+    outcomeObservationIds: string[]
   },
 ) {
   return (
@@ -291,7 +313,13 @@ function sameGrantIssue(
     (input.notBefore === undefined || existing.notBefore.getTime() === input.notBefore.getTime()) &&
     existing.expiresAt?.getTime() === input.expiresAt?.getTime() &&
     existing.createdByType === 'HUMAN' &&
-    existing.createdById === input.actor.id
+    existing.createdById === input.actor.id &&
+    canonicalJson(
+      ('authorityEvidence' in existing && Array.isArray(existing.authorityEvidence)
+        ? existing.authorityEvidence
+        : []
+      ).map((row: { outcomeObservationId: string }) => row.outcomeObservationId),
+    ) === canonicalJson(normalized.outcomeObservationIds)
   )
 }
 
@@ -325,6 +353,23 @@ export async function issueApprovalGrantAction(
   const operationId = parsedOperationId.data
   const issueReason = parsedIssueReason.data
   const policyKey = parsedPolicyKey?.success ? parsedPolicyKey.data : null
+  const parsedOutcomeIds = z
+    .array(grantOutcomeObservationId)
+    .max(25)
+    .safeParse(input.outcomeObservationIds ?? [])
+  if (!parsedOutcomeIds.success) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      parsedOutcomeIds.error.issues[0]?.message ?? 'Outcome evidence is invalid',
+    )
+  }
+  const outcomeObservationIds = [...new Set(parsedOutcomeIds.data)].sort()
+  if (outcomeObservationIds.length !== parsedOutcomeIds.data.length) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      'Outcome evidence must not contain duplicates',
+    )
+  }
   const constraints =
     input.mode === 'POLICY_BACKED'
       ? validatePolicyConstraints(input.actionName, input.capability, input.constraints ?? {})
@@ -335,7 +380,7 @@ export async function issueApprovalGrantAction(
   }
   const parameterHash =
     input.parameters === undefined ? null : approvalParameterHash(input.parameters)
-  const normalized = { parameterHash, constraints, issueReason }
+  const normalized = { parameterHash, constraints, issueReason, outcomeObservationIds }
 
   const attempt = () =>
     client.$transaction(async (rawTx) => {
@@ -421,6 +466,43 @@ export async function issueApprovalGrantAction(
         )
       }
 
+      let authorityEvidence: Array<{
+        id: string
+        agentRunId: string
+        signalKind: string
+        verdict: string
+        taskClass: string
+        modelProvider: string | null
+        modelName: string | null
+        createdAt: Date
+      }> = []
+      if (input.mode === 'POLICY_BACKED') {
+        authorityEvidence = await tx.agentOutcomeObservation.findMany({
+          where: {
+            id: { in: outcomeObservationIds },
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+          },
+          select: {
+            id: true,
+            agentRunId: true,
+            signalKind: true,
+            verdict: true,
+            taskClass: true,
+            modelProvider: true,
+            modelName: true,
+            createdAt: true,
+          },
+        })
+        if (authorityEvidence.length !== outcomeObservationIds.length) {
+          throw new ApprovalGrantActionError(
+            'FORBIDDEN',
+            'Selected outcome evidence was not found in this agent and venue scope',
+          )
+        }
+      }
+
       const grant = await tx.approvalGrant.create({
         data: {
           operationId,
@@ -444,6 +526,15 @@ export async function issueApprovalGrantAction(
         },
         select: grantSelect,
       })
+      if (outcomeObservationIds.length) {
+        await tx.approvalGrantEvidence.createMany({
+          data: outcomeObservationIds.map((outcomeObservationId) => ({
+            tenantId: input.tenantId,
+            approvalGrantId: grant.id,
+            outcomeObservationId,
+          })),
+        })
+      }
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -466,11 +557,25 @@ export async function issueApprovalGrantAction(
             constraints: grant.constraints,
             issueReason: grant.issueReason,
             operationId: grant.operationId,
+            authorityEvidence: authorityEvidence.map((observation) => ({
+              outcomeObservationId: observation.id,
+              agentRunId: observation.agentRunId,
+              signalKind: observation.signalKind,
+              verdict: observation.verdict,
+              taskClass: observation.taskClass,
+              modelProvider: observation.modelProvider,
+              modelName: observation.modelName,
+              createdAt: observation.createdAt.toISOString(),
+            })),
           },
         },
         tx,
       )
-      return { ...grant, replayed: false as const }
+      const persistedGrant = await tx.approvalGrant.findFirstOrThrow({
+        where: { id: grant.id, tenantId: input.tenantId },
+        select: grantSelect,
+      })
+      return { ...persistedGrant, replayed: false as const }
     })
 
   try {

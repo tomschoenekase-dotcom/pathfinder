@@ -93,6 +93,24 @@ type ApprovalPolicy = {
   revokeReason: string | null
   state: 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'EXHAUSTED' | 'SCHEDULED'
   _count: { consumptions: number }
+  authorityEvidence: Array<{
+    createdAt: Date
+    outcomeObservation: OutcomeObservation
+  }>
+}
+
+type OutcomeObservation = {
+  id: string
+  agentRunId: string
+  agentIdentityId: string
+  signalKind: string
+  verdict: string
+  summary: string
+  evidenceRef: string | null
+  taskClass: string
+  modelProvider: string | null
+  modelName: string | null
+  createdAt: Date
 }
 
 type Props = {
@@ -103,6 +121,7 @@ type Props = {
   approvals: { items: Approval[]; nextCursor: Cursor }
   questions: { items: Question[]; nextCursor: Cursor }
   approvalPolicies?: { items: ApprovalPolicy[]; nextCursor: Cursor }
+  outcomeObservations?: OutcomeObservation[]
   questionRecipients?: Array<{
     userId: string
     role: string
@@ -174,6 +193,7 @@ export function AgentOperationsOverview({
   approvals,
   questions,
   approvalPolicies = { items: [], nextCursor: null },
+  outcomeObservations = [],
   questionRecipients = [],
   runtime = { agentRunnerEnabled: false },
   bridgeSessions = [],
@@ -361,6 +381,9 @@ export function AgentOperationsOverview({
                     identity={identity}
                     policies={approvalPolicies.items.filter(
                       (policy) => policy.agentIdentityId === identity.id,
+                    )}
+                    outcomeObservations={outcomeObservations.filter(
+                      (observation) => observation.agentIdentityId === identity.id,
                     )}
                   />
                 </div>
