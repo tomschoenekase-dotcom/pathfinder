@@ -11,6 +11,7 @@ const required = [
   'content-package-eval',
   'release',
   'guest-retrieval-chat',
+  'voice-mode',
   'feedback',
   'report',
   'support',
@@ -19,6 +20,7 @@ const required = [
 ]
 const failures = [
   'provider-outage',
+  'voice-authorization-failure',
   'rate-limit',
   'bad-upload',
   'duplicate-request',
@@ -67,6 +69,7 @@ if (
   required.some((phase) => !declaredProofPhases.includes(phase)) ||
   !proof.coveredPhases.includes('release') ||
   !proof.coveredPhases.includes('guest-retrieval-chat') ||
+  !proof.coveredPhases.includes('voice-mode') ||
   !proof.coveredPhases.includes('feedback') ||
   proof.remainingPhases.length !== 0 ||
   new Set(proof.verifiedFailureInjections ?? []).size !== failures.length ||

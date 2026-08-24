@@ -285,6 +285,7 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
         npm_execpath: 'pnpm-cli.cjs',
         npm_lifecycle_event: 'golden-venue:disposable',
         ANTHROPIC_API_KEY: 'must-not-propagate',
+        OPENAI_API_KEY: 'must-not-propagate',
       },
       spawnSyncImpl: runtime.spawnSyncImpl,
       fetchImpl: async () => ({ ok: true }),
@@ -301,12 +302,16 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
   assert.ok(integrationCall.args.includes('src/remote-onboarding-disposable.integration.test.ts'))
   assert.equal(runtime.childEnvironments[0].RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION, '1')
   assert.equal(runtime.childEnvironments[0].ANTHROPIC_API_KEY, undefined)
+  assert.equal(runtime.childEnvironments[0].OPENAI_API_KEY, 'provider-dark-not-a-credential')
+  assert.equal(runtime.childEnvironments[0].VOICE_MODE_ENABLED, 'true')
   assert.match(
     stdout.value,
     /"action":"golden-venue\.core-lifecycle\.disposable-shakedown\.passed"/u,
   )
   assert.match(stdout.value, /"proofScope":\["client","venue","onboarding"/u)
   assert.match(stdout.value, /"guest-chat-grounded-provider-dark"/u)
+  assert.match(stdout.value, /"voice-mode-provider-dark-lifecycle"/u)
+  assert.match(stdout.value, /"voice-fallback-to-text-persisted"/u)
   assert.match(stdout.value, /"visitor-feedback-persisted"/u)
   assert.match(stdout.value, /"support-service-led-resolution"/u)
   assert.match(stdout.value, /"report-publish-read"/u)
@@ -314,7 +319,7 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
   assert.match(stdout.value, /"offboarding-reviewed-export-ready"/u)
   assert.match(
     stdout.value,
-    /"failureScope":\["provider-outage","rate-limit","bad-upload","duplicate-request","failed-worker","report-failure","ambiguous-provider-outcome"\]/u,
+    /"failureScope":\["provider-outage","voice-authorization-failure","rate-limit","bad-upload","duplicate-request","failed-worker","report-failure","ambiguous-provider-outcome"\]/u,
   )
   assert.match(stdout.value, /"proofMetrics":\{"expectedFixtureQuestions":4\}/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)

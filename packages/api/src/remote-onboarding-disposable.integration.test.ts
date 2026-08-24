@@ -13,6 +13,7 @@ import {
   setOpenAiEmbeddingsClientForTesting,
   type AnthropicMessagesClient,
   type OpenAiEmbeddingsClient,
+  type RealtimeVoiceProviderAdapter,
 } from '@pathfinder/ai'
 
 import {
@@ -78,6 +79,7 @@ import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { venuePackageRouter } from './routers/venue-package'
+import { _setVoiceProviderAdapterForTesting, voiceRouter } from './routers/voice'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
 let disposableStorage: S3Client | null = null
@@ -136,12 +138,14 @@ const testRouter = router({
   portal: portalRouter,
   support: supportRouter,
   venuePackage: venuePackageRouter,
+  voice: voiceRouter,
 })
 
 describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure matrix', () => {
   afterAll(async () => {
     disposableStorage?.destroy()
     _setAnthropicClientForTesting(null)
+    _setVoiceProviderAdapterForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
     await db.$disconnect()
   })
@@ -1140,6 +1144,195 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           select: { status: true, assistantMessageId: true },
         }),
       ).resolves.toEqual({ status: 'COMPLETE', assistantMessageId })
+
+      // 16a. Voice Mode uses the same owned public identity and real entitlement resolver.
+      // Only provider authorization is replaced: the migrated database still proves the
+      // complete session, transcript, usage, replay, fallback, and incident contracts.
+      await db.productEntitlementOverride.create({
+        data: {
+          tenantId,
+          venueId,
+          capability: 'voice',
+          effect: 'GRANT',
+          kind: 'ADMIN',
+          settings: {},
+          setBy: operatorId,
+          reason: 'Golden Venue provider-dark Voice Mode lifecycle proof',
+        },
+      })
+      const voiceAuthorize = vi.fn().mockResolvedValue({
+        provider: 'openai' as const,
+        model: 'gpt-realtime-2.1-mini',
+        clientSecret: 'provider-dark-ephemeral-secret',
+        expiresAt: Math.floor(Date.now() / 1_000) + 300,
+        providerSessionId: 'provider-dark-voice-session',
+      })
+      _setVoiceProviderAdapterForTesting({
+        provider: 'openai',
+        authorizeSession: voiceAuthorize,
+      } as RealtimeVoiceProviderAdapter)
+
+      await expect(
+        publicCaller.voice.availability({ venueId, anonymousToken }),
+      ).resolves.toMatchObject({ enabled: true, premiumAvailable: false })
+      const voiceSession = await publicCaller.voice.start({
+        venueId,
+        anonymousToken,
+        locale: 'en-US',
+        tier: 'ECONOMY',
+      })
+      expect(voiceSession).toMatchObject({
+        clientSecret: 'provider-dark-ephemeral-secret',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+      })
+      expect(voiceAuthorize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: 'provider-dark-not-a-credential',
+          instructions: expect.stringContaining(goldenVenueFixture.venueName),
+          safetyIdentifier: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        }),
+      )
+      const persistedReadyVoice = await db.voiceSession.findFirstOrThrow({
+        where: { id: voiceSession.voiceSessionId, tenantId, venueId },
+      })
+      expect(persistedReadyVoice).toMatchObject({
+        visitorSessionId: guestTurn.sessionId,
+        status: 'READY',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+        providerSessionId: 'provider-dark-voice-session',
+      })
+      expect(JSON.stringify(persistedReadyVoice)).not.toContain('provider-dark-ephemeral-secret')
+      await expect(
+        publicCaller.voice.connected({
+          venueId,
+          anonymousToken,
+          voiceSessionId: voiceSession.voiceSessionId,
+        }),
+      ).resolves.toEqual({ connected: true })
+      const transcriptInput = {
+        venueId,
+        anonymousToken,
+        voiceSessionId: voiceSession.voiceSessionId,
+        providerEventId: 'provider-dark-transcript-1',
+        sequence: 1,
+        speaker: 'VISITOR' as const,
+        text: primaryExpected.question,
+        language: 'en-US',
+      }
+      await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
+        accepted: true,
+      })
+      await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
+        accepted: false,
+      })
+      const usageInput = {
+        venueId,
+        anonymousToken,
+        voiceSessionId: voiceSession.voiceSessionId,
+        providerEventId: 'provider-dark-response-1',
+        inputTokens: 1_100,
+        outputTokens: 2_100,
+        cachedInputTokens: 100,
+        cachedAudioInputTokens: 0,
+        audioInputTokens: 1_000,
+        audioOutputTokens: 2_000,
+      }
+      await expect(publicCaller.voice.usage(usageInput)).resolves.toMatchObject({
+        accepted: true,
+        estimatedCostUsd: 0.050246,
+      })
+      await expect(publicCaller.voice.usage(usageInput)).resolves.toMatchObject({
+        accepted: false,
+        estimatedCostUsd: 0.050246,
+      })
+      const storedVoiceUsage = await db.aiUsageEvent.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          sessionId: guestTurn.sessionId,
+          feature: 'realtime-voice',
+          providerRequestId: usageInput.providerEventId,
+        },
+      })
+      expect(storedVoiceUsage).toMatchObject({
+        capability: 'REALTIME_VOICE_ECONOMY',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+        pricingVersion: 'openai-model-pages-2026-08-19',
+        audioInputTokens: 1_000,
+        audioOutputTokens: 2_000,
+      })
+      expect(Number(storedVoiceUsage.estimatedCostUsd)).toBe(0.050246)
+      await expect(
+        publicCaller.voice.end({
+          venueId,
+          anonymousToken,
+          voiceSessionId: voiceSession.voiceSessionId,
+          fallbackToText: true,
+        }),
+      ).resolves.toMatchObject({ ended: true, durationSeconds: expect.any(Number) })
+      await expect(
+        db.voiceSession.findFirstOrThrow({
+          where: { id: voiceSession.voiceSessionId, tenantId, venueId },
+          select: { status: true, fallbackToText: true, errorCode: true },
+        }),
+      ).resolves.toEqual({ status: 'ENDED', fallbackToText: true, errorCode: null })
+
+      // A provider route mismatch is rejected, persisted as failed, and surfaced as an
+      // actionable operational incident. The existing text history remains available.
+      voiceAuthorize.mockResolvedValueOnce({
+        provider: 'openai',
+        model: 'unexpected-provider-route',
+        clientSecret: 'discarded-provider-dark-secret',
+        expiresAt: Math.floor(Date.now() / 1_000) + 300,
+        providerSessionId: 'mismatched-provider-session',
+      })
+      await expect(
+        publicCaller.voice.start({
+          venueId,
+          anonymousToken,
+          locale: 'en-US',
+          tier: 'ECONOMY',
+        }),
+      ).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice could not connect. Continue in text or try again.',
+      })
+      const failedVoice = await db.voiceSession.findFirstOrThrow({
+        where: { tenantId, venueId, visitorSessionId: guestTurn.sessionId, status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+      })
+      expect(failedVoice).toMatchObject({
+        errorCode: 'AUTHORIZATION_FAILED',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+      })
+      await vi.waitFor(async () => {
+        await expect(
+          db.operationalEvent.findUnique({
+            where: {
+              tenantId_deduplicationKey: {
+                tenantId,
+                deduplicationKey: `voice-authorization-failure:${failedVoice.id}`,
+              },
+            },
+          }),
+        ).resolves.toMatchObject({
+          venueId,
+          eventType: 'voice.session.failed',
+          sourceSubsystem: 'realtime-voice',
+          severity: 'ERROR',
+          linkedObjectType: 'voice-session',
+          linkedObjectId: failedVoice.id,
+        })
+      })
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: expect.arrayContaining([
+          expect.objectContaining({ id: assistantMessageId, content: primaryExpected.answer }),
+        ]),
+      })
 
       // 17. Visitor feedback is ownership-bound to the public session and assistant message,
       // then retained as both durable feedback and a machine-readable analytics event.

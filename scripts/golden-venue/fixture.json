@@ -18,6 +18,7 @@
       "content-package-eval",
       "release",
       "guest-retrieval-chat",
+      "voice-mode",
       "feedback",
       "report",
       "update"
@@ -26,6 +27,7 @@
     "remainingPhases": [],
     "verifiedFailureInjections": [
       "provider-outage",
+      "voice-authorization-failure",
       "rate-limit",
       "bad-upload",
       "duplicate-request",
@@ -44,6 +46,7 @@
     "content-package-eval",
     "release",
     "guest-retrieval-chat",
+    "voice-mode",
     "feedback",
     "report",
     "support",
@@ -90,6 +93,7 @@
   ],
   "failureInjections": [
     "provider-outage",
+    "voice-authorization-failure",
     "rate-limit",
     "bad-upload",
     "duplicate-request",
