@@ -86,7 +86,7 @@ const approvedCallCounts = new Map([
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
   ['packages/api/src/routers/admin/deployment-manifest-review.ts', 3],
   // Platform-admin-only exact tenant+venue native projection, convergence read, and lifecycle adapters.
-  ['packages/api/src/routers/admin/native-venue-deployments.ts', 8],
+  ['packages/api/src/routers/admin/native-venue-deployments.ts', 9],
   // Native advisory evidence plus read-only shadow run discovery/comparison re-enter one exact
   // tenant+venue+release scope; none of these bypasses changes release or guest read-path state.
   ['packages/api/src/routers/admin/native-deployment-evaluations.ts', 4],
