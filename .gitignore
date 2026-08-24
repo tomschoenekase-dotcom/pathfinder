@@ -14,6 +14,7 @@ playwright-report/
 playwright-visual-report/
 test-results/
 artifacts/release-verification/
+artifacts/staging-handoff/
 apps/dashboard/public/characters/
 apps/web/public/characters/
 

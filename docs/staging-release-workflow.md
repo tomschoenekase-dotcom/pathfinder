@@ -19,6 +19,23 @@ This is the normal Torchiko feature-delivery path:
    release-specific production migration/cutover approval has been recorded. Railway production
    tracks `master`, so merging that pull request is the production application deployment action.
 
+## Exact owner handoff
+
+For a large candidate assembled outside the owner staging branch, generate a deterministic handoff
+only after the exact candidate release report passes from a clean worktree:
+
+```powershell
+pnpm staging:handoff -- --base-ref origin/codex/pathfinder-v2-staging --candidate <40-character-candidate-sha> --release-report artifacts/release-verification/<40-character-candidate-sha>-candidate.json
+```
+
+The command performs no network or hosted-state mutation. It fails closed unless the candidate is a
+strict descendant of the resolved staging base, has no staging-side divergence, matches a clean
+`ready-for-staging-review` candidate report, retains an all-default-off centralized feature-flag
+surface, and has a readable migration chain. The ignored JSON artifact pins the base and candidate
+revisions, delta digests, release-report hash, migration-chain hash, approved non-secret staging
+resource identities, required owner actions, and retained production/customer/billing/data gates.
+Re-run it after any candidate or staging-base change; never reuse a manifest for another revision.
+
 ## Current service boundaries
 
 - Staging project: `serene-inspiration`
