@@ -537,6 +537,67 @@ describe('admin agent operations router', () => {
     expect(mocks.issueApprovalGrant).not.toHaveBeenCalled()
   })
 
+  it('derives exact one-shot client information-request authority from founder approval', async () => {
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_info_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_information_request',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 4,
+        fromStatus: 'IN_REVIEW',
+        toStatus: 'WAITING_FOR_CLIENT',
+        body: 'Please provide the current exhibit label photograph.',
+        missingInformation: ['Current exhibit label photograph'],
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        clientVisibleMessageCreated: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_info_1', decision: 'APPROVED' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_info_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportInformationRequestProposal({
+        operationId: '49444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_info_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_info_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_information_request',
+        capability: 'support:request-information',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({ effect: 'EXACT_CLIENT_INFORMATION_REQUEST_ONLY' }),
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'request_1',
+          expectedVersion: 4,
+          fromStatus: 'IN_REVIEW',
+          toStatus: 'WAITING_FOR_CLIENT',
+          body: 'Please provide the current exhibit label photograph.',
+          missingInformation: ['Current exhibit label photograph'],
+        },
+        approvalDecisionId: 'decision_info_1',
+      }),
+      expect.anything(),
+    )
+  })
+
   it('issues exactly one evidence-backed attachment-free internal support note', async () => {
     mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_note', replayed: false })
     await testRouter.createCaller(context()).agentOperations.issueSupportInternalNotePolicy({

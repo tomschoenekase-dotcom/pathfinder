@@ -35,6 +35,8 @@ export function ApprovalDecisionForm({
   const [pending, setPending] = useState(false)
   const [requiresRefresh, setRequiresRefresh] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const isSupportInformationRequest =
+    proposedAction === 'pathfinder.apply_support_information_request'
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -43,8 +45,16 @@ export function ApprovalDecisionForm({
     setPending(true)
     setFeedback(null)
     try {
-      const result =
-        proposedAction === 'pathfinder.apply_support_triage'
+      const result = isSupportInformationRequest
+        ? await client.admin.decideSupportInformationRequestProposal.mutate({
+            operationId: crypto.randomUUID(),
+            tenantId,
+            venueId,
+            approvalRequestId,
+            decision,
+            ...(reason.trim() ? { reason: reason.trim() } : {}),
+          })
+        : proposedAction === 'pathfinder.apply_support_triage'
           ? await client.admin.decideSupportTriageProposal.mutate({
               operationId: crypto.randomUUID(),
               tenantId,
@@ -64,9 +74,11 @@ export function ApprovalDecisionForm({
       setFeedback({
         kind: 'success',
         text:
-          proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'
-            ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
-            : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
+          isSupportInformationRequest && decision === 'APPROVED'
+            ? 'APPROVED decision recorded. Exact one-shot client information-request authority was issued; no message was sent and no lifecycle state changed.'
+            : proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'
+              ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
+              : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
       })
       setRequiresRefresh(true)
       router.refresh()
@@ -127,9 +139,11 @@ export function ApprovalDecisionForm({
     >
       <p className="font-semibold text-amber-950">Record a terminal decision</p>
       <p className="mt-1 text-xs leading-5 text-amber-900">
-        {proposedAction === 'pathfinder.apply_support_triage'
-          ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
-          : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
+        {isSupportInformationRequest
+          ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible prompt and move this unchanged request to WAITING FOR CLIENT. The decision itself does not contact the client or change lifecycle state.'
+          : proposedAction === 'pathfinder.apply_support_triage'
+            ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
+            : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
       </p>
       <fieldset disabled={pending || requiresRefresh} className="mt-3">
         <legend className="sr-only">Decision</legend>

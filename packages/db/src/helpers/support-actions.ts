@@ -42,7 +42,7 @@ export type SupportActionActor =
       workerId?: string | undefined
       credentialId?: string | undefined
       approvalGrantId?: string | undefined
-      capability?: 'support:draft' | 'support:note' | undefined
+      capability?: 'support:draft' | 'support:note' | 'support:request-information' | undefined
       modelProvider?: string | undefined
       modelName?: string | undefined
       idempotencyKey?: string | undefined
@@ -82,7 +82,9 @@ const supportActionActor = z.union([
       workerId: scopedId.optional(),
       credentialId: scopedId.optional(),
       approvalGrantId: scopedId.optional(),
-      capability: z.enum(['support:draft', 'support:note']).optional(),
+      capability: z
+        .enum(['support:draft', 'support:note', 'support:request-information'])
+        .optional(),
       modelProvider: scopedId.optional(),
       modelName: scopedId.optional(),
       idempotencyKey: z.string().uuid().optional(),
@@ -206,6 +208,42 @@ const createPreviewFeedbackRequestActionInput = z
   })
   .strict()
 
+const operatorConversationActor = z
+  .object({
+    actorType: z.literal('HUMAN'),
+    participantKind: z.literal('OPERATOR'),
+    actorId: scopedId,
+    auditRole: z.literal('PLATFORM_ADMIN'),
+  })
+  .strict()
+
+const approvedInformationRequestAgentActor = z
+  .object({
+    actorType: z.literal('AGENT'),
+    participantKind: z.literal('AGENT'),
+    actorId: scopedId,
+    auditRole: z.literal('AGENT'),
+    agentIdentityId: scopedId,
+    agentRunId: scopedId,
+    workerId: scopedId,
+    credentialId: scopedId,
+    approvalGrantId: scopedId,
+    capability: z.literal('support:request-information'),
+    modelProvider: scopedId.optional(),
+    modelName: scopedId.optional(),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+  .superRefine((actor, context) => {
+    if ((actor.modelProvider === undefined) !== (actor.modelName === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['modelProvider'],
+        message: 'Model provider and model name must be supplied together',
+      })
+    }
+  })
+
 const operatorConversationInput = z
   .object({
     operationId: z.string().uuid(),
@@ -214,17 +252,11 @@ const operatorConversationInput = z
     requestId: scopedId,
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
-    actor: z
-      .object({
-        actorType: z.literal('HUMAN'),
-        participantKind: z.literal('OPERATOR'),
-        actorId: scopedId,
-        auditRole: z.literal('PLATFORM_ADMIN'),
-      })
-      .strict(),
+    actor: operatorConversationActor,
   })
   .strict()
 const requestInformationInput = operatorConversationInput.extend({
+  actor: z.union([operatorConversationActor, approvedInformationRequestAgentActor]),
   missingInformation: z
     .array(z.string().trim().min(1).max(500))
     .min(1)
@@ -1271,7 +1303,7 @@ type ManualLoopParsed = {
   body: string
   missingInformation?: string[]
   attachments?: SupportAttachmentDraft[]
-  actor: Extract<SupportActionActor, { actorType: 'HUMAN' }>
+  actor: SupportActionActor
 }
 
 async function manualSupportLoopActionOnce(
@@ -1468,30 +1500,63 @@ async function manualSupportLoopActionOnce(
       },
       select: { id: true },
     })
-    await writeAuditLogStrict(
-      {
-        tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: evidence.action,
-        targetType: 'SupportRequest',
-        targetId: request.id,
-        beforeState: {
-          status: request.status,
-          version: request.version,
-          missingInformationCount: request.missingInformation.length,
-        },
-        afterState: {
-          status: targetStatus,
-          version: nextVersion,
-          missingInformationCount: requestedItems.length,
-          attachmentCount: resolvedAttachments.length,
-          packageLifecycleChanged: false,
-          executionTriggered: false,
-        },
+    const auditEvidence = {
+      tenantId: parsed.tenantId,
+      action: evidence.action,
+      targetType: 'SupportRequest',
+      targetId: request.id,
+      beforeState: {
+        status: request.status,
+        version: request.version,
+        missingInformationCount: request.missingInformation.length,
       },
-      tx,
-    )
+      afterState: {
+        status: targetStatus,
+        version: nextVersion,
+        missingInformationCount: requestedItems.length,
+        attachmentCount: resolvedAttachments.length,
+        clientVisibleMessageCreated: true,
+        customerContacted: kind === 'REQUEST_INFORMATION',
+        externalDeliveryTriggered: false,
+        emailSent: false,
+        participantChanged: false,
+        triageChanged: false,
+        packageLifecycleChanged: false,
+        executionTriggered: false,
+      },
+    }
+    if (parsed.actor.actorType === 'AGENT') {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actor: {
+            type: 'AGENT',
+            actorId: parsed.actor.actorId,
+            role: 'AGENT',
+            agentIdentityId: parsed.actor.agentIdentityId!,
+            agentRunId: parsed.actor.agentRunId!,
+            workerId: parsed.actor.workerId!,
+            credentialId: parsed.actor.credentialId!,
+            approvalGrantId: parsed.actor.approvalGrantId!,
+            capability: parsed.actor.capability!,
+            ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+            ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+            idempotencyKey: parsed.actor.idempotencyKey!,
+          },
+        },
+        tx,
+      )
+    } else {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actorId: parsed.actor.actorId,
+          actorRole: parsed.actor.auditRole,
+          actorType: parsed.actor.actorType,
+        },
+        tx,
+      )
+    }
     return {
       message,
       status: targetStatus,

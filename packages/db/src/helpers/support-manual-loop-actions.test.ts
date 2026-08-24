@@ -128,6 +128,84 @@ describe('manual Support loop actions', () => {
     )
   })
 
+  it('accepts only fully attributed approved agent execution for the client-visible prompt', async () => {
+    const h = harness({ missingInformation: ['Current photo'] })
+    await requestSupportInformationAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Please provide a current photo.',
+        missingInformation: ['Current photo'],
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:request-information',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+          idempotencyKey: operationId,
+        },
+      },
+      h.client as never,
+    )
+    expect(h.tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ authorKind: 'AGENT', visibility: 'CLIENT_VISIBLE' }),
+      }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          approvalGrantId: 'grant_1',
+          capability: 'support:request-information',
+        }),
+        afterState: expect.objectContaining({
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          participantChanged: false,
+        }),
+      }),
+      h.tx,
+    )
+
+    await expect(
+      requestSupportInformationAction(
+        {
+          operationId,
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'Please provide a current photo.',
+          missingInformation: ['Current photo'],
+          actor: {
+            actorType: 'AGENT',
+            participantKind: 'AGENT',
+            actorId: 'agent_1',
+            auditRole: 'AGENT',
+            agentIdentityId: 'agent_1',
+            agentRunId: 'run_1',
+            workerId: 'worker_1',
+            credentialId: 'credential_1',
+            capability: 'support:request-information',
+            idempotencyKey: operationId,
+          } as never,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
   it('accepts an authorized client response and clears the checklist', async () => {
     const h = harness({
       status: 'WAITING_FOR_CLIENT',

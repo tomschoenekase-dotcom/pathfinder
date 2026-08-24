@@ -94,7 +94,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    defining router, source file, policy category, and inherited coverage decision. A reviewed
    count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source
    moves fail closed, and a runtime test proves the static graph matches the authoritative mounted
-   router. A second reviewed digest now maps 6 operations to direct tools, 105 to deliberately
+   router. A second reviewed digest now maps 6 operations to direct tools, 106 to deliberately
    narrower alternatives, and leaves 294 explicitly unbound. Rules fail on duplicate/unknown
    operations, unknown surfaces, or tools that are merely declared but not bound in the safe
    runtime. This closes operation-level visibility and concrete binding measurement; it does not

@@ -100,6 +100,8 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   proposeLocationDraft: vi.fn(),
   proposeSupportTriage: vi.fn(),
   applySupportTriage: vi.fn(),
+  proposeSupportInformationRequest: vi.fn(),
+  applySupportInformationRequest: vi.fn(),
   proposeAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   prepareCustomerAccessInvitation: vi.fn(),

@@ -44,7 +44,8 @@ The separate support-note evaluator accepts only exact client/venue scope, an ex
 version, `INTERNAL_ONLY` visibility, an empty attachment list, and a body inside the reviewed bound.
 The Founder Control Room always issues this policy with `maxUses: 1`. The canonical message action
 records full machine/grant lineage while leaving client version/activity, participants, request
-status, triage, and package lifecycle unchanged. Customer-visible replies remain human-only.
+status, triage, and package lifecycle unchanged. Customer-visible replies remain human-only except
+for the exact founder-approved information-request path described below.
 
 Support triage uses the exact-parameter approval path rather than a reusable policy. The proposal
 freezes request ID/version, category, and the normalized missing-information list. One founder
@@ -53,6 +54,16 @@ performing no triage itself. `pathfinder.apply_support_triage` then consumes tha
 canonical CAS-protected triage action. It increments the support request and client versions once,
 but cannot change status, add participants, send messages, contact the customer, execute a package,
 or authorize later work. Replays return the recorded result and parameter drift fails closed.
+
+Client information requests also use exact-parameter approval rather than reusable policy. The
+proposal freezes request ID/version/current status, the existing normalized triage checklist, and
+the full in-app prompt while changing no request, message, or client-activity state. A founder
+decision atomically issues one one-shot grant but performs no contact. Only
+`pathfinder.apply_support_information_request` can consume that exact grant: it reuses the canonical
+CAS-protected support action to create one client-visible in-app message, increment request and
+client versions once, and move the request to `WAITING_FOR_CLIENT`. It cannot send email, change
+participants or triage, execute package work, or authorize later contact. Exact replays do not
+duplicate the message; parameter or version drift fails closed.
 
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
@@ -64,8 +75,9 @@ API, respects venue/global AI admission and report configuration, and creates or
 internal generation request. It may consume configured AI budget. It cannot edit, publish, deliver,
 or make a report client-visible; those remain separate human-only transitions.
 
-This policy does not authorize publication, scheduling, customer contact, billing, access changes,
-or any action outside the venue. The existing one-shot exact-parameter approval path remains
+Reusable policy does not authorize publication, scheduling, customer contact, billing, access
+changes, or any action outside the venue. Exact one-shot approval is required for the bounded
+in-app information request described above. The existing exact-parameter approval path remains
 available. No policy is created by a migration, fixture, startup routine, or agent; a human platform
 administrator must enable it explicitly and can revoke it from the same mobile-responsive surface.
 

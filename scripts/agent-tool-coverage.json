@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 405,
-    "sha256": "b8c8020b817653f794c4e102b1ad567b0a394ed962a1aeb47de1d9ad0d23c6bc",
+    "count": 406,
+    "sha256": "4c85f3bd68cd1e4d8fa8789d0f347d6966e1f61fd2e0282d924897a35298b7a4",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "b8c8020b817653f794c4e102b1ad567b0a394ed962a1aeb47de1d9ad0d23c6bc",
-      "sha256": "d923c27eb8eccac06b5677ec65f77f2b5e7d8bb225ba911a736e65b76ca3fcca"
+      "operationInventorySha256": "4c85f3bd68cd1e4d8fa8789d0f347d6966e1f61fd2e0282d924897a35298b7a4",
+      "sha256": "e2cd5424ec97ae19fd415989ab15660e71ae5bc6967544ec073e2f4edd27ffda"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -274,6 +274,17 @@
         ],
         "decision": "The proposal tool prepares exact-version, evidence-backed triage without mutation. The separate application tool can consume only a human-approved, exact-parameter one-shot grant against the unchanged request version; it changes category and missing-information only, with no message, participant, status, customer-contact, package, or later-action authority.",
         "evidence": "packages/db/src/helpers/support-triage-proposal-disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-information-request-lifecycle",
+        "kind": "bounded-alternative",
+        "operations": ["admin.requestSupportInformation"],
+        "surfaces": [
+          "tool:pathfinder.propose_support_information_request",
+          "tool:pathfinder.apply_support_information_request"
+        ],
+        "decision": "The proposal tool freezes one exact reviewed in-app prompt against the unchanged triage checklist and request version without contact. The separate application tool consumes only a founder-approved exact one-shot grant and reuses the canonical support action to create one client-visible prompt and move that request to WAITING_FOR_CLIENT; it cannot email, add participants, change triage, execute packages, or authorize later contact.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-update-reads",

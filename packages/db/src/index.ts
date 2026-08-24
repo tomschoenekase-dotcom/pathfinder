@@ -903,6 +903,14 @@ export type {
   SupportTriageProposalActionErrorCode,
 } from './helpers/support-triage-proposal-actions'
 export {
+  prepareSupportInformationRequestProposalAction,
+  SupportInformationRequestProposalActionError,
+} from './helpers/support-information-request-proposal-actions'
+export type {
+  PrepareSupportInformationRequestProposalInput,
+  SupportInformationRequestProposalActionErrorCode,
+} from './helpers/support-information-request-proposal-actions'
+export {
   addChatlogNoteAction,
   ChatlogReviewActionError,
   setChatlogNotableAction,

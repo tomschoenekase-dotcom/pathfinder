@@ -15,6 +15,8 @@ import {
   SupportRequestOpenPolicyParameters,
   SupportTriageApplyParameters,
   SupportTriageProposalApprovalSnapshot,
+  SupportInformationRequestApplyParameters,
+  SupportInformationRequestProposalApprovalSnapshot,
   defaultSupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
@@ -144,6 +146,44 @@ describe('support triage approval contract', () => {
         executionAuthorized: false,
       }),
     ).toMatchObject({ requestId: 'request_1', expectedVersion: 3 })
+  })
+})
+
+describe('support information-request approval contract', () => {
+  it('freezes one exact client-visible prompt and lifecycle transition', () => {
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 3,
+      fromStatus: 'IN_REVIEW' as const,
+      toStatus: 'WAITING_FOR_CLIENT' as const,
+      body: 'Please provide the current exhibit label photograph.',
+      missingInformation: ['Current exhibit label photograph'],
+    }
+    expect(SupportInformationRequestApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportInformationRequestApplyParameters.parse({ ...parameters, email: true }),
+    ).toThrow()
+    expect(
+      SupportInformationRequestProposalApprovalSnapshot.parse({
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 3,
+        fromStatus: 'IN_REVIEW',
+        toStatus: 'WAITING_FOR_CLIENT',
+        body: parameters.body,
+        missingInformation: parameters.missingInformation,
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        clientVisibleMessageCreated: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      }),
+    ).toMatchObject({ requestId: 'request_1', customerContacted: false })
   })
 })
 

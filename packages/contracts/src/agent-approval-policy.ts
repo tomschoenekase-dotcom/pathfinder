@@ -8,6 +8,9 @@ export const SUPPORT_REQUEST_OPEN_POLICY_ACTION = 'pathfinder.open_support_reque
 export const SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY = 'support:open' as const
 export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const
 export const SUPPORT_TRIAGE_APPLY_CAPABILITY = 'support:triage' as const
+export const SUPPORT_INFORMATION_REQUEST_APPLY_ACTION =
+  'pathfinder.apply_support_information_request' as const
+export const SUPPORT_INFORMATION_REQUEST_CAPABILITY = 'support:request-information' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -210,6 +213,57 @@ export const SupportTriageProposalApprovalSnapshot = z
 
 export type SupportTriageProposalApprovalSnapshot = z.infer<
   typeof SupportTriageProposalApprovalSnapshot
+>
+
+/** Exact one-shot authority derived from an approved client information-request proposal.
+ * The reviewed prompt and checklist are immutable; this is never reusable contact authority. */
+export const SupportInformationRequestApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    toStatus: z.literal('WAITING_FOR_CLIENT'),
+    body: z.string().trim().min(1).max(20_000),
+    missingInformation: z
+      .array(z.string().trim().min(1).max(500))
+      .min(1)
+      .max(30)
+      .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+  })
+  .strict()
+
+export type SupportInformationRequestApplyParameters = z.infer<
+  typeof SupportInformationRequestApplyParameters
+>
+
+export const SupportInformationRequestProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    toStatus: z.literal('WAITING_FOR_CLIENT'),
+    body: z.string().trim().min(1).max(20_000),
+    missingInformation: z
+      .array(z.string().trim().min(1).max(500))
+      .min(1)
+      .max(30)
+      .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+    supportRequestChanged: z.literal(false),
+    clientActivityChanged: z.literal(false),
+    clientVisibleMessageCreated: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportInformationRequestProposalApprovalSnapshot = z.infer<
+  typeof SupportInformationRequestProposalApprovalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

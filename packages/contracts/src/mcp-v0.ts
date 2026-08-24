@@ -74,6 +74,7 @@ export const McpCapability = z.enum([
   'support:open',
   'support:note',
   'support:triage',
+  'support:request-information',
   'intake:draft',
   'updates:draft',
   'evaluations:request',
@@ -622,6 +623,45 @@ export const McpSupportTriageApplyInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportTriageApplyInput = z.infer<typeof McpSupportTriageApplyInput>
 
+const SupportInformationRequestFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  body: z.string().trim().min(1).max(20_000),
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .min(1)
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+}
+
+export const McpSupportInformationRequestProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportInformationRequestFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportInformationRequestProposalInput = z.infer<
+  typeof McpSupportInformationRequestProposalInput
+>
+
+export const McpSupportInformationRequestApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportInformationRequestFields,
+}).strict()
+export type McpSupportInformationRequestApplyInput = z.infer<
+  typeof McpSupportInformationRequestApplyInput
+>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -934,6 +974,8 @@ export type PathfinderMcpToolName =
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
+  | 'pathfinder.propose_support_information_request'
+  | 'pathfinder.apply_support_information_request'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1380,6 +1422,122 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'support:triage', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_information_request',
+    title: 'Propose a client information request',
+    description:
+      'Prepare one exact-version, client-visible prompt using the request’s unchanged missing-information checklist. It creates a review item only and does not message the client, change status, or trigger external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        missingInformation: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'missingInformation',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:request-information', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_information_request',
+    title: 'Send an approved in-app information request',
+    description:
+      'Create the exact reviewed in-app client-visible prompt and move one unchanged OPEN or IN_REVIEW request to WAITING_FOR_CLIENT under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        missingInformation: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'missingInformation',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security(
+        'venue',
+        'support:request-information',
+        'approved-transition',
+      ),
     },
   },
   {

@@ -18,24 +18,35 @@ const technicalAllowlist = new Map([
   [
     'apps/dashboard/components/admin/ApprovalDecisionForm.tsx',
     new Set([
-      "proposedAction === 'pathfinder.apply_support_triage'",
-      "proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'",
-      "{proposedAction === 'pathfinder.apply_support_triage'",
+      "proposedAction === 'pathfinder.apply_support_information_request'",
+      ": proposedAction === 'pathfinder.apply_support_triage'",
+      ": proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'",
     ]),
   ],
   [
     'packages/contracts/src/agent-approval-policy.ts',
     new Set([
       "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
+      "'pathfinder.apply_support_information_request' as const",
     ]),
   ],
   [
     'packages/contracts/src/mcp-v0.ts',
-    new Set(["| 'pathfinder.apply_support_triage'", "name: 'pathfinder.apply_support_triage',"]),
+    new Set([
+      "| 'pathfinder.apply_support_triage'",
+      "| 'pathfinder.apply_support_information_request'",
+      "name: 'pathfinder.apply_support_triage',",
+      "name: 'pathfinder.apply_support_information_request',",
+    ]),
   ],
   [
     'packages/api/src/mcp/registry.ts',
-    new Set(["case 'pathfinder.apply_support_triage': {", "'pathfinder.apply_support_triage',"]),
+    new Set([
+      "case 'pathfinder.apply_support_triage': {",
+      "'pathfinder.apply_support_triage',",
+      "case 'pathfinder.apply_support_information_request': {",
+      "'pathfinder.apply_support_information_request',",
+    ]),
   ],
   [
     'packages/ui/src/brand.test.ts',

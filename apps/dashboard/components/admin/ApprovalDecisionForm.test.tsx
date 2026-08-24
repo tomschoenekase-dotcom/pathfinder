@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   decideTriage: vi.fn(),
+  decideInformationRequest: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -14,6 +15,7 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       recordApprovalDecision: { mutate: mocks.mutate },
       decideSupportTriageProposal: { mutate: mocks.decideTriage },
+      decideSupportInformationRequestProposal: { mutate: mocks.decideInformationRequest },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -114,5 +116,37 @@ describe('ApprovalDecisionForm', () => {
       decision: 'APPROVED',
     })
     expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('makes founder-approved client contact authority explicit without executing contact', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '33333333-3333-4333-8333-333333333333',
+    )
+    mocks.decideInformationRequest.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_information_request"
+      />,
+    )
+    expect(screen.getByText(/reviewed in-app client-visible prompt/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/no message was sent and no lifecycle state changed/)).toBeTruthy(),
+    )
+    expect(mocks.decideInformationRequest).toHaveBeenCalledWith({
+      operationId: '33333333-3333-4333-8333-333333333333',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
   })
 })

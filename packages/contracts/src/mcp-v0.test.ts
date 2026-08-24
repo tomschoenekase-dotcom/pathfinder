@@ -5,6 +5,7 @@ import {
   McpReadInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpSupportInformationRequestApplyInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -156,6 +157,33 @@ describe('Torchiko MCP v0 contracts', () => {
         maximumCases: 1,
       }),
     ).toThrow()
+  })
+
+  it('requires exact bounded fields for support information-request application', () => {
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 2,
+      fromStatus: 'OPEN' as const,
+      body: 'Please provide the current source document.',
+      missingInformation: ['Current source document'],
+    }
+    expect(McpSupportInformationRequestApplyInput.parse(input)).toEqual(input)
+    expect(() => McpSupportInformationRequestApplyInput.parse({ ...input, email: true })).toThrow()
+    expect(
+      PATHFINDER_MCP_TOOLS.find(
+        ({ name }) => name === 'pathfinder.apply_support_information_request',
+      )?._meta['com.pathfinder/security'],
+    ).toMatchObject({
+      capability: 'support:request-information',
+      approvalRequired: true,
+      defaultEnabled: false,
+    })
   })
 
   it('returns structured output with the recommended backwards-compatible JSON text block', () => {

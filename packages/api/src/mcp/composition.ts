@@ -25,6 +25,8 @@ import {
   recordAgentImprovementValidationAction,
   prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
+  prepareSupportInformationRequestProposalAction,
+  requestSupportInformationAction,
   triageSupportRequestAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
@@ -57,6 +59,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
+  'pathfinder.propose_support_information_request',
+  'pathfinder.apply_support_information_request',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -109,6 +113,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
+    | 'proposeSupportInformationRequest'
+    | 'applySupportInformationRequest'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -142,6 +148,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
+    | 'proposeSupportInformationRequest'
+    | 'applySupportInformationRequest'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1133,6 +1141,256 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           approvalRequired: true,
           applicationRequiredAfterApproval: true,
           canonicalVenueContentChanged: false,
+        }),
+      }
+    },
+    async proposeSupportInformationRequest(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support information-request proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:request-information' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified support-information worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified support-information worker run is unavailable')
+
+      const result = await prepareSupportInformationRequestProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          fromStatus: input.fromStatus,
+          body: input.body,
+          missingInformation: input.missingInformation,
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: 'support:request-information',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-information-request.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Client information request needs review',
+            summary:
+              'An AI worker prepared one exact in-app client prompt. No client contact or support-request change has occurred.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the exact prompt, checklist, status, and request version. Approval issues one-shot authority; application remains separate.',
+            deduplicationKey: `support-information-request-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-information-request-proposal',
+        summary: result.replayed
+          ? 'Existing client information-request proposal returned; no client contact occurred.'
+          : 'Client information request prepared for human review; no client contact occurred.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          replayed: result.replayed,
+          approvalRequired: true,
+          separateApplicationRequired: true,
+          supportRequestChanged: false,
+          clientActivityChanged: false,
+          clientVisibleMessageCreated: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportInformationRequest(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError(
+          'Support information-request application requires venue scope',
+        )
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:request-information' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified support-information worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified support-information worker run is unavailable')
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        fromStatus: input.fromStatus,
+        toStatus: 'WAITING_FOR_CLIENT' as const,
+        body: input.body,
+        missingInformation: input.missingInformation,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.apply_support_information_request',
+            capability: 'support:request-information',
+            parameters,
+            actor: {
+              type: 'AGENT',
+              role: 'AGENT',
+              actorId: input.agentIdentityId,
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:request-information',
+              ...(worker.modelProvider && worker.modelName
+                ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+                : {}),
+              idempotencyKey: input.operationId,
+            },
+            now,
+          },
+          sameTransaction,
+        )
+        const applied = await requestSupportInformationAction(
+          {
+            operationId: input.operationId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            requestId: input.requestId,
+            expectedVersion: input.expectedVersion,
+            body: input.body,
+            missingInformation: input.missingInformation,
+            actor: {
+              actorType: 'AGENT',
+              participantKind: 'AGENT',
+              actorId: input.agentIdentityId,
+              auditRole: 'AGENT',
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:request-information',
+              ...(worker.modelProvider && worker.modelName
+                ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+                : {}),
+              idempotencyKey: input.operationId,
+            },
+          },
+          sameTransaction,
+        )
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:WAITING_FOR_CLIENT`
+        if (consumption.replayed) {
+          if (consumption.consumption.resultReference !== resultReference) {
+            throw new McpActionBindingError(
+              'Approved support information-request replay is incomplete',
+            )
+          }
+        } else {
+          await tx.approvalGrantConsumption.update({
+            where: { id: consumption.consumption.id },
+            data: { resultReference },
+          })
+        }
+        return applied
+      })
+      return {
+        kind: 'torchiko.support-information-request-applied',
+        summary: result.replayed
+          ? 'Existing approved in-app client information request returned; no duplicate contact occurred.'
+          : 'Exact approved in-app client information request created and the request is waiting for the client.',
+        data: jsonData({
+          messageId: result.message.id,
+          requestId: input.requestId,
+          status: result.status,
+          requestVersion: result.requestVersion,
+          clientVersion: result.clientVersion,
+          missingInformation: result.missingInformation,
+          replayed: result.replayed,
+          clientVisibleMessageCreated: true,
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          emailSent: false,
+          participantChanged: false,
+          triageChanged: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
         }),
       }
     },

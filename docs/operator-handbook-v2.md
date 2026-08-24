@@ -204,6 +204,11 @@ items and always records an explicit client-visible completion message. These ac
 versions and audits only. They do not create or apply a package, run an agent, or call a provider.
 After an ambiguous result, retry the unchanged operation identity; after a conflict, refresh.
 
+An AI worker may prepare the same prompt and unchanged triage checklist as an approval item. Founder
+approval issues exact one-shot authority but does not contact the client. A separate application
+step creates only that reviewed in-app prompt and `WAITING_FOR_CLIENT` transition. It does not send
+email, add participants, alter triage, execute a package, or grant authority for another message.
+
 An Internal Support operator may append evidence that an exact request audit version relates to one
 existing terminal AgentRun in the same tenant and venue. Confirm the displayed request version and
 terminal run identity/status before linking. The link records the run's terminal status and
