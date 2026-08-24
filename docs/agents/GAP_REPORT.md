@@ -11,7 +11,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    and `tools/call` dispatch, bounded bodies, verified credential scope, and notification handling.
    Approval-bound machine attribution and the first governed write are also implemented. Broader
    write parity remains a policy/capability gap, not a transport gap.
-2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Agents can now create exact-scope private support drafts under evidence-backed grants, but cannot open them, contact customers, grant participants, or resolve requests. Provider-specific and global AI control state is explicitly visible through bounded integration health, while broad conversation replay, venue lifecycle, intake, report operations, incident mutation, and offboarding still lack adequate agent interfaces.
+2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Agents can now create exact-scope private support drafts and `NOTES`-only onboarding proposals under evidence-backed grants, but cannot open support requests, process files, extract or apply intake, publish, contact customers, grant participants, or resolve requests. Provider-specific and global AI control state is explicitly visible through bounded integration health, while broad conversation replay, venue lifecycle, file intake, report operations, incident mutation, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata has a common core but not full schema parity.** Operational and prospect tools now expose effect, capability, review/approval, idempotency, default state, and transport through `pnpm torchiko tools list --json`. Prospect tools still need formal input/output JSON Schemas, examples, and related-tool links for complete parity with MCP definitions.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
 5. **Closed — provider integration health baseline.** Agents can query one secret-free,
@@ -68,11 +68,11 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    defining router, source file, policy category, and inherited coverage decision. A reviewed
    count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source
    moves fail closed, and a runtime test proves the static graph matches the authoritative mounted
-   router. A second reviewed digest now maps 3 operations to direct tools, 95 to deliberately
-   narrower alternatives, and leaves 275 explicitly unbound. Rules fail on duplicate/unknown
+   router. A second reviewed digest now maps 5 operations to direct tools, 102 to deliberately
+   narrower alternatives, and leaves 294 explicitly unbound. Rules fail on duplicate/unknown
    operations, unknown surfaces, or tools that are merely declared but not bound in the safe
    runtime. This closes operation-level visibility and concrete binding measurement; it does not
-   close the 275 measured parity gaps or convert a bounded alternative into exact UI/API parity.
+   close the 294 measured parity gaps or convert a bounded alternative into exact UI/API parity.
 
 ## Intentionally restricted or deferred
 

@@ -3,6 +3,7 @@ import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
   consumeApprovalGrantAction,
+  createIntakeProposal,
   createSupportRequestAction,
   createOperationalUpdateAction,
   db,
@@ -57,6 +58,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.propose_billing_action',
   'pathfinder.create_update_draft',
   'pathfinder.create_support_draft',
+  'pathfinder.create_intake_notes_proposal',
 ] as const satisfies readonly PathfinderMcpToolName[]
 
 export class McpActionBindingError extends Error {
@@ -101,6 +103,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
     | 'createSupportDraft'
+    | 'createIntakeNotesProposal'
   > = {
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
@@ -113,6 +116,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
     | 'createSupportDraft'
+    | 'createIntakeNotesProposal'
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
@@ -382,6 +386,133 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.request.status,
           category: result.request.category,
           messageVisibility: result.message.visibility,
+          replayed: result.replayed,
+        }),
+      }
+    },
+    async createIntakeNotesProposal(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Intake notes proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'intake:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified intake worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified intake worker run is unavailable')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'intake:draft' as const,
+        ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+        ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        idempotencyKey: input.operationId,
+      }
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        kind: 'NOTES' as const,
+        notes: input.notes,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          venue: tx.venue,
+          intakeRun: tx.intakeRun,
+          intakeEvidenceRecord: tx.intakeEvidenceRecord,
+          intakeRunEvent: tx.intakeRunEvent,
+          venuePackage: tx.venuePackage,
+          intakePackageHandoff: tx.intakePackageHandoff,
+          auditLog: tx.auditLog,
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.create_intake_notes_proposal',
+            capability: 'intake:draft',
+            parameters,
+            actor,
+            now,
+          },
+          sameTransaction,
+        )
+        if (consumption.replayed && consumption.consumption.resultReference) {
+          const intakeRunId = consumption.consumption.resultReference.replace(/^IntakeRun:/u, '')
+          const existing = await tx.intakeRun.findFirst({
+            where: {
+              id: intakeRunId,
+              tenantId: context.credential.tenantId,
+              venueId,
+              requestedByType: 'AGENT',
+              agentIdentityId: input.agentIdentityId,
+            },
+            select: {
+              id: true,
+              venueId: true,
+              sourceKind: true,
+              status: true,
+              displayName: true,
+              createdAt: true,
+            },
+          })
+          if (!existing)
+            throw new McpActionBindingError('Approved intake replay target is unavailable')
+          return { ...existing, replayed: true }
+        }
+        const created = await createIntakeProposal({
+          db: sameTransaction,
+          tenantId: context.credential.tenantId,
+          venueId,
+          actor,
+          requestId: input.operationId,
+          proposal: { kind: 'NOTES', notes: input.notes },
+        })
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference: `IntakeRun:${created.id}` },
+        })
+        return created
+      })
+      return {
+        kind: 'torchiko.intake-notes-proposal',
+        summary: result.replayed
+          ? 'Existing onboarding notes proposal returned; no content was applied or published.'
+          : 'Onboarding notes proposal created for human review; no content was applied or published.',
+        data: jsonData({
+          id: result.id,
+          status: result.status,
+          sourceKind: result.sourceKind,
+          nextAction: 'REVIEW_PROPOSAL',
           replayed: result.replayed,
         }),
       }

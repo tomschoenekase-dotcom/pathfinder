@@ -351,6 +351,41 @@ describe('admin agent operations router', () => {
     )
   })
 
+  it('issues the separately bounded NOTES-only intake proposal policy', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_intake', replayed: false })
+    await testRouter.createCaller(context()).agentOperations.issueIntakeNotesProposalPolicy({
+      operationId: '54444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      policyKey: 'onboarding-private-notes-proposals',
+      issueReason: 'Reviewed outcomes support notes-only onboarding proposals.',
+      outcomeObservationIds: ['outcome_1'],
+      maxNotesChars: 8000,
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.create_intake_notes_proposal',
+        capability: 'intake:draft',
+        mode: 'POLICY_BACKED',
+        scope: {
+          contractVersion: 1,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          effect: 'PROPOSAL_ONLY',
+        },
+        constraints: {
+          contractVersion: 1,
+          effect: 'PROPOSAL_ONLY',
+          allowedKinds: ['NOTES'],
+          maxNotesChars: 8000,
+        },
+        outcomeObservationIds: ['outcome_1'],
+        actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
+  })
+
   it('rejects policy issuance by a non-admin before entering the bypass', async () => {
     await expect(
       testRouter.createCaller(context(false)).agentOperations.issueOperationalUpdateDraftPolicy({

@@ -69,7 +69,9 @@ describe('agent operations views', () => {
     expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Add draft policy' })).toBeTruthy()
     expect(
-      screen.getByText(/cannot publish, contact a customer, or widen venue access/),
+      screen.getByText(
+        /cannot apply or publish content, contact a customer, or widen venue access/,
+      ),
     ).toBeTruthy()
   })
 

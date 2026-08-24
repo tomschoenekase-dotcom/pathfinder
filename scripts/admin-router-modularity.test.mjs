@@ -119,6 +119,7 @@ const expectedAdminProcedures = [
   'getWeeklyReportLifecycle',
   'guestChatIncidentEvidence',
   'issueExternalCredential',
+  'issueIntakeNotesProposalPolicy',
   'issueOperationalUpdateDraftPolicy',
   'issuePlatformWorkerPolicyCredential',
   'issueSupportRequestDraftPolicy',

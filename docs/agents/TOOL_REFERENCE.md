@@ -21,6 +21,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.create_package_draft`             | Reviewable package draft                | Canonical action policy    | Verified approval grant                   | Declared; no safe-runtime binding               |
 | `pathfinder.create_update_draft`              | Reviewable operational-update draft     | Canonical action policy    | Verified approval grant                   | Bound; exact grant still required               |
 | `pathfinder.create_support_draft`             | Private internal support draft          | Operation UUID             | Verified approval grant                   | Bound; human open/cancel review remains         |
+| `pathfinder.create_intake_notes_proposal`     | Reviewable onboarding-notes proposal    | Operation UUID             | Verified approval grant                   | Bound; extraction/application remain separate   |
 | `pathfinder.request_evaluation`               | Bounded evaluation request              | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding               |
 | `torchiko.account.get_context`                | Compact CRM/account context             | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.account.timeline`                   | Paginated relationship timeline         | Safe repeat                | No                                        | Credential capability scoped                    |
@@ -54,6 +55,12 @@ message. A human platform support operator must explicitly move the draft to `OP
 `CANCELLED`; opening it still sends no message and grants no customer access. Subject/body bounds
 and allowed categories are enforced by the registered policy evaluator, and rejected attempts do
 not consume a policy use.
+
+`pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
+and run, and an exact verified approval grant. It creates only a `NOTES` intake run in
+`AWAITING_REVIEW` with complete run, worker, credential, grant, model, and idempotency lineage.
+The registered evaluator enforces exact client/venue scope and the reviewed notes bound. It does
+not extract content, create or apply a venue package, publish venue content, or contact a customer.
 
 `torchiko.locations.propose_draft` requires `locations:propose`, a live credential-bound worker and run, exact venue scope, and a typed location payload. It validates current floor/parent references, records bounded evidence and a medium-risk approval item, and changes no venue content. Approval executes nothing. A separate platform-admin action may apply the exact approved payload as an inactive draft; activation remains another distinct human review.
 
@@ -108,8 +115,8 @@ the same bounded projection. This does not widen the tenant MCP `jobs` resource.
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 400-operation inventory contains 5
-direct-tool bindings, 100 bounded alternatives, and 295 explicit unbound gaps. A binding is rejected
+agent/developer coverage, and exact binding state. The current 401-operation inventory contains 5
+direct-tool bindings, 102 bounded alternatives, and 294 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
 not callable proof.
@@ -128,4 +135,4 @@ not callable proof.
 
 The safe operational catalog is composed through `createSafeOperationalMcpRegistry` and mounted on the existing authenticated, rate-limited, default-dark agent bridge as `listOperationalTools` and `callOperationalTool`. The bridge derives client and venue scope from its verified machine credential and overwrites caller-supplied scope. Reads, operator questions, specialist delegation, and billing proposals reuse canonical domain actions.
 
-Canonical actions now support honest human, machine, system, and integration attribution. Operational-update and private support drafts are enabled approval-bound machine writes and consume exact verified grants. Support promotion/opening remains human-only; package, evaluation, publication, outreach, billing-effect, deployment, customer-contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.
+Canonical actions now support honest human, machine, system, and integration attribution. Operational-update, private support, and onboarding-notes proposals are enabled approval-bound machine writes and consume exact verified grants. Support promotion/opening and intake extraction/package application remain human/system-gated; package, evaluation, publication, outreach, billing-effect, deployment, customer-contact, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.

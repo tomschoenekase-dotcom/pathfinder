@@ -6,6 +6,7 @@ import {
   issueApprovalGrantAction,
 } from './approval-grants'
 import {
+  defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
 } from '@pathfinder/contracts'
@@ -514,6 +515,78 @@ describe('approval grants', () => {
             body: 'Internal review only.',
           },
           actor: { ...machineActor, capability: 'support:draft' },
+        }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('consumes only a NOTES intake proposal inside reviewed policy bounds', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_intake',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultIntakeNotesProposalPolicyConstraints(),
+        maxNotesChars: 100,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_intake',
+          actionName: 'pathfinder.create_intake_notes_proposal',
+          capability: 'intake:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            kind: 'NOTES',
+            notes: 'Private onboarding notes for review.',
+          },
+          actor: { ...machineActor, capability: 'intake:draft' },
+        }),
+        client,
+      ),
+    ).resolves.toMatchObject({ replayed: false })
+    expect(tx.approvalGrant.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an intake proposal outside its reviewed notes bound', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_intake',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultIntakeNotesProposalPolicyConstraints(),
+        maxNotesChars: 5,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_intake',
+          actionName: 'pathfinder.create_intake_notes_proposal',
+          capability: 'intake:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            kind: 'NOTES',
+            notes: 'Too long',
+          },
+          actor: { ...machineActor, capability: 'intake:draft' },
         }),
         client,
       ),

@@ -1,9 +1,10 @@
 # Progressive agent approval policy
 
 Torchiko separates an agent's capability from the operating policy that determines whether one
-use needs a fresh human approval. Two executable policy-backed action classes are intentionally
+use needs a fresh human approval. Three executable policy-backed action classes are intentionally
 narrow: `pathfinder.create_update_draft` with `updates:draft` authority and
-`pathfinder.create_support_draft` with `support:draft` authority.
+`pathfinder.create_support_draft` with `support:draft` authority, and
+`pathfinder.create_intake_notes_proposal` with `intake:draft` authority.
 
 A platform administrator can enable this policy from the venue Agent workspace for one exact
 tenant, venue, agent identity, action, and capability. Issuance requires a stable policy key, an
@@ -31,6 +32,10 @@ message, no customer requester, no participant, and no customer activity/version
 message. Only a human platform support operator can move it to `OPEN` or `CANCELLED`; opening the
 draft does not send a message or grant access.
 
+The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
+venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
+lineage. It performs no extraction, package creation/application, publication, or customer contact.
+
 This policy does not authorize publication, scheduling, customer contact, billing, access changes,
 or any action outside the venue. The existing one-shot exact-parameter approval path remains
 available. No policy is created by a migration, fixture, startup routine, or agent; a human platform
@@ -43,7 +48,7 @@ pnpm test:agent-approval-policy:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact
-outcome membership, policy issuance replay, bounded policy consumption for both registered action
-classes, fail-closed parameter rejection, private support visibility, human-only draft promotion,
+outcome membership, policy issuance replay, bounded policy consumption for all three registered
+action classes, fail-closed parameter rejection, private support visibility, human-only draft promotion,
 durable evidence, and cleanup. It performs no provider call, publication, customer contact, or real
 billing action.

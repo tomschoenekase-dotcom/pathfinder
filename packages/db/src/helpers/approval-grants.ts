@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import {
+  INTAKE_NOTES_PROPOSAL_POLICY_ACTION,
+  INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY,
+  IntakeNotesProposalPolicyConstraints,
+  IntakeNotesProposalPolicyParameters,
   OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION,
   OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY,
   OperationalUpdateDraftPolicyConstraints,
@@ -185,6 +189,19 @@ function validatePolicyConstraints(
     }
     return parsed.data
   }
+  if (
+    actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
+    capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
+  ) {
+    const parsed = IntakeNotesProposalPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Intake notes proposal policy is invalid',
+      )
+    }
+    return parsed.data
+  }
   throw new ApprovalGrantActionError(
     'POLICY_UNAVAILABLE',
     `No reviewed constraint evaluator is registered for ${actionName}`,
@@ -253,6 +270,32 @@ function assertPolicyParameters(
       throw new ApprovalGrantActionError(
         'PARAMETER_MISMATCH',
         'Action parameters are outside the reviewed support-request draft policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
+    input.capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
+  ) {
+    const policy = IntakeNotesProposalPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored intake notes proposal policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = IntakeNotesProposalPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedKinds.includes(parameters.data.kind) ||
+      parameters.data.notes.length > policy.data.maxNotesChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed intake notes proposal policy',
       )
     }
     return

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  defaultIntakeNotesProposalPolicyConstraints,
+  IntakeNotesProposalPolicyConstraints,
+  IntakeNotesProposalPolicyParameters,
   defaultOperationalUpdateDraftPolicyConstraints,
   OperationalUpdateDraftPolicyConstraints,
   OperationalUpdateDraftPolicyParameters,
@@ -77,6 +80,29 @@ describe('support request draft policy contract', () => {
     expect(SupportRequestDraftPolicyParameters.parse(parameters)).toEqual(parameters)
     expect(() =>
       SupportRequestDraftPolicyParameters.parse({ ...parameters, customerVisible: true }),
+    ).toThrow()
+  })
+})
+
+describe('intake notes proposal policy contract', () => {
+  it('permits only bounded NOTES proposals that remain review-only', () => {
+    expect(
+      IntakeNotesProposalPolicyConstraints.parse(defaultIntakeNotesProposalPolicyConstraints()),
+    ).toEqual({
+      contractVersion: 1,
+      effect: 'PROPOSAL_ONLY',
+      allowedKinds: ['NOTES'],
+      maxNotesChars: 20_000,
+    })
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      kind: 'NOTES' as const,
+      notes: 'Use these notes as private onboarding source material for human review.',
+    }
+    expect(IntakeNotesProposalPolicyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      IntakeNotesProposalPolicyParameters.parse({ ...parameters, autoApply: true }),
     ).toThrow()
   })
 })

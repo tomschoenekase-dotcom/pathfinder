@@ -38,7 +38,11 @@ type OutcomeObservation = {
 function policyLimits(constraints: unknown) {
   if (!constraints || typeof constraints !== 'object') return null
   const value = constraints as Record<string, unknown>
-  if (value.contractVersion !== 1 || value.effect !== 'DRAFT_ONLY') return null
+  if (
+    value.contractVersion !== 1 ||
+    (value.effect !== 'DRAFT_ONLY' && value.effect !== 'PROPOSAL_ONLY')
+  )
+    return null
   if (typeof value.maxTitleChars === 'number' && typeof value.maxBodyChars === 'number')
     return {
       heading: 'Title',
@@ -51,6 +55,8 @@ function policyLimits(constraints: unknown) {
       maxHeadingChars: value.maxSubjectChars,
       maxBodyChars: value.maxBodyChars,
     }
+  if (typeof value.maxNotesChars === 'number')
+    return { heading: 'Notes', maxHeadingChars: value.maxNotesChars, maxBodyChars: null }
   return null
 }
 
@@ -67,23 +73,35 @@ export function AgentApprovalPolicyControl(props: {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [reason, setReason] = useState('')
-  const [policyKind, setPolicyKind] = useState<'UPDATE' | 'SUPPORT'>(() =>
-    props.identity.accessCapabilities.includes('updates:draft') ? 'UPDATE' : 'SUPPORT',
+  const [policyKind, setPolicyKind] = useState<'UPDATE' | 'SUPPORT' | 'INTAKE'>(() =>
+    props.identity.accessCapabilities.includes('updates:draft')
+      ? 'UPDATE'
+      : props.identity.accessCapabilities.includes('support:draft')
+        ? 'SUPPORT'
+        : 'INTAKE',
   )
   const [maxTitleChars, setMaxTitleChars] = useState('160')
-  const [maxBodyChars, setMaxBodyChars] = useState('4000')
+  const [maxBodyChars, setMaxBodyChars] = useState(() =>
+    props.identity.accessCapabilities.includes('updates:draft') ? '4000' : '20000',
+  )
   const [maxUses, setMaxUses] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>([])
   const defaultPolicyKey = useMemo(
     () =>
-      `${props.identity.identityKey.replaceAll('.', '-')}-${policyKind === 'UPDATE' ? 'operational-update-drafts' : 'support-request-drafts'}`,
+      `${props.identity.identityKey.replaceAll('.', '-')}-${policyKind === 'UPDATE' ? 'operational-update-drafts' : policyKind === 'SUPPORT' ? 'support-request-drafts' : 'intake-notes-proposals'}`,
     [props.identity.identityKey, policyKind],
   )
   const canIssueUpdate = props.identity.accessCapabilities.includes('updates:draft')
   const canIssueSupport = props.identity.accessCapabilities.includes('support:draft')
+  const canIssueIntake = props.identity.accessCapabilities.includes('intake:draft')
   const canIssue =
-    props.identity.enabled && (policyKind === 'UPDATE' ? canIssueUpdate : canIssueSupport)
+    props.identity.enabled &&
+    (policyKind === 'UPDATE'
+      ? canIssueUpdate
+      : policyKind === 'SUPPORT'
+        ? canIssueSupport
+        : canIssueIntake)
 
   async function issue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -98,7 +116,6 @@ export function AgentApprovalPolicyControl(props: {
         policyKey: defaultPolicyKey,
         issueReason: reason,
         outcomeObservationIds: selectedOutcomeIds,
-        maxBodyChars: Number(maxBodyChars),
         ...(maxUses ? { maxUses: Number(maxUses) } : {}),
         ...(expiresAt ? { expiresAt: new Date(expiresAt) } : {}),
       }
@@ -106,17 +123,26 @@ export function AgentApprovalPolicyControl(props: {
         await client.admin.issueOperationalUpdateDraftPolicy.mutate({
           ...common,
           maxTitleChars: Number(maxTitleChars),
+          maxBodyChars: Number(maxBodyChars),
         })
-      } else {
+      } else if (policyKind === 'SUPPORT') {
         await client.admin.issueSupportRequestDraftPolicy.mutate({
           ...common,
           maxSubjectChars: Number(maxTitleChars),
+          maxBodyChars: Number(maxBodyChars),
+        })
+      } else {
+        await client.admin.issueIntakeNotesProposalPolicy.mutate({
+          ...common,
+          maxNotesChars: Number(maxBodyChars),
         })
       }
       setMessage(
         policyKind === 'UPDATE'
           ? 'Update-draft policy enabled. Publication remains unavailable.'
-          : 'Support-draft policy enabled. Customer contact remains unavailable.',
+          : policyKind === 'SUPPORT'
+            ? 'Support-draft policy enabled. Customer contact remains unavailable.'
+            : 'Intake-notes policy enabled. Extraction, application, and publication remain unavailable.',
       )
       setReason('')
       setSelectedOutcomeIds([])
@@ -161,7 +187,8 @@ export function AgentApprovalPolicyControl(props: {
           <h5 className="text-sm font-semibold text-sky-950">Progressive approval policy</h5>
           <p className="mt-1 text-xs leading-5 text-sky-950/75">
             Reviewed policies can let this agent prepare informational update drafts or private
-            support drafts. They cannot publish, contact a customer, or widen venue access.
+            support drafts, or onboarding-notes proposals. They cannot apply or publish content,
+            contact a customer, or widen venue access.
           </p>
         </div>
         <button
@@ -205,7 +232,7 @@ export function AgentApprovalPolicyControl(props: {
                 </p>
                 <p className="mt-2 text-xs text-pf-deep/55">
                   {limits
-                    ? `${limits.heading} ≤ ${limits.maxHeadingChars}; body ≤ ${limits.maxBodyChars}`
+                    ? `${limits.heading} ≤ ${limits.maxHeadingChars}${limits.maxBodyChars === null ? '' : `; body ≤ ${limits.maxBodyChars}`}`
                     : 'Constraint version unavailable'}{' '}
                   · {policy.useCount} uses
                   {policy.maxUses === null ? '' : ` of ${policy.maxUses}`}
@@ -292,6 +319,19 @@ export function AgentApprovalPolicyControl(props: {
               />
               Internal support-request draft; never contacts a customer.
             </label>
+            <label className="flex items-start gap-2 text-xs text-pf-deep/75">
+              <input
+                type="radio"
+                name="policy-kind"
+                checked={policyKind === 'INTAKE'}
+                disabled={!canIssueIntake}
+                onChange={() => {
+                  setPolicyKind('INTAKE')
+                  setMaxBodyChars('20000')
+                }}
+              />
+              Onboarding notes proposal; always awaits review and never applies or publishes.
+            </label>
           </fieldset>
           <fieldset className="grid gap-2 rounded-xl border border-sky-200 p-3">
             <legend className="px-1 text-xs font-semibold text-pf-deep">
@@ -334,20 +374,22 @@ export function AgentApprovalPolicyControl(props: {
             />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
+            {policyKind !== 'INTAKE' ? (
+              <label className="text-xs font-medium text-pf-deep">
+                Maximum {policyKind === 'UPDATE' ? 'title' : 'subject'} characters
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  max={policyKind === 'UPDATE' ? '160' : '200'}
+                  value={maxTitleChars}
+                  onChange={(event) => setMaxTitleChars(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-pf-light px-3 py-2 text-sm"
+                />
+              </label>
+            ) : null}
             <label className="text-xs font-medium text-pf-deep">
-              Maximum {policyKind === 'UPDATE' ? 'title' : 'subject'} characters
-              <input
-                required
-                type="number"
-                min="1"
-                max={policyKind === 'UPDATE' ? '160' : '200'}
-                value={maxTitleChars}
-                onChange={(event) => setMaxTitleChars(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-pf-light px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="text-xs font-medium text-pf-deep">
-              Maximum body characters
+              Maximum {policyKind === 'INTAKE' ? 'notes' : 'body'} characters
               <input
                 required
                 type="number"

@@ -4,6 +4,7 @@ const {
   consumeApproval,
   createUpdate,
   createSupport,
+  createIntake,
   buildPreview,
   listGaps,
   proposeCorrection,
@@ -16,6 +17,7 @@ const {
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
   createSupport: vi.fn(),
+  createIntake: vi.fn(),
   buildPreview: vi.fn(),
   listGaps: vi.fn(),
   proposeCorrection: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   consumeApprovalGrantAction: consumeApproval,
   createOperationalUpdateAction: createUpdate,
   createSupportRequestAction: createSupport,
+  createIntakeProposal: createIntake,
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
   proposeKnowledgeCorrectionAction: proposeCorrection,
@@ -569,6 +572,108 @@ describe('safe operational MCP composition', () => {
         id: 'support-1',
         status: 'DRAFT',
         messageVisibility: 'INTERNAL_ONLY',
+        replayed: false,
+      },
+    })
+  })
+
+  it('creates only a review-pending NOTES intake proposal through exact machine and grant scope', async () => {
+    consumeApproval.mockResolvedValue({
+      replayed: false,
+      consumption: { id: 'consumption-intake', resultReference: null },
+    })
+    createIntake.mockResolvedValue({
+      id: 'intake-1',
+      venueId: 'venue-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Optional notes',
+      createdAt: new Date('2030-01-01T12:00:00.000Z'),
+      autoApprove: false,
+      autoApply: false,
+      nextAction: 'REVIEW_PROPOSAL',
+      replayed: false,
+    })
+    const tx = {
+      venue: {},
+      intakeRun: {},
+      intakeEvidenceRecord: {},
+      intakeRunEvent: {},
+      venuePackage: {},
+      intakePackageHandoff: {},
+      auditLog: {},
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+    }
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-intake' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+    }
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '2c5f9673-d43d-4e40-a01d-cf188431ab81',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      notes: 'Use the accessible east entrance facts as onboarding source material.',
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.create_intake_notes_proposal',
+      input,
+      {
+        credential: { ...credential, capabilities: ['intake:draft'] },
+        approvalGrantId: 'grant-intake',
+      },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.create_intake_notes_proposal',
+        capability: 'intake:draft',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          kind: 'NOTES',
+          notes: input.notes,
+        },
+        actor: expect.objectContaining({
+          agentRunId: 'run-1',
+          workerId: 'worker-1',
+          approvalGrantId: 'grant-intake',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(createIntake).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: input.operationId,
+        proposal: { kind: 'NOTES', notes: input.notes },
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          capability: 'intake:draft',
+          approvalGrantId: 'grant-intake',
+        }),
+      }),
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith({
+      where: { id: 'consumption-intake' },
+      data: { resultReference: 'IntakeRun:intake-1' },
+    })
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.intake-notes-proposal',
+      data: {
+        id: 'intake-1',
+        status: 'AWAITING_REVIEW',
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        nextAction: 'REVIEW_PROPOSAL',
         replayed: false,
       },
     })

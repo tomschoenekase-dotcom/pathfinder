@@ -1680,6 +1680,15 @@ model IntakeRun {
   submissionRequestId      String?                @map("submission_request_id") @db.Uuid
   submissionInputHash      String?                @map("submission_input_hash") @db.Char(64)
   requestedBy              String                 @map("requested_by") @db.VarChar(191)
+  requestedByType          ActorType              @default(HUMAN) @map("requested_by_type")
+  agentIdentityId          String?                @map("agent_identity_id") @db.VarChar(191)
+  agentRunId               String?                @map("agent_run_id") @db.VarChar(191)
+  workerId                 String?                @map("worker_id") @db.VarChar(191)
+  credentialId             String?                @map("credential_id") @db.VarChar(191)
+  approvalGrantId          String?                @map("approval_grant_id") @db.VarChar(191)
+  capability               String?                @db.VarChar(191)
+  modelProvider            String?                @map("model_provider") @db.VarChar(100)
+  modelName                String?                @map("model_name") @db.VarChar(191)
   createdAt                DateTime               @default(now()) @map("created_at")
   tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue                    Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
@@ -1692,6 +1701,7 @@ model IntakeRun {
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
   @@unique([tenantId, submissionRequestId], map: "intake_runs_tenant_submission_request_key")
   @@index([tenantId, venueId, createdAt], map: "intake_runs_scope_created_idx")
+  @@index([tenantId, agentRunId, createdAt], map: "intake_runs_agent_run_created_idx")
   @@map("intake_runs")
 }
 

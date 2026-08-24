@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
 } from '@pathfinder/contracts'
@@ -440,7 +441,12 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           name: 'Client Operations Specialist',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['updates:draft', 'support:draft', 'meetings.process'],
+          accessCapabilities: [
+            'updates:draft',
+            'support:draft',
+            'intake:draft',
+            'meetings.process',
+          ],
           autonomyLevel: 'DRAFT',
           enabled: true,
           createdBy: human.actorId,
@@ -463,6 +469,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'integrations:read',
           'updates:draft',
           'support:draft',
+          'intake:draft',
           'agent-runs:execute',
         ],
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
@@ -510,6 +517,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'meetings:process',
             'updates:draft',
             'support:draft',
+            'intake:draft',
           ],
           agentRoles: ['client-operations'],
           modelProvider: 'fixture',
@@ -915,6 +923,94 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           select: { visibility: true },
         }),
       ).toEqual({ visibility: 'INTERNAL_ONLY' })
+
+      const intakePolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_intake_notes_proposal',
+        capability: 'intake:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'PROPOSAL_ONLY' },
+        policyKey: `reviewed-intake-notes-${suffix}`,
+        constraints: {
+          ...defaultIntakeNotesProposalPolicyConstraints(),
+          maxNotesChars: 240,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes NOTES-only intake proposals.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const intakeOperationId = randomUUID()
+      const intakeWriteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: intakeOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        notes: 'Use the accessible east entrance facts as reviewable onboarding source material.',
+      }
+      const intakeContext = { credential, approvalGrantId: intakePolicy.id }
+      const venuePackageCountBeforeIntake = await db.venuePackage.count({
+        where: { tenantId, venueId },
+      })
+      const intakeCreated = await registry.callTool(
+        'pathfinder.create_intake_notes_proposal',
+        intakeWriteInput,
+        intakeContext,
+      )
+      const intakeReplayed = await registry.callTool(
+        'pathfinder.create_intake_notes_proposal',
+        intakeWriteInput,
+        intakeContext,
+      )
+      expect(JSON.stringify(intakeCreated)).toContain('created for human review')
+      expect(JSON.stringify(intakeReplayed)).toContain('Existing onboarding notes proposal')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_intake_notes_proposal',
+          {
+            ...intakeWriteInput,
+            operationId: randomUUID(),
+            notes: 'x'.repeat(241),
+          },
+          intakeContext,
+        ),
+      ).rejects.toThrow('outside the reviewed intake notes proposal policy')
+      const intakeRunId = (intakeCreated.structuredContent.data as unknown as { id: string }).id
+      const intakeRun = await db.intakeRun.findUniqueOrThrow({
+        where: { id: intakeRunId },
+        include: { packageHandoff: true, upload: true },
+      })
+      expect(intakeRun).toMatchObject({
+        status: 'AWAITING_REVIEW',
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        requestedBy: identityId,
+        requestedByType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: intakePolicy.id,
+        capability: 'intake:draft',
+        modelProvider: 'fixture',
+        modelName: 'deterministic',
+        packageHandoff: null,
+        upload: null,
+      })
+      expect(intakeRun.structuredBootstrap).toEqual({
+        kind: 'OPTIONAL_NOTES',
+        notes: intakeWriteInput.notes,
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: intakePolicy.id } }),
+      ).toBe(1)
+      expect(await db.venuePackage.count({ where: { tenantId, venueId } })).toBe(
+        venuePackageCountBeforeIntake,
+      )
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,
       // Tom-local worker, private prompt memory, external provider, or raw transcript is required.

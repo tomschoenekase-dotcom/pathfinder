@@ -4,6 +4,9 @@ export const OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION = 'pathfinder.create_update_
 export const OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY = 'updates:draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_ACTION = 'pathfinder.create_support_draft' as const
 export const SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY = 'support:draft' as const
+export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
+  'pathfinder.create_intake_notes_proposal' as const
+export const INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY = 'intake:draft' as const
 
 export const SupportRequestDraftCategory = z.enum([
   'CONTENT_CORRECTION',
@@ -119,5 +122,42 @@ export function defaultSupportRequestDraftPolicyConstraints(): SupportRequestDra
     ],
     maxSubjectChars: 200,
     maxBodyChars: 20_000,
+  }
+}
+
+/** Reviewed bounds for machine-authored onboarding notes. The proposal remains
+ * awaiting review and cannot extract, create a package, apply, or publish. */
+export const IntakeNotesProposalPolicyConstraints = z
+  .object({
+    contractVersion: z.literal(1),
+    effect: z.literal('PROPOSAL_ONLY'),
+    allowedKinds: z.tuple([z.literal('NOTES')]),
+    maxNotesChars: z.number().int().min(1).max(20_000),
+  })
+  .strict()
+
+export type IntakeNotesProposalPolicyConstraints = z.infer<
+  typeof IntakeNotesProposalPolicyConstraints
+>
+
+export const IntakeNotesProposalPolicyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    kind: z.literal('NOTES'),
+    notes: z.string().trim().min(1).max(20_000),
+  })
+  .strict()
+
+export type IntakeNotesProposalPolicyParameters = z.infer<
+  typeof IntakeNotesProposalPolicyParameters
+>
+
+export function defaultIntakeNotesProposalPolicyConstraints(): IntakeNotesProposalPolicyConstraints {
+  return {
+    contractVersion: 1,
+    effect: 'PROPOSAL_ONLY',
+    allowedKinds: ['NOTES'],
+    maxNotesChars: 20_000,
   }
 }

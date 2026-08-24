@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 400,
-    "sha256": "0cd6c92f417632c1c2d0bf8d5c0650dc603c5c17ce73a0604a6c5fbb9f4782c2",
+    "count": 401,
+    "sha256": "246d2190e63b2eb4d3bac60d4c447fe8e79f05cf61428c2ac649ea00fc97ba95",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "0cd6c92f417632c1c2d0bf8d5c0650dc603c5c17ce73a0604a6c5fbb9f4782c2",
-      "sha256": "dd79d5daad5d8dd53b4bb90f12e87a201b351f5bf1f6926613b89a7895135347"
+      "operationInventorySha256": "246d2190e63b2eb4d3bac60d4c447fe8e79f05cf61428c2ac649ea00fc97ba95",
+      "sha256": "5b691e1e19c8be7b6ab0d8bb4f2db14e0484ab71efe42db5f62af1467ce5958b"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -363,6 +363,14 @@
         "surfaces": ["resource:pathfinder.onboarding-summary"],
         "decision": "Agents receive an exact-venue onboarding summary rather than unrestricted bootstrap inputs, client portal state, or intake mutation.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-intake-notes-proposal",
+        "kind": "bounded-alternative",
+        "operations": ["admin.createIntakeProposal", "intake.createProposal"],
+        "surfaces": ["tool:pathfinder.create_intake_notes_proposal"],
+        "decision": "The policy-backed machine tool is deliberately narrower than human intake creation: it accepts only private NOTES source material, remains AWAITING_REVIEW, preserves exact worker/run/grant lineage, and cannot extract, create or apply a package, publish, or contact a customer.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-readiness-reads",

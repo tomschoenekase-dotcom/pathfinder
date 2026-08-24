@@ -69,6 +69,7 @@ export const McpCapability = z.enum([
   'agent-runs:execute',
   'packages:draft',
   'support:draft',
+  'intake:draft',
   'updates:draft',
   'evaluations:request',
 ])
@@ -742,6 +743,15 @@ export const McpSupportDraftInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportDraftInput = z.infer<typeof McpSupportDraftInput>
 
+export const McpIntakeNotesProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  notes: z.string().trim().min(1).max(20_000),
+}).strict()
+export type McpIntakeNotesProposalInput = z.infer<typeof McpIntakeNotesProposalInput>
+
 export const McpEvaluationRequestInput = McpRequestedScope.extend({
   suiteId: Identifier,
   caseIds: z.array(Identifier).min(1).max(50),
@@ -848,6 +858,7 @@ export type PathfinderMcpToolName =
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
+  | 'pathfinder.create_intake_notes_proposal'
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
@@ -1677,6 +1688,31 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'support:draft', 'draft') },
+  },
+  {
+    name: 'pathfinder.create_intake_notes_proposal',
+    title: 'Prepare onboarding notes for review',
+    description:
+      'Create a NOTES-only intake proposal in awaiting-review state. It cannot extract, create or apply a package, publish, or contact a customer.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        notes: { type: 'string', minLength: 1, maxLength: 20000 },
+      },
+      [...scopeRequired, 'operationId', 'agentIdentityId', 'agentRunId', 'workerKey', 'notes'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'intake:draft', 'draft') },
   },
   {
     name: 'pathfinder.request_evaluation',

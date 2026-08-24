@@ -17,6 +17,7 @@ const capabilityMigrationPaths = [
   '20260823210000_add_location_proposal_capability',
   '20260823233000_add_agent_improvement_proposals',
   '20260824010000_add_agent_improvement_validation_evidence',
+  '20260824160000_add_intake_machine_lineage',
 ]
 const capabilitySql = [
   sql,

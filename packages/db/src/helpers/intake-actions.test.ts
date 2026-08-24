@@ -178,6 +178,85 @@ describe('canonical intake actions', () => {
     )
   })
 
+  it('stores complete machine lineage for a NOTES-only proposal and rejects broader intake kinds', async () => {
+    runCreate.mockResolvedValueOnce({
+      id: 'run-agent-notes',
+      venueId: 'venue-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Optional notes',
+      createdAt: new Date(),
+    })
+    const requestId = '268c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    const actor = {
+      type: 'AGENT' as const,
+      actorId: 'agent-a',
+      role: 'AGENT' as const,
+      agentIdentityId: 'agent-a',
+      agentRunId: 'agent-run-a',
+      workerId: 'worker-a',
+      credentialId: 'credential-a',
+      approvalGrantId: 'grant-a',
+      capability: 'intake:draft' as const,
+      modelProvider: 'openai',
+      modelName: 'gpt-5',
+      idempotencyKey: requestId,
+    }
+    await createIntakeProposal({
+      db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      actor,
+      requestId,
+      proposal: { kind: 'NOTES', notes: 'Use the east entrance accessibility facts for review.' },
+    })
+
+    expect(runCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'AWAITING_REVIEW',
+          requestedBy: 'agent-a',
+          requestedByType: 'AGENT',
+          agentIdentityId: 'agent-a',
+          agentRunId: 'agent-run-a',
+          workerId: 'worker-a',
+          credentialId: 'credential-a',
+          approvalGrantId: 'grant-a',
+          capability: 'intake:draft',
+        }),
+      }),
+    )
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorId: 'agent-a',
+          actorRole: 'AGENT',
+          afterState: expect.objectContaining({
+            requestedByType: 'AGENT',
+            agentRunId: 'agent-run-a',
+            approvalGrantId: 'grant-a',
+            capability: 'intake:draft',
+          }),
+        }),
+      }),
+    )
+
+    await expect(
+      createIntakeProposal({
+        db,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        actor: { ...actor, idempotencyKey: '368c2e1a-8ece-47ad-98dc-e4bde64872ca' },
+        requestId: '368c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        proposal: {
+          kind: 'WEBSITE',
+          displayName: 'Venue site',
+          websiteUri: 'https://example.com',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
   it('replays an exact actor-bound request without creating duplicate evidence or events', async () => {
     runFindFirst.mockResolvedValue({
       id: 'run-1',

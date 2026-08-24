@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
 import {
   STAFF_INTERVIEW_CONSENT_TEXT,
@@ -96,11 +97,17 @@ export const intakeProposalInput = z.discriminatedUnion('kind', [
   notesProposalInput,
 ])
 export type IntakeProposalInput = z.infer<typeof intakeProposalInput>
-export type IntakeProposalActor = {
-  type: 'HUMAN'
-  id: string
-  role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
-}
+export type IntakeProposalActor =
+  | {
+      type: 'HUMAN'
+      id: string
+      role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
+    }
+  | (MachineActorContext & {
+      capability: 'intake:draft'
+      approvalGrantId: string
+      idempotencyKey: string
+    })
 
 export type IntakeActionErrorCode = 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT'
 
@@ -127,6 +134,8 @@ export async function createIntakeProposal(input: {
   requestId: string
   proposal: IntakeProposalInput
 }) {
+  const humanActor = input.actor?.type === 'HUMAN' ? input.actor : null
+  const machineActor = input.actor?.type === 'AGENT' ? input.actor : null
   if (
     !input ||
     typeof input !== 'object' ||
@@ -135,10 +144,22 @@ export async function createIntakeProposal(input: {
     typeof input.venueId !== 'string' ||
     !input.venueId.trim() ||
     !input.actor ||
-    input.actor.type !== 'HUMAN' ||
-    typeof input.actor.id !== 'string' ||
-    !input.actor.id.trim() ||
-    !['MANAGER', 'OWNER', 'PLATFORM_ADMIN'].includes(input.actor.role) ||
+    (humanActor &&
+      (typeof humanActor.id !== 'string' ||
+        !humanActor.id.trim() ||
+        !['MANAGER', 'OWNER', 'PLATFORM_ADMIN'].includes(humanActor.role))) ||
+    (machineActor &&
+      (machineActor.role !== 'AGENT' ||
+        !machineActor.actorId.trim() ||
+        machineActor.actorId !== machineActor.agentIdentityId ||
+        !machineActor.agentRunId.trim() ||
+        !machineActor.workerId.trim() ||
+        !machineActor.credentialId.trim() ||
+        !machineActor.approvalGrantId.trim() ||
+        machineActor.capability !== 'intake:draft' ||
+        machineActor.idempotencyKey !== input.requestId ||
+        (machineActor.modelProvider === undefined) !== (machineActor.modelName === undefined))) ||
+    (!humanActor && !machineActor) ||
     !z.string().uuid().safeParse(input.requestId).success
   ) {
     throw new IntakeActionError('INVALID_INPUT', 'Invalid intake proposal scope')
@@ -146,6 +167,10 @@ export async function createIntakeProposal(input: {
   const parsed = intakeProposalInput.safeParse(input.proposal)
   if (!parsed.success) throw new IntakeActionError('INVALID_INPUT', 'Invalid intake proposal')
   const proposal = parsed.data
+  if (machineActor && proposal.kind !== 'NOTES') {
+    throw new IntakeActionError('INVALID_INPUT', 'Machine intake proposals are NOTES-only')
+  }
+  const actorId = humanActor ? humanActor.id : machineActor!.actorId
   const storedSourceKind = proposal.kind === 'NOTES' ? 'STRUCTURED_BOOTSTRAP' : proposal.kind
   const displayName = proposal.kind === 'NOTES' ? 'Optional notes' : proposal.displayName
   const inputHash = createHash('sha256')
@@ -153,7 +178,7 @@ export async function createIntakeProposal(input: {
       canonicalJson({
         tenantId: input.tenantId,
         venueId: input.venueId,
-        actorId: input.actor.id,
+        actor: input.actor,
         proposal,
       }),
     )
@@ -166,6 +191,15 @@ export async function createIntakeProposal(input: {
     status: true,
     displayName: true,
     requestedBy: true,
+    requestedByType: true,
+    agentIdentityId: true,
+    agentRunId: true,
+    workerId: true,
+    credentialId: true,
+    approvalGrantId: true,
+    capability: true,
+    modelProvider: true,
+    modelName: true,
     submissionInputHash: true,
     createdAt: true,
   } as const
@@ -201,9 +235,19 @@ export async function createIntakeProposal(input: {
       if (replay) {
         if (
           replay.submissionInputHash !== inputHash ||
-          replay.requestedBy !== input.actor.id ||
+          replay.requestedBy !== actorId ||
           replay.venueId !== input.venueId ||
-          replay.sourceKind !== storedSourceKind
+          replay.sourceKind !== storedSourceKind ||
+          (replay.requestedByType ?? 'HUMAN') !== input.actor.type ||
+          (machineActor &&
+            (replay.agentIdentityId !== machineActor.agentIdentityId ||
+              replay.agentRunId !== machineActor.agentRunId ||
+              replay.workerId !== machineActor.workerId ||
+              replay.credentialId !== machineActor.credentialId ||
+              replay.approvalGrantId !== machineActor.approvalGrantId ||
+              replay.capability !== machineActor.capability ||
+              replay.modelProvider !== (machineActor.modelProvider ?? null) ||
+              replay.modelName !== (machineActor.modelName ?? null)))
         ) {
           throw new IntakeActionError(
             'CONFLICT',
@@ -224,7 +268,22 @@ export async function createIntakeProposal(input: {
           sourceKind: storedSourceKind,
           status: 'AWAITING_REVIEW',
           displayName,
-          requestedBy: input.actor.id,
+          requestedBy: actorId,
+          requestedByType: input.actor.type,
+          ...(machineActor
+            ? {
+                agentIdentityId: machineActor.agentIdentityId,
+                agentRunId: machineActor.agentRunId,
+                workerId: machineActor.workerId,
+                credentialId: machineActor.credentialId,
+                approvalGrantId: machineActor.approvalGrantId,
+                capability: machineActor.capability,
+                ...(machineActor.modelProvider
+                  ? { modelProvider: machineActor.modelProvider }
+                  : {}),
+                ...(machineActor.modelName ? { modelName: machineActor.modelName } : {}),
+              }
+            : {}),
           submissionRequestId: input.requestId,
           submissionInputHash: inputHash,
           ...(proposal.kind === 'WEBSITE'
@@ -281,12 +340,13 @@ export async function createIntakeProposal(input: {
           venueId: input.venueId,
           runId: run.id,
           kind: 'PROPOSAL_CREATED',
-          actorId: input.actor.id,
+          actorId,
           metadata: {
             sourceKind: storedSourceKind,
             proposalKind: proposal.kind,
             autoApprove: false,
             autoApply: false,
+            requestedByType: input.actor.type,
           },
         },
       })
@@ -297,7 +357,7 @@ export async function createIntakeProposal(input: {
             venueId: input.venueId,
             runId: run.id,
             kind: 'EVIDENCE_RECORDED',
-            actorId: input.actor.id,
+            actorId,
             metadata: {
               evidenceKind: 'CLASSIFIED_ANSWER_HASH',
               publicAnswerCount: interview?.publicAnswers.length ?? 0,
@@ -313,7 +373,7 @@ export async function createIntakeProposal(input: {
             venueId: input.venueId,
             runId: run.id,
             kind: 'EVIDENCE_RECORDED',
-            actorId: input.actor.id,
+            actorId,
             metadata: { evidenceKind: 'OPTIONAL_NOTES_HASH', evidenceCount: 1 },
           },
         })
@@ -321,7 +381,7 @@ export async function createIntakeProposal(input: {
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
-          actorId: input.actor.id,
+          actorId,
           actorRole: input.actor.role,
           action: 'intake.proposal-created',
           targetType: 'IntakeRun',
@@ -334,6 +394,20 @@ export async function createIntakeProposal(input: {
             evidenceCount: interview?.evidence.length ?? (notesHash ? 1 : 0),
             publicAnswerCount: interview?.publicAnswers.length ?? 0,
             withheldAnswerCount: interview?.withheldCount ?? 0,
+            requestedByType: input.actor.type,
+            ...(machineActor
+              ? {
+                  agentIdentityId: machineActor.agentIdentityId,
+                  agentRunId: machineActor.agentRunId,
+                  workerId: machineActor.workerId,
+                  credentialId: machineActor.credentialId,
+                  approvalGrantId: machineActor.approvalGrantId,
+                  capability: machineActor.capability,
+                  modelProvider: machineActor.modelProvider ?? null,
+                  modelName: machineActor.modelName ?? null,
+                  idempotencyKey: machineActor.idempotencyKey,
+                }
+              : {}),
           },
         },
         tx,
@@ -349,9 +423,19 @@ export async function createIntakeProposal(input: {
       })
       if (
         replay?.submissionInputHash === inputHash &&
-        replay.requestedBy === input.actor.id &&
+        replay.requestedBy === actorId &&
         replay.venueId === input.venueId &&
-        replay.sourceKind === storedSourceKind
+        replay.sourceKind === storedSourceKind &&
+        (replay.requestedByType ?? 'HUMAN') === input.actor.type &&
+        (!machineActor ||
+          (replay.agentIdentityId === machineActor.agentIdentityId &&
+            replay.agentRunId === machineActor.agentRunId &&
+            replay.workerId === machineActor.workerId &&
+            replay.credentialId === machineActor.credentialId &&
+            replay.approvalGrantId === machineActor.approvalGrantId &&
+            replay.capability === machineActor.capability &&
+            replay.modelProvider === (machineActor.modelProvider ?? null) &&
+            replay.modelName === (machineActor.modelName ?? null)))
       ) {
         return safeResult(replay, true)
       }
