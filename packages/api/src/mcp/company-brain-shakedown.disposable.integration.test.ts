@@ -5,6 +5,7 @@ import {
   defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
+  defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 import {
   activateAgentBridgeCredentialAction,
@@ -97,6 +98,9 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             slug: thirdVenueId,
           },
         ],
+      })
+      await db.venueReportConfiguration.create({
+        data: { tenantId, venueId, enabled: true, updatedBy: human.actorId },
       })
       await db.prospectOrganization.create({
         data: {
@@ -445,6 +449,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'updates:draft',
             'support:draft',
             'intake:draft',
+            'reports:draft',
             'meetings.process',
           ],
           autonomyLevel: 'DRAFT',
@@ -470,6 +475,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'updates:draft',
           'support:draft',
           'intake:draft',
+          'reports:draft',
           'agent-runs:execute',
         ],
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
@@ -518,6 +524,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'updates:draft',
             'support:draft',
             'intake:draft',
+            'reports:draft',
           ],
           agentRoles: ['client-operations'],
           modelProvider: 'fixture',
@@ -1011,6 +1018,101 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       expect(await db.venuePackage.count({ where: { tenantId, venueId } })).toBe(
         venuePackageCountBeforeIntake,
       )
+
+      const reportPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.generate_weekly_report_draft',
+        capability: 'reports:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_GENERATION_ONLY' },
+        policyKey: `reviewed-weekly-report-drafts-${suffix}`,
+        constraints: {
+          ...defaultWeeklyReportDraftPolicyConstraints(),
+          maxTitleChars: 120,
+          maxRangeDays: 8,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes internal weekly-report drafts.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const reportOperationId = randomUUID()
+      const reportInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: reportOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        weekStart: '2026-08-10T00:00:00.000Z',
+        weekEnd: '2026-08-16T23:59:59.000Z',
+        title: 'Internal weekly venue report',
+      }
+      const reportContext = {
+        credential,
+        approvalGrantId: reportPolicy.id,
+      }
+      const reportCreated = await registry.callTool(
+        'pathfinder.generate_weekly_report_draft',
+        reportInput,
+        reportContext,
+      )
+      const reportReplayed = await registry.callTool(
+        'pathfinder.generate_weekly_report_draft',
+        reportInput,
+        reportContext,
+      )
+      expect(JSON.stringify(reportCreated)).toContain('draft generation requested')
+      expect(JSON.stringify(reportReplayed)).toContain('Existing internal weekly-report')
+      await expect(
+        registry.callTool(
+          'pathfinder.generate_weekly_report_draft',
+          {
+            ...reportInput,
+            operationId: randomUUID(),
+            weekStart: '2026-07-01T00:00:00.000Z',
+          },
+          reportContext,
+        ),
+      ).rejects.toThrow('outside the reviewed weekly-report draft policy')
+      const reportId = (reportCreated.structuredContent.data as unknown as { reportId: string })
+        .reportId
+      expect(
+        await db.weeklyReport.findUniqueOrThrow({
+          where: { id: reportId },
+          select: { status: true, publishedAt: true, createdBy: true },
+        }),
+      ).toEqual({ status: 'GENERATING', publishedAt: null, createdBy: identityId })
+      expect(
+        await db.generationRequestDispatch.count({
+          where: { tenantId, venueId, weeklyReportId: reportId },
+        }),
+      ).toBe(1)
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: reportPolicy.id } }),
+      ).toBe(1)
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'WeeklyReport',
+            targetId: reportId,
+            actorRole: 'AGENT',
+          },
+          select: { actorId: true, afterState: true },
+        }),
+      ).toMatchObject({
+        actorId: identityId,
+        afterState: {
+          agentRunId: run.id,
+          workerId: secondaryKey,
+          approvalGrantId: reportPolicy.id,
+          capability: 'reports:draft',
+        },
+      })
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,
       // Tom-local worker, private prompt memory, external provider, or raw transcript is required.

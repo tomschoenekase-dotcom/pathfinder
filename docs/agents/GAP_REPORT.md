@@ -34,8 +34,12 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    the canonical report lifecycle query and returns generation/attempt state, persisted source
    counts, review state, publication/client visibility, explicit absence of modeled external
    delivery, and actor-free audit actions. It excludes report content, raw source artifacts, and
-   provider errors. Generation/regeneration, exact source-artifact inspection, explanation of
-   model choices, editing, publication, and real delivery operations remain gated or incomplete.
+   provider errors. An exact-scope worker can now create or replay an internal draft-generation
+   request through the same canonical action as the admin API, but only under live worker/run
+   lineage, AI admission, enabled report configuration, and an evidence-backed bounded policy.
+   It cannot edit, publish, deliver, or make the report client-visible. Regeneration of an existing
+   report, exact source-artifact inspection, explanation of model choices, editing, publication,
+   and real delivery operations remain gated or incomplete.
 4. **Partially closed — operational control and job health.** Exact-scope agents can distinguish
    open, paused, malformed, and unavailable global AI admission plus active expiring provider
    exclusions through the real integration-health tool. The exact-venue jobs resource now adds an

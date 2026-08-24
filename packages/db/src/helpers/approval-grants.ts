@@ -14,6 +14,10 @@ import {
   SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
   SupportRequestDraftPolicyConstraints,
   SupportRequestDraftPolicyParameters,
+  WEEKLY_REPORT_DRAFT_POLICY_ACTION,
+  WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY,
+  WeeklyReportDraftPolicyConstraints,
+  WeeklyReportDraftPolicyParameters,
 } from '@pathfinder/contracts'
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
@@ -202,6 +206,19 @@ function validatePolicyConstraints(
     }
     return parsed.data
   }
+  if (
+    actionName === WEEKLY_REPORT_DRAFT_POLICY_ACTION &&
+    capability === WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY
+  ) {
+    const parsed = WeeklyReportDraftPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Weekly-report draft policy is invalid',
+      )
+    }
+    return parsed.data
+  }
   throw new ApprovalGrantActionError(
     'POLICY_UNAVAILABLE',
     `No reviewed constraint evaluator is registered for ${actionName}`,
@@ -296,6 +313,35 @@ function assertPolicyParameters(
       throw new ApprovalGrantActionError(
         'PARAMETER_MISMATCH',
         'Action parameters are outside the reviewed intake notes proposal policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === WEEKLY_REPORT_DRAFT_POLICY_ACTION &&
+    input.capability === WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY
+  ) {
+    const policy = WeeklyReportDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored weekly-report draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = WeeklyReportDraftPolicyParameters.safeParse(input.parameters)
+    const durationMs = parameters.success
+      ? new Date(parameters.data.weekEnd).getTime() - new Date(parameters.data.weekStart).getTime()
+      : Number.POSITIVE_INFINITY
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      parameters.data.title.length > policy.data.maxTitleChars ||
+      durationMs > policy.data.maxRangeDays * 24 * 60 * 60 * 1000
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed weekly-report draft policy',
       )
     }
     return

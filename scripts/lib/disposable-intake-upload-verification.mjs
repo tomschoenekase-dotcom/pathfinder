@@ -755,6 +755,8 @@ export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
         'human-only-support-draft-promotion',
         'notes-only-intake-proposal-lineage',
         'intake-review-boundary-no-package-or-publication',
+        'weekly-report-draft-generation-lineage',
+        'weekly-report-no-publication-or-delivery',
         'policy-consumption-machine-lineage',
         'parameter-boundary-rejection',
         'one-shot-approval-compatibility',

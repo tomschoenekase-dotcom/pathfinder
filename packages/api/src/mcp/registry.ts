@@ -25,6 +25,7 @@ import {
   McpSupportDraftInput,
   McpToolResult,
   McpUpdateDraftInput,
+  McpWeeklyReportDraftInput,
   PATHFINDER_MCP_TOOLS,
   toMcpStructuredResult,
   VerifiedMcpCredentialScope,
@@ -169,6 +170,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   createIntakeNotesProposal: (
     input: McpIntakeNotesProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  generateWeeklyReportDraft: (
+    input: McpWeeklyReportDraftInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   requestEvaluation: (
@@ -413,6 +418,19 @@ export function createPathfinderMcpRegistry(
             context,
           )
           result = await actions.createIntakeNotesProposal(input, context)
+          break
+        }
+        case 'pathfinder.generate_weekly_report_draft': {
+          const input = McpWeeklyReportDraftInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.generate_weekly_report_draft',
+            input,
+            metadata.capability,
+            context,
+          )
+          result = await actions.generateWeeklyReportDraft(input, context)
           break
         }
         case 'pathfinder.request_evaluation': {

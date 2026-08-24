@@ -1,10 +1,11 @@
 # Progressive agent approval policy
 
 Torchiko separates an agent's capability from the operating policy that determines whether one
-use needs a fresh human approval. Three executable policy-backed action classes are intentionally
+use needs a fresh human approval. Four executable policy-backed action classes are intentionally
 narrow: `pathfinder.create_update_draft` with `updates:draft` authority and
 `pathfinder.create_support_draft` with `support:draft` authority, and
-`pathfinder.create_intake_notes_proposal` with `intake:draft` authority.
+`pathfinder.create_intake_notes_proposal` with `intake:draft` authority, and
+`pathfinder.generate_weekly_report_draft` with `reports:draft` authority.
 
 A platform administrator can enable this policy from the venue Agent workspace for one exact
 tenant, venue, agent identity, action, and capability. Issuance requires a stable policy key, an
@@ -36,6 +37,12 @@ The intake evaluator accepts only `NOTES` within the reviewed character bound an
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.
 
+The weekly-report evaluator accepts only an exact client and venue, a reviewed title bound, and a
+date range no longer than the reviewed maximum. The canonical action is shared with the human admin
+API, respects venue/global AI admission and report configuration, and creates or replays one durable
+internal generation request. It may consume configured AI budget. It cannot edit, publish, deliver,
+or make a report client-visible; those remain separate human-only transitions.
+
 This policy does not authorize publication, scheduling, customer contact, billing, access changes,
 or any action outside the venue. The existing one-shot exact-parameter approval path remains
 available. No policy is created by a migration, fixture, startup routine, or agent; a human platform
@@ -48,7 +55,7 @@ pnpm test:agent-approval-policy:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact
-outcome membership, policy issuance replay, bounded policy consumption for all three registered
+outcome membership, policy issuance replay, bounded policy consumption for all four registered
 action classes, fail-closed parameter rejection, private support visibility, human-only draft promotion,
 durable evidence, and cleanup. It performs no provider call, publication, customer contact, or real
 billing action.

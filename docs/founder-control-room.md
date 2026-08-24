@@ -92,13 +92,15 @@ approval reduction from this projection. Any future permission change requires a
 explicit policy decision using task-specific evidence and must retain the existing capability /
 policy boundary.
 
-The venue Agent workspace now provides the first explicit progressive-policy control for a
-reviewed low-risk action class. A founder can let one exact enabled agent prepare bounded
-informational operational-update drafts without approving each draft. The policy remains
-draft-only, venue-scoped, idempotently issued, revocable, optionally use/expiry bounded, and fully
-audited. It cannot publish the draft or expand the agent's configured capability. No policy is
-enabled automatically from the descriptive trust summary. Before enabling a new policy, the
-founder must select one or more immutable outcome observations from that exact agent and venue.
+The venue Agent workspace now provides explicit progressive-policy controls for reviewed,
+bounded action classes. A founder can let one exact enabled agent prepare informational
+operational-update drafts, private support drafts, onboarding-notes proposals, or internal weekly
+report drafts without approving each attempt. Policies remain venue-scoped, idempotently issued,
+revocable, optionally use/expiry bounded, and fully audited. Report drafting may consume configured
+AI budget but cannot edit, publish, deliver, or create client visibility. No policy can expand the
+agent's configured capability. No policy is enabled automatically from the descriptive trust
+summary. Before enabling a new policy, the founder must select one or more immutable outcome
+observations from that exact agent and venue.
 Those observations remain visible on the policy as provenance; Torchiko does not turn them into a
 score, promotion threshold, or automatic recommendation. Legacy policies without that structured
 membership are surfaced honestly rather than backfilled with invented evidence.

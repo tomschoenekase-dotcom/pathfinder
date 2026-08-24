@@ -1,4 +1,5 @@
 import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
+import { logger } from '@pathfinder/config/logger'
 import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
@@ -26,10 +27,12 @@ import {
   searchCompanyKnowledge,
 } from '@pathfinder/db'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
+import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
+import { requestWeeklyReportDraftAction } from '../lib/weekly-report-generation'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -59,6 +62,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.create_update_draft',
   'pathfinder.create_support_draft',
   'pathfinder.create_intake_notes_proposal',
+  'pathfinder.generate_weekly_report_draft',
 ] as const satisfies readonly PathfinderMcpToolName[]
 
 export class McpActionBindingError extends Error {
@@ -104,6 +108,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'createUpdateDraft'
     | 'createSupportDraft'
     | 'createIntakeNotesProposal'
+    | 'generateWeeklyReportDraft'
   > = {
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
@@ -117,6 +122,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'createUpdateDraft'
     | 'createSupportDraft'
     | 'createIntakeNotesProposal'
+    | 'generateWeeklyReportDraft'
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
@@ -513,6 +519,152 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.status,
           sourceKind: result.sourceKind,
           nextAction: 'REVIEW_PROPOSAL',
+          replayed: result.replayed,
+        }),
+      }
+    },
+    async generateWeeklyReportDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Weekly report drafts require venue scope')
+      const now = new Date()
+      await assertVenueAiAvailable(database, {
+        tenantId: context.credential.tenantId,
+        venueId,
+      })
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'reports:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified report worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified report worker run is unavailable')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        weekStart: new Date(input.weekStart).toISOString(),
+        weekEnd: new Date(input.weekEnd).toISOString(),
+        title: input.title,
+      }
+      let consumption:
+        | Awaited<ReturnType<typeof consumeApprovalGrantAction>>['consumption']
+        | undefined
+      const result = await requestWeeklyReportDraftAction(
+        {
+          tenantId: context.credential.tenantId,
+          venueId,
+          weekStart: new Date(input.weekStart),
+          weekEnd: new Date(input.weekEnd),
+          title: input.title,
+          requestId: input.operationId,
+          actor: {
+            id: input.agentIdentityId,
+            role: 'AGENT',
+            lineage: {
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId,
+              capability: 'reports:draft',
+              ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+              ...(worker.modelName ? { modelName: worker.modelName } : {}),
+            },
+          },
+        },
+        {
+          authorize: async (tx) => {
+            const sameTransaction = {
+              $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+            } as never
+            const authorized = await consumeApprovalGrantAction(
+              {
+                tenantId: context.credential.tenantId,
+                venueId,
+                approvalGrantId: context.approvalGrantId!,
+                operationId: input.operationId,
+                actionName: 'pathfinder.generate_weekly_report_draft',
+                capability: 'reports:draft',
+                parameters,
+                actor: {
+                  type: 'AGENT',
+                  actorId: input.agentIdentityId,
+                  role: 'AGENT',
+                  agentIdentityId: input.agentIdentityId,
+                  agentRunId: input.agentRunId,
+                  workerId: worker.workerKey,
+                  credentialId: context.credential.credentialId,
+                  approvalGrantId: context.approvalGrantId!,
+                  capability: 'reports:draft',
+                  ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+                  ...(worker.modelName ? { modelName: worker.modelName } : {}),
+                  idempotencyKey: input.operationId,
+                },
+                now,
+              },
+              sameTransaction,
+            )
+            consumption = authorized.consumption
+          },
+          resolved: async (tx, resolved) => {
+            if (!consumption) throw new McpActionBindingError('Approval consumption is unavailable')
+            const resultReference = `WeeklyReport:${resolved.reportId}`
+            if (consumption.resultReference && consumption.resultReference !== resultReference) {
+              throw new McpActionBindingError('Approved report replay target does not match')
+            }
+            if (!consumption.resultReference) {
+              await tx.approvalGrantConsumption.update({
+                where: { id: consumption.id },
+                data: { resultReference },
+              })
+            }
+          },
+        },
+        database,
+      )
+      if (result.dispatchState === 'PENDING' && result.enqueueAllowed) {
+        try {
+          await enqueueGenerationDispatchKick(result.dispatchId)
+        } catch {
+          logger.warn({
+            action: 'agent.weekly-report.dispatch-kick.failed',
+            tenantId: context.credential.tenantId,
+            venueId,
+            reportId: result.reportId,
+            error: 'Durable report request is pending dispatcher retry.',
+          })
+        }
+      }
+      return {
+        kind: 'torchiko.weekly-report-draft-request',
+        summary: result.replayed
+          ? 'Existing internal weekly-report draft request returned; nothing was published or delivered.'
+          : 'Internal weekly-report draft generation requested; publication and delivery remain human-only.',
+        data: jsonData({
+          reportId: result.reportId,
+          requestId: result.requestId,
+          dispatchState: result.dispatchState,
+          nextAction: 'REVIEW_DRAFT',
           replayed: result.replayed,
         }),
       }

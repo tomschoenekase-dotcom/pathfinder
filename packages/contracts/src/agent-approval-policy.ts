@@ -7,6 +7,8 @@ export const SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY = 'support:draft' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
   'pathfinder.create_intake_notes_proposal' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY = 'intake:draft' as const
+export const WEEKLY_REPORT_DRAFT_POLICY_ACTION = 'pathfinder.generate_weekly_report_draft' as const
+export const WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY = 'reports:draft' as const
 
 export const SupportRequestDraftCategory = z.enum([
   'CONTENT_CORRECTION',
@@ -159,5 +161,43 @@ export function defaultIntakeNotesProposalPolicyConstraints(): IntakeNotesPropos
     effect: 'PROPOSAL_ONLY',
     allowedKinds: ['NOTES'],
     maxNotesChars: 20_000,
+  }
+}
+
+/** Reviewed bounds for internal weekly-report generation. Generation can consume
+ * AI budget, but the resulting report always remains a non-client-visible draft. */
+export const WeeklyReportDraftPolicyConstraints = z
+  .object({
+    contractVersion: z.literal(1),
+    effect: z.literal('DRAFT_GENERATION_ONLY'),
+    maxTitleChars: z.number().int().min(1).max(200),
+    maxRangeDays: z.number().int().min(1).max(31),
+  })
+  .strict()
+
+export type WeeklyReportDraftPolicyConstraints = z.infer<typeof WeeklyReportDraftPolicyConstraints>
+
+export const WeeklyReportDraftPolicyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    weekStart: z.string().datetime(),
+    weekEnd: z.string().datetime(),
+    title: z.string().trim().min(1).max(200),
+  })
+  .strict()
+  .refine((value) => new Date(value.weekEnd) >= new Date(value.weekStart), {
+    path: ['weekEnd'],
+    message: 'Weekly report end must not precede its start.',
+  })
+
+export type WeeklyReportDraftPolicyParameters = z.infer<typeof WeeklyReportDraftPolicyParameters>
+
+export function defaultWeeklyReportDraftPolicyConstraints(): WeeklyReportDraftPolicyConstraints {
+  return {
+    contractVersion: 1,
+    effect: 'DRAFT_GENERATION_ONLY',
+    maxTitleChars: 200,
+    maxRangeDays: 8,
   }
 }

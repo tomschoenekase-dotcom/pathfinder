@@ -56,6 +56,7 @@ function actions(): PathfinderMcpDomainActions {
     createUpdateDraft: vi.fn().mockResolvedValue(result),
     createSupportDraft: vi.fn().mockResolvedValue(result),
     createIntakeNotesProposal: vi.fn().mockResolvedValue(result),
+    generateWeeklyReportDraft: vi.fn().mockResolvedValue(result),
     requestEvaluation: vi.fn().mockResolvedValue(result),
   }
 }
@@ -199,6 +200,48 @@ describe('PathFinder MCP server-side adapter registry', () => {
     await expect(
       registry.callTool('torchiko.reports.get_lifecycle', input, {
         credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow('Capability denied')
+  })
+
+  it('requires reports:draft, exact venue scope, and a verified grant for report generation', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '74444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      weekStart: '2030-01-07T00:00:00.000Z',
+      weekEnd: '2030-01-13T23:59:59.000Z',
+      title: 'Weekly venue report',
+    }
+
+    await registry.callTool('pathfinder.generate_weekly_report_draft', input, {
+      credential: { ...credential, capabilities: ['reports:draft'] },
+      approvalGrantId: 'grant-report',
+    })
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-report',
+        toolName: 'pathfinder.generate_weekly_report_draft',
+        capability: 'reports:draft',
+      }),
+      expect.anything(),
+    )
+    expect(domain.generateWeeklyReportDraft).toHaveBeenCalledWith(input, expect.anything())
+
+    await expect(
+      registry.callTool('pathfinder.generate_weekly_report_draft', input, {
+        credential: { ...credential, capabilities: ['reports:draft'] },
+      }),
+    ).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' })
+    await expect(
+      registry.callTool('pathfinder.generate_weekly_report_draft', input, {
+        credential: { ...credential, capabilities: [] },
+        approvalGrantId: 'grant-report',
       }),
     ).rejects.toThrow('Capability denied')
   })

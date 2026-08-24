@@ -9,6 +9,7 @@ import {
   defaultIntakeNotesProposalPolicyConstraints,
   defaultOperationalUpdateDraftPolicyConstraints,
   defaultSupportRequestDraftPolicyConstraints,
+  defaultWeeklyReportDraftPolicyConstraints,
 } from '@pathfinder/contracts'
 
 const now = new Date('2030-01-01T12:00:00.000Z')
@@ -587,6 +588,78 @@ describe('approval grants', () => {
             notes: 'Too long',
           },
           actor: { ...machineActor, capability: 'intake:draft' },
+        }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('consumes only a weekly-report draft request inside reviewed range bounds', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_report',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultWeeklyReportDraftPolicyConstraints(),
+        maxTitleChars: 80,
+        maxRangeDays: 8,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_report',
+          actionName: 'pathfinder.generate_weekly_report_draft',
+          capability: 'reports:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            weekStart: '2029-12-24T00:00:00.000Z',
+            weekEnd: '2029-12-30T23:59:59.000Z',
+            title: 'Weekly venue report',
+          },
+          actor: { ...machineActor, capability: 'reports:draft' },
+        }),
+        client,
+      ),
+    ).resolves.toMatchObject({ replayed: false })
+    expect(tx.approvalGrant.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a weekly-report draft request beyond the reviewed range', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_report',
+      mode: 'POLICY_BACKED',
+      constraints: defaultWeeklyReportDraftPolicyConstraints(),
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_report',
+          actionName: 'pathfinder.generate_weekly_report_draft',
+          capability: 'reports:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            weekStart: '2029-12-01T00:00:00.000Z',
+            weekEnd: '2029-12-31T23:59:59.000Z',
+            title: 'Unbounded report',
+          },
+          actor: { ...machineActor, capability: 'reports:draft' },
         }),
         client,
       ),

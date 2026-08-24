@@ -13,6 +13,9 @@ const {
   prepareAgentImprovement,
   recordAgentImprovementValidation,
   publishEvent,
+  assertVenueAi,
+  requestReportDraft,
+  enqueueReportKick,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -26,6 +29,9 @@ const {
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
+  assertVenueAi: vi.fn(),
+  requestReportDraft: vi.fn(),
+  enqueueReportKick: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -42,6 +48,16 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
+  assertVenueAiAvailable: assertVenueAi,
+}))
+
+vi.mock('../lib/weekly-report-generation', () => ({
+  requestWeeklyReportDraftAction: requestReportDraft,
+}))
+
+vi.mock('@pathfinder/jobs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/jobs')>()),
+  enqueueGenerationDispatchKick: enqueueReportKick,
 }))
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
@@ -674,6 +690,112 @@ describe('safe operational MCP composition', () => {
         status: 'AWAITING_REVIEW',
         sourceKind: 'STRUCTURED_BOOTSTRAP',
         nextAction: 'REVIEW_PROPOSAL',
+        replayed: false,
+      },
+    })
+  })
+
+  it('requests only an internal weekly-report draft through AI admission and exact grant scope', async () => {
+    consumeApproval.mockResolvedValue({
+      replayed: false,
+      consumption: { id: 'consumption-report', resultReference: null },
+    })
+    const tx = {
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+    }
+    requestReportDraft.mockImplementation(async (_input, hooks) => {
+      await hooks.authorize(tx)
+      const result = {
+        dispatchId: 'dispatch-report',
+        reportId: 'report-1',
+        requestId: '84444444-4444-4444-8444-444444444444',
+        dispatchState: 'PENDING',
+        replayed: false,
+        enqueueAllowed: true,
+      }
+      await hooks.resolved(tx, result)
+      return result
+    })
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-report' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '84444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      weekStart: '2030-01-07T00:00:00.000Z',
+      weekEnd: '2030-01-13T23:59:59.000Z',
+      title: 'Weekly venue report',
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.generate_weekly_report_draft',
+      input,
+      {
+        credential: { ...credential, capabilities: ['reports:draft'] },
+        approvalGrantId: 'grant-report',
+      },
+    )
+
+    expect(assertVenueAi).toHaveBeenCalledWith(database, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.generate_weekly_report_draft',
+        capability: 'reports:draft',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          weekStart: input.weekStart,
+          weekEnd: input.weekEnd,
+          title: input.title,
+        },
+        actor: expect.objectContaining({
+          agentRunId: 'run-1',
+          workerId: 'worker-1',
+          approvalGrantId: 'grant-report',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(requestReportDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: input.operationId,
+        actor: expect.objectContaining({
+          id: 'agent-1',
+          role: 'AGENT',
+          lineage: expect.objectContaining({ capability: 'reports:draft' }),
+        }),
+      }),
+      expect.anything(),
+      database,
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith({
+      where: { id: 'consumption-report' },
+      data: { resultReference: 'WeeklyReport:report-1' },
+    })
+    expect(enqueueReportKick).toHaveBeenCalledWith('dispatch-report')
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.weekly-report-draft-request',
+      data: {
+        reportId: 'report-1',
+        dispatchState: 'PENDING',
+        nextAction: 'REVIEW_DRAFT',
         replayed: false,
       },
     })

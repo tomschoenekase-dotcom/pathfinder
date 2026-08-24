@@ -386,6 +386,44 @@ describe('admin agent operations router', () => {
     )
   })
 
+  it('issues bounded internal weekly-report draft generation authority', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_report', replayed: false })
+    await testRouter.createCaller(context()).agentOperations.issueWeeklyReportDraftPolicy({
+      operationId: '64444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      policyKey: 'weekly-report-draft-generation',
+      issueReason: 'Reviewed outcomes support bounded internal report drafting.',
+      outcomeObservationIds: ['outcome_1'],
+      maxTitleChars: 120,
+      maxRangeDays: 8,
+      maxUses: 12,
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.generate_weekly_report_draft',
+        capability: 'reports:draft',
+        mode: 'POLICY_BACKED',
+        scope: {
+          contractVersion: 1,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          effect: 'DRAFT_GENERATION_ONLY',
+        },
+        constraints: {
+          contractVersion: 1,
+          effect: 'DRAFT_GENERATION_ONLY',
+          maxTitleChars: 120,
+          maxRangeDays: 8,
+        },
+        outcomeObservationIds: ['outcome_1'],
+        maxUses: 12,
+        actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
+  })
+
   it('rejects policy issuance by a non-admin before entering the bypass', async () => {
     await expect(
       testRouter.createCaller(context(false)).agentOperations.issueOperationalUpdateDraftPolicy({

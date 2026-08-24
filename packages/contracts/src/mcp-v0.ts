@@ -43,6 +43,7 @@ export const McpCapability = z.enum([
   'jobs:read',
   'evaluations:read',
   'reports:read',
+  'reports:draft',
   'conversations:read',
   'conversations:review',
   'customer-access:prepare',
@@ -752,6 +753,27 @@ export const McpIntakeNotesProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpIntakeNotesProposalInput = z.infer<typeof McpIntakeNotesProposalInput>
 
+export const McpWeeklyReportDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  weekStart: z.string().datetime({ offset: true }),
+  weekEnd: z.string().datetime({ offset: true }),
+  title: z.string().trim().min(1).max(200),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (Date.parse(value.weekEnd) < Date.parse(value.weekStart)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['weekEnd'],
+        message: 'Report end must not precede start',
+      })
+    }
+  })
+export type McpWeeklyReportDraftInput = z.infer<typeof McpWeeklyReportDraftInput>
+
 export const McpEvaluationRequestInput = McpRequestedScope.extend({
   suiteId: Identifier,
   caseIds: z.array(Identifier).min(1).max(50),
@@ -859,6 +881,7 @@ export type PathfinderMcpToolName =
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.create_intake_notes_proposal'
+  | 'pathfinder.generate_weekly_report_draft'
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
@@ -1713,6 +1736,42 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'intake:draft', 'draft') },
+  },
+  {
+    name: 'pathfinder.generate_weekly_report_draft',
+    title: 'Generate a weekly report draft',
+    description:
+      'Create or replay a bounded internal weekly-report generation request. It can consume configured AI budget, but it cannot publish, deliver, edit, or make the report client-visible.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        weekStart: { type: 'string', format: 'date-time' },
+        weekEnd: { type: 'string', format: 'date-time' },
+        title: { type: 'string', minLength: 1, maxLength: 200 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'weekStart',
+        'weekEnd',
+        'title',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'reports:draft', 'draft') },
   },
   {
     name: 'pathfinder.request_evaluation',

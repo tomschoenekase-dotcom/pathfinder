@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const issue = vi.fn().mockResolvedValue({ id: 'grant_new' })
 const issueSupport = vi.fn().mockResolvedValue({ id: 'grant_support' })
 const issueIntake = vi.fn().mockResolvedValue({ id: 'grant_intake' })
+const issueReport = vi.fn().mockResolvedValue({ id: 'grant_report' })
 const revoke = vi.fn().mockResolvedValue({ id: 'grant_1' })
 const refresh = vi.fn()
 
@@ -16,6 +17,7 @@ vi.mock('../../lib/trpc', () => ({
       issueOperationalUpdateDraftPolicy: { mutate: issue },
       issueSupportRequestDraftPolicy: { mutate: issueSupport },
       issueIntakeNotesProposalPolicy: { mutate: issueIntake },
+      issueWeeklyReportDraftPolicy: { mutate: issueReport },
       revokeAgentApprovalPolicy: { mutate: revoke },
     },
   }),
@@ -188,6 +190,37 @@ describe('AgentApprovalPolicyControl', () => {
     )
     expect(issue).not.toHaveBeenCalled()
     expect(issueSupport).not.toHaveBeenCalled()
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
+  it('issues bounded report-draft authority without publication or delivery authority', async () => {
+    const props = {
+      ...baseProps,
+      identity: { ...baseProps.identity, accessCapabilities: ['reports:draft'] },
+    }
+    const { container } = render(<AgentApprovalPolicyControl {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
+    fireEvent.change(
+      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
+      { target: { value: 'Reviewed report outcomes justify bounded internal drafting.' } },
+    )
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
+
+    await waitFor(() => expect(issueReport).toHaveBeenCalledOnce())
+    expect(issueReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyKey: 'support-primary-weekly-report-drafts',
+        maxTitleChars: 200,
+        maxRangeDays: 8,
+        outcomeObservationIds: ['outcome_1'],
+      }),
+    )
+    expect(issue).not.toHaveBeenCalled()
+    expect(issueSupport).not.toHaveBeenCalled()
+    expect(issueIntake).not.toHaveBeenCalled()
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])

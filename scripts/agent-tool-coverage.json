@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 401,
-    "sha256": "246d2190e63b2eb4d3bac60d4c447fe8e79f05cf61428c2ac649ea00fc97ba95",
+    "count": 402,
+    "sha256": "2b1530547f77ece3e5f28e674f9da9d2d50def37e0d2c7502de07d50e44317d8",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "246d2190e63b2eb4d3bac60d4c447fe8e79f05cf61428c2ac649ea00fc97ba95",
-      "sha256": "5b691e1e19c8be7b6ab0d8bb4f2db14e0484ab71efe42db5f62af1467ce5958b"
+      "operationInventorySha256": "2b1530547f77ece3e5f28e674f9da9d2d50def37e0d2c7502de07d50e44317d8",
+      "sha256": "b38a2b4c0fd1ff7656cae4f86f75e6b123483f1dff3d00e2cc3dca6afe682457"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -35,6 +35,14 @@
         "operations": ["admin.getWeeklyReportLifecycle"],
         "surfaces": ["tool:torchiko.reports.get_lifecycle"],
         "decision": "The MCP tool reuses the canonical lifecycle query and exposes a privacy-bounded generation, source-count, review, publication, and delivery-state projection without mutation authority.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "weekly-report-draft-generation",
+        "kind": "direct-tool",
+        "operations": ["admin.generateWeeklyReportDraft"],
+        "surfaces": ["tool:pathfinder.generate_weekly_report_draft"],
+        "decision": "The admin route and governed machine tool reuse the same canonical durable request action. Machine execution additionally requires exact venue capability, live worker/run lineage, AI admission, and an evidence-backed approval grant; it can create only an internal draft request and cannot edit, publish, deliver, or expose the result to a client.",
         "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {

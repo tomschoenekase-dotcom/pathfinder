@@ -58,7 +58,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
   // Identity configuration includes human-only policy issuance/revocation for one exact venue.
-  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 8],
+  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 9],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
@@ -165,7 +165,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/report-configuration.ts', 2],
   // Platform-admin-only bounded lineage read rechecks exact tenant, venue, and Support request.
   ['packages/api/src/routers/admin/support-agent-run-lineage.ts', 1],
-  ['packages/api/src/routers/admin/weekly-reports.ts', 5],
+  ['packages/api/src/routers/admin/weekly-reports.ts', 4],
+  ['packages/api/src/lib/weekly-report-generation.ts', 1],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
   ['packages/api/src/routers/admin/second-layer.ts', 2],
   // Founder-only rollout reads and changes exact-tenant, allowlisted Tochi flags.
