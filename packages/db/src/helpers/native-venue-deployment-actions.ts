@@ -91,6 +91,21 @@ const txOptions = { isolationLevel: 'Serializable' as const, maxWait: 5_000, tim
 const iso = (value: Date | null) => value?.toISOString() ?? null
 const envelope = (value: unknown | null) => ({ present: value !== null, value })
 const hashEnvelope = (value: unknown | null) => sha256Hex(JSON.stringify(envelope(value)))
+function normalizedJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizedJson)
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, normalizedJson(item)]),
+    )
+  return value
+}
+// PostgreSQL jsonb normalizes object-key order. Compare reloaded evidence by
+// JSON value, while retaining the immutable pre-storage hashes recorded in the plan.
+const sameJsonValue = (left: unknown, right: unknown) =>
+  JSON.stringify(normalizedJson(left)) === JSON.stringify(normalizedJson(right))
 const isRetryable = (error: unknown) =>
   Boolean(
     error &&
@@ -1215,25 +1230,38 @@ async function publish(
 
 async function recordEffect(
   tx: NativeVenueDeploymentClient,
-  scope: Scope & { releaseId: string },
+  scope: Scope & { releaseId: string; plan: Plan },
   order: number,
   kind: string,
   targetId: string,
   before: unknown | null,
   after: unknown | null,
 ) {
+  const planned = scope.plan.effects[order - 1]
+  if (
+    !planned ||
+    planned.effectOrder !== order ||
+    planned.kind !== kind ||
+    planned.targetId !== targetId ||
+    !sameJsonValue(planned.beforeState, envelope(before)) ||
+    !sameJsonValue(planned.afterState, envelope(after))
+  )
+    throw new NativeVenueDeploymentError(
+      'CONFLICT',
+      'Runtime effect diverged from the immutable release plan.',
+    )
   return tx.nativeVenueDeploymentEffect.create({
     data: {
       tenantId: scope.tenantId,
       venueId: scope.venueId,
       releaseId: scope.releaseId,
-      effectOrder: order,
-      kind,
-      targetId,
-      beforeState: envelope(before),
-      afterState: envelope(after),
-      beforeHash: hashEnvelope(before),
-      afterHash: hashEnvelope(after),
+      effectOrder: planned.effectOrder,
+      kind: planned.kind,
+      targetId: planned.targetId,
+      beforeState: planned.beforeState,
+      afterState: planned.afterState,
+      beforeHash: planned.beforeHash,
+      afterHash: planned.afterHash,
     },
   })
 }
@@ -1432,6 +1460,7 @@ async function applyVisibleState(
 export const nativeVenueDeploymentTestHooks = {
   applyVisibleState,
   plannedEffects,
+  sameJsonValue,
   validateVenueBotConfigurationReferences,
 }
 
@@ -1609,8 +1638,10 @@ export async function revertNativeVenueDeploymentAction(
         planned.targetId !== effect.targetId ||
         planned.beforeHash !== effect.beforeHash ||
         planned.afterHash !== effect.afterHash ||
-        hashEnvelope(before) !== effect.beforeHash ||
-        hashEnvelope(after) !== effect.afterHash
+        !sameJsonValue(planned.beforeState, effect.beforeState) ||
+        !sameJsonValue(planned.afterState, effect.afterState) ||
+        !sameJsonValue(effect.beforeState, envelope(before)) ||
+        !sameJsonValue(effect.afterState, envelope(after))
       )
         throw new NativeVenueDeploymentError(
           'CONFLICT',
@@ -1629,7 +1660,7 @@ export async function revertNativeVenueDeploymentAction(
             'Applied Venue Bot configuration evidence is missing.',
           )
         const actual = venueBotConfigurationState(row, plan.desired.venue)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'Venue Bot configuration changed after materialization.',
@@ -1650,7 +1681,7 @@ export async function revertNativeVenueDeploymentAction(
           after?.runtimeVisible === false
             ? { runtimeVisible: false, row: placeRowState(row) }
             : placeRowState(row)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'An applied place changed after materialization.',
@@ -1700,7 +1731,7 @@ export async function revertNativeVenueDeploymentAction(
           after?.runtimeVisible === false
             ? { runtimeVisible: false, row: knowledgeRowState(row) }
             : knowledgeRowState(row)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'Applied knowledge changed after materialization.',

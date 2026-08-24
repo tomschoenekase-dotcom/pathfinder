@@ -69,6 +69,21 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe('native venue deployment actions', () => {
+  it('compares immutable JSON evidence semantically across jsonb key normalization', () => {
+    expect(
+      nativeVenueDeploymentTestHooks.sameJsonValue(
+        { present: true, value: { z: null, nested: { beta: 2, alpha: 1 } } },
+        { value: { nested: { alpha: 1, beta: 2 }, z: null }, present: true },
+      ),
+    ).toBe(true)
+    expect(
+      nativeVenueDeploymentTestHooks.sameJsonValue(
+        { present: true, value: { alpha: 1 } },
+        { present: true, value: { alpha: 2 } },
+      ),
+    ).toBe(false)
+  })
+
   it('projects a complete bounded empty native state under the venue lock', async () => {
     const { db, tx } = client()
     const result = await projectNativeVenueStateAction(db, {

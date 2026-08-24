@@ -17,12 +17,16 @@ async function run() {
         'missing-native-head',
         'valid-in-sync-native-head',
         'materialized-state-drift',
+        'nonzero-forward-materialization',
+        'exact-revert-restoration',
+        'control-venue-isolation',
+        'compatibility-row-retained',
         'legacy-retirement-retained',
       ],
       integration: {
         packageDirectory: 'packages/db',
         testFile: 'src/helpers/native-content-convergence-disposable.integration.test.ts',
-        expectedPassed: 1,
+        expectedPassed: 2,
         environment: {
           RUN_CONTENT_CONVERGENCE_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',

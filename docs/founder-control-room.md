@@ -127,6 +127,11 @@ policy/runtime gates, preserves compatibility retrieval as the rollback target, 
 rollback rehearsal. It does not infer an approval threshold, implement a read executor, switch guest
 retrieval, authorize automatic rollback, or authorize legacy retirement.
 
+The canonical native deployment lifecycle has separately passed a disposable two-venue rehearsal
+that applied a nonzero content change, preserved the control venue, and restored the exact retained
+compatibility state on revert. That proves materialization rollback, not a guest read-path switch;
+the contract therefore continues to report the runtime read-switch rehearsal as unresolved.
+
 The same separately credentialed boundary exposes
 `POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
 It requires `operations-readiness:read`, accepts no selectors, observes every canonical BullMQ
