@@ -31,7 +31,7 @@ const technicalAllowlist = new Map([
       "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
       "'pathfinder.apply_support_information_request' as const",
       "export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const",
-      "'pathfinder.apply_support_package_draft' as const",
+      "export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const",
     ]),
   ],
   [
