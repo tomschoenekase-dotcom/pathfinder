@@ -85,10 +85,13 @@ the live queue or service is healthy.
 
 Separately, an explicitly activated `pf_platform_` credential with
 `operations-readiness:read` may call `POST /api/platform-worker/operations-readiness`. That
-platform-wide v2 view observes all canonical BullMQ queues directly from Redis and returns bounded
-counts, depth, retained failed pressure, pause/scheduler state, and oldest nonterminal age. It has
+platform-wide v3 view observes all canonical BullMQ queues directly from Redis and returns bounded
+counts, depth, retained failed pressure, pause/scheduler state, and oldest nonterminal age. Overall
+readiness now fails closed on migration drift, stale worker evidence, disabled schedulers or
+provider work, incomplete queue coverage, any paused queue, or canonical long-running work. It has
 no tenant/venue attribution, job identity, payload, failure detail, retry/redrive/incident control,
-provider proof, or SLO authority. This does not widen the tenant MCP `jobs` resource.
+provider-execution/storage/scanner/email proof, or SLO authority. The Founder Control Room renders
+the same bounded projection. This does not widen the tenant MCP `jobs` resource.
 
 ## Operation coverage evidence
 

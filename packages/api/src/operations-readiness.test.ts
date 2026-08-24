@@ -12,7 +12,7 @@ const persisted = {
     lastHeartbeatAt: new Date('2026-08-23T15:59:30.000Z'),
     ageMs: 30_000,
     freshnessMs: 90_000,
-    mode: 'provider-disabled',
+    mode: 'provider-enabled',
     revision: 'revision',
     schedulersEnabled: true,
   },
@@ -24,7 +24,7 @@ const persisted = {
   embeddingOutcomes: [],
   emailProviderOutcome: null,
   stuckCriticalJobs: 0,
-} as never
+}
 
 const queue = {
   observedAt: new Date('2026-08-23T16:00:00.000Z'),
@@ -42,12 +42,23 @@ describe('operations readiness projection', () => {
     const result = projectOperationsReadiness({
       database: 'up',
       redis: 'up',
-      persisted,
+      persisted: persisted as never,
       liveQueue: { status: 'observed', value: queue },
     })
     expect(result).toMatchObject({
-      schemaVersion: 'pathfinder.operations-readiness.v2',
+      schemaVersion: 'pathfinder.operations-readiness.v3',
       status: 'ready',
+      requirements: {
+        databaseConnected: true,
+        redisConnected: true,
+        migrationParity: true,
+        workerHeartbeatFresh: true,
+        schedulersEnabled: true,
+        providerWorkEnabled: true,
+        allQueuesObserved: true,
+        noQueuesPaused: true,
+        noStuckCriticalJobs: true,
+      },
       queue: {
         live: { status: 'observed', source: 'bullmq-redis', totalDepth: 2 },
         persisted: { source: 'persisted-job-records' },
@@ -60,11 +71,32 @@ describe('operations readiness projection', () => {
     })
   })
 
+  it.each([
+    [
+      'provider-disabled runtime',
+      { worker: { ...persisted.worker, mode: 'provider-disabled' } },
+      queue,
+    ],
+    ['disabled schedulers', { worker: { ...persisted.worker, schedulersEnabled: false } }, queue],
+    ['paused queues', {}, { ...queue, pausedQueues: 1 }],
+    ['stuck critical work', { stuckCriticalJobs: 1 }, queue],
+  ] as const)('does not report ready with %s', (_case, persistedOverride, queueOverride) => {
+    const result = projectOperationsReadiness({
+      database: 'up',
+      redis: 'up',
+      persisted: { ...persisted, ...persistedOverride } as never,
+      liveQueue: { status: 'observed', value: queueOverride },
+    })
+
+    expect(result.status).toBe('degraded')
+    expect(Object.values(result.requirements)).toContain(false)
+  })
+
   it('reports a bounded unavailable state without leaking a probe error', async () => {
     const result = await readOperationsReadiness({
       checkDatabase: vi.fn().mockResolvedValue('PONG'),
       checkRedis: vi.fn().mockResolvedValue('PONG'),
-      readPersisted: vi.fn().mockResolvedValue(persisted),
+      readPersisted: vi.fn().mockResolvedValue(persisted as never),
       inspectQueue: vi.fn().mockRejectedValue(new Error('PRIVATE_REDIS_ERROR')),
     })
     expect(result).toMatchObject({

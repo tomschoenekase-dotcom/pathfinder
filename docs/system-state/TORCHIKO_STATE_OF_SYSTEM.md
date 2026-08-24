@@ -279,7 +279,7 @@ Analytics records raw guest events, conversation behavior, answer analyses, clus
 
 AI costs are the best-instrumented variable cost. Model registries and usage events capture tokens, model/provider, latency, feature/workload, fallback, voice/audio and estimated cost; budgets and reservations bound spend. Storage, database, hosting, Sentry, email, antivirus, bandwidth, and human-review costs are not unified into unit economics. Exact AI prices can drift, so estimates must not be treated as invoices.
 
-An operator can inspect failed jobs, stuck agent/evaluation states, support work, AI incident mode, usage/cost, freshness, package/release status, and some low-confidence chat failures. Blind spots remain: external uptime, storage/ClamAV/email/provider health, worker heartbeat in the public health response, outbound event delivery, queue-depth alerts, cost anomaly notifications, latency/error trends across every dependency, and automated poor-answer detection from production conversations.
+An operator can inspect failed jobs, stuck agent/evaluation states, support work, AI incident mode, usage/cost, freshness, package/release status, and some low-confidence chat failures. The Founder Control Room now also shows authenticated service-readiness evidence for exact migrations, worker heartbeat, scheduler/provider-work mode, complete live queue observation, paused queues, and long-running work; the public health response intentionally remains a fast connectivity/deployment probe. Blind spots remain: external uptime, storage/ClamAV/email/provider execution health, outbound event delivery, policy-backed queue-depth alerts, cost anomaly notifications, latency/error trends across every dependency, and automated poor-answer detection from production conversations.
 
 ## Technical Debt / Drift
 
@@ -288,7 +288,7 @@ An operator can inspect failed jobs, stuck agent/evaluation states, support work
 3. **Application-only tenant enforcement:** strong tooling exists, but the large bypass/raw-SQL inventory is a permanent cognitive risk without database RLS or equivalent defense.
 4. **Naming/ownership drift:** Torchiko, PathFinder, Hermes and Tochi roles are inferable but not codified in one canonical architecture note; customer email still says PathFinder.
 5. **Schema-ahead behavior:** operational event delivery, outcome learning, billing and some structured response blocks imply capabilities their runtimes do not yet deliver; citations now have a bounded runtime but remain short of claim-level attribution.
-6. **Health-check gaps:** green web health proves only DB and Redis queue connectivity.
+6. **External readiness gaps:** authenticated core service readiness exists, but green web health still proves only DB/Redis connectivity and external provider/storage/email execution remains unproven.
 7. **Documentation fragmentation:** the README is thin on setup, while numerous packet/status documents contain historically useful but stale conclusions.
 8. **Deployment configuration overlap:** root Railway/Nixpacks and service Docker configurations coexist.
 9. **Floating local service images:** MinIO/ClamAV local tags are not reproducible.

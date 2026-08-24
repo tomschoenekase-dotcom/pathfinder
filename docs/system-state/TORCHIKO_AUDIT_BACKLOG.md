@@ -99,17 +99,17 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes** for high-severity events.
 - **Codex autonomous:** **Partly**; provider/account decisions require Tom.
 
-### P1.5 — Expand health from connectivity to service readiness
+### P1.5 — Expand health from connectivity to service readiness — PARTIALLY IMPLEMENTED 2026-08-24
 
-- **Problem:** `/api/health` checks only database and Redis queue connectivity. It can be green when workers, schedulers, storage, ClamAV, AI providers, email, or migrations are broken.
-- **Evidence:** `apps/web/app/api/health/route.ts`; live response during audit.
+- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, and canonical long-running work. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness.
+- **Evidence:** `packages/api/src/operations-readiness.ts`; `admin.operationsReadiness`; `/api/platform-worker/operations-readiness`; `OperationsReadinessSummary.tsx`; projection, HTTP, disposable integration, component, and accessibility tests.
 - **Affected system:** Deployment, observability, incident response.
-- **Recommended change:** Keep a fast liveness route, add authenticated readiness/operations checks for migration revision, worker heartbeat, scheduler freshness, queue age/depth, storage/ClamAV and recent provider outcomes; alert on SLOs rather than directly calling every provider on each request.
-- **Why it matters:** Operators currently cannot answer “are chats and background work actually working?” from the health endpoint.
+- **Remaining:** Provider execution, storage/ClamAV connectivity, email delivery, external uptime, SLO/threshold policy, and outbound alert delivery remain explicitly unproven. Add evidence-driven producers and alerts after the relevant external configuration/policy exists; do not synchronously call every provider from a health request.
+- **Why it matters:** Operators and agents can now distinguish connectivity from core operational readiness without making unsupported external-provider claims.
 - **Effort:** M
-- **Dependencies:** Heartbeat model and alert delivery.
+- **Dependencies:** External provider/configuration evidence and alert delivery for the retained gaps.
 - **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **Yes** for code/tests; deployment alerts need configuration.
+- **Codex autonomous:** **Implemented** for local code/tests and founder visibility; deployment alerts need configuration.
 
 ### P1.6 — Give clients a bounded insight and correction loop — IMPLEMENTED 2026-08-22
 

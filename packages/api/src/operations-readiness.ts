@@ -51,16 +51,24 @@ export function projectOperationsReadiness(input: {
   const { queue: persistedQueue, ...persisted } = input.persisted
   const liveQueueComplete =
     input.liveQueue.status === 'observed' && input.liveQueue.value.coverage.complete
+  const requirements = {
+    databaseConnected: input.database === 'up',
+    redisConnected: input.redis === 'up',
+    migrationParity: persisted.migration.parity,
+    workerHeartbeatFresh: persisted.worker.fresh,
+    schedulersEnabled: persisted.worker.fresh && persisted.worker.schedulersEnabled === true,
+    providerWorkEnabled: persisted.worker.fresh && persisted.worker.mode === 'provider-enabled',
+    allQueuesObserved: liveQueueComplete,
+    noQueuesPaused:
+      input.liveQueue.status === 'observed' &&
+      input.liveQueue.value.coverage.complete &&
+      input.liveQueue.value.pausedQueues === 0,
+    noStuckCriticalJobs: persisted.stuckCriticalJobs === 0,
+  }
   return {
-    schemaVersion: 'pathfinder.operations-readiness.v2',
-    status:
-      input.database === 'up' &&
-      input.redis === 'up' &&
-      persisted.migration.parity &&
-      persisted.worker.fresh &&
-      liveQueueComplete
-        ? ('ready' as const)
-        : ('degraded' as const),
+    schemaVersion: 'pathfinder.operations-readiness.v3',
+    status: Object.values(requirements).every(Boolean) ? ('ready' as const) : ('degraded' as const),
+    requirements,
     probes: { database: input.database, redis: input.redis },
     ...persisted,
     queue: {
@@ -85,6 +93,9 @@ export function projectOperationsReadiness(input: {
       payloadOrFailureDetailIncluded: false,
       retainedFailedCountIsCurrentIncident: false,
       providerExecutionProven: false,
+      objectStorageConnectivityProven: false,
+      malwareScannerConnectivityProven: false,
+      emailDeliveryProven: false,
       retryAuthorized: false,
       cancellationAuthorized: false,
       redriveAuthorized: false,

@@ -19,7 +19,7 @@ describe('platform worker operations readiness HTTP boundary', () => {
     })
     const audit = vi.fn()
     const resolve = vi.fn().mockResolvedValue({
-      schemaVersion: 'pathfinder.operations-readiness.v2',
+      schemaVersion: 'pathfinder.operations-readiness.v3',
       status: 'degraded',
       queue: {
         live: {
