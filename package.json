@@ -19,6 +19,7 @@
     "test:support-triage-application:disposable": "node scripts/run-disposable-support-triage-application.mjs",
     "test:support-information-request:disposable": "node scripts/run-disposable-support-information-request.mjs",
     "test:support-completion:disposable": "node scripts/run-disposable-support-completion.mjs",
+    "test:support-package-draft:disposable": "node scripts/run-disposable-support-package-draft.mjs",
     "test:agent-approval-policy:disposable": "node scripts/run-disposable-agent-approval-policy.mjs",
     "test:agent-bridge:disposable": "node scripts/run-disposable-agent-bridge.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",

@@ -150,6 +150,11 @@ locking, actor-bound command replay/collision, revision CAS, content-version con
 transactional audit. Approval binds the acknowledged payload and warning digests; apply and revert
 retain the V1/V2/V3 effect and rollback rules inside the same outer transaction. Never impersonate a
 tenant owner, split effects from final transition, or replace legacy rollback with V3 rules.
+Support-agent package authoring must use `createVenuePackageDraftService` with
+`supportAgentReviewedDraftFinalizer`; do not add a parallel package persistence path. The finalizer
+consumes the exact one-shot grant and creates the support handoff in the same transaction as the
+V3 `DRAFT`. Its authority ends there: package approval, application, publication, rollback, support
+status/triage, client activity, and external delivery remain outside the grant.
 Weekly-report configuration/edit/publish actions are similarly neutral, but generation dispatch is
 an orchestration concern and must reject an inverted range before any transaction. Client creation
 uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, block ambiguous retry,

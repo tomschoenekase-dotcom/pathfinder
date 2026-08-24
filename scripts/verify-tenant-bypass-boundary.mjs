@@ -63,6 +63,9 @@ const approvedCallCounts = new Map([
   // exact-venue scoped; approval and grant issuance remain atomic and do not execute the action.
   ['packages/api/src/routers/admin/support-open-policy.ts', 4],
   ['packages/api/src/routers/admin/support-completion-approval.ts', 1],
+  // Founder decision records and derives one exact DRAFT-only package grant atomically;
+  // the route cannot itself create, approve, apply, publish, or deliver a package.
+  ['packages/api/src/routers/admin/support-package-draft-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],

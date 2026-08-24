@@ -75,6 +75,18 @@ once, and move the request to `COMPLETED`. It cannot send email, add participant
 execute package work, or authorize later contact. Exact replays do not duplicate the message;
 parameter or version drift fails closed.
 
+Support-linked package authoring is a distinct DRAFT-only exact-parameter path. The proposal
+freezes the complete V3 payload, its derived operation breakdown, request ID/version/status,
+immutable draft key, evidence, and payload digest while creating no package, handoff, message, or
+support change. A founder decision atomically issues a one-shot `packages:draft` grant but executes
+nothing. Only `pathfinder.apply_support_package_draft` can consume that exact grant. It calls the
+canonical package-draft service and, in the same transaction as draft persistence, links the DRAFT
+to the unchanged support request with full agent/run/worker/credential/grant lineage. Exact replay
+returns the committed DRAFT and handoff without duplication; parameter drift fails closed. This
+authority cannot approve, apply, publish, or roll back the package, message the client, change
+request status or triage, increment client activity, or trigger external delivery. Those later
+package lifecycle transitions remain separately gated.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.
@@ -96,6 +108,7 @@ Disposable proof is available through:
 ```text
 pnpm test:agent-approval-policy:disposable
 pnpm test:support-completion:disposable
+pnpm test:support-package-draft:disposable
 ```
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact

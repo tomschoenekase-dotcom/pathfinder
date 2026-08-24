@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   decideTriage: vi.fn(),
   decideInformationRequest: vi.fn(),
   decideCompletion: vi.fn(),
+  decidePackageDraft: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -18,6 +19,7 @@ vi.mock('../../lib/trpc', () => ({
       decideSupportTriageProposal: { mutate: mocks.decideTriage },
       decideSupportInformationRequestProposal: { mutate: mocks.decideInformationRequest },
       decideSupportCompletionProposal: { mutate: mocks.decideCompletion },
+      decideSupportPackageDraftProposal: { mutate: mocks.decidePackageDraft },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -177,6 +179,40 @@ describe('ApprovalDecisionForm', () => {
     )
     expect(mocks.decideCompletion).toHaveBeenCalledWith({
       operationId: '44444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+  })
+
+  it('issues exact package-DRAFT authority without creating or applying content', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '55555555-5555-4555-8555-555555555555',
+    )
+    mocks.decidePackageDraft.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_package_draft"
+      />,
+    )
+    expect(screen.getByText(/create and link only the reviewed V3 package DRAFT/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(
+        screen.getByText(/no package was created, approved, applied, or published/),
+      ).toBeTruthy(),
+    )
+    expect(mocks.decidePackageDraft).toHaveBeenCalledWith({
+      operationId: '55555555-5555-4555-8555-555555555555',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       approvalRequestId: 'approval_1',

@@ -65,6 +65,7 @@ const expectedAdminProcedures = [
   'createVenuePackageManifestArtifact',
   'decideSupportCompletionProposal',
   'decideSupportInformationRequestProposal',
+  'decideSupportPackageDraftProposal',
   'decideSupportTriageProposal',
   'deleteProspectView',
   'disableAgentIdentity',

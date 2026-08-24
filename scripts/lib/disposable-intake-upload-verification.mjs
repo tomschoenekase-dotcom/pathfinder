@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|supporttriage|supportinfo|suppdone|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|support_triage|support_information|support_completion|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -856,6 +856,49 @@ export async function runDisposableSupportCompletionShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_SUPPORT_COMPLETION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableSupportPackageDraftShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'suppkg',
+      databasePrefix: 'pathfinder_disposable_support_package_draft_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_SUPPORT_PACKAGE_DRAFT_SHAKEDOWN',
+      lifecycleEvent: 'test:support-package-draft:disposable',
+      successAction: 'support-package-draft.disposable-shakedown.passed',
+      proofScope: [
+        'proposal-has-no-operational-effect',
+        'exact-v3-payload-and-operation-counts',
+        'founder-approval-before-authority',
+        'exact-one-shot-grant',
+        'canonical-package-draft-service',
+        'atomic-support-request-linkage',
+        'agent-attribution-and-lineage',
+        'idempotent-replay-without-duplicate-draft-or-handoff',
+        'parameter-drift-rejected',
+        'draft-only-without-approval-apply-publish-or-rollback',
+        'no-client-message-participant-or-version-effect',
+        'no-external-delivery',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/support-package-draft-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_SUPPORT_PACKAGE_DRAFT_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

@@ -8,6 +8,7 @@ import { adminAgentBridgeOperationsRouter } from './agent-bridge-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
+import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
@@ -91,6 +92,7 @@ export const adminRouter = mergeRouters(
   adminAgentIdentityConfigurationRouter,
   adminSupportOpenPolicyRouter,
   adminSupportCompletionApprovalRouter,
+  adminSupportDraftApprovalRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,

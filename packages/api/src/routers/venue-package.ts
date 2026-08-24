@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { AiGatewayError } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
+import type { MachineActorContext } from '@pathfinder/contracts/actor'
 import {
   LEGACY_AI_TONE_TO_PRESET,
   TONE_PRESET_BEHAVIOR_VERSION,
@@ -63,6 +64,9 @@ import { tenantProcedure } from '../trpc'
 
 type DbClient = TRPCContext['db']
 type PackagePayload = VenuePackagePayload
+type VenuePackageDraftActor =
+  | { type: 'HUMAN'; id: string; role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN' }
+  | MachineActorContext
 
 const venuePackageVenueSelect = {
   id: true,
@@ -1069,12 +1073,13 @@ async function runExplicitFinalizer(
 export async function createVenuePackageDraftService(request: {
   db: DbClient
   tenantId: string
-  actor: { type: 'HUMAN'; id: string; role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN' }
+  actor: VenuePackageDraftActor
   input: typeof VenuePackageDraftInput._output
   finalizer?: VenuePackageDraftFinalizer
   isolationLevel?: 'ReadCommitted' | 'Serializable'
 }) {
   const { db, tenantId, actor, input, finalizer } = request
+  const actorId = actor.type === 'AGENT' ? actor.actorId : actor.id
   await assertGlobalAiAvailable(db)
   const key = {
     tenantId,
@@ -1164,7 +1169,7 @@ export async function createVenuePackageDraftService(request: {
               baseDigest: finalPreview.baseDigest,
               validationReport: jsonValue(finalPreview.report),
               previewPlan: jsonValue(finalPreview),
-              createdBy: actor.id,
+              createdBy: actorId,
             },
             select: venuePackageSelect,
           })
@@ -1190,20 +1195,29 @@ export async function createVenuePackageDraftService(request: {
               result: jsonValue(finalPreview),
               usageEventIds: [],
               draftId: pkg.id,
-              createdBy: actor.id,
+              createdBy: actorId,
               completedAt: new Date(),
             },
           })
           await writeAuditLogStrict(
-            {
-              tenantId,
-              actorId: actor.id,
-              actorRole: actor.role,
-              action: 'venue-package.created-draft',
-              targetType: 'VenuePackage',
-              targetId: pkg.id,
-              afterState: auditState(pkg),
-            },
+            actor.type === 'AGENT'
+              ? {
+                  tenantId,
+                  actor,
+                  action: 'venue-package.created-draft',
+                  targetType: 'VenuePackage',
+                  targetId: pkg.id,
+                  afterState: auditState(pkg),
+                }
+              : {
+                  tenantId,
+                  actorId,
+                  actorRole: actor.role,
+                  action: 'venue-package.created-draft',
+                  targetType: 'VenuePackage',
+                  targetId: pkg.id,
+                  afterState: auditState(pkg),
+                },
             transaction as DbClient,
           )
           return {
@@ -1223,7 +1237,7 @@ export async function createVenuePackageDraftService(request: {
             claimToken,
             embeddingProfiles: jsonValue(VENUE_PACKAGE_SEMANTIC_PROFILES),
             similarityThreshold: VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
-            createdBy: actor.id,
+            createdBy: actorId,
           },
           select: { id: true },
         })
@@ -1412,7 +1426,7 @@ export async function createVenuePackageDraftService(request: {
             baseDigest: finalPreview.baseDigest,
             validationReport: jsonValue(finalPreview.report),
             previewPlan: jsonValue(finalPreview),
-            createdBy: actor.id,
+            createdBy: actorId,
           },
           select: venuePackageSelect,
         })
@@ -1444,15 +1458,24 @@ export async function createVenuePackageDraftService(request: {
           replayed: false,
         })
         await writeAuditLogStrict(
-          {
-            tenantId,
-            actorId: actor.id,
-            actorRole: actor.role,
-            action: 'venue-package.created-draft',
-            targetType: 'VenuePackage',
-            targetId: pkg.id,
-            afterState: auditState(pkg),
-          },
+          actor.type === 'AGENT'
+            ? {
+                tenantId,
+                actor,
+                action: 'venue-package.created-draft',
+                targetType: 'VenuePackage',
+                targetId: pkg.id,
+                afterState: auditState(pkg),
+              }
+            : {
+                tenantId,
+                actorId,
+                actorRole: actor.role,
+                action: 'venue-package.created-draft',
+                targetType: 'VenuePackage',
+                targetId: pkg.id,
+                afterState: auditState(pkg),
+              },
           transaction as DbClient,
         )
         await recordOrReplayOnboardingMilestoneEvent({
@@ -1464,8 +1487,8 @@ export async function createVenuePackageDraftService(request: {
             eventType: 'REVIEWABLE_PACKAGE',
             idempotencyKey: `venue-package:${pkg.id}:reviewable`,
             occurredAt: new Date(),
-            actorType: 'OPERATOR',
-            actorId: actor.id,
+            actorType: actor.type === 'AGENT' ? 'AGENT' : 'OPERATOR',
+            actorId,
             sourceType: 'VENUE_PACKAGE',
             sourceId: pkg.id,
             sourceRevision: finalPreview.payloadHash,

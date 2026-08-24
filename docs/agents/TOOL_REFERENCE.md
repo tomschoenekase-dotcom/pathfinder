@@ -23,6 +23,8 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.create_support_draft`             | Private internal support draft           | Operation UUID             | Verified approval grant                   | Bound; opening is a separate authority           |
 | `pathfinder.open_support_request`             | One internal `DRAFT` → `OPEN` transition | Operation UUID             | Evidence-backed one-use approval          | Bound; no participant/message/customer contact   |
 | `pathfinder.add_support_internal_note`        | One attachment-free internal note        | Operation UUID             | Evidence-backed one-use approval          | Bound; no client activity or lifecycle change    |
+| `pathfinder.propose_support_package_draft`    | Exact V3 package proposal only           | Operation UUID             | Creates a founder approval item           | Bound; creates no package or support change      |
+| `pathfinder.apply_support_package_draft`      | One linked V3 package `DRAFT`            | Operation UUID + draft key | Exact founder-approved one-shot grant     | Bound; never approves, applies, or publishes     |
 | `pathfinder.create_intake_notes_proposal`     | Reviewable onboarding-notes proposal     | Operation UUID             | Verified approval grant                   | Bound; extraction/application remain separate    |
 | `pathfinder.request_evaluation`               | Bounded evaluation request               | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding                |
 | `torchiko.account.get_context`                | Compact CRM/account context              | Safe repeat                | No                                        | Credential capability scoped                     |
@@ -70,6 +72,16 @@ credential-bound worker/run, an evidence-backed policy fixed to one use, and the
 version. It reuses the canonical support-message action but fixes visibility to `INTERNAL_ONLY`
 and attachments to empty. It is replay-safe, keeps client version/activity unchanged, and cannot
 contact a customer, add a participant, change status or triage, or execute package lifecycle work.
+
+`pathfinder.propose_support_package_draft` and `pathfinder.apply_support_package_draft` separate
+capability from execution policy. The proposal requires `packages:draft`, live credential-bound
+worker/run lineage, an unchanged `OPEN` or `IN_REVIEW` request with no unresolved information, and
+a schema-valid V3 payload whose operation breakdown is recomputed server-side. It creates only the
+approval evidence. Founder approval issues one exact grant but does not create a package. Apply
+revalidates the payload digest and operation counts, consumes the grant inside the canonical
+package transaction, creates one immutable `DRAFT`, and atomically links it to the support request
+with agent attribution. It is replay-safe and cannot approve/apply/publish/rollback the package,
+message or contact the client, change triage/status, or trigger external delivery.
 
 `pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
 and run, and an exact verified approval grant. It creates only a `NOTES` intake run in

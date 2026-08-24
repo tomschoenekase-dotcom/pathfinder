@@ -7,6 +7,8 @@ import {
   McpPackageDraftInput,
   McpSupportInformationRequestApplyInput,
   McpSupportCompletionApplyInput,
+  McpSupportPackageDraftApplyInput,
+  McpSupportPackageDraftProposalInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -207,6 +209,57 @@ describe('Torchiko MCP v0 contracts', () => {
         ?._meta['com.pathfinder/security'],
     ).toMatchObject({
       capability: 'support:complete',
+      approvalRequired: true,
+      defaultEnabled: false,
+    })
+  })
+
+  it('separates support package proposal from exact DRAFT-only application', () => {
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '44444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      draftKey: '55555555-5555-4555-8555-555555555555',
+      payload: {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      operationCounts: {
+        venuePatch: true,
+        placeCreates: 0,
+        placeUpdates: 0,
+        placeDeletes: 0,
+        knowledgeCreates: 0,
+        knowledgeUpdates: 0,
+        knowledgeDeletes: 0,
+        total: 1,
+      },
+    }
+    expect(McpSupportPackageDraftApplyInput.parse(input)).toEqual(input)
+    expect(
+      McpSupportPackageDraftProposalInput.parse({
+        ...input,
+        reason: 'The exact reviewed change is ready for a package draft.',
+      }),
+    ).toMatchObject({ reason: 'The exact reviewed change is ready for a package draft.' })
+    expect(() => McpSupportPackageDraftApplyInput.parse({ ...input, publish: true })).toThrow()
+    expect(
+      PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.propose_support_package_draft')
+        ?._meta['com.pathfinder/security'],
+    ).toMatchObject({ capability: 'packages:draft', approvalRequired: false })
+    expect(
+      PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.apply_support_package_draft')
+        ?._meta['com.pathfinder/security'],
+    ).toMatchObject({
+      capability: 'packages:draft',
+      effect: 'approved-transition',
       approvalRequired: true,
       defaultEnabled: false,
     })

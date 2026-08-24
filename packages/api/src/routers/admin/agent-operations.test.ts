@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   issueApprovalGrant: vi.fn(),
   revokeApprovalGrant: vi.fn(),
   recordDecision: vi.fn(),
+  supportPackageDraftPayloadHash: vi.fn(),
   createIdentity: vi.fn(),
   editIdentity: vi.fn(),
   disableIdentity: vi.fn(),
@@ -61,6 +62,7 @@ vi.mock('@pathfinder/db', () => ({
   issueApprovalGrantAction: mocks.issueApprovalGrant,
   revokeApprovalGrantAction: mocks.revokeApprovalGrant,
   recordApprovalDecisionAction: mocks.recordDecision,
+  supportPackageDraftPayloadHash: mocks.supportPackageDraftPayloadHash,
   createDisabledAgentIdentity: mocks.createIdentity,
   editDisabledAgentIdentity: mocks.editIdentity,
   disableAgentIdentity: mocks.disableIdentity,
@@ -91,6 +93,7 @@ import { adminAgentIdentityConfigurationRouter } from './agent-identity-configur
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminSupportOpenPolicyRouter } from './support-open-policy'
 import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
+import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 
 const testRouter = router({
   agentOperations: mergeRouters(
@@ -100,6 +103,7 @@ const testRouter = router({
     adminAgentRunCancellationRouter,
     adminSupportOpenPolicyRouter,
     adminSupportCompletionApprovalRouter,
+    adminSupportDraftApprovalRouter,
   ),
 })
 
@@ -119,6 +123,9 @@ function context(isPlatformAdmin = true): TRPCContext {
 describe('admin agent operations router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.supportPackageDraftPayloadHash.mockReturnValue(
+      'e5efbd87162cf2f0e6f2cc81a555123bf9f45809d526c64619e6ec68ef6ad29a',
+    )
     mocks.dbTransaction.mockImplementation(async (operation) =>
       operation({
         approvalRequest: { findFirst: mocks.transactionApprovalFindFirst },
@@ -655,6 +662,88 @@ describe('admin agent operations router', () => {
           body: 'Your requested venue update is complete.',
         },
         approvalDecisionId: 'decision_completion_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('derives exact one-shot package-draft authority without executing the package', async () => {
+    const payload = {
+      schemaVersion: 3,
+      venue: { identity: { name: 'Reviewed venue name' } },
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
+    const operationCounts = {
+      venuePatch: true,
+      placeCreates: 0,
+      placeUpdates: 0,
+      placeDeletes: 0,
+      knowledgeCreates: 0,
+      knowledgeUpdates: 0,
+      knowledgeDeletes: 0,
+      total: 1,
+    }
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_package_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_package_draft',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 5,
+        fromStatus: 'IN_REVIEW',
+        draftKey: '33333333-3333-4333-8333-333333333333',
+        payload,
+        proposalPayloadHash: 'e5efbd87162cf2f0e6f2cc81a555123bf9f45809d526c64619e6ec68ef6ad29a',
+        operationCounts,
+        missingInformationCount: 0,
+        packageDraftCreated: false,
+        packageLinked: false,
+        packageApproved: false,
+        packageApplied: false,
+        packagePublished: false,
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_package_1', decision: 'APPROVED' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_package_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportPackageDraftProposal({
+        operationId: '60444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_package_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_package_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_draft',
+        capability: 'packages:draft',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({ effect: 'EXACT_SUPPORT_LINKED_V3_DRAFT_ONLY' }),
+        parameters: expect.objectContaining({
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          requestId: 'request_1',
+          expectedVersion: 5,
+          draftKey: '33333333-3333-4333-8333-333333333333',
+          payload,
+          operationCounts,
+        }),
+        approvalDecisionId: 'decision_package_1',
       }),
       expect.anything(),
     )

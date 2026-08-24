@@ -1,5 +1,6 @@
 import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
+import { z } from 'zod'
 import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
@@ -28,6 +29,8 @@ import {
   prepareSupportInformationRequestProposalAction,
   requestSupportInformationAction,
   prepareSupportCompletionProposalAction,
+  prepareSupportPackageDraftProposalAction,
+  supportPackageDraftPayloadHash,
   completeSupportRequestAction,
   triageSupportRequestAction,
   proposeKnowledgeCorrectionAction,
@@ -38,7 +41,10 @@ import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
+import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-finalizers'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { VenuePackagePayloadV3 } from '../schemas/venue-package'
+import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
 import { requestWeeklyReportDraftAction } from '../lib/weekly-report-generation'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
@@ -65,6 +71,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_information_request',
   'pathfinder.propose_support_completion',
   'pathfinder.apply_support_completion',
+  'pathfinder.propose_support_package_draft',
+  'pathfinder.apply_support_package_draft',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -95,6 +103,39 @@ function jsonData(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue
 }
 
+function supportPackageOperationCounts(payload: z.infer<typeof VenuePackagePayloadV3>) {
+  return {
+    venuePatch: payload.venue !== undefined,
+    placeCreates: payload.places.create.length,
+    placeUpdates: payload.places.update.length,
+    placeDeletes: payload.places.delete.length,
+    knowledgeCreates: payload.knowledgeEntries.create.length,
+    knowledgeUpdates: payload.knowledgeEntries.update.length,
+    knowledgeDeletes: payload.knowledgeEntries.delete.length,
+    total:
+      (payload.venue === undefined ? 0 : 1) +
+      payload.places.create.length +
+      payload.places.update.length +
+      payload.places.delete.length +
+      payload.knowledgeEntries.create.length +
+      payload.knowledgeEntries.update.length +
+      payload.knowledgeEntries.delete.length,
+  }
+}
+
+function assertSupportPackageOperationCounts(
+  payload: z.infer<typeof VenuePackagePayloadV3>,
+  supplied: ReturnType<typeof supportPackageOperationCounts>,
+) {
+  const derived = supportPackageOperationCounts(payload)
+  for (const key of Object.keys(derived) as Array<keyof typeof derived>) {
+    if (derived[key] !== supplied[key]) {
+      throw new McpActionBindingError('Package operation counts do not match the V3 payload')
+    }
+  }
+  return derived
+}
+
 /**
  * Production composition for the safe operational catalog. It reuses canonical reads and durable
  * agent interactions. Only writes with canonical machine attribution and exact approval
@@ -121,6 +162,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportInformationRequest'
     | 'proposeSupportCompletion'
     | 'applySupportCompletion'
+    | 'proposeSupportPackageDraft'
+    | 'applySupportPackageDraft'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -158,6 +201,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportInformationRequest'
     | 'proposeSupportCompletion'
     | 'applySupportCompletion'
+    | 'proposeSupportPackageDraft'
+    | 'applySupportPackageDraft'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1399,6 +1444,234 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           triageChanged: false,
           packageLifecycleChanged: false,
           executionTriggered: false,
+        }),
+      }
+    },
+    async proposeSupportPackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package-draft proposals require venue scope')
+      const payload = VenuePackagePayloadV3.safeParse(input.payload)
+      if (!payload.success) {
+        throw new McpActionBindingError(
+          payload.error.issues[0]?.message ?? 'Support package draft requires a valid V3 payload',
+        )
+      }
+      const operationCounts = assertSupportPackageOperationCounts(
+        payload.data,
+        input.operationCounts,
+      )
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'packages:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified package-draft worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified package-draft worker run is unavailable')
+      const result = await prepareSupportPackageDraftProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          fromStatus: input.fromStatus,
+          draftKey: input.draftKey,
+          payload: payload.data,
+          operationCounts,
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: 'packages:draft',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-package-draft.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Support package draft needs review',
+            summary: `An AI worker prepared an exact ${operationCounts.total}-operation V3 package patch. No package or public change exists yet.`,
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the exact V3 payload, support-request version, source evidence, and operation counts. Approval issues one-shot DRAFT-only authority; application remains separate.',
+            deduplicationKey: `support-package-draft-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-package-draft-proposal',
+        summary: result.replayed
+          ? 'Existing support package-draft proposal returned; no package or public change was created.'
+          : 'Granular support package prepared for human review; no package or public change was created.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          proposalPayloadHash: result.proposalPayloadHash,
+          operationCounts,
+          replayed: result.replayed,
+          approvalRequired: true,
+          separateApplicationRequired: true,
+          packageDraftCreated: false,
+          packageLinked: false,
+          packageApproved: false,
+          packageApplied: false,
+          packagePublished: false,
+          supportRequestChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportPackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package-draft application requires venue scope')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const payload = VenuePackagePayloadV3.safeParse(input.payload)
+      if (!payload.success) {
+        throw new McpActionBindingError(
+          payload.error.issues[0]?.message ?? 'Support package draft requires a valid V3 payload',
+        )
+      }
+      const operationCounts = assertSupportPackageOperationCounts(
+        payload.data,
+        input.operationCounts,
+      )
+      const proposalPayloadHash = supportPackageDraftPayloadHash(payload.data)
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'packages:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified package-draft worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified package-draft worker run is unavailable')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'packages:draft',
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await createVenuePackageDraftService({
+        db: database,
+        tenantId: context.credential.tenantId,
+        actor,
+        input: { venueId, draftKey: input.draftKey, payload: payload.data },
+        finalizer: supportAgentReviewedDraftFinalizer({
+          actor,
+          operationId: input.operationId,
+          supportRequestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          fromStatus: input.fromStatus,
+          draftKey: input.draftKey,
+          payload: payload.data,
+          proposalPayloadHash,
+          operationCounts,
+        }),
+      })
+      const attachment = z
+        .object({
+          packageId: z.string().min(1),
+          handoffId: z.string().min(1),
+          requestVersion: z.number().int().positive(),
+          replayed: z.boolean(),
+        })
+        .strict()
+        .parse(result.attachment)
+      return {
+        kind: 'torchiko.support-package-draft-applied',
+        summary: result.value.replayed
+          ? 'Existing approved support-linked package DRAFT returned; no duplicate package or handoff was created.'
+          : 'Exact approved V3 package DRAFT created and linked for operator review.',
+        data: jsonData({
+          packageId: result.value.id,
+          packageStatus: result.value.status,
+          packagePayloadHash: result.value.payloadHash,
+          proposalPayloadHash,
+          supportPackageHandoffId: attachment.handoffId,
+          requestId: input.requestId,
+          requestVersion: attachment.requestVersion,
+          operationCounts,
+          replayed: result.value.replayed,
+          packageDraftCreated: true,
+          packageLinked: true,
+          packageApproved: false,
+          packageApplied: false,
+          packagePublished: false,
+          supportRequestStatusChanged: false,
+          triageChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
         }),
       }
     },

@@ -13,6 +13,8 @@ export const SUPPORT_INFORMATION_REQUEST_APPLY_ACTION =
 export const SUPPORT_INFORMATION_REQUEST_CAPABILITY = 'support:request-information' as const
 export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const
 export const SUPPORT_COMPLETION_CAPABILITY = 'support:complete' as const
+export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const
+export const SUPPORT_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -307,6 +309,85 @@ export const SupportCompletionProposalApprovalSnapshot = z
 
 export type SupportCompletionProposalApprovalSnapshot = z.infer<
   typeof SupportCompletionProposalApprovalSnapshot
+>
+
+const SupportPackageDraftOperationCounts = z
+  .object({
+    venuePatch: z.boolean(),
+    placeCreates: z.number().int().nonnegative(),
+    placeUpdates: z.number().int().nonnegative(),
+    placeDeletes: z.number().int().nonnegative(),
+    knowledgeCreates: z.number().int().nonnegative(),
+    knowledgeUpdates: z.number().int().nonnegative(),
+    knowledgeDeletes: z.number().int().nonnegative(),
+    total: z.number().int().positive().max(500),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const total =
+      (value.venuePatch ? 1 : 0) +
+      value.placeCreates +
+      value.placeUpdates +
+      value.placeDeletes +
+      value.knowledgeCreates +
+      value.knowledgeUpdates +
+      value.knowledgeDeletes
+    if (total !== value.total) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['total'],
+        message: 'Package operation total does not match its reviewed breakdown.',
+      })
+    }
+  })
+
+/** Exact one-shot authority derived from an approved support package-draft proposal.
+ * Application may create and link one immutable V3 DRAFT only. It cannot approve,
+ * apply, publish, roll back, contact the client, or change request status/triage. */
+export const SupportPackageDraftApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    draftKey: z.string().uuid(),
+    payload: z.record(z.unknown()),
+    proposalPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    operationCounts: SupportPackageDraftOperationCounts,
+  })
+  .strict()
+
+export type SupportPackageDraftApplyParameters = z.infer<typeof SupportPackageDraftApplyParameters>
+
+export const SupportPackageDraftProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    draftKey: z.string().uuid(),
+    payload: z.record(z.unknown()),
+    proposalPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    operationCounts: SupportPackageDraftOperationCounts,
+    missingInformationCount: z.literal(0),
+    packageDraftCreated: z.literal(false),
+    packageLinked: z.literal(false),
+    packageApproved: z.literal(false),
+    packageApplied: z.literal(false),
+    packagePublished: z.literal(false),
+    supportRequestChanged: z.literal(false),
+    clientActivityChanged: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportPackageDraftProposalApprovalSnapshot = z.infer<
+  typeof SupportPackageDraftProposalApprovalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

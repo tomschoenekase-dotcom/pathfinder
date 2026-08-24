@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { SupportPackageDraftApplyParameters } from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
 
@@ -693,6 +694,40 @@ export type McpSupportInformationRequestApplyInput = z.infer<
   typeof McpSupportInformationRequestApplyInput
 >
 
+const SupportPackageDraftFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  draftKey: z.string().uuid(),
+  payload: z.record(JsonValue),
+  operationCounts: SupportPackageDraftApplyParameters.shape.operationCounts,
+}
+
+export const McpSupportPackageDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageDraftFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageDraftProposalInput = z.infer<
+  typeof McpSupportPackageDraftProposalInput
+>
+
+export const McpSupportPackageDraftApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageDraftFields,
+}).strict()
+export type McpSupportPackageDraftApplyInput = z.infer<typeof McpSupportPackageDraftApplyInput>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1009,6 +1044,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.apply_support_information_request'
   | 'pathfinder.propose_support_completion'
   | 'pathfinder.apply_support_completion'
+  | 'pathfinder.propose_support_package_draft'
+  | 'pathfinder.apply_support_package_draft'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1667,6 +1704,154 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'support:complete', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_draft',
+    title: 'Propose a granular support package draft',
+    description:
+      'Prepare one exact V3 package-patch payload and unchanged support-request version for human review. It creates no package, handoff, message, public change, or external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        draftKey: { type: 'string', format: 'uuid' },
+        payload: { type: 'object', additionalProperties: true },
+        operationCounts: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'venuePatch',
+            'placeCreates',
+            'placeUpdates',
+            'placeDeletes',
+            'knowledgeCreates',
+            'knowledgeUpdates',
+            'knowledgeDeletes',
+            'total',
+          ],
+          properties: {
+            venuePatch: { type: 'boolean' },
+            placeCreates: { type: 'integer', minimum: 0 },
+            placeUpdates: { type: 'integer', minimum: 0 },
+            placeDeletes: { type: 'integer', minimum: 0 },
+            knowledgeCreates: { type: 'integer', minimum: 0 },
+            knowledgeUpdates: { type: 'integer', minimum: 0 },
+            knowledgeDeletes: { type: 'integer', minimum: 0 },
+            total: { type: 'integer', minimum: 1, maximum: 500 },
+          },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'draftKey',
+        'payload',
+        'operationCounts',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_draft',
+    title: 'Create an approved support package draft',
+    description:
+      'Create and link the exact reviewed V3 package as DRAFT under a one-shot grant. It cannot approve, apply, publish, or roll back the package; message the client; or alter request status or triage.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        draftKey: { type: 'string', format: 'uuid' },
+        payload: { type: 'object', additionalProperties: true },
+        operationCounts: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'venuePatch',
+            'placeCreates',
+            'placeUpdates',
+            'placeDeletes',
+            'knowledgeCreates',
+            'knowledgeUpdates',
+            'knowledgeDeletes',
+            'total',
+          ],
+          properties: {
+            venuePatch: { type: 'boolean' },
+            placeCreates: { type: 'integer', minimum: 0 },
+            placeUpdates: { type: 'integer', minimum: 0 },
+            placeDeletes: { type: 'integer', minimum: 0 },
+            knowledgeCreates: { type: 'integer', minimum: 0 },
+            knowledgeUpdates: { type: 'integer', minimum: 0 },
+            knowledgeDeletes: { type: 'integer', minimum: 0 },
+            total: { type: 'integer', minimum: 1, maximum: 500 },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'draftKey',
+        'payload',
+        'operationCounts',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:draft', 'approved-transition'),
     },
   },
   {

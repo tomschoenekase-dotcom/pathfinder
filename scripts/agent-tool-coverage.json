@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 407,
-    "sha256": "010efb0a576021ff12fa7d651e455c806762c337faa7b6ce715a8b88ce42c1be",
+    "count": 408,
+    "sha256": "e636722d618936b972f995dfebbadc7d90108f39e6f82d9e3b8e0407ba757fc1",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "010efb0a576021ff12fa7d651e455c806762c337faa7b6ce715a8b88ce42c1be",
-      "sha256": "6a45f19beedb43b2903ac17b6babcc16051fe2fcb25dfed43f3aa645427c983e"
+      "operationInventorySha256": "e636722d618936b972f995dfebbadc7d90108f39e6f82d9e3b8e0407ba757fc1",
+      "sha256": "e2e900c200a8a7e776dc93005d8b0fbd3536a30d94e28d030b4dab6e92aeeb2f"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -296,6 +296,17 @@
         ],
         "decision": "The proposal freezes one exact completion message against an unchanged OPEN or IN_REVIEW request only after its missing-information checklist is empty, without contact. The separate application tool consumes only a founder-approved exact one-shot grant and reuses the canonical support action to create one client-visible completion message and move that request to COMPLETED; it cannot email, add participants, alter triage, execute packages, or authorize later contact.",
         "evidence": "packages/db/src/helpers/support-completion-disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-package-draft-lifecycle",
+        "kind": "bounded-alternative",
+        "operations": ["admin.createAndLinkSupportReviewedVenuePackageDraft"],
+        "surfaces": [
+          "tool:pathfinder.propose_support_package_draft",
+          "tool:pathfinder.apply_support_package_draft"
+        ],
+        "decision": "The proposal freezes one exact V3 payload, operation breakdown, unchanged support-request version, and immutable draft key without creating a package or handoff. Founder approval issues no execution itself. The separate application tool consumes only the exact one-shot grant and reuses the canonical package-draft service plus atomic support finalizer to create and link one DRAFT; it cannot approve, apply, publish, roll back, message the client, alter triage or status, or deliver externally.",
+        "evidence": "packages/api/src/support-package-draft-disposable.integration.test.ts"
       },
       {
         "id": "bounded-update-reads",

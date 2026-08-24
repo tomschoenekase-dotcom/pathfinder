@@ -384,6 +384,13 @@ export {
   type PrepareSupportCompletionProposalInput,
   type SupportCompletionProposalActionErrorCode,
 } from './helpers/support-completion-proposal-actions'
+export {
+  prepareSupportPackageDraftProposalAction,
+  supportPackageDraftPayloadHash,
+  SupportPackageDraftProposalActionError,
+  type PrepareSupportPackageDraftProposalInput,
+  type SupportPackageDraftProposalActionErrorCode,
+} from './helpers/support-package-draft-proposal-actions'
 export type {
   PreviewFeedbackEligibilityAssertion,
   SupportActionActor,

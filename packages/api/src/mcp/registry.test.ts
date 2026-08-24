@@ -51,6 +51,8 @@ function actions(): PathfinderMcpDomainActions {
     applySupportInformationRequest: vi.fn().mockResolvedValue(result),
     proposeSupportCompletion: vi.fn().mockResolvedValue(result),
     applySupportCompletion: vi.fn().mockResolvedValue(result),
+    proposeSupportPackageDraft: vi.fn().mockResolvedValue(result),
+    applySupportPackageDraft: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
@@ -394,6 +396,62 @@ describe('PathFinder MCP server-side adapter registry', () => {
         { credential },
       ),
     ).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' })
+  })
+
+  it('routes package-draft proposals without a grant and verifies application before dispatch', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const exact = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '44444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      draftKey: '55555555-5555-4555-8555-555555555555',
+      payload: {
+        schemaVersion: 3,
+        venue: { identity: { name: 'Reviewed venue name' } },
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      operationCounts: {
+        venuePatch: true,
+        placeCreates: 0,
+        placeUpdates: 0,
+        placeDeletes: 0,
+        knowledgeCreates: 0,
+        knowledgeUpdates: 0,
+        knowledgeDeletes: 0,
+        total: 1,
+      },
+    }
+    await registry.callTool(
+      'pathfinder.propose_support_package_draft',
+      { ...exact, reason: 'The exact reviewed change is ready for one package draft.' },
+      { credential },
+    )
+    expect(domain.proposeSupportPackageDraft).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+
+    await registry.callTool('pathfinder.apply_support_package_draft', exact, {
+      credential,
+      approvalGrantId: 'grant-package-1',
+    })
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-package-1',
+        toolName: 'pathfinder.apply_support_package_draft',
+        capability: 'packages:draft',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.applySupportPackageDraft).toHaveBeenCalledOnce()
   })
 
   it('allows a scoped operator question without converting it into an approval or write grant', async () => {
