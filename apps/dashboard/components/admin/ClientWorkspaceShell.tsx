@@ -24,6 +24,7 @@ type ClientWorkspaceShellProps = {
   }
   venues: WorkspaceVenue[]
   billingAvailable?: boolean
+  routePathname?: string
 }
 
 type NavigationItem = {
@@ -33,8 +34,7 @@ type NavigationItem = {
   exact?: boolean
 }
 
-function WorkspaceLink({ item }: { item: NavigationItem }) {
-  const pathname = usePathname()
+function WorkspaceLink({ item, pathname }: { item: NavigationItem; pathname: string }) {
   const active = item.exact
     ? pathname === item.href
     : pathname === item.href || pathname.startsWith(`${item.href}/`)
@@ -43,7 +43,7 @@ function WorkspaceLink({ item }: { item: NavigationItem }) {
     <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
-      className={`group block rounded-xl border px-3 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
+      className={`group block shrink-0 whitespace-nowrap rounded-xl border px-3 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent lg:whitespace-normal ${
         active
           ? 'border-pf-primary/20 bg-pf-primary text-white shadow-sm'
           : 'border-transparent text-pf-deep/70 hover:border-pf-light hover:bg-white hover:text-pf-deep'
@@ -59,15 +59,23 @@ function WorkspaceLink({ item }: { item: NavigationItem }) {
   )
 }
 
-function NavigationGroup({ label, items }: { label: string; items: NavigationItem[] }) {
+function NavigationGroup({
+  label,
+  items,
+  pathname,
+}: {
+  label: string
+  items: NavigationItem[]
+  pathname: string
+}) {
   return (
-    <div className="min-w-[10rem] space-y-1 lg:min-w-0">
-      <p className="px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70">
+    <div className="contents lg:block lg:min-w-0 lg:space-y-1">
+      <p className="hidden px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70 lg:block">
         {label}
       </p>
-      <div className="space-y-1">
+      <div className="contents lg:block lg:space-y-1">
         {items.map((item) => (
-          <WorkspaceLink key={item.href} item={item} />
+          <WorkspaceLink key={item.href} item={item} pathname={pathname} />
         ))}
       </div>
     </div>
@@ -79,8 +87,10 @@ export function ClientWorkspaceShell({
   client,
   venues,
   billingAvailable = false,
+  routePathname,
 }: ClientWorkspaceShellProps) {
-  const pathname = usePathname()
+  const livePathname = usePathname()
+  const pathname = routePathname ?? livePathname
   const selectedVenue =
     venues.find((venue) => {
       const venuePath = `/venues/${venue.id}`
@@ -303,17 +313,17 @@ export function ClientWorkspaceShell({
 
         <div className="grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
           <aside
-            className="border-b border-pf-light bg-pf-surface/60 p-3 lg:border-b-0 lg:border-r lg:p-4"
+            className="min-w-0 border-b border-pf-light bg-pf-surface/60 p-3 lg:border-b-0 lg:border-r lg:p-4"
             aria-label="Workspace navigation"
           >
-            <div className="flex gap-3 overflow-x-auto pb-1 lg:block lg:space-y-5 lg:overflow-visible lg:pb-0">
-              <NavigationGroup label="Client" items={clientNavigation} />
+            <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 lg:block lg:space-y-5 lg:overflow-visible lg:pb-0">
+              <NavigationGroup label="Client" items={clientNavigation} pathname={pathname} />
 
-              <div className="min-w-[12rem] lg:min-w-0">
-                <p className="px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70">
+              <div className="contents lg:block lg:min-w-0">
+                <p className="hidden px-3 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-pf-deep/70 lg:block">
                   Venues
                 </p>
-                <div className="mt-1 space-y-1">
+                <div className="contents lg:mt-1 lg:block lg:space-y-1">
                   {venues.map((venue) => {
                     const active = selectedVenue?.id === venue.id
                     return (
@@ -321,7 +331,7 @@ export function ClientWorkspaceShell({
                         key={venue.id}
                         href={`${clientRoot}/venues/${venue.id}`}
                         aria-current={active ? 'page' : undefined}
-                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
+                        className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent lg:whitespace-normal ${
                           active
                             ? 'bg-white text-pf-primary shadow-sm ring-1 ring-pf-light'
                             : 'text-pf-deep/75 hover:bg-white hover:text-pf-deep'
@@ -342,10 +352,18 @@ export function ClientWorkspaceShell({
               </div>
 
               {venueRoot ? (
-                <NavigationGroup label="Build & manage" items={venueBuildNavigation} />
+                <NavigationGroup
+                  label="Build & manage"
+                  items={venueBuildNavigation}
+                  pathname={pathname}
+                />
               ) : null}
               {venueRoot ? (
-                <NavigationGroup label="Observe & improve" items={venueInsightNavigation} />
+                <NavigationGroup
+                  label="Observe & improve"
+                  items={venueInsightNavigation}
+                  pathname={pathname}
+                />
               ) : null}
             </div>
           </aside>

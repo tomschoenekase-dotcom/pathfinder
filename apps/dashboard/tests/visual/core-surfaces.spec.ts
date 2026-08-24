@@ -148,3 +148,66 @@ test('remote onboarding questions remain clear and keyboard reachable', async ({
   await saveViewportEvidence(page, testInfo, 'remote-onboarding-questions')
   expect(runtimeErrors).toEqual([])
 })
+
+test('Founder Control Room shell is responsive and restores mobile navigation focus', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/authenticated-operations?surface=admin`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="authenticated-operations"][data-fixture-surface="admin"]'),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Founder Control Room' })).toBeVisible()
+  await expect(page.getByText('Pricing and production release remain founder-gated.')).toBeVisible()
+
+  const navigationTrigger = page.getByRole('button', { name: 'Open navigation' })
+  if (await navigationTrigger.isVisible()) {
+    await navigationTrigger.focus()
+    await navigationTrigger.press('Enter')
+    await expect(page.getByRole('navigation', { name: 'Torchiko OS navigation' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Control room' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await page.keyboard.press('Escape')
+    await expect(navigationTrigger).toBeFocused()
+  } else {
+    const search = page.getByRole('button', { name: 'Search Admin OS' })
+    await search.focus()
+    await search.press('Enter')
+    await expect(page.getByRole('dialog', { name: 'Admin OS command search' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close search' }).click()
+    await expect(search).toBeFocused()
+  }
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'founder-control-room')
+  expect(runtimeErrors).toEqual([])
+})
+
+test('exact-scoped Internal Workspace remains usable across real browser widths', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/authenticated-operations?surface=workspace`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="authenticated-operations"][data-fixture-surface="workspace"]'),
+  ).toBeVisible()
+  await expect(page.getByText('Venue scope')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Harbor Discovery Museum' })).toBeVisible()
+  const contentLink = page.getByRole('link', { name: /Universal content/ })
+  await expect(contentLink).toHaveAttribute('aria-current', 'page')
+  await contentLink.focus()
+  await expect(contentLink).toBeFocused()
+  await expect(page.getByText('Superseded and excluded from guest answers')).toBeVisible()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'internal-workspace-content')
+  expect(runtimeErrors).toEqual([])
+})

@@ -26,6 +26,7 @@ import { AdminCommandPalette } from './AdminCommandPalette'
 
 type AdminSectionShellProps = {
   children: ReactNode
+  routePathname?: string
 }
 
 const navigationItems = [
@@ -43,8 +44,9 @@ function isActivePath(pathname: string, href: string, exact?: boolean) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function AdminSectionShell({ children }: AdminSectionShellProps) {
-  const pathname = usePathname()
+export function AdminSectionShell({ children, routePathname }: AdminSectionShellProps) {
+  const livePathname = usePathname()
+  const pathname = routePathname ?? livePathname
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileCloseRef = useRef<HTMLButtonElement>(null)
   const mobileTriggerRef = useRef<HTMLButtonElement>(null)
@@ -124,7 +126,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
       <div className="space-y-2 border-t border-slate-800 p-4">
         <Link
           href="/admin/new"
-          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-500 px-3 text-sm font-semibold text-white transition hover:bg-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-700 px-3 text-sm font-semibold text-white transition hover:bg-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           New client
@@ -187,7 +189,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </button>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
                   Founder operations
                 </p>
                 <p className="text-sm font-semibold text-slate-900">Platform scope</p>

@@ -190,10 +190,10 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.2 — Add a real mobile visual smoke suite
 
-- **Status (2026-08-23):** **Locally closed for the named synthetic journeys.** `pnpm test:visual-browser` now runs nine real-Chromium smokes at phone/tablet/desktop widths.
-- **Evidence:** Guest route planning, the single-venue client portal and remote onboarding now receive interaction, keyboard-focus, horizontal-overflow, console/page-error, browser axe (including contrast), and screenshot checks.
+- **Status (2026-08-24):** **Locally closed for five named synthetic journeys.** `pnpm test:visual-browser` now runs fifteen real-Chromium smokes at phone/tablet/desktop widths.
+- **Evidence:** Guest route planning, the single-venue client portal, remote onboarding, the Founder Control Room shell, and an exact-scoped Internal Workspace now receive interaction, keyboard-focus, horizontal-overflow, console/page-error, browser axe (including contrast), and screenshot checks. The operator journeys verify exact active navigation; the mobile Founder shell additionally proves drawer operation, Escape dismissal, and focus restoration.
 - **Affected system:** Public chat, onboarding, client/admin UI.
-- **Recommended next change:** Extend the same gate to authenticated Admin OS/Internal Workspace journeys and retain separately authorized deployed/real-device evidence.
+- **Recommended next change:** Retain separately authorized Clerk authentication, deployed-origin, real-device, screen-reader, zoom, and high-contrast evidence. The local fixtures exercise post-authentication production shells but do not bypass or claim Clerk authentication proof.
 - **Why it matters:** The guest experience will often be mobile and embedded.
 - **Effort:** M
 - **Dependencies:** Stable fixture data and CI browser runtime.
