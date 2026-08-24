@@ -53,6 +53,8 @@
     "verify:public-surfaces": "node scripts/verify-public-surface-boundary.mjs",
     "verify:agent-tools": "node scripts/torchiko.mjs tools coverage --json",
     "verify:agent-scenarios": "node scripts/torchiko.mjs scenarios validate --json",
+    "repository:index": "node scripts/generate-repository-index.mjs",
+    "repository:index:verify": "node scripts/generate-repository-index.mjs --check",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prepare": "husky"
   },

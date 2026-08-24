@@ -49,6 +49,7 @@ test('candidate profile is a strict superset of static release gates', () => {
   const staticIds = buildReleaseGates('static').map(([id]) => id)
   const candidateIds = buildReleaseGates('candidate').map(([id]) => id)
   assert.deepEqual(candidateIds.slice(0, staticIds.length), staticIds)
+  assert.ok(staticIds.includes('repository-onboarding'))
   assert.ok(candidateIds.includes('test'))
   assert.ok(candidateIds.includes('build'))
   assert.ok(candidateIds.includes('visual-browser'))

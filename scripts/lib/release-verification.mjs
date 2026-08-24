@@ -7,6 +7,7 @@ import { validateReleaseSha, verifyStagingHealth } from './staging-health-admiss
 const PROFILES = new Set(['static', 'candidate', 'staging'])
 
 const staticGates = [
+  ['repository-onboarding', ['pnpm', 'repository:index:verify']],
   ['staging-config', ['node', 'scripts/verify-staging-config.mjs']],
   ['public-surfaces', ['node', 'scripts/verify-public-surface-boundary.mjs']],
   ['ai-provider-boundary', ['node', 'scripts/verify-ai-provider-boundary.mjs']],

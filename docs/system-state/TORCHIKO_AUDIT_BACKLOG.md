@@ -250,10 +250,11 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.7 — Improve repository onboarding and doc discoverability
 
-- **Problem:** The README identifies workspaces but omits the full install/env/migrate/local-staging/debug path; historical packet docs can outrank current truth.
-- **Evidence:** `README.md`, many `docs/task-packets` and execution-status files, scripts/package commands.
+- **Status:** **LOCALLY RESOLVED 2026-08-24.** The README now routes directly to a concise safe onboarding guide covering install, deterministic verification, provider-dark local staging, release/handoff, current-truth precedence, and debugging. A generated command/configuration index inventories every root command and documented environment name without retaining values; the static release profile fails closed when it drifts.
+- **Historical problem:** The README identified workspaces but omitted the full install/env/migrate/local-staging/debug path; historical packet docs could outrank current truth.
+- **Evidence:** `README.md`; `docs/repository-onboarding.md`; generated `docs/repository-command-index.md`; generator and deterministic/redaction tests; `repository-onboarding` release gate.
 - **Affected system:** Developer/agent experience.
-- **Recommended change:** Link this snapshot and handoff from README; add a 15-minute setup path; label historical docs; generate a command/config index.
+- **Remaining maintenance:** Keep the current-truth map authoritative and update focused operator guides when workflow ownership changes; do not mechanically relabel historical evidence as current.
 - **Why it matters:** Future sessions repeatedly spend time rediscovering the same boundaries.
 - **Effort:** S
 - **Dependencies:** None.

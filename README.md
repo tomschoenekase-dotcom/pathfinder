@@ -21,11 +21,16 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant da
 
 The inventory above is checked against every `apps/*/package.json` and `packages/*/package.json` by the repository script tests.
 
+## Start here
+
+[`docs/repository-onboarding.md`](docs/repository-onboarding.md) provides the safe 15-minute setup, local-staging, release, current-truth, and debugging path. [`docs/repository-command-index.md`](docs/repository-command-index.md) is generated from the root scripts and documented environment surface so command discovery cannot silently drift.
+
 ## Local verification
 
 - `pnpm test` runs the ordinary workspace and script suites. Guarded database and Redis integrations remain opt-in.
 - `pnpm test:redis:disposable` requires Docker, publishes a credential-free Redis 7 container on a dynamically assigned loopback port, executes all three BullMQ integration suites, and verifies exact-container removal.
 - `pnpm verify:client-bundles` forces a fresh sequential production build with synthetic server-secret canaries and scans every Next application's browser-deliverable output.
+- `pnpm repository:index:verify` proves the committed command/configuration index still matches `package.json` and `.env.example` without copying environment values.
 
 ## Operator references
 
