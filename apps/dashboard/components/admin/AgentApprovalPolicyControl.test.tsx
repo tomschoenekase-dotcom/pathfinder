@@ -5,6 +5,7 @@ import axe from 'axe-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const issue = vi.fn().mockResolvedValue({ id: 'grant_new' })
+const issueSupport = vi.fn().mockResolvedValue({ id: 'grant_support' })
 const revoke = vi.fn().mockResolvedValue({ id: 'grant_1' })
 const refresh = vi.fn()
 
@@ -12,6 +13,7 @@ vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       issueOperationalUpdateDraftPolicy: { mutate: issue },
+      issueSupportRequestDraftPolicy: { mutate: issueSupport },
       revokeAgentApprovalPolicy: { mutate: revoke },
     },
   }),
@@ -57,7 +59,7 @@ describe('AgentApprovalPolicyControl', () => {
     const { container } = render(<AgentApprovalPolicyControl {...baseProps} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
     fireEvent.change(
-      screen.getByLabelText('Why this agent may stop requiring per-draft approval'),
+      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
       { target: { value: 'Reviewed evidence supports bounded informational drafts.' } },
     )
     fireEvent.click(screen.getByRole('checkbox'))
@@ -76,6 +78,39 @@ describe('AgentApprovalPolicyControl', () => {
       }),
     )
     expect(issue.mock.calls[0]?.[0]).not.toHaveProperty('publish')
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
+  it('issues a separately bounded private support-draft policy', async () => {
+    const props = {
+      ...baseProps,
+      identity: {
+        ...baseProps.identity,
+        accessCapabilities: ['updates:draft', 'support:draft'],
+      },
+    }
+    const { container } = render(<AgentApprovalPolicyControl {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add draft policy' }))
+    fireEvent.click(screen.getByLabelText(/Internal support-request draft/))
+    fireEvent.change(
+      screen.getByLabelText(/Why this agent may stop requiring per-draft approval/),
+      { target: { value: 'Reviewed support outcomes justify private drafting.' } },
+    )
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable bounded draft policy' }))
+
+    await waitFor(() => expect(issueSupport).toHaveBeenCalledOnce())
+    expect(issueSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyKey: 'support-primary-support-request-drafts',
+        maxSubjectChars: 200,
+        maxBodyChars: 20000,
+        outcomeObservationIds: ['outcome_1'],
+      }),
+    )
+    expect(issue).not.toHaveBeenCalled()
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])

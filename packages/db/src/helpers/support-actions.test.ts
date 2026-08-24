@@ -378,6 +378,82 @@ describe('support domain actions', () => {
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
   })
 
+  it('creates an agent support draft as internal-only with complete machine lineage', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.create.mockResolvedValueOnce({ ...request, status: 'DRAFT' })
+    tx.supportMessage.create.mockResolvedValueOnce({
+      ...message,
+      authorKind: 'AGENT',
+      authorId: 'agent_1',
+      visibility: 'INTERNAL_ONLY',
+    })
+    await createSupportRequestAction(
+      {
+        ...createInput,
+        draftOnly: true,
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:draft',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+          idempotencyKey: operationId,
+        },
+      },
+      actionClient,
+    )
+    expect(tx.supportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'DRAFT' }) }),
+    )
+    expect(tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ visibility: 'INTERNAL_ONLY', clientVersion: null }),
+      }),
+    )
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'REQUEST_DRAFTED' }) }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'support-request.created-draft',
+          actorType: 'AGENT',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:draft',
+        }),
+      }),
+    )
+  })
+
+  it('rejects agent support creation unless it is an internal draft with full lineage', async () => {
+    const { client, actionClient } = harness()
+    await expect(
+      createSupportRequestAction(
+        {
+          ...createInput,
+          actor: {
+            actorType: 'AGENT',
+            participantKind: 'AGENT',
+            actorId: 'agent_1',
+            auditRole: 'AGENT',
+          },
+        },
+        actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('records an intake correction against the exact immutable source version', async () => {
     const { tx, actionClient } = harness()
     await createSupportRequestAction(

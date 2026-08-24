@@ -751,6 +751,8 @@ export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
         'exact-scope-authority-outcome-membership',
         'idempotent-policy-issuance',
         'registered-draft-only-constraint-evaluator',
+        'private-support-draft-lifecycle',
+        'human-only-support-draft-promotion',
         'policy-consumption-machine-lineage',
         'parameter-boundary-rejection',
         'one-shot-approval-compatibility',

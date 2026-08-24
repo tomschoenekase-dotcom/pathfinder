@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   consumeApproval,
   createUpdate,
+  createSupport,
   buildPreview,
   listGaps,
   proposeCorrection,
@@ -14,6 +15,7 @@ const {
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
+  createSupport: vi.fn(),
   buildPreview: vi.fn(),
   listGaps: vi.fn(),
   proposeCorrection: vi.fn(),
@@ -28,6 +30,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   consumeApprovalGrantAction: consumeApproval,
   createOperationalUpdateAction: createUpdate,
+  createSupportRequestAction: createSupport,
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
   proposeKnowledgeCorrectionAction: proposeCorrection,
@@ -478,6 +481,97 @@ describe('safe operational MCP composition', () => {
         where: expect.objectContaining({ executionWorkerId: 'worker-id-1' }),
       }),
     )
+  })
+
+  it('creates only an internal support draft through exact machine and grant scope', async () => {
+    consumeApproval.mockResolvedValue({
+      replayed: false,
+      consumption: { id: 'consumption-support', resultReference: null },
+    })
+    createSupport.mockResolvedValue({
+      request: { id: 'support-1', status: 'DRAFT', category: 'GENERAL' },
+      message: { id: 'message-1', visibility: 'INTERNAL_ONLY' },
+      replayed: false,
+    })
+    const tx = {
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+    }
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-support' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          workerKey: 'worker-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+    }
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '1c5f9673-d43d-4e40-a01d-cf188431ab81',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      subject: 'Review visitor answer',
+      body: 'Investigate internally. Do not contact the customer.',
+      category: 'GENERAL' as const,
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.create_support_draft',
+      input,
+      {
+        credential: { ...credential, capabilities: ['support:draft'] },
+        approvalGrantId: 'grant-support',
+      },
+    )
+    expect(consumeApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.create_support_draft',
+        capability: 'support:draft',
+        parameters: {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          category: 'GENERAL',
+          subject: input.subject,
+          body: input.body,
+        },
+        actor: expect.objectContaining({
+          agentRunId: 'run-1',
+          workerId: 'worker-1',
+          credentialId: 'credential-1',
+          approvalGrantId: 'grant-support',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(createSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftOnly: true,
+        attachments: [],
+        actor: expect.objectContaining({
+          capability: 'support:draft',
+          approvalGrantId: 'grant-support',
+        }),
+      }),
+      expect.anything(),
+    )
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledWith({
+      where: { id: 'consumption-support' },
+      data: { resultReference: 'SupportRequest:support-1' },
+    })
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-request-draft',
+      data: {
+        id: 'support-1',
+        status: 'DRAFT',
+        messageVisibility: 'INTERNAL_ONLY',
+        replayed: false,
+      },
+    })
   })
 
   it('returns only the canonical bounded visitor-gap projection through review scope', async () => {

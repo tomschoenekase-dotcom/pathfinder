@@ -121,6 +121,7 @@ const expectedAdminProcedures = [
   'issueExternalCredential',
   'issueOperationalUpdateDraftPolicy',
   'issuePlatformWorkerPolicyCredential',
+  'issueSupportRequestDraftPolicy',
   'linkProspectConversion',
   'linkSupportAgentRun',
   'linkSupportDraftPackage',

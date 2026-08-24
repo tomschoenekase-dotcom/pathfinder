@@ -143,6 +143,52 @@ describe('support operations UI', () => {
     expect(screen.queryByLabelText('Choose a recent venue file')).toBeNull()
   })
 
+  it('shows only human open-or-cancel review controls for an internal machine draft', async () => {
+    const request = {
+      id: 'req_draft',
+      category: 'GENERAL' as const,
+      missingInformation: [],
+      status: 'DRAFT' as const,
+      subject: 'Review visitor answer',
+      version: 1,
+      createdByKind: 'AGENT',
+      updatedByKind: 'AGENT',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const { container } = render(
+      <SupportOperationsView
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requests={{ items: [request], nextCursor: null }}
+        selected={request}
+        messages={{
+          items: [
+            {
+              id: 'message_draft',
+              authorKind: 'AGENT',
+              visibility: 'INTERNAL_ONLY',
+              body: 'Investigate internally.',
+              createdAt: new Date(),
+              attachments: [],
+            },
+          ],
+          nextCursor: null,
+        }}
+        audit={{ items: [], nextCursor: null }}
+      />,
+    )
+    expect(screen.getByText(/machine-prepared draft is internal only/i)).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Received' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Cancelled' })).toBeTruthy()
+    expect(screen.queryByLabelText('Message')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send questions' })).toBeNull()
+    expect(screen.queryByText('Create reviewed package draft')).toBeNull()
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
   it('does not carry body, visibility, or selected files into another request', () => {
     const attachment = {
       intakeUploadId: 'upload_1',

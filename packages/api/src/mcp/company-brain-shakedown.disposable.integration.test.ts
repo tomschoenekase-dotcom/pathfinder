@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { defaultOperationalUpdateDraftPolicyConstraints } from '@pathfinder/contracts'
+import {
+  defaultOperationalUpdateDraftPolicyConstraints,
+  defaultSupportRequestDraftPolicyConstraints,
+} from '@pathfinder/contracts'
 import {
   activateAgentBridgeCredentialAction,
   claimAgentRunExecution,
@@ -16,6 +19,7 @@ import {
   recordAgentOutcomeAction,
   searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
+  transitionSupportRequestStatusAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -436,7 +440,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           name: 'Client Operations Specialist',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['updates:draft', 'meetings.process'],
+          accessCapabilities: ['updates:draft', 'support:draft', 'meetings.process'],
           autonomyLevel: 'DRAFT',
           enabled: true,
           createdBy: human.actorId,
@@ -458,6 +462,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'meetings:process',
           'integrations:read',
           'updates:draft',
+          'support:draft',
           'agent-runs:execute',
         ],
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
@@ -504,6 +509,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'meetings:read',
             'meetings:process',
             'updates:draft',
+            'support:draft',
           ],
           agentRoles: ['client-operations'],
           modelProvider: 'fixture',
@@ -815,6 +821,100 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       expect(
         await db.approvalGrantConsumption.count({ where: { approvalGrantId: policyGrant.id } }),
       ).toBe(1)
+
+      const supportPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_support_draft',
+        capability: 'support:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_ONLY' },
+        policyKey: `reviewed-support-drafts-${suffix}`,
+        constraints: {
+          ...defaultSupportRequestDraftPolicyConstraints(),
+          maxSubjectChars: 80,
+          maxBodyChars: 300,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes private support drafts only.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const supportOperationId = randomUUID()
+      const supportWriteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: supportOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        subject: 'Review lobby map answer',
+        body: 'Investigate the visitor answer internally. Do not contact the customer.',
+        category: 'CONTENT_CORRECTION' as const,
+      }
+      const supportContext = { credential, approvalGrantId: supportPolicy.id }
+      const supportCreated = await registry.callTool(
+        'pathfinder.create_support_draft',
+        supportWriteInput,
+        supportContext,
+      )
+      const supportReplayed = await registry.callTool(
+        'pathfinder.create_support_draft',
+        supportWriteInput,
+        supportContext,
+      )
+      expect(JSON.stringify(supportCreated)).toContain('no customer was contacted')
+      expect(JSON.stringify(supportReplayed)).toContain('Existing internal support draft')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_support_draft',
+          {
+            ...supportWriteInput,
+            operationId: randomUUID(),
+            subject:
+              'This subject deliberately exceeds the reviewed support policy subject length bound',
+          },
+          supportContext,
+        ),
+      ).rejects.toThrow('outside the reviewed support-request draft policy')
+      const supportDraft = await db.supportRequest.findFirstOrThrow({
+        where: { tenantId, venueId, subject: supportWriteInput.subject },
+        include: { messages: true, participants: true },
+      })
+      expect(supportDraft).toMatchObject({
+        status: 'DRAFT',
+        createdByKind: 'AGENT',
+        requesterUserId: null,
+        clientVersion: 1,
+        participants: [],
+        messages: [expect.objectContaining({ visibility: 'INTERNAL_ONLY' })],
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
+      ).toBe(1)
+      const promoted = await transitionSupportRequestStatusAction({
+        tenantId,
+        venueId,
+        requestId: supportDraft.id,
+        expectedVersion: supportDraft.version,
+        toStatus: 'OPEN',
+        actor: {
+          actorType: 'HUMAN',
+          participantKind: 'OPERATOR',
+          actorId: human.actorId,
+          auditRole: 'PLATFORM_ADMIN',
+        },
+      })
+      expect(promoted).toMatchObject({ status: 'OPEN', clientVersion: 1 })
+      expect(promoted).not.toHaveProperty('clientActivityAt')
+      expect(
+        await db.supportMessage.findFirstOrThrow({
+          where: { supportRequestId: supportDraft.id },
+          select: { visibility: true },
+        }),
+      ).toEqual({ visibility: 'INTERNAL_ONLY' })
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,
       // Tom-local worker, private prompt memory, external provider, or raw transcript is required.

@@ -6,6 +6,10 @@ import {
   OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY,
   OperationalUpdateDraftPolicyConstraints,
   OperationalUpdateDraftPolicyParameters,
+  SUPPORT_REQUEST_DRAFT_POLICY_ACTION,
+  SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
+  SupportRequestDraftPolicyConstraints,
+  SupportRequestDraftPolicyParameters,
 } from '@pathfinder/contracts'
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
@@ -168,6 +172,19 @@ function validatePolicyConstraints(
     }
     return parsed.data
   }
+  if (
+    actionName === SUPPORT_REQUEST_DRAFT_POLICY_ACTION &&
+    capability === SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportRequestDraftPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support-request draft policy is invalid',
+      )
+    }
+    return parsed.data
+  }
   throw new ApprovalGrantActionError(
     'POLICY_UNAVAILABLE',
     `No reviewed constraint evaluator is registered for ${actionName}`,
@@ -185,37 +202,65 @@ function assertPolicyParameters(
   constraints: unknown,
 ) {
   if (
-    input.actionName !== OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION ||
-    input.capability !== OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY
+    input.actionName === OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION &&
+    input.capability === OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY
   ) {
-    throw new ApprovalGrantActionError(
-      'POLICY_UNAVAILABLE',
-      `No reviewed constraint evaluator is registered for ${input.actionName}`,
-    )
+    const policy = OperationalUpdateDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored operational-update draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = OperationalUpdateDraftPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedUpdateTypes.includes(parameters.data.updateType) ||
+      !policy.data.allowedSeverities.includes(parameters.data.severity) ||
+      !policy.data.allowedPriorities.includes(parameters.data.priority) ||
+      parameters.data.title.length > policy.data.maxTitleChars ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed operational-update draft policy',
+      )
+    }
+    return
   }
-  const policy = OperationalUpdateDraftPolicyConstraints.safeParse(constraints)
-  if (!policy.success) {
-    throw new ApprovalGrantActionError(
-      'POLICY_UNAVAILABLE',
-      'The stored operational-update draft policy is invalid or uses an unsupported version',
-    )
-  }
-  const parameters = OperationalUpdateDraftPolicyParameters.safeParse(input.parameters)
   if (
-    !parameters.success ||
-    parameters.data.clientId !== input.tenantId ||
-    parameters.data.venueId !== input.venueId ||
-    !policy.data.allowedUpdateTypes.includes(parameters.data.updateType) ||
-    !policy.data.allowedSeverities.includes(parameters.data.severity) ||
-    !policy.data.allowedPriorities.includes(parameters.data.priority) ||
-    parameters.data.title.length > policy.data.maxTitleChars ||
-    parameters.data.body.length > policy.data.maxBodyChars
+    input.actionName === SUPPORT_REQUEST_DRAFT_POLICY_ACTION &&
+    input.capability === SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY
   ) {
-    throw new ApprovalGrantActionError(
-      'PARAMETER_MISMATCH',
-      'Action parameters are outside the reviewed operational-update draft policy',
-    )
+    const policy = SupportRequestDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support-request draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportRequestDraftPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedCategories.includes(parameters.data.category) ||
+      parameters.data.subject.length > policy.data.maxSubjectChars ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support-request draft policy',
+      )
+    }
+    return
   }
+  throw new ApprovalGrantActionError(
+    'POLICY_UNAVAILABLE',
+    `No reviewed constraint evaluator is registered for ${input.actionName}`,
+  )
 }
 
 const grantSelect = {

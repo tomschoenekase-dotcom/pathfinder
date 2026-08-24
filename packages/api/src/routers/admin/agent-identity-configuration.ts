@@ -6,6 +6,9 @@ import {
   defaultOperationalUpdateDraftPolicyConstraints,
   OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION,
   OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY,
+  defaultSupportRequestDraftPolicyConstraints,
+  SUPPORT_REQUEST_DRAFT_POLICY_ACTION,
+  SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
 } from '@pathfinder/contracts'
 import {
   ApprovalGrantActionError,
@@ -106,6 +109,64 @@ export const adminAgentIdentityConfigurationRouter = router({
             constraints: {
               ...defaultOperationalUpdateDraftPolicyConstraints(),
               maxTitleChars: input.maxTitleChars,
+              maxBodyChars: input.maxBodyChars,
+            },
+            issueReason: input.issueReason,
+            outcomeObservationIds: input.outcomeObservationIds,
+            ...(input.maxUses === undefined ? {} : { maxUses: input.maxUses }),
+            ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          })
+        } catch (error) {
+          approvalGrantError(error)
+        }
+      }),
+    ),
+
+  issueSupportRequestDraftPolicy: adminProcedure
+    .input(
+      z
+        .object({
+          operationId: z.string().uuid(),
+          tenantId: z.string().min(1),
+          venueId: z.string().min(1),
+          agentIdentityId: z.string().min(1),
+          policyKey: z
+            .string()
+            .trim()
+            .min(1)
+            .max(191)
+            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          issueReason: z.string().trim().min(3).max(2000),
+          outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
+          maxSubjectChars: z.number().int().min(1).max(200),
+          maxBodyChars: z.number().int().min(1).max(20_000),
+          maxUses: z.number().int().min(1).optional(),
+          expiresAt: z.coerce.date().optional(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          return await issueApprovalGrantAction({
+            operationId: input.operationId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: SUPPORT_REQUEST_DRAFT_POLICY_ACTION,
+            capability: SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
+            mode: 'POLICY_BACKED',
+            policyKey: input.policyKey,
+            scope: {
+              contractVersion: 1,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              effect: 'DRAFT_ONLY',
+            },
+            constraints: {
+              ...defaultSupportRequestDraftPolicyConstraints(),
+              maxSubjectChars: input.maxSubjectChars,
               maxBodyChars: input.maxBodyChars,
             },
             issueReason: input.issueReason,

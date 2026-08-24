@@ -725,6 +725,10 @@ export const McpUpdateDraftInput = McpRequestedScope.extend({
 export type McpUpdateDraftInput = z.infer<typeof McpUpdateDraftInput>
 
 export const McpSupportDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(20_000),
   category: z.enum([
@@ -1636,6 +1640,10 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     inputSchema: strictObject(
       {
         ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
         subject: { type: 'string', minLength: 1, maxLength: 200 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },
         category: {
@@ -1650,13 +1658,22 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           ],
         },
       },
-      [...scopeRequired, 'subject', 'body', 'category'],
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'subject',
+        'body',
+        'category',
+      ],
     ),
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'support:draft', 'draft') },

@@ -38,15 +38,20 @@ type OutcomeObservation = {
 function policyLimits(constraints: unknown) {
   if (!constraints || typeof constraints !== 'object') return null
   const value = constraints as Record<string, unknown>
-  if (
-    value.contractVersion !== 1 ||
-    value.effect !== 'DRAFT_ONLY' ||
-    typeof value.maxTitleChars !== 'number' ||
-    typeof value.maxBodyChars !== 'number'
-  ) {
-    return null
-  }
-  return { maxTitleChars: value.maxTitleChars, maxBodyChars: value.maxBodyChars }
+  if (value.contractVersion !== 1 || value.effect !== 'DRAFT_ONLY') return null
+  if (typeof value.maxTitleChars === 'number' && typeof value.maxBodyChars === 'number')
+    return {
+      heading: 'Title',
+      maxHeadingChars: value.maxTitleChars,
+      maxBodyChars: value.maxBodyChars,
+    }
+  if (typeof value.maxSubjectChars === 'number' && typeof value.maxBodyChars === 'number')
+    return {
+      heading: 'Subject',
+      maxHeadingChars: value.maxSubjectChars,
+      maxBodyChars: value.maxBodyChars,
+    }
+  return null
 }
 
 export function AgentApprovalPolicyControl(props: {
@@ -62,24 +67,30 @@ export function AgentApprovalPolicyControl(props: {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  const [policyKind, setPolicyKind] = useState<'UPDATE' | 'SUPPORT'>(() =>
+    props.identity.accessCapabilities.includes('updates:draft') ? 'UPDATE' : 'SUPPORT',
+  )
   const [maxTitleChars, setMaxTitleChars] = useState('160')
   const [maxBodyChars, setMaxBodyChars] = useState('4000')
   const [maxUses, setMaxUses] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>([])
   const defaultPolicyKey = useMemo(
-    () => `${props.identity.identityKey.replaceAll('.', '-')}-operational-update-drafts`,
-    [props.identity.identityKey],
+    () =>
+      `${props.identity.identityKey.replaceAll('.', '-')}-${policyKind === 'UPDATE' ? 'operational-update-drafts' : 'support-request-drafts'}`,
+    [props.identity.identityKey, policyKind],
   )
+  const canIssueUpdate = props.identity.accessCapabilities.includes('updates:draft')
+  const canIssueSupport = props.identity.accessCapabilities.includes('support:draft')
   const canIssue =
-    props.identity.enabled && props.identity.accessCapabilities.includes('updates:draft')
+    props.identity.enabled && (policyKind === 'UPDATE' ? canIssueUpdate : canIssueSupport)
 
   async function issue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setMessage(null)
     try {
-      await client.admin.issueOperationalUpdateDraftPolicy.mutate({
+      const common = {
         operationId: crypto.randomUUID(),
         tenantId: props.tenantId,
         venueId: props.venueId,
@@ -87,12 +98,26 @@ export function AgentApprovalPolicyControl(props: {
         policyKey: defaultPolicyKey,
         issueReason: reason,
         outcomeObservationIds: selectedOutcomeIds,
-        maxTitleChars: Number(maxTitleChars),
         maxBodyChars: Number(maxBodyChars),
         ...(maxUses ? { maxUses: Number(maxUses) } : {}),
         ...(expiresAt ? { expiresAt: new Date(expiresAt) } : {}),
-      })
-      setMessage('Draft policy enabled. Publication remains unavailable.')
+      }
+      if (policyKind === 'UPDATE') {
+        await client.admin.issueOperationalUpdateDraftPolicy.mutate({
+          ...common,
+          maxTitleChars: Number(maxTitleChars),
+        })
+      } else {
+        await client.admin.issueSupportRequestDraftPolicy.mutate({
+          ...common,
+          maxSubjectChars: Number(maxTitleChars),
+        })
+      }
+      setMessage(
+        policyKind === 'UPDATE'
+          ? 'Update-draft policy enabled. Publication remains unavailable.'
+          : 'Support-draft policy enabled. Customer contact remains unavailable.',
+      )
       setReason('')
       setSelectedOutcomeIds([])
       setExpanded(false)
@@ -135,8 +160,8 @@ export function AgentApprovalPolicyControl(props: {
         <div>
           <h5 className="text-sm font-semibold text-sky-950">Progressive approval policy</h5>
           <p className="mt-1 text-xs leading-5 text-sky-950/75">
-            A reviewed policy can let this agent prepare informational operational-update drafts. It
-            cannot publish, contact a customer, or widen venue access.
+            Reviewed policies can let this agent prepare informational update drafts or private
+            support drafts. They cannot publish, contact a customer, or widen venue access.
           </p>
         </div>
         <button
@@ -151,7 +176,7 @@ export function AgentApprovalPolicyControl(props: {
 
       {!canIssue ? (
         <p className="mt-3 text-xs text-amber-900">
-          Enable this identity with the updates:draft capability before granting policy-backed
+          Enable this identity with the selected draft capability before granting policy-backed
           authority.
         </p>
       ) : null}
@@ -180,7 +205,7 @@ export function AgentApprovalPolicyControl(props: {
                 </p>
                 <p className="mt-2 text-xs text-pf-deep/55">
                   {limits
-                    ? `Title ≤ ${limits.maxTitleChars}; body ≤ ${limits.maxBodyChars}`
+                    ? `${limits.heading} ≤ ${limits.maxHeadingChars}; body ≤ ${limits.maxBodyChars}`
                     : 'Constraint version unavailable'}{' '}
                   · {policy.useCount} uses
                   {policy.maxUses === null ? '' : ` of ${policy.maxUses}`}
@@ -238,6 +263,37 @@ export function AgentApprovalPolicyControl(props: {
         >
           <p className="text-xs font-semibold text-pf-deep">{defaultPolicyKey}</p>
           <fieldset className="grid gap-2 rounded-xl border border-sky-200 p-3">
+            <legend className="px-1 text-xs font-semibold text-pf-deep">Draft action class</legend>
+            <label className="flex items-start gap-2 text-xs text-pf-deep/75">
+              <input
+                type="radio"
+                name="policy-kind"
+                checked={policyKind === 'UPDATE'}
+                disabled={!canIssueUpdate}
+                onChange={() => {
+                  setPolicyKind('UPDATE')
+                  setMaxTitleChars('160')
+                  setMaxBodyChars('4000')
+                }}
+              />
+              Informational operational-update draft; never publishes.
+            </label>
+            <label className="flex items-start gap-2 text-xs text-pf-deep/75">
+              <input
+                type="radio"
+                name="policy-kind"
+                checked={policyKind === 'SUPPORT'}
+                disabled={!canIssueSupport}
+                onChange={() => {
+                  setPolicyKind('SUPPORT')
+                  setMaxTitleChars('200')
+                  setMaxBodyChars('20000')
+                }}
+              />
+              Internal support-request draft; never contacts a customer.
+            </label>
+          </fieldset>
+          <fieldset className="grid gap-2 rounded-xl border border-sky-200 p-3">
             <legend className="px-1 text-xs font-semibold text-pf-deep">
               Outcomes reviewed for this authority decision
             </legend>
@@ -267,7 +323,7 @@ export function AgentApprovalPolicyControl(props: {
             ))}
           </fieldset>
           <label className="text-xs font-medium text-pf-deep">
-            Why this agent may stop requiring per-draft approval
+            Why this agent may stop requiring per-draft approval for this action class
             <textarea
               required
               minLength={3}
@@ -279,12 +335,12 @@ export function AgentApprovalPolicyControl(props: {
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-pf-deep">
-              Maximum title characters
+              Maximum {policyKind === 'UPDATE' ? 'title' : 'subject'} characters
               <input
                 required
                 type="number"
                 min="1"
-                max="160"
+                max={policyKind === 'UPDATE' ? '160' : '200'}
                 value={maxTitleChars}
                 onChange={(event) => setMaxTitleChars(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-pf-light px-3 py-2 text-sm"
@@ -296,7 +352,7 @@ export function AgentApprovalPolicyControl(props: {
                 required
                 type="number"
                 min="1"
-                max="4000"
+                max={policyKind === 'UPDATE' ? '4000' : '20000'}
                 value={maxBodyChars}
                 onChange={(event) => setMaxBodyChars(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-pf-light px-3 py-2 text-sm"

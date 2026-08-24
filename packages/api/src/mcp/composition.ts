@@ -3,6 +3,7 @@ import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
   consumeApprovalGrantAction,
+  createSupportRequestAction,
   createOperationalUpdateAction,
   db,
   getCompactAccountContext,
@@ -55,6 +56,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.delegate_specialist',
   'pathfinder.propose_billing_action',
   'pathfinder.create_update_draft',
+  'pathfinder.create_support_draft',
 ] as const satisfies readonly PathfinderMcpToolName[]
 
 export class McpActionBindingError extends Error {
@@ -98,18 +100,19 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'reportLifecycle'
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
+    | 'createSupportDraft'
   > = {
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
     proposeBillingAction: async () => unavailable('Billing proposal'),
     createPackageDraft: async () => unavailable('Package draft'),
-    createSupportDraft: async () => unavailable('Support draft'),
     requestEvaluation: async () => unavailable('Evaluation request'),
   }
   const approvedWrites: Pick<
     PathfinderMcpDomainActions,
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
+    | 'createSupportDraft'
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
@@ -259,6 +262,126 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           id: result.update.id,
           status: result.update.status,
           preview: result.preview,
+          replayed: result.replayed,
+        }),
+      }
+    },
+    async createSupportDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Support drafts require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified support worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified support worker run is unavailable')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const actor = {
+        actorType: 'AGENT' as const,
+        participantKind: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        auditRole: 'AGENT',
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'support:draft' as const,
+        ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+        ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        idempotencyKey: input.operationId,
+      }
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        category: input.category,
+        subject: input.subject,
+        body: input.body,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.create_support_draft',
+            capability: 'support:draft',
+            parameters,
+            actor: {
+              type: 'AGENT',
+              actorId: input.agentIdentityId,
+              role: 'AGENT',
+              agentIdentityId: input.agentIdentityId,
+              agentRunId: input.agentRunId,
+              workerId: worker.workerKey,
+              credentialId: context.credential.credentialId,
+              approvalGrantId: context.approvalGrantId!,
+              capability: 'support:draft',
+              ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+              ...(worker.modelName ? { modelName: worker.modelName } : {}),
+              idempotencyKey: input.operationId,
+            },
+            now,
+          },
+          sameTransaction,
+        )
+        const created = await createSupportRequestAction(
+          {
+            operationId: input.operationId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            category: input.category,
+            subject: input.subject,
+            body: input.body,
+            attachments: [],
+            draftOnly: true,
+            actor,
+          },
+          sameTransaction,
+        )
+        if (!consumption.replayed) {
+          await tx.approvalGrantConsumption.update({
+            where: { id: consumption.consumption.id },
+            data: { resultReference: `SupportRequest:${created.request.id}` },
+          })
+        }
+        return created
+      })
+      return {
+        kind: 'torchiko.support-request-draft',
+        summary: result.replayed
+          ? 'Existing internal support draft returned; no customer was contacted.'
+          : 'Internal support draft created for operator review; no customer was contacted.',
+        data: jsonData({
+          id: result.request.id,
+          status: result.request.status,
+          category: result.request.category,
+          messageVisibility: result.message.visibility,
           replayed: result.replayed,
         }),
       }

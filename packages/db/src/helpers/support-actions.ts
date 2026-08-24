@@ -32,7 +32,21 @@ export type SupportActionActor =
       actorId: string
       auditRole: string
     }
-  | { actorType: 'AGENT'; participantKind: 'AGENT'; actorId: string; auditRole: string }
+  | {
+      actorType: 'AGENT'
+      participantKind: 'AGENT'
+      actorId: string
+      auditRole: string
+      agentIdentityId?: string | undefined
+      agentRunId?: string | undefined
+      workerId?: string | undefined
+      credentialId?: string | undefined
+      approvalGrantId?: string | undefined
+      capability?: 'support:draft' | undefined
+      modelProvider?: string | undefined
+      modelName?: string | undefined
+      idempotencyKey?: string | undefined
+    }
   | { actorType: 'SYSTEM'; participantKind: 'SYSTEM'; actorId: string; auditRole: string }
 
 export type SupportAttachmentDraft = SupportAttachmentReference
@@ -63,6 +77,15 @@ const supportActionActor = z.union([
       participantKind: z.literal('AGENT'),
       actorId: scopedId,
       auditRole,
+      agentIdentityId: scopedId.optional(),
+      agentRunId: scopedId.optional(),
+      workerId: scopedId.optional(),
+      credentialId: scopedId.optional(),
+      approvalGrantId: scopedId.optional(),
+      capability: z.literal('support:draft').optional(),
+      modelProvider: scopedId.optional(),
+      modelName: scopedId.optional(),
+      idempotencyKey: z.string().uuid().optional(),
     })
     .strict(),
   z
@@ -83,6 +106,7 @@ const createSupportRequestActionInput = z
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20_000),
     attachments: SupportAttachmentReferences,
+    draftOnly: z.boolean().default(false),
     /** Trusted server-only lineage for a correction to an immutable intake source. */
     intakeSource: z
       .object({
@@ -94,6 +118,32 @@ const createSupportRequestActionInput = z
     actor: supportActionActor,
   })
   .strict()
+  .superRefine((value, context) => {
+    if (value.actor.participantKind === 'AGENT' && !value.draftOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draftOnly'],
+        message: 'Agent support requests must remain internal drafts',
+      })
+    }
+    if (
+      value.draftOnly &&
+      (value.actor.participantKind !== 'AGENT' ||
+        !value.actor.agentIdentityId ||
+        !value.actor.agentRunId ||
+        !value.actor.workerId ||
+        !value.actor.credentialId ||
+        !value.actor.approvalGrantId ||
+        value.actor.capability !== 'support:draft' ||
+        !value.actor.idempotencyKey)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['actor'],
+        message: 'Internal support drafts require complete machine lineage',
+      })
+    }
+  })
 const appendSupportMessageActionInput = z
   .object({
     operationId: z.string().uuid(),
@@ -484,15 +534,22 @@ async function createSupportRequestActionOnce(
     subject: string
     body: string
     attachments: SupportAttachmentDraft[]
+    draftOnly?: boolean
     intakeSource?: { runId: string; expectedEventCount: number }
     actor: SupportActionActor
   },
   client: SupportActionClient = db,
 ) {
   const parsed = parseActionInput(createSupportRequestActionInput, input)
-  assertVisibility(parsed.actor, 'CLIENT_VISIBLE')
+  const initialStatus = parsed.draftOnly ? ('DRAFT' as const) : ('OPEN' as const)
+  const initialVisibility = parsed.draftOnly
+    ? ('INTERNAL_ONLY' as const)
+    : ('CLIENT_VISIBLE' as const)
+  assertVisibility(parsed.actor, initialVisibility)
   const submissionInputHash = supportSubmissionHash({
     kind: 'CREATE_REQUEST',
+    initialStatus,
+    initialVisibility,
     actorKind: parsed.actor.participantKind,
     actorId: parsed.actor.actorId,
     tenantId: parsed.tenantId,
@@ -531,7 +588,8 @@ async function createSupportRequestActionOnce(
         existing.submissionInputHash !== submissionInputHash ||
         existing.authorKind !== parsed.actor.participantKind ||
         existing.authorId !== parsed.actor.actorId ||
-        existing.visibility !== 'CLIENT_VISIBLE' ||
+        existing.visibility !== initialVisibility ||
+        existing.supportRequest.status !== initialStatus ||
         !sameAttachmentReferences(parsed.attachments, existing.attachments)
       ) {
         throw new SupportActionError('CONFLICT', 'Support operation ID was already used')
@@ -584,6 +642,7 @@ async function createSupportRequestActionOnce(
         tenantId: parsed.tenantId,
         venueId: parsed.venueId,
         category: parsed.category,
+        status: initialStatus,
         subject: parsed.subject,
         artifacts: intakeSource
           ? {
@@ -607,11 +666,11 @@ async function createSupportRequestActionOnce(
         supportRequestId: request.id,
         authorKind: parsed.actor.participantKind,
         authorId: parsed.actor.actorId,
-        visibility: 'CLIENT_VISIBLE',
+        visibility: initialVisibility,
         body: parsed.body,
         submissionRequestId: parsed.operationId,
         submissionInputHash,
-        clientVersion: 1,
+        clientVersion: parsed.draftOnly ? null : 1,
         attachments: {
           create: attachmentCreates(attachments),
         },
@@ -624,7 +683,7 @@ async function createSupportRequestActionOnce(
         venueId: parsed.venueId,
         supportRequestId: request.id,
         requestVersion: request.version,
-        eventType: 'REQUEST_CREATED',
+        eventType: parsed.draftOnly ? 'REQUEST_DRAFTED' : 'REQUEST_CREATED',
         actorKind: parsed.actor.participantKind,
         actorId: parsed.actor.actorId,
         fromStatus: null,
@@ -632,18 +691,41 @@ async function createSupportRequestActionOnce(
       },
       select: { id: true },
     })
+    const auditActor =
+      parsed.actor.participantKind === 'AGENT'
+        ? {
+            actor: {
+              type: 'AGENT' as const,
+              actorId: parsed.actor.actorId,
+              role: 'AGENT' as const,
+              agentIdentityId: parsed.actor.agentIdentityId!,
+              agentRunId: parsed.actor.agentRunId!,
+              workerId: parsed.actor.workerId!,
+              credentialId: parsed.actor.credentialId!,
+              approvalGrantId: parsed.actor.approvalGrantId!,
+              capability: parsed.actor.capability!,
+              ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+              ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+              idempotencyKey: parsed.actor.idempotencyKey!,
+            },
+          }
+        : {
+            actorId: parsed.actor.actorId,
+            actorRole: parsed.actor.auditRole,
+            actorType: parsed.actor.actorType,
+          }
     await writeAuditLogStrict(
       {
         tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: 'support-request.created',
+        ...auditActor,
+        action: parsed.draftOnly ? 'support-request.created-draft' : 'support-request.created',
         targetType: 'SupportRequest',
         targetId: request.id,
         afterState: {
           venueId: request.venueId,
           category: request.category,
           status: request.status,
+          messageVisibility: initialVisibility,
           version: request.version,
           attachmentCount: attachments.length,
           intakeSource: intakeSource

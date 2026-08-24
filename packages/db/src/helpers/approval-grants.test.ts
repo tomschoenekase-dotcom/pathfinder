@@ -5,7 +5,10 @@ import {
   consumeApprovalGrantAction,
   issueApprovalGrantAction,
 } from './approval-grants'
-import { defaultOperationalUpdateDraftPolicyConstraints } from '@pathfinder/contracts'
+import {
+  defaultOperationalUpdateDraftPolicyConstraints,
+  defaultSupportRequestDraftPolicyConstraints,
+} from '@pathfinder/contracts'
 
 const now = new Date('2030-01-01T12:00:00.000Z')
 const parameters = {
@@ -438,6 +441,79 @@ describe('approval grants', () => {
             startsAt: '2030-01-01T12:00:00.000Z',
             expiresAt: '2030-01-01T13:00:00.000Z',
           },
+        }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('consumes only a private support draft inside reviewed policy bounds', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_support',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultSupportRequestDraftPolicyConstraints(),
+        maxSubjectChars: 30,
+        maxBodyChars: 100,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    const supportInput = consumeInput({
+      approvalGrantId: 'grant_support',
+      actionName: 'pathfinder.create_support_draft',
+      capability: 'support:draft',
+      parameters: {
+        clientId: 'tenant_1',
+        venueId: 'venue_1',
+        category: 'GENERAL',
+        subject: 'Review answer',
+        body: 'Internal review only.',
+      },
+      actor: { ...machineActor, capability: 'support:draft' },
+    })
+    await expect(consumeApprovalGrantAction(supportInput, client)).resolves.toMatchObject({
+      replayed: false,
+    })
+    expect(tx.approvalGrant.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a support draft outside its reviewed subject bound', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_support',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultSupportRequestDraftPolicyConstraints(),
+        maxSubjectChars: 5,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_support',
+          actionName: 'pathfinder.create_support_draft',
+          capability: 'support:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            category: 'GENERAL',
+            subject: 'Too long',
+            body: 'Internal review only.',
+          },
+          actor: { ...machineActor, capability: 'support:draft' },
         }),
         client,
       ),

@@ -4,6 +4,9 @@ import {
   defaultOperationalUpdateDraftPolicyConstraints,
   OperationalUpdateDraftPolicyConstraints,
   OperationalUpdateDraftPolicyParameters,
+  defaultSupportRequestDraftPolicyConstraints,
+  SupportRequestDraftPolicyConstraints,
+  SupportRequestDraftPolicyParameters,
 } from './agent-approval-policy'
 
 describe('operational update draft policy contract', () => {
@@ -50,6 +53,30 @@ describe('operational update draft policy contract', () => {
         ...input,
         expiresAt: '2030-01-01T11:00:00.000Z',
       }),
+    ).toThrow()
+  })
+})
+
+describe('support request draft policy contract', () => {
+  it('permits only bounded internal draft parameters', () => {
+    expect(
+      SupportRequestDraftPolicyConstraints.parse(defaultSupportRequestDraftPolicyConstraints()),
+    ).toMatchObject({
+      contractVersion: 1,
+      effect: 'DRAFT_ONLY',
+      maxSubjectChars: 200,
+      maxBodyChars: 20_000,
+    })
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      category: 'GENERAL' as const,
+      subject: 'Review visitor answer',
+      body: 'Prepare an internal support review; do not contact the customer.',
+    }
+    expect(SupportRequestDraftPolicyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportRequestDraftPolicyParameters.parse({ ...parameters, customerVisible: true }),
     ).toThrow()
   })
 })

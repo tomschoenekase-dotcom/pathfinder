@@ -173,7 +173,22 @@ export function SupportOperationsView({
                   {selected.updatedByKind.toLowerCase()} · {selected.updatedAt.toLocaleString()}
                 </p>
               </section>
-              {selected.status === 'COMPLETED' || selected.status === 'CANCELLED' ? (
+              {selected.status === 'DRAFT' ? (
+                <div className="space-y-6">
+                  <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950 shadow-sm">
+                    This machine-prepared draft is internal only. Review it, then explicitly open or
+                    cancel it. Customer messaging, participant access, package work, and venue
+                    changes remain unavailable while it is a draft.
+                  </section>
+                  <SupportStatusTransitionForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    currentStatus={selected.status}
+                    expectedVersion={selected.version}
+                  />
+                </div>
+              ) : selected.status === 'COMPLETED' || selected.status === 'CANCELLED' ? (
                 <section className="rounded-3xl border border-pf-light bg-white p-5 text-sm text-pf-deep/75 shadow-sm">
                   This request is closed. New messages, notes, and files cannot be added.
                 </section>

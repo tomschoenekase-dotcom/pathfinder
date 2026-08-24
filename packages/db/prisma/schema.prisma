@@ -5352,6 +5352,7 @@ enum OffboardingExportKind {
 }
 
 enum SupportRequestStatus {
+  DRAFT
   OPEN
   WAITING_FOR_CLIENT
   IN_REVIEW

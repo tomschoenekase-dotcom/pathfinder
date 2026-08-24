@@ -64,6 +64,8 @@ export async function transitionSupportRequestStatusAction(
 
     const nextVersion = request.version + 1
     const statusChangedAt = input.changedAt ?? new Date()
+    const clientVisibleTransition = request.status !== 'DRAFT'
+    const nextClientVersion = request.clientVersion + (clientVisibleTransition ? 1 : 0)
     const changed = await tx.supportRequest.updateMany({
       where: {
         id: request.id,
@@ -76,8 +78,8 @@ export async function transitionSupportRequestStatusAction(
         status: input.toStatus,
         statusChangedAt,
         version: nextVersion,
-        clientVersion: request.clientVersion + 1,
-        clientActivityAt: statusChangedAt,
+        clientVersion: nextClientVersion,
+        ...(clientVisibleTransition ? { clientActivityAt: statusChangedAt } : {}),
         updatedByKind: 'OPERATOR',
         updatedById: input.actor.actorId,
       },
@@ -114,6 +116,7 @@ export async function transitionSupportRequestStatusAction(
           version: nextVersion,
           packageLifecycleChanged: false,
           executionTriggered: false,
+          customerContacted: false,
         },
       },
       tx,
@@ -122,8 +125,8 @@ export async function transitionSupportRequestStatusAction(
       id: request.id,
       status: input.toStatus,
       version: nextVersion,
-      clientVersion: request.clientVersion + 1,
-      clientActivityAt: statusChangedAt,
+      clientVersion: nextClientVersion,
+      ...(clientVisibleTransition ? { clientActivityAt: statusChangedAt } : {}),
       statusChangedAt,
     }
   })

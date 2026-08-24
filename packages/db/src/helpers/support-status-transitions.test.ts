@@ -86,11 +86,42 @@ describe('support status transition domain action', () => {
     expect(tx).not.toHaveProperty('venuePackage')
   })
 
+  it('lets a human operator open an internal draft without claiming customer activity', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'DRAFT',
+      version: 2,
+      clientVersion: 1,
+    })
+    const result = await transitionSupportRequestStatusAction(
+      { ...input, toStatus: 'OPEN' },
+      actionClient,
+    )
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'OPEN', version: 3, clientVersion: 1 }),
+      }),
+    )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientActivityAt',
+    )
+    expect(result).not.toHaveProperty('clientActivityAt')
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          afterState: expect.objectContaining({ customerContacted: false }),
+        }),
+      }),
+    )
+  })
+
   it.each([
     ['IN_REVIEW', 'COMPLETED'],
     ['PATCH_DRAFTED', 'APPLYING'],
     ['COMPLETED', 'OPEN'],
     ['CANCELLED', 'OPEN'],
+    ['DRAFT', 'IN_REVIEW'],
   ] as const)('rejects unsafe transition %s -> %s', async (fromStatus, toStatus) => {
     const { tx, actionClient } = harness()
     tx.supportRequest.findFirst.mockResolvedValueOnce({

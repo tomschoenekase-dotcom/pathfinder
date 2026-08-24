@@ -313,6 +313,44 @@ describe('admin agent operations router', () => {
     })
   })
 
+  it('issues the separately bounded internal support-draft policy', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_support', replayed: false })
+    await testRouter.createCaller(context()).agentOperations.issueSupportRequestDraftPolicy({
+      operationId: '44444444-4444-4444-8444-444444444444',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      policyKey: 'support-private-request-drafts',
+      issueReason: 'Reviewed outcomes support private support drafting.',
+      outcomeObservationIds: ['outcome_1'],
+      maxSubjectChars: 180,
+      maxBodyChars: 6000,
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.create_support_draft',
+        capability: 'support:draft',
+        mode: 'POLICY_BACKED',
+        constraints: {
+          contractVersion: 1,
+          effect: 'DRAFT_ONLY',
+          allowedCategories: [
+            'CONTENT_CORRECTION',
+            'OPERATIONAL_UPDATE',
+            'BRANDING',
+            'EXPERIENCE_BEHAVIOR',
+            'ACCESSIBILITY',
+            'GENERAL',
+          ],
+          maxSubjectChars: 180,
+          maxBodyChars: 6000,
+        },
+        outcomeObservationIds: ['outcome_1'],
+        actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
+  })
+
   it('rejects policy issuance by a non-admin before entering the bypass', async () => {
     await expect(
       testRouter.createCaller(context(false)).agentOperations.issueOperationalUpdateDraftPolicy({
