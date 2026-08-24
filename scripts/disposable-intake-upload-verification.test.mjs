@@ -316,6 +316,7 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
     stdout.value,
     /"failureScope":\["provider-outage","rate-limit","bad-upload","duplicate-request","failed-worker","report-failure","ambiguous-provider-outcome"\]/u,
   )
+  assert.match(stdout.value, /"proofMetrics":\{"expectedFixtureQuestions":4\}/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.running.size, 0)
 })

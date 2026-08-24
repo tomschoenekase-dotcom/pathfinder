@@ -38,7 +38,20 @@ if (failures.some((failure) => !fixture.failureInjections.includes(failure)))
 if (
   !Array.isArray(fixture.expectedQuestions) ||
   fixture.expectedQuestions.length < 3 ||
-  fixture.expectedQuestions.some((entry) => !entry.question || !entry.expectedFacts?.length)
+  fixture.expectedQuestions.some(
+    (entry) =>
+      !entry.key ||
+      !entry.question ||
+      !entry.expectedFacts?.length ||
+      !entry.answer ||
+      !entry.knowledgeTitle ||
+      !entry.knowledgeBody ||
+      !entry.topics?.length ||
+      entry.expectedFacts.some((fact) => !entry.answer.includes(fact)),
+  ) ||
+  new Set(fixture.expectedQuestions.map((entry) => entry.key)).size !==
+    fixture.expectedQuestions.length ||
+  !fixture.venueName
 )
   throw new Error('Golden Venue expected-answer evidence is incomplete')
 const proof = fixture.disposableProof

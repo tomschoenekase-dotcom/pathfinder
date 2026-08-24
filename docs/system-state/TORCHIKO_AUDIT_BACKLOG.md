@@ -48,15 +48,16 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P1.1 — Create and retain one golden venue lifecycle
 
-- **Problem:** Individual subsystems are deep, but no current venue proves prospect/client creation → onboarding → mixed-media intake → review → package/evaluation → release → grounded chat → feedback/report/support → export/offboarding.
-- **Evidence:** Local staging had 20 synthetic clients/venues but `August test` had no content, packages, reports, or onboarding artifacts; provider workers were disabled.
+- **Status:** **LOCALLY IMPLEMENTED AND RE-PROVED 2026-08-24.** One fresh disposable run now proves client/venue creation, remote onboarding, website/interview/file intake, authoritative upload evidence, review, missing-information handoff, service-led support resolution, immutable package/evaluation evidence, explicit release and rollback, grounded provider-dark chat for every retained fixture question, visitor feedback, routine updates, report publish/read, reviewed versioned export readiness, and seven failure classes. Exact PostgreSQL, Redis, MinIO, and ClamAV resources are removed and verified absent after the run.
+- **Historical problem:** Individual subsystems were deep, but no current venue composed the lifecycle into one retained proof.
+- **Evidence:** `pnpm golden-venue:disposable`; `packages/api/src/remote-onboarding-disposable.integration.test.ts`; `scripts/golden-venue/fixture.json`; `docs/golden-venue-runbook.md`; static `golden-venue-fixture` release gate.
 - **Affected system:** Entire product and operations model.
-- **Recommended change:** Build a realistic non-sensitive fixture and scripted acceptance checklist, preserve IDs/screenshots/audit rows, inject failure/retry cases, and rerun it for each release.
+- **Remaining hosted proof:** Run the same fixture in an explicitly authorized synthetic staging namespace, retain deployed browser evidence, and perform a spend-bounded provider-backed quality smoke. Export readiness remains non-deleting and does not claim cancellation, revocation, delivery, or retention-policy execution.
 - **Why it matters:** This is the fastest way to discover which impressive modules actually combine into a sellable service.
 - **Effort:** L
-- **Dependencies:** Provider-enabled staging, representative source media, owner-defined acceptance answers.
-- **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **Partly**; fixture/runbook yes, live provider and acceptance review no.
+- **Dependencies:** Provider-enabled staging and owner-authorized spend for the remaining live-provider quality proof.
+- **Before more venue acquisition:** **Local lifecycle proof complete; hosted/provider proof remains before relying on it operationally.**
+- **Codex autonomous:** **Implemented locally**; hosted provider execution and acceptance review remain gated.
 
 ### P1.2 — Replace ambiguous provider-down chat behavior — IMPLEMENTED 2026-08-24
 

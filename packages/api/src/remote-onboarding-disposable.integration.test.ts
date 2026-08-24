@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 import {
   CreateBucketCommand,
@@ -80,6 +81,28 @@ import { venuePackageRouter } from './routers/venue-package'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
 let disposableStorage: S3Client | null = null
+
+interface GoldenVenueExpectedQuestion {
+  key: string
+  question: string
+  expectedFacts: string[]
+  answer: string
+  knowledgeTitle: string
+  knowledgeBody: string
+  topics: string[]
+}
+
+interface GoldenVenueFixture {
+  fixtureId: string
+  synthetic: true
+  venueName: string
+  venueSlug: string
+  expectedQuestions: GoldenVenueExpectedQuestion[]
+}
+
+const goldenVenueFixture = JSON.parse(
+  readFileSync(new URL('../../../scripts/golden-venue/fixture.json', import.meta.url), 'utf8'),
+) as GoldenVenueFixture
 
 function assertDisposableDatabase(): void {
   const raw = process.env.DATABASE_URL
@@ -214,8 +237,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       const venue = await db.venue.create({
         data: {
           tenantId,
-          name: 'Synthetic River Museum',
-          slug: `remote-proof-venue-${suffix}`,
+          name: goldenVenueFixture.venueName,
+          slug: `${goldenVenueFixture.venueSlug}-${suffix}`,
           guideMode: 'non_location',
           isActive: true,
         },
@@ -668,8 +691,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         idempotencyKey: randomUUID(),
         identity: {
           venueStableId: venueId,
-          name: 'Synthetic River Museum',
-          slug: `remote-proof-venue-${suffix}`,
+          name: goldenVenueFixture.venueName,
+          slug: `${goldenVenueFixture.venueSlug}-${suffix}`,
           archetype: 'museum' as const,
         },
         branding: { themeId: 'default' as const, fontId: 'jakarta' as const },
@@ -735,21 +758,21 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
               accessibility: ['Step-free route from Oak Street'],
             },
           },
-          {
+          ...goldenVenueFixture.expectedQuestions.map((expected) => ({
             operationId: randomUUID(),
             op: 'UPSERT_CONTENT_MODULE' as const,
             value: {
-              id: `accessible-arrival-${suffix}`,
+              id: `${expected.key}-${suffix}`,
               version: 1,
               audience: 'PUBLIC' as const,
               evidence: [],
               assetIds: [],
               kind: 'KNOWLEDGE' as const,
-              title: 'Accessible arrival',
-              body: 'Use the Oak Street entrance for the step-free route.',
-              topics: ['Accessibility'],
+              title: expected.knowledgeTitle,
+              body: expected.knowledgeBody,
+              topics: expected.topics,
             },
-          },
+          })),
         ],
       }
       const materialized = await reviewVenuePackageManifestService({
@@ -972,110 +995,136 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       expect(
         await db.place.findFirst({ where: { tenantId, venueId, name: 'River Gallery' } }),
       ).toMatchObject({ name: 'River Gallery' })
-      const publicKnowledge = await db.venueKnowledgeEntry.findFirstOrThrow({
-        where: { tenantId, venueId, title: 'Accessible arrival' },
+      const publicKnowledge = await db.venueKnowledgeEntry.findMany({
+        where: {
+          tenantId,
+          venueId,
+          title: {
+            in: goldenVenueFixture.expectedQuestions.map((expected) => expected.knowledgeTitle),
+          },
+        },
+        orderBy: { title: 'asc' },
       })
-      expect(publicKnowledge).toMatchObject({
-        title: 'Accessible arrival',
-        content: 'Use the Oak Street entrance for the step-free route.',
-      })
+      expect(publicKnowledge).toHaveLength(goldenVenueFixture.expectedQuestions.length)
+      for (const expected of goldenVenueFixture.expectedQuestions) {
+        expect(publicKnowledge).toContainEqual(
+          expect.objectContaining({
+            title: expected.knowledgeTitle,
+            content: expected.knowledgeBody,
+          }),
+        )
+      }
       expect(
         await db.contentVersion.count({
           where: { tenantId, venueId, venuePackageId: approved.id, venuePackageAction: 'APPLY' },
         }),
       ).toBeGreaterThan(0)
 
-      const knowledgeEmbedding = Array(1_536).fill(0)
-      knowledgeEmbedding[0] = 1
-      const embeddingLeaseToken = randomUUID()
-      const embeddingClaim = await acquireEmbeddingWork({
-        tenantId,
-        venueId,
-        entityType: 'KNOWLEDGE_ENTRY',
-        entityId: publicKnowledge.id,
-        contentUpdatedAt: publicKnowledge.updatedAt,
-        sourceHash: createHash('sha256')
-          .update(
-            [publicKnowledge.title, publicKnowledge.category, publicKnowledge.content].join('. '),
-          )
-          .digest('hex'),
-        embeddingProfile: 'openai:text-embedding-3-small:1536',
-        leaseToken: embeddingLeaseToken,
-      })
-      if (embeddingClaim.state !== 'acquired') {
-        throw new Error(`Knowledge embedding claim was not acquired: ${embeddingClaim.state}`)
-      }
-      await expect(
-        storeKnowledgeEntryEmbeddingForScope({
-          entryId: publicKnowledge.id,
+      for (const entry of publicKnowledge) {
+        const knowledgeEmbedding = Array(1_536).fill(0)
+        knowledgeEmbedding[0] = 1
+        const embeddingLeaseToken = randomUUID()
+        const embeddingClaim = await acquireEmbeddingWork({
           tenantId,
           venueId,
-          contentUpdatedAt: publicKnowledge.updatedAt,
-          source: {
-            title: publicKnowledge.title,
-            category: publicKnowledge.category,
-            content: publicKnowledge.content,
-            isEnabled: publicKnowledge.isEnabled,
-          },
-          embedding: knowledgeEmbedding,
-          claimId: embeddingClaim.claimId,
+          entityType: 'KNOWLEDGE_ENTRY',
+          entityId: entry.id,
+          contentUpdatedAt: entry.updatedAt,
+          sourceHash: createHash('sha256')
+            .update([entry.title, entry.category, entry.content].join('. '))
+            .digest('hex'),
+          embeddingProfile: 'openai:text-embedding-3-small:1536',
           leaseToken: embeddingLeaseToken,
-        }),
-      ).resolves.toEqual({ claimCompleted: true, stored: true })
+        })
+        if (embeddingClaim.state !== 'acquired') {
+          throw new Error(`Knowledge embedding claim was not acquired: ${embeddingClaim.state}`)
+        }
+        await expect(
+          storeKnowledgeEntryEmbeddingForScope({
+            entryId: entry.id,
+            tenantId,
+            venueId,
+            contentUpdatedAt: entry.updatedAt,
+            source: {
+              title: entry.title,
+              category: entry.category,
+              content: entry.content,
+              isEnabled: entry.isEnabled,
+            },
+            embedding: knowledgeEmbedding,
+            claimId: embeddingClaim.claimId,
+            leaseToken: embeddingLeaseToken,
+          }),
+        ).resolves.toEqual({ claimCompleted: true, stored: true })
+      }
 
-      // 16. The real public chat router retrieves the applied venue knowledge, routes through
-      // the production AI gateway, and commits a complete provider-dark guest turn. Only the
-      // Anthropic transport is replaced with an in-process deterministic test client.
-      const anthropicCreate = vi.fn().mockResolvedValue({
-        content: [
-          {
-            type: 'text',
-            text: 'Use the Oak Street entrance for the step-free route.',
+      // 16. The real public chat router asks every retained fixture question against applied
+      // venue knowledge, routes through the production AI gateway, and commits complete
+      // provider-dark guest turns. Only the Anthropic transport is replaced in process.
+      const anthropicCreate = vi.fn()
+      for (const expected of goldenVenueFixture.expectedQuestions) {
+        anthropicCreate.mockResolvedValueOnce({
+          content: [{ type: 'text', text: expected.answer }],
+          usage: {
+            input_tokens: 24,
+            output_tokens: 11,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
           },
-        ],
-        usage: {
-          input_tokens: 24,
-          output_tokens: 11,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      })
+        })
+      }
       _setAnthropicClientForTesting({
         messages: { create: anthropicCreate },
       } as AnthropicMessagesClient)
-      const anonymousToken = randomUUID()
-      const operationId = randomUUID()
-      const guestTurn = await publicCaller.chat.send({
-        operationId,
-        venueId,
+      const guestProofs = []
+      for (const [index, expected] of goldenVenueFixture.expectedQuestions.entries()) {
+        const expectedAnonymousToken = randomUUID()
+        const expectedOperationId = randomUUID()
+        const turn = await publicCaller.chat.send({
+          operationId: expectedOperationId,
+          venueId,
+          anonymousToken: expectedAnonymousToken,
+          message: expected.question,
+        })
+        expect(turn).toMatchObject({
+          response: expected.answer,
+          assistantMessageId: expect.any(String),
+          sessionId: expect.any(String),
+          replayed: false,
+        })
+        if (!turn.assistantMessageId) throw new Error('Guest turn did not persist an assistant')
+        const guestPrompt = (
+          anthropicCreate.mock.calls[index]![0].system as Array<{ text: string }>
+        )
+          .map((block) => block.text)
+          .join('')
+        expect(guestPrompt).toContain(expected.knowledgeTitle)
+        expect(guestPrompt).toContain(expected.knowledgeBody)
+        for (const fact of expected.expectedFacts) expect(turn.response).toContain(fact)
+        guestProofs.push({
+          expected,
+          anonymousToken: expectedAnonymousToken,
+          operationId: expectedOperationId,
+          turn,
+        })
+      }
+      const primaryGuestProof = guestProofs[0]
+      if (!primaryGuestProof) throw new Error('Golden Venue fixture has no primary guest question')
+      const {
         anonymousToken,
-        message: 'Which entrance has the step-free route?',
-      })
-      expect(guestTurn).toMatchObject({
-        response: 'Use the Oak Street entrance for the step-free route.',
-        assistantMessageId: expect.any(String),
-        sessionId: expect.any(String),
-        replayed: false,
-      })
-      if (!guestTurn.assistantMessageId)
-        throw new Error('Guest turn did not persist an assistant message')
-      const assistantMessageId = guestTurn.assistantMessageId
-      expect(anthropicCreate).toHaveBeenCalledTimes(1)
-      const guestPrompt = (anthropicCreate.mock.calls[0]![0].system as Array<{ text: string }>)
-        .map((block) => block.text)
-        .join('')
-      expect(guestPrompt).toContain('Accessible arrival')
-      expect(guestPrompt).toContain('Use the Oak Street entrance for the step-free route.')
+        operationId,
+        turn: guestTurn,
+        expected: primaryExpected,
+      } = primaryGuestProof
+      const assistantMessageId = guestTurn.assistantMessageId!
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
       await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
         messages: [
-          expect.objectContaining({
-            role: 'user',
-            content: 'Which entrance has the step-free route?',
-          }),
+          expect.objectContaining({ role: 'user', content: primaryExpected.question }),
           expect.objectContaining({
             id: assistantMessageId,
             role: 'assistant',
-            content: 'Use the Oak Street entrance for the step-free route.',
+            content: primaryExpected.answer,
           }),
         ],
       })
@@ -1465,16 +1514,16 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           operationId,
           venueId,
           anonymousToken,
-          message: 'Which entrance has the step-free route?',
+          message: primaryExpected.question,
         }),
       ).resolves.toMatchObject({
-        response: 'Use the Oak Street entrance for the step-free route.',
+        response: primaryExpected.answer,
         assistantMessageId,
         sessionId: guestTurn.sessionId,
         replayed: true,
       })
       expect(openAiCreate).toHaveBeenCalledTimes(embeddingCallsBeforeReplay)
-      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
 
       // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
       // requests in the fixed window and rejects the next request without another write.

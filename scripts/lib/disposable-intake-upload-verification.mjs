@@ -10,6 +10,9 @@ const CONTAINER_PATTERN =
   /^pathfinder-disposable-(?:intake|golden|improvement|convergence|guestread)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
   /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|content_convergence|native_guest_read)_[a-f0-9]{12}$/u
+const GOLDEN_VENUE_FIXTURE = JSON.parse(
+  readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
+)
 export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
   postgres:
     'pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b',
@@ -605,6 +608,7 @@ export async function runDisposableServiceShakedown({
       outboundProviderWorkersEnabled: false,
       ...(configuration.proofScope ? { proofScope: configuration.proofScope } : {}),
       ...(configuration.failureScope ? { failureScope: configuration.failureScope } : {}),
+      ...(configuration.proofMetrics ? { proofMetrics: configuration.proofMetrics } : {}),
       cleanup: 'verified-absent',
     })}\n`,
   )
@@ -664,6 +668,9 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         'report-failure',
         'ambiguous-provider-outcome',
       ],
+      proofMetrics: {
+        expectedFixtureQuestions: GOLDEN_VENUE_FIXTURE.expectedQuestions.length,
+      },
       integration: {
         packageDirectory: 'packages/api',
         testFile: 'src/remote-onboarding-disposable.integration.test.ts',

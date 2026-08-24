@@ -14,7 +14,7 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
    support resolution with private operator context and immutable terminal AI-run lineage. It also
    proves immutable package/evaluation evidence, explicit release and exact rollback, grounded
    provider-dark public chat through the
-   production gateway, visitor-owned feedback, tenant-published routine updates, admin-published
+   production gateway for every expected fixture question, visitor-owned feedback, tenant-published routine updates, admin-published
    and client-read reports, plus a human-reviewed non-deleting export matrix finalized into
    versioned disposable storage with exact replay recovery. The chat proof uses deterministic
    in-process OpenAI/Anthropic client seams with outbound credentials and provider workers disabled;
@@ -37,6 +37,8 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
 For each required phase, record timestamp, actor/surface, stable record ID, URL or artifact hash, expected result, observed result, and status. Cover client, venue, onboarding, upload/intake, review, content/package/evaluation, release, guest retrieval/chat, feedback, report, support, operational update, and export/offboarding.
 
 Ask every expected fixture question. Record the assistant answer and source records. A text match alone is not grounding evidence.
+The disposable runner enforces this contract against the exact checked-in fixture; `golden-venue:validate`
+is also a static release gate so question/proof metadata cannot silently drift.
 
 ## Failure injection contract
 

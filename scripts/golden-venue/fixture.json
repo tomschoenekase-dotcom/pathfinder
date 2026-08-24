@@ -4,6 +4,7 @@
   "synthetic": true,
   "tenantId": "demo-tenant",
   "venueId": "demo-venue-riverside-aquarium",
+  "venueName": "Riverside Aquarium",
   "venueSlug": "riverside-aquarium",
   "seedCommand": "pnpm --filter @pathfinder/db seed",
   "disposableProof": {
@@ -50,12 +51,42 @@
     "export-offboarding"
   ],
   "expectedQuestions": [
-    { "question": "When is the shark feeding?", "expectedFacts": ["3:00 PM", "Shark Tank"] },
     {
-      "question": "Where are accessible family restrooms?",
-      "expectedFacts": ["North Shore", "South Current"]
+      "key": "accessible-arrival",
+      "question": "Which entrance has the step-free route?",
+      "expectedFacts": ["Oak Street entrance", "step-free route"],
+      "answer": "Use the Oak Street entrance for the step-free route.",
+      "knowledgeTitle": "Accessible arrival",
+      "knowledgeBody": "Use the Oak Street entrance for the step-free route.",
+      "topics": ["Accessibility"]
     },
-    { "question": "What is a good family highlight?", "expectedFacts": ["Penguin Cove"] }
+    {
+      "key": "shark-feeding",
+      "question": "When is the shark feeding?",
+      "expectedFacts": ["3:00 PM", "Shark Tank"],
+      "answer": "The shark feeding is at 3:00 PM in the Shark Tank.",
+      "knowledgeTitle": "Shark feeding",
+      "knowledgeBody": "The shark feeding is at 3:00 PM in the Shark Tank.",
+      "topics": ["Animals", "Schedule"]
+    },
+    {
+      "key": "accessible-restrooms",
+      "question": "Where are accessible family restrooms?",
+      "expectedFacts": ["North Shore", "South Current"],
+      "answer": "Accessible family restrooms are in North Shore and South Current.",
+      "knowledgeTitle": "Accessible family restrooms",
+      "knowledgeBody": "Accessible family restrooms are in North Shore and South Current.",
+      "topics": ["Accessibility", "Amenities"]
+    },
+    {
+      "key": "family-highlight",
+      "question": "What is a good family highlight?",
+      "expectedFacts": ["Penguin Cove"],
+      "answer": "Penguin Cove is a good family highlight.",
+      "knowledgeTitle": "Family highlight",
+      "knowledgeBody": "Penguin Cove is a good family highlight.",
+      "topics": ["Families", "Highlights"]
+    }
   ],
   "failureInjections": [
     "provider-outage",
