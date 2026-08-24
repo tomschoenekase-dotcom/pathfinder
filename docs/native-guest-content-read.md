@@ -47,3 +47,11 @@ deployment state, evaluation evidence, or guest traffic. A populated reference p
 strictly shaped reference exists; the preflight does not invent or certify a quality threshold,
 rollback policy, or production approval. State hashes and immutable plan bodies are not returned by
 the admin projection.
+
+Authorized operational AI can observe the same alignment through the existing MCP
+`pathfinder.read` readiness resource. The credential must have both `resources:read` and
+`readiness:read` plus the exact client and venue scope. Its `nativeGuestRead` projection exposes
+only gate/policy validity, reference-presence booleans, head/evaluation validity, path, reason,
+blockers, and convergence alignment. It never returns release or evidence identifiers, reference
+strings, state hashes, or production-environment identity. The projection is read-only and cannot
+authorize activation, infer a quality threshold, or relax compatibility-data retention.

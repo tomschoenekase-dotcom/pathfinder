@@ -74,6 +74,8 @@ function database() {
     approvalRequest: { findMany: vi.fn() },
     operationalEvent: { findMany: vi.fn() },
     nativeVenueDeploymentRelease: { findMany: vi.fn() },
+    nativeVenueDeploymentHead: { findFirst: vi.fn() },
+    nativeVenueDeploymentEvaluationEvidence: { findFirst: vi.fn() },
     tenantFeatureFlag: { findMany: vi.fn() },
     venueReportConfiguration: { findFirst: vi.fn() },
     agentQuestion: { findMany: vi.fn() },
@@ -691,12 +693,49 @@ describe('MCP v0 concrete read bindings', () => {
         releaseStatus: 'APPLIED',
       },
     })
+    const assessNativeGuestReadActivation = vi.fn().mockResolvedValue({
+      contractVersion: 1,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      runtime: { serverGateEnabled: false, production: false },
+      policy: {
+        present: true,
+        enabled: true,
+        valid: true,
+        mode: 'DARK',
+        targetReleaseId: 'secret-release-id',
+        evaluationEvidenceId: 'secret-evidence-id',
+        qualityPolicyRef: 'secret-quality-policy-reference',
+        qualityPolicyReferencePresent: true,
+        rollbackRehearsalRef: 'secret-rollback-reference',
+        rollbackRehearsalReferencePresent: true,
+        productionApprovalRef: 'secret-production-approval-reference',
+        productionApprovalReferencePresent: true,
+      },
+      head: {
+        present: true,
+        valid: true,
+        targetMatches: true,
+        releaseId: 'secret-release-id',
+      },
+      evaluation: { valid: true, evidenceId: 'secret-evidence-id' },
+      path: 'LEGACY',
+      reason: 'SERVER_DISABLED',
+      readyForConfiguredMode: false,
+      nativeExecutionReady: false,
+      blockers: ['SERVER_GATE_DISABLED'],
+      compatibilityDataRetentionRequired: true,
+      mutationPerformed: false,
+    })
 
     const response = await readMcpResource(
       db as never,
       { resource: 'readiness', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
       { credential },
-      { measureNativeContentConvergence: measureNativeContentConvergence as never },
+      {
+        assessNativeGuestReadActivation: assessNativeGuestReadActivation as never,
+        measureNativeContentConvergence: measureNativeContentConvergence as never,
+      },
     )
     expect(response.data).toMatchObject({
       venueId: 'venue-1',
@@ -709,9 +748,97 @@ describe('MCP v0 concrete read bindings', () => {
         readyForShadowEvaluation: true,
         readyForLegacyRetirement: false,
       },
+      nativeGuestRead: {
+        available: true,
+        runtime: { serverGateEnabled: false },
+        policy: {
+          present: true,
+          enabled: true,
+          valid: true,
+          mode: 'DARK',
+          qualityPolicyReferencePresent: true,
+          rollbackRehearsalReferencePresent: true,
+          productionApprovalReferencePresent: true,
+        },
+        head: { present: true, valid: true, targetMatches: true },
+        evaluation: { valid: true },
+        path: 'LEGACY',
+        reason: 'SERVER_DISABLED',
+        blockers: ['SERVER_GATE_DISABLED'],
+        alignment: {
+          runtimeReadGateOpen: false,
+          materializedStateInSync: true,
+          allObservedTechnicalEvidenceAligned: false,
+        },
+        boundaries: {
+          readOnly: true,
+          activationAuthorized: false,
+          qualityThresholdInferred: false,
+          policyReferencesExposed: false,
+          compatibilityDataRetentionRequired: true,
+        },
+      },
     })
-    expect(JSON.stringify(response)).not.toMatch(/stateHash|desiredStateHash/u)
+    expect(assessNativeGuestReadActivation).toHaveBeenCalledWith({
+      client: db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(JSON.stringify(response)).not.toMatch(
+      /stateHash|desiredStateHash|release-1|secret-release|secret-evidence|secret-quality|secret-rollback|secret-production/u,
+    )
     expect(db.venue.findFirst.mock.calls[0]![0].select).not.toHaveProperty('config')
+  })
+
+  it('fails the native read summary closed without hiding independent readiness evidence', async () => {
+    const db = database()
+    db.venue.findFirst.mockResolvedValue({
+      id: 'venue-1',
+      name: 'Museum',
+      slug: 'museum',
+      isActive: true,
+      updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+    })
+    db.place.count.mockResolvedValue(1)
+    db.venueKnowledgeEntry.count.mockResolvedValue(0)
+    db.venueReportConfiguration.findFirst.mockResolvedValue(null)
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'readiness', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+      { credential },
+      {
+        assessNativeGuestReadActivation: vi.fn().mockRejectedValue(new Error('contained')) as never,
+        measureNativeContentConvergence: vi.fn().mockResolvedValue({
+          contractVersion: 1,
+          phase: 'NO_NATIVE_HEAD',
+          guestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+          headValid: false,
+          stateMatchesHead: false,
+          readyForShadowEvaluation: false,
+          readyForLegacyRetirement: false,
+          needsOperatorAttention: false,
+          blockers: ['NO_NATIVE_HEAD', 'LEGACY_SEMANTIC_READ_PATH'],
+          counts: { activePlaces: 1, enabledKnowledgeEntries: 0, publishedGeneralizedModules: 0 },
+          venueActive: true,
+          currentStateHash: 'not-returned',
+          head: null,
+        }) as never,
+      },
+    )
+    expect(response.data).toMatchObject({
+      readyForPreview: true,
+      contentConvergence: { available: true, phase: 'NO_NATIVE_HEAD' },
+      nativeGuestRead: {
+        available: false,
+        path: 'LEGACY',
+        reason: 'ASSESSMENT_UNAVAILABLE',
+        alignment: {
+          runtimeReadGateOpen: false,
+          materializedStateInSync: false,
+          allObservedTechnicalEvidenceAligned: false,
+        },
+      },
+    })
   })
 
   it('returns a versioned bounded onboarding summary without raw milestone identities', async () => {

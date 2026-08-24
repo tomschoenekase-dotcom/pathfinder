@@ -257,6 +257,18 @@ describe('PathFinder MCP server-side adapter registry', () => {
       registry.callTool(
         'pathfinder.read',
         {
+          resource: 'readiness',
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          limit: 25,
+        },
+        { credential },
+      ),
+    ).rejects.toThrow('Capability denied')
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        {
           resource: 'reports',
           clientId: 'client-1',
           venueId: 'venue-1',
@@ -278,6 +290,34 @@ describe('PathFinder MCP server-side adapter registry', () => {
         { credential },
       ),
     ).rejects.toThrow('Capability denied')
+    expect(domain.read).not.toHaveBeenCalled()
+  })
+
+  it('admits readiness only with both exact venue scope and readiness capability', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const readinessCredential: VerifiedMcpCredentialScope = {
+      ...credential,
+      clientId: 'client-1',
+      capabilities: ['resources:read', 'readiness:read'],
+    }
+    const input = {
+      resource: 'readiness' as const,
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      limit: 25,
+    }
+    await registry.callTool('pathfinder.read', input, { credential: readinessCredential })
+    expect(domain.read).toHaveBeenCalledWith(input, expect.anything())
+
+    vi.mocked(domain.read).mockClear()
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        { ...input, venueId: 'venue-2' },
+        { credential: readinessCredential },
+      ),
+    ).rejects.toThrow('Venue scope denied')
     expect(domain.read).not.toHaveBeenCalled()
   })
 

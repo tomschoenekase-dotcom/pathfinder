@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
@@ -56,6 +57,7 @@ import type { TRPCContext } from './context'
 import { router } from './core'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
+import { createSafeOperationalMcpRegistry } from './mcp/composition'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
@@ -549,6 +551,81 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       })
       expect(JSON.stringify(activePreflight)).not.toMatch(/stateHash|desiredStateHash/u)
 
+      const mcpRegistry = createSafeOperationalMcpRegistry(db)
+      const readinessCredential: VerifiedMcpCredentialScope = {
+        credentialId: 'disposable-native-readiness',
+        tenantId,
+        clientId: tenantId,
+        venueIds: [venueId],
+        capabilities: ['resources:read', 'readiness:read'],
+      }
+      const readinessInput = {
+        resource: 'readiness' as const,
+        clientId: tenantId,
+        venueId,
+        limit: 25,
+      }
+      const mcpActivePreflight = await mcpRegistry.callTool('pathfinder.read', readinessInput, {
+        credential: readinessCredential,
+      })
+      expect(mcpActivePreflight.structuredContent.data).toMatchObject({
+        venueId,
+        contentConvergence: {
+          available: true,
+          phase: 'NATIVE_HEAD_IN_SYNC',
+          stateMatchesHead: true,
+        },
+        nativeGuestRead: {
+          available: true,
+          runtime: { serverGateEnabled: true },
+          policy: {
+            present: true,
+            enabled: true,
+            valid: true,
+            mode: 'ACTIVE',
+            qualityPolicyReferencePresent: true,
+            rollbackRehearsalReferencePresent: true,
+            productionApprovalReferencePresent: false,
+          },
+          head: { present: true, valid: true, targetMatches: true },
+          evaluation: { valid: true },
+          path: 'NATIVE',
+          reason: 'NATIVE_READY',
+          blockers: [],
+          alignment: {
+            runtimeReadGateOpen: true,
+            materializedStateInSync: true,
+            allObservedTechnicalEvidenceAligned: true,
+          },
+          boundaries: {
+            readOnly: true,
+            activationAuthorized: false,
+            qualityThresholdInferred: false,
+            policyReferencesExposed: false,
+            compatibilityDataRetentionRequired: true,
+          },
+        },
+      })
+      const serializedMcpActivePreflight = JSON.stringify(mcpActivePreflight)
+      expect(serializedMcpActivePreflight).not.toMatch(/stateHash|desiredStateHash/u)
+      expect(serializedMcpActivePreflight).not.toContain(release.id)
+      expect(serializedMcpActivePreflight).not.toContain(evidence.id)
+      expect(serializedMcpActivePreflight).not.toContain('policy://disposable-quality-proof')
+      expect(serializedMcpActivePreflight).not.toContain('evidence://this-disposable-rehearsal')
+
+      await expect(
+        mcpRegistry.callTool('pathfinder.read', readinessInput, {
+          credential: { ...readinessCredential, capabilities: ['resources:read'] },
+        }),
+      ).rejects.toThrow('Capability denied')
+      await expect(
+        mcpRegistry.callTool(
+          'pathfinder.read',
+          { ...readinessInput, venueId: controlVenueId },
+          { credential: readinessCredential },
+        ),
+      ).rejects.toThrow('Venue scope denied')
+
       const controlPreflight = await adminCaller.getNativeGuestReadActivationPreflight({
         tenantId: controlTenantId,
         venueId: controlVenueId,
@@ -701,6 +778,41 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
           materializedStateInSync: false,
           allObservedTechnicalEvidenceAligned: false,
         })
+        const mcpDisabledPreflight = await mcpRegistry.callTool('pathfinder.read', readinessInput, {
+          credential: readinessCredential,
+        })
+        expect(mcpDisabledPreflight.structuredContent.data).toMatchObject({
+          contentConvergence: {
+            available: true,
+            phase: 'NATIVE_HEAD_DRIFTED',
+            stateMatchesHead: false,
+          },
+          nativeGuestRead: {
+            available: true,
+            runtime: { serverGateEnabled: false },
+            policy: { present: true, enabled: true, valid: true, mode: 'ACTIVE' },
+            head: { present: true, valid: true, targetMatches: true },
+            evaluation: { valid: true },
+            path: 'LEGACY',
+            reason: 'SERVER_DISABLED',
+            blockers: ['SERVER_GATE_DISABLED'],
+            alignment: {
+              runtimeReadGateOpen: false,
+              materializedStateInSync: false,
+              allObservedTechnicalEvidenceAligned: false,
+            },
+            boundaries: {
+              readOnly: true,
+              activationAuthorized: false,
+              policyReferencesExposed: false,
+            },
+          },
+        })
+        const serializedMcpDisabledPreflight = JSON.stringify(mcpDisabledPreflight)
+        expect(serializedMcpDisabledPreflight).not.toContain(release.id)
+        expect(serializedMcpDisabledPreflight).not.toContain(evidence.id)
+        expect(serializedMcpDisabledPreflight).not.toContain('policy://disposable-quality-proof')
+        expect(serializedMcpDisabledPreflight).not.toContain('evidence://this-disposable-rehearsal')
         await send({})
       } finally {
         process.env.NATIVE_GUEST_CONTENT_READ_ENABLED = 'true'

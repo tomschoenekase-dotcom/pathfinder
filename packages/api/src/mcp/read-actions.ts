@@ -7,6 +7,7 @@ import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 import {
   OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
   WORKER_HEARTBEAT_KEY,
+  assessNativeGuestReadActivationAction,
   measureNativeContentConvergenceAction,
   projectWorkerHeartbeat,
 } from '@pathfinder/db'
@@ -51,6 +52,8 @@ type ReadDb = Pick<
   | 'approvalRequest'
   | 'operationalEvent'
   | 'nativeVenueDeploymentRelease'
+  | 'nativeVenueDeploymentHead'
+  | 'nativeVenueDeploymentEvaluationEvidence'
   | 'tenantFeatureFlag'
   | 'venueReportConfiguration'
   | 'agentQuestion'
@@ -60,6 +63,7 @@ type ReadDb = Pick<
   | 'offboardingPlan'
 >
 type McpReadServices = {
+  assessNativeGuestReadActivation?: typeof assessNativeGuestReadActivationAction
   measureNativeContentConvergence?: typeof measureNativeContentConvergenceAction
 }
 
@@ -1307,48 +1311,90 @@ async function readReadiness(
 ): Promise<McpToolResult> {
   const measureNativeContentConvergence =
     services.measureNativeContentConvergence ?? measureNativeContentConvergenceAction
-  const [venue, activePlaces, enabledKnowledge, reporting, contentConvergence] = await Promise.all([
-    db.venue.findFirst({
-      where: { id: venueId, tenantId },
-      select: { id: true, isActive: true, name: true, slug: true, updatedAt: true },
-    }),
-    db.place.count({ where: { tenantId, venueId, isActive: true } }),
-    db.venueKnowledgeEntry.count({ where: { tenantId, venueId, isEnabled: true } }),
-    db.venueReportConfiguration.findFirst({
-      where: { tenantId, venueId },
-      select: { enabled: true, updatedAt: true },
-    }),
-    measureNativeContentConvergence(db as never, { tenantId, venueId })
-      .then((measurement) => ({
-        available: true as const,
-        contractVersion: measurement.contractVersion,
-        phase: measurement.phase,
-        guestReadPath: measurement.guestReadPath,
-        headValid: measurement.headValid,
-        stateMatchesHead: measurement.stateMatchesHead,
-        readyForShadowEvaluation: measurement.readyForShadowEvaluation,
-        readyForLegacyRetirement: measurement.readyForLegacyRetirement,
-        needsOperatorAttention: measurement.needsOperatorAttention,
-        blockers: measurement.blockers,
-        counts: measurement.counts,
-        head: measurement.head
-          ? {
-              releaseId: measurement.head.releaseId,
-              revision: measurement.head.revision,
-              updatedAt: measurement.head.updatedAt.toISOString(),
-              releaseStatus: measurement.head.releaseStatus,
-            }
-          : null,
-      }))
-      .catch(() => ({
-        available: false as const,
-        phase: 'UNAVAILABLE' as const,
-        readyForShadowEvaluation: false as const,
-        readyForLegacyRetirement: false as const,
-        needsOperatorAttention: true as const,
-        blockers: ['MEASUREMENT_UNAVAILABLE'] as const,
-      })),
-  ])
+  const assessNativeGuestReadActivation =
+    services.assessNativeGuestReadActivation ?? assessNativeGuestReadActivationAction
+  const [venue, activePlaces, enabledKnowledge, reporting, contentConvergence, nativeGuestRead] =
+    await Promise.all([
+      db.venue.findFirst({
+        where: { id: venueId, tenantId },
+        select: { id: true, isActive: true, name: true, slug: true, updatedAt: true },
+      }),
+      db.place.count({ where: { tenantId, venueId, isActive: true } }),
+      db.venueKnowledgeEntry.count({ where: { tenantId, venueId, isEnabled: true } }),
+      db.venueReportConfiguration.findFirst({
+        where: { tenantId, venueId },
+        select: { enabled: true, updatedAt: true },
+      }),
+      measureNativeContentConvergence(db as never, { tenantId, venueId })
+        .then((measurement) => ({
+          available: true as const,
+          contractVersion: measurement.contractVersion,
+          phase: measurement.phase,
+          guestReadPath: measurement.guestReadPath,
+          headValid: measurement.headValid,
+          stateMatchesHead: measurement.stateMatchesHead,
+          readyForShadowEvaluation: measurement.readyForShadowEvaluation,
+          readyForLegacyRetirement: measurement.readyForLegacyRetirement,
+          needsOperatorAttention: measurement.needsOperatorAttention,
+          blockers: measurement.blockers,
+          counts: measurement.counts,
+          head: measurement.head
+            ? {
+                revision: measurement.head.revision,
+                updatedAt: measurement.head.updatedAt.toISOString(),
+                releaseStatus: measurement.head.releaseStatus,
+              }
+            : null,
+        }))
+        .catch(() => ({
+          available: false as const,
+          phase: 'UNAVAILABLE' as const,
+          readyForShadowEvaluation: false as const,
+          readyForLegacyRetirement: false as const,
+          needsOperatorAttention: true as const,
+          blockers: ['MEASUREMENT_UNAVAILABLE'] as const,
+        })),
+      assessNativeGuestReadActivation({ client: db as never, tenantId, venueId })
+        .then((assessment) => ({
+          available: true as const,
+          contractVersion: assessment.contractVersion,
+          runtime: { serverGateEnabled: assessment.runtime.serverGateEnabled },
+          policy: {
+            present: assessment.policy.present,
+            enabled: assessment.policy.enabled,
+            valid: assessment.policy.valid,
+            mode: assessment.policy.mode,
+            qualityPolicyReferencePresent: assessment.policy.qualityPolicyReferencePresent,
+            rollbackRehearsalReferencePresent: assessment.policy.rollbackRehearsalReferencePresent,
+            productionApprovalReferencePresent:
+              assessment.policy.productionApprovalReferencePresent,
+          },
+          head: {
+            present: assessment.head.present,
+            valid: assessment.head.valid,
+            targetMatches: assessment.head.targetMatches,
+          },
+          evaluation: { valid: assessment.evaluation.valid },
+          path: assessment.path,
+          reason: assessment.reason,
+          readyForConfiguredMode: assessment.readyForConfiguredMode,
+          nativeExecutionReady: assessment.nativeExecutionReady,
+          blockers: assessment.blockers,
+          compatibilityDataRetentionRequired: assessment.compatibilityDataRetentionRequired,
+        }))
+        .catch(() => ({
+          available: false as const,
+          path: 'LEGACY' as const,
+          reason: 'ASSESSMENT_UNAVAILABLE' as const,
+          readyForConfiguredMode: false as const,
+          nativeExecutionReady: false as const,
+          blockers: ['ASSESSMENT_UNAVAILABLE'] as const,
+          compatibilityDataRetentionRequired: true as const,
+        })),
+    ])
+  const runtimeReadGateOpen = nativeGuestRead.readyForConfiguredMode
+  const materializedStateInSync =
+    contentConvergence.available && contentConvergence.phase === 'NATIVE_HEAD_IN_SYNC'
   return result(
     'readiness',
     venue
@@ -1360,6 +1406,21 @@ async function readReadiness(
           reportingEnabled: reporting?.enabled ?? false,
           readyForPreview: venue.isActive && activePlaces + enabledKnowledge > 0,
           contentConvergence,
+          nativeGuestRead: {
+            ...nativeGuestRead,
+            alignment: {
+              runtimeReadGateOpen,
+              materializedStateInSync,
+              allObservedTechnicalEvidenceAligned: runtimeReadGateOpen && materializedStateInSync,
+            },
+            boundaries: {
+              readOnly: true as const,
+              activationAuthorized: false as const,
+              qualityThresholdInferred: false as const,
+              policyReferencesExposed: false as const,
+              compatibilityDataRetentionRequired: true as const,
+            },
+          },
           updatedAt: venue.updatedAt.toISOString(),
         }
       : null,

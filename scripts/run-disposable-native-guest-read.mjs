@@ -26,6 +26,9 @@ async function run() {
         'server-kill-switch-rollback',
         'read-only-activation-preflight',
         'preflight-cross-tenant-isolation',
+        'mcp-readiness-preflight',
+        'mcp-capability-scope',
+        'mcp-preflight-secret-boundary',
       ],
       integration: {
         packageDirectory: 'packages/api',
