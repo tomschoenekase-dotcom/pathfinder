@@ -78,8 +78,15 @@ Then run the narrow package test before the broader repository suites. The compl
 ```powershell
 pnpm torchiko simulate time small-museum 2026-08-24T16:00:00.000Z --json
 pnpm torchiko simulate location outdoor-park 41.89 -87.61 --json
+pnpm torchiko simulate visitor small-museum 2026-08-24T17:00:00.000Z voice --json
 pnpm torchiko replay conversation large-museum --json
 ```
+
+Visitor simulation combines fixture-only interaction-mode configuration with the canonical
+published/active/start/expiry lifecycle for scheduled operational updates. It reports the requested
+and effective Bot/Voice mode, any fallback, every update lifecycle, and the currently visible
+subset. It does not inspect live entitlements or environment flags and never schedules or mutates
+an update.
 
 Replay preparation emits a synthetic transcript and required-fact assertions. Provider-backed execution and scoring remain separate, explicitly enabled evaluation operations.
 

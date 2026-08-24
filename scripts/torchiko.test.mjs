@@ -22,6 +22,7 @@ import {
   operationBindingDigest,
   simulateScenarioLocation,
   simulateScenarioTime,
+  simulateScenarioVisitor,
 } from './lib/torchiko-developer-tools.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -291,6 +292,19 @@ test('time and location simulations are deterministic and provider-free', async 
   const location = await simulateScenarioLocation(root, 'small-museum', 41.881, -87.623)
   assert.equal(location.matches[0].id, 'entrance')
   assert.equal(location.matches[0].inside, true)
+})
+
+test('visitor simulation exposes scheduled updates and synthetic mode fallback', async () => {
+  const report = await simulateScenarioVisitor(
+    root,
+    'small-museum',
+    '2026-08-24T17:00:00.000Z',
+    'voice',
+  )
+  assert.equal(report.operationalUpdates.visible[0].id, 'harbor-gallery-maintenance')
+  assert.equal(report.clientConfiguration.effectiveMode, 'bot')
+  assert.equal(report.clientConfiguration.liveEntitlementEvaluated, false)
+  assert.equal(report.providerDispatch, false)
 })
 
 test('conversation replay emits assertions without visitor identity or provider dispatch', async () => {

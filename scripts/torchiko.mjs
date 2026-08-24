@@ -18,6 +18,7 @@ import {
   loadCompanyBrainScenarioRegistry,
   simulateScenarioLocation,
   simulateScenarioTime,
+  simulateScenarioVisitor,
 } from './lib/torchiko-developer-tools.mjs'
 import { executeSyntheticScenarioReset } from './lib/synthetic-scenario-worlds.mjs'
 
@@ -27,7 +28,7 @@ const json = args.includes('--json')
 const positional = args.filter((arg) => arg !== '--json')
 
 function usage() {
-  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  scenarios reset <scenario> --database <name> --confirm-database <name> [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  replay assess <scenario> --stdin [--json]\n  tests find <query> [--json]\n  golden validate\n`
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  scenarios reset <scenario> --database <name> --confirm-database <name> [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  simulate visitor <scenario> <iso-instant> <bot|voice> [--json]\n  replay conversation <scenario> [--json]\n  replay assess <scenario> --stdin [--json]\n  tests find <query> [--json]\n  golden validate\n`
 }
 
 async function readBoundedStdin(limitBytes = 32 * 1024) {
@@ -98,6 +99,8 @@ async function main() {
     return emit(await simulateScenarioTime(root, rest[0], rest[1]))
   if (group === 'simulate' && action === 'location' && rest.length === 3)
     return emit(await simulateScenarioLocation(root, rest[0], Number(rest[1]), Number(rest[2])))
+  if (group === 'simulate' && action === 'visitor' && rest.length === 3)
+    return emit(await simulateScenarioVisitor(root, rest[0], rest[1], rest[2]))
   if (group === 'replay' && action === 'conversation' && rest.length === 1)
     return emit(await buildConversationReplay(root, rest[0]))
   if (group === 'replay' && action === 'assess' && rest.length === 2 && rest[1] === '--stdin') {

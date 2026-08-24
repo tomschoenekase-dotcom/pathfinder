@@ -24,6 +24,7 @@ const staticGates = [
   ['agent-scenarios', ['node', 'scripts/torchiko.mjs', 'scenarios', 'validate', '--json']],
   ['scenario-worlds', ['node', '--test', 'scripts/synthetic-scenario-worlds.test.mjs']],
   ['scenario-replay', ['node', '--test', 'scripts/synthetic-conversation-assessment.test.mjs']],
+  ['scenario-visitor', ['node', '--test', 'scripts/synthetic-visitor-simulation.test.mjs']],
 ]
 
 const candidateGates = [

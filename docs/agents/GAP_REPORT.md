@@ -46,7 +46,12 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    exits nonzero on missing requirements. Arbitrary unsupported-claim detection, answer-usefulness
    judgment, provider-backed execution, provider trace explanation, and “why did the model do
    that?” remain incomplete.
-2. Deterministic location and time simulation are reusable across four scenario shapes; scheduled-update and client-configuration simulation remain incomplete.
+2. **Closed — provider-free visitor configuration and scheduled-update simulation.** All four
+   canonical worlds now include explicitly synthetic Bot/Voice configuration and operational
+   update windows. The developer interface deterministically resolves requested-mode fallback and
+   the canonical `DRAFT`/`INACTIVE`/`SCHEDULED`/`LIVE`/`EXPIRED` ordering, including exact start and
+   expiry boundaries and the visitor-visible subset. It does not inspect live entitlements or
+   environment flags and cannot schedule, publish, expire, or mutate an update.
 3. **Partially closed — coherent report lifecycle read.** An exact `reports:read` tool now reuses
    the canonical report lifecycle query and returns generation/attempt state, persisted source
    counts, review state, publication/client visibility, explicit absence of modeled external

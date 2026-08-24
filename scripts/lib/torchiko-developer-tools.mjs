@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 
 import { assessSyntheticConversationResponse } from './synthetic-conversation-assessment.mjs'
+import { buildSyntheticVisitorSimulation } from './synthetic-visitor-simulation.mjs'
 import ts from 'typescript'
 
 const TEST_PATTERN = /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/u
@@ -823,6 +824,38 @@ export async function loadScenarioRegistry(root) {
           )
       }
     }
+    const configuration = scenario.visitorConfiguration
+    if (
+      typeof configuration?.botMode !== 'boolean' ||
+      typeof configuration?.voiceMode !== 'boolean' ||
+      !['bot', 'voice'].includes(configuration?.defaultMode) ||
+      configuration?.[`${configuration.defaultMode}Mode`] !== true
+    )
+      errors.push(`${scenario.id}: visitor configuration must have an enabled default mode`)
+    const updateIds = new Set()
+    if (!Array.isArray(scenario.operationalUpdates) || scenario.operationalUpdates.length === 0)
+      errors.push(`${scenario.id}: operational updates are required`)
+    for (const update of scenario.operationalUpdates ?? []) {
+      if (!update?.id || updateIds.has(update.id))
+        errors.push(`${scenario.id}: operational update ids must be present and unique`)
+      updateIds.add(update?.id)
+      if (!update?.title)
+        errors.push(`${scenario.id}:${update?.id ?? 'unknown'}: title is required`)
+      if (!['DRAFT', 'PUBLISHED'].includes(update?.status))
+        errors.push(`${scenario.id}:${update?.id ?? 'unknown'}: status is invalid`)
+      if (typeof update?.isActive !== 'boolean')
+        errors.push(`${scenario.id}:${update?.id ?? 'unknown'}: active state is required`)
+      const startsAt = new Date(update?.startsAt)
+      const expiresAt = new Date(update?.expiresAt)
+      if (
+        Number.isNaN(startsAt.getTime()) ||
+        Number.isNaN(expiresAt.getTime()) ||
+        startsAt.getTime() >= expiresAt.getTime() ||
+        startsAt.toISOString() !== update?.startsAt ||
+        expiresAt.toISOString() !== update?.expiresAt
+      )
+        errors.push(`${scenario.id}:${update?.id ?? 'unknown'}: update window is invalid`)
+    }
   }
   return { ...registry, errors, healthy: errors.length === 0 }
 }
@@ -977,6 +1010,12 @@ export async function simulateScenarioLocation(root, id, latitude, longitude) {
     })
     .sort((a, b) => a.distanceMeters - b.distanceMeters)
   return { schemaVersion: 1, synthetic: true, scenarioId: id, matches }
+}
+
+export async function simulateScenarioVisitor(root, id, instant, requestedMode) {
+  const registry = await loadScenarioRegistry(root)
+  if (!registry.healthy) throw new Error('Synthetic scenario registry is invalid')
+  return buildSyntheticVisitorSimulation(getScenario(registry, id), instant, requestedMode)
 }
 
 export async function buildConversationReplay(root, id) {
