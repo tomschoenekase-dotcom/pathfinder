@@ -69,17 +69,27 @@ describe('agent bridge actions', () => {
     mocks.runFind.mockResolvedValue({ id: 'run-1' })
     mocks.claim.mockResolvedValue({
       id: 'run-1',
+      operationId: null,
       venueId: 'venue-1',
       runType: 'PRIMARY',
       requestedOperation: 'operator_task',
       requestPrompt: 'Build it',
       modelProvider: 'codex-bridge',
       modelName: 'subscription-default',
-      leaseToken: 'lease',
+      leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
-      agentIdentity: { name: 'EDITH' },
+      initiatedByType: 'HUMAN',
+      initiatedById: 'operator-1',
+      agentIdentity: {
+        identityKey: 'edith.primary',
+        name: 'EDITH',
+        description: null,
+        accessCapabilities: ['operations.read'],
+        autonomyLevel: 'READ_ONLY',
+        autonomousActions: [],
+      },
     })
     const result = await claimAgentBridgeTask({
       sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
