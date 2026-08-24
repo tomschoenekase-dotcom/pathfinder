@@ -126,6 +126,7 @@ export const adminSupportCompletionApprovalRouter = router({
               fromStatus: snapshot.data.fromStatus,
               toStatus: snapshot.data.toStatus,
               body: snapshot.data.body,
+              packageFulfillment: snapshot.data.packageFulfillment,
             })
             const approvalGrant = await issueApprovalGrantAction(
               {
@@ -137,11 +138,11 @@ export const adminSupportCompletionApprovalRouter = router({
                 capability: SUPPORT_COMPLETION_CAPABILITY,
                 mode: 'ONE_SHOT',
                 scope: {
-                  contractVersion: 1,
+                  contractVersion: 2,
                   tenantId: input.tenantId,
                   venueId: input.venueId,
                   approvalRequestId: request.id,
-                  effect: 'EXACT_CLIENT_COMPLETION_ONLY',
+                  effect: 'EXACT_FULFILLMENT_BOUND_CLIENT_COMPLETION_ONLY',
                 },
                 parameters,
                 approvalDecisionId: decision.id,

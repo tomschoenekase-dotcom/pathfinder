@@ -46,6 +46,7 @@ function harness(missingInformation: string[] = []) {
         missingInformation,
       }),
     },
+    supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     agentAction: { create: vi.fn().mockResolvedValue({ id: 'action_1' }) },
     agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline_1' }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
@@ -72,6 +73,11 @@ describe('support completion proposal action', () => {
             toStatus: 'COMPLETED',
             body: input.body,
             missingInformationCount: 0,
+            packageFulfillment: expect.objectContaining({
+              linkedPackageCount: 0,
+              packages: [],
+            }),
+            allLinkedPackagesApplied: true,
             clientVisibleMessageCreated: false,
             customerContacted: false,
             externalDeliveryTriggered: false,
@@ -87,6 +93,30 @@ describe('support completion proposal action', () => {
     const { tx, client } = harness(['Current photograph'])
     await expect(prepareSupportCompletionProposalAction(input, client)).rejects.toMatchObject({
       code: 'CONFLICT',
+    })
+    expect(tx.approvalRequest.create).not.toHaveBeenCalled()
+  })
+
+  it('fails closed while a linked venue package is not applied', async () => {
+    const { tx, client } = harness()
+    tx.supportPackageHandoff.findMany.mockResolvedValueOnce([
+      {
+        id: 'handoff_1',
+        venuePackageId: 'package_1',
+        requestVersion: 5,
+        venuePackage: {
+          status: 'APPROVED',
+          payloadHash: 'a'.repeat(64),
+          appliedAt: null,
+          appliedBy: null,
+          appliedCommandKey: null,
+          updatedAt: new Date('2026-08-24T20:00:00.000Z'),
+        },
+      },
+    ] as never)
+    await expect(prepareSupportCompletionProposalAction(input, client)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('not fully applied'),
     })
     expect(tx.approvalRequest.create).not.toHaveBeenCalled()
   })

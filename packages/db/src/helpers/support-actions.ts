@@ -13,11 +13,21 @@ import {
 import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
+import {
+  SupportCompletionPackageFulfillment,
+  type SupportCompletionPackageFulfillment as SupportCompletionPackageFulfillmentValue,
+} from '@pathfinder/contracts'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 import { canTenantActorAccessSupportRequest } from './support-request-access'
+import {
+  readSupportPackageFulfillment,
+  sameSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
+} from './support-package-fulfillment'
+import { lockVenueContentMutation } from './venue-content-lock'
 
 export type SupportActionActor =
   | {
@@ -257,6 +267,7 @@ const operatorConversationInput = z
     requestId: scopedId,
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
+    packageFulfillment: SupportCompletionPackageFulfillment.optional(),
     actor: z.union([
       operatorConversationActor,
       approvedClientVisibleSupportAgentActor.refine(
@@ -1320,6 +1331,7 @@ type ManualLoopParsed = {
   body: string
   missingInformation?: string[]
   attachments?: SupportAttachmentDraft[]
+  packageFulfillment?: SupportCompletionPackageFulfillmentValue
   actor: SupportActionActor
 }
 
@@ -1356,6 +1368,9 @@ async function manualSupportLoopActionOnce(
     requestId: parsed.requestId,
     expectedVersion: expectedVersion ?? expectedClientVersion,
     body: parsed.body,
+    ...(parsed.packageFulfillment
+      ? { packageFulfillmentDigest: parsed.packageFulfillment.digest }
+      : {}),
     missingInformation: requestedItems,
     intakeUploadIds: attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
   })
@@ -1424,6 +1439,7 @@ async function manualSupportLoopActionOnce(
       }
     }
 
+    let completionPackageFulfillment: SupportCompletionPackageFulfillmentValue | null = null
     if (kind === 'REQUEST_INFORMATION') {
       if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
         throw new SupportActionError('CONFLICT', 'Request is not ready for an information prompt')
@@ -1443,6 +1459,34 @@ async function manualSupportLoopActionOnce(
         throw new SupportActionError('CONFLICT', 'Requested information must be resolved first')
       if (request.version !== expectedVersion)
         throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+      await lockVenueContentMutation(tx, {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+      })
+      let currentPackageFulfillment: SupportCompletionPackageFulfillmentValue
+      try {
+        currentPackageFulfillment = await readSupportPackageFulfillment(tx, {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          supportRequestId: parsed.requestId,
+        })
+      } catch (error) {
+        if (error instanceof SupportPackageFulfillmentError) {
+          throw new SupportActionError('CONFLICT', error.message)
+        }
+        throw error
+      }
+      if (
+        parsed.actor.actorType === 'AGENT' &&
+        (!parsed.packageFulfillment ||
+          !sameSupportPackageFulfillment(parsed.packageFulfillment, currentPackageFulfillment))
+      ) {
+        throw new SupportActionError(
+          'CONFLICT',
+          'Linked package fulfillment changed after founder review; refresh completion evidence.',
+        )
+      }
+      completionPackageFulfillment = currentPackageFulfillment
     }
 
     const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
@@ -1540,6 +1584,13 @@ async function manualSupportLoopActionOnce(
         triageChanged: false,
         packageLifecycleChanged: false,
         executionTriggered: false,
+        ...(completionPackageFulfillment
+          ? {
+              linkedPackageCount: completionPackageFulfillment.linkedPackageCount,
+              packageFulfillmentDigest: completionPackageFulfillment.digest,
+              allLinkedPackagesApplied: true,
+            }
+          : {}),
       },
     }
     if (parsed.actor.actorType === 'AGENT') {
@@ -1580,6 +1631,7 @@ async function manualSupportLoopActionOnce(
       missingInformation: requestedItems,
       requestVersion: nextVersion,
       clientVersion: nextClientVersion,
+      ...(completionPackageFulfillment ? { packageFulfillment: completionPackageFulfillment } : {}),
       replayed: false as const,
     }
   })

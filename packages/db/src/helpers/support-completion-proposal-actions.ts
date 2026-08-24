@@ -5,6 +5,10 @@ import { MachineActorContext } from '@pathfinder/contracts/actor'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import {
+  readSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
+} from './support-package-fulfillment'
 
 const evidenceReference = z
   .object({ type: z.string().trim().min(1).max(100), id: z.string().trim().min(1).max(191) })
@@ -105,24 +109,6 @@ export async function prepareSupportCompletionProposalAction(
     )
   }
   const parsed = parsedResult.data
-  const snapshot = {
-    contractVersion: 1 as const,
-    tenantId: parsed.tenantId,
-    venueId: parsed.venueId,
-    requestId: parsed.requestId,
-    expectedVersion: parsed.expectedVersion,
-    fromStatus: parsed.fromStatus,
-    toStatus: 'COMPLETED' as const,
-    body: parsed.body,
-    missingInformationCount: 0 as const,
-    supportRequestChanged: false as const,
-    clientActivityChanged: false as const,
-    clientVisibleMessageCreated: false as const,
-    customerContacted: false as const,
-    externalDeliveryTriggered: false as const,
-    executionAuthorized: false as const,
-  }
-
   try {
     return await client.$transaction(async (tx) => {
       const existing = await tx.approvalRequest.findUnique({
@@ -141,6 +127,30 @@ export async function prepareSupportCompletionProposalAction(
           decision: { select: { decision: true } },
         },
       })
+      const packageFulfillment = await readSupportPackageFulfillment(tx, {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        supportRequestId: parsed.requestId,
+      })
+      const snapshot = {
+        contractVersion: 2 as const,
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        requestId: parsed.requestId,
+        expectedVersion: parsed.expectedVersion,
+        fromStatus: parsed.fromStatus,
+        toStatus: 'COMPLETED' as const,
+        body: parsed.body,
+        missingInformationCount: 0 as const,
+        packageFulfillment,
+        allLinkedPackagesApplied: true as const,
+        supportRequestChanged: false as const,
+        clientActivityChanged: false as const,
+        clientVisibleMessageCreated: false as const,
+        customerContacted: false as const,
+        externalDeliveryTriggered: false as const,
+        executionAuthorized: false as const,
+      }
       if (existing) {
         if (
           existing.tenantId !== parsed.tenantId ||
@@ -263,6 +273,8 @@ export async function prepareSupportCompletionProposalAction(
           output: {
             approvalRequestId: approvalRequest.id,
             proposedAction: approvalRequest.proposedAction,
+            linkedPackageCount: packageFulfillment.linkedPackageCount,
+            packageFulfillmentDigest: packageFulfillment.digest,
             supportRequestChanged: false,
             customerContacted: false,
           },
@@ -303,6 +315,8 @@ export async function prepareSupportCompletionProposalAction(
             approvalRequestId: approvalRequest.id,
             requestId: request.id,
             expectedVersion: request.version,
+            linkedPackageCount: packageFulfillment.linkedPackageCount,
+            packageFulfillmentDigest: packageFulfillment.digest,
             customerContacted: false,
           },
         },
@@ -318,6 +332,8 @@ export async function prepareSupportCompletionProposalAction(
           structuredReason: {
             proposedAction: approvalRequest.proposedAction,
             requestId: request.id,
+            linkedPackageCount: packageFulfillment.linkedPackageCount,
+            packageFulfillmentDigest: packageFulfillment.digest,
           },
           afterState: {
             status: 'PENDING',
@@ -326,6 +342,7 @@ export async function prepareSupportCompletionProposalAction(
             clientVisibleMessageCreated: false,
             customerContacted: false,
             externalDeliveryTriggered: false,
+            allLinkedPackagesApplied: true,
             executionAuthorized: false,
           },
         },
@@ -335,6 +352,9 @@ export async function prepareSupportCompletionProposalAction(
     })
   } catch (error) {
     if (error instanceof SupportCompletionProposalActionError) throw error
+    if (error instanceof SupportPackageFulfillmentError) {
+      throw new SupportCompletionProposalActionError('CONFLICT', error.message)
+    }
     if (isUniqueConstraintError(error)) {
       throw new SupportCompletionProposalActionError(
         'CONFLICT',

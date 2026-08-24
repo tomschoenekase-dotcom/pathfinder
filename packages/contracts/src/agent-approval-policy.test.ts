@@ -17,6 +17,8 @@ import {
   SupportTriageProposalApprovalSnapshot,
   SupportInformationRequestApplyParameters,
   SupportInformationRequestProposalApprovalSnapshot,
+  SupportCompletionApplyParameters,
+  SupportCompletionProposalApprovalSnapshot,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
   SupportPackageApplicationApplyParameters,
@@ -25,6 +27,67 @@ import {
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
 } from './agent-approval-policy'
+
+describe('support completion fulfillment contract', () => {
+  const packageFulfillment = {
+    contractVersion: 1 as const,
+    linkedPackageCount: 1,
+    packages: [
+      {
+        handoffId: 'handoff_1',
+        packageId: 'package_1',
+        handoffRequestVersion: 4,
+        status: 'APPLIED' as const,
+        payloadHash: 'a'.repeat(64),
+        appliedAt: '2030-01-02T00:00:00.000Z',
+        appliedBy: 'agent_1',
+        appliedCommandKey: '11111111-1111-4111-8111-111111111111',
+        packageUpdatedAt: '2030-01-02T00:00:01.000Z',
+      },
+    ],
+    digest: 'b'.repeat(64),
+  }
+
+  it('requires exact fully applied package evidence in the grant and proposal snapshot', () => {
+    const parameters = {
+      clientId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 5,
+      fromStatus: 'IN_REVIEW' as const,
+      toStatus: 'COMPLETED' as const,
+      body: 'Your requested update is complete.',
+      packageFulfillment,
+    }
+    expect(SupportCompletionApplyParameters.parse(parameters)).toEqual(parameters)
+    const snapshot = {
+      contractVersion: 2 as const,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 5,
+      fromStatus: 'IN_REVIEW' as const,
+      toStatus: 'COMPLETED' as const,
+      body: parameters.body,
+      missingInformationCount: 0 as const,
+      packageFulfillment,
+      allLinkedPackagesApplied: true as const,
+      supportRequestChanged: false as const,
+      clientActivityChanged: false as const,
+      clientVisibleMessageCreated: false as const,
+      customerContacted: false as const,
+      externalDeliveryTriggered: false as const,
+      executionAuthorized: false as const,
+    }
+    expect(SupportCompletionProposalApprovalSnapshot.parse(snapshot)).toEqual(snapshot)
+    expect(() =>
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: { ...packageFulfillment, linkedPackageCount: 0 },
+      }),
+    ).toThrow()
+  })
+})
 
 describe('support package approval authority contract', () => {
   const parameters = {

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { SupportCompletionApplyParameters } from '@pathfinder/contracts'
+
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { recordApprovalDecisionAction } from './approval-decisions'
@@ -105,12 +107,18 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
         approvalRequest: {
           proposedAction: 'pathfinder.apply_support_completion',
           scopeSnapshot: {
+            contractVersion: 2,
             requestId: request.id,
             expectedVersion: request.version,
             fromStatus: 'IN_REVIEW',
             toStatus: 'COMPLETED',
             body,
             missingInformationCount: 0,
+            packageFulfillment: {
+              linkedPackageCount: 0,
+              packages: [],
+            },
+            allLinkedPackagesApplied: true,
             clientVisibleMessageCreated: false,
             customerContacted: false,
             externalDeliveryTriggered: false,
@@ -131,7 +139,7 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
           auditRole: 'PLATFORM_ADMIN',
         },
       })
-      const parameters = {
+      const parameters = SupportCompletionApplyParameters.parse({
         clientId: tenantId,
         venueId,
         requestId: request.id,
@@ -139,7 +147,10 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
         fromStatus: 'IN_REVIEW' as const,
         toStatus: 'COMPLETED' as const,
         body,
-      }
+        packageFulfillment: (
+          proposal.approvalRequest.scopeSnapshot as { packageFulfillment: unknown }
+        ).packageFulfillment,
+      })
       const grant = await issueApprovalGrantAction({
         operationId: randomUUID(),
         tenantId,
@@ -201,6 +212,7 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
               requestId: request.id,
               expectedVersion: request.version,
               body,
+              packageFulfillment: parameters.packageFulfillment,
               actor: {
                 actorType: 'AGENT',
                 participantKind: 'AGENT',

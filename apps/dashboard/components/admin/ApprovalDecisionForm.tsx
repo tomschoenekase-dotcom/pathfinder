@@ -196,7 +196,7 @@ export function ApprovalDecisionForm({
             : isSupportPackageDraft
               ? 'Approval issues exact one-shot authority to create and link only the reviewed V3 package DRAFT. The decision itself creates no package, changes no support state, and cannot approve, apply, publish, or roll back content.'
               : isSupportCompletion
-                ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible completion message and move this unchanged request to COMPLETED. The decision itself does not contact the client or change lifecycle state.'
+                ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible completion message and move this unchanged request to COMPLETED. Every linked package is frozen as fully APPLIED; any package drift stops execution. The decision itself does not contact the client or change lifecycle state.'
                 : isSupportInformationRequest
                   ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible prompt and move this unchanged request to WAITING FOR CLIENT. The decision itself does not contact the client or change lifecycle state.'
                   : proposedAction === 'pathfinder.apply_support_triage'

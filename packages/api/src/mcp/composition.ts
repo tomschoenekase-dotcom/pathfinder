@@ -8,6 +8,7 @@ import {
   SUPPORT_PACKAGE_APPLICATION_APPLY_ACTION,
   SUPPORT_PACKAGE_APPLICATION_CAPABILITY,
   SupportPackageApplicationApplyParameters,
+  SupportCompletionProposalApprovalSnapshot,
 } from '@pathfinder/contracts'
 import {
   assertVenueAiAvailable,
@@ -24,6 +25,7 @@ import {
   getAccountTimeline,
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
+  readSupportPackageFulfillment,
   recordCompanyMeetingExtractionAction,
   completeCompanyMeetingProcessingAction,
   listAccountCorrespondence,
@@ -2423,6 +2425,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         },
         database,
       )
+      const snapshot = SupportCompletionProposalApprovalSnapshot.parse(
+        result.approvalRequest.scopeSnapshot,
+      )
       if (!result.replayed) {
         await publishOperationalEvent({
           client: database,
@@ -2453,6 +2458,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           approvalRequestId: result.approvalRequest.id,
           requestId: input.requestId,
           expectedVersion: input.expectedVersion,
+          linkedPackageCount: snapshot.packageFulfillment.linkedPackageCount,
+          packageFulfillmentDigest: snapshot.packageFulfillment.digest,
+          allLinkedPackagesApplied: snapshot.allLinkedPackagesApplied,
           replayed: result.replayed,
           approvalRequired: true,
           separateApplicationRequired: true,
@@ -2499,16 +2507,22 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       })
       if (!run)
         throw new McpActionBindingError('Verified support-completion worker run is unavailable')
-      const parameters = {
-        clientId: context.credential.clientId,
-        venueId,
-        requestId: input.requestId,
-        expectedVersion: input.expectedVersion,
-        fromStatus: input.fromStatus,
-        toStatus: 'COMPLETED' as const,
-        body: input.body,
-      }
       const result = await database.$transaction(async (tx) => {
+        const packageFulfillment = await readSupportPackageFulfillment(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          supportRequestId: input.requestId,
+        })
+        const parameters = {
+          clientId: context.credential.clientId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          fromStatus: input.fromStatus,
+          toStatus: 'COMPLETED' as const,
+          body: input.body,
+          packageFulfillment,
+        }
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -2548,6 +2562,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
             requestId: input.requestId,
             expectedVersion: input.expectedVersion,
             body: input.body,
+            packageFulfillment,
             actor: {
               actorType: 'AGENT',
               participantKind: 'AGENT',
@@ -2578,21 +2593,21 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
             data: { resultReference },
           })
         }
-        return applied
+        return { applied, packageFulfillment }
       })
       return {
         kind: 'torchiko.support-completion-applied',
-        summary: result.replayed
+        summary: result.applied.replayed
           ? 'Existing approved in-app support completion returned; no duplicate contact occurred.'
           : 'Exact approved in-app completion message created and the request is completed.',
         data: jsonData({
-          messageId: result.message.id,
+          messageId: result.applied.message.id,
           requestId: input.requestId,
-          status: result.status,
-          requestVersion: result.requestVersion,
-          clientVersion: result.clientVersion,
-          missingInformation: result.missingInformation,
-          replayed: result.replayed,
+          status: result.applied.status,
+          requestVersion: result.applied.requestVersion,
+          clientVersion: result.applied.clientVersion,
+          missingInformation: result.applied.missingInformation,
+          replayed: result.applied.replayed,
           clientVisibleMessageCreated: true,
           customerContacted: true,
           externalDeliveryTriggered: false,
@@ -2600,6 +2615,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           participantChanged: false,
           triageChanged: false,
           packageLifecycleChanged: false,
+          linkedPackageCount: result.packageFulfillment.linkedPackageCount,
+          packageFulfillmentDigest: result.packageFulfillment.digest,
+          allLinkedPackagesApplied: true,
           executionTriggered: false,
         }),
       }

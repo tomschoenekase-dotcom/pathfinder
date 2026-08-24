@@ -66,14 +66,17 @@ participants or triage, execute package work, or authorize later contact. Exact 
 duplicate the message; parameter or version drift fails closed.
 
 Support completion uses the same exact-parameter separation. The proposal freezes request
-ID/version/current status and the full client-visible completion message, and it fails closed unless
-the missing-information checklist is empty. A founder decision atomically issues one one-shot grant
-without contacting the client or changing lifecycle state. Only
+ID/version/current status, the full client-visible completion message, and an exact digest of every
+linked package handoff and its applied identity. It fails closed unless the missing-information
+checklist is empty and every linked package is fully `APPLIED`; requests with no package handoff
+remain valid. A founder decision atomically issues one one-shot grant without contacting the client
+or changing lifecycle state. Only
 `pathfinder.apply_support_completion` can consume that exact grant: it reuses the canonical
-CAS-protected action to create one in-app completion message, increment request and client versions
-once, and move the request to `COMPLETED`. It cannot send email, add participants, alter triage,
-execute package work, or authorize later contact. Exact replays do not duplicate the message;
-parameter or version drift fails closed.
+CAS-protected action, rechecks the exact package evidence in the same transaction, creates one
+in-app completion message, increments request and client versions once, and moves the request to
+`COMPLETED`. Manual completion shares the all-linked-packages-applied guard. It cannot send email,
+add participants, alter triage, execute package work, or authorize later contact. Exact replays do
+not duplicate the message; parameter, package, or request-version drift fails closed.
 
 Support-linked package authoring is a distinct DRAFT-only exact-parameter path. The proposal
 freezes the complete V3 payload, its derived operation breakdown, request ID/version/status,

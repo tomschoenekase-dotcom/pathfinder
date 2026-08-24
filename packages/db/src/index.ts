@@ -385,6 +385,12 @@ export {
   type SupportCompletionProposalActionErrorCode,
 } from './helpers/support-completion-proposal-actions'
 export {
+  readSupportPackageFulfillment,
+  sameSupportPackageFulfillment,
+  supportPackageFulfillmentDigest,
+  SupportPackageFulfillmentError,
+} from './helpers/support-package-fulfillment'
+export {
   prepareSupportPackageDraftProposalAction,
   supportPackageDraftPayloadHash,
   SupportPackageDraftProposalActionError,

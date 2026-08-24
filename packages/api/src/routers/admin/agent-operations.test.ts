@@ -617,7 +617,7 @@ describe('admin agent operations router', () => {
       agentIdentityId: 'agent_1',
       proposedAction: 'pathfinder.apply_support_completion',
       scopeSnapshot: {
-        contractVersion: 1,
+        contractVersion: 2,
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         requestId: 'request_1',
@@ -626,6 +626,13 @@ describe('admin agent operations router', () => {
         toStatus: 'COMPLETED',
         body: 'Your requested venue update is complete.',
         missingInformationCount: 0,
+        packageFulfillment: {
+          contractVersion: 1,
+          linkedPackageCount: 0,
+          packages: [],
+          digest: 'b'.repeat(64),
+        },
+        allLinkedPackagesApplied: true,
         supportRequestChanged: false,
         clientActivityChanged: false,
         clientVisibleMessageCreated: false,
@@ -655,7 +662,10 @@ describe('admin agent operations router', () => {
         actionName: 'pathfinder.apply_support_completion',
         capability: 'support:complete',
         mode: 'ONE_SHOT',
-        scope: expect.objectContaining({ effect: 'EXACT_CLIENT_COMPLETION_ONLY' }),
+        scope: expect.objectContaining({
+          contractVersion: 2,
+          effect: 'EXACT_FULFILLMENT_BOUND_CLIENT_COMPLETION_ONLY',
+        }),
         parameters: {
           clientId: 'tenant_1',
           venueId: 'venue_1',
@@ -664,6 +674,12 @@ describe('admin agent operations router', () => {
           fromStatus: 'IN_REVIEW',
           toStatus: 'COMPLETED',
           body: 'Your requested venue update is complete.',
+          packageFulfillment: {
+            contractVersion: 1,
+            linkedPackageCount: 0,
+            packages: [],
+            digest: 'b'.repeat(64),
+          },
         },
         approvalDecisionId: 'decision_completion_1',
       }),

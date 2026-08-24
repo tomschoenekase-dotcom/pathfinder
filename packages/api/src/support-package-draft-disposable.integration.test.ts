@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import {
+  SupportCompletionApplyParameters,
   SupportPackageApprovalApplyParameters,
   SupportPackageApplicationApplyParameters,
 } from '@pathfinder/contracts'
@@ -48,10 +49,12 @@ vi.mock('@pathfinder/ai', () => ({
 
 import {
   consumeApprovalGrantAction,
+  completeSupportRequestAction,
   createOrReplayEvaluationRun,
   db,
   evaluationSnapshotHash,
   issueApprovalGrantAction,
+  prepareSupportCompletionProposalAction,
   prepareSupportPackageDraftProposalAction,
   recordApprovalDecisionAction,
   supportPackageDraftPayloadHash,
@@ -73,7 +76,7 @@ const enabled =
 describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
 
-  it('creates, evaluates, approves, and founder-authorizes exact agent application without completing support', async () => {
+  it('creates, evaluates, applies, and completes only after exact package fulfillment', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)
       const tenantId = `tenant-support-package-${suffix}`
@@ -674,6 +677,69 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         revertedAt: null,
       })
 
+      const completionIdentityId = `identity-support-completion-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: completionIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `support-completion.${suffix}`,
+          name: 'Support completion worker',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['support:complete'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const completionRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: completionIdentityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'support.completion.propose',
+          scopeSnapshot: { accessCapabilities: ['support:complete'] },
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: new Date(),
+        },
+      })
+      const completionProposalOperationId = randomUUID()
+      const completionProposalInput = {
+        operationId: completionProposalOperationId,
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version + 1,
+        fromStatus: 'IN_REVIEW' as const,
+        body: 'Your reviewed venue update is complete and ready to use.',
+        reason: 'The reviewed package must be applied before this request can be completed.',
+        evidence: [{ type: 'VenuePackage', id: applied.value.id }],
+        actor: {
+          type: 'AGENT' as const,
+          actorId: completionIdentityId,
+          role: 'AGENT' as const,
+          agentIdentityId: completionIdentityId,
+          agentRunId: completionRun.id,
+          workerId: `completion-worker-${suffix}`,
+          credentialId: `completion-credential-${suffix}`,
+          capability: 'support:complete',
+          modelProvider: 'deterministic',
+          modelName: 'fixture',
+          idempotencyKey: completionProposalOperationId,
+        },
+      }
+      await expect(
+        prepareSupportCompletionProposalAction(completionProposalInput),
+      ).rejects.toMatchObject({
+        code: 'CONFLICT',
+        message: expect.stringContaining('not fully applied'),
+      })
+
       const applicationIdentityId = `identity-package-application-${suffix}`
       await db.agentIdentity.create({
         data: {
@@ -920,6 +986,161 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         clientVersion: request.clientVersion,
         status: 'IN_REVIEW',
         category: 'CONTENT_CORRECTION',
+      })
+
+      const completionProposal =
+        await prepareSupportCompletionProposalAction(completionProposalInput)
+      expect(completionProposal).toMatchObject({
+        replayed: false,
+        approvalRequest: {
+          scopeSnapshot: {
+            contractVersion: 2,
+            requestId: request.id,
+            expectedVersion: request.version + 1,
+            allLinkedPackagesApplied: true,
+            packageFulfillment: {
+              linkedPackageCount: 1,
+              packages: [
+                {
+                  packageId: applied.value.id,
+                  status: 'APPLIED',
+                  appliedBy: applicationIdentityId,
+                },
+              ],
+            },
+          },
+        },
+      })
+      const completionSnapshot = SupportCompletionApplyParameters.parse({
+        clientId: tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version + 1,
+        fromStatus: 'IN_REVIEW',
+        toStatus: 'COMPLETED',
+        body: completionProposalInput.body,
+        packageFulfillment: (
+          completionProposal.approvalRequest.scopeSnapshot as {
+            packageFulfillment: unknown
+          }
+        ).packageFulfillment,
+      })
+      const completionDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: completionProposalOperationId,
+        decision: 'APPROVED',
+        reason: 'The exact applied-package evidence and completion message are approved once.',
+        actor: { actorType: 'HUMAN', actorId: operatorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const completionGrant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: completionIdentityId,
+        actionName: 'pathfinder.apply_support_completion',
+        capability: 'support:complete',
+        mode: 'ONE_SHOT',
+        scope: {
+          contractVersion: 2,
+          tenantId,
+          venueId,
+          approvalRequestId: completionProposalOperationId,
+          effect: 'EXACT_APPLIED_PACKAGE_BACKED_CLIENT_COMPLETION_ONLY',
+        },
+        parameters: completionSnapshot,
+        approvalDecisionId: completionDecision.id,
+        issueReason: 'Apply this exact package-backed in-app completion once.',
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const completionOperationId = randomUUID()
+      const completionActor = {
+        type: 'AGENT' as const,
+        role: 'AGENT' as const,
+        actorId: completionIdentityId,
+        agentIdentityId: completionIdentityId,
+        agentRunId: completionRun.id,
+        workerId: `completion-worker-${suffix}`,
+        credentialId: `completion-credential-${suffix}`,
+        approvalGrantId: completionGrant.id,
+        capability: 'support:complete',
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+        idempotencyKey: completionOperationId,
+      }
+      const complete = () =>
+        db.$transaction(async (tx) => {
+          const sameTransaction = {
+            $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+          } as never
+          const consumption = await consumeApprovalGrantAction(
+            {
+              tenantId,
+              venueId,
+              approvalGrantId: completionGrant.id,
+              operationId: completionOperationId,
+              actionName: 'pathfinder.apply_support_completion',
+              capability: 'support:complete',
+              parameters: completionSnapshot,
+              actor: completionActor,
+            },
+            sameTransaction,
+          )
+          const result = await completeSupportRequestAction(
+            {
+              operationId: completionOperationId,
+              tenantId,
+              venueId,
+              requestId: request.id,
+              expectedVersion: request.version + 1,
+              body: completionProposalInput.body,
+              packageFulfillment: completionSnapshot.packageFulfillment,
+              actor: {
+                actorType: 'AGENT',
+                participantKind: 'AGENT',
+                actorId: completionIdentityId,
+                auditRole: 'AGENT',
+                agentIdentityId: completionIdentityId,
+                agentRunId: completionRun.id,
+                workerId: completionActor.workerId,
+                credentialId: completionActor.credentialId,
+                approvalGrantId: completionGrant.id,
+                capability: 'support:complete',
+                modelProvider: 'deterministic',
+                modelName: 'fixture',
+                idempotencyKey: completionOperationId,
+              },
+            },
+            sameTransaction,
+          )
+          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.requestVersion}:COMPLETED`
+          if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
+          else
+            await tx.approvalGrantConsumption.update({
+              where: { id: consumption.consumption.id },
+              data: { resultReference: reference },
+            })
+          return result
+        })
+      await expect(complete()).resolves.toMatchObject({
+        replayed: false,
+        status: 'COMPLETED',
+        packageFulfillment: {
+          linkedPackageCount: 1,
+          packages: [{ packageId: applied.value.id, status: 'APPLIED' }],
+        },
+      })
+      await expect(complete()).resolves.toMatchObject({ replayed: true, status: 'COMPLETED' })
+      expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(
+        await db.supportRequest.findUniqueOrThrow({
+          where: { id: request.id },
+          select: { status: true, version: true, clientVersion: true },
+        }),
+      ).toEqual({
+        status: 'COMPLETED',
+        version: request.version + 2,
+        clientVersion: request.clientVersion + 1,
       })
     })
   })

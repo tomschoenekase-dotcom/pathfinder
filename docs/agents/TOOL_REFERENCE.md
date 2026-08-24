@@ -105,6 +105,14 @@ current venue content and may be visitor-visible; the executing agent receives f
 lineage while the earlier human approver remains preserved. Support completion, customer contact,
 external delivery, and revert are not included.
 
+`pathfinder.propose_support_completion` and `pathfinder.apply_support_completion` close the
+package-backed support loop only after fulfillment. Proposal requires an empty missing-information
+checklist and freezes exact applied identity for every package linked to the request; any unfinished
+package blocks it. Founder approval issues one exact completion grant and performs no contact. Apply
+recomputes the package digest transactionally before creating the reviewed in-app message and moving
+the request to `COMPLETED`. Package-free requests remain supported. Package drift, a new handoff, or
+any non-`APPLIED` package fails closed; email and external delivery remain unavailable.
+
 `pathfinder.create_intake_notes_proposal` requires `intake:draft`, a live credential-bound worker
 and run, and an exact verified approval grant. It creates only a `NOTES` intake run in
 `AWAITING_REVIEW` with complete run, worker, credential, grant, model, and idempotency lineage.

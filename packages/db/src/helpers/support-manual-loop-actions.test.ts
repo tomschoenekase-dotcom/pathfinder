@@ -8,11 +8,22 @@ import {
   requestSupportInformationAction,
   respondToSupportInformationAction,
 } from './support-actions'
+import { supportPackageFulfillmentDigest } from './support-package-fulfillment'
 
 const operationId = '11111111-1111-4111-8111-111111111111'
 const tenantId = 'tenant_1'
 const venueId = 'venue_1'
 const requestId = 'request_1'
+const packageFreeFulfillment = {
+  contractVersion: 1 as const,
+  linkedPackageCount: 0,
+  packages: [],
+  digest: supportPackageFulfillmentDigest({
+    contractVersion: 1,
+    linkedPackageCount: 0,
+    packages: [],
+  }),
+}
 
 function harness(overrides: Record<string, unknown> = {}) {
   const request = {
@@ -51,6 +62,7 @@ function harness(overrides: Record<string, unknown> = {}) {
       create: vi.fn().mockResolvedValue(message),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
+    supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
   }
   const client = { $transaction: vi.fn(async (callback) => callback(tx)) }
@@ -367,6 +379,7 @@ describe('manual Support loop actions', () => {
         requestId,
         expectedVersion: 4,
         body: 'Your requested update is complete.',
+        packageFulfillment: packageFreeFulfillment,
         actor: {
           actorType: 'AGENT',
           participantKind: 'AGENT',

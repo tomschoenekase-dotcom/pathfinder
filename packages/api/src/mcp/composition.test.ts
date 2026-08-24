@@ -18,6 +18,7 @@ const {
   requestSupportInformation,
   prepareSupportCompletion,
   completeSupport,
+  readSupportFulfillment,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
   publishEvent,
@@ -46,6 +47,7 @@ const {
   requestSupportInformation: vi.fn(),
   prepareSupportCompletion: vi.fn(),
   completeSupport: vi.fn(),
+  readSupportFulfillment: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
@@ -77,6 +79,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   requestSupportInformationAction: requestSupportInformation,
   prepareSupportCompletionProposalAction: prepareSupportCompletion,
   completeSupportRequestAction: completeSupport,
+  readSupportPackageFulfillment: readSupportFulfillment,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
@@ -120,6 +123,12 @@ const credential = {
 describe('safe operational MCP composition', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    readSupportFulfillment.mockResolvedValue({
+      contractVersion: 1,
+      linkedPackageCount: 0,
+      packages: [],
+      digest: 'b'.repeat(64),
+    })
   })
 
   it('exposes the canonical catalog while unbound writes still fail closed', async () => {
@@ -627,7 +636,33 @@ describe('safe operational MCP composition', () => {
 
   it('prepares an exact support completion without contact or state change', async () => {
     prepareSupportCompletion.mockResolvedValue({
-      approvalRequest: { id: '48444444-4444-4444-8444-444444444444' },
+      approvalRequest: {
+        id: '48444444-4444-4444-8444-444444444444',
+        scopeSnapshot: {
+          contractVersion: 2,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          requestId: 'support-1',
+          expectedVersion: 4,
+          fromStatus: 'IN_REVIEW',
+          toStatus: 'COMPLETED',
+          body: 'Your requested venue update is complete.',
+          missingInformationCount: 0,
+          packageFulfillment: {
+            contractVersion: 1,
+            linkedPackageCount: 0,
+            packages: [],
+            digest: 'b'.repeat(64),
+          },
+          allLinkedPackagesApplied: true,
+          supportRequestChanged: false,
+          clientActivityChanged: false,
+          clientVisibleMessageCreated: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        },
+      },
       replayed: false,
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })

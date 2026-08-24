@@ -1700,7 +1700,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     name: 'pathfinder.propose_support_completion',
     title: 'Propose support completion',
     description:
-      'Prepare one exact-version, client-visible completion message after all requested information is resolved. It creates a review item only and does not message the client, change status, or trigger external delivery.',
+      'Prepare one exact-version, client-visible completion message after all requested information is resolved and every linked package is fully applied. It freezes exact package fulfillment, creates a review item only, and does not message the client, change status, or trigger external delivery.',
     inputSchema: strictObject(
       {
         ...scopeProperties,
@@ -1756,7 +1756,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     name: 'pathfinder.apply_support_completion',
     title: 'Apply an approved support completion',
     description:
-      'Create the exact reviewed in-app completion message and move one unchanged OPEN or IN_REVIEW request with no missing information to COMPLETED under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
+      'Create the exact reviewed in-app completion message and move one unchanged OPEN or IN_REVIEW request with no missing information and unchanged fully applied package evidence to COMPLETED under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
     inputSchema: strictObject(
       {
         ...scopeProperties,

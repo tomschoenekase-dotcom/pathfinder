@@ -279,6 +279,50 @@ export type SupportInformationRequestProposalApprovalSnapshot = z.infer<
 /** Exact one-shot authority derived from an approved completion proposal. The
  * reviewed message and request version are immutable; this is never reusable
  * customer-contact or lifecycle authority. */
+export const SupportCompletionPackageFulfillment = z
+  .object({
+    contractVersion: z.literal(1),
+    linkedPackageCount: z.number().int().nonnegative(),
+    packages: z.array(
+      z
+        .object({
+          handoffId: z.string().trim().min(1).max(191),
+          packageId: z.string().trim().min(1).max(191),
+          handoffRequestVersion: z.number().int().positive(),
+          status: z.literal('APPLIED'),
+          payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+          appliedAt: z.string().datetime(),
+          appliedBy: z.string().trim().min(1).max(191),
+          appliedCommandKey: z.string().uuid(),
+          packageUpdatedAt: z.string().datetime(),
+        })
+        .strict(),
+    ),
+    digest: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.linkedPackageCount !== value.packages.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['linkedPackageCount'],
+        message: 'Linked package count does not match the exact fulfillment evidence.',
+      })
+    }
+    const packageIds = value.packages.map(({ packageId }) => packageId)
+    if (new Set(packageIds).size !== packageIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['packages'],
+        message: 'Support completion package evidence contains duplicate packages.',
+      })
+    }
+  })
+
+export type SupportCompletionPackageFulfillment = z.infer<
+  typeof SupportCompletionPackageFulfillment
+>
+
 export const SupportCompletionApplyParameters = z
   .object({
     clientId: z.string().trim().min(1).max(191),
@@ -288,6 +332,7 @@ export const SupportCompletionApplyParameters = z
     fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
     toStatus: z.literal('COMPLETED'),
     body: z.string().trim().min(1).max(20_000),
+    packageFulfillment: SupportCompletionPackageFulfillment,
   })
   .strict()
 
@@ -295,7 +340,7 @@ export type SupportCompletionApplyParameters = z.infer<typeof SupportCompletionA
 
 export const SupportCompletionProposalApprovalSnapshot = z
   .object({
-    contractVersion: z.literal(1),
+    contractVersion: z.literal(2),
     tenantId: z.string().trim().min(1).max(191),
     venueId: z.string().trim().min(1).max(191),
     requestId: z.string().trim().min(1).max(191),
@@ -304,6 +349,8 @@ export const SupportCompletionProposalApprovalSnapshot = z
     toStatus: z.literal('COMPLETED'),
     body: z.string().trim().min(1).max(20_000),
     missingInformationCount: z.literal(0),
+    packageFulfillment: SupportCompletionPackageFulfillment,
+    allLinkedPackagesApplied: z.literal(true),
     supportRequestChanged: z.literal(false),
     clientActivityChanged: z.literal(false),
     clientVisibleMessageCreated: z.literal(false),
