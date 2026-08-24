@@ -146,7 +146,46 @@ export async function handleAgentBridgeHttpRequestCore(
     )
   }
   try {
-    const result = await dependencies.registry[envelope.method](envelope.params, { credential })
+    const context = { credential }
+    let result: unknown
+    switch (envelope.method) {
+      case 'registerWorker':
+        result = await dependencies.registry.registerWorker(envelope.params, context)
+        break
+      case 'heartbeatWorker':
+        result = await dependencies.registry.heartbeatWorker(envelope.params, context)
+        break
+      case 'listWorkers':
+        result = await dependencies.registry.listWorkers(envelope.params, context)
+        break
+      case 'listOperationalTools':
+        result = await dependencies.registry.listOperationalTools(envelope.params, context)
+        break
+      case 'callOperationalTool':
+        result = await dependencies.registry.callOperationalTool(envelope.params, context)
+        break
+      case 'register':
+        result = await dependencies.registry.register(envelope.params, context)
+        break
+      case 'heartbeatSession':
+        result = await dependencies.registry.heartbeatSession(envelope.params, context)
+        break
+      case 'claimTask':
+        result = await dependencies.registry.claimTask(envelope.params, context)
+        break
+      case 'heartbeatTask':
+        result = await dependencies.registry.heartbeatTask(envelope.params, context)
+        break
+      case 'completeTask':
+        result = await dependencies.registry.completeTask(envelope.params, context)
+        break
+      case 'failTask':
+        result = await dependencies.registry.failTask(envelope.params, context)
+        break
+      case 'callProspectTool':
+        result = await dependencies.registry.callProspectTool(envelope.params, context)
+        break
+    }
     return json(200, { ok: true, result }, requestId)
   } catch {
     return json(409, { ok: false, error: { code: 'BRIDGE_OPERATION_REJECTED' } }, requestId)
