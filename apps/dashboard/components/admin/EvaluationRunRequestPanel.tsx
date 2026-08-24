@@ -54,7 +54,15 @@ export function EvaluationRunRequestPanel(props: {
     errorPassRateDrop: number | null
   }
   maximumCases: number
-  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
+  reviewablePackages?: {
+    id: string
+    status: 'DRAFT' | 'APPROVED'
+    payloadHash: string
+    baseDigest: string
+    createdAt: Date
+    approvedAt: Date | null
+    supportHandoffs: { supportRequestId: string; requestVersion: number }[]
+  }[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -62,7 +70,9 @@ export function EvaluationRunRequestPanel(props: {
   const [nextCursor, setNextCursor] = useState(props.initialNextCursor)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [budget, setBudget] = useState('0.25')
-  const [approvedPackageId, setApprovedPackageId] = useState(props.approvedPackages?.[0]?.id ?? '')
+  const [reviewablePackageId, setReviewablePackageId] = useState(
+    props.reviewablePackages?.[0]?.id ?? '',
+  )
   const [message, setMessage] = useState<string | null>(null)
   const [sourceCoverage, setSourceCoverage] = useState<SourceCoveragePreview | null>(null)
   const [busy, setBusy] = useState(false)
@@ -72,15 +82,15 @@ export function EvaluationRunRequestPanel(props: {
   const scope = `${props.tenantId}:${props.venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
-  const selectedPackage = props.approvedPackages?.find((pkg) => pkg.id === approvedPackageId)
+  const selectedPackage = props.reviewablePackages?.find((pkg) => pkg.id === reviewablePackageId)
   const expectedSourceRef = selectedPackage
-    ? `venue-package:${selectedPackage.id}:${selectedPackage.payloadHash}`
+    ? `venue-package-review:${selectedPackage.id}:${selectedPackage.payloadHash}:${selectedPackage.baseDigest}`
     : null
   const latestOnboardingCases = [
     ...cases
       .filter(
         (item) =>
-          item.sourceType === 'ONBOARDING_APPROVED_PACKAGE' &&
+          item.sourceType === 'ONBOARDING_REVIEWABLE_PACKAGE' &&
           expectedSourceRef !== null &&
           item.sourceRef === expectedSourceRef,
       )
@@ -98,7 +108,7 @@ export function EvaluationRunRequestPanel(props: {
     setNextCursor(props.initialNextCursor)
     setSelected(new Set())
     setBudget('0.25')
-    setApprovedPackageId(props.approvedPackages?.[0]?.id ?? '')
+    setReviewablePackageId(props.reviewablePackages?.[0]?.id ?? '')
     setMessage(null)
     setSourceCoverage(null)
     setBusy(false)
@@ -109,7 +119,7 @@ export function EvaluationRunRequestPanel(props: {
     props.venueId,
     props.initialCases,
     props.initialNextCursor,
-    props.approvedPackages,
+    props.reviewablePackages,
   ])
 
   async function loadMore() {
@@ -155,7 +165,7 @@ export function EvaluationRunRequestPanel(props: {
         idempotencyKey: idempotencyKey.current,
         caseIds: [...selected],
         budgetCeilingE8Usd,
-        ...(approvedPackageId ? { approvedPackageId } : {}),
+        ...(reviewablePackageId ? { reviewablePackageId } : {}),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       if (result.dispatchPending) {
@@ -197,7 +207,7 @@ export function EvaluationRunRequestPanel(props: {
   }
 
   async function previewSourceCoverage() {
-    if (busy || selected.size === 0 || approvedPackageId) return
+    if (busy || selected.size === 0 || reviewablePackageId) return
     setBusy(true)
     setMessage(null)
     setSourceCoverage(null)
@@ -257,7 +267,7 @@ export function EvaluationRunRequestPanel(props: {
           <legend className="text-sm font-semibold text-pf-deep">
             Cases ({selected.size}/{props.maximumCases})
           </legend>
-          {approvedPackageId ? (
+          {reviewablePackageId ? (
             <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
               <button
                 type="button"
@@ -317,30 +327,31 @@ export function EvaluationRunRequestPanel(props: {
         Evaluation target
         <select
           aria-label="Evaluation target"
-          value={approvedPackageId}
+          value={reviewablePackageId}
           onChange={(event) => {
-            setApprovedPackageId(event.target.value)
+            setReviewablePackageId(event.target.value)
             setSourceCoverage(null)
           }}
           disabled={busy}
           className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
         >
           <option value="">Current live venue content</option>
-          {(props.approvedPackages ?? []).map((pkg) => (
+          {(props.reviewablePackages ?? []).map((pkg) => (
             <option key={pkg.id} value={pkg.id}>
-              Approved onboarding package · {pkg.payloadHash.slice(0, 12)}
+              {pkg.status} review package · {pkg.payloadHash.slice(0, 12)}
+              {pkg.supportHandoffs[0] ? ' · support-linked' : ''}
             </option>
           ))}
         </select>
       </label>
       <p className="mt-2 text-xs text-pf-deep/55">
-        Onboarding QA should target the exact approved package. Live content is retained for legacy
-        operational evaluations.
+        Package QA can target the exact validated DRAFT before approval. Live content is retained
+        for legacy operational evaluations.
       </p>
       <button
         type="button"
         onClick={previewSourceCoverage}
-        disabled={busy || selected.size === 0 || Boolean(approvedPackageId)}
+        disabled={busy || selected.size === 0 || Boolean(reviewablePackageId)}
         className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
       >
         Check current source coverage

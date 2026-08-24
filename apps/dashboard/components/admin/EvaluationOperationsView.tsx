@@ -92,7 +92,15 @@ type EvaluationOperationsViewProps = {
   }
   maximumCases?: number
   requestPanelEnabled?: boolean
-  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
+  reviewablePackages?: {
+    id: string
+    status: 'DRAFT' | 'APPROVED'
+    payloadHash: string
+    baseDigest: string
+    createdAt: Date
+    approvedAt: Date | null
+    supportHandoffs: { supportRequestId: string; requestVersion: number }[]
+  }[]
   failedCases?: FailedCase[]
   onboardingMetrics?: OnboardingMilestoneRollup
   sourceInsights?: EvaluationSourceInsight[]
@@ -174,7 +182,7 @@ export function EvaluationOperationsView({
   regressionAlerts,
   maximumCases = 50,
   requestPanelEnabled = false,
-  approvedPackages = [],
+  reviewablePackages = [],
   failedCases = [],
   onboardingMetrics,
   sourceInsights = [],
@@ -205,7 +213,7 @@ export function EvaluationOperationsView({
           <OnboardingEvaluationSuitePanel
             tenantId={tenantId}
             venueId={venueId}
-            approvedPackages={approvedPackages}
+            reviewablePackages={reviewablePackages}
           />
           <ConversationEvaluationCasePanel
             tenantId={tenantId}
@@ -220,7 +228,7 @@ export function EvaluationOperationsView({
             runnerEnabled={runnerEnabled}
             {...(regressionAlerts ? { regressionAlerts } : {})}
             maximumCases={maximumCases}
-            approvedPackages={approvedPackages}
+            reviewablePackages={reviewablePackages}
           />
         </>
       ) : null}

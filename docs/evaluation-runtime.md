@@ -24,6 +24,8 @@ An admin request persists one immutable `EvalRun` identity containing:
 - the registered model/provider specification plus its hash;
 - the exact declared budget ceiling.
 
+Package review uses two distinct snapshot kinds. `APPROVED_VENUE_PACKAGE_V1` preserves legacy approved-client-preview compatibility. `REVIEWABLE_VENUE_PACKAGE_V1` truthfully freezes the effective content of an exact error-free `DRAFT` or `APPROVED` package, including its package status, payload hash, base digest, and deterministic preview evidence. The worker re-parses and re-hashes that exact snapshot before provider admission. A reviewable snapshot never represents approval and cannot itself mutate package, support, publication, or customer state.
+
 The queue payload contains only tenant, venue, run ID, and run identity hash. Before any provider dispatch, the worker verifies the stored run identity, content scope/hash, current prompt identity, model snapshot, each case snapshot/hash, and the configured prompt byte ceiling. It refuses to substitute a newer content snapshot or a changed model.
 
 ## Sanitized conversation-derived cases
@@ -61,7 +63,7 @@ hash/version, marker IDs, counts, and the matched human-authored phrase; it retu
 
 Coverage is evidence, not a quality gate. Missing lexical markers can mean missing content,
 different wording, or a stale case. The preflight does not judge semantic equivalence, hallucination,
-case acceptance, or release readiness, and it neither calls a provider nor starts a run. Approved
+case acceptance, or release readiness, and it neither calls a provider nor starts a run. Approved/reviewable
 package and native-release snapshots remain separately frozen execution targets; this initial
 preflight is explicitly limited to current live content so it cannot imply it inspected a different
 target.
@@ -93,6 +95,8 @@ Cancellation cannot guarantee recall of a provider request already dispatched. N
 ## Migration and rollout boundary
 
 `20260811235000_add_evaluation_run_lifecycle` is additive and transactional. It adds lifecycle fields, database checks, and a transition trigger that prevents terminal regression, decreasing attempts, changed max-attempt identity, or rewritten cancellation/completion evidence.
+
+`20260824230000_add_reviewable_package_evaluation_snapshot` adds the reviewable-package discriminator. `20260824230100_allow_reviewable_package_evaluation_snapshot` then extends the existing snapshot-shape constraint in a separate migration so PostgreSQL commits the enum value before the constraint uses it. Both are forward-only local migration artifacts until the separately authorized staging migration gate runs.
 
 The conversation-case preparation path requires no schema migration and does not connect to Redis, enable either feature gate, or call a provider. Tests use injected persistence and evaluation adapters; worker tests assert that no provider facade was invoked.
 

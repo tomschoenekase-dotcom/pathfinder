@@ -79,17 +79,35 @@ export const adminEvaluationOnboardingReadsRouter = router({
       }),
     )
     .query(({ input }) =>
-      withTenantIsolationBypass(() =>
-        db.venuePackage.findMany({
+      withTenantIsolationBypass(async () => {
+        const packages = await db.venuePackage.findMany({
           where: {
             tenantId: input.tenantId,
             venueId: input.venueId,
-            status: 'APPROVED',
+            status: { in: ['DRAFT', 'APPROVED'] },
           },
-          orderBy: [{ approvedAt: 'desc' }, { id: 'desc' }],
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: 50,
-          select: { id: true, payloadHash: true, approvedAt: true },
-        }),
-      ),
+          select: {
+            id: true,
+            status: true,
+            payloadHash: true,
+            baseDigest: true,
+            createdAt: true,
+            approvedAt: true,
+            supportHandoffs: {
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: { supportRequestId: true, requestVersion: true },
+            },
+          },
+        })
+
+        return packages.flatMap((venuePackage) =>
+          venuePackage.status === 'DRAFT' || venuePackage.status === 'APPROVED'
+            ? [{ ...venuePackage, status: venuePackage.status }]
+            : [],
+        )
+      }),
     ),
 })

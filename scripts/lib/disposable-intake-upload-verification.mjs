@@ -890,6 +890,8 @@ export async function runDisposableSupportPackageDraftShakedown(options = {}) {
         'idempotent-replay-without-duplicate-draft-or-handoff',
         'parameter-drift-rejected',
         'draft-only-without-approval-apply-publish-or-rollback',
+        'support-linked-draft-preview-and-evaluation-snapshot',
+        'evaluation-does-not-approve-apply-publish-contact-or-spend',
         'no-client-message-participant-or-version-effect',
         'no-external-delivery',
       ],

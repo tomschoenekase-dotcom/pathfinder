@@ -215,6 +215,73 @@ function deps(overrides: Partial<EvaluationRunnerDependencies> = {}): Evaluation
 }
 
 describe('executeFrozenEvaluationRun', () => {
+  it('parses and re-hashes a frozen reviewable DRAFT package without implying approval', () => {
+    const payloadHash = 'a'.repeat(64)
+    const reviewableContent = {
+      version: 'pathfinder-reviewable-package-evaluation-content-v1',
+      tenantId: 't1',
+      venueId: 'v1',
+      packageId: 'package_1',
+      packageStatus: 'DRAFT',
+      payloadHash,
+      baseDigest: 'b'.repeat(64),
+      preview: {
+        venue: {
+          id: 'v1',
+          name: 'Frozen draft venue',
+          description: null,
+          category: null,
+          branding: {
+            theme: null,
+            accentColor: null,
+            font: null,
+            logoUrl: null,
+            bannerUrl: null,
+          },
+          guide: { name: null, tone: { preset: 'friendly', behaviorVersion: 1 } },
+        },
+        package: {
+          id: 'package_1',
+          status: 'DRAFT',
+          evidenceAt: '2026-08-24T12:00:00.000Z',
+        },
+        experience: {
+          places: [],
+          knowledgeEntries: [],
+          summary: { placeCount: 0, knowledgeEntryCount: 0 },
+        },
+        staleness: 'CURRENT',
+        autoApply: false,
+        published: false,
+        guestAccessible: false,
+      },
+    } as const
+    const run = {
+      ...frozenRun(),
+      packageSnapshotHash: payloadHash,
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1' as const,
+      contentSnapshotRef: 'package_1',
+      contentSnapshotHash: evaluationSnapshotHash(
+        'pathfinder-reviewable-package-evaluation-content-v1',
+        reviewableContent as never,
+      ),
+      runConfigSnapshot: {
+        version: 'pathfinder-reviewable-package-evaluation-run-config-v1',
+        contentSnapshot: reviewableContent,
+      },
+    }
+    expect(frozenContent(run)).toEqual(reviewableContent)
+    expect(() =>
+      frozenContent({
+        ...run,
+        runConfigSnapshot: {
+          ...run.runConfigSnapshot,
+          contentSnapshot: { ...reviewableContent, packageStatus: 'APPROVED' },
+        },
+      }),
+    ).toThrow('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+  })
+
   it('parses and re-hashes only the frozen approved client-package preview', () => {
     const preview = {
       venue: {

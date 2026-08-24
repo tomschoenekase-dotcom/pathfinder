@@ -19,7 +19,7 @@ export default async function EvaluationOperationsPage({
   try {
     const metricsTo = new Date()
     const metricsFrom = new Date(metricsTo.getTime() - 90 * 24 * 60 * 60 * 1000)
-    const [data, cases, approvedPackages, onboardingMetrics, sourceInsights] = await Promise.all([
+    const [data, cases, reviewablePackages, onboardingMetrics, sourceInsights] = await Promise.all([
       caller.admin.listEvaluationRuns({
         tenantId,
         venueId,
@@ -51,7 +51,7 @@ export default async function EvaluationOperationsPage({
         regressionAlerts={cases.regressionAlerts}
         maximumCases={cases.maximumCases}
         requestPanelEnabled
-        approvedPackages={approvedPackages}
+        reviewablePackages={reviewablePackages}
         onboardingMetrics={onboardingMetrics}
         sourceInsights={sourceInsights}
       />

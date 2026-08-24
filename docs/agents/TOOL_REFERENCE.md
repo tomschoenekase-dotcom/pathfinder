@@ -142,8 +142,8 @@ the same bounded projection. This does not widen the tenant MCP `jobs` resource.
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 406-operation inventory contains 6
-direct-tool bindings, 106 bounded alternatives, and 294 explicit unbound gaps. A binding is rejected
+agent/developer coverage, and exact binding state. The current 408-operation inventory contains 6
+direct-tool bindings, 108 bounded alternatives, and 294 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
 not callable proof.

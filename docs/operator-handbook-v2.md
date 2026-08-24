@@ -312,6 +312,13 @@ the frozen run identity on the server and expose neither generic run-list model/
 nor browser-supplied identity hashes. PASS, quality failure, operational failure and no evidence all
 leave the native lifecycle gates unchanged.
 
+For a support-linked onboarding package, open the package review workspace first. Confirm the exact
+support request/version, effective change preview, payload hash, and base digest. Prepare and run the
+seven-case suite against the selected `DRAFT` or `APPROVED` package; the run must show the same exact
+package identity. Review scored quality separately from operational failures. Evaluation evidence
+does not approve or apply the package, and no default pass threshold exists. Use the separate
+lifecycle controls only after human review and any explicit release policy are satisfied.
+
 ## Universal content and MCP reads
 
 Generalized Service, Policy, Event, Operational Fact, Relationship, and Item modules are independently

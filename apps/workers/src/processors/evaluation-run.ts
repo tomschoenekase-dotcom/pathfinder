@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { ClientVenuePackagePreview } from '@pathfinder/contracts'
+import {
+  ClientVenuePackagePreview,
+  ReviewableVenuePackageEvaluationPreview,
+} from '@pathfinder/contracts'
 import {
   AI_MODEL_KEYS,
   generateText,
@@ -164,7 +167,13 @@ export type FrozenEvaluationRun = {
   caseManifestSnapshot: unknown
   promptContractVersion: string
   promptContractHash: string
-  contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1' | 'NATIVE_CORE_V1' | 'APPROVED_VENUE_PACKAGE_V1'
+  packageSnapshotRef?: string | null
+  packageSnapshotHash?: string | null
+  contentSnapshotKind?:
+    | 'LEGACY_VENUE_CONTENT_V1'
+    | 'NATIVE_CORE_V1'
+    | 'APPROVED_VENUE_PACKAGE_V1'
+    | 'REVIEWABLE_VENUE_PACKAGE_V1'
   contentSnapshotRef?: string | null
   contentSnapshotVersion: bigint
   contentSnapshotHash: string
@@ -302,6 +311,33 @@ export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
     throw new Error('EVALUATION_RUN_CONFIG_INVALID')
   }
   const config = run.runConfigSnapshot as Record<string, unknown>
+  if (run.contentSnapshotKind === 'REVIEWABLE_VENUE_PACKAGE_V1') {
+    if (
+      config.version !== 'pathfinder-reviewable-package-evaluation-run-config-v1' ||
+      config.contentSnapshot === undefined
+    )
+      throw new Error('EVALUATION_CONTENT_SNAPSHOT_MISSING')
+    const content = config.contentSnapshot as Record<string, unknown>
+    const preview = ReviewableVenuePackageEvaluationPreview.safeParse(content.preview)
+    if (
+      content.version !== 'pathfinder-reviewable-package-evaluation-content-v1' ||
+      content.tenantId !== run.tenantId ||
+      content.venueId !== run.venueId ||
+      content.packageId !== run.contentSnapshotRef ||
+      content.payloadHash !== run.packageSnapshotHash ||
+      typeof content.baseDigest !== 'string' ||
+      !preview.success ||
+      preview.data.venue.id !== run.venueId ||
+      preview.data.package.id !== run.contentSnapshotRef ||
+      preview.data.package.status !== content.packageStatus ||
+      evaluationSnapshotHash(
+        'pathfinder-reviewable-package-evaluation-content-v1',
+        content as never,
+      ) !== run.contentSnapshotHash
+    )
+      throw new Error('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+    return content as CanonicalJsonValue
+  }
   if (run.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1') {
     if (
       config.version !== 'pathfinder-approved-package-evaluation-run-config-v1' ||

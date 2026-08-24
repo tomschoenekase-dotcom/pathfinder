@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
+import {
+  GUEST_CHAT_PROMPT_CONTRACT_HASH,
+  GUEST_CHAT_PROMPT_VERSION,
+} from '@pathfinder/contracts/prompt-contract'
+
 vi.mock('@pathfinder/ai', () => ({
   AI_EMBEDDING_MODEL_KEYS: {
     PLACE_CONTENT: 'place-content',
@@ -39,7 +44,9 @@ vi.mock('@pathfinder/ai', () => ({
 
 import {
   consumeApprovalGrantAction,
+  createOrReplayEvaluationRun,
   db,
+  evaluationSnapshotHash,
   issueApprovalGrantAction,
   prepareSupportPackageDraftProposalAction,
   recordApprovalDecisionAction,
@@ -48,6 +55,7 @@ import {
 } from '@pathfinder/db'
 
 import { supportAgentReviewedDraftFinalizer } from './lib/admin-reviewed-draft-finalizers'
+import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-package-evaluation'
 import { VenuePackageDraftInput } from './schemas/venue-package'
 import { createVenuePackageDraftService } from './routers/venue-package'
 
@@ -324,6 +332,95 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
           select: { mode: true, useCount: true, maxUses: true },
         }),
       ).toEqual({ mode: 'ONE_SHOT', useCount: 1, maxUses: 1 })
+
+      const reviewed = await db.$transaction((tx) =>
+        loadReviewableVenuePackageEvaluationPreview(tx, tenantId, {
+          venueId,
+          packageId: applied.value.id,
+        }),
+      )
+      expect(reviewed.package).toMatchObject({
+        id: applied.value.id,
+        status: 'DRAFT',
+        payloadHash: applied.value.payloadHash,
+      })
+      expect(reviewed.preview).toMatchObject({
+        package: { id: applied.value.id, status: 'DRAFT' },
+        published: false,
+        guestAccessible: false,
+      })
+
+      const contentSnapshot = {
+        version: 'pathfinder-reviewable-package-evaluation-content-v1',
+        tenantId,
+        venueId,
+        packageId: reviewed.package.id,
+        packageStatus: reviewed.package.status,
+        payloadHash: reviewed.package.payloadHash,
+        baseDigest: reviewed.package.baseDigest,
+        preview: reviewed.preview,
+      }
+      const runId = randomUUID()
+      const evaluation = await createOrReplayEvaluationRun({
+        db,
+        runId,
+        identity: {
+          tenantId,
+          venueId,
+          idempotencyKey: `support-package-review:${applied.value.id}`,
+          caseManifest: [{ caseId: randomUUID(), revision: 1, caseHash: 'a'.repeat(64) }],
+          promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
+          promptContractHash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
+          packageSnapshotRef: `venue-package-review-v1:${applied.value.id}`,
+          packageSnapshotHash: reviewed.package.payloadHash,
+          contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+          contentSnapshotRef: applied.value.id,
+          contentSnapshotVersion: 1n,
+          contentSnapshotHash: evaluationSnapshotHash(
+            'pathfinder-reviewable-package-evaluation-content-v1',
+            contentSnapshot,
+          ),
+          modelProvider: 'synthetic',
+          modelName: 'provider-dark-review-proof',
+          modelSnapshot: { execution: 'DISABLED', reason: 'provider-dark shakedown' },
+          runConfigSnapshot: {
+            version: 'pathfinder-reviewable-package-evaluation-run-config-v1',
+            contentSnapshot,
+          },
+          declaredBudgetCeilingE8Usd: 0n,
+          createdBy: operatorId,
+          triggerType: 'DISPOSABLE_SUPPORT_PACKAGE_REVIEW',
+        },
+      })
+      expect(evaluation).toMatchObject({ replayed: false, run: { id: runId, status: 'STAGED' } })
+      expect(
+        await db.venuePackage.findUniqueOrThrow({
+          where: { id: applied.value.id },
+          select: { status: true, approvedAt: true, appliedAt: true },
+        }),
+      ).toEqual({ status: 'DRAFT', approvedAt: null, appliedAt: null })
+      expect(
+        await db.supportPackageHandoff.findFirstOrThrow({
+          where: { tenantId, venueId, venuePackageId: applied.value.id },
+          select: { supportRequestId: true, venuePackageId: true },
+        }),
+      ).toEqual({ supportRequestId: request.id, venuePackageId: applied.value.id })
+      expect(
+        await db.evalRun.findUniqueOrThrow({
+          where: { id: runId },
+          select: {
+            contentSnapshotKind: true,
+            contentSnapshotRef: true,
+            packageSnapshotHash: true,
+            status: true,
+          },
+        }),
+      ).toEqual({
+        contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+        contentSnapshotRef: applied.value.id,
+        packageSnapshotHash: reviewed.package.payloadHash,
+        status: 'STAGED',
+      })
     })
   })
 })

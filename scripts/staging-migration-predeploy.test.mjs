@@ -71,7 +71,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 170-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 172-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -186,7 +186,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed thirty-six-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed thirty-eight-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -235,6 +235,8 @@ test('exact previous staging release advances only through the reviewed thirty-s
       '20260824200000_add_support_triage_capability',
       '20260824210000_add_support_information_request_capability',
       '20260824220000_add_support_completion_capability',
+      '20260824230000_add_reviewable_package_evaluation_snapshot',
+      '20260824230100_allow_reviewable_package_evaluation_snapshot',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -267,6 +269,8 @@ test('exact previous staging release advances only through the reviewed thirty-s
     '20260824200000_add_support_triage_capability',
     '20260824210000_add_support_information_request_capability',
     '20260824220000_add_support_completion_capability',
+    '20260824230000_add_reviewable_package_evaluation_snapshot',
+    '20260824230100_allow_reviewable_package_evaluation_snapshot',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

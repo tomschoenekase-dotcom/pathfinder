@@ -143,7 +143,7 @@ describe('EvaluationRunRequestPanel', () => {
     })
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
-  it('targets the exact approved package when onboarding evidence is supplied', async () => {
+  it('targets the exact reviewable package when onboarding evidence is supplied', async () => {
     render(
       <EvaluationRunRequestPanel
         tenantId="tenant-1"
@@ -152,8 +152,16 @@ describe('EvaluationRunRequestPanel', () => {
         initialNextCursor={null}
         runnerEnabled
         maximumCases={50}
-        approvedPackages={[
-          { id: 'package_1', payloadHash: 'a'.repeat(64), approvedAt: new Date() },
+        reviewablePackages={[
+          {
+            id: 'package_1',
+            status: 'DRAFT',
+            payloadHash: 'a'.repeat(64),
+            baseDigest: 'b'.repeat(64),
+            createdAt: new Date(),
+            approvedAt: null,
+            supportHandoffs: [],
+          },
         ]}
       />,
     )
@@ -161,13 +169,14 @@ describe('EvaluationRunRequestPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
     expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
-      approvedPackageId: 'package_1',
+      reviewablePackageId: 'package_1',
       caseIds: [item.id],
     })
   })
   it('selects only the latest seven case revisions tied to the chosen package hash', async () => {
     const payloadHash = 'a'.repeat(64)
-    const sourceRef = `venue-package:package_1:${payloadHash}`
+    const baseDigest = 'b'.repeat(64)
+    const sourceRef = `venue-package-review:package_1:${payloadHash}:${baseDigest}`
     const dimensions = [
       'fact',
       'navigation',
@@ -181,17 +190,17 @@ describe('EvaluationRunRequestPanel', () => {
       {
         ...item,
         id: `00000000-0000-4000-8000-${(index * 2).toString().padStart(12, '0')}`,
-        caseKey: `onboarding-${dimension}-approved-package`,
+        caseKey: `onboarding-${dimension}-reviewable-package`,
         revision: 1,
-        sourceType: 'ONBOARDING_APPROVED_PACKAGE',
+        sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
         sourceRef,
       },
       {
         ...item,
         id: `00000000-0000-4000-8000-${(index * 2 + 1).toString().padStart(12, '0')}`,
-        caseKey: `onboarding-${dimension}-approved-package`,
+        caseKey: `onboarding-${dimension}-reviewable-package`,
         revision: 2,
-        sourceType: 'ONBOARDING_APPROVED_PACKAGE',
+        sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
         sourceRef,
       },
     ])
@@ -203,7 +212,17 @@ describe('EvaluationRunRequestPanel', () => {
         initialNextCursor={null}
         runnerEnabled
         maximumCases={50}
-        approvedPackages={[{ id: 'package_1', payloadHash, approvedAt: new Date() }]}
+        reviewablePackages={[
+          {
+            id: 'package_1',
+            status: 'DRAFT',
+            payloadHash,
+            baseDigest,
+            createdAt: new Date(),
+            approvedAt: null,
+            supportHandoffs: [],
+          },
+        ]}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Select seven onboarding cases' }))

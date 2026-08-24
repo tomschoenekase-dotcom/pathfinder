@@ -211,6 +211,92 @@ export default async function PackageOperationsPage({
                   {selected.validationReport.semanticDuplicateScan.status.toLowerCase()}
                 </p>
               </div>
+              <section className="rounded-2xl border border-pf-light bg-white p-5">
+                <h4 className="font-semibold text-pf-deep">Exact effective-change preview</h4>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+                  This immutable plan is bound to base{' '}
+                  <span className="font-mono text-xs">{selected.baseDigest.slice(0, 16)}</span>,
+                  payload{' '}
+                  <span className="font-mono text-xs">{selected.payloadHash.slice(0, 16)}</span>,
+                  and warning digest{' '}
+                  <span className="font-mono text-xs">
+                    {selected.previewPlan.warningDigest.slice(0, 16)}
+                  </span>
+                  . It is internal review evidence, not applied or published state.
+                </p>
+                <div
+                  tabIndex={0}
+                  aria-label="Exact venue-package effective-change preview JSON"
+                  className="mt-3 max-h-[28rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                >
+                  <pre className="min-w-max whitespace-pre-wrap break-words">
+                    {JSON.stringify(selected.previewPlan.changes, null, 2)}
+                  </pre>
+                </div>
+              </section>
+              <section className="rounded-2xl border border-pf-light bg-white p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold text-pf-deep">Package evaluation evidence</h4>
+                    <p className="mt-1 text-sm leading-6 text-pf-deep/75">
+                      Runs shown here match this exact package id and payload hash. Quality outcomes
+                      remain separate from operational failures; no unstated pass threshold is
+                      inferred.
+                    </p>
+                  </div>
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/evaluations`}
+                    className="inline-flex min-h-11 items-center rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary"
+                  >
+                    Open evaluation workspace
+                  </Link>
+                </div>
+                {selected.supportContext ? (
+                  <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+                    Support-linked request: {selected.supportContext.request.subject} · status{' '}
+                    {selected.supportContext.request.status.replace(/_/g, ' ').toLowerCase()} ·
+                    linked request version {selected.supportContext.requestVersion}
+                  </p>
+                ) : null}
+                {selected.evaluationEvidence.runs.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                    No exact-package evaluation run is recorded. Validation remains available above;
+                    evaluation is not treated as a mandatory approval gate without explicit policy.
+                  </p>
+                ) : (
+                  <ul className="mt-3 space-y-3">
+                    {selected.evaluationEvidence.runs.map((run) => (
+                      <li key={run.id} className="rounded-xl border border-pf-light p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-pf-deep">
+                            {run.status.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-xs text-pf-deep/60">
+                            {run.createdAt.toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-pf-deep/75">
+                          Quality: {run.outcomes.passed}/{run.outcomes.scored} passed,{' '}
+                          {run.outcomes.failed} failed. Operational:{' '}
+                          {run.outcomes.operationalFailures} failed, {run.outcomes.deferred}{' '}
+                          deferred, {run.outcomes.budgetBlocked} budget-blocked,{' '}
+                          {run.outcomes.cancelled} cancelled.
+                        </p>
+                        <p className="mt-1 text-xs text-pf-deep/60">
+                          {run.modelProvider}/{run.modelName} · accounted ${' '}
+                          {(Number(run.budgetAccountedE8Usd) / 100_000_000).toFixed(6)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {selected.evaluationEvidence.truncated ? (
+                  <p className="mt-3 text-xs text-pf-deep/60">
+                    Showing the newest 20 exact-package runs. Open the evaluation workspace for
+                    complete venue history.
+                  </p>
+                ) : null}
+              </section>
               <VenuePackageLifecycleControls
                 tenantId={tenantId}
                 venueId={venueId}

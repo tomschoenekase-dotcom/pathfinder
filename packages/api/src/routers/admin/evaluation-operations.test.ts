@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   venuePackageFind: vi.fn(),
   createCase: vi.fn(),
   loadPreview: vi.fn(),
+  loadReviewablePreview: vi.fn(),
   createSnapshot: vi.fn(),
   createRun: vi.fn(),
   featureEnabled: vi.fn(),
@@ -36,6 +37,10 @@ vi.mock('@pathfinder/ai', () => ({
 vi.mock('@pathfinder/jobs', () => ({ enqueueEvaluationRun: mocks.enqueueRun }))
 
 vi.mock('../portal', () => ({ loadClientPreview: mocks.loadPreview }))
+
+vi.mock('../../lib/reviewable-package-evaluation', () => ({
+  loadReviewableVenuePackageEvaluationPreview: mocks.loadReviewablePreview,
+}))
 
 vi.mock('@pathfinder/db', () => ({
   EvaluationRunComparisonError: class EvaluationRunComparisonError extends Error {
@@ -161,17 +166,30 @@ describe('admin evaluation operations router', () => {
     )
   })
 
-  it('prepares the seven versioned onboarding dimensions from one exact approved package', async () => {
-    mocks.venuePackageFind.mockResolvedValue({ id: 'package_1', payloadHash: 'a'.repeat(64) })
+  it('prepares the seven versioned onboarding dimensions from one exact reviewable package', async () => {
+    mocks.venuePackageFind.mockResolvedValue({
+      id: 'package_1',
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      status: 'DRAFT',
+    })
     mocks.caseFindMany.mockResolvedValue([])
-    mocks.loadPreview.mockResolvedValue({
-      venue: { id: 'venue_1', name: 'Test Venue' },
-      package: { id: 'package_1' },
-      experience: {
-        places: [{ name: 'Lobby' }],
-        knowledgeEntries: [
-          { title: 'Parking', category: 'arrival', content: 'Parking is beside the lobby.' },
-        ],
+    mocks.loadReviewablePreview.mockResolvedValue({
+      preview: {
+        venue: { id: 'venue_1', name: 'Test Venue' },
+        package: {
+          id: 'package_1',
+          status: 'DRAFT',
+          payloadHash: 'a'.repeat(64),
+          baseDigest: 'b'.repeat(64),
+          evidenceAt: '2026-08-24T12:00:00.000Z',
+        },
+        experience: {
+          places: [{ name: 'Lobby' }],
+          knowledgeEntries: [
+            { title: 'Parking', category: 'arrival', content: 'Parking is beside the lobby.' },
+          ],
+        },
       },
     })
     mocks.createCase.mockImplementation(async ({ caseId, identity }) => ({
@@ -202,7 +220,7 @@ describe('admin evaluation operations router', () => {
       'adversarial',
       'unanswerable',
     ])
-    expect(mocks.loadPreview).toHaveBeenCalledWith(expect.anything(), 'tenant_1', {
+    expect(mocks.loadReviewablePreview).toHaveBeenCalledWith(expect.anything(), 'tenant_1', {
       venueId: 'venue_1',
       packageId: 'package_1',
     })
@@ -210,8 +228,8 @@ describe('admin evaluation operations router', () => {
     expect(mocks.createCase).toHaveBeenCalledWith(
       expect.objectContaining({
         identity: expect.objectContaining({
-          sourceType: 'ONBOARDING_APPROVED_PACKAGE',
-          sourceRef: `venue-package:package_1:${'a'.repeat(64)}`,
+          sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
+          sourceRef: `venue-package-review:package_1:${'a'.repeat(64)}:${'b'.repeat(64)}`,
           createdBy: 'operator_1',
         }),
       }),
@@ -430,6 +448,85 @@ describe('admin evaluation operations router', () => {
           runConfigSnapshot: expect.objectContaining({
             version: 'pathfinder-approved-package-evaluation-run-config-v1',
             contentSnapshot: expect.objectContaining({ packageId: 'package_1' }),
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('freezes a support-linked DRAFT package for evaluation without approving or applying it', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    const payloadHash = 'c'.repeat(64)
+    const baseDigest = 'd'.repeat(64)
+    mocks.caseFindMany.mockResolvedValue([
+      {
+        id: caseId,
+        revision: 1,
+        caseHash: 'b'.repeat(64),
+        sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
+        sourceRef: `venue-package-review:package_1:${payloadHash}:${baseDigest}`,
+      },
+    ])
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.venuePackageFind.mockResolvedValue({
+      id: 'package_1',
+      payloadHash,
+      baseDigest,
+      status: 'DRAFT',
+    })
+    mocks.loadReviewablePreview.mockResolvedValue({
+      package: { id: 'package_1', status: 'DRAFT', payloadHash, baseDigest },
+      preview: {
+        venue: { id: 'venue_1', name: 'Draft venue' },
+        package: {
+          id: 'package_1',
+          status: 'DRAFT',
+          payloadHash,
+          baseDigest,
+          evidenceAt: '2026-08-24T12:00:00.000Z',
+        },
+        experience: {
+          places: [],
+          knowledgeEntries: [],
+          summary: { placeCount: 0, knowledgeEntryCount: 0 },
+        },
+      },
+    })
+    mocks.createRun.mockImplementation(async ({ identity }) => ({
+      run: { id: caseId, identityHash: 'e'.repeat(64), status: 'STAGED' },
+      replayed: false,
+      identity,
+    }))
+
+    await testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      idempotencyKey: 'reviewable-package-1',
+      caseIds: [caseId],
+      budgetCeilingE8Usd: '1000',
+      reviewablePackageId: 'package_1',
+    })
+
+    expect(mocks.createSnapshot).not.toHaveBeenCalled()
+    expect(mocks.loadPreview).not.toHaveBeenCalled()
+    expect(mocks.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+          contentSnapshotRef: 'package_1',
+          contentSnapshotVersion: 1n,
+          contentSnapshotHash: '9'.repeat(64),
+          packageSnapshotRef: 'venue-package-review-v1:package_1',
+          packageSnapshotHash: payloadHash,
+          triggerType: 'ADMIN_REVIEWABLE_PACKAGE_REQUEST',
+          runConfigSnapshot: expect.objectContaining({
+            version: 'pathfinder-reviewable-package-evaluation-run-config-v1',
+            contentSnapshot: expect.objectContaining({
+              packageId: 'package_1',
+              packageStatus: 'DRAFT',
+              payloadHash,
+              baseDigest,
+            }),
           }),
         }),
       }),

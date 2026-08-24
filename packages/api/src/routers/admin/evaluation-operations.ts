@@ -15,6 +15,7 @@ import { adminProcedure } from '../../trpc'
 import { adminEvaluationOperationActionsRouter } from './evaluation-operation-actions'
 import { adminEvaluationConversationCasesRouter } from './evaluation-conversation-cases'
 import { adminEvaluationOnboardingReadsRouter } from './evaluation-onboarding-reads'
+import { adminEvaluationOnboardingActionsRouter } from './evaluation-onboarding-actions'
 import { adminEvaluationReviewActionsRouter } from './evaluation-review-actions'
 import { adminEvaluationSourceCoverageRouter } from './evaluation-source-coverage'
 
@@ -360,6 +361,7 @@ const adminEvaluationOperationReadsRouter = router({
 
 export const adminEvaluationOperationsRouter = mergeRouters(
   adminEvaluationOnboardingReadsRouter,
+  adminEvaluationOnboardingActionsRouter,
   adminEvaluationOperationReadsRouter,
   adminEvaluationOperationActionsRouter,
   adminEvaluationConversationCasesRouter,

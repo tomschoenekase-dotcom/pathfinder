@@ -272,6 +272,13 @@ only to exact `COMPLETED` run evidence. Actor/scope/revision-bound UUID/hash rep
 audit are atomic. Comparison and conclusions are evidence, not package approval, a package gate, or
 provider authority.
 
+For onboarding/package QA, prepare cases against one exact reviewable package identity:
+`venue-package-review:<packageId>:<payloadHash>:<baseDigest>`. DRAFT and APPROVED packages are valid
+only when their stored validation and semantic evidence is complete and their deterministic base is
+still current. Freeze those runs as `REVIEWABLE_VENUE_PACKAGE_V1`; do not label a DRAFT as an
+approved client preview. Evaluation remains advisory unless an explicit domain policy defines a
+gate, and it must not share a transaction with package approval or application.
+
 Agent identity configuration uses the closed contracts in `@pathfinder/contracts` and neutral DB
 actions. Creation is disabled-only, edits require a disabled row and current `updatedAt`, and disable
 is the only activation-related mutation exposed. Do not add enable/run/provider/credential controls

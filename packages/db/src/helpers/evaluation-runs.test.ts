@@ -130,6 +130,34 @@ describe('evaluation run identity', () => {
     })
   })
 
+  it('persists a distinct v5 identity for an exact reviewable package snapshot', async () => {
+    const reviewable = identity({
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+      contentSnapshotVersion: 1n,
+      packageSnapshotRef: 'venue-package-review-v1:package_draft_1',
+    } as Partial<EvaluationRunIdentity>)
+    expect(evaluationRunIdentityHash(reviewable)).not.toBe(evaluationRunIdentityHash(identity()))
+    const client = mockClient()
+    client.evalRun.findFirst.mockResolvedValueOnce(null)
+    client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))
+    const { run } = await createOrReplayEvaluationRun({
+      db: client as never,
+      runId: RUN_ID,
+      identity: reviewable,
+    })
+    expect(run.identitySnapshot).toMatchObject({
+      version: 'pathfinder-eval-run-identity-v5',
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+    })
+    expect(run).toMatchObject({
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+    })
+    expect(isVerifiedEvaluationRunIdentity(run)).toBe(true)
+  })
+
   it('is canonical across JSON key order and Unicode NFC', () => {
     const first = evaluationRunIdentityHash(identity())
     const reordered = evaluationRunIdentityHash(

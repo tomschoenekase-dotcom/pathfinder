@@ -23,15 +23,15 @@ describe('OnboardingEvaluationSuitePanel', () => {
     })
   })
 
-  it('explains the no-approved-package precondition without an action', () => {
+  it('explains the no-reviewable-package precondition without an action', () => {
     render(
       <OnboardingEvaluationSuitePanel
         tenantId="tenant_1"
         venueId="venue_1"
-        approvedPackages={[]}
+        reviewablePackages={[]}
       />,
     )
-    expect(screen.getByText(/No approved package is available/)).toBeTruthy()
+    expect(screen.getByText(/No error-free DRAFT or APPROVED package is available/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Prepare seven cases/ })).toBeNull()
   })
 
@@ -40,11 +40,15 @@ describe('OnboardingEvaluationSuitePanel', () => {
       <OnboardingEvaluationSuitePanel
         tenantId="tenant_1"
         venueId="venue_1"
-        approvedPackages={[
+        reviewablePackages={[
           {
             id: 'package_1',
+            status: 'DRAFT',
             payloadHash: 'a'.repeat(64),
-            approvedAt: new Date('2026-08-18T12:00:00.000Z'),
+            baseDigest: 'b'.repeat(64),
+            createdAt: new Date('2026-08-18T12:00:00.000Z'),
+            approvedAt: null,
+            supportHandoffs: [{ supportRequestId: 'support_1', requestVersion: 2 }],
           },
         ]}
       />,
