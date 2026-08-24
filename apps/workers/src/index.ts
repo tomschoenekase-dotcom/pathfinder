@@ -1,6 +1,7 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
 import { env, logger } from '@pathfinder/config'
+import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
 import { recordWorkerHeartbeat } from '@pathfinder/db'
 import {
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
@@ -166,7 +167,7 @@ async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-di
     recordWorkerHeartbeat({
       mode,
       schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
-      revision: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
+      revision: resolveReleaseRevision(process.env),
     }).catch((error: unknown) => {
       logger.error({
         action: 'workers.heartbeat.failed',

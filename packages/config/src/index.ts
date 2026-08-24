@@ -33,3 +33,4 @@ export {
   sanitizeMonitoringEvent,
 } from './monitoring'
 export type { MonitoringContext, MonitoringEvent } from './monitoring'
+export { resolveReleaseRevision } from './release-identity'

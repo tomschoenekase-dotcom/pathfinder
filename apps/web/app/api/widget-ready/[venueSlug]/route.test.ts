@@ -75,6 +75,25 @@ describe('widget fail-invisible readiness probe', () => {
     expect(contextRequest.headers.get('referer')).toBeNull()
   })
 
+  it('reports the reviewed release fallback and fails closed on provider drift', async () => {
+    const originalProvider = process.env.RAILWAY_GIT_COMMIT_SHA
+    const originalConfigured = process.env.PATHFINDER_RELEASE_SHA
+    const revision = 'a'.repeat(40)
+    try {
+      delete process.env.RAILWAY_GIT_COMMIT_SHA
+      process.env.PATHFINDER_RELEASE_SHA = revision
+      expect((await request()).headers.get('x-pathfinder-revision')).toBe(revision)
+
+      process.env.RAILWAY_GIT_COMMIT_SHA = 'b'.repeat(40)
+      expect((await request()).headers.get('x-pathfinder-revision')).toBe('unknown')
+    } finally {
+      if (originalProvider === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA
+      else process.env.RAILWAY_GIT_COMMIT_SHA = originalProvider
+      if (originalConfigured === undefined) delete process.env.PATHFINDER_RELEASE_SHA
+      else process.env.PATHFINDER_RELEASE_SHA = originalConfigured
+    }
+  })
+
   it('fails closed before context or venue lookup when the preview is disabled', async () => {
     mocks.enabled.mockReturnValue(false)
 

@@ -24,10 +24,11 @@ This is the normal Torchiko feature-delivery path:
 - Staging project: `serene-inspiration`
 - Staging environment: `a7a394fc-aa4e-4a45-bd3c-904419a67818`
 - Staging branch: `codex/pathfinder-v2-staging`
-- Marketing site: `https://staging.torchiko.com`
+- Marketing site: `https://staging.torchiko.com` (separate site; it does not expose product health)
 - Legacy visitor-guide custom domain: retired; Railway fallback retained for recovery only
 - Dashboard (canonical after DNS activation): `https://app.staging.torchiko.com`
-- Railway fallback web: `https://staging-web-staging-bbeb.up.railway.app`
+- Product web and exact-revision health origin:
+  `https://staging-web-staging-bbeb.up.railway.app`
 - Railway fallback dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
 - Database resource: `7bd81064-588f-48a5-b138-1fc86691a09b`
 - Redis resource: `d53ab235-d403-4d7d-b525-3ace0ef07b92`

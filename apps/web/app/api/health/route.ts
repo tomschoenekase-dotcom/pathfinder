@@ -1,6 +1,8 @@
 import { checkDatabaseConnection } from '@pathfinder/db'
 import { checkBullMQConnection } from '@pathfinder/jobs'
 
+import { deploymentIdentity, type DeploymentIdentity } from '../../../lib/deployment-identity'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -9,37 +11,11 @@ const DEPENDENCY_TIMEOUT = Symbol('dependency-timeout')
 
 type DependencyStatus = 'up' | 'down' | 'timeout'
 
-interface DeploymentIdentity {
-  environment: string
-  revision: string
-  resources: {
-    database: string
-    redis: string
-    storage: string
-  }
-}
-
 interface HealthDependencies {
   checkDatabase: (timeoutMs: number) => Promise<unknown>
   checkQueue: (timeoutMs: number) => Promise<unknown>
   deployment: DeploymentIdentity
   timeoutMs?: number
-}
-
-function deploymentIdentity(): DeploymentIdentity {
-  return {
-    environment:
-      process.env.RAILWAY_ENVIRONMENT ??
-      process.env.VERCEL_ENV ??
-      process.env.NODE_ENV ??
-      'unknown',
-    revision: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'unknown',
-    resources: {
-      database: process.env.DATABASE_RESOURCE_ID ?? 'unknown',
-      redis: process.env.REDIS_RESOURCE_ID ?? 'unknown',
-      storage: process.env.STORAGE_RESOURCE_ID ?? 'disabled',
-    },
-  }
 }
 
 async function dependencyStatus(

@@ -32,6 +32,12 @@ All three services must deploy the exact same Git commit SHA. Set
 successful build time as proof that the revisions match; record the full SHA
 reported for each deployment.
 
+Every service resolves the reported revision through one strict shared contract. Provider-injected
+`RAILWAY_GIT_COMMIT_SHA` remains authoritative. For an explicitly reviewed Railway local-upload
+release where provider Git metadata is absent, set `PATHFINDER_RELEASE_SHA` to the exact lowercase
+40-character commit on every service. Missing, malformed, or conflicting provider/configured
+revisions report `unknown` and fail exact-SHA admission; never use a branch name or abbreviated SHA.
+
 The staging-only exception requires resources that are physically or logically independent from
 production before adding application variables:
 

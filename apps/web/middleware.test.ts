@@ -160,6 +160,24 @@ describe('embed middleware response boundary', () => {
     expect(headers?.has('Vary')).toBe(false)
   })
 
+  it('uses the reviewed release fallback but fails closed on provider drift', () => {
+    const revision = 'a'.repeat(40)
+    const request = new NextRequest('https://guide.example/embed/museum')
+    expect(
+      getEmbedResponseHeaders(request, {
+        PATHFINDER_RELEASE_SHA: revision,
+        EMBED_PREVIEW_ENABLED: 'true',
+      })?.get('X-PathFinder-Revision'),
+    ).toBe(revision)
+    expect(
+      getEmbedResponseHeaders(request, {
+        RAILWAY_GIT_COMMIT_SHA: 'b'.repeat(40),
+        PATHFINDER_RELEASE_SHA: revision,
+        EMBED_PREVIEW_ENABLED: 'true',
+      })?.get('X-PathFinder-Revision'),
+    ).toBe('unknown')
+  })
+
   it('applies the complete header set through the Clerk-wrapped handler seam', async () => {
     const originalFlag = process.env.EMBED_PREVIEW_ENABLED
     const originalPolicy = process.env.WIDGET_PREVIEW_ORIGINS_JSON

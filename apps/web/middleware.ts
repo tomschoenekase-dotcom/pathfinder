@@ -1,5 +1,6 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse, type NextRequest } from 'next/server'
+import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
 
 import { buildWidgetFrameAncestors } from './lib/widget-origin-policy'
 
@@ -33,8 +34,7 @@ export function getEmbedResponseHeaders(
     // capability with its iframe allow attribute.
     'Permissions-Policy': VISITOR_VOICE_POLICY,
     'Referrer-Policy': 'no-referrer',
-    'X-PathFinder-Revision':
-      environment.RAILWAY_GIT_COMMIT_SHA ?? environment.VERCEL_GIT_COMMIT_SHA ?? 'unknown',
+    'X-PathFinder-Revision': resolveReleaseRevision(environment),
     'X-Content-Type-Options': 'nosniff',
     'X-Robots-Tag': 'noindex, nofollow',
   })

@@ -36,7 +36,13 @@ const technicalAllowlist = new Map([
       "const DOMAIN = new TextEncoder().encode('PathFinder media source fingerprint v1\\0')",
     ]),
   ],
-  ['apps/web/middleware.ts', new Set(["'X-PathFinder-Revision':"])],
+  [
+    'apps/web/middleware.ts',
+    new Set([
+      "'X-PathFinder-Revision':",
+      "'X-PathFinder-Revision': resolveReleaseRevision(environment),",
+    ]),
+  ],
   [
     'apps/web/middleware.test.ts',
     new Set([
@@ -50,6 +56,7 @@ const technicalAllowlist = new Map([
     new Set([
       "'Access-Control-Expose-Headers': 'X-PathFinder-Revision, X-PathFinder-Widget-Ready',",
       "'X-PathFinder-Revision':",
+      "'X-PathFinder-Revision': resolveReleaseRevision(process.env),",
       "'X-PathFinder-Widget-Ready': '1',",
     ]),
   ],
