@@ -15,6 +15,9 @@ export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_complet
 export const SUPPORT_COMPLETION_CAPABILITY = 'support:complete' as const
 export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const
 export const SUPPORT_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
+export const SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION =
+  'pathfinder.apply_support_package_approval' as const
+export const SUPPORT_PACKAGE_APPROVAL_CAPABILITY = 'packages:approve' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -388,6 +391,71 @@ export const SupportPackageDraftProposalApprovalSnapshot = z
 
 export type SupportPackageDraftProposalApprovalSnapshot = z.infer<
   typeof SupportPackageDraftProposalApprovalSnapshot
+>
+
+const SupportPackageApprovalHandoff = z
+  .object({
+    handoffId: z.string().trim().min(1).max(191),
+    supportRequestId: z.string().trim().min(1).max(191),
+    supportRequestVersion: z.number().int().positive(),
+  })
+  .strict()
+
+const SupportPackageApprovalEvaluationEvidence = z
+  .object({
+    exactPackageRunIds: z.array(z.string().uuid()).max(20),
+    truncated: z.boolean(),
+    thresholdApplied: z.literal(false),
+  })
+  .strict()
+
+/** Exact one-shot authority derived from a founder-reviewed package approval proposal.
+ * It may move one unchanged support-linked package from DRAFT to APPROVED only. It
+ * cannot apply, publish, revert, contact a customer, or change the support request. */
+export const SupportPackageApprovalApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    expectedUpdatedAt: z.string().datetime(),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    supportHandoff: SupportPackageApprovalHandoff,
+  })
+  .strict()
+
+export type SupportPackageApprovalApplyParameters = z.infer<
+  typeof SupportPackageApprovalApplyParameters
+>
+
+export const SupportPackageApprovalProposalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    expectedUpdatedAt: z.string().datetime(),
+    fromStatus: z.literal('DRAFT'),
+    toStatus: z.literal('APPROVED'),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningCodes: z.array(z.string().trim().min(1).max(191)).max(500),
+    supportHandoff: SupportPackageApprovalHandoff,
+    evaluationEvidence: SupportPackageApprovalEvaluationEvidence,
+    packageApproved: z.literal(false),
+    packageApplied: z.literal(false),
+    packagePublished: z.literal(false),
+    supportRequestChanged: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportPackageApprovalProposalSnapshot = z.infer<
+  typeof SupportPackageApprovalProposalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

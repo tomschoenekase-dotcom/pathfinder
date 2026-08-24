@@ -6,9 +6,9 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { standaloneReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
+import { venuePackagePayloadHash } from '../../lib/venue-package-identity'
 import { createVenuePackageDraftService } from '../venue-package'
 import {
-  canonicalVenuePackagePayload,
   VenuePackagePayload,
   VenuePackageStoredPreview,
   VenuePackageValidationReport,
@@ -235,9 +235,7 @@ export const adminVenuePackageOperationsRouter = router({
             message: 'Stored venue-package review evidence is unavailable.',
           })
         }
-        const payloadHash = createHash('sha256')
-          .update(canonicalVenuePackagePayload(input.venueId, payload.data))
-          .digest('hex')
+        const payloadHash = venuePackagePayloadHash(input.venueId, payload.data)
         const warningDigest = createHash('sha256')
           .update(JSON.stringify(report.data.warnings))
           .digest('hex')

@@ -106,6 +106,8 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   applySupportCompletion: vi.fn(),
   proposeSupportPackageDraft: vi.fn(),
   applySupportPackageDraft: vi.fn(),
+  proposeSupportPackageApproval: vi.fn(),
+  applySupportPackageApproval: vi.fn(),
   proposeAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   prepareCustomerAccessInvitation: vi.fn(),

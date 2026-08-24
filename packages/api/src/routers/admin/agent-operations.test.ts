@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   approvalRequestFindFirst: vi.fn(),
   approvalGrantFindMany: vi.fn(),
   transactionApprovalFindFirst: vi.fn(),
+  transactionPackageFindFirst: vi.fn(),
   dbTransaction: vi.fn(),
   issueApprovalGrant: vi.fn(),
   revokeApprovalGrant: vi.fn(),
@@ -129,6 +130,7 @@ describe('admin agent operations router', () => {
     mocks.dbTransaction.mockImplementation(async (operation) =>
       operation({
         approvalRequest: { findFirst: mocks.transactionApprovalFindFirst },
+        venuePackage: { findFirst: mocks.transactionPackageFindFirst },
       }),
     )
   })
@@ -744,6 +746,102 @@ describe('admin agent operations router', () => {
           operationCounts,
         }),
         approvalDecisionId: 'decision_package_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('issues only exact one-shot DRAFT-to-APPROVED authority for a support-linked package', async () => {
+    const expectedUpdatedAt = '2030-01-01T00:00:00.000Z'
+    const payloadHash = 'a'.repeat(64)
+    const baseDigest = 'b'.repeat(64)
+    const warningDigest = 'c'.repeat(64)
+    const supportHandoff = {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 6,
+    }
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_package_approval_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_package_approval',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        expectedUpdatedAt,
+        fromStatus: 'DRAFT',
+        toStatus: 'APPROVED',
+        payloadHash,
+        baseDigest,
+        warningDigest,
+        warningCodes: [],
+        supportHandoff,
+        evaluationEvidence: {
+          exactPackageRunIds: ['77777777-7777-4777-8777-777777777777'],
+          truncated: false,
+          thresholdApplied: false,
+        },
+        packageApproved: false,
+        packageApplied: false,
+        packagePublished: false,
+        supportRequestChanged: false,
+        customerContacted: false,
+        externalDeliveryTriggered: false,
+        executionAuthorized: false,
+      },
+      expiresAt: null,
+    })
+    mocks.transactionPackageFindFirst.mockResolvedValue({
+      id: 'package_1',
+      status: 'DRAFT',
+      updatedAt: new Date(expectedUpdatedAt),
+      payloadHash,
+      baseDigest,
+      previewPlan: { warningDigest },
+      supportHandoffs: [
+        {
+          id: supportHandoff.handoffId,
+          supportRequestId: supportHandoff.supportRequestId,
+          requestVersion: supportHandoff.supportRequestVersion,
+        },
+      ],
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_package_approval_1' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_package_approval_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportPackageApprovalProposal({
+        operationId: '70444444-4444-4444-8444-444444444444',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_package_approval_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_package_approval_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_approval',
+        capability: 'packages:approve',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({
+          effect: 'EXACT_SUPPORT_LINKED_PACKAGE_DRAFT_TO_APPROVED_ONLY',
+        }),
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          packageId: 'package_1',
+          expectedUpdatedAt,
+          payloadHash,
+          baseDigest,
+          warningDigest,
+          supportHandoff,
+        },
+        approvalDecisionId: 'decision_package_approval_1',
       }),
       expect.anything(),
     )

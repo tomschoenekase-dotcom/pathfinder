@@ -2,6 +2,11 @@ import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
 import { z } from 'zod'
 import {
+  SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION,
+  SUPPORT_PACKAGE_APPROVAL_CAPABILITY,
+  SupportPackageApprovalApplyParameters,
+} from '@pathfinder/contracts'
+import {
   assertVenueAiAvailable,
   buildOperationalUpdatePreview,
   consumeApprovalGrantAction,
@@ -43,6 +48,8 @@ import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 import { createPathfinderMcpAgentActions } from './agent-actions'
 import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-finalizers'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { prepareSupportPackageApprovalProposalAction } from '../lib/support-package-approval-actions'
+import { approveVenuePackageLifecycle } from '../lib/venue-package-core'
 import { VenuePackagePayloadV3 } from '../schemas/venue-package'
 import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
@@ -73,6 +80,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_completion',
   'pathfinder.propose_support_package_draft',
   'pathfinder.apply_support_package_draft',
+  'pathfinder.propose_support_package_approval',
+  'pathfinder.apply_support_package_approval',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -164,6 +173,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportCompletion'
     | 'proposeSupportPackageDraft'
     | 'applySupportPackageDraft'
+    | 'proposeSupportPackageApproval'
+    | 'applySupportPackageApproval'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -203,6 +214,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportCompletion'
     | 'proposeSupportPackageDraft'
     | 'applySupportPackageDraft'
+    | 'proposeSupportPackageApproval'
+    | 'applySupportPackageApproval'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1672,6 +1685,333 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           triageChanged: false,
           customerContacted: false,
           externalDeliveryTriggered: false,
+        }),
+      }
+    },
+    async proposeSupportPackageApproval(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package-approval proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_APPROVAL_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified package-approval worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified package-approval worker run is unavailable')
+      const result = await prepareSupportPackageApprovalProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          packageId: input.packageId,
+          expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: SUPPORT_PACKAGE_APPROVAL_CAPABILITY,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-package-approval.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Support-linked package needs founder approval',
+            summary:
+              'An AI worker froze one exact package DRAFT and its review evidence. No package lifecycle or customer-visible change occurred.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the exact payload, warnings, support handoff, and evaluation evidence. Approval issues DRAFT-to-APPROVED authority only; application and publication remain separate.',
+            deduplicationKey: `support-package-approval-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-package-approval-proposal',
+        summary: result.replayed
+          ? 'Existing support package-approval proposal returned; the package remains unchanged.'
+          : 'Exact support-linked package prepared for founder approval; the package remains DRAFT.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          packageId: result.snapshot.packageId,
+          packageStatus: 'DRAFT',
+          payloadHash: result.snapshot.payloadHash,
+          baseDigest: result.snapshot.baseDigest,
+          warningDigest: result.snapshot.warningDigest,
+          warningCount: result.snapshot.warningCodes.length,
+          evaluationRunIds: result.snapshot.evaluationEvidence.exactPackageRunIds,
+          evaluationEvidenceTruncated: result.snapshot.evaluationEvidence.truncated,
+          evaluationThresholdApplied: false,
+          replayed: result.replayed,
+          approvalRequired: true,
+          separateExecutionRequired: true,
+          packageApproved: false,
+          packageApplied: false,
+          packagePublished: false,
+          supportRequestChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportPackageApproval(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support package-approval application requires venue scope')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const approvalGrantId = context.approvalGrantId
+      const parameters = SupportPackageApprovalApplyParameters.parse({
+        clientId: context.credential.clientId,
+        venueId,
+        packageId: input.packageId,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        payloadHash: input.payloadHash,
+        baseDigest: input.baseDigest,
+        warningDigest: input.warningDigest,
+        supportHandoff: input.supportHandoff,
+      })
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_APPROVAL_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified package-approval worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true, requestedOperation: true },
+      })
+      if (!run)
+        throw new McpActionBindingError('Verified package-approval worker run is unavailable')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId,
+        capability: SUPPORT_PACKAGE_APPROVAL_CAPABILITY,
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const grant = await tx.approvalGrant.findFirst({
+          where: {
+            id: approvalGrantId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_APPROVAL_CAPABILITY,
+          },
+          select: {
+            approvalDecision: {
+              select: { decision: true, decidedByType: true, decidedById: true },
+            },
+          },
+        })
+        if (
+          grant?.approvalDecision?.decision !== 'APPROVED' ||
+          grant.approvalDecision.decidedByType !== 'HUMAN'
+        ) {
+          throw new McpActionBindingError(
+            'Package approval requires exact founder decision evidence',
+          )
+        }
+        const handoff = await tx.supportPackageHandoff.findFirst({
+          where: {
+            id: parameters.supportHandoff.handoffId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            venuePackageId: parameters.packageId,
+            supportRequestId: parameters.supportHandoff.supportRequestId,
+            requestVersion: parameters.supportHandoff.supportRequestVersion,
+          },
+          select: { id: true },
+        })
+        if (!handoff) throw new McpActionBindingError('Approved support package handoff changed')
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId,
+            operationId: input.operationId,
+            actionName: SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_APPROVAL_CAPABILITY,
+            parameters,
+            actor,
+            now,
+          },
+          sameTransaction,
+        )
+        const approved = await approveVenuePackageLifecycle({
+          db: sameTransaction,
+          tenantId: context.credential.tenantId,
+          venueId,
+          actor: {
+            type: 'HUMAN',
+            id: grant.approvalDecision.decidedById,
+            role: 'PLATFORM_ADMIN',
+          },
+          command: {
+            id: parameters.packageId,
+            expectedUpdatedAt: new Date(parameters.expectedUpdatedAt),
+            commandKey: input.operationId,
+            acknowledgedPayloadHash: parameters.payloadHash,
+            acknowledgedWarningDigest: parameters.warningDigest,
+          },
+        })
+        if (
+          approved.status !== 'APPROVED' ||
+          approved.payloadHash !== parameters.payloadHash ||
+          approved.baseDigest !== parameters.baseDigest
+        ) {
+          throw new McpActionBindingError('Approved package outcome does not match exact authority')
+        }
+        const resultReference = `VenuePackage:${approved.id}:${approved.updatedAt.toISOString()}:APPROVED`
+        if (consumption.replayed) {
+          if (consumption.consumption.resultReference !== resultReference) {
+            throw new McpActionBindingError('Approved package replay is incomplete')
+          }
+          return { approved, replayed: true as const }
+        }
+        const action = await tx.agentAction.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentIdentityId: input.agentIdentityId,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            requestedOperation: run.requestedOperation,
+            actionName: 'torchiko.support.apply_package_approval',
+            inputSummary: `Execute founder-approved DRAFT-to-APPROVED transition for package ${approved.id}.`,
+            inputReference: `ApprovalGrant:${approvalGrantId}`,
+            output: {
+              venuePackageId: approved.id,
+              packageStatus: approved.status,
+              approvedByHumanId: grant.approvalDecision.decidedById,
+              packageApplied: false,
+              packagePublished: false,
+              supportRequestChanged: false,
+            },
+            modelProvider: worker.modelProvider ?? null,
+            modelName: worker.modelName ?? null,
+            status: 'SUCCEEDED',
+            beforeVersionRef: `VenuePackage:${approved.id}:${parameters.expectedUpdatedAt}:DRAFT`,
+            afterVersionRef: resultReference,
+          },
+          select: { id: true },
+        })
+        await tx.agentTimelineEvent.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentActionId: action.id,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            eventType: 'support-package-approval.approved',
+            message: 'The exact founder-approved package moved from DRAFT to APPROVED.',
+            data: {
+              venuePackageId: approved.id,
+              supportPackageHandoffId: handoff.id,
+              packageStatus: 'APPROVED',
+              packageApplied: false,
+              packagePublished: false,
+              supportRequestChanged: false,
+            },
+          },
+        })
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference },
+        })
+        return { approved, replayed: false as const }
+      })
+      return {
+        kind: 'torchiko.support-package-approved',
+        summary: result.replayed
+          ? 'Existing founder-approved package transition returned; no duplicate action occurred.'
+          : 'Exact support-linked package moved to APPROVED under founder-issued one-shot authority.',
+        data: jsonData({
+          packageId: result.approved.id,
+          packageStatus: result.approved.status,
+          payloadHash: result.approved.payloadHash,
+          baseDigest: result.approved.baseDigest,
+          replayed: result.replayed,
+          packageApplied: false,
+          packagePublished: false,
+          supportRequestChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          separateApplicationRequired: true,
         }),
       }
     },

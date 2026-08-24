@@ -21,6 +21,7 @@ const technicalAllowlist = new Map([
       "proposedAction === 'pathfinder.apply_support_information_request'",
       "const isSupportCompletion = proposedAction === 'pathfinder.apply_support_completion'",
       "const isSupportPackageDraft = proposedAction === 'pathfinder.apply_support_package_draft'",
+      "const isSupportPackageApproval = proposedAction === 'pathfinder.apply_support_package_approval'",
       ": proposedAction === 'pathfinder.apply_support_triage'",
       ": proposedAction === 'pathfinder.apply_support_triage' && decision === 'APPROVED'",
     ]),
@@ -32,6 +33,7 @@ const technicalAllowlist = new Map([
       "'pathfinder.apply_support_information_request' as const",
       "export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const",
       "export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const",
+      "'pathfinder.apply_support_package_approval' as const",
     ]),
   ],
   [
@@ -45,6 +47,8 @@ const technicalAllowlist = new Map([
       "name: 'pathfinder.apply_support_completion',",
       "| 'pathfinder.apply_support_package_draft'",
       "name: 'pathfinder.apply_support_package_draft',",
+      "| 'pathfinder.apply_support_package_approval'",
+      "name: 'pathfinder.apply_support_package_approval',",
     ]),
   ],
   [
@@ -58,6 +62,8 @@ const technicalAllowlist = new Map([
       "'pathfinder.apply_support_completion',",
       "case 'pathfinder.apply_support_package_draft': {",
       "'pathfinder.apply_support_package_draft',",
+      "case 'pathfinder.apply_support_package_approval': {",
+      "'pathfinder.apply_support_package_approval',",
     ]),
   ],
   [

@@ -278,7 +278,7 @@ describe('admin venue-package operations reads', () => {
       ],
     })
     const payloadHash = createHash('sha256')
-      .update(canonicalVenuePackagePayload('venue-1', payload))
+      .update(JSON.stringify(canonicalVenuePackagePayload('venue-1', payload)))
       .digest('hex')
     const warningDigest = createHash('sha256').update(JSON.stringify(report.warnings)).digest('hex')
     mocks.detail.mockResolvedValue({
@@ -330,7 +330,7 @@ describe('admin venue-package operations reads', () => {
       ],
     })
     const payloadHash = createHash('sha256')
-      .update(canonicalVenuePackagePayload('venue-1', payload))
+      .update(JSON.stringify(canonicalVenuePackagePayload('venue-1', payload)))
       .digest('hex')
     const warningDigest = createHash('sha256').update(JSON.stringify(report.warnings)).digest('hex')
     mocks.detail.mockResolvedValue({

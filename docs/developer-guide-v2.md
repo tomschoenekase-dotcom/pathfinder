@@ -279,6 +279,14 @@ still current. Freeze those runs as `REVIEWABLE_VENUE_PACKAGE_V1`; do not label 
 approved client preview. Evaluation remains advisory unless an explicit domain policy defines a
 gate, and it must not share a transaction with package approval or application.
 
+For support-linked approval automation, use the separate
+`pathfinder.propose_support_package_approval` / `pathfinder.apply_support_package_approval` pair.
+The proposal freezes exact package, handoff, warning, and bounded evaluation evidence. The apply
+tool consumes a founder-issued one-shot grant and delegates to `approveVenuePackageLifecycle`; it
+must preserve the human decision-maker as `approvedBy` and record the agent executor separately.
+Do not widen this binding to package application, publication, reversion, customer contact, or an
+uncited evaluation threshold.
+
 Agent identity configuration uses the closed contracts in `@pathfinder/contracts` and neutral DB
 actions. Creation is disabled-only, edits require a disabled row and current `updatedAt`, and disable
 is the only activation-related mutation exposed. Do not add enable/run/provider/credential controls

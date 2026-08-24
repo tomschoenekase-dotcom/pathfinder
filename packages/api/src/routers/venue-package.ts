@@ -18,7 +18,6 @@ import {
 } from '@pathfinder/db'
 
 import {
-  canonicalVenuePackagePayload,
   VenuePackageApprovalInput,
   VenuePackageByIdInput,
   VenuePackageDraftInput,
@@ -38,6 +37,7 @@ import {
 import { mergeRouters, router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { venuePackagePayloadHash } from '../lib/venue-package-identity'
 import {
   type VenuePackageDraftFinalizer,
   VenuePackageDraftFinalizerError,
@@ -797,7 +797,7 @@ export async function buildVenuePackagePreview(
       })
     }
     const baseDigest = await packageStateDigest(db, tenantId, venueId, 3)
-    const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
+    const payloadHash = venuePackagePayloadHash(venueId, payload)
     const report = VenuePackageValidationReport.parse({
       errors: sortVenuePackageIssues(errors),
       warnings: duplicateWarnings(payload, current),
@@ -871,7 +871,7 @@ export async function buildVenuePackagePreview(
 
   const baseDigest =
     payload.schemaVersion === 1 ? digest(current) : digest({ venue: currentVenue, ...current })
-  const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
+  const payloadHash = venuePackagePayloadHash(venueId, payload)
   const report = VenuePackageValidationReport.parse({
     errors: sortVenuePackageIssues(errors),
     warnings: duplicateWarnings(payload, current),
@@ -1086,7 +1086,7 @@ export async function createVenuePackageDraftService(request: {
     venueId: input.venueId,
     draftKey: input.draftKey,
   }
-  const requestedPayloadHash = digest(canonicalVenuePackagePayload(input.venueId, input.payload))
+  const requestedPayloadHash = venuePackagePayloadHash(input.venueId, input.payload)
   const claimToken = randomUUID()
 
   let prepared

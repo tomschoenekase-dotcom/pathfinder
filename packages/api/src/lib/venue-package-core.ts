@@ -16,7 +16,6 @@ import {
 } from '@pathfinder/db'
 
 import {
-  canonicalVenuePackagePayload,
   VenuePackageAppliedEntities,
   VenuePackageAppliedEntitiesV1,
   VenuePackageAppliedEntitiesV2,
@@ -37,6 +36,7 @@ import {
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackageWarningCodes } from './client-package-preview'
 import { applyVenuePackageV3ContentEffects } from './venue-package-v3-content-effects'
+import { venuePackagePayloadHash } from './venue-package-identity'
 import {
   parseVenuePackageContentVersionProvenance,
   venuePackageRollbackCasWhere,
@@ -857,7 +857,7 @@ export async function buildVenuePackagePreview(
       })
     }
     const baseDigest = await packageStateDigest(db, tenantId, venueId, 3)
-    const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
+    const payloadHash = venuePackagePayloadHash(venueId, payload)
     const report = VenuePackageValidationReport.parse({
       errors: sortVenuePackageIssues(errors),
       warnings: duplicateWarnings(payload, current),
@@ -931,7 +931,7 @@ export async function buildVenuePackagePreview(
 
   const baseDigest =
     payload.schemaVersion === 1 ? digest(current) : digest({ venue: currentVenue, ...current })
-  const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
+  const payloadHash = venuePackagePayloadHash(venueId, payload)
   const report = VenuePackageValidationReport.parse({
     errors: sortVenuePackageIssues(errors),
     warnings: duplicateWarnings(payload, current),

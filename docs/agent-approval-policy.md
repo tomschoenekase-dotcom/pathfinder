@@ -87,6 +87,17 @@ authority cannot approve, apply, publish, or roll back the package, message the 
 request status or triage, increment client activity, or trigger external delivery. Those later
 package lifecycle transitions remain separately gated.
 
+Support-linked package approval uses its own `packages:approve` capability and exact proposal.
+`pathfinder.propose_support_package_approval` freezes the unchanged `DRAFT` timestamp, payload/base
+identity, warning digest/codes, immutable support handoff, and up to 20 exact-package evaluation run
+IDs. Evaluation is advisory and the snapshot explicitly records that no threshold was applied. The
+proposal changes nothing. A founder `APPROVED` decision issues one exact one-shot grant, but still
+executes nothing. Only `pathfinder.apply_support_package_approval` may consume that grant. It calls
+the canonical package approval action with the human decision-maker retained as `approvedBy` while
+recording the executing agent/run/worker/credential/grant lineage separately. Exact replay
+converges; package, handoff, parameter, or decision drift fails closed. This authority cannot apply,
+publish, revert, contact a customer, or change the support request.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.

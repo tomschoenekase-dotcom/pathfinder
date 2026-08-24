@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   decideInformationRequest: vi.fn(),
   decideCompletion: vi.fn(),
   decidePackageDraft: vi.fn(),
+  decidePackageApproval: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -20,6 +21,7 @@ vi.mock('../../lib/trpc', () => ({
       decideSupportInformationRequestProposal: { mutate: mocks.decideInformationRequest },
       decideSupportCompletionProposal: { mutate: mocks.decideCompletion },
       decideSupportPackageDraftProposal: { mutate: mocks.decidePackageDraft },
+      decideSupportPackageApprovalProposal: { mutate: mocks.decidePackageApproval },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -213,6 +215,38 @@ describe('ApprovalDecisionForm', () => {
     )
     expect(mocks.decidePackageDraft).toHaveBeenCalledWith({
       operationId: '55555555-5555-4555-8555-555555555555',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+  })
+
+  it('issues exact package approval authority without approving or applying during the decision', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      '66666666-6666-4666-8666-666666666666',
+    )
+    mocks.decidePackageApproval.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_package_approval"
+      />,
+    )
+    expect(screen.getByText(/reviewed, unchanged support-linked package/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/package was not yet approved, applied, published/)).toBeTruthy(),
+    )
+    expect(mocks.decidePackageApproval).toHaveBeenCalledWith({
+      operationId: '66666666-6666-4666-8666-666666666666',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       approvalRequestId: 'approval_1',

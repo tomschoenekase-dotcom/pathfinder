@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
-import { SupportPackageDraftApplyParameters } from './agent-approval-policy'
+import {
+  SupportPackageApprovalApplyParameters,
+  SupportPackageDraftApplyParameters,
+} from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
 
@@ -71,6 +74,7 @@ export const McpCapability = z.enum([
   'delegations:create',
   'agent-runs:execute',
   'packages:draft',
+  'packages:approve',
   'support:draft',
   'support:open',
   'support:note',
@@ -728,6 +732,43 @@ export const McpSupportPackageDraftApplyInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportPackageDraftApplyInput = z.infer<typeof McpSupportPackageDraftApplyInput>
 
+const SupportPackageApprovalFields = {
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  payloadHash: SupportPackageApprovalApplyParameters.shape.payloadHash,
+  baseDigest: SupportPackageApprovalApplyParameters.shape.baseDigest,
+  warningDigest: SupportPackageApprovalApplyParameters.shape.warningDigest,
+  supportHandoff: SupportPackageApprovalApplyParameters.shape.supportHandoff,
+}
+
+export const McpSupportPackageApprovalProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageApprovalProposalInput = z.infer<
+  typeof McpSupportPackageApprovalProposalInput
+>
+
+export const McpSupportPackageApprovalApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageApprovalFields,
+}).strict()
+export type McpSupportPackageApprovalApplyInput = z.infer<
+  typeof McpSupportPackageApprovalApplyInput
+>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1046,6 +1087,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.apply_support_completion'
   | 'pathfinder.propose_support_package_draft'
   | 'pathfinder.apply_support_package_draft'
+  | 'pathfinder.propose_support_package_approval'
+  | 'pathfinder.apply_support_package_approval'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1852,6 +1895,109 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'packages:draft', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_approval',
+    title: 'Propose approval of a support-linked package',
+    description:
+      'Freeze one exact unchanged support-linked package DRAFT, its warning evidence, and bounded evaluation references for founder review. It does not approve, apply, publish, revert, contact a customer, or change support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:approve', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_approval',
+    title: 'Approve an exact support-linked package',
+    description:
+      'Move the exact reviewed support-linked package from DRAFT to APPROVED under one founder-issued one-shot grant. Applying, publishing, reverting, customer contact, and support-state mutation remain separate.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        baseDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        warningDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        supportHandoff: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['handoffId', 'supportRequestId', 'supportRequestVersion'],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestVersion: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'payloadHash',
+        'baseDigest',
+        'warningDigest',
+        'supportHandoff',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:approve', 'approved-transition'),
     },
   },
   {

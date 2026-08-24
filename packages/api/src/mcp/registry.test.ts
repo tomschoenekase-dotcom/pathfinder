@@ -13,6 +13,7 @@ const credential: VerifiedMcpCredentialScope = {
     'resources:read',
     'content:read',
     'packages:draft',
+    'packages:approve',
     'evaluations:request',
     'questions:ask',
     'delegations:create',
@@ -53,6 +54,8 @@ function actions(): PathfinderMcpDomainActions {
     applySupportCompletion: vi.fn().mockResolvedValue(result),
     proposeSupportPackageDraft: vi.fn().mockResolvedValue(result),
     applySupportPackageDraft: vi.fn().mockResolvedValue(result),
+    proposeSupportPackageApproval: vi.fn().mockResolvedValue(result),
+    applySupportPackageApproval: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
@@ -452,6 +455,55 @@ describe('PathFinder MCP server-side adapter registry', () => {
       expect.objectContaining({ credential }),
     )
     expect(domain.applySupportPackageDraft).toHaveBeenCalledOnce()
+  })
+
+  it('routes package-approval proposals without a grant and verifies exact execution authority', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const common = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '66666666-6666-4666-8666-666666666666',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      packageId: 'package-1',
+      expectedUpdatedAt: '2030-01-01T00:00:00.000Z',
+    }
+    await registry.callTool(
+      'pathfinder.propose_support_package_approval',
+      { ...common, reason: 'The exact package is ready for founder approval.' },
+      { credential },
+    )
+    expect(domain.proposeSupportPackageApproval).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+
+    await registry.callTool(
+      'pathfinder.apply_support_package_approval',
+      {
+        ...common,
+        payloadHash: 'a'.repeat(64),
+        baseDigest: 'b'.repeat(64),
+        warningDigest: 'c'.repeat(64),
+        supportHandoff: {
+          handoffId: 'handoff-1',
+          supportRequestId: 'request-1',
+          supportRequestVersion: 5,
+        },
+      },
+      { credential, approvalGrantId: 'grant-package-approval-1' },
+    )
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-package-approval-1',
+        toolName: 'pathfinder.apply_support_package_approval',
+        capability: 'packages:approve',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.applySupportPackageApproval).toHaveBeenCalledOnce()
   })
 
   it('allows a scoped operator question without converting it into an approval or write grant', async () => {

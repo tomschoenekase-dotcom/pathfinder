@@ -65,7 +65,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/support-completion-approval.ts', 1],
   // Founder decision records and derives one exact DRAFT-only package grant atomically;
   // the route cannot itself create, approve, apply, publish, or deliver a package.
-  ['packages/api/src/routers/admin/support-package-draft-approval.ts', 1],
+  ['packages/api/src/routers/admin/support-package-draft-approval.ts', 2],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],

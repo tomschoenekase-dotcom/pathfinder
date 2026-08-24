@@ -17,10 +17,72 @@ import {
   SupportTriageProposalApprovalSnapshot,
   SupportInformationRequestApplyParameters,
   SupportInformationRequestProposalApprovalSnapshot,
+  SupportPackageApprovalApplyParameters,
+  SupportPackageApprovalProposalSnapshot,
   defaultSupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
 } from './agent-approval-policy'
+
+describe('support package approval authority contract', () => {
+  const parameters = {
+    clientId: 'tenant_1',
+    venueId: 'venue_1',
+    packageId: 'package_1',
+    expectedUpdatedAt: '2030-01-01T00:00:00.000Z',
+    payloadHash: 'a'.repeat(64),
+    baseDigest: 'b'.repeat(64),
+    warningDigest: 'c'.repeat(64),
+    supportHandoff: {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 4,
+    },
+  }
+
+  it('admits only one exact support-linked DRAFT-to-APPROVED transition', () => {
+    expect(SupportPackageApprovalApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportPackageApprovalApplyParameters.parse({ ...parameters, apply: true }),
+    ).toThrow()
+  })
+
+  it('records evaluation evidence without inventing a quality threshold', () => {
+    const snapshot = {
+      contractVersion: 1 as const,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      packageId: 'package_1',
+      expectedUpdatedAt: parameters.expectedUpdatedAt,
+      fromStatus: 'DRAFT' as const,
+      toStatus: 'APPROVED' as const,
+      payloadHash: parameters.payloadHash,
+      baseDigest: parameters.baseDigest,
+      warningDigest: parameters.warningDigest,
+      warningCodes: ['DUPLICATE_EXISTING_CONTENT'],
+      supportHandoff: parameters.supportHandoff,
+      evaluationEvidence: {
+        exactPackageRunIds: ['77777777-7777-4777-8777-777777777777'],
+        truncated: false,
+        thresholdApplied: false as const,
+      },
+      packageApproved: false as const,
+      packageApplied: false as const,
+      packagePublished: false as const,
+      supportRequestChanged: false as const,
+      customerContacted: false as const,
+      externalDeliveryTriggered: false as const,
+      executionAuthorized: false as const,
+    }
+    expect(SupportPackageApprovalProposalSnapshot.parse(snapshot)).toEqual(snapshot)
+    expect(() =>
+      SupportPackageApprovalProposalSnapshot.parse({
+        ...snapshot,
+        evaluationEvidence: { ...snapshot.evaluationEvidence, thresholdApplied: true },
+      }),
+    ).toThrow()
+  })
+})
 
 describe('operational update draft policy contract', () => {
   it('keeps the supported action class draft-only and bounded', () => {

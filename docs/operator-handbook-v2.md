@@ -319,6 +319,13 @@ package identity. Review scored quality separately from operational failures. Ev
 does not approve or apply the package, and no default pass threshold exists. Use the separate
 lifecycle controls only after human review and any explicit release policy are satisfied.
 
+If an agent prepares `pathfinder.apply_support_package_approval`, the Founder Control Room item is
+still only a decision surface. Confirm the frozen package timestamp, payload/base identity, warning
+evidence, support handoff, and exact evaluation references. `APPROVED` issues one-shot authority but
+does not change the package. The later executor may move only that unchanged package from `DRAFT`
+to `APPROVED`; application, publication, reversion, customer contact, and support-state mutation
+remain separate.
+
 ## Universal content and MCP reads
 
 Generalized Service, Policy, Event, Operational Fact, Relationship, and Item modules are independently

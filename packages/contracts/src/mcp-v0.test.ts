@@ -9,6 +9,8 @@ import {
   McpSupportCompletionApplyInput,
   McpSupportPackageDraftApplyInput,
   McpSupportPackageDraftProposalInput,
+  McpSupportPackageApprovalApplyInput,
+  McpSupportPackageApprovalProposalInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -259,6 +261,52 @@ describe('Torchiko MCP v0 contracts', () => {
         ?._meta['com.pathfinder/security'],
     ).toMatchObject({
       capability: 'packages:draft',
+      effect: 'approved-transition',
+      approvalRequired: true,
+      defaultEnabled: false,
+    })
+  })
+
+  it('separates exact support package approval preparation from one-shot execution', () => {
+    const common = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '66666666-6666-4666-8666-666666666666',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      packageId: 'package-1',
+      expectedUpdatedAt: '2030-01-01T00:00:00.000Z',
+    }
+    expect(
+      McpSupportPackageApprovalProposalInput.parse({
+        ...common,
+        reason: 'The exact evaluated package is ready for founder review.',
+      }),
+    ).toMatchObject({ packageId: 'package-1' })
+    const apply = {
+      ...common,
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      warningDigest: 'c'.repeat(64),
+      supportHandoff: {
+        handoffId: 'handoff-1',
+        supportRequestId: 'request-1',
+        supportRequestVersion: 5,
+      },
+    }
+    expect(McpSupportPackageApprovalApplyInput.parse(apply)).toEqual(apply)
+    expect(() => McpSupportPackageApprovalApplyInput.parse({ ...apply, publish: true })).toThrow()
+    expect(
+      PATHFINDER_MCP_TOOLS.find(
+        ({ name }) => name === 'pathfinder.propose_support_package_approval',
+      )?._meta['com.pathfinder/security'],
+    ).toMatchObject({ capability: 'packages:approve', approvalRequired: false })
+    expect(
+      PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.apply_support_package_approval')
+        ?._meta['com.pathfinder/security'],
+    ).toMatchObject({
+      capability: 'packages:approve',
       effect: 'approved-transition',
       approvalRequired: true,
       defaultEnabled: false,
