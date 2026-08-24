@@ -14,6 +14,7 @@ import { emitEvent } from '@pathfinder/analytics'
 import { CustomPersonalityBoundsSchema } from '@pathfinder/contracts'
 import {
   assertVenueAiAvailable,
+  applyNativeGuestContentRead,
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
   finalizeGuestChatTurnAction,
@@ -31,6 +32,7 @@ import {
   publishOperationalEvent,
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
+  resolveNativeGuestReadSnapshotAction,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
@@ -791,6 +793,11 @@ export const chatRouter = router({
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
     //    knowledge entries fall back to empty (no non-semantic fallback needed).
     const retrievalStartedAt = performance.now()
+    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
+      client: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+    })
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
     if (queryEmbedding) {
@@ -870,6 +877,23 @@ export const chatRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
+    const nativeReadSnapshot = await nativeReadSnapshotPromise
+    const nativeRead = applyNativeGuestContentRead({
+      snapshot: nativeReadSnapshot,
+      legacyPlaces: relevantPlaces,
+      legacyKnowledgeEntries: relevantKnowledgeEntries,
+    })
+    relevantPlaces = nativeRead.places
+    relevantKnowledgeEntries = nativeRead.knowledgeEntries
+    if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
+      logger.info({
+        action: 'guest-chat.native-content-read',
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        readPath: nativeRead.path,
+        gateReason: nativeReadSnapshot.reason,
+        releaseId: nativeReadSnapshot.releaseId,
+      })
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
@@ -879,7 +903,7 @@ export const chatRouter = router({
 
     if (venue.aiFeaturedPlaceId) {
       const matchingPlace = relevantPlaces.find((place) => place.id === venue.aiFeaturedPlaceId)
-      const featuredPlaceSource =
+      const compatibilityFeaturedPlace =
         matchingPlace ??
         (await ctx.db.place.findFirst({
           where: {
@@ -890,11 +914,23 @@ export const chatRouter = router({
             ...(includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
           },
           select: {
+            id: true,
             name: true,
             shortDescription: true,
             longDescription: true,
           },
         }))
+      const nativeFeaturedPlace =
+        nativeRead.path === 'NATIVE' && compatibilityFeaturedPlace
+          ? (nativeReadSnapshot.state?.places.find(
+              (place) => place.id === compatibilityFeaturedPlace.id,
+            ) ?? null)
+          : null
+      // A compatibility row is still required to authorize visibility. If the
+      // exact native snapshot lacks that authorized ID, omit the optional card
+      // instead of mixing read sources.
+      const featuredPlaceSource =
+        nativeRead.path === 'NATIVE' ? nativeFeaturedPlace : compatibilityFeaturedPlace
 
       if (featuredPlaceSource) {
         featuredPlace = {

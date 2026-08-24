@@ -50,6 +50,19 @@ vi.mock('@pathfinder/db', () => ({
     maxOutputTokens: 512,
     requestBudgetCeilingE8Usd: null,
   }),
+  resolveNativeGuestReadSnapshotAction: vi.fn().mockResolvedValue({
+    path: 'LEGACY',
+    reason: 'SERVER_DISABLED',
+    releaseId: null,
+    state: null,
+  }),
+  applyNativeGuestContentRead: vi.fn(
+    (input: { legacyPlaces: unknown[]; legacyKnowledgeEntries: unknown[] }) => ({
+      path: 'LEGACY',
+      places: input.legacyPlaces,
+      knowledgeEntries: input.legacyKnowledgeEntries,
+    }),
+  ),
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   reserveGuestChatTurnAction: guestTurnActions.reserve,

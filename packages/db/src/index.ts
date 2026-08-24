@@ -1,4 +1,10 @@
 export { db } from './client'
+export {
+  applyNativeGuestContentRead,
+  resolveNativeGuestReadSnapshotAction,
+  type NativeGuestReadPath,
+  type NativeGuestReadReason,
+} from './helpers/native-guest-content-read'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
 export { readUnifiedIntegrationHealth } from './helpers/integration-health'
 export {

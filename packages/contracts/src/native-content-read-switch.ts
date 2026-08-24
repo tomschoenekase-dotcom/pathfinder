@@ -1,5 +1,28 @@
+import { z } from 'zod'
+
 export const LEGACY_GUEST_CONTENT_READ_PATH =
   'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT' as const
+export const NATIVE_GUEST_CONTENT_READ_PATH =
+  'NATIVE_HEAD_WITH_COMPATIBILITY_AUTHORIZATION' as const
+
+/**
+ * Venue-exact activation policy stored on the tenant feature-flag row whose key
+ * includes the venue identifier. Evidence references are required so enabling a
+ * boolean alone can never activate the native read path.
+ */
+export const NativeGuestReadPolicy = z
+  .object({
+    schemaVersion: z.literal(1),
+    mode: z.enum(['DARK', 'ACTIVE']),
+    venueId: z.string().trim().min(1).max(191),
+    targetReleaseId: z.string().uuid(),
+    evaluationEvidenceId: z.string().uuid(),
+    qualityPolicyRef: z.string().trim().min(1).max(500),
+    rollbackRehearsalRef: z.string().trim().min(1).max(500),
+    productionApprovalRef: z.string().trim().min(1).max(500).nullable(),
+  })
+  .strict()
+export type NativeGuestReadPolicy = z.infer<typeof NativeGuestReadPolicy>
 
 export type NativeContentReadSwitchBlocker =
   | 'NO_NATIVE_HEAD'
@@ -10,7 +33,6 @@ export type NativeContentReadSwitchBlocker =
   | 'SHADOW_RESULTS_MISSING'
   | 'NEW_SHADOW_FAILURES'
   | 'QUALITY_THRESHOLD_POLICY_UNSET'
-  | 'READ_EXECUTOR_NOT_IMPLEMENTED'
   | 'PRODUCTION_APPROVAL_REQUIRED'
   | 'ROLLBACK_RUNTIME_NOT_PROVEN'
 
@@ -49,7 +71,6 @@ export function buildNativeContentReadSwitchContract(input: {
 
   const evidenceComplete = blockers.size === 0
   blockers.add('QUALITY_THRESHOLD_POLICY_UNSET')
-  blockers.add('READ_EXECUTOR_NOT_IMPLEMENTED')
   blockers.add('PRODUCTION_APPROVAL_REQUIRED')
   blockers.add('ROLLBACK_RUNTIME_NOT_PROVEN')
 
@@ -58,7 +79,7 @@ export function buildNativeContentReadSwitchContract(input: {
     phase: evidenceComplete ? ('POLICY_GATED' as const) : ('EVIDENCE_INCOMPLETE' as const),
     targetReleaseId: input.targetReleaseId,
     currentGuestReadPath: LEGACY_GUEST_CONTENT_READ_PATH,
-    proposedGuestReadPath: 'NATIVE_PRIMARY' as const,
+    proposedGuestReadPath: NATIVE_GUEST_CONTENT_READ_PATH,
     evidenceComplete,
     executable: false as const,
     readyForProductionSwitch: false as const,
