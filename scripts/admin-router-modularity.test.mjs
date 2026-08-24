@@ -123,6 +123,7 @@ const expectedAdminProcedures = [
   'issueOperationalUpdateDraftPolicy',
   'issuePlatformWorkerPolicyCredential',
   'issueSupportRequestDraftPolicy',
+  'issueWeeklyReportDraftPolicy',
   'linkProspectConversion',
   'linkSupportAgentRun',
   'linkSupportDraftPackage',

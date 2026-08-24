@@ -30,6 +30,7 @@ import {
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { agentApprovalPolicyKey } from './agent-approval-policy-schemas'
 
 const agentIdentityScope = z.discriminatedUnion('level', [
   z.object({ level: z.literal('CLIENT'), tenantId: z.string().min(1) }).strict(),
@@ -79,12 +80,7 @@ export const adminAgentIdentityConfigurationRouter = router({
           tenantId: z.string().min(1),
           venueId: z.string().min(1),
           agentIdentityId: z.string().min(1),
-          policyKey: z
-            .string()
-            .trim()
-            .min(1)
-            .max(191)
-            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          policyKey: agentApprovalPolicyKey,
           issueReason: z.string().trim().min(3).max(2000),
           outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
           maxTitleChars: z.number().int().min(1).max(160),
@@ -137,12 +133,7 @@ export const adminAgentIdentityConfigurationRouter = router({
           tenantId: z.string().min(1),
           venueId: z.string().min(1),
           agentIdentityId: z.string().min(1),
-          policyKey: z
-            .string()
-            .trim()
-            .min(1)
-            .max(191)
-            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          policyKey: agentApprovalPolicyKey,
           issueReason: z.string().trim().min(3).max(2000),
           outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
           maxSubjectChars: z.number().int().min(1).max(200),
@@ -195,12 +186,7 @@ export const adminAgentIdentityConfigurationRouter = router({
           tenantId: z.string().min(1),
           venueId: z.string().min(1),
           agentIdentityId: z.string().min(1),
-          policyKey: z
-            .string()
-            .trim()
-            .min(1)
-            .max(191)
-            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          policyKey: agentApprovalPolicyKey,
           issueReason: z.string().trim().min(3).max(2000),
           outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
           maxNotesChars: z.number().int().min(1).max(20_000),
@@ -251,12 +237,7 @@ export const adminAgentIdentityConfigurationRouter = router({
           tenantId: z.string().min(1),
           venueId: z.string().min(1),
           agentIdentityId: z.string().min(1),
-          policyKey: z
-            .string()
-            .trim()
-            .min(1)
-            .max(191)
-            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+          policyKey: agentApprovalPolicyKey,
           issueReason: z.string().trim().min(3).max(2000),
           outcomeObservationIds: z.array(z.string().min(1).max(191)).min(1).max(25),
           maxTitleChars: z.number().int().min(1).max(200),
