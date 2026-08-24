@@ -24,6 +24,10 @@ test('generated index never copies environment values', () => {
   })
   assert.match(output, /`API_KEY` \| secret\/server-only/u)
   assert.match(output, /`NEXT_PUBLIC_WEB_URL` \| browser-visible/u)
+  assert.match(
+    output,
+    /^# Repository command and configuration index\n\n> \*\*Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED\.\*\*/u,
+  )
   assert.doesNotMatch(output, /super-secret-value|https:\/\/example\.test/u)
   assert.ok(output.indexOf('pnpm build') < output.indexOf('pnpm test'))
 })
