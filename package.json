@@ -16,6 +16,7 @@
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",
+    "test:native-guest-read:disposable": "node scripts/run-disposable-native-guest-read.mjs",
     "torchiko": "node scripts/torchiko.mjs",
     "doctor": "node scripts/torchiko.mjs doctor",
     "test:scripts": "node scripts/run-script-tests.mjs",
