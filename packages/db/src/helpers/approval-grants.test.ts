@@ -5,6 +5,7 @@ import {
   consumeApprovalGrantAction,
   issueApprovalGrantAction,
 } from './approval-grants'
+import { defaultOperationalUpdateDraftPolicyConstraints } from '@pathfinder/contracts'
 
 const now = new Date('2030-01-01T12:00:00.000Z')
 const parameters = {
@@ -42,24 +43,33 @@ function harness() {
     approvalGrant: {
       create: vi.fn().mockResolvedValue({
         id: 'grant_1',
+        operationId: '22222222-2222-4222-8222-222222222222',
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         agentIdentityId: 'agent_1',
         actionName: 'pathfinder.create_update_draft',
         capability: 'operational-updates:draft',
         mode: 'ONE_SHOT',
+        approvalDecisionId: 'decision_1',
+        policyKey: null,
         scope: { tenantId: 'tenant_1', venueId: 'venue_1' },
         parameterHash: approvalParameterHash(parameters),
         constraints: {},
+        issueReason: 'Approve the exact operational update draft.',
         maxUses: 1,
         useCount: 0,
         notBefore: now,
         expiresAt: new Date('2030-01-02T12:00:00.000Z'),
+        revokedAt: null,
+        createdByType: 'HUMAN',
+        createdById: 'admin_1',
         createdAt: now,
+        updatedAt: now,
       }),
       findFirst: vi.fn().mockResolvedValue({
         id: 'grant_1',
         mode: 'ONE_SHOT',
+        constraints: {},
         parameterHash: approvalParameterHash(parameters),
         useCount: 0,
         maxUses: 1,
@@ -117,8 +127,10 @@ describe('approval grants', () => {
 
   it('issues a one-shot grant only from the matching approved action and agent', async () => {
     const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce(null)
     await issueApprovalGrantAction(
       {
+        operationId: '22222222-2222-4222-8222-222222222222',
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         agentIdentityId: 'agent_1',
@@ -128,6 +140,7 @@ describe('approval grants', () => {
         scope: { tenantId: 'tenant_1', venueId: 'venue_1' },
         approvalDecisionId: 'decision_1',
         parameters,
+        issueReason: 'Approve the exact operational update draft.',
         maxUses: 1,
         notBefore: now,
         expiresAt: new Date('2030-01-02T12:00:00.000Z'),
@@ -230,6 +243,7 @@ describe('approval grants', () => {
     tx.approvalGrant.findFirst.mockResolvedValueOnce({
       id: 'grant_1',
       mode: 'ONE_SHOT',
+      constraints: {},
       parameterHash: approvalParameterHash(parameters),
       useCount: 1,
       maxUses: 1,
@@ -241,5 +255,85 @@ describe('approval grants', () => {
       code: 'EXHAUSTED',
     })
     expect(tx.approvalGrantConsumption.create).not.toHaveBeenCalled()
+  })
+
+  it('consumes a reviewed policy-backed update-draft grant within its bounds', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_policy',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultOperationalUpdateDraftPolicyConstraints(),
+        maxTitleChars: 20,
+        maxBodyChars: 100,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+
+    const result = await consumeApprovalGrantAction(
+      consumeInput({
+        approvalGrantId: 'grant_policy',
+        capability: 'updates:draft',
+        parameters: {
+          clientId: 'tenant_1',
+          venueId: 'venue_1',
+          updateType: 'GENERAL_NOTICE',
+          severity: 'INFO',
+          priority: 'NORMAL',
+          title: 'Gallery note',
+          body: 'Temporarily unavailable.',
+          startsAt: '2030-01-01T12:00:00.000Z',
+          expiresAt: '2030-01-01T13:00:00.000Z',
+        },
+      }),
+      client,
+    )
+
+    expect(result.replayed).toBe(false)
+    expect(tx.approvalGrant.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects policy parameters outside reviewed content bounds', async () => {
+    const { tx, client } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce({
+      id: 'grant_policy',
+      mode: 'POLICY_BACKED',
+      constraints: {
+        ...defaultOperationalUpdateDraftPolicyConstraints(),
+        maxTitleChars: 5,
+      },
+      parameterHash: null,
+      useCount: 0,
+      maxUses: null,
+      notBefore: new Date('2029-12-31T12:00:00.000Z'),
+      expiresAt: null,
+      revokedAt: null,
+    })
+    await expect(
+      consumeApprovalGrantAction(
+        consumeInput({
+          approvalGrantId: 'grant_policy',
+          capability: 'updates:draft',
+          parameters: {
+            clientId: 'tenant_1',
+            venueId: 'venue_1',
+            updateType: 'GENERAL_NOTICE',
+            severity: 'INFO',
+            priority: 'NORMAL',
+            title: 'Too long',
+            body: 'Temporarily unavailable.',
+            startsAt: '2030-01-01T12:00:00.000Z',
+            expiresAt: '2030-01-01T13:00:00.000Z',
+          },
+        }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'PARAMETER_MISMATCH' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
   })
 })

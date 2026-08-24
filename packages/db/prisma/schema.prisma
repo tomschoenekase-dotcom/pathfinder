@@ -4570,6 +4570,7 @@ enum ApprovalGrantMode {
 /// agent, scope, parameters/bounds, lifetime, and use count.
 model ApprovalGrant {
   id                 String                     @id @default(cuid())
+  operationId        String?                    @map("operation_id") @db.Uuid
   tenantId           String                     @map("tenant_id")
   venueId            String                     @map("venue_id")
   approvalDecisionId String?                    @map("approval_decision_id")
@@ -4581,6 +4582,7 @@ model ApprovalGrant {
   scope              Json
   parameterHash      String?                    @map("parameter_hash") @db.Char(64)
   constraints        Json                       @default("{}")
+  issueReason        String?                    @map("issue_reason") @db.VarChar(2000)
   maxUses            Int?                       @map("max_uses")
   useCount           Int                        @default(0) @map("use_count")
   notBefore          DateTime                   @default(now()) @map("not_before")
@@ -4600,6 +4602,7 @@ model ApprovalGrant {
   consumptions       ApprovalGrantConsumption[]
 
   @@unique([id, tenantId])
+  @@unique([tenantId, operationId], map: "approval_grants_tenant_operation_key")
   @@unique([approvalDecisionId, tenantId], map: "approval_grants_decision_tenant_key")
   @@index([tenantId, venueId, actionName, revokedAt, expiresAt], map: "approval_grants_scope_action_active_idx")
   @@index([tenantId, agentIdentityId, createdAt], map: "approval_grants_agent_created_idx")

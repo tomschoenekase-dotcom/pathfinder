@@ -44,7 +44,7 @@ describe('agent operations views', () => {
               description: null,
               agentType: 'SUPPORT',
               accessScope: 'VENUE',
-              accessCapabilities: ['READ_CONTENT'],
+              accessCapabilities: ['updates:draft'],
               autonomyLevel: 'DRAFT',
               autonomousActions: [],
               defaultProvider: null,
@@ -63,10 +63,14 @@ describe('agent operations views', () => {
     )
     expect(screen.getByText('Access scope')).toBeTruthy()
     expect(screen.getByText('Autonomy')).toBeTruthy()
-    expect(screen.getByText('READ_CONTENT')).toBeTruthy()
+    expect(screen.getAllByText(/updates:draft/).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
     expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add draft policy' })).toBeTruthy()
+    expect(
+      screen.getByText(/cannot publish, contact a customer, or widen venue access/),
+    ).toBeTruthy()
   })
 
   it('shows a provider as connected only while its exact bridge session is online and unexpired', () => {

@@ -61,6 +61,11 @@ Audited actions accept a verified actor abstraction: human, agent, system job, o
 
 Approval grants are durable and bounded by action, exact resource/parameters, agent, expiration, and use mode. One-shot grants are transactionally consumed by the canonical write. Exact retries replay the committed result; a different operation cannot reuse the grant.
 
+Policy-backed grants are separately human-issued, idempotent, revocable operating policy. They
+remain unusable unless the exact action/capability pair has a registered reviewed constraint
+evaluator. The first evaluator covers only bounded informational operational-update drafts and
+cannot publish or widen venue scope. See `docs/agent-approval-policy.md`.
+
 An answered agent question remains run context by default. A platform administrator may separately and explicitly classify an answer as account context, durable preference, reusable policy, or strategic decision. Promotion is idempotent, links back to the exact question/run, uses the normal knowledge action, and requires organization scope for account-specific claims plus rationale for policies and decisions.
 
 The first enabled machine write is the operational-update draft. It is internal and reviewable, requires `updates:draft`, a verified exact grant, an active run/worker/credential, and writes normal audit/event evidence. Outbound sales, publication, billing effects, credential issuance, deployment, and destructive actions remain human-controlled.

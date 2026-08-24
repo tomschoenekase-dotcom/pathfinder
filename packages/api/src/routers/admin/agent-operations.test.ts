@@ -11,10 +11,14 @@ const mocks = vi.hoisted(() => ({
   agentTimelineEventFindMany: vi.fn(),
   approvalRequestFindMany: vi.fn(),
   approvalRequestFindFirst: vi.fn(),
+  approvalGrantFindMany: vi.fn(),
+  issueApprovalGrant: vi.fn(),
+  revokeApprovalGrant: vi.fn(),
   recordDecision: vi.fn(),
   createIdentity: vi.fn(),
   editIdentity: vi.fn(),
   disableIdentity: vi.fn(),
+  enableIdentity: vi.fn(),
   requestCancellation: vi.fn(),
 }))
 
@@ -44,10 +48,21 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  ApprovalGrantActionError: class ApprovalGrantActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  issueApprovalGrantAction: mocks.issueApprovalGrant,
+  revokeApprovalGrantAction: mocks.revokeApprovalGrant,
   recordApprovalDecisionAction: mocks.recordDecision,
   createDisabledAgentIdentity: mocks.createIdentity,
   editDisabledAgentIdentity: mocks.editIdentity,
   disableAgentIdentity: mocks.disableIdentity,
+  enableAgentIdentity: mocks.enableIdentity,
   withTenantIsolationBypass: mocks.bypass,
   db: {
     agentIdentity: {
@@ -61,6 +76,7 @@ vi.mock('@pathfinder/db', () => ({
       findMany: mocks.approvalRequestFindMany,
       findFirst: mocks.approvalRequestFindFirst,
     },
+    approvalGrant: { findMany: mocks.approvalGrantFindMany },
   },
 }))
 
@@ -244,6 +260,104 @@ describe('admin agent operations router', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' } satisfies Partial<TRPCError>)
     expect(mocks.disableIdentity).toHaveBeenCalledOnce()
+  })
+
+  it('issues only the fixed draft-only policy contract with the session-derived human actor', async () => {
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_1', replayed: false })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.issueOperationalUpdateDraftPolicy({
+        operationId: '22222222-2222-4222-8222-222222222222',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentIdentityId: 'agent_1',
+        policyKey: 'support-operational-update-drafts',
+        issueReason: 'This reviewed workflow has produced safe informational drafts.',
+        maxTitleChars: 120,
+        maxBodyChars: 2000,
+        maxUses: 25,
+        expiresAt: new Date('2030-01-02T12:00:00.000Z'),
+      })
+
+    expect(result).toEqual({ id: 'grant_1', replayed: false })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith({
+      operationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      agentIdentityId: 'agent_1',
+      actionName: 'pathfinder.create_update_draft',
+      capability: 'updates:draft',
+      mode: 'POLICY_BACKED',
+      policyKey: 'support-operational-update-drafts',
+      scope: {
+        contractVersion: 1,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        effect: 'DRAFT_ONLY',
+      },
+      constraints: {
+        contractVersion: 1,
+        effect: 'DRAFT_ONLY',
+        allowedUpdateTypes: ['GENERAL_NOTICE'],
+        allowedSeverities: ['INFO'],
+        allowedPriorities: ['NORMAL'],
+        maxTitleChars: 120,
+        maxBodyChars: 2000,
+      },
+      issueReason: 'This reviewed workflow has produced safe informational drafts.',
+      maxUses: 25,
+      expiresAt: new Date('2030-01-02T12:00:00.000Z'),
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+  })
+
+  it('rejects policy issuance by a non-admin before entering the bypass', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).agentOperations.issueOperationalUpdateDraftPolicy({
+        operationId: '22222222-2222-4222-8222-222222222222',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentIdentityId: 'agent_1',
+        policyKey: 'support-operational-update-drafts',
+        issueReason: 'Reviewed evidence supports this bounded draft authority.',
+        maxTitleChars: 160,
+        maxBodyChars: 4000,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.issueApprovalGrant).not.toHaveBeenCalled()
+    expect(mocks.bypass).not.toHaveBeenCalled()
+  })
+
+  it('lists bounded policy evidence and derives exhausted state honestly', async () => {
+    const createdAt = new Date('2026-08-24T12:00:00.000Z')
+    mocks.approvalGrantFindMany.mockResolvedValue([
+      {
+        id: 'grant_1',
+        createdAt,
+        revokedAt: null,
+        expiresAt: null,
+        notBefore: new Date('2026-08-24T11:00:00.000Z'),
+        maxUses: 2,
+        useCount: 2,
+      },
+    ])
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.listAgentApprovalPolicies({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      })
+    expect(result.items[0]).toMatchObject({ id: 'grant_1', state: 'EXHAUSTED' })
+    expect(mocks.approvalGrantFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          mode: 'POLICY_BACKED',
+        }),
+        take: 51,
+      }),
+    )
   })
 
   it('requires tenant scope and applies venue, enabled, pagination, and safe selects', async () => {

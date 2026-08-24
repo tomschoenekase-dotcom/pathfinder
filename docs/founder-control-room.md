@@ -92,6 +92,13 @@ approval reduction from this projection. Any future permission change requires a
 explicit policy decision using task-specific evidence and must retain the existing capability /
 policy boundary.
 
+The venue Agent workspace now provides the first explicit progressive-policy control for a
+reviewed low-risk action class. A founder can let one exact enabled agent prepare bounded
+informational operational-update drafts without approving each draft. The policy remains
+draft-only, venue-scoped, idempotently issued, revocable, optionally use/expiry bounded, and fully
+audited. It cannot publish the draft or expand the agent's configured capability. No policy is
+enabled automatically from the descriptive trust summary.
+
 The evidence contract also names what it cannot yet measure honestly. Rollback rate is unavailable
 until rollback records have a canonical link to the responsible run/action; policy-violation rate
 is unavailable until there is an explicit canonical violation signal; and confidence calibration

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
+import { defaultOperationalUpdateDraftPolicyConstraints } from '@pathfinder/contracts'
 import {
   activateAgentBridgeCredentialAction,
   claimAgentRunExecution,
@@ -581,6 +582,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         actor: { actorType: 'HUMAN', actorId: human.actorId, auditRole: 'PLATFORM_ADMIN' },
       })
       const grant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
         tenantId,
         venueId,
         agentIdentityId: identityId,
@@ -590,6 +592,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         scope: { tenantId, venueId },
         parameters,
         approvalDecisionId: approvalDecision.id,
+        issueReason: 'Approve this exact synthetic operational-update draft for the shakedown.',
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
         actor: credentialActor,
       })
@@ -713,6 +716,60 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         approvalGrantId: grant.id,
         capability: 'updates:draft',
       })
+
+      const policyOperationId = randomUUID()
+      const policyInput = {
+        operationId: policyOperationId,
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_update_draft',
+        capability: 'updates:draft',
+        mode: 'POLICY_BACKED' as const,
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_ONLY' },
+        policyKey: `reviewed-update-drafts-${suffix}`,
+        constraints: {
+          ...defaultOperationalUpdateDraftPolicyConstraints(),
+          maxTitleChars: 40,
+          maxBodyChars: 200,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes bounded informational drafts.',
+        maxUses: 2,
+        actor: credentialActor,
+      }
+      const policyGrant = await issueApprovalGrantAction(policyInput)
+      const policyReplay = await issueApprovalGrantAction(policyInput)
+      expect(policyGrant.replayed).toBe(false)
+      expect(policyReplay).toMatchObject({ id: policyGrant.id, replayed: true })
+
+      const policyContext = { credential, approvalGrantId: policyGrant.id }
+      const policyWriteInput = {
+        ...writeInput,
+        operationId: randomUUID(),
+        title: 'Gallery review note',
+        body: 'A bounded informational draft prepared under reviewed policy.',
+      }
+      const policyCreated = await registry.callTool(
+        'pathfinder.create_update_draft',
+        policyWriteInput,
+        policyContext,
+      )
+      expect(JSON.stringify(policyCreated)).toContain('Approved draft created')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'This title deliberately exceeds the reviewed forty character policy limit',
+          },
+          policyContext,
+        ),
+      ).rejects.toThrow('outside the reviewed operational-update draft policy')
+      expect(await db.operationalUpdate.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: policyGrant.id } }),
+      ).toBe(1)
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,
       // Tom-local worker, private prompt memory, external provider, or raw transcript is required.

@@ -36,6 +36,7 @@ export const AgentAccessCapability = z.enum([
   'prospects.read',
   'prospects.draft',
   'prospects.question',
+  'updates:draft',
 ])
 export type AgentAccessCapability = z.infer<typeof AgentAccessCapability>
 

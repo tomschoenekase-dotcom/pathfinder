@@ -21,6 +21,7 @@ const suites = [
       'components/ClientPortalPrimitives.test.tsx',
       'components/SupportWorkspace.test.tsx',
       'components/admin/SupportOperationsView.test.tsx',
+      'components/admin/AgentApprovalPolicyControl.test.tsx',
       'components/PacketSurfaceStates.test.tsx',
       'components/IntakeFileUpload.test.tsx',
       'components/admin/IntakeUploadReviewList.test.tsx',

@@ -13,6 +13,7 @@ import {
   tenantScopeInput,
 } from './agent-operations-shared'
 import { adminAgentIdentityReadsRouter } from './agent-identity-reads'
+import { adminAgentApprovalPolicyReadsRouter } from './agent-approval-policy-reads'
 import { adminAgentRunTraceRouter } from './agent-run-trace'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
 
@@ -388,6 +389,7 @@ const adminAgentRunOperationsRouter = router({
 
 export const adminAgentOperationsRouter = mergeRouters(
   adminAgentRunOperationsRouter,
+  adminAgentApprovalPolicyReadsRouter,
   adminAgentIdentityReadsRouter,
   adminAgentRunTraceRouter,
 )

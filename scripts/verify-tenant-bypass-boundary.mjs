@@ -53,9 +53,12 @@ const approvedCallCounts = new Map([
   // Platform-admin run trace merges bounded summaries for one exact tenant+venue+run.
   ['packages/api/src/routers/admin/agent-run-trace.ts', 1],
   ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],
+  // Platform-admin reads policy-backed draft authority only within one exact tenant+venue scope.
+  ['packages/api/src/routers/admin/agent-approval-policy-reads.ts', 1],
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
-  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
+  // Identity configuration includes human-only policy issuance/revocation for one exact venue.
+  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 6],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],

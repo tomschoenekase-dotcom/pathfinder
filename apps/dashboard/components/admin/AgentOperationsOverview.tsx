@@ -8,6 +8,7 @@ import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdent
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { AgentTaskComposer } from './AgentTaskComposer'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
+import { AgentApprovalPolicyControl } from './AgentApprovalPolicyControl'
 
 type Cursor = { createdAt: string; id: string } | null
 
@@ -77,6 +78,23 @@ type Question = {
   agentIdentity: { id: string; name: string }
 }
 
+type ApprovalPolicy = {
+  id: string
+  policyKey: string | null
+  agentIdentityId: string
+  actionName: string
+  capability: string
+  issueReason: string | null
+  constraints: unknown
+  maxUses: number | null
+  useCount: number
+  expiresAt: Date | null
+  revokedAt: Date | null
+  revokeReason: string | null
+  state: 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'EXHAUSTED' | 'SCHEDULED'
+  _count: { consumptions: number }
+}
+
 type Props = {
   tenantId: string
   venueId: string
@@ -84,6 +102,7 @@ type Props = {
   runs: { items: Run[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
   questions: { items: Question[]; nextCursor: Cursor }
+  approvalPolicies?: { items: ApprovalPolicy[]; nextCursor: Cursor }
   questionRecipients?: Array<{
     userId: string
     role: string
@@ -154,6 +173,7 @@ export function AgentOperationsOverview({
   runs,
   approvals,
   questions,
+  approvalPolicies = { items: [], nextCursor: null },
   questionRecipients = [],
   runtime = { agentRunnerEnabled: false },
   bridgeSessions = [],
@@ -189,7 +209,7 @@ export function AgentOperationsOverview({
         {[
           ['#new-task', 'New task'],
           ['#inbox', 'Inbox'],
-          ['#team', 'Team'],
+          ['#team', 'Team & policies'],
           ['#runs', 'Runs'],
           [`${base}/integrations`, 'Integrations'],
           [`${base}/settings`, 'AI controls'],
@@ -334,6 +354,16 @@ export function AgentOperationsOverview({
                   venueId={venueId}
                   identity={identity}
                 />
+                <div>
+                  <AgentApprovalPolicyControl
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    identity={identity}
+                    policies={approvalPolicies.items.filter(
+                      (policy) => policy.agentIdentityId === identity.id,
+                    )}
+                  />
+                </div>
               </article>
             ))}
           </div>
