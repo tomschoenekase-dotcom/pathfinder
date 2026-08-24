@@ -914,6 +914,10 @@ export type {
   EvaluationComparisonMismatch,
 } from './helpers/evaluation-run-comparison'
 export {
+  compareNativeContentShadowRuns,
+  NativeContentShadowComparisonError,
+} from './helpers/native-content-shadow-comparison'
+export {
   prepareWeeklyDigestIntentAction,
   WeeklyDigestIntentActionError,
 } from './helpers/weekly-digest-intent-actions'

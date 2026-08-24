@@ -118,6 +118,11 @@ missing, invalid, drifted, or in-sync evidence plus explicit retirement blockers
 context only: it cannot switch guest retrieval, delete compatibility content, or authorize a
 production cutover.
 
+For an exact native release, a second mobile-responsive panel compares completed frozen legacy and
+native evaluation runs. It permits only the intentional content/config snapshot change, fails
+closed on corpus, case-evidence, model, or prompt drift, and reports raw case/latency/cost deltas.
+It does not infer an approval threshold, switch guest retrieval, or authorize legacy retirement.
+
 The same separately credentialed boundary exposes
 `POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
 It requires `operations-readiness:read`, accepts no selectors, observes every canonical BullMQ

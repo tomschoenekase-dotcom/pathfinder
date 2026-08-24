@@ -2,7 +2,10 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  compareNativeContentShadowRuns,
   db,
+  EvaluationRunComparisonError,
+  NativeContentShadowComparisonError,
   NativeDeploymentEvaluationEvidenceError,
   recordNativeDeploymentEvaluationEvidenceAction,
   withTenantIsolationBypass,
@@ -19,6 +22,100 @@ import {
 const scope = z.object({ tenantId: z.string().min(1), venueId: z.string().min(1) }).strict()
 
 export const adminNativeDeploymentEvaluationsRouter = router({
+  listNativeContentShadowRuns: adminProcedure
+    .input(scope.extend({ releaseId: z.string().uuid() }).strict())
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const release = await db.nativeVenueDeploymentRelease.findFirst({
+          where: { id: input.releaseId, tenantId: input.tenantId, venueId: input.venueId },
+          select: { id: true },
+        })
+        if (!release)
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Native release was not found.' })
+        const runSelect = {
+          id: true,
+          contentSnapshotKind: true,
+          createdAt: true,
+          completedAt: true,
+          modelProvider: true,
+          modelName: true,
+        } as const
+        const [baselines, candidates] = await Promise.all([
+          db.evalRun.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              status: 'COMPLETED',
+              contentSnapshotKind: 'LEGACY_VENUE_CONTENT_V1',
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 50,
+            select: runSelect,
+          }),
+          db.evalRun.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              status: 'COMPLETED',
+              contentSnapshotKind: 'NATIVE_CORE_V1',
+              contentSnapshotRef: release.id,
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 50,
+            select: runSelect,
+          }),
+        ])
+        const safe = (row: (typeof baselines)[number]) => ({
+          id: row.id,
+          createdAt: row.createdAt,
+          completedAt: row.completedAt,
+          modelProvider: row.modelProvider,
+          modelName: row.modelName,
+        })
+        return {
+          baselines: baselines.map(safe),
+          candidates: candidates.map(safe),
+          bounded: true as const,
+          advisoryOnly: true as const,
+        }
+      }),
+    ),
+  compareNativeContentShadowRuns: adminProcedure
+    .input(
+      scope
+        .extend({
+          releaseId: z.string().uuid(),
+          baselineRunId: z.string().uuid(),
+          candidateRunId: z.string().uuid(),
+        })
+        .strict()
+        .refine((input) => input.baselineRunId !== input.candidateRunId, {
+          message: 'Select different baseline and candidate runs.',
+          path: ['candidateRunId'],
+        }),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          return await compareNativeContentShadowRuns(input, db)
+        } catch (error) {
+          if (
+            error instanceof NativeContentShadowComparisonError ||
+            error instanceof EvaluationRunComparisonError
+          )
+            throw new TRPCError({
+              code:
+                error.code === 'INVALID_INPUT'
+                  ? 'BAD_REQUEST'
+                  : error.code === 'NOT_FOUND'
+                    ? 'NOT_FOUND'
+                    : 'PRECONDITION_FAILED',
+              message: error.message,
+            })
+          throw error
+        }
+      }),
+    ),
   requestNativeVenueDeploymentEvaluation: adminProcedure
     .input(
       scope
