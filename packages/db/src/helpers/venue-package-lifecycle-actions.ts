@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { parseVerifiedActorContext, type MachineActorContext } from '@pathfinder/contracts/actor'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -6,11 +7,12 @@ import { setContentVersionContext } from './content-version-context'
 import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 import { lockVenueContentMutation } from './venue-content-lock'
 
-export type VenuePackageLifecycleActor = {
+export type VenuePackageLifecycleHumanActor = {
   type: 'HUMAN'
   id: string
   role: 'OWNER' | 'PLATFORM_ADMIN'
 }
+export type VenuePackageLifecycleActor = VenuePackageLifecycleHumanActor | MachineActorContext
 export type VenuePackageLifecycleClient = Pick<typeof db, '$transaction'>
 export type VenuePackageLifecycleStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'REVERTED'
 
@@ -84,17 +86,36 @@ const lifecycle = {
   },
 } as const
 
-function requireLifecycleActor(actor: VenuePackageLifecycleActor): void {
-  if (
-    actor.type !== 'HUMAN' ||
-    (actor.role !== 'OWNER' && actor.role !== 'PLATFORM_ADMIN') ||
-    !actor.id.trim()
-  ) {
+function lifecycleActorId(actor: VenuePackageLifecycleActor): string {
+  return actor.type === 'HUMAN' ? actor.id : actor.actorId
+}
+
+function requireLifecycleActor(kind: LifecycleKind, actor: VenuePackageLifecycleActor): void {
+  if (actor.type === 'HUMAN') {
+    if ((actor.role === 'OWNER' || actor.role === 'PLATFORM_ADMIN') && actor.id.trim()) return
     throw new VenuePackageLifecycleError(
       'INVALID_INPUT',
       'A human venue owner or platform administrator is required',
     )
   }
+  try {
+    const verified = parseVerifiedActorContext(actor)
+    if (
+      kind === 'apply' &&
+      verified.type === 'AGENT' &&
+      verified.capability === 'packages:apply' &&
+      verified.approvalGrantId &&
+      verified.idempotencyKey
+    ) {
+      return
+    }
+  } catch {
+    // Normalize malformed machine lineage into the lifecycle error below.
+  }
+  throw new VenuePackageLifecycleError(
+    'INVALID_INPUT',
+    'Agent venue-package application requires verified packages:apply capability, approval grant, and idempotency lineage',
+  )
 }
 
 function conflict(message = 'Venue package changed; refresh and review it again'): never {
@@ -114,15 +135,22 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
   input: LifecycleSpec<T>,
   client: VenuePackageLifecycleClient,
 ): Promise<T> {
-  requireLifecycleActor(input.actor)
+  requireLifecycleActor(input.kind, input.actor)
+  if (input.actor.type === 'AGENT' && input.actor.idempotencyKey !== input.commandKey) {
+    throw new VenuePackageLifecycleError(
+      'INVALID_INPUT',
+      'Agent venue-package application command key must match its idempotency lineage',
+    )
+  }
   const rule = lifecycle[input.kind]
+  const actorId = lifecycleActorId(input.actor)
   const isExactReplay = (current: T) =>
     current.status === rule.to &&
     current[rule.commandField] === input.commandKey &&
-    current[rule.actorField] === input.actor.id
+    current[rule.actorField] === actorId
   const operation = async (rawTx: unknown) => {
     const tx = rawTx as unknown as Transaction
-    await setContentVersionContext(tx, { actorId: input.actor.id })
+    await setContentVersionContext(tx, { actorId })
     let current = await input.load(tx, { tenantId: input.tenantId, id: input.id })
     if (!current) throw new VenuePackageLifecycleError('NOT_FOUND', 'Venue package not found')
     if (current.tenantId !== input.tenantId || current.id !== input.id) {
@@ -157,7 +185,7 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
       data: {
         ...effects,
         status: rule.to,
-        [rule.actorField]: input.actor.id,
+        [rule.actorField]: actorId,
         [rule.atField]: now,
         [rule.commandField]: input.commandKey,
       },
@@ -175,8 +203,9 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
     await writeAuditLogStrict(
       {
         tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
+        ...(input.actor.type === 'HUMAN'
+          ? { actorId, actorRole: input.actor.role }
+          : { actor: input.actor }),
         action: rule.action,
         targetType: 'VenuePackage',
         targetId: input.id,
@@ -195,8 +224,8 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
           eventType: input.kind === 'apply' ? 'RELEASED' : 'HUMAN_INTERVENTION',
           idempotencyKey: `venue-package:${input.id}:${input.kind}:${input.commandKey}`,
           occurredAt: now,
-          actorType: 'OPERATOR',
-          actorId: input.actor.id,
+          actorType: input.actor.type === 'AGENT' ? 'AGENT' : 'OPERATOR',
+          actorId,
           sourceType: 'VENUE_PACKAGE',
           sourceId: input.id,
           sourceRevision: input.commandKey,

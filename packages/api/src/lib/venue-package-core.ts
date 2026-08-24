@@ -12,6 +12,7 @@ import {
   setContentVersionContext,
   revertVenuePackageAction,
   type ContentVersionSourceProvenance,
+  type VenuePackageLifecycleActor,
   VenuePackageLifecycleError,
 } from '@pathfinder/db'
 
@@ -54,10 +55,9 @@ type DbClient = TRPCContext['db']
 type PlaceCreateData = Parameters<DbClient['place']['create']>[0]['data']
 type KnowledgeCreateData = Parameters<DbClient['venueKnowledgeEntry']['create']>[0]['data']
 type PackagePayload = VenuePackagePayload
-export type VenuePackageLifecycleActor = {
-  type: 'HUMAN'
-  id: string
-  role: 'OWNER' | 'PLATFORM_ADMIN'
+export type { VenuePackageLifecycleActor } from '@pathfinder/db'
+function venuePackageActorId(actor: VenuePackageLifecycleActor): string {
+  return actor.type === 'HUMAN' ? actor.id : actor.actorId
 }
 export type VenuePackageLifecycleCommand = {
   id: string
@@ -1740,6 +1740,7 @@ async function applyVenuePackageLifecycleImplementation(request: {
   actor: VenuePackageLifecycleActor
   command: VenuePackageLifecycleCommand
 }) {
+  const actorId = venuePackageActorId(request.actor)
   const tenantId = request.tenantId
   let existing = await findPackage(request.db, tenantId, request.command.id)
   if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
@@ -1749,7 +1750,7 @@ async function applyVenuePackageLifecycleImplementation(request: {
   if (existing.status !== 'APPROVED') {
     if (
       existing.appliedCommandKey === request.command.commandKey &&
-      existing.appliedBy === request.actor.id
+      existing.appliedBy === actorId
     ) {
       return existing
     }
@@ -1782,7 +1783,7 @@ async function applyVenuePackageLifecycleImplementation(request: {
       const effects = await applyVersionThreePackage({
         db: request.db,
         tenantId,
-        actorId: request.actor.id,
+        actorId,
         packageId: existing.id,
         venueId: existing.venueId,
         approvedAt: existing.approvedAt,
@@ -1942,7 +1943,7 @@ async function revertVenuePackageLifecycleImplementation(request: {
   if (existing.status !== 'APPLIED') {
     if (
       existing.revertedCommandKey === request.command.commandKey &&
-      existing.revertedBy === request.actor.id
+      existing.revertedBy === venuePackageActorId(request.actor)
     ) {
       return existing
     }
@@ -1969,7 +1970,7 @@ async function revertVenuePackageLifecycleImplementation(request: {
         tenantId,
         venueId: existing.venueId,
         packageId: existing.id,
-        actorId: request.actor.id,
+        actorId: venuePackageActorId(request.actor),
         plans,
       })
     } catch (error) {

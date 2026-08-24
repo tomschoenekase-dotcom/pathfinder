@@ -18,6 +18,9 @@ export const SUPPORT_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
 export const SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION =
   'pathfinder.apply_support_package_approval' as const
 export const SUPPORT_PACKAGE_APPROVAL_CAPABILITY = 'packages:approve' as const
+export const SUPPORT_PACKAGE_APPLICATION_APPLY_ACTION =
+  'pathfinder.apply_support_package_application' as const
+export const SUPPORT_PACKAGE_APPLICATION_CAPABILITY = 'packages:apply' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -456,6 +459,59 @@ export const SupportPackageApprovalProposalSnapshot = z
 
 export type SupportPackageApprovalProposalSnapshot = z.infer<
   typeof SupportPackageApprovalProposalSnapshot
+>
+
+/** Exact one-shot authority derived from founder review of an already-approved package.
+ * Execution mutates current venue content and may become visitor-visible immediately. */
+export const SupportPackageApplicationApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    expectedUpdatedAt: z.string().datetime(),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    approvedAt: z.string().datetime(),
+    approvedBy: z.string().trim().min(1).max(191),
+    supportHandoff: SupportPackageApprovalHandoff,
+  })
+  .strict()
+
+export type SupportPackageApplicationApplyParameters = z.infer<
+  typeof SupportPackageApplicationApplyParameters
+>
+
+export const SupportPackageApplicationProposalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    expectedUpdatedAt: z.string().datetime(),
+    fromStatus: z.literal('APPROVED'),
+    toStatus: z.literal('APPLIED'),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    warningCodes: z.array(z.string().trim().min(1).max(191)).max(500),
+    approvedAt: z.string().datetime(),
+    approvedBy: z.string().trim().min(1).max(191),
+    supportHandoff: SupportPackageApprovalHandoff,
+    evaluationEvidence: SupportPackageApprovalEvaluationEvidence,
+    currentContentMutation: z.literal(true),
+    visitorVisibleChangePossible: z.literal(true),
+    supportRequestChanged: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    supportCompletionTriggered: z.literal(false),
+    revertTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportPackageApplicationProposalSnapshot = z.infer<
+  typeof SupportPackageApplicationProposalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

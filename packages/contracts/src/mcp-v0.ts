@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import {
   SupportPackageApprovalApplyParameters,
+  SupportPackageApplicationApplyParameters,
   SupportPackageDraftApplyParameters,
 } from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
@@ -75,6 +76,7 @@ export const McpCapability = z.enum([
   'agent-runs:execute',
   'packages:draft',
   'packages:approve',
+  'packages:apply',
   'support:draft',
   'support:open',
   'support:note',

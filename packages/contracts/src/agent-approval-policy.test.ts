@@ -19,6 +19,8 @@ import {
   SupportInformationRequestProposalApprovalSnapshot,
   SupportPackageApprovalApplyParameters,
   SupportPackageApprovalProposalSnapshot,
+  SupportPackageApplicationApplyParameters,
+  SupportPackageApplicationProposalSnapshot,
   defaultSupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyConstraints,
   SupportInternalNotePolicyParameters,
@@ -79,6 +81,71 @@ describe('support package approval authority contract', () => {
       SupportPackageApprovalProposalSnapshot.parse({
         ...snapshot,
         evaluationEvidence: { ...snapshot.evaluationEvidence, thresholdApplied: true },
+      }),
+    ).toThrow()
+  })
+})
+
+describe('support package application authority contract', () => {
+  const parameters = {
+    clientId: 'tenant_1',
+    venueId: 'venue_1',
+    packageId: 'package_1',
+    expectedUpdatedAt: '2030-01-02T00:00:00.000Z',
+    payloadHash: 'a'.repeat(64),
+    baseDigest: 'b'.repeat(64),
+    warningDigest: 'c'.repeat(64),
+    approvedAt: '2030-01-01T00:00:00.000Z',
+    approvedBy: 'founder_1',
+    supportHandoff: {
+      handoffId: 'handoff_1',
+      supportRequestId: 'request_1',
+      supportRequestVersion: 4,
+    },
+  }
+
+  it('freezes exactly one approved package without bundling completion or revert authority', () => {
+    expect(SupportPackageApplicationApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(() =>
+      SupportPackageApplicationApplyParameters.parse({ ...parameters, completeSupport: true }),
+    ).toThrow()
+  })
+
+  it('makes current and potentially visitor-visible mutation explicit', () => {
+    const snapshot = {
+      contractVersion: 1 as const,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      packageId: 'package_1',
+      expectedUpdatedAt: parameters.expectedUpdatedAt,
+      fromStatus: 'APPROVED' as const,
+      toStatus: 'APPLIED' as const,
+      payloadHash: parameters.payloadHash,
+      baseDigest: parameters.baseDigest,
+      warningDigest: parameters.warningDigest,
+      warningCodes: [],
+      approvedAt: parameters.approvedAt,
+      approvedBy: parameters.approvedBy,
+      supportHandoff: parameters.supportHandoff,
+      evaluationEvidence: {
+        exactPackageRunIds: [],
+        truncated: false,
+        thresholdApplied: false as const,
+      },
+      currentContentMutation: true as const,
+      visitorVisibleChangePossible: true as const,
+      supportRequestChanged: false as const,
+      customerContacted: false as const,
+      externalDeliveryTriggered: false as const,
+      supportCompletionTriggered: false as const,
+      revertTriggered: false as const,
+      executionAuthorized: false as const,
+    }
+    expect(SupportPackageApplicationProposalSnapshot.parse(snapshot)).toEqual(snapshot)
+    expect(() =>
+      SupportPackageApplicationProposalSnapshot.parse({
+        ...snapshot,
+        visitorVisibleChangePossible: false,
       }),
     ).toThrow()
   })
