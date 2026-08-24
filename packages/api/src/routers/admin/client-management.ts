@@ -15,6 +15,7 @@ import {
   confirmClientCreateProviderAction,
   createClientAccountAction,
   db,
+  linkProspectConversionAction,
   setClientPaymentDueAction,
   startClientCreateProviderAction,
   updateClientPlanTierAction,
@@ -109,6 +110,13 @@ export const adminClientManagementRouter = router({
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
         primaryContact: clientCreatePrimaryContactInput,
+        prospectConversion: z
+          .object({
+            organizationId: z.string().min(1).max(191),
+            prospectVenueId: z.string().min(1).max(191).optional(),
+          })
+          .strict()
+          .optional(),
         venue: CreateVenueRequestInput,
       }),
     )
@@ -118,6 +126,9 @@ export const adminClientManagementRouter = router({
         clientName: input.clientName,
         ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
         ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
+        ...(input.prospectConversion !== undefined
+          ? { prospectConversion: input.prospectConversion }
+          : {}),
         venue: input.venue,
       })
       let intent
@@ -266,13 +277,31 @@ export const adminClientManagementRouter = router({
             },
           }),
         )
-        if (!result.venue) throw new Error('Initial venue result was missing')
+        const initialVenue = result.venue
+        if (!initialVenue) throw new Error('Initial venue result was missing')
+        const prospectConversion = input.prospectConversion
+        if (prospectConversion) {
+          await withTenantIsolationBypass(() =>
+            linkProspectConversionAction({
+              organizationId: prospectConversion.organizationId,
+              ...(prospectConversion.prospectVenueId
+                ? {
+                    prospectVenueId: prospectConversion.prospectVenueId,
+                    venueId: initialVenue.id,
+                  }
+                : {}),
+              tenantId: result.tenant.id,
+              evidence: { clientCreateRequestId: input.requestId },
+              actor,
+            }),
+          )
+        }
         const completedIntent = await completeClientCreateIntentAction({
           requestId: input.requestId,
           requestHash,
           providerOrganizationId: organization.id,
           tenantId: result.tenant.id,
-          venueId: result.venue.id,
+          venueId: initialVenue.id,
           actor,
         })
         const invitation = await ensurePrimaryContactInvitation({
@@ -284,14 +313,14 @@ export const adminClientManagementRouter = router({
           recordPrimaryContactInvitationMilestone({
             db,
             tenantId: result.tenant.id,
-            venueId: result.venue!.id,
+            venueId: initialVenue.id,
             requestId: input.requestId,
             invitation,
             actorId: ctx.session.userId,
             occurredAt: completedIntent.createdAt,
           }),
         )
-        return { tenant: result.tenant, venue: result.venue, invitation }
+        return { tenant: result.tenant, venue: initialVenue, invitation }
       } catch (error) {
         if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
           mapClientActionError(error)
@@ -312,6 +341,13 @@ export const adminClientManagementRouter = router({
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
         primaryContact: clientCreatePrimaryContactInput,
+        prospectConversion: z
+          .object({
+            organizationId: z.string().min(1).max(191),
+            prospectVenueId: z.string().min(1).max(191).optional(),
+          })
+          .strict()
+          .optional(),
         venue: CreateVenueRequestInput,
       }),
     )
@@ -321,6 +357,9 @@ export const adminClientManagementRouter = router({
         clientName: input.clientName,
         ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
         ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
+        ...(input.prospectConversion !== undefined
+          ? { prospectConversion: input.prospectConversion }
+          : {}),
         venue: input.venue,
       })
       const adminUser = await currentUser()

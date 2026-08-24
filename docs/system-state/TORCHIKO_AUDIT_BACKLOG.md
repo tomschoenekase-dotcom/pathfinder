@@ -137,17 +137,17 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Start before**, completion can be incremental.
 - **Codex autonomous:** **Partly**; measurement, shadow evaluation, and contract assembly are autonomous, while executor enablement, production cutover, and compatibility retirement remain gated.
 
-### P1.8 — Establish minimal lead-to-client continuity
+### P1.8 — Establish minimal lead-to-client continuity — IMPLEMENTED 2026-08-24
 
-- **Problem:** Acquisition is a personal `mailto:` followed by manual client creation. No prospect/company/contact/stage/owner history exists.
-- **Evidence:** marketing demo link; absence of CRM domain models/routes; `AdminCreateClientForm.tsx` begins after the sale.
+- **Outcome:** Torchiko now has platform-owned prospect organizations, venues, contacts, opportunities, stage and activity history, provenance, research/import state, correspondence, meetings, follow-up, reviewed outreach, durable customer relationships, and tenant-scoped location conversions. The prospect conversion is included in the retry-fenced `createClientAndVenue` server workflow and must be durably linked before that client-create intent can become complete; the browser no longer creates the customer and conversion through two independent mutations.
+- **Evidence:** canonical prospect CRM schema and migrations; `prospect-actions.ts`; `client-management.ts`; `AdminCreateClientForm.tsx`; account context/history; API, dashboard, and disposable CRM tests.
 - **Affected system:** Marketing, sales, onboarding, auditability.
-- **Recommended change:** Implement or integrate a minimal lead record with organization/contact, consent/source, stage, owner, next step, notes, and atomic conversion to tenant/venue. Avoid sequences and scoring initially.
-- **Why it matters:** Real prospects otherwise fall between inboxes and lose history at onboarding.
+- **Retained gates:** Real Gmail OAuth/Pub/Sub/watch renewal, sending activation, pricing, consequential promises, and customer communication remain externally or founder gated. Those do not erase the local lead-to-client continuity model.
+- **Why it matters:** Prospect identity, relationship history, source evidence, and exact venue conversion now survive the handoff into onboarding.
 - **Effort:** M
-- **Dependencies:** Buy-vs-build and email/calendar decisions.
+- **Dependencies:** External Gmail configuration for live correspondence; none for the local continuity model.
 - **Before more venue acquisition:** **Recommended**, not blocking a few design partners.
-- **Codex autonomous:** **No** for product/integration choice; implementation after decision can be autonomous.
+- **Codex autonomous:** **Implemented** for local code/tests; external sending and customer commitments remain gated.
 
 ### P1.9 — Verify voice, model fallback, and agent bridges in staging
 

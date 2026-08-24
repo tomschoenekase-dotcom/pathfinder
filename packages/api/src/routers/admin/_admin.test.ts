@@ -48,6 +48,7 @@ const {
   loggerWarn,
   lockVenueReportMutation,
   createClientAccountActionMock,
+  linkProspectConversionActionMock,
   setClientPaymentDueActionMock,
   updateClientPlanTierActionMock,
   updateClientStatusActionMock,
@@ -106,6 +107,7 @@ const {
   loggerWarn: vi.fn(),
   lockVenueReportMutation: vi.fn(),
   createClientAccountActionMock: vi.fn(),
+  linkProspectConversionActionMock: vi.fn(),
   setClientPaymentDueActionMock: vi.fn(),
   updateClientPlanTierActionMock: vi.fn(),
   updateClientStatusActionMock: vi.fn(),
@@ -234,6 +236,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     completeClientCreateIntentAction: completeClientCreateIntentActionMock,
     startClientCreateProviderAction: startClientCreateProviderActionMock,
     createClientAccountAction: createClientAccountActionMock,
+    linkProspectConversionAction: linkProspectConversionActionMock,
     setClientPaymentDueAction: setClientPaymentDueActionMock,
     updateClientPlanTierAction: updateClientPlanTierActionMock,
     updateClientStatusAction: updateClientStatusActionMock,
@@ -1228,6 +1231,80 @@ describe('admin router', () => {
     expect(createOrganizationMock).not.toHaveBeenCalled()
     expect(tenantCreate).not.toHaveBeenCalled()
     expect(venueCreate).not.toHaveBeenCalled()
+  })
+
+  it('binds prospect conversion before the durable client-create intent completes', async () => {
+    createOrganizationMock.mockResolvedValueOnce({
+      id: 'org_new',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    tenantFindUnique.mockResolvedValueOnce(null)
+    createClientAccountActionMock.mockResolvedValueOnce({
+      tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+      replayed: false,
+    })
+
+    await testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+      requestId: '77777777-7777-4777-8777-777777777777',
+      clientName: 'The Grand Hotel',
+      prospectConversion: {
+        organizationId: 'prospect_1',
+        prospectVenueId: 'prospect_venue_1',
+      },
+      venue: { name: 'Main Lobby' },
+    })
+
+    expect(linkProspectConversionActionMock).toHaveBeenCalledWith({
+      organizationId: 'prospect_1',
+      prospectVenueId: 'prospect_venue_1',
+      tenantId: 'org_new',
+      venueId: 'venue_new',
+      evidence: { clientCreateRequestId: '77777777-7777-4777-8777-777777777777' },
+      actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+    })
+    expect(linkProspectConversionActionMock.mock.invocationCallOrder[0]).toBeLessThan(
+      completeClientCreateIntentActionMock.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('does not complete the client-create intent when prospect continuity fails', async () => {
+    createOrganizationMock.mockResolvedValueOnce({
+      id: 'org_new',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    tenantFindUnique.mockResolvedValueOnce(null)
+    createClientAccountActionMock.mockResolvedValueOnce({
+      tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+      replayed: false,
+    })
+    linkProspectConversionActionMock.mockRejectedValueOnce(new Error('conversion unavailable'))
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        clientName: 'The Grand Hotel',
+        prospectConversion: { organizationId: 'prospect_1' },
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: expect.stringContaining('local client setup did not complete'),
+    })
+
+    expect(completeClientCreateIntentActionMock).not.toHaveBeenCalled()
+    expect(ensureOrganizationInvitationMock).not.toHaveBeenCalled()
   })
 
   it('admin.createClientAndVenue throws FORBIDDEN for non-admin users', async () => {

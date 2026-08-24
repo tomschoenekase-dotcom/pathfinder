@@ -69,6 +69,7 @@ export function clientCreateHash(input: {
   clientName: string
   clientSlug?: string | undefined
   primaryContact?: { emailAddress: string; role: 'org:admin' | 'org:member' } | undefined
+  prospectConversion?: { organizationId: string; prospectVenueId?: string | undefined } | undefined
   venue: z.infer<typeof CreateVenueRequestInput>
 }): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')

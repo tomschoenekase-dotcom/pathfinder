@@ -44,6 +44,14 @@ export function AdminCreateClientForm() {
       const { tenant, venue } = await client.admin.createClientAndVenue.mutate({
         requestId: requestIdRef.current,
         clientName: clientName.trim(),
+        ...(prospectId
+          ? {
+              prospectConversion: {
+                organizationId: prospectId,
+                ...(prospectVenueId ? { prospectVenueId } : {}),
+              },
+            }
+          : {}),
         primaryContact: {
           emailAddress: primaryContactEmail.trim(),
           role: 'org:admin',
@@ -53,16 +61,6 @@ export function AdminCreateClientForm() {
           ...(venueCategory.trim() ? { category: venueCategory.trim() } : {}),
         },
       })
-
-      if (prospectId) {
-        await client.admin.linkProspectConversion.mutate({
-          organizationId: prospectId,
-          ...(prospectVenueId ? { prospectVenueId } : {}),
-          tenantId: tenant.id,
-          venueId: venue.id,
-          evidence: { clientCreateRequestId: requestIdRef.current },
-        })
-      }
 
       // Drop the admin straight into the new client's dashboard (impersonated)
       // so they can keep configuring it right away.

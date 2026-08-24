@@ -161,7 +161,7 @@ An operator can configure a disabled identity, enable it, compose a scoped task,
 
 ### Prospect → customer
 
-This journey breaks before the product. Marketing offers a `mailto:` demo request. There is no prospect/company/contact model, pipeline, outreach sequence, lead score, meeting scheduler, quote, checkout, or billing provider. An operator can manually create a client/venue and trigger Clerk/welcome-email onboarding, after which the product journey begins.
+The current system has a platform-owned prospect CRM with organizations, venues, multiple contacts, opportunity/stage/activity history, provenance, research/import state, correspondence, meetings, follow-up, reviewed outreach, and durable customer/location conversion history. Client and venue creation can begin from a prospect-prefilled operator flow; the conversion is bound inside the retry-fenced server workflow before its durable client-create intent completes, preserving CRM history into onboarding. Live correspondence still depends on unconfigured Gmail OAuth/Pub/Sub/watch renewal, delivery remains dark by default, pricing and consequential promises remain founder gated, and the public marketing demo entry remains a simple email path rather than a fully automated lead capture surface.
 
 ### New venue onboarding
 
@@ -332,7 +332,7 @@ The current operator-centric model will not scale. Torchiko would need automated
 7. **Deepen the safe client insight/correction loop** — the privacy-bounded visitor pulse and service-led correction request now exist; add calibrated trend/context depth without exposing raw conversations or direct publication. _Effort M; impact high._ It increases customer value without abandoning review safety.
 8. **Verify and improve recovery/production observability** — current backup/PITR state, restore drill, worker/scheduler/provider/storage health, queue depth and cost anomalies. _Effort M; impact high._ It makes real customers supportable.
 9. **Make agent model semantics honest** — align identity model configuration with actual execution and add a measured outcome-to-review loop. _Effort M; impact medium-high._ It prevents false control/learning claims and enables optimization.
-10. **Create a minimal lead-to-onboarding record, not a full CRM** — capture prospect/company/contact/status/owner and conversion to tenant. _Effort M; impact medium-high._ It closes the current acquisition handoff without building outreach automation too early.
+10. **Prove CRM-to-onboarding continuity in staging** — the local prospect/customer/location conversion is retry-fenced and durable; next prove the exact hosted flow with authorized Gmail and identity-provider configuration while keeping sending, pricing, and customer promises gated. _Effort M; impact medium-high._
 
 ## 5 Things We Should Explicitly NOT Work On Yet
 

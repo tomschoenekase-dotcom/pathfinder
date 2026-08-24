@@ -8,7 +8,6 @@ import { AdminCreateClientForm } from './AdminCreateClientForm'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
-  linkConversion: vi.fn(),
   push: vi.fn(),
   refresh: vi.fn(),
   uuid: vi.fn(() => '123e4567-e89b-42d3-a456-426614174000'),
@@ -22,7 +21,6 @@ vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       createClientAndVenue: { mutate: mocks.create },
-      linkProspectConversion: { mutate: mocks.linkConversion },
     },
   }),
 }))
@@ -95,7 +93,6 @@ describe('AdminCreateClientForm', () => {
       venue: { id: 'venue_1' },
       invitation: { id: 'invite_1', replayed: false },
     })
-    mocks.linkConversion.mockResolvedValue({ conversion: { id: 'conversion_1' }, replayed: false })
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 200 }))
@@ -106,13 +103,15 @@ describe('AdminCreateClientForm', () => {
     fireEvent.submit(screen.getByRole('button', { name: /Create client/ }).closest('form')!)
 
     await vi.waitFor(() =>
-      expect(mocks.linkConversion).toHaveBeenCalledWith({
-        organizationId: 'prospect_1',
-        prospectVenueId: 'prospect_venue_1',
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        evidence: { clientCreateRequestId: '123e4567-e89b-42d3-a456-426614174000' },
-      }),
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: '123e4567-e89b-42d3-a456-426614174000',
+          prospectConversion: {
+            organizationId: 'prospect_1',
+            prospectVenueId: 'prospect_venue_1',
+          },
+        }),
+      ),
     )
     expect(fetchMock).toHaveBeenCalledOnce()
     fetchMock.mockRestore()
