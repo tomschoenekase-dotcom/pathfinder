@@ -1036,6 +1036,7 @@ async function readAgentRuns(
       modelProvider: true,
       modelName: true,
       costE8Usd: true,
+      costStatus: true,
       errorCode: true,
       attemptNumber: true,
       maxAttempts: true,

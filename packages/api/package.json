@@ -7,6 +7,7 @@
     "./mcp": "./src/mcp/index.ts",
     "./partner-api": "./src/partner-api/index.ts",
     "./agent-bridge": "./src/agent-bridge/index.ts",
+    "./agent-bridge/http-core": "./src/agent-bridge/http-core.ts",
     "./platform-worker-policy": "./src/platform-worker-policy/index.ts",
     "./prospect-agent": "./src/prospect-agent/index.ts",
     "./correspondence": "./src/correspondence/index.ts",

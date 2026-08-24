@@ -37,6 +37,7 @@ type Run = {
   modelProvider: string | null
   modelName: string | null
   costE8Usd: bigint
+  costStatus?: string
   errorCode: string | null
   createdAt: Date
   agentIdentity: { id: string; name: string; enabled: boolean }
@@ -107,6 +108,12 @@ export function formatE8Usd(value: bigint) {
   const dollars = value / units
   const fractional = (value % units).toString().padStart(8, '0').replace(/0+$/, '')
   return `$${dollars.toString()}${fractional ? `.${fractional}` : '.00'}`
+}
+
+export function formatAgentRunCost(value: bigint, status?: string) {
+  if (!status || status === 'UNREPORTED') return 'Not reported'
+  const amount = formatE8Usd(value)
+  return status === 'ESTIMATED' ? `${amount} estimated` : amount
 }
 
 const bridgeProviderForIdentityProvider: Record<string, string> = {
@@ -402,7 +409,7 @@ export function AgentOperationsOverview({
                       {run._count.approvalRequests} approvals
                     </td>
                     <td className="px-4 py-4 font-mono text-xs text-pf-deep">
-                      {formatE8Usd(run.costE8Usd)}
+                      {formatAgentRunCost(run.costE8Usd, run.costStatus)}
                     </td>
                     <td className="px-4 py-4 text-xs text-pf-deep/55">
                       {run.createdAt.toLocaleString()}

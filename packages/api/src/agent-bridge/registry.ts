@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
+import { AgentBridgeProvider, AgentCostStatus } from '@pathfinder/contracts/agent-bridge'
 import {
   claimAgentBridgeTask,
   completeAgentBridgeTask,
@@ -114,12 +115,7 @@ export function createAgentBridgeRegistry(
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
       const input = sessionScope
         .extend({
-          provider: z.enum([
-            'HERMES',
-            'CLAUDE_SUBSCRIPTION',
-            'CODEX_SUBSCRIPTION',
-            'OPENAI_COMPATIBLE',
-          ]),
+          provider: AgentBridgeProvider,
           label: z.string().trim().min(1).max(200),
           runnerVersion: z.string().trim().min(1).max(100),
           supportedModels: z.array(z.string().trim().min(1).max(191)).max(50),
@@ -169,6 +165,7 @@ export function createAgentBridgeRegistry(
             .string()
             .regex(/^\d{1,30}$/u)
             .transform(BigInt),
+          costStatus: AgentCostStatus,
         })
         .parse(raw)
       return completeAgentBridgeTask({ ...input, credential: context.credential })

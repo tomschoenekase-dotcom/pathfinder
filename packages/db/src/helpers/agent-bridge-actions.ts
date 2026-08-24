@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
+import {
+  AGENT_BRIDGE_MODEL_PROVIDER,
+  AgentBridgeClaimResult,
+  AgentBridgeProvider,
+} from '@pathfinder/contracts/agent-bridge'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -11,18 +16,6 @@ import {
   heartbeatAgentRunExecution,
 } from './agent-run-execution-actions'
 
-const providerSchema = z.enum([
-  'HERMES',
-  'CLAUDE_SUBSCRIPTION',
-  'CODEX_SUBSCRIPTION',
-  'OPENAI_COMPATIBLE',
-])
-const providerTarget = {
-  HERMES: 'hermes-bridge',
-  CLAUDE_SUBSCRIPTION: 'claude-bridge',
-  CODEX_SUBSCRIPTION: 'codex-bridge',
-  OPENAI_COMPATIBLE: 'openai-compatible-bridge',
-} as const
 const SESSION_TTL_MS = 2 * 60_000
 
 export class AgentBridgeActionError extends Error {
@@ -60,7 +53,7 @@ export async function registerAgentBridgeSession(rawInput: {
     .object({
       sessionId: z.string().uuid(),
       venueId: z.string().min(1).max(191),
-      provider: providerSchema,
+      provider: AgentBridgeProvider,
       label: z.string().trim().min(1).max(200),
       runnerVersion: z.string().trim().min(1).max(100),
       supportedModels: z.array(z.string().trim().min(1).max(191)).max(50),
@@ -216,7 +209,7 @@ export async function claimAgentBridgeTask(input: {
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
       status: 'QUEUED',
-      modelProvider: providerTarget[session.provider],
+      modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
       ...(session.supportedModels.length
         ? {
             OR: [
@@ -241,9 +234,10 @@ export async function claimAgentBridgeTask(input: {
       data: { executionWorkerId: worker.id },
     })
   }
-  return {
+  return AgentBridgeClaimResult.parse({
     task: {
       id: claimed.id,
+      operationId: claimed.operationId,
       venueId: claimed.venueId,
       runType: claimed.runType,
       requestedOperation: claimed.requestedOperation,
@@ -251,12 +245,20 @@ export async function claimAgentBridgeTask(input: {
       modelProvider: claimed.modelProvider,
       modelName: claimed.modelName,
       leaseToken: claimed.leaseToken,
-      leaseExpiresAt: claimed.leaseExpiresAt,
+      leaseExpiresAt: claimed.leaseExpiresAt.toISOString(),
       attemptNumber: claimed.attemptNumber,
       scope: claimed.scopeSnapshot,
-      agent: claimed.agentIdentity,
+      agent: {
+        identityKey: claimed.agentIdentity.identityKey,
+        name: claimed.agentIdentity.name,
+        description: claimed.agentIdentity.description,
+        accessCapabilities: claimed.agentIdentity.accessCapabilities,
+        autonomyLevel: claimed.agentIdentity.autonomyLevel,
+        autonomousActions: claimed.agentIdentity.autonomousActions,
+      },
+      initiator: { type: claimed.initiatedByType, id: claimed.initiatedById },
     },
-  }
+  })
 }
 
 async function assertSessionOwnsRun(input: {
@@ -284,9 +286,10 @@ async function assertSessionOwnsRun(input: {
         },
       },
     },
-    select: { id: true },
+    select: { id: true, modelProvider: true },
   })
   if (!run) throw new AgentBridgeActionError('FORBIDDEN', 'Bridge session does not own this run')
+  return run
 }
 
 export async function heartbeatAgentBridgeTask(input: {
@@ -314,9 +317,10 @@ export async function completeAgentBridgeTask(input: {
   artifacts: unknown[]
   modelName: string
   costE8Usd: bigint
+  costStatus: 'UNREPORTED' | 'ESTIMATED' | 'EXACT'
   credential: VerifiedMcpCredentialScope
 }) {
-  await assertSessionOwnsRun(input)
+  const run = await assertSessionOwnsRun(input)
   return completeAgentRunExecution({
     tenantId: input.credential.tenantId,
     runId: input.runId,
@@ -324,7 +328,9 @@ export async function completeAgentBridgeTask(input: {
     summary: input.summary,
     artifacts: input.artifacts as never[],
     modelName: input.modelName,
+    ...(run.modelProvider ? { modelProvider: run.modelProvider } : {}),
     costE8Usd: input.costE8Usd,
+    costStatus: input.costStatus,
   })
 }
 

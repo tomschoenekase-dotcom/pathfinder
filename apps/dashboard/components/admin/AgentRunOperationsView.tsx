@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { formatE8Usd } from './AgentOperationsOverview'
+import { formatAgentRunCost, formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunCancellationControl } from './AgentRunCancellationControl'
 import { AgentOutcomeObservationForm } from './AgentOutcomeObservationForm'
 import { AgentRunUnifiedTrace } from './AgentRunUnifiedTrace'
@@ -19,6 +19,7 @@ type Run = {
   modelProvider: string | null
   modelName: string | null
   costE8Usd: bigint
+  costStatus?: string
   errorCode: string | null
   errorMessage: string | null
   initiatedByType: string
@@ -200,7 +201,7 @@ export function AgentRunOperationsView({
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Run summary">
-        <Summary label="Cost" value={formatE8Usd(run.costE8Usd)} />
+        <Summary label="Cost" value={formatAgentRunCost(run.costE8Usd, run.costStatus)} />
         <Summary
           label="Model"
           value={[run.modelProvider, run.modelName].filter(Boolean).join(' / ') || 'Not recorded'}

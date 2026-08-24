@@ -3,7 +3,7 @@ import React from 'react'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AgentOperationsOverview, formatE8Usd } from './AgentOperationsOverview'
+import { AgentOperationsOverview, formatAgentRunCost, formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunOperationsView } from './AgentRunOperationsView'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 vi.mock('next/link', () => ({
@@ -25,6 +25,9 @@ describe('agent operations views', () => {
     expect(formatE8Usd(0n)).toBe('$0.00')
     expect(formatE8Usd(123_450_000n)).toBe('$1.2345')
     expect(formatE8Usd(10_000_000_000_000_001n)).toBe('$100000000.00000001')
+    expect(formatAgentRunCost(0n, 'UNREPORTED')).toBe('Not reported')
+    expect(formatAgentRunCost(25_000_000n, 'ESTIMATED')).toBe('$0.25 estimated')
+    expect(formatAgentRunCost(25_000_000n, 'EXACT')).toBe('$0.25')
   })
 
   it('keeps access and autonomy separate and offers staged configuration without execution controls', () => {
@@ -107,6 +110,7 @@ describe('agent operations views', () => {
           modelProvider: 'provider',
           modelName: 'model',
           costE8Usd: 25_000_000n,
+          costStatus: 'EXACT',
           errorCode: null,
           errorMessage: null,
           initiatedByType: 'HUMAN',

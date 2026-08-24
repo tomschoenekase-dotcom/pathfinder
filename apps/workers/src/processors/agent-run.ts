@@ -103,6 +103,7 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       modelProvider: result.provider,
       modelName: result.model,
       costE8Usd,
+      costStatus: 'ESTIMATED',
     })
   } catch (error) {
     const configurationError =

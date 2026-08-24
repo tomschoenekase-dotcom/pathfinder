@@ -4141,6 +4141,7 @@ model AgentRun {
   modelProvider             String?                    @map("model_provider") @db.VarChar(100)
   modelName                 String?                    @map("model_name") @db.VarChar(191)
   costE8Usd                 BigInt                     @default(0) @map("cost_e8_usd")
+  costStatus                AgentCostStatus            @default(UNREPORTED) @map("cost_status")
   artifacts                 Json                       @default("[]")
   errorCode                 String?                    @map("error_code") @db.VarChar(100)
   errorMessage              String?                    @map("error_message")
@@ -4663,6 +4664,12 @@ enum AgentRunStatus {
   COMPLETED
   FAILED
   CANCELLED
+}
+
+enum AgentCostStatus {
+  UNREPORTED
+  ESTIMATED
+  EXACT
 }
 
 enum AgentActionStatus {

@@ -18,8 +18,13 @@ failure code. A session heartbeat expires after two minutes if the process disap
 - Codex runs ephemeral with a read-only sandbox and `never` approval policy. Claude runs in plan
   mode with an empty tool list and no session persistence. Neither adapter can mutate a repository.
 - Stdout, stderr, HTTP responses, task duration, request bodies, artifacts, and retry attempts are
-  bounded. Subscription cost is reported as unknown/zero rather than invented.
+  bounded. Subscription/local cost is persisted as `UNREPORTED` with a zero numeric placeholder,
+  so unknown is never displayed or reasoned about as a confirmed free run.
 - Process shutdown aborts the current task. A lost heartbeat or lease prevents stale completion.
+- Every claimed task must match the configured venue and provider. The execution prompt includes
+  the exact initiating actor, agent identity, access/autonomy snapshot, operation/run references,
+  scope, and attempt, while explicitly treating embedded task/scope text as untrusted data that
+  cannot widen authority.
 
 ## Configuration
 
@@ -43,8 +48,9 @@ TORCHIKO_HERMES_PROFILE=<exact-installed-profile-name>
 
 Then run `pnpm --filter @pathfinder/workers agent-bridge:run`. No real authenticated runner was
 launched during implementation because no operator-issued deployment credential or rollout approval
-was in scope. The credential, session, claim, heartbeat, completion, and artifact lifecycle was
-proved separately against a disposable pgvector PostgreSQL database.
+was in scope. Run `pnpm test:agent-bridge:disposable` for provider-dark proof of authenticated HTTP,
+session registration, rich claim context, retry/reclaim, completion, explicit cost provenance, and
+durable artifact readback against a disposable migrated database with verified cleanup.
 
 ## Provider status
 

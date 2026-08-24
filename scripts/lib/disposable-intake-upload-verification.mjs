@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|convergence|guestread)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|content_convergence|native_guest_read)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
