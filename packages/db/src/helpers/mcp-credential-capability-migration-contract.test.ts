@@ -21,6 +21,7 @@ const capabilityMigrationPaths = [
   '20260824170000_add_weekly_report_draft_capability',
   '20260824180000_add_support_open_capability',
   '20260824190000_add_support_note_capability',
+  '20260824200000_add_support_triage_capability',
 ]
 const capabilitySql = [
   sql,

@@ -9,7 +9,7 @@
   "operationBindings": {
     "reviewed": {
       "operationInventorySha256": "03f5ece636a6e92bfbd16e8ccbcec118d06ca9e95e56fa677fdd9850cf6c8f7d",
-      "sha256": "2cd8e8f8776f545452b9eb83f72b90420c0a4720e49822822b6241ae508a7c19"
+      "sha256": "39be5d6f399490a3269e028227e02055242e8c6bdf9a345ecaa0e60af6d837a2"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -263,6 +263,14 @@
         "surfaces": ["tool:pathfinder.add_support_internal_note"],
         "decision": "The machine tool reuses the canonical support-message action but permits only one exact attachment-free INTERNAL_ONLY note under evidence-backed one-use authority. It cannot create customer-visible activity, add participants, change status or triage, or execute package lifecycle work.",
         "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-triage-proposal",
+        "kind": "bounded-alternative",
+        "operations": ["admin.triageSupportRequest"],
+        "surfaces": ["tool:pathfinder.propose_support_triage"],
+        "decision": "The machine tool prepares an exact-version, evidence-backed category and missing-information recommendation for human review. It cannot mutate the support request, change client activity, contact a customer, or authorize execution.",
+        "evidence": "packages/db/src/helpers/support-triage-proposal-actions.test.ts"
       },
       {
         "id": "bounded-update-reads",

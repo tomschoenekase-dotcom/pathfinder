@@ -12,6 +12,7 @@ const {
   proposeCorrection,
   prepareCustomerAccess,
   prepareLocationDraft,
+  prepareSupportTriage,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
   publishEvent,
@@ -30,6 +31,7 @@ const {
   proposeCorrection: vi.fn(),
   prepareCustomerAccess: vi.fn(),
   prepareLocationDraft: vi.fn(),
+  prepareSupportTriage: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
   publishEvent: vi.fn(),
@@ -51,6 +53,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   proposeKnowledgeCorrectionAction: proposeCorrection,
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
   prepareLocationDraftProposalAction: prepareLocationDraft,
+  prepareSupportTriageProposalAction: prepareSupportTriage,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   publishOperationalEvent: publishEvent,
@@ -255,6 +258,83 @@ describe('safe operational MCP composition', () => {
         canonicalVenueContentChanged: false,
       },
     })
+  })
+
+  it('prepares exact-version support triage without changing request or client activity', async () => {
+    prepareSupportTriage.mockResolvedValue({
+      approvalRequest: { id: '44444444-4444-4444-8444-444444444444' },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-1' })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const triageCredential = {
+      ...credential,
+      capabilities: ['support:triage'],
+    } satisfies VerifiedMcpCredentialScope
+    const result = await registry.callTool(
+      'pathfinder.propose_support_triage',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '44444444-4444-4444-8444-444444444444',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        requestId: 'support-1',
+        expectedVersion: 3,
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current price', 'Effective date'],
+        reason: 'The support request needs two exact facts before work can begin.',
+        evidence: [{ type: 'SupportMessage', id: 'message-1' }],
+      },
+      { credential: triageCredential },
+    )
+
+    expect(prepareSupportTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: 'support-1',
+        expectedVersion: 3,
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current price', 'Effective date'],
+        actor: expect.objectContaining({
+          capability: 'support:triage',
+          workerId: 'worker-id-1',
+          credentialId: 'credential-1',
+        }),
+      }),
+      database,
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.support-triage-proposal',
+      data: {
+        approvalRequired: true,
+        separateApplicationRequired: true,
+        supportRequestChanged: false,
+        clientActivityChanged: false,
+        customerContacted: false,
+        executionAuthorized: false,
+      },
+    })
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: 'support-triage.proposal-created',
+          linkedObjectId: '44444444-4444-4444-8444-444444444444',
+        }),
+      }),
+    )
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {

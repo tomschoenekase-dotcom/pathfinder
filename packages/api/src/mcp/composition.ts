@@ -24,6 +24,7 @@ import {
   prepareAgentImprovementProposalAction,
   recordAgentImprovementValidationAction,
   prepareLocationDraftProposalAction,
+  prepareSupportTriageProposalAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
@@ -53,6 +54,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.list_gaps',
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
+  'pathfinder.propose_support_triage',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -103,6 +105,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'listKnowledgeGaps'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
+    | 'proposeSupportTriage'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -134,6 +137,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
+    | 'proposeSupportTriage'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -1125,6 +1129,105 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           approvalRequired: true,
           applicationRequiredAfterApproval: true,
           canonicalVenueContentChanged: false,
+        }),
+      }
+    },
+    async proposeSupportTriage(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Support triage proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'support:triage' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified support-triage worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified support-triage worker run is unavailable')
+
+      const result = await prepareSupportTriageProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          category: input.category,
+          missingInformation: input.missingInformation,
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'support:triage',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-triage.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Support triage needs review',
+            summary:
+              'An AI worker prepared structured support triage. The request and client activity remain unchanged until a human separately applies triage.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the proposed category, missing information, evidence, and exact request version before separately applying triage.',
+            deduplicationKey: `support-triage-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-triage-proposal',
+        summary: result.replayed
+          ? 'Existing support triage proposal returned; the request and client activity are unchanged.'
+          : 'Support triage prepared for human review; the request and client activity are unchanged.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          replayed: result.replayed,
+          approvalRequired: true,
+          separateApplicationRequired: true,
+          supportRequestChanged: false,
+          clientActivityChanged: false,
+          customerContacted: false,
+          executionAuthorized: false,
         }),
       }
     },

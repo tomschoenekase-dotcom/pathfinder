@@ -15,6 +15,7 @@
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
+    "test:support-triage-proposal:disposable": "node scripts/run-disposable-support-triage-proposal.mjs",
     "test:agent-approval-policy:disposable": "node scripts/run-disposable-agent-approval-policy.mjs",
     "test:agent-bridge:disposable": "node scripts/run-disposable-agent-bridge.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",

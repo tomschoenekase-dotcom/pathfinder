@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
+import { SupportRequestCategory } from './support-workflow'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -72,6 +73,7 @@ export const McpCapability = z.enum([
   'support:draft',
   'support:open',
   'support:note',
+  'support:triage',
   'intake:draft',
   'updates:draft',
   'evaluations:request',
@@ -585,6 +587,26 @@ export const McpLocationDraftProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpLocationDraftProposalInput = z.infer<typeof McpLocationDraftProposalInput>
 
+export const McpSupportTriageProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  category: SupportRequestCategory,
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportTriageProposalInput = z.infer<typeof McpSupportTriageProposalInput>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -895,6 +917,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.list_gaps'
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.locations.propose_draft'
+  | 'pathfinder.propose_support_triage'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -1238,6 +1261,65 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.propose_support_triage',
+    title: 'Propose structured support triage',
+    description:
+      'Prepare one exact-version support category and missing-information recommendation for human review. This tool never mutates the request, changes client activity, contacts a customer, or authorizes execution.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        category: { type: 'string', enum: SupportRequestCategory.options },
+        missingInformation: {
+          type: 'array',
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'category',
+        'missingInformation',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'support:triage', 'interaction') },
   },
   {
     name: 'torchiko.locations.propose_draft',

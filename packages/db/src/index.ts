@@ -895,6 +895,14 @@ export type {
   PrepareLocationDraftProposalInput,
 } from './helpers/location-draft-proposal-actions'
 export {
+  prepareSupportTriageProposalAction,
+  SupportTriageProposalActionError,
+} from './helpers/support-triage-proposal-actions'
+export type {
+  PrepareSupportTriageProposalInput,
+  SupportTriageProposalActionErrorCode,
+} from './helpers/support-triage-proposal-actions'
+export {
   addChatlogNoteAction,
   ChatlogReviewActionError,
   setChatlogNotableAction,

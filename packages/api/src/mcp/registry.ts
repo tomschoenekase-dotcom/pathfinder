@@ -25,6 +25,7 @@ import {
   McpSupportDraftInput,
   McpSupportOpenInput,
   McpSupportInternalNoteInput,
+  McpSupportTriageProposalInput,
   McpToolResult,
   McpUpdateDraftInput,
   McpWeeklyReportDraftInput,
@@ -66,6 +67,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.list_gaps'
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.locations.propose_draft'
+        | 'pathfinder.propose_support_triage'
         | 'torchiko.agent_improvements.propose'
         | 'torchiko.agent_improvements.record_validation'
         | 'torchiko.customer_access.prepare_invitation'
@@ -124,6 +126,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeLocationDraft: (
     input: McpLocationDraftProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeSupportTriage: (
+    input: McpSupportTriageProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeAgentImprovement: (
@@ -330,6 +336,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.proposeLocationDraft(input, context)
           break
         }
+        case 'pathfinder.propose_support_triage': {
+          const input = McpSupportTriageProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeSupportTriage(input, context)
+          break
+        }
         case 'torchiko.agent_improvements.propose': {
           const input = McpAgentImprovementProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -505,6 +517,7 @@ async function verifyApproval(
     | 'torchiko.knowledge.list_gaps'
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.locations.propose_draft'
+    | 'pathfinder.propose_support_triage'
     | 'torchiko.agent_improvements.propose'
     | 'torchiko.agent_improvements.record_validation'
     | 'torchiko.customer_access.prepare_invitation'
