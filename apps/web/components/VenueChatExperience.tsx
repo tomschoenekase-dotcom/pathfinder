@@ -407,7 +407,7 @@ export function VenueChatExperience({
         setRecoveryMode('retry-turn')
         setSendError(
           publicCode === 'RATE_LIMITED' || code === 'TOO_MANY_REQUESTS'
-            ? 'This message is still being checked. Wait a moment, then retry the same message.'
+            ? 'This message was not sent because the guide is busy. Wait a moment, then retry the same message.'
             : 'The outcome of this message is not confirmed. Retry the same message safely.',
         )
       }

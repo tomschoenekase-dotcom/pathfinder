@@ -58,17 +58,22 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **Partly**; fixture/runbook yes, live provider and acceptance review no.
 
-### P1.2 — Replace ambiguous provider-down chat behavior
+### P1.2 — Replace ambiguous provider-down chat behavior — IMPLEMENTED 2026-08-24
 
-- **Problem:** In provider-disabled local staging, a submitted guest message displayed “The outcome of this message is not confirmed. Retry the same message safely.” This is appropriate only for uncertain network outcomes, not known provider unavailability.
-- **Evidence:** Browser exercise of `/august-test/chat`; failures from `chat.send` and `analytics.trackEvent`; error state in `VenueChatExperience.tsx` and durable turn handling in `chat.ts`.
+- **Outcome:** Guest chat now carries a stable browser-safe taxonomy for provider unavailable,
+  rate-limited, outcome ambiguous, content unavailable, rejected, and pre-dispatch transient failure.
+  Known provider and content failures receive definite guidance without an unsafe same-operation retry.
+  Ambiguous transport/provider outcomes reconcile durable history or retain an exact idempotent retry.
+  Pre-reservation rate limits truthfully state that the message was not sent, then preserve the exact
+  frozen message for a bounded retry. Provider route exhaustion commits a safe fallback and publishes
+  a deduplicated operational event rather than presenting an unconfirmed outcome.
+- **Evidence:** `GuestPublicErrorCode`; `publicTRPCError`; `chat.ts` reservation/provider-operation
+  lifecycle and operational events; `VenueChatExperience.tsx`; API and browser component tests.
+- **Remaining proof:** Exercise the taxonomy against a provider-enabled staging deployment and retain
+  sanitized incident/event evidence. Generic unclassified transport failures intentionally remain
+  ambiguous because the browser cannot prove whether the server committed the turn.
 - **Affected system:** Guest chat, reliability, support, operational events.
-- **Recommended change:** Preserve idempotent retry but map server/provider codes into unavailable, timed-out/ambiguous, rate-limited, and content-unavailable messages; emit/resolve an operational event and avoid retry loops.
-- **Why it matters:** Visitors need truthful recovery guidance, and operators need to know whether AI is down.
-- **Effort:** S
-- **Dependencies:** Stable public error-code contract.
-- **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **Yes**, with tests; live provider verification still needs credentials.
+- **Before more venue acquisition:** **Code complete; live provider proof remains.**
 
 ### P1.3 — Publish a real privacy page and align data disclosures
 

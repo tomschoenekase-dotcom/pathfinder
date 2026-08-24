@@ -477,6 +477,27 @@ describe('VenueChatExperience presentation boundary', () => {
     },
   )
 
+  it('states that a rate-limited turn was not sent and retries the exact frozen message', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174109'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.send.mutate
+      .mockRejectedValueOnce(codedError('TOO_MANY_REQUESTS', 'RATE_LIMITED'))
+      .mockResolvedValueOnce({
+        response: 'The café is downstairs.',
+        sessionId: 'session-1',
+        places: [],
+        replayed: false,
+      })
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    expect(await screen.findByText(/message was not sent because the guide is busy/i)).toBeTruthy()
+    const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
+    expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0]).toEqual(frozen)
+  })
+
   it.each([
     ['PROVIDER_UNAVAILABLE', /guide service is temporarily unavailable/i],
     ['CONTENT_UNAVAILABLE', /venue content is not available/i],
