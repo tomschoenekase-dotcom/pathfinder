@@ -88,6 +88,7 @@ describe('Packet 2 continuation cross-migration integrity', () => {
       'IntakePackageHandoff',
       'IntakeUpload',
       'SupportPackageHandoff',
+      'SupportPackageHandoffSupersession',
       'ExternalAccessCredential',
       'ExternalCredentialRotation',
       'ExternalCredentialRevocation',

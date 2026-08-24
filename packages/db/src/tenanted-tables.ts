@@ -101,6 +101,7 @@ export const TENANTED_TABLES = [
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
   'SupportPackageHandoff',
+  'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
   'ExternalAccessCredential',
