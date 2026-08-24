@@ -6,6 +6,7 @@ import type { TRPCContext } from '../../context'
 const action = vi.hoisted(() => vi.fn())
 const request = vi.hoisted(() => vi.fn())
 const compareShadow = vi.hoisted(() => vi.fn())
+const measureConvergence = vi.hoisted(() => vi.fn())
 const runReads = vi.hoisted(() => ({ findFirst: vi.fn(), findMany: vi.fn() }))
 const releaseReads = vi.hoisted(() => ({ findFirst: vi.fn() }))
 const evidenceReads = vi.hoisted(() => ({ findMany: vi.fn() }))
@@ -19,6 +20,7 @@ vi.mock('@pathfinder/db', async (original) => ({
   withTenantIsolationBypass: (fn: () => unknown) => fn(),
   recordNativeDeploymentEvaluationEvidenceAction: action,
   compareNativeContentShadowRuns: compareShadow,
+  measureNativeContentConvergenceAction: measureConvergence,
 }))
 vi.mock('./native-deployment-evaluation-request', async (original) => ({
   ...(await original<typeof import('./native-deployment-evaluation-request')>()),
@@ -38,6 +40,10 @@ describe('native deployment evaluation evidence admin adapter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     runReads.findFirst.mockResolvedValue({ identityHash: 'a'.repeat(64) })
+    measureConvergence.mockResolvedValue({
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      head: { releaseId: '11111111-1111-4111-8111-111111111111' },
+    })
   })
   it('lists only bounded safe completed legacy and exact-release candidate identities', async () => {
     releaseReads.findFirst.mockResolvedValue({ id: 'release-1' })
@@ -88,7 +94,7 @@ describe('native deployment evaluation evidence admin adapter', () => {
   it('delegates an exact read-only shadow comparison and preserves non-authorizing boundaries', async () => {
     compareShadow.mockResolvedValue({
       status: 'COMPARABLE_WITH_DECLARED_CHANGE',
-      totals: { newFailures: 0 },
+      totals: { newFailures: 0, missingResults: 0 },
       advisoryOnly: true,
       guestReadPathChanged: false,
       cutoverAuthorized: false,
@@ -107,8 +113,15 @@ describe('native deployment evaluation evidence admin adapter', () => {
       advisoryOnly: true,
       guestReadPathChanged: false,
       cutoverAuthorized: false,
+      readSwitchContract: {
+        phase: 'POLICY_GATED',
+        executable: false,
+        readyForProductionSwitch: false,
+        rollback: { compatibilityDataRetentionRequired: true },
+      },
     })
     expect(compareShadow).toHaveBeenCalledWith(input, expect.anything())
+    expect(measureConvergence).toHaveBeenCalledWith(expect.anything(), input)
   })
   it('delegates exact scope and returns only safe advisory facts', async () => {
     action.mockResolvedValue({ disposition: 'PASS', advisoryOnly: true, replayed: false })

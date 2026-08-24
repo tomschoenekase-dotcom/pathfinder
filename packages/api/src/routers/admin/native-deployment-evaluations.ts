@@ -1,12 +1,14 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { buildNativeContentReadSwitchContract } from '@pathfinder/contracts'
 import {
   compareNativeContentShadowRuns,
   db,
   EvaluationRunComparisonError,
   NativeContentShadowComparisonError,
   NativeDeploymentEvaluationEvidenceError,
+  measureNativeContentConvergenceAction,
   recordNativeDeploymentEvaluationEvidenceAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -97,7 +99,16 @@ export const adminNativeDeploymentEvaluationsRouter = router({
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {
         try {
-          return await compareNativeContentShadowRuns(input, db)
+          const comparison = await compareNativeContentShadowRuns(input, db)
+          const convergence = await measureNativeContentConvergenceAction(db, input)
+          return {
+            ...comparison,
+            readSwitchContract: buildNativeContentReadSwitchContract({
+              targetReleaseId: input.releaseId,
+              convergence,
+              shadowComparison: comparison,
+            }),
+          }
         } catch (error) {
           if (
             error instanceof NativeContentShadowComparisonError ||

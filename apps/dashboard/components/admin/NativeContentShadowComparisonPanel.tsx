@@ -38,6 +38,19 @@ type Comparison = {
   guestReadPathChanged: false
   cutoverAuthorized: false
   legacyRetirementAuthorized: false
+  readSwitchContract: {
+    phase: 'EVIDENCE_INCOMPLETE' | 'POLICY_GATED'
+    evidenceComplete: boolean
+    executable: false
+    readyForProductionSwitch: false
+    blockers: string[]
+    rollback: {
+      targetGuestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT'
+      compatibilityDataRetentionRequired: true
+      rehearsalRequired: true
+      automaticExecutionAuthorized: false
+    }
+  }
 }
 
 const classificationLabel: Record<string, string> = {
@@ -48,6 +61,20 @@ const classificationLabel: Record<string, string> = {
   BASELINE_RESULT_MISSING: 'Baseline result missing',
   CANDIDATE_RESULT_MISSING: 'Candidate result missing',
   BOTH_RESULTS_MISSING: 'Both results missing',
+}
+
+const blockerLabel: Record<string, string> = {
+  NO_NATIVE_HEAD: 'No active native head exists.',
+  INVALID_NATIVE_HEAD: 'Native head evidence is invalid.',
+  MATERIALIZED_STATE_DRIFT: 'Materialized guest content has drifted from the native head.',
+  TARGET_RELEASE_NOT_ACTIVE_HEAD: 'This release is not the exact active native head.',
+  SHADOW_EVIDENCE_INCOMPARABLE: 'Frozen legacy/native evidence is incomparable.',
+  SHADOW_RESULTS_MISSING: 'One or more frozen evaluation results are missing.',
+  NEW_SHADOW_FAILURES: 'The native candidate introduced one or more evaluated failures.',
+  QUALITY_THRESHOLD_POLICY_UNSET: 'Founder-approved quality thresholds are not defined.',
+  READ_EXECUTOR_NOT_IMPLEMENTED: 'No guest read-path executor is implemented.',
+  PRODUCTION_APPROVAL_REQUIRED: 'Production rollout still requires founder awareness/approval.',
+  ROLLBACK_RUNTIME_NOT_PROVEN: 'The rollback runtime has not been rehearsed and proven.',
 }
 
 function runLabel(run: Run) {
@@ -286,6 +313,40 @@ export function NativeContentShadowComparisonPanel({
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {comparison ? (
+        <section
+          aria-labelledby="read-switch-contract-heading"
+          className="mt-5 rounded-xl border border-violet-200 bg-white p-4"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h5 id="read-switch-contract-heading" className="font-semibold text-pf-deep">
+                Non-executable read-switch contract
+              </h5>
+              <p className="mt-1 text-sm leading-6 text-pf-deep/70">
+                {comparison.readSwitchContract.evidenceComplete
+                  ? 'The selected evidence is structurally complete; unresolved policy and runtime gates remain.'
+                  : 'The selected evidence is incomplete and policy/runtime gates also remain.'}
+              </p>
+            </div>
+            <span className="w-fit rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-950">
+              {comparison.readSwitchContract.phase === 'POLICY_GATED'
+                ? 'Policy gated'
+                : 'Evidence incomplete'}
+            </span>
+          </div>
+          <ul className="mt-3 space-y-1 text-sm leading-6 text-pf-deep/75">
+            {comparison.readSwitchContract.blockers.map((blocker) => (
+              <li key={blocker}>• {blockerLabel[blocker] ?? blocker}</li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs leading-5 text-pf-deep/65">
+            Rollback target: retained compatibility retrieval. Compatibility data must remain,
+            rollback must be rehearsed, and automatic rollback is not yet authorized.
+          </p>
+        </section>
       ) : null}
 
       <p className="mt-4 text-xs leading-5 text-pf-deep/65">

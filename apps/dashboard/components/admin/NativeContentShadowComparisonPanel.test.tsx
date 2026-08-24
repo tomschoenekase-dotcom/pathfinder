@@ -45,6 +45,24 @@ const runs = {
   bounded: true,
   advisoryOnly: true,
 }
+const readSwitchContract = {
+  phase: 'POLICY_GATED',
+  evidenceComplete: true,
+  executable: false,
+  readyForProductionSwitch: false,
+  blockers: [
+    'QUALITY_THRESHOLD_POLICY_UNSET',
+    'READ_EXECUTOR_NOT_IMPLEMENTED',
+    'PRODUCTION_APPROVAL_REQUIRED',
+    'ROLLBACK_RUNTIME_NOT_PROVEN',
+  ],
+  rollback: {
+    targetGuestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+    compatibilityDataRetentionRequired: true,
+    rehearsalRequired: true,
+    automaticExecutionAuthorized: false,
+  },
+}
 
 describe('NativeContentShadowComparisonPanel', () => {
   beforeEach(() => {
@@ -78,6 +96,7 @@ describe('NativeContentShadowComparisonPanel', () => {
       guestReadPathChanged: false,
       cutoverAuthorized: false,
       legacyRetirementAuthorized: false,
+      readSwitchContract,
     })
   })
   afterEach(cleanup)
@@ -96,6 +115,9 @@ describe('NativeContentShadowComparisonPanel', () => {
     expect(screen.getByText(/No pass threshold is inferred/)).toBeTruthy()
     expect(screen.getByText(/does not switch guest retrieval/)).toBeTruthy()
     expect(screen.getByText(/· New failure · score/)).toBeTruthy()
+    expect(screen.getByText('Non-executable read-switch contract')).toBeTruthy()
+    expect(screen.getByText(/Founder-approved quality thresholds/)).toBeTruthy()
+    expect(screen.getByText(/Rollback target: retained compatibility retrieval/)).toBeTruthy()
   })
 
   it('shows a bounded missing-evidence state and remains accessible', async () => {
@@ -119,6 +141,12 @@ describe('NativeContentShadowComparisonPanel', () => {
       guestReadPathChanged: false,
       cutoverAuthorized: false,
       legacyRetirementAuthorized: false,
+      readSwitchContract: {
+        ...readSwitchContract,
+        phase: 'EVIDENCE_INCOMPLETE',
+        evidenceComplete: false,
+        blockers: ['SHADOW_EVIDENCE_INCOMPARABLE', ...readSwitchContract.blockers],
+      },
     })
     render(<NativeContentShadowComparisonPanel {...props} />)
     fireEvent.click(screen.getByRole('button', { name: 'Choose frozen runs' }))

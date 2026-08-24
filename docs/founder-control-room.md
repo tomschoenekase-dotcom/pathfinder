@@ -121,7 +121,11 @@ production cutover.
 For an exact native release, a second mobile-responsive panel compares completed frozen legacy and
 native evaluation runs. It permits only the intentional content/config snapshot change, fails
 closed on corpus, case-evidence, model, or prompt drift, and reports raw case/latency/cost deltas.
-It does not infer an approval threshold, switch guest retrieval, or authorize legacy retirement.
+It also assembles a deterministic read-switch contract from that comparison and the current exact-
+head convergence result. The contract is evidence-only: it lists missing evidence and retained
+policy/runtime gates, preserves compatibility retrieval as the rollback target, and requires a
+rollback rehearsal. It does not infer an approval threshold, implement a read executor, switch guest
+retrieval, authorize automatic rollback, or authorize legacy retirement.
 
 The same separately credentialed boundary exposes
 `POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
