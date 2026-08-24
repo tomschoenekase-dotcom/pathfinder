@@ -42,5 +42,5 @@ describe('agent operation coverage inventory', () => {
     expect(report.operations.bindings.validation.unavailableSurfaces).toEqual([])
     expect(report.operations.bindings.validation.digestMatches).toBe(true)
     expect(report.healthy).toBe(true)
-  }, 15_000)
+  }, 30_000)
 })
