@@ -72,6 +72,7 @@ const approvedCallCounts = new Map([
   // Founder decision records and derives one exact APPLIED-package reversion grant;
   // the route never executes the reversion, changes support state, or contacts customers.
   ['packages/api/src/routers/admin/support-package-reversion-approval.ts', 1],
+  ['packages/api/src/routers/admin/support-package-handoff-supersession-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
