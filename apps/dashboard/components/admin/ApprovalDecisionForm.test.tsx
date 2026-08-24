@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   decidePackageApproval: vi.fn(),
   decidePackageApplication: vi.fn(),
   decidePackageReversion: vi.fn(),
+  decidePackageHandoffSupersession: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -26,6 +27,9 @@ vi.mock('../../lib/trpc', () => ({
       decideSupportPackageApprovalProposal: { mutate: mocks.decidePackageApproval },
       decideSupportPackageApplicationProposal: { mutate: mocks.decidePackageApplication },
       decideSupportPackageReversionProposal: { mutate: mocks.decidePackageReversion },
+      decideSupportPackageHandoffSupersessionProposal: {
+        mutate: mocks.decidePackageHandoffSupersession,
+      },
       getApprovalRequest: { query: mocks.query },
     },
   }),
@@ -318,6 +322,38 @@ describe('ApprovalDecisionForm', () => {
     )
     expect(mocks.decidePackageReversion).toHaveBeenCalledWith({
       operationId: '99999999-9999-4999-8999-999999999999',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_1',
+      decision: 'APPROVED',
+    })
+  })
+
+  it('issues exact replacement-lineage authority without changing customer-visible state', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    )
+    mocks.decidePackageHandoffSupersession.mockResolvedValue({
+      decision: { id: 'decision_1' },
+      approvalGrant: { id: 'grant_1' },
+      executionTriggered: false,
+    })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="pathfinder.apply_support_package_handoff_supersession"
+      />,
+    )
+    expect(screen.getByText(/preserve the reverted handoff as history/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(screen.getByText(/no package, support status, client activity/)).toBeTruthy(),
+    )
+    expect(mocks.decidePackageHandoffSupersession).toHaveBeenCalledWith({
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       approvalRequestId: 'approval_1',

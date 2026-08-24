@@ -7,6 +7,7 @@ import {
   SupportPackageApprovalApplyParameters,
   SupportPackageApplicationApplyParameters,
   SupportPackageReversionApplyParameters,
+  SupportPackageHandoffSupersessionApplyParameters,
 } from '@pathfinder/contracts'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
@@ -59,6 +60,8 @@ import {
   prepareSupportPackageDraftProposalAction,
   recordApprovalDecisionAction,
   supportPackageDraftPayloadHash,
+  readSupportPackageFulfillment,
+  supersedeSupportPackageHandoffAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -67,6 +70,7 @@ import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-pa
 import { prepareSupportPackageApprovalProposalAction } from './lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from './lib/support-package-application-actions'
 import { prepareSupportPackageReversionProposalAction } from './lib/support-package-reversion-actions'
+import { prepareSupportPackageHandoffSupersessionProposalAction } from './lib/support-package-handoff-supersession-actions'
 import {
   applyVenuePackageLifecycle,
   approveVenuePackageLifecycle,
@@ -1347,6 +1351,250 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         replayed: true,
         revertedPackage: { id: applied.value.id, status: 'REVERTED' },
       })
+
+      await expect(
+        readSupportPackageFulfillment(db as never, {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+        }),
+      ).rejects.toThrow('is not fully applied')
+
+      const packageFixture = await db.venuePackage.findUniqueOrThrow({
+        where: { id: applied.value.id },
+        select: {
+          schemaVersion: true,
+          payload: true,
+          payloadHash: true,
+          baseDigest: true,
+          validationReport: true,
+          previewPlan: true,
+        },
+      })
+      const replacementApprovedAt = new Date()
+      const replacementAppliedAt = new Date(replacementApprovedAt.getTime() + 1)
+      const replacement = await db.venuePackage.create({
+        data: {
+          tenantId,
+          venueId,
+          draftKey: randomUUID(),
+          schemaVersion: packageFixture.schemaVersion,
+          payload: JSON.parse(JSON.stringify(packageFixture.payload)),
+          payloadHash: packageFixture.payloadHash,
+          baseDigest: packageFixture.baseDigest,
+          validationReport: JSON.parse(JSON.stringify(packageFixture.validationReport)),
+          previewPlan: JSON.parse(JSON.stringify(packageFixture.previewPlan)),
+          status: 'APPLIED',
+          createdBy: operatorId,
+          approvedBy: operatorId,
+          approvedAt: replacementApprovedAt,
+          approvedCommandKey: randomUUID(),
+          approvalWarningDigest: '0'.repeat(64),
+          approvedWarningCodes: [],
+          appliedBy: operatorId,
+          appliedAt: replacementAppliedAt,
+          appliedCommandKey: randomUUID(),
+          appliedEntities: [],
+        },
+      })
+      const replacementHandoff = await db.supportPackageHandoff.create({
+        data: {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+          venuePackageId: replacement.id,
+          requestVersion: reopened.version,
+          linkedByKind: 'OPERATOR',
+          linkedById: operatorId,
+        },
+      })
+      await expect(
+        readSupportPackageFulfillment(db as never, {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+        }),
+      ).rejects.toThrow('is not fully applied')
+
+      const priorHandoff = await db.supportPackageHandoff.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+          venuePackageId: applied.value.id,
+        },
+      })
+      const reconciliationIdentityId = `identity-package-reconciliation-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: reconciliationIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `support-package-reconciliation.${suffix}`,
+          name: 'Support package reconciliation worker',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['packages:reconcile'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const reconciliationRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: reconciliationIdentityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'support.package-handoff-supersession.propose',
+          scopeSnapshot: { accessCapabilities: ['packages:reconcile'] },
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: new Date(),
+        },
+      })
+      const currentRequest = await db.supportRequest.findUniqueOrThrow({
+        where: { id: request.id },
+        select: { version: true },
+      })
+      const supersessionProposalOperationId = randomUUID()
+      const reconciliationActorBase = {
+        type: 'AGENT' as const,
+        actorId: reconciliationIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: reconciliationIdentityId,
+        agentRunId: reconciliationRun.id,
+        workerId: `reconciliation-worker-${suffix}`,
+        credentialId: `reconciliation-credential-${suffix}`,
+        capability: 'packages:reconcile',
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+      }
+      const supersessionProposal = await prepareSupportPackageHandoffSupersessionProposalAction({
+        operationId: supersessionProposalOperationId,
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: currentRequest.version,
+        supersededHandoffId: priorHandoff.id,
+        replacementHandoffId: replacementHandoff.id,
+        reason: 'Preserve the reverted package as history and use its applied replacement.',
+        evidence: [{ type: 'SupportRequest', id: request.id }],
+        actor: {
+          ...reconciliationActorBase,
+          idempotencyKey: supersessionProposalOperationId,
+        },
+      })
+      expect(supersessionProposal).toMatchObject({
+        replayed: false,
+        snapshot: {
+          historicalHandoffPreserved: true,
+          replacementAlreadyApplied: true,
+          packageLifecycleChanged: false,
+          supportStatusChanged: false,
+          clientActivityChanged: false,
+          customerContacted: false,
+          executionAuthorized: false,
+        },
+      })
+      const supersessionDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: supersessionProposalOperationId,
+        decision: 'APPROVED',
+        reason: 'The exact applied package is the intended replacement.',
+        actor: { actorType: 'HUMAN', actorId: operatorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const supersessionParameters = SupportPackageHandoffSupersessionApplyParameters.parse({
+        clientId: tenantId,
+        venueId,
+        requestId: supersessionProposal.snapshot.requestId,
+        expectedVersion: supersessionProposal.snapshot.expectedVersion,
+        supportRequestStatus: supersessionProposal.snapshot.supportRequestStatus,
+        superseded: supersessionProposal.snapshot.superseded,
+        replacement: supersessionProposal.snapshot.replacement,
+      })
+      const supersessionGrant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: reconciliationIdentityId,
+        actionName: 'pathfinder.apply_support_package_handoff_supersession',
+        capability: 'packages:reconcile',
+        mode: 'ONE_SHOT',
+        scope: {
+          contractVersion: 1,
+          tenantId,
+          venueId,
+          approvalRequestId: supersessionProposalOperationId,
+          effect: 'EXACT_SUPPORT_PACKAGE_HANDOFF_CURRENT_TRUTH_SUPERSESSION',
+        },
+        parameters: supersessionParameters,
+        approvalDecisionId: supersessionDecision.id,
+        issueReason: 'Record this exact reviewed replacement lineage once.',
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const supersessionOperationId = randomUUID()
+      const reconciliationActor = {
+        ...reconciliationActorBase,
+        approvalGrantId: supersessionGrant.id,
+        idempotencyKey: supersessionOperationId,
+      }
+      const supersede = () =>
+        db.$transaction(async (tx) => {
+          const sameTransaction = {
+            $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+          } as never
+          const consumption = await consumeApprovalGrantAction(
+            {
+              tenantId,
+              venueId,
+              approvalGrantId: supersessionGrant.id,
+              operationId: supersessionOperationId,
+              actionName: 'pathfinder.apply_support_package_handoff_supersession',
+              capability: 'packages:reconcile',
+              parameters: supersessionParameters,
+              actor: reconciliationActor,
+            },
+            sameTransaction,
+          )
+          const result = await supersedeSupportPackageHandoffAction(
+            {
+              operationId: supersessionOperationId,
+              tenantId,
+              venueId,
+              parameters: supersessionParameters,
+              actor: reconciliationActor,
+            },
+            sameTransaction,
+          )
+          const reference = `SupportPackageHandoffSupersession:${result.supersession.id}:${result.requestVersion}`
+          if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
+          else
+            await tx.approvalGrantConsumption.update({
+              where: { id: consumption.consumption.id },
+              data: { resultReference: reference },
+            })
+          return result
+        })
+      await expect(supersede()).resolves.toMatchObject({ replayed: false })
+      await expect(supersede()).resolves.toMatchObject({ replayed: true })
+      await expect(
+        readSupportPackageFulfillment(db as never, {
+          tenantId,
+          venueId,
+          supportRequestId: request.id,
+        }),
+      ).resolves.toMatchObject({
+        linkedPackageCount: 1,
+        packages: [{ handoffId: replacementHandoff.id, packageId: replacement.id }],
+      })
+      expect(await db.supportPackageHandoff.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.supportPackageHandoffSupersession.count({ where: { tenantId, venueId } }),
+      ).toBe(1)
     })
   })
 })

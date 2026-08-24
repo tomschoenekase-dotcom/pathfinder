@@ -15,6 +15,11 @@ describe('support package fulfillment evidence', () => {
     expect(first).toMatchObject({ contractVersion: 1, linkedPackageCount: 0, packages: [] })
     expect(first.digest).toMatch(/^[a-f0-9]{64}$/)
     expect(sameSupportPackageFulfillment(first, second)).toBe(true)
+    expect(reader.supportPackageHandoff.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ supersessionAsPrior: { is: null } }),
+      }),
+    )
   })
 
   it('freezes complete APPLIED identity and rejects any non-applied package', async () => {

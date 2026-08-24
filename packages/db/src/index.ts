@@ -391,6 +391,11 @@ export {
   SupportPackageFulfillmentError,
 } from './helpers/support-package-fulfillment'
 export {
+  supersedeSupportPackageHandoffAction,
+  SupportPackageHandoffSupersessionError,
+  type SupersedeSupportPackageHandoffInput,
+} from './helpers/support-package-handoff-supersession-actions'
+export {
   prepareSupportPackageDraftProposalAction,
   supportPackageDraftPayloadHash,
   SupportPackageDraftProposalActionError,

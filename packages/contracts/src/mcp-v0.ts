@@ -3,6 +3,8 @@ import { z } from 'zod'
 import {
   SupportPackageApprovalApplyParameters,
   SupportPackageApplicationApplyParameters,
+  SupersededSupportPackageHandoff,
+  ReplacementSupportPackageHandoff,
   SupportPackageReversionApplyParameters,
   SupportPackageDraftApplyParameters,
 } from './agent-approval-policy'
@@ -78,6 +80,7 @@ export const McpCapability = z.enum([
   'packages:draft',
   'packages:approve',
   'packages:apply',
+  'packages:reconcile',
   'packages:revert',
   'support:draft',
   'support:open',
@@ -854,6 +857,44 @@ export type McpSupportPackageReversionApplyInput = z.infer<
   typeof McpSupportPackageReversionApplyInput
 >
 
+const SupportPackageHandoffSupersessionFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  supportRequestStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  superseded: SupersededSupportPackageHandoff,
+  replacement: ReplacementSupportPackageHandoff,
+}
+
+export const McpSupportPackageHandoffSupersessionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  supersededHandoffId: Identifier,
+  replacementHandoffId: Identifier,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageHandoffSupersessionProposalInput = z.infer<
+  typeof McpSupportPackageHandoffSupersessionProposalInput
+>
+
+export const McpSupportPackageHandoffSupersessionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageHandoffSupersessionFields,
+}).strict()
+export type McpSupportPackageHandoffSupersessionApplyInput = z.infer<
+  typeof McpSupportPackageHandoffSupersessionApplyInput
+>
+
 export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1178,6 +1219,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.apply_support_package_application'
   | 'pathfinder.propose_support_package_reversion'
   | 'pathfinder.apply_support_package_reversion'
+  | 'pathfinder.propose_support_package_handoff_supersession'
+  | 'pathfinder.apply_support_package_handoff_supersession'
   | 'torchiko.agent_improvements.propose'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
@@ -2307,6 +2350,150 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'packages:revert', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_handoff_supersession',
+    title: 'Propose replacement of a reverted support package handoff',
+    description:
+      'Freeze one exact unsuperseded REVERTED support package handoff and one separately linked APPLIED replacement for founder review. It changes no package or support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        supersededHandoffId: { type: 'string', minLength: 1, maxLength: 120 },
+        replacementHandoffId: { type: 'string', minLength: 1, maxLength: 120 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'supersededHandoffId',
+        'replacementHandoffId',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:reconcile', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_package_handoff_supersession',
+    title: 'Record an applied replacement for a reverted support package',
+    description:
+      'Under one founder-issued one-shot grant, append current-truth supersession lineage while retaining both immutable handoffs. It changes no package content, support status, client activity, or message.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        supportRequestStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        superseded: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'handoffId',
+            'packageId',
+            'handoffRequestVersion',
+            'packageUpdatedAt',
+            'payloadHash',
+            'revertedAt',
+            'revertedBy',
+            'revertedCommandKey',
+          ],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            packageId: { type: 'string', minLength: 1, maxLength: 191 },
+            handoffRequestVersion: { type: 'integer', minimum: 1 },
+            packageUpdatedAt: { type: 'string', format: 'date-time' },
+            payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            revertedAt: { type: 'string', format: 'date-time' },
+            revertedBy: { type: 'string', minLength: 1, maxLength: 191 },
+            revertedCommandKey: { type: 'string', format: 'uuid' },
+          },
+        },
+        replacement: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'handoffId',
+            'packageId',
+            'handoffRequestVersion',
+            'packageUpdatedAt',
+            'payloadHash',
+            'appliedAt',
+            'appliedBy',
+            'appliedCommandKey',
+          ],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            packageId: { type: 'string', minLength: 1, maxLength: 191 },
+            handoffRequestVersion: { type: 'integer', minimum: 1 },
+            packageUpdatedAt: { type: 'string', format: 'date-time' },
+            payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            appliedAt: { type: 'string', format: 'date-time' },
+            appliedBy: { type: 'string', minLength: 1, maxLength: 191 },
+            appliedCommandKey: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'supportRequestStatus',
+        'superseded',
+        'replacement',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:reconcile', 'approved-transition'),
     },
   },
   {

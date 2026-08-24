@@ -24,6 +24,9 @@ export const SUPPORT_PACKAGE_APPLICATION_CAPABILITY = 'packages:apply' as const
 export const SUPPORT_PACKAGE_REVERSION_APPLY_ACTION =
   'pathfinder.apply_support_package_reversion' as const
 export const SUPPORT_PACKAGE_REVERSION_CAPABILITY = 'packages:revert' as const
+export const SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_APPLY_ACTION =
+  'pathfinder.apply_support_package_handoff_supersession' as const
+export const SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY = 'packages:reconcile' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_ACTION = 'pathfinder.add_support_internal_note' as const
 export const SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY = 'support:note' as const
 export const INTAKE_NOTES_PROPOSAL_POLICY_ACTION =
@@ -620,6 +623,81 @@ export const SupportPackageReversionProposalSnapshot = z
 
 export type SupportPackageReversionProposalSnapshot = z.infer<
   typeof SupportPackageReversionProposalSnapshot
+>
+
+export const SupersededSupportPackageHandoff = z
+  .object({
+    handoffId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    handoffRequestVersion: z.number().int().positive(),
+    packageUpdatedAt: z.string().datetime(),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    revertedAt: z.string().datetime(),
+    revertedBy: z.string().trim().min(1).max(191),
+    revertedCommandKey: z.string().uuid(),
+  })
+  .strict()
+
+export const ReplacementSupportPackageHandoff = z
+  .object({
+    handoffId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    handoffRequestVersion: z.number().int().positive(),
+    packageUpdatedAt: z.string().datetime(),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    appliedAt: z.string().datetime(),
+    appliedBy: z.string().trim().min(1).max(191),
+    appliedCommandKey: z.string().uuid(),
+  })
+  .strict()
+
+/** Exact one-shot authority to append current-truth lineage from one reverted
+ * support package handoff to one separately linked, fully applied replacement.
+ * It changes no package content, support status, client activity, or message. */
+export const SupportPackageHandoffSupersessionApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    supportRequestStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    superseded: SupersededSupportPackageHandoff,
+    replacement: ReplacementSupportPackageHandoff,
+  })
+  .strict()
+  .refine((value) => value.superseded.handoffId !== value.replacement.handoffId, {
+    path: ['replacement', 'handoffId'],
+    message: 'Replacement handoff must differ from the superseded handoff.',
+  })
+
+export type SupportPackageHandoffSupersessionApplyParameters = z.infer<
+  typeof SupportPackageHandoffSupersessionApplyParameters
+>
+
+export const SupportPackageHandoffSupersessionProposalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    requestId: z.string().trim().min(1).max(191),
+    expectedVersion: z.number().int().positive(),
+    supportRequestStatus: z.enum(['OPEN', 'IN_REVIEW']),
+    superseded: SupersededSupportPackageHandoff,
+    replacement: ReplacementSupportPackageHandoff,
+    historicalHandoffPreserved: z.literal(true),
+    replacementAlreadyApplied: z.literal(true),
+    packageLifecycleChanged: z.literal(false),
+    supportRequestChanged: z.literal(false),
+    supportStatusChanged: z.literal(false),
+    clientActivityChanged: z.literal(false),
+    customerContacted: z.literal(false),
+    externalDeliveryTriggered: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+
+export type SupportPackageHandoffSupersessionProposalSnapshot = z.infer<
+  typeof SupportPackageHandoffSupersessionProposalSnapshot
 >
 
 /** Reviewed authority for one internal-only support note. Issuers must cap this

@@ -153,6 +153,14 @@ export const adminSupportOperationsRouter = router({
           linkedById: true,
           createdAt: true,
           venuePackage: { select: { status: true, schemaVersion: true, payloadHash: true } },
+          supersessionAsPrior: {
+            select: { id: true, replacementHandoffId: true, requestVersion: true, createdAt: true },
+          },
+          supersessionsAsReplacement: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: 100,
+            select: { id: true, supersededHandoffId: true, requestVersion: true, createdAt: true },
+          },
         },
       })
     }),

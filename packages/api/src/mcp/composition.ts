@@ -11,6 +11,9 @@ import {
   SUPPORT_PACKAGE_REVERSION_APPLY_ACTION,
   SUPPORT_PACKAGE_REVERSION_CAPABILITY,
   SupportPackageReversionApplyParameters,
+  SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_APPLY_ACTION,
+  SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
+  SupportPackageHandoffSupersessionApplyParameters,
   SupportCompletionProposalApprovalSnapshot,
 } from '@pathfinder/contracts'
 import {
@@ -49,6 +52,7 @@ import {
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
+  supersedeSupportPackageHandoffAction,
 } from '@pathfinder/db'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
@@ -62,6 +66,7 @@ import {
   prepareSupportPackageReversionProposalAction,
   supportPackageRollbackManifestDigest,
 } from '../lib/support-package-reversion-actions'
+import { prepareSupportPackageHandoffSupersessionProposalAction } from '../lib/support-package-handoff-supersession-actions'
 import {
   applyVenuePackageLifecycle,
   approveVenuePackageLifecycle,
@@ -103,6 +108,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_package_application',
   'pathfinder.propose_support_package_reversion',
   'pathfinder.apply_support_package_reversion',
+  'pathfinder.propose_support_package_handoff_supersession',
+  'pathfinder.apply_support_package_handoff_supersession',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
   'torchiko.customer_access.prepare_invitation',
@@ -200,6 +207,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportPackageApplication'
     | 'proposeSupportPackageReversion'
     | 'applySupportPackageReversion'
+    | 'proposeSupportPackageHandoffSupersession'
+    | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -245,6 +254,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'applySupportPackageApplication'
     | 'proposeSupportPackageReversion'
     | 'applySupportPackageReversion'
+    | 'proposeSupportPackageHandoffSupersession'
+    | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
@@ -2724,6 +2735,309 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           canonicalDriftCheckPassed: true,
           automaticRollbackPolicyApplied: false,
           supportRequestChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+        }),
+      }
+    },
+    async proposeSupportPackageHandoffSupersession(input, context) {
+      const venueId = input.venueId
+      if (!venueId) {
+        throw new McpActionBindingError('Support package handoff supersession requires venue scope')
+      }
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) {
+        throw new McpActionBindingError('Verified package-reconciliation worker is unavailable')
+      }
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) {
+        throw new McpActionBindingError('Verified package-reconciliation run is unavailable')
+      }
+      const result = await prepareSupportPackageHandoffSupersessionProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          requestId: input.requestId,
+          expectedVersion: input.expectedVersion,
+          supersededHandoffId: input.supersededHandoffId,
+          replacementHandoffId: input.replacementHandoffId,
+          reason: input.reason,
+          evidence: input.evidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.workerKey,
+            credentialId: context.credential.credentialId,
+            capability: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'support-package-handoff-supersession.proposal-created',
+            sourceSubsystem: 'support',
+            severity: 'WARNING',
+            title: 'Support package current-truth lineage needs founder approval',
+            summary:
+              'An AI worker froze one reverted handoff and one already-applied replacement. No package, customer-visible activity, or support status changed.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Confirm the replacement is the intended current fulfillment. Approval issues one-shot lineage authority and does not execute it.',
+            deduplicationKey: `support-package-handoff-supersession:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-package-handoff-supersession-proposal',
+        summary: result.replayed
+          ? 'Existing handoff-supersession proposal returned; current truth remains unchanged.'
+          : 'Exact reverted and replacement handoffs prepared for founder review; current truth remains unchanged.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          requestId: result.snapshot.requestId,
+          expectedVersion: result.snapshot.expectedVersion,
+          supersededHandoffId: result.snapshot.superseded.handoffId,
+          replacementHandoffId: result.snapshot.replacement.handoffId,
+          replayed: result.replayed,
+          approvalRequired: true,
+          historicalHandoffPreserved: true,
+          replacementAlreadyApplied: true,
+          packageLifecycleChanged: false,
+          supportStatusChanged: false,
+          clientActivityChanged: false,
+          customerContacted: false,
+          externalDeliveryTriggered: false,
+          executionAuthorized: false,
+        }),
+      }
+    },
+    async applySupportPackageHandoffSupersession(input, context) {
+      const venueId = input.venueId
+      if (!venueId) {
+        throw new McpActionBindingError('Support package handoff supersession requires venue scope')
+      }
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const approvalGrantId = context.approvalGrantId
+      const parameters = SupportPackageHandoffSupersessionApplyParameters.parse({
+        clientId: context.credential.clientId,
+        venueId,
+        requestId: input.requestId,
+        expectedVersion: input.expectedVersion,
+        supportRequestStatus: input.supportRequestStatus,
+        superseded: input.superseded,
+        replacement: input.replacement,
+      })
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) {
+        throw new McpActionBindingError('Verified package-reconciliation worker is unavailable')
+      }
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { requestedOperation: true },
+      })
+      if (!run) {
+        throw new McpActionBindingError('Verified package-reconciliation run is unavailable')
+      }
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId,
+        capability: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const grant = await tx.approvalGrant.findFirst({
+          where: {
+            id: approvalGrantId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
+          },
+          select: { approvalDecision: { select: { decision: true, decidedByType: true } } },
+        })
+        if (
+          grant?.approvalDecision?.decision !== 'APPROVED' ||
+          grant.approvalDecision.decidedByType !== 'HUMAN'
+        ) {
+          throw new McpActionBindingError('Handoff supersession requires founder decision evidence')
+        }
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId,
+            operationId: input.operationId,
+            actionName: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_APPLY_ACTION,
+            capability: SUPPORT_PACKAGE_HANDOFF_SUPERSESSION_CAPABILITY,
+            parameters,
+            actor,
+            now,
+          },
+          sameTransaction,
+        )
+        const applied = await supersedeSupportPackageHandoffAction(
+          {
+            operationId: input.operationId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            parameters,
+            actor,
+          },
+          sameTransaction,
+        )
+        const resultReference = `SupportPackageHandoffSupersession:${applied.supersession.id}:${applied.requestVersion}`
+        if (consumption.replayed) {
+          if (consumption.consumption.resultReference !== resultReference || !applied.replayed) {
+            throw new McpActionBindingError('Handoff supersession replay is incomplete')
+          }
+          return { ...applied, replayed: true as const }
+        }
+        const action = await tx.agentAction.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentIdentityId: input.agentIdentityId,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            requestedOperation: run.requestedOperation,
+            actionName: 'torchiko.support.apply_package_handoff_supersession',
+            inputSummary: `Record founder-approved replacement lineage for support request ${parameters.requestId}.`,
+            inputReference: `ApprovalGrant:${approvalGrantId}`,
+            output: {
+              supersessionId: applied.supersession.id,
+              supersededHandoffId: applied.supersession.supersededHandoffId,
+              replacementHandoffId: applied.supersession.replacementHandoffId,
+              historicalHandoffPreserved: true,
+              packageLifecycleChanged: false,
+              supportStatusChanged: false,
+              clientActivityChanged: false,
+              customerContacted: false,
+              externalDeliveryTriggered: false,
+            },
+            modelProvider: worker.modelProvider ?? null,
+            modelName: worker.modelName ?? null,
+            status: 'SUCCEEDED',
+            beforeVersionRef: `SupportRequest:${parameters.requestId}:${parameters.expectedVersion}`,
+            afterVersionRef: resultReference,
+          },
+          select: { id: true },
+        })
+        await tx.agentTimelineEvent.create({
+          data: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentRunId: input.agentRunId,
+            agentActionId: action.id,
+            actorType: 'AGENT',
+            actorId: input.agentIdentityId,
+            eventType: 'support-package-handoff-supersession.recorded',
+            message:
+              'Founder-approved current-truth lineage now points from the preserved reverted handoff to its applied replacement.',
+            data: {
+              supersessionId: applied.supersession.id,
+              supersededHandoffId: applied.supersession.supersededHandoffId,
+              replacementHandoffId: applied.supersession.replacementHandoffId,
+              historicalHandoffPreserved: true,
+              customerContacted: false,
+              externalDeliveryTriggered: false,
+            },
+          },
+        })
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference },
+        })
+        return { ...applied, replayed: false as const }
+      })
+      return {
+        kind: 'torchiko.support-package-handoff-superseded',
+        summary: result.replayed
+          ? 'Existing founder-authorized handoff supersession returned; no duplicate lineage was created.'
+          : 'Founder-authorized current-truth lineage recorded; historical handoff and package lifecycle remain intact.',
+        data: jsonData({
+          supersessionId: result.supersession.id,
+          requestId: result.supersession.supportRequestId,
+          requestVersion: result.requestVersion,
+          supersededHandoffId: result.supersession.supersededHandoffId,
+          replacementHandoffId: result.supersession.replacementHandoffId,
+          replayed: result.replayed,
+          historicalHandoffPreserved: true,
+          replacementAlreadyApplied: true,
+          packageLifecycleChanged: false,
+          supportStatusChanged: false,
+          clientActivityChanged: false,
           customerContacted: false,
           externalDeliveryTriggered: false,
         }),

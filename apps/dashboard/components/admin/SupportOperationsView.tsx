@@ -59,6 +59,18 @@ type Handoff = {
   linkedById: string
   createdAt: Date
   venuePackage: { status: string; schemaVersion: number; payloadHash: string }
+  supersessionAsPrior: {
+    id: string
+    replacementHandoffId: string
+    requestVersion: number
+    createdAt: Date
+  } | null
+  supersessionsAsReplacement: {
+    id: string
+    supersededHandoffId: string
+    requestVersion: number
+    createdAt: Date
+  }[]
 }
 type EligibleAttachment = {
   intakeUploadId: string
@@ -260,6 +272,20 @@ export function SupportOperationsView({
                           status {handoff.venuePackage.status} · schema v
                           {handoff.venuePackage.schemaVersion}
                         </p>
+                        {handoff.supersessionAsPrior ? (
+                          <p className="mt-1 text-xs font-semibold text-amber-800">
+                            Historical fulfillment · replaced by handoff{' '}
+                            {handoff.supersessionAsPrior.replacementHandoffId} at request version{' '}
+                            {handoff.supersessionAsPrior.requestVersion}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs font-semibold text-emerald-800">
+                            Current fulfillment
+                            {handoff.supersessionsAsReplacement.length > 0
+                              ? ` · replaces ${handoff.supersessionsAsReplacement.length} historical handoff${handoff.supersessionsAsReplacement.length === 1 ? '' : 's'}`
+                              : ''}
+                          </p>
+                        )}
                       </li>
                     ))}
                   </ol>

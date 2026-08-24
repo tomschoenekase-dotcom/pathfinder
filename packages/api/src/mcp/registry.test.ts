@@ -16,6 +16,7 @@ const credential: VerifiedMcpCredentialScope = {
     'packages:approve',
     'packages:apply',
     'packages:revert',
+    'packages:reconcile',
     'evaluations:request',
     'questions:ask',
     'delegations:create',
@@ -62,6 +63,8 @@ function actions(): PathfinderMcpDomainActions {
     applySupportPackageApplication: vi.fn().mockResolvedValue(result),
     proposeSupportPackageReversion: vi.fn().mockResolvedValue(result),
     applySupportPackageReversion: vi.fn().mockResolvedValue(result),
+    proposeSupportPackageHandoffSupersession: vi.fn().mockResolvedValue(result),
+    applySupportPackageHandoffSupersession: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
@@ -613,6 +616,70 @@ describe('PathFinder MCP server-side adapter registry', () => {
       expect.objectContaining({ credential }),
     )
     expect(domain.applySupportPackageReversion).toHaveBeenCalledOnce()
+  })
+
+  it('routes inert handoff-supersession review and requires packages:reconcile to execute', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const base = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 8,
+    }
+    await registry.callTool(
+      'pathfinder.propose_support_package_handoff_supersession',
+      {
+        ...base,
+        supersededHandoffId: 'handoff-old',
+        replacementHandoffId: 'handoff-new',
+        reason: 'The applied replacement should become current fulfillment.',
+      },
+      { credential },
+    )
+    expect(domain.proposeSupportPackageHandoffSupersession).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+    await registry.callTool(
+      'pathfinder.apply_support_package_handoff_supersession',
+      {
+        ...base,
+        supportRequestStatus: 'IN_REVIEW',
+        superseded: {
+          handoffId: 'handoff-old',
+          packageId: 'package-old',
+          handoffRequestVersion: 4,
+          packageUpdatedAt: '2030-01-01T00:00:00.000Z',
+          payloadHash: 'a'.repeat(64),
+          revertedAt: '2030-01-01T00:00:00.000Z',
+          revertedBy: 'agent-old',
+          revertedCommandKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+        replacement: {
+          handoffId: 'handoff-new',
+          packageId: 'package-new',
+          handoffRequestVersion: 7,
+          packageUpdatedAt: '2030-01-02T00:00:00.000Z',
+          payloadHash: 'c'.repeat(64),
+          appliedAt: '2030-01-02T00:00:00.000Z',
+          appliedBy: 'agent-new',
+          appliedCommandKey: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+      },
+      { credential, approvalGrantId: 'grant-reconcile-1' },
+    )
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalGrantId: 'grant-reconcile-1',
+        toolName: 'pathfinder.apply_support_package_handoff_supersession',
+        capability: 'packages:reconcile',
+      }),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.applySupportPackageHandoffSupersession).toHaveBeenCalledOnce()
   })
 
   it('allows a scoped operator question without converting it into an approval or write grant', async () => {

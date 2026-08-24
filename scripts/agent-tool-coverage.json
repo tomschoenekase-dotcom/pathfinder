@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 411,
-    "sha256": "aeddef7c8ef9a71296b38e456024f65f11218c5efb542d9fa2ddbfae48e5a4e2",
+    "count": 412,
+    "sha256": "208194ca160a1ce195ae337bf9704e95aef77d88f5c08ba4f56ddfb7e5a9094c",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "aeddef7c8ef9a71296b38e456024f65f11218c5efb542d9fa2ddbfae48e5a4e2",
-      "sha256": "d6a499a6b53b3e82763739b9e43fe8058af9acba3371043e84aa284e14d5111d"
+      "operationInventorySha256": "208194ca160a1ce195ae337bf9704e95aef77d88f5c08ba4f56ddfb7e5a9094c",
+      "sha256": "14fb3393020a219c39f894535329c2a48507b114805ac3e2a5cb9934ff0d0d75"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -339,6 +339,17 @@
           "tool:pathfinder.apply_support_package_reversion"
         ],
         "decision": "The proposal freezes one exact unchanged APPLIED support-linked package, rollback-manifest digest, and active OPEN or IN_REVIEW request while mutating nothing. A founder decision issues one exact one-shot packages:revert grant. The executor invokes the canonical drift-checked package rollback and cannot alter support state, contact a customer, deliver externally, create an automatic rollback policy, or correct an already completed support case.",
+        "evidence": "packages/api/src/support-package-draft-disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-support-package-handoff-supersession-lifecycle",
+        "kind": "bounded-alternative",
+        "operations": ["admin.decideSupportPackageHandoffSupersessionProposal"],
+        "surfaces": [
+          "tool:pathfinder.propose_support_package_handoff_supersession",
+          "tool:pathfinder.apply_support_package_handoff_supersession"
+        ],
+        "decision": "When a support-linked package was safely reverted and a separately linked replacement is already fully APPLIED, the proposal freezes both exact handoff and lifecycle identities while changing nothing. A founder decision issues one exact one-shot packages:reconcile grant. The executor appends current-truth lineage, preserves the reverted handoff as immutable history, and cannot change package lifecycle, support status, client activity, messages, customer contact, or external delivery.",
         "evidence": "packages/api/src/support-package-draft-disposable.integration.test.ts"
       },
       {

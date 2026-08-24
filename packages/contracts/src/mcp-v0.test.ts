@@ -13,6 +13,8 @@ import {
   McpSupportPackageApprovalProposalInput,
   McpSupportPackageApplicationApplyInput,
   McpSupportPackageApplicationProposalInput,
+  McpSupportPackageHandoffSupersessionApplyInput,
+  McpSupportPackageHandoffSupersessionProposalInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -361,6 +363,69 @@ describe('Torchiko MCP v0 contracts', () => {
     ).toMatchObject({
       capability: 'packages:apply',
       effect: 'approved-transition',
+      approvalRequired: true,
+      defaultEnabled: false,
+    })
+  })
+
+  it('separates inert handoff-supersession review from exact approved execution', () => {
+    const common = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'request-1',
+      expectedVersion: 8,
+    }
+    expect(
+      McpSupportPackageHandoffSupersessionProposalInput.parse({
+        ...common,
+        supersededHandoffId: 'handoff-old',
+        replacementHandoffId: 'handoff-new',
+        reason: 'The applied replacement should become current fulfillment.',
+      }),
+    ).toMatchObject({ requestId: 'request-1' })
+    const apply = {
+      ...common,
+      supportRequestStatus: 'IN_REVIEW' as const,
+      superseded: {
+        handoffId: 'handoff-old',
+        packageId: 'package-old',
+        handoffRequestVersion: 4,
+        packageUpdatedAt: '2030-01-01T00:00:00.000Z',
+        payloadHash: 'a'.repeat(64),
+        revertedAt: '2030-01-01T00:00:00.000Z',
+        revertedBy: 'agent-old',
+        revertedCommandKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      replacement: {
+        handoffId: 'handoff-new',
+        packageId: 'package-new',
+        handoffRequestVersion: 7,
+        packageUpdatedAt: '2030-01-02T00:00:00.000Z',
+        payloadHash: 'c'.repeat(64),
+        appliedAt: '2030-01-02T00:00:00.000Z',
+        appliedBy: 'agent-new',
+        appliedCommandKey: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    }
+    expect(McpSupportPackageHandoffSupersessionApplyInput.parse(apply)).toEqual(apply)
+    expect(() =>
+      McpSupportPackageHandoffSupersessionApplyInput.parse({ ...apply, contactCustomer: true }),
+    ).toThrow()
+    expect(
+      PATHFINDER_MCP_TOOLS.find(
+        ({ name }) => name === 'pathfinder.propose_support_package_handoff_supersession',
+      )?._meta['com.pathfinder/security'],
+    ).toMatchObject({ capability: 'packages:reconcile', approvalRequired: false })
+    expect(
+      PATHFINDER_MCP_TOOLS.find(
+        ({ name }) => name === 'pathfinder.apply_support_package_handoff_supersession',
+      )?._meta['com.pathfinder/security'],
+    ).toMatchObject({
+      capability: 'packages:reconcile',
       approvalRequired: true,
       defaultEnabled: false,
     })

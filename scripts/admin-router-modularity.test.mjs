@@ -68,6 +68,7 @@ const expectedAdminProcedures = [
   'decideSupportPackageApplicationProposal',
   'decideSupportPackageApprovalProposal',
   'decideSupportPackageDraftProposal',
+  'decideSupportPackageHandoffSupersessionProposal',
   'decideSupportPackageReversionProposal',
   'decideSupportTriageProposal',
   'deleteProspectView',

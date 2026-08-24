@@ -37,6 +37,8 @@ import {
   McpSupportPackageApplicationApplyInput,
   McpSupportPackageReversionProposalInput,
   McpSupportPackageReversionApplyInput,
+  McpSupportPackageHandoffSupersessionProposalInput,
+  McpSupportPackageHandoffSupersessionApplyInput,
   McpSupportTriageProposalInput,
   McpSupportTriageApplyInput,
   McpToolResult,
@@ -86,6 +88,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'pathfinder.propose_support_package_approval'
         | 'pathfinder.propose_support_package_application'
         | 'pathfinder.propose_support_package_reversion'
+        | 'pathfinder.propose_support_package_handoff_supersession'
         | 'torchiko.agent_improvements.propose'
         | 'torchiko.agent_improvements.record_validation'
         | 'torchiko.customer_access.prepare_invitation'
@@ -200,6 +203,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   applySupportPackageReversion: (
     input: McpSupportPackageReversionApplyInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeSupportPackageHandoffSupersession: (
+    input: McpSupportPackageHandoffSupersessionProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  applySupportPackageHandoffSupersession: (
+    input: McpSupportPackageHandoffSupersessionApplyInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeAgentImprovement: (
@@ -539,6 +550,25 @@ export function createPathfinderMcpRegistry(
           result = await actions.applySupportPackageReversion(input, context)
           break
         }
+        case 'pathfinder.propose_support_package_handoff_supersession': {
+          const input = McpSupportPackageHandoffSupersessionProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeSupportPackageHandoffSupersession(input, context)
+          break
+        }
+        case 'pathfinder.apply_support_package_handoff_supersession': {
+          const input = McpSupportPackageHandoffSupersessionApplyInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.apply_support_package_handoff_supersession',
+            input,
+            metadata.capability,
+            context,
+          )
+          result = await actions.applySupportPackageHandoffSupersession(input, context)
+          break
+        }
         case 'torchiko.agent_improvements.propose': {
           const input = McpAgentImprovementProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -728,6 +758,7 @@ async function verifyApproval(
     | 'pathfinder.propose_billing_action'
     | 'pathfinder.propose_support_package_application'
     | 'pathfinder.propose_support_package_reversion'
+    | 'pathfinder.propose_support_package_handoff_supersession'
   >,
   scope: Readonly<{ clientId: string; venueId?: string | undefined }>,
   capability: string,

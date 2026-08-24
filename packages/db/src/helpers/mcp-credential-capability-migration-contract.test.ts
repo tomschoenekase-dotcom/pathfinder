@@ -27,6 +27,7 @@ const capabilityMigrationPaths = [
   '20260824231000_add_support_package_approval_capability',
   '20260824233000_add_support_package_application_capability',
   '20260824234000_add_support_package_reversion_capability',
+  '20260824235000_add_support_package_handoff_supersession',
 ]
 const capabilitySql = [
   sql,

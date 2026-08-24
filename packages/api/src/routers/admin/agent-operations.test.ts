@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   approvalGrantFindMany: vi.fn(),
   transactionApprovalFindFirst: vi.fn(),
   transactionPackageFindFirst: vi.fn(),
+  transactionSupportRequestFindFirst: vi.fn(),
   dbTransaction: vi.fn(),
   issueApprovalGrant: vi.fn(),
   revokeApprovalGrant: vi.fn(),
@@ -97,6 +98,7 @@ import { adminSupportCompletionApprovalRouter } from './support-completion-appro
 import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
 import { adminSupportReversionApprovalRouter } from './support-package-reversion-approval'
+import { adminSupportHandoffSupersessionApprovalRouter } from './support-package-handoff-supersession-approval'
 import { supportPackageRollbackManifestDigest } from '../../lib/support-package-reversion-actions'
 
 const testRouter = router({
@@ -110,6 +112,7 @@ const testRouter = router({
     adminSupportDraftApprovalRouter,
     adminSupportApplicationApprovalRouter,
     adminSupportReversionApprovalRouter,
+    adminSupportHandoffSupersessionApprovalRouter,
   ),
 })
 
@@ -136,6 +139,7 @@ describe('admin agent operations router', () => {
       operation({
         approvalRequest: { findFirst: mocks.transactionApprovalFindFirst },
         venuePackage: { findFirst: mocks.transactionPackageFindFirst },
+        supportRequest: { findFirst: mocks.transactionSupportRequestFindFirst },
       }),
     )
   })
@@ -1068,6 +1072,129 @@ describe('admin agent operations router', () => {
           supportRequestStatus: 'IN_REVIEW',
         }),
         approvalDecisionId: 'decision_package_reversion_1',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('issues exact handoff-supersession authority while preserving history and execution separation', async () => {
+    const snapshot = {
+      contractVersion: 1 as const,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'request_1',
+      expectedVersion: 8,
+      supportRequestStatus: 'IN_REVIEW' as const,
+      superseded: {
+        handoffId: 'handoff_old',
+        packageId: 'package_old',
+        handoffRequestVersion: 4,
+        packageUpdatedAt: '2030-01-01T00:00:00.000Z',
+        payloadHash: 'a'.repeat(64),
+        revertedAt: '2030-01-01T00:00:00.000Z',
+        revertedBy: 'agent_old',
+        revertedCommandKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      replacement: {
+        handoffId: 'handoff_new',
+        packageId: 'package_new',
+        handoffRequestVersion: 7,
+        packageUpdatedAt: '2030-01-02T00:00:00.000Z',
+        payloadHash: 'b'.repeat(64),
+        appliedAt: '2030-01-02T00:00:00.000Z',
+        appliedBy: 'agent_new',
+        appliedCommandKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+      historicalHandoffPreserved: true as const,
+      replacementAlreadyApplied: true as const,
+      packageLifecycleChanged: false as const,
+      supportRequestChanged: false as const,
+      supportStatusChanged: false as const,
+      clientActivityChanged: false as const,
+      customerContacted: false as const,
+      externalDeliveryTriggered: false as const,
+      executionAuthorized: false as const,
+    }
+    mocks.transactionApprovalFindFirst.mockResolvedValue({
+      id: 'approval_supersession_1',
+      agentIdentityId: 'agent_1',
+      proposedAction: 'pathfinder.apply_support_package_handoff_supersession',
+      scopeSnapshot: snapshot,
+      expiresAt: null,
+    })
+    mocks.transactionSupportRequestFindFirst.mockResolvedValue({
+      version: 8,
+      status: 'IN_REVIEW',
+      packageHandoffs: [
+        {
+          id: 'handoff_old',
+          requestVersion: 4,
+          supersessionAsPrior: null,
+          venuePackage: {
+            id: 'package_old',
+            status: 'REVERTED',
+            updatedAt: new Date(snapshot.superseded.packageUpdatedAt),
+            payloadHash: snapshot.superseded.payloadHash,
+            appliedAt: new Date('2029-12-31T00:00:00.000Z'),
+            appliedBy: 'agent_old',
+            appliedCommandKey: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            revertedAt: new Date(snapshot.superseded.revertedAt),
+            revertedBy: snapshot.superseded.revertedBy,
+            revertedCommandKey: snapshot.superseded.revertedCommandKey,
+          },
+        },
+        {
+          id: 'handoff_new',
+          requestVersion: 7,
+          supersessionAsPrior: null,
+          venuePackage: {
+            id: 'package_new',
+            status: 'APPLIED',
+            updatedAt: new Date(snapshot.replacement.packageUpdatedAt),
+            payloadHash: snapshot.replacement.payloadHash,
+            appliedAt: new Date(snapshot.replacement.appliedAt),
+            appliedBy: snapshot.replacement.appliedBy,
+            appliedCommandKey: snapshot.replacement.appliedCommandKey,
+            revertedAt: null,
+            revertedBy: null,
+            revertedCommandKey: null,
+          },
+        },
+      ],
+    })
+    mocks.recordDecision.mockResolvedValue({ id: 'decision_supersession_1' })
+    mocks.issueApprovalGrant.mockResolvedValue({ id: 'grant_supersession_1' })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.decideSupportPackageHandoffSupersessionProposal({
+        operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_supersession_1',
+        decision: 'APPROVED',
+      })
+    expect(result).toMatchObject({
+      executionTriggered: false,
+      approvalGrant: { id: 'grant_supersession_1' },
+    })
+    expect(mocks.issueApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: 'pathfinder.apply_support_package_handoff_supersession',
+        capability: 'packages:reconcile',
+        mode: 'ONE_SHOT',
+        scope: expect.objectContaining({
+          effect: 'EXACT_SUPPORT_PACKAGE_HANDOFF_CURRENT_TRUTH_SUPERSESSION',
+          historicalHandoffPreserved: true,
+          packageLifecycleChangeIncluded: false,
+          customerContactIncluded: false,
+        }),
+        parameters: expect.objectContaining({
+          requestId: 'request_1',
+          expectedVersion: 8,
+          superseded: snapshot.superseded,
+          replacement: snapshot.replacement,
+        }),
+        approvalDecisionId: 'decision_supersession_1',
       }),
       expect.anything(),
     )

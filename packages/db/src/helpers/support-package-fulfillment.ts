@@ -34,9 +34,11 @@ export function supportPackageFulfillmentDigest(
   return createHash('sha256').update(canonicalJson(value)).digest('hex')
 }
 
-/** Reads the exact current package fulfillment for one support request. Package-free
- * requests remain eligible. If any linked package is not fully APPLIED, completion
- * must stop instead of telling the client that unfinished work is complete. */
+/** Reads the exact current package fulfillment for one support request. Immutable
+ * handoffs that have append-only supersession evidence remain historical truth but
+ * no longer represent current fulfillment. Package-free requests remain eligible.
+ * If any current handoff is not fully APPLIED, completion must stop instead of
+ * telling the client that unfinished work is complete. */
 export async function readSupportPackageFulfillment(
   client: FulfillmentReader,
   input: { tenantId: string; venueId: string; supportRequestId: string },
@@ -46,6 +48,7 @@ export async function readSupportPackageFulfillment(
       tenantId: input.tenantId,
       venueId: input.venueId,
       supportRequestId: input.supportRequestId,
+      supersessionAsPrior: { is: null },
     },
     orderBy: [{ venuePackageId: 'asc' }, { id: 'asc' }],
     select: {

@@ -24,6 +24,7 @@ const technicalAllowlist = new Map([
       "const isSupportPackageApproval = proposedAction === 'pathfinder.apply_support_package_approval'",
       "proposedAction === 'pathfinder.apply_support_package_application'",
       "const isSupportPackageReversion = proposedAction === 'pathfinder.apply_support_package_reversion'",
+      "proposedAction === 'pathfinder.apply_support_package_handoff_supersession'",
       ": proposedAction === 'pathfinder.apply_support_triage'",
       ": proposedAction === 'pathfinder.apply_support_triage' &&",
     ]),
@@ -38,6 +39,7 @@ const technicalAllowlist = new Map([
       "'pathfinder.apply_support_package_approval' as const",
       "'pathfinder.apply_support_package_application' as const",
       "'pathfinder.apply_support_package_reversion' as const",
+      "'pathfinder.apply_support_package_handoff_supersession' as const",
     ]),
   ],
   [
@@ -57,6 +59,8 @@ const technicalAllowlist = new Map([
       "name: 'pathfinder.apply_support_package_application',",
       "| 'pathfinder.apply_support_package_reversion'",
       "name: 'pathfinder.apply_support_package_reversion',",
+      "| 'pathfinder.apply_support_package_handoff_supersession'",
+      "name: 'pathfinder.apply_support_package_handoff_supersession',",
     ]),
   ],
   [
@@ -76,6 +80,8 @@ const technicalAllowlist = new Map([
       "'pathfinder.apply_support_package_application',",
       "case 'pathfinder.apply_support_package_reversion': {",
       "'pathfinder.apply_support_package_reversion',",
+      "case 'pathfinder.apply_support_package_handoff_supersession': {",
+      "'pathfinder.apply_support_package_handoff_supersession',",
     ]),
   ],
   [

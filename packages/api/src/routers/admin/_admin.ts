@@ -11,6 +11,7 @@ import { adminSupportCompletionApprovalRouter } from './support-completion-appro
 import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
 import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
 import { adminSupportReversionApprovalRouter } from './support-package-reversion-approval'
+import { adminSupportHandoffSupersessionApprovalRouter } from './support-package-handoff-supersession-approval'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
@@ -97,6 +98,7 @@ export const adminRouter = mergeRouters(
   adminSupportDraftApprovalRouter,
   adminSupportApplicationApprovalRouter,
   adminSupportReversionApprovalRouter,
+  adminSupportHandoffSupersessionApprovalRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,

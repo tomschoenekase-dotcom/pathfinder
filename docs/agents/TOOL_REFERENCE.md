@@ -113,10 +113,20 @@ request. Completed cases fail closed. Founder approval issues one exact grant an
 Apply atomically consumes that grant and invokes the canonical content-drift-checked rollback.
 Support state, customer contact, external delivery, and automatic rollback policy are unavailable.
 
+`pathfinder.propose_support_package_handoff_supersession` and
+`pathfinder.apply_support_package_handoff_supersession` reconcile current truth after recovery.
+Proposal requires `packages:reconcile`, live credential-bound worker/run lineage, one exact
+unsuperseded handoff whose package is `REVERTED`, and a distinct handoff whose replacement package
+is already fully `APPLIED`. It changes nothing. Founder approval issues one exact one-shot grant
+and also executes nothing. Apply appends immutable supersession evidence so completion considers
+only the replacement while retaining the reverted handoff as historical truth. It cannot change
+package lifecycle, support status, client activity, messages, customer contact, or external state.
+
 `pathfinder.propose_support_completion` and `pathfinder.apply_support_completion` close the
 package-backed support loop only after fulfillment. Proposal requires an empty missing-information
-checklist and freezes exact applied identity for every package linked to the request; any unfinished
-package blocks it. Founder approval issues one exact completion grant and performs no contact. Apply
+checklist and freezes exact applied identity for every current package handoff; any unfinished
+current package blocks it. Superseded handoffs remain queryable history but are excluded from the
+current fulfillment digest. Founder approval issues one exact completion grant and performs no contact. Apply
 recomputes the package digest transactionally before creating the reviewed in-app message and moving
 the request to `COMPLETED`. Package-free requests remain supported. Package drift, a new handoff, or
 any non-`APPLIED` package fails closed; email and external delivery remain unavailable.
