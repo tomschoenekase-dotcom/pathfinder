@@ -31,12 +31,17 @@ export default defineConfig({
           {
             command: 'pnpm --dir ../web dev',
             url: `${visitorBaseUrl}/dev-fixtures/visitor-chat`,
+            env: { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '' },
             reuseExistingServer: !process.env.CI,
             timeout: 180_000,
           },
           {
             command: 'pnpm dev',
             url: `${dashboardBaseUrl}/dev-fixtures/portal-home`,
+            env: {
+              NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: '',
+              TORCHIKO_VISUAL_FIXTURES_ENABLED: '1',
+            },
             reuseExistingServer: !process.env.CI,
             timeout: 180_000,
           },
