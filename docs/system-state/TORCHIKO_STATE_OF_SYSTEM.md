@@ -96,7 +96,7 @@ The repo contains 13 workspaces, 757 production source files, 565 test files, 73
 
 ### Public surfaces
 
-The canonical allowlist is `packages/api/src/testing/public-surface-manifest.json`: 15 public tRPC procedures, seven HTTP route modules, and two dashboard public API path groups. Public tRPC covers health, venue lookup, chat, analytics collection, feedback, location resolution, widget availability, and voice lifecycle. Clerk webhook, agent bridge, web/dashboard tRPC, health, and widget readiness are the significant HTTP surfaces.
+The canonical allowlist is `packages/api/src/testing/public-surface-manifest.json`: 18 public tRPC procedures, 18 HTTP route modules, and 10 dashboard public API path groups. Public tRPC covers health, venue lookup, chat, analytics collection, public-interest intake, feedback, location resolution, widget availability, and voice lifecycle. Clerk/Stripe/Resend/Gmail webhooks, agent and MCP bridges, separately authenticated platform-worker routes, web/dashboard tRPC, health, and widget readiness are the significant HTTP surfaces.
 
 ## Product Surface Inventory
 
@@ -280,6 +280,13 @@ Analytics records raw guest events, conversation behavior, answer analyses, clus
 AI costs remain the best-instrumented variable cost. Model registries and usage events capture tokens, model/provider, latency, feature/workload, fallback, voice/audio and estimated cost; budgets and reservations bound spend. A provider-neutral append-only operating-cost ledger now represents storage, email, media processing, infrastructure, observability, security, bandwidth, operator time, and other evidence at platform, tenant, or venue scope. The Founder Control Room combines wholly contained 30-day evidence with AI estimates, identifies unrepresented categories and overlapping periods, separates platform-unallocated cost, and exposes the same projection to the read-only machine operating view. Real provider ingestion and accounting reconciliation remain absent, so the result is coverage evidence rather than invoices, margin, pricing truth, or anomaly policy.
 
 An operator can inspect failed jobs, stuck agent/evaluation states, support work, AI incident mode, usage/cost, freshness, package/release status, and some low-confidence chat failures. The Founder Control Room now also shows authenticated service-readiness evidence for exact migrations, worker heartbeat, scheduler/provider-work mode, complete live queue observation, paused queues, and long-running work; the public health response intentionally remains a fast connectivity/deployment probe. Blind spots remain: external uptime, storage/ClamAV/email/provider execution health, outbound event delivery, policy-backed queue-depth alerts, cost anomaly notifications, latency/error trends across every dependency, and automated poor-answer detection from production conversations.
+
+Exact candidate reports and staging handoffs can now be projected offline into immutable,
+content-addressed `PlatformReleaseEvidence`. Platform administrators or separately capability-gated
+workers may append it; Founder Control Room and bounded workers read the same current/history view.
+The database rejects mutation of retained evidence, retries are idempotent, and the surface states
+that it confers no staging/production deployment, migration, customer-contact, billing, or
+destructive-data authority. Hosted staging proof remains separate.
 
 ## Technical Debt / Drift
 

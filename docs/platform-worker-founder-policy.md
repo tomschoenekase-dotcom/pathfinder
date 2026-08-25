@@ -1,17 +1,21 @@
 # Platform worker founder-policy access
 
-Torchiko exposes founder policy, a compact company operating view, and platform readiness evidence
-to future trusted internal workers through separate read-only HTTP boundaries:
+Torchiko exposes founder policy, a compact company operating view, platform readiness, and exact
+release-candidate evidence to future trusted internal workers through separate HTTP boundaries:
 
 - `POST /api/platform-worker/founder-decisions` resolves exact current founder decisions.
 - `POST /api/platform-worker/founder-operating-view` returns the bounded, versioned Founder
   Control Room projection, including descriptive autonomy evidence.
 - `POST /api/platform-worker/operations-readiness` returns versioned database, migration, worker,
   and live BullMQ queue evidence.
+- `POST /api/platform-worker/release-evidence` reads bounded immutable release history or records
+  one schema-validated, append-only evidence bundle for an exact repository revision.
 
 This is not customer MCP. Its credentials use a distinct `pf_platform_` token type and the closed
-read-only capabilities `founder-decisions:read`, `founder-operating-view:read`, and
-`operations-readiness:read`. Credentials are issued disabled, store only an Argon2id verifier,
+capabilities `founder-decisions:read`, `founder-operating-view:read`,
+`operations-readiness:read`, `release-evidence:read`, and `release-evidence:record`. The record
+capability can only append release evidence; it cannot execute a release. Credentials are issued
+disabled, store only an Argon2id verifier,
 require explicit platform-admin activation,
 support explicit revocation, and strictly audit every successful read. Tenant, client, and venue
 identifiers are intentionally absent from the credential and request contracts. A tenant MCP token
@@ -41,6 +45,14 @@ database and Redis connectivity, migration parity, a fresh worker heartbeat, and
 queue observation. A failed or timed-out queue probe is explicitly degraded rather than green.
 This evidence is platform-wide and intentionally has no tenant or venue attribution.
 
+Release evidence binds an exact revision, repository cleanliness, named gate outcomes, limitations,
+rollback instructions, and an optional staging handoff. Content hashes deduplicate identical
+evidence, operation hashes make retries safe, database triggers reject update/delete/truncate, and
+every successful read or record is strictly audited. A staging-ready record is rejected unless the
+assessment is clean and has no failed or blocked gates. The Founder Control Room renders this same
+canonical state with an explicit evidence-only label.
+
 These endpoints cannot create questions, approve or acknowledge actions, change policy, retry,
-cancel or redrive jobs, control incidents, contact customers, deploy, or perform billing
-operations. No credential is activated automatically.
+cancel or redrive jobs, control incidents, contact customers, deploy, run migrations, authorize
+production, destroy valuable data, or perform billing operations. No credential is activated
+automatically.

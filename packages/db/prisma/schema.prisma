@@ -33,7 +33,8 @@ model ClerkWebhookReceipt {
   @@map("clerk_webhook_receipts")
 }
 
-/// Default-disabled machine credential for the platform-internal, read-only policy surface.
+/// Default-disabled machine credential for platform policy reads and capability-gated,
+/// append-only release-evidence recording. It grants no operational execution authority.
 /// This is deliberately unrelated to tenant/customer MCP credentials.
 model PlatformWorkerPolicyCredential {
   id                    String                          @id @default(cuid())
@@ -60,9 +61,41 @@ model PlatformWorkerPolicyCredential {
   revocationHash        String?                         @map("revocation_hash") @db.Char(64)
   createdAt             DateTime                        @default(now()) @map("created_at")
   updatedAt             DateTime                        @updatedAt @map("updated_at")
+  releaseEvidence       PlatformReleaseEvidence[]
 
   @@index([workerId, enabled, revokedAt], map: "platform_worker_policy_worker_state_idx")
   @@map("platform_worker_policy_credentials")
+}
+
+/// Immutable, platform-wide evidence that one exact repository revision passed a bounded
+/// release assessment. This is evidence for staging review, never deployment authority.
+model PlatformReleaseEvidence {
+  id                    String                          @id @default(cuid())
+  operationId           String                          @unique @map("operation_id") @db.Uuid
+  operationHash         String                          @map("operation_hash") @db.Char(64)
+  evidenceHash          String                          @unique @map("evidence_hash") @db.Char(64)
+  revision              String                          @db.Char(40)
+  profile               String                          @db.VarChar(32)
+  readiness             String                          @db.VarChar(64)
+  assessmentGeneratedAt DateTime                        @map("assessment_generated_at")
+  repositoryClean       Boolean                         @map("repository_clean")
+  passed                Int
+  failed                Int
+  blocked               Int
+  gates                 Json
+  limitations           Json
+  rollback              Json
+  stagingHandoff        Json?                           @map("staging_handoff")
+  sourceReference       String                          @map("source_reference") @db.VarChar(500)
+  recordedByType        String                          @map("recorded_by_type") @db.VarChar(20)
+  recordedById          String                          @map("recorded_by_id") @db.VarChar(191)
+  credentialId          String?                         @map("credential_id")
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  credential            PlatformWorkerPolicyCredential? @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+
+  @@index([revision, createdAt], map: "platform_release_evidence_revision_created_idx")
+  @@index([readiness, createdAt], map: "platform_release_evidence_readiness_created_idx")
+  @@map("platform_release_evidence")
 }
 
 enum ClientCreateIntentStatus {

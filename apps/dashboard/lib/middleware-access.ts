@@ -8,6 +8,7 @@ const PUBLIC_ROUTES = [
   '/api/platform-worker/founder-decisions',
   '/api/platform-worker/founder-operating-view',
   '/api/platform-worker/operations-readiness',
+  '/api/platform-worker/release-evidence',
   '/api/integrations/gmail/pubsub',
   '/api/webhooks/clerk',
   '/api/webhooks/stripe',

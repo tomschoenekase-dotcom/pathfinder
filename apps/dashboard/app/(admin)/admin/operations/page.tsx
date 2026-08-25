@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
+import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
 
 type Cursor = { createdAt: string; id: string }
@@ -30,7 +31,7 @@ export default async function AdminOperationsPage({
 }) {
   const caller = await createAdminCaller()
   const query = await searchParams
-  const [data, readiness, incident, providerHealth] = await Promise.all([
+  const [data, readiness, releaseEvidence, incident, providerHealth] = await Promise.all([
     caller.admin.attentionConsole({
       limit: 10,
       ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
@@ -57,6 +58,7 @@ export default async function AdminOperationsPage({
         : {}),
     }),
     caller.admin.operationsReadiness(),
+    caller.admin.releaseEvidence({ limit: 5 }),
     caller.admin.getGlobalAiControl(),
     caller.admin.getAiProviderHealthControl(),
   ])
@@ -118,6 +120,8 @@ export default async function AdminOperationsPage({
       ) : null}
 
       <OperationsReadinessSummary readiness={readiness} />
+
+      <ReleaseEvidenceSummary evidence={releaseEvidence} />
 
       <OperationsAttentionConsole data={data} />
     </div>

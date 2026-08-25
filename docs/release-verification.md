@@ -28,6 +28,11 @@ Use `--report artifacts/release-verification/custom-name.json` to select a repos
 report path. The sibling Markdown report is generated automatically. Reports contain gate names,
 status and duration, but do not persist command output or environment values.
 
+After a clean candidate report and matching `pnpm staging:handoff`, use
+`pnpm release:evidence:prepare -- --assessment <report.json> --handoff <handoff.json>` to produce a
+deterministic, schema-compatible record payload. The command is offline and does not record,
+deploy, or authorize anything. See `docs/platform-release-evidence.md`.
+
 ## Scope and release authority
 
 A green local assessment proves only the checked-in/local gates. Exact staging health proves the

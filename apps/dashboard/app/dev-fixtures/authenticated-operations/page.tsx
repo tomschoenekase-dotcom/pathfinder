@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { AdminSectionShell } from '../../../components/admin/AdminSectionShell'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
+import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
 import { TRPCProvider } from '../../../lib/trpc'
 
 export const dynamic = 'force-dynamic'
@@ -10,6 +11,65 @@ export const metadata = { title: 'Torchiko authenticated operations browser fixt
 type Props = { searchParams: Promise<{ surface?: string }> }
 
 function AdminFixture() {
+  type ReleaseEvidence = Parameters<typeof ReleaseEvidenceSummary>[0]['evidence']
+  type ReleaseRecord = NonNullable<ReleaseEvidence['current']>
+  const releaseRecord: ReleaseRecord = {
+    id: 'fixture-release-evidence',
+    operationId: '00000000-0000-4000-8000-000000000001',
+    operationHash: 'a'.repeat(64),
+    evidenceHash: 'b'.repeat(64),
+    revision: '67f48d18a7f6a4d1c01e1dd884415a2ecb710ee9',
+    profile: 'candidate',
+    readiness: 'ready-for-staging-review',
+    assessmentGeneratedAt: new Date('2026-08-24T18:00:00.000Z'),
+    repositoryClean: true,
+    passed: 26,
+    failed: 0,
+    blocked: 0,
+    gates: [{ id: 'candidate-verification', status: 'pass', durationMs: 84_000 }],
+    limitations: ['Production activation remains founder-gated.'],
+    rollback: {
+      application: 'Redeploy the previously verified application revision.',
+      database: 'Use a reviewed forward-fix migration; no destructive rollback is implied.',
+      runbook: 'docs/release-verification.md',
+    },
+    stagingHandoff: {
+      artifactSha256: 'c'.repeat(64),
+      status: 'ready-for-owner-staging-integration',
+      baseRevision: '1f6f46263a76085905a0e606f74a4fac221bdfbe',
+      baseIsAncestor: true,
+      ahead: 8,
+      behind: 0,
+      changedFiles: 24,
+      patchSha256: 'd'.repeat(64),
+      migrationCount: 182,
+      latestMigration: '20260825006000_add_platform_release_evidence',
+      migrationChainSha256: 'e'.repeat(64),
+      requiredActions: ['Owner reviews the staging handoff before integration.'],
+      retainedGates: ['No production deployment is authorized.'],
+    },
+    sourceReference: 'artifacts/release-verification/candidate.json',
+    recordedByType: 'AGENT',
+    recordedById: 'codex-release-worker',
+    credentialId: 'fixture-credential',
+    createdAt: new Date('2026-08-24T18:01:00.000Z'),
+  }
+  const releaseEvidence: ReleaseEvidence = {
+    schemaVersion: 'torchiko.platform-release-evidence.v1',
+    generatedAt: new Date('2026-08-24T18:02:00.000Z'),
+    current: releaseRecord,
+    items: [releaseRecord],
+    boundaries: {
+      evidenceOnly: true,
+      stagingDeploymentAuthorized: false,
+      productionDeploymentAuthorized: false,
+      productionMigrationAuthorized: false,
+      customerContactAuthorized: false,
+      liveBillingAuthorized: false,
+      valuableDataDestructionAuthorized: false,
+    },
+  }
+
   return (
     <TRPCProvider scopeKey="authenticated-admin-visual-fixture">
       <AdminSectionShell routePathname="/admin/operations">
@@ -66,6 +126,10 @@ function AdminFixture() {
               no production action.
             </p>
           </section>
+
+          <div className="mt-5">
+            <ReleaseEvidenceSummary evidence={releaseEvidence} />
+          </div>
         </div>
       </AdminSectionShell>
     </TRPCProvider>

@@ -161,6 +161,10 @@ test('Founder Control Room shell is responsive and restores mobile navigation fo
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Founder Control Room' })).toBeVisible()
   await expect(page.getByText('Pricing and production release remain founder-gated.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Candidate 67f48d18/ })).toBeVisible()
+  await expect(page.getByText('Evidence only', { exact: true })).toBeVisible()
+  await page.getByText('Gates, limits, and rollback', { exact: true }).click()
+  await expect(page.getByText('Production activation remains founder-gated.')).toBeVisible()
 
   const navigationTrigger = page.getByRole('button', { name: 'Open navigation' })
   if (await navigationTrigger.isVisible()) {

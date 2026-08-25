@@ -25,6 +25,7 @@
     "./partner-read-api": "./src/partner-read-api.ts",
     "./product-entitlements": "./src/product-entitlements.ts",
     "./retention-policy": "./src/retention-policy.ts",
+    "./release-evidence": "./src/release-evidence.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
     "./customer-state-preservation": "./src/customer-state-preservation.ts",
     "./remote-onboarding": "./src/remote-onboarding.ts",

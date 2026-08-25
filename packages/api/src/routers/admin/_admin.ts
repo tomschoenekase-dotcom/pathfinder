@@ -73,6 +73,7 @@ import { adminUnitEconomicsRouter } from './unit-economics'
 import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
 import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
 import { adminPublicInterestRouter } from './public-interest'
+import { adminReleaseEvidenceRouter } from './release-evidence'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -95,6 +96,7 @@ export const adminRouter = mergeRouters(
   adminGuestAnswerAttributionsRouter,
   adminRetentionDispositionPreviewRouter,
   adminPublicInterestRouter,
+  adminReleaseEvidenceRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

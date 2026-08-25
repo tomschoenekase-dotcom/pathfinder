@@ -89,6 +89,7 @@ const APPEND_ONLY_MODELS = [
   'ProspectContactSuppressionEvent',
   'ProspectEmailEvent',
   'ProspectImportReportEntry',
+  'PlatformReleaseEvidence',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentBridgeSession',

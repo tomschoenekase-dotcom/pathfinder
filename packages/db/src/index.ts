@@ -92,6 +92,12 @@ export {
   verifyPlatformWorkerPolicyCredentialCapability,
 } from './helpers/platform-worker-policy-credentials'
 export type { PlatformWorkerPolicyCredentialClient } from './helpers/platform-worker-policy-credentials'
+export {
+  PlatformReleaseEvidenceError,
+  readPlatformReleaseEvidence,
+  recordPlatformReleaseEvidenceAction,
+} from './helpers/platform-release-evidence'
+export type { PlatformReleaseEvidenceClient } from './helpers/platform-release-evidence'
 
 export {
   claimGuestChatTurnAction,

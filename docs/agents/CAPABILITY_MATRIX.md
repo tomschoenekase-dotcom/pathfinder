@@ -40,7 +40,7 @@ Statuses describe code-supported interfaces, not live provider or production pro
 Torchiko retains Packet A's broad typed and bounded read surface, and Company Brain adds standards-compliant MCP discovery/calls, portable worker registration and failover, compact CRM context, governed institutional-memory retrieval, unified integration health, honest machine attribution, explicit approval grants, meeting processing, approval-bound operational-update, private support, and onboarding-notes proposals, and a review-only visitor-answer correction loop. Customer contact, outreach sending, billing effects, publication, credential issuance, deployment, offboarding, and destructive actions remain intentionally restricted.
 
 Exact operation evidence is separate from these domain summaries. The current release gate proves
-417 mounted operations. Exact binding counts are enforced by `pnpm verify:agent-tools`; the reviewed
+423 mounted operations. Exact binding counts are enforced by `pnpm verify:agent-tools`; the reviewed
 set includes the bounded native-content convergence alternative on `pathfinder.readiness` and the
 full-client count-only retention preview. The two
 shadow-comparison admin reads remain explicit unbound gaps until bounded automatic run selection is

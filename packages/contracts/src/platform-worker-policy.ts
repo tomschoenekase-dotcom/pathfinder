@@ -6,6 +6,8 @@ export const PlatformWorkerPolicyCapability = z.enum([
   'founder-decisions:read',
   'founder-operating-view:read',
   'operations-readiness:read',
+  'release-evidence:read',
+  'release-evidence:record',
 ])
 export type PlatformWorkerPolicyCapability = z.infer<typeof PlatformWorkerPolicyCapability>
 

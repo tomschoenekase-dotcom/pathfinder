@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 421,
-    "sha256": "9ab9df4131c78b6991e97530d186525dc2f04884085821c941b727ac8383b7a2",
+    "count": 423,
+    "sha256": "17e1231aacaaade452d5e84582f3d3c092ffba4ee148eef9945673568bafc4b4",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "9ab9df4131c78b6991e97530d186525dc2f04884085821c941b727ac8383b7a2",
-      "sha256": "0b6c31724e37fb490f4d6b06abbf9c14a6d7c5e0e4f3522c45e5ec077a9f382f"
+      "operationInventorySha256": "17e1231aacaaade452d5e84582f3d3c092ffba4ee148eef9945673568bafc4b4",
+      "sha256": "d922e7ed9112025d5da6e12ce82d922a7dc6095469dd5258b4ecdfc5020b306a"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -608,7 +608,7 @@
       "pattern": "PlatformWorkerPolicy",
       "agentCoverage": "partial",
       "developerCoverage": "full",
-      "decision": "A separately authenticated platform worker may read exact current founder decisions and the bounded read-only Founder operating view; credential lifecycle and every mutation remain human platform-admin controlled.",
+      "decision": "A separately authenticated platform worker may read exact current founder decisions, the bounded read-only Founder operating view, readiness, and release evidence. A separately capability-gated write may append immutable release evidence only; credential lifecycle and all operational mutations remain human platform-admin controlled.",
       "evidence": "docs/platform-worker-founder-policy.md"
     },
     {
@@ -653,7 +653,7 @@
     },
     {
       "id": "operations-reporting",
-      "pattern": "Operational|OperationsReadiness|Report|Analytics|Attention|Incident|Digest|Freshness|TerminalRedrive",
+      "pattern": "Operational|OperationsReadiness|ReleaseEvidence|Report|Analytics|Attention|Incident|Digest|Freshness|TerminalRedrive",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Expose bounded operational intelligence and drafts; provider execution, incident control, and publication stay gated.",

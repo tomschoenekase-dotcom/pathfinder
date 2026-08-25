@@ -226,6 +226,8 @@ const expectedAdminProcedures = [
   'recordManualPayment',
   'recordNativeVenueDeploymentEvaluationEvidence',
   'recordOperatingCostEvidence',
+  'recordReleaseEvidence',
+  'releaseEvidence',
   'repairProspectImport',
   'requestAgentRunCancellation',
   'requestEvaluationRun',
