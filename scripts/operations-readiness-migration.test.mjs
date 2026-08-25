@@ -23,7 +23,9 @@ test('operations readiness expects the exact latest reviewed migration', async (
   assert.ok(migrations.length > 0)
 
   const source = await readFile(operationalHealthPath, 'utf8')
-  const match = source.match(/export const EXPECTED_LATEST_MIGRATION = '([0-9]{14}_[a-z0-9_]+)'/u)
+  const match = source.match(
+    /export const EXPECTED_LATEST_MIGRATION\s*=\s*'([0-9]{14}_[a-z0-9_]+)'/u,
+  )
   assert.ok(match, 'operational readiness exports one literal reviewed migration identity')
   assert.equal(match[1], migrations.at(-1))
 })
