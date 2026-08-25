@@ -15,6 +15,8 @@ import {
   BILLING_RECONCILIATION_PROCESS_JOB,
   BILLING_RECONCILIATION_QUEUE,
   BILLING_RECONCILIATION_SCHEDULER_JOB,
+  VOICE_SESSION_RECOVERY_QUEUE,
+  VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -120,6 +122,7 @@ import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
+import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -462,6 +465,13 @@ async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>)
   throw new Error(`Unsupported generation recovery job: ${job.name}`)
 }
 
+async function handleVoiceSessionRecoveryQueueJob(job: Job<Record<string, never>>) {
+  if (job.name !== VOICE_SESSION_RECOVERY_SCHEDULER_JOB) {
+    throw new Error(`Unsupported voice session recovery job: ${job.name}`)
+  }
+  await processVoiceSessionRecovery(getJobExecutionMetadata(job))
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
   token?: string,
@@ -701,6 +711,7 @@ export async function startWorkers() {
   const gmailSyncQueue = new Queue(GMAIL_SYNC_QUEUE, { connection })
   const billingReconciliationQueue = new Queue(BILLING_RECONCILIATION_QUEUE, { connection })
   const accountSummaryRefreshQueue = new Queue(ACCOUNT_SUMMARY_REFRESH_QUEUE, { connection })
+  const voiceSessionRecoveryQueue = new Queue(VOICE_SESSION_RECOVERY_QUEUE, { connection })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -725,6 +736,7 @@ export async function startWorkers() {
     { name: GMAIL_SYNC_QUEUE, close: () => gmailSyncQueue.close() },
     { name: BILLING_RECONCILIATION_QUEUE, close: () => billingReconciliationQueue.close() },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, close: () => accountSummaryRefreshQueue.close() },
+    { name: VOICE_SESSION_RECOVERY_QUEUE, close: () => voiceSessionRecoveryQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
@@ -764,6 +776,25 @@ export async function startWorkers() {
           ),
         remove: () =>
           accountSummaryRefreshQueue.removeJobScheduler(ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB),
+      },
+      {
+        upsert: () =>
+          voiceSessionRecoveryQueue.upsertJobScheduler(
+            VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+            { every: 60_000 },
+            {
+              name: VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 100,
+                removeOnFail: 500,
+              },
+            },
+          ),
+        remove: () =>
+          voiceSessionRecoveryQueue.removeJobScheduler(VOICE_SESSION_RECOVERY_SCHEDULER_JOB),
       },
     ])
     await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
@@ -1198,6 +1229,14 @@ export async function startWorkers() {
     }),
   )
 
+  const voiceSessionRecoveryWorker = observeWorkerRuntime(
+    VOICE_SESSION_RECOVERY_QUEUE,
+    new Worker(VOICE_SESSION_RECOVERY_QUEUE, handleVoiceSessionRecoveryQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -1330,6 +1369,7 @@ export async function startWorkers() {
     { name: GMAIL_SYNC_QUEUE, worker: gmailSyncWorker },
     { name: BILLING_RECONCILIATION_QUEUE, worker: billingReconciliationWorker },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, worker: accountSummaryRefreshWorker },
+    { name: VOICE_SESSION_RECOVERY_QUEUE, worker: voiceSessionRecoveryWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -1378,6 +1418,7 @@ export async function startWorkers() {
       GMAIL_SYNC_QUEUE,
       BILLING_RECONCILIATION_QUEUE,
       ACCOUNT_SUMMARY_REFRESH_QUEUE,
+      VOICE_SESSION_RECOVERY_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
@@ -1431,6 +1472,8 @@ export async function startWorkers() {
     generationDispatchWorker,
     generationRecoveryQueue,
     generationRecoveryWorker,
+    voiceSessionRecoveryQueue,
+    voiceSessionRecoveryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,

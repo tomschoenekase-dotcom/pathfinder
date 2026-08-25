@@ -369,7 +369,7 @@ export const voiceRouter = router({
       if (authorization.provider !== route.provider || authorization.model !== route.model) {
         throw new Error('Realtime voice provider returned an unexpected route identity')
       }
-      await ctx.db.voiceSession.updateMany({
+      const authorized = await ctx.db.voiceSession.updateMany({
         where: {
           id: saved.id,
           tenantId: scope.tenantId,
@@ -383,6 +383,7 @@ export const voiceRouter = router({
           lastActiveAt: new Date(),
         },
       })
+      if (authorized.count !== 1) throw new Error('Voice authorization lease expired')
       void emitEvent({
         tenantId: scope.tenantId,
         venueId: scope.venueId,
@@ -405,35 +406,42 @@ export const voiceRouter = router({
         maxDurationSeconds: settings.maxSessionSeconds,
       }
     } catch {
-      await ctx.db.voiceSession.updateMany({
-        where: { id: saved.id, tenantId: scope.tenantId, venueId: scope.venueId },
-        data: { status: 'FAILED', errorCode: 'AUTHORIZATION_FAILED', endedAt: new Date() },
-      })
-      void emitEvent({
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        sessionId: scope.sessionId,
-        eventType: 'voice.session.failed',
-        metadata: { voiceSessionId: saved.id, failureStage: 'authorization' },
-      })
-      void publishOperationalEvent({
-        client: ctx.db,
-        event: {
+      const failed = await ctx.db.voiceSession.updateMany({
+        where: {
+          id: saved.id,
           tenantId: scope.tenantId,
           venueId: scope.venueId,
-          eventType: 'voice.session.failed',
-          sourceSubsystem: 'realtime-voice',
-          severity: 'ERROR',
-          title: 'Voice session authorization failed',
-          summary:
-            'A visitor voice session could not obtain provider authorization and fell back safely.',
-          linkedObjectType: 'voice-session',
-          linkedObjectId: saved.id,
-          recommendedAction:
-            'Check the realtime provider configuration and recent provider health.',
-          deduplicationKey: `voice-authorization-failure:${saved.id}`,
+          status: 'AUTHORIZING',
         },
-      }).catch(() => undefined)
+        data: { status: 'FAILED', errorCode: 'AUTHORIZATION_FAILED', endedAt: new Date() },
+      })
+      if (failed.count === 1) {
+        void emitEvent({
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          sessionId: scope.sessionId,
+          eventType: 'voice.session.failed',
+          metadata: { voiceSessionId: saved.id, failureStage: 'authorization' },
+        })
+        void publishOperationalEvent({
+          client: ctx.db,
+          event: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            eventType: 'voice.session.failed',
+            sourceSubsystem: 'realtime-voice',
+            severity: 'ERROR',
+            title: 'Voice session authorization failed',
+            summary:
+              'A visitor voice session could not obtain provider authorization and fell back safely.',
+            linkedObjectType: 'voice-session',
+            linkedObjectId: saved.id,
+            recommendedAction:
+              'Check the realtime provider configuration and recent provider health.',
+            deduplicationKey: `voice-authorization-failure:${saved.id}`,
+          },
+        }).catch(() => undefined)
+      }
       throw new TRPCError({
         code: 'SERVICE_UNAVAILABLE',
         message: 'Voice could not connect. Continue in text or try again.',

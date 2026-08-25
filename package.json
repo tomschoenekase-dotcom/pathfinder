@@ -31,6 +31,7 @@
     "test:support-package-draft:disposable": "node scripts/run-disposable-support-package-draft.mjs",
     "test:agent-approval-policy:disposable": "node scripts/run-disposable-agent-approval-policy.mjs",
     "test:agent-bridge:disposable": "node scripts/run-disposable-agent-bridge.mjs",
+    "test:voice-session-recovery:disposable": "node scripts/run-disposable-voice-session-recovery.mjs",
     "test:content-convergence:disposable": "node scripts/run-disposable-content-convergence.mjs",
     "test:native-guest-read:disposable": "node scripts/run-disposable-native-guest-read.mjs",
     "torchiko": "node scripts/torchiko.mjs",

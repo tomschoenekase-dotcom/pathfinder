@@ -154,17 +154,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Recommended**, not blocking a few design partners.
 - **Codex autonomous:** **Implemented** for local code/tests; external sending and customer commitments remain gated.
 
-### P1.9 — Verify voice, model fallback, and agent bridges in staging
+### P1.9 — Verify voice, model fallback, and agent bridges in staging — PARTIALLY RESOLVED 2026-08-25
 
 - **Problem:** These are substantial code paths but were unavailable in local runtime; direct agent identity model configuration also does not directly control the registry model used.
-- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; local worker `provider-disabled-health-only`.
+- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `voice-session-recovery.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; provider-dark Golden Venue lifecycle plus disposable voice-recovery PostgreSQL shakedown.
 - **Affected system:** AI platform, visitor voice, agents, cost controls.
-- **Recommended change:** Create provider-enabled smoke tests with strict spend caps; verify entitlement/quota/fallback/usage records, cancellation, bridge machine credentials and failure recovery; align or relabel identity model selection.
+- **Current implementation:** Provider-dark voice entitlement, ownership, quota, transcript/usage replay, fallback, authorization-failure, and now abandoned-session recovery are proven. A once-per-minute bounded worker releases stale authorization/ready/active capacity using existing technical/provider/session-duration boundaries and records job/analytics evidence. Fresh and terminal sessions remain unchanged and replay is mutation-free.
+- **Recommended change:** Run provider-enabled smoke tests with strict spend caps; verify WebRTC/browser/provider compatibility, model fallback, and agent bridge execution on staging. Align or relabel identity model selection.
 - **Why it matters:** These features should not be marketed or relied upon until their real provider boundaries are proven.
 - **Effort:** M
 - **Dependencies:** Provider credentials, staging, spend authorization, bridge binaries.
 - **Before more venue acquisition:** **Yes if sold**, otherwise keep disabled.
-- **Codex autonomous:** **No** for credentials/external execution; yes for test harnesses.
+- **Codex autonomous:** **Implemented** for provider-dark lifecycle, recovery, and test harnesses. Credentials, spend authorization, and external provider execution remain gated.
 
 ### P1.10 — Strengthen bounded citations into claim-level evidence — PARTIALLY RESOLVED 2026-08-25
 

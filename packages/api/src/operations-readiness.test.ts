@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { OPERATIONAL_QUEUE_NAMES } from '@pathfinder/jobs'
+
 import { projectOperationsReadiness, readOperationsReadiness } from './operations-readiness'
 
 const persisted = {
@@ -35,7 +37,11 @@ const persisted = {
 
 const queue = {
   observedAt: new Date('2026-08-23T16:00:00.000Z'),
-  coverage: { expectedQueues: 20 as const, observedQueues: 20, complete: true },
+  coverage: {
+    expectedQueues: OPERATIONAL_QUEUE_NAMES.length,
+    observedQueues: OPERATIONAL_QUEUE_NAMES.length,
+    complete: true,
+  },
   totalDepth: 2,
   totalFailed: 1,
   pausedQueues: 0,

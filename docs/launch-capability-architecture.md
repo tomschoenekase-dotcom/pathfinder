@@ -45,6 +45,8 @@ The widget and voice require separate environment gates. Existing widget plan ti
 
 Every `VoiceSession` is bound to tenant, venue, public visitor session, bot snapshot, locale, tier, route, entitlement source, and quota policy. Transcript segments store text only; audio is not retained. Admission rechecks concurrent, daily, and monthly quotas under a tenant/venue advisory lock. Usage reported by provider events is validated, priced on the server, and idempotently persisted.
 
+A provider-dark recovery scheduler releases abandoned capacity once per minute. It atomically terminalizes stale `AUTHORIZING` rows after a five-minute technical lease, `READY` rows after their provider credential expires, and `ACTIVE` rows after their already-persisted maximum duration. Recovery is bounded, lock-safe across worker replicas, preserves fresh/terminal sessions, marks text fallback, and emits durable job plus analytics evidence. It does not add a customer-facing timeout or contact a provider.
+
 Configuration:
 
 - `VOICE_MODE_ENABLED=false` is the emergency rollout gate.

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { OPERATIONAL_QUEUE_NAMES } from '@pathfinder/jobs'
+
 import { handlePlatformWorkerOperationsReadinessRequest } from './operations-readiness-http'
 
 const secret = `pf_platform_${'a'.repeat(43)}`
@@ -25,7 +27,11 @@ describe('platform worker operations readiness HTTP boundary', () => {
         live: {
           status: 'observed',
           source: 'bullmq-redis',
-          coverage: { expectedQueues: 20, observedQueues: 20, complete: true },
+          coverage: {
+            expectedQueues: OPERATIONAL_QUEUE_NAMES.length,
+            observedQueues: OPERATIONAL_QUEUE_NAMES.length,
+            complete: true,
+          },
           totalDepth: 2,
           totalFailed: 1,
           pausedQueues: 0,

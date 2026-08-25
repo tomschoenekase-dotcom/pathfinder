@@ -211,6 +211,10 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Platform maintenance atomically selects a bounded set of abandoned voice
+  // sessions and terminalizes only their exact identities. Returned rows contain
+  // lifecycle metadata for analytics; no transcript or customer content is read.
+  ['packages/db/src/helpers/voice-session-recovery.ts', 1],
   // Platform maintenance performs one bounded, read-only Gmail retention inventory across
   // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
   // never returns body content or mutates retention state.

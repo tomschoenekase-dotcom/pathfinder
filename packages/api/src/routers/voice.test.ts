@@ -253,7 +253,12 @@ describe('voice router', () => {
       }),
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
     expect(dbMocks.voiceUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: VOICE_ID, tenantId: 'tenant-1', venueId: VENUE_ID },
+      where: {
+        id: VOICE_ID,
+        tenantId: 'tenant-1',
+        venueId: VENUE_ID,
+        status: 'AUTHORIZING',
+      },
       data: expect.objectContaining({
         status: 'FAILED',
         errorCode: 'AUTHORIZATION_FAILED',
@@ -275,6 +280,30 @@ describe('voice router', () => {
         }),
       }),
     )
+  })
+
+  it('does not resurrect or overwrite a session whose authorization lease was recovered', async () => {
+    dbMocks.voiceUpdateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en-US',
+        tier: 'ECONOMY',
+      }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+
+    expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+    )
+    expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+    )
+    expect(mocks.emitEvent).not.toHaveBeenCalled()
+    expect(mocks.publishOperationalEvent).not.toHaveBeenCalled()
   })
 
   it('keeps the endpoint dark when the server kill switch is off', async () => {

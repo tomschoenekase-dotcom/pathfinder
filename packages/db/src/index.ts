@@ -139,6 +139,12 @@ export type {
   GuestChatTurnActionErrorCode,
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
+export {
+  expireAbandonedVoiceSessions,
+  VOICE_AUTHORIZATION_LEASE_SECONDS,
+  VOICE_SESSION_RECOVERY_BATCH_MAX,
+  type ExpiredVoiceSession,
+} from './helpers/voice-session-recovery'
 export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
 export { inspectDeclaredOperationalUsage } from './helpers/declared-operational-usage'
 export {

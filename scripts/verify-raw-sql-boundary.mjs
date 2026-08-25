@@ -27,6 +27,7 @@ const approvedPolicies = new Set([
   'platform-generation-dispatch-lease',
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
+  'platform-expired-voice-session-recovery',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -494,6 +495,12 @@ const approvedOperations = [
     method: '$queryRaw',
     hash: 'd8d5dc88ee097448c22246158d2595357932f583c571d91aa9224244249827ed',
     policy: 'platform-expired-generation-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: 'd1b6e1f4a302ba10b883dd5495008ee10ff02e6eb8b4c62c401e1a5ea8f45975',
+    policy: 'platform-expired-voice-session-recovery',
   },
   {
     file: 'packages/db/src/helpers/generation-recovery.ts',

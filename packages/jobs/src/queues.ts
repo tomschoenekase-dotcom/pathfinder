@@ -89,6 +89,9 @@ export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-sche
 export const ACCOUNT_SUMMARY_REFRESH_QUEUE = queueName('account-summary-refresh')
 export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-scheduler'
 
+export const VOICE_SESSION_RECOVERY_QUEUE = queueName('voice-session-recovery')
+export const VOICE_SESSION_RECOVERY_SCHEDULER_JOB = 'voice-session-recovery-scheduler'
+
 export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verification')
 export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'
 export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
@@ -119,5 +122,6 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   GMAIL_SYNC_QUEUE,
   BILLING_RECONCILIATION_QUEUE,
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
+  VOICE_SESSION_RECOVERY_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
 ] as const)
