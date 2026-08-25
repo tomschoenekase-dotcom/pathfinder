@@ -1,15 +1,27 @@
 # Torchiko State of System
 
-| Snapshot field              | Value                                                                                                                                                                                        |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Audit completed             | 2026-08-19, America/Chicago                                                                                                                                                                  |
-| Repository                  | `C:\Users\tomsc\Downloads\PathFinder`                                                                                                                                                        |
-| Branch                      | `codex/torchiko-cloud-staging-20260819`                                                                                                                                                      |
-| HEAD                        | `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b` (`feat: prepare Torchiko cloud staging release`)                                                                                                  |
-| Audited state               | The current working tree, including substantial uncommitted launch-capability work; not HEAD alone                                                                                           |
-| Environment observed        | Local staging: web `:3100`, dashboard `:3101`, PostgreSQL/pgvector, Redis, MinIO and ClamAV healthy; worker in `provider-disabled-health-only` mode                                          |
-| Previous canonical snapshot | None found in `docs/system-state`                                                                                                                                                            |
-| Confidence                  | High for code-supported behavior and local non-provider flows; medium/unknown for live cloud operation, current production data, provider-backed AI, email delivery, and real customer usage |
+| Snapshot field             | Value                                                                                                                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current-truth overlay      | 2026-08-25, America/Chicago                                                                                                                                                                         |
+| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                                   |
+| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                                 |
+| Current local evidence     | Clean integrated release candidates; provider-dark golden lifecycle; digest-pinned PostgreSQL/pgvector, Redis, MinIO and ClamAV; worker health mode                                                 |
+| Confidence                 | High for integrated code-supported and provider-dark local behavior; medium/unknown for current hosted staging/production state, live providers, customer contact, real billing, and customer usage |
+
+## Current Truth Overlay
+
+The 2026-08-19 audit narrative remains historical evidence, not an unqualified statement of current capability. The following identifiers are the current anchors; every one is defined with repository evidence and an explicit remaining boundary in `torchiko-current-truth.json`:
+
+| Truth ID                       | Current state                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `release-evidence`             | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
+| `golden-venue-lifecycle`       | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
+| `crm-pipeline`                 | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
+| `outreach-operations`          | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
+| `stripe-billing`               | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
+| `gmail-correspondence`         | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
+| `local-staging-infrastructure` | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
+| `privacy-retention`            | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
 
 ## How to read this report
 
@@ -30,11 +42,11 @@ Torchiko is a substantial multi-tenant venue intelligence platform, not a protot
 
 The strongest engineering is below the visible product. Tenant-scoped procedures, database guardrails, explicit bypass registries, idempotent chat turns, leases, retries, immutable evidence, AI budget reservations, public-surface manifests, quarantine-aware uploads, and a unusually comprehensive test suite show serious operational thinking. The public chat, remote onboarding, client portal, and admin workspaces are visually deliberate and have good empty/error states. Content packages, native releases, evaluation runs, agent runs, support cases, and audit records have real persistence and lifecycle code rather than only UI mocks.
 
-The main maturity gap is operational proof. The local venue inspected had no content, packages, reports, or completed onboarding, and provider-backed workers were deliberately disabled. Consequently this audit could not prove a real prospect-to-live-venue cycle, a successful grounded AI answer, a voice session, an autonomous/specialist agent run, a delivered report, or cloud recovery. The code can support many of these flows, but code-supported is not the same as production-proven.
+The main maturity gap is now hosted and provider-backed operational proof. The original audit could not prove a realistic lifecycle. A later disposable golden-venue flow now retains provider-dark proof across client/venue creation, intake, review, package/evaluation evidence, release and rollback, grounded deterministic chat, feedback, reporting, support, operational updates, export evidence, and seven failure classes. It deliberately does not prove live-provider answer quality, voice WebRTC, real customer delivery, hosted recovery, cancellation, or deletion.
 
-The largest product gaps in the audited baseline were equally concrete. CRM, sales pipeline, outreach sequences, inbound email, general outbound communications, billing collection, and meeting scheduling did not exist at that snapshot; later branch deltas in this report must be consulted before treating those statements as current truth. The client portal intentionally hides most analytics and content-management power, so internal operators carry much of the workload. Since the audit, bounded citation projection exposes safe provenance for explicitly named retrieved records and persists it across replay. Newly generated answers also retain private content-addressed prompt/source evidence and support append-only, evaluator-attributed exact-claim review; this proves evidence integrity, not semantic correctness, and no calibrated threshold or provider-backed staging corpus exists. Location V1 resolves known location context, and platform administrators can now create, correct, review, activate, and deactivate exact-venue anchors through a mobile-responsive workspace. It still does not provide turn-by-turn routing. Outcome observations can now be assembled into immutable, versioned improvement hypotheses with human review through admin and MCP surfaces; approval deliberately applies nothing and changes no authority. Automatic prompt/routing/model/policy learning remains absent. The event center is a strong in-app aggregation surface, while its multi-channel delivery model is largely scaffolded.
+The largest product gaps in the audited baseline have partly closed. CRM/pipeline, reviewed outreach, Gmail inbound/source retrieval, and Stripe sandbox billing are now implemented foundations with explicit external gates; they must not be described as absent or as autonomously activated. Meeting scheduling, refund/credit authority, turn-by-turn navigation, automatically applied agent learning, and broad multichannel delivery remain absent or policy-gated. The client portal intentionally hides most analytics and content-management power, so internal operators still carry much of the workload. Bounded citation projection exposes safe provenance for explicitly named retrieved records and persists it across replay. Newly generated answers also retain private content-addressed prompt/source evidence and support append-only, evaluator-attributed exact-claim review; this proves evidence integrity, not semantic correctness, and no calibrated threshold or provider-backed staging corpus exists. Location V1 resolves known location context, but does not provide turn-by-turn routing. Outcome observations can be assembled into immutable, versioned improvement hypotheses with human review; approval deliberately applies nothing and changes no authority.
 
-The highest immediate value is not another broad architecture layer. It is to run and preserve one golden, real-data lifecycle: create a client and venue, complete remote intake, verify extraction/review, approve and publish a package, answer grounded guest questions, collect feedback, generate a report, handle a support case, and safely offboard/export. That exercise should validate the now-coded guest failure taxonomy and continue driving the missing privacy page, notification delivery, client visibility, recovery posture, and observability. Only after this flow is repeatable should Torchiko expand into a CRM or autonomous outreach system.
+The highest immediate value is no longer creating the first provider-dark golden flow; that evidence exists. The next leverage point is to retain the exact integrated candidate, deploy it only through the authorized staging boundary, and repeat the golden flow against hosted services and approved providers. That exercise should drive provider quality, voice, notification delivery, client visibility, recovery posture, and observability without enabling customer contact or live billing.
 
 ### Health assessment
 
@@ -44,10 +56,10 @@ The highest immediate value is not another broad architecture layer. It is to ru
 
 | Kind        | Bottleneck                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operational | No retained evidence of a complete real-customer lifecycle in the current environment; the demo tenant is mostly empty.                           |
+| Operational | Provider-dark lifecycle evidence exists; the equivalent hosted/provider-backed lifecycle and current deployment parity remain unproven.           |
 | Technical   | Two content/deployment generations coexist, and 193 approved tenant-isolation bypass calls plus 94 raw-SQL operations increase review burden.     |
-| Product     | Clients cannot independently manage much content or see useful analytics, while CRM, billing, and broad communications are absent.                |
-| UX          | Provider-disabled chat is reported as an ambiguous delivery outcome; the marketing privacy link has no matching route.                            |
+| Product     | Clients intentionally have narrow configuration; CRM, billing, and communication foundations exist but external operation remains tightly gated.  |
+| UX          | Provider-backed chat/voice quality, authenticated hosted mobile workflows, and the final owner/legal privacy text remain unproven.                |
 | Scale       | Human review, onboarding, package approval, support, and exception handling still concentrate in a sophisticated but operator-heavy admin system. |
 
 ## Changes Since Previous Audit
@@ -87,7 +99,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: 124-model Prisma schema, 122 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 182 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -117,7 +129,7 @@ The canonical allowlist is `packages/api/src/testing/public-surface-manifest.jso
 | Client    | Weekly reports                              | IMPLEMENTED BUT NEEDS POLISH   | weekly report routes/components; worker processor and DB lifecycle                                                                                                                                      | Strong lifecycle                                               | Clients only see published reports; no delivered current report was available.                                                                                                                                                                                                                |
 | Client    | Support                                     | PRODUCTION-READY               | `packages/api/src/routers/support.ts`; `SupportWorkspace.tsx`; admin support operations                                                                                                                 | Strong                                                         | Good state handling and internal handoff model. Email-channel support is absent.                                                                                                                                                                                                              |
 | Client    | Roles/account                               | IMPLEMENTED BUT NEEDS POLISH   | Clerk auth/org sync; tenant/membership models; settings                                                                                                                                                 | Adequate                                                       | Owner/admin/member exist; sophisticated entitlement/billing administration is internal.                                                                                                                                                                                                       |
-| Client    | Billing/payments                            | SCAFFOLDED                     | plan/entitlement/billing visibility fields and UI; no payment provider                                                                                                                                  | Not sell-and-collect ready                                     | No Stripe, checkout, invoices, dunning, or subscription reconciliation.                                                                                                                                                                                                                       |
+| Client    | Billing/payments                            | IMPLEMENTED BUT LIVE GATED     | Stripe test-mode checkout, signed webhooks, invoice/subscription projection, entitlement evaluation, reconciliation, Portal, and governed client/admin/agent surfaces                                   | Sandbox-proven; not authorized for live collection             | Commercial/legal readiness, live provider configuration, scheduled lifecycle proof, and explicit production billing approval remain open.                                                                                                                                                     |
 | Admin     | Client/venue command center                 | PRODUCTION-READY               | `apps/dashboard/app/(admin)/admin`; admin shell/directory/operations                                                                                                                                    | Visually and functionally strong                               | Clear hierarchy; deep breadth still imposes operator learning cost.                                                                                                                                                                                                                           |
 | Admin     | Content/intake/package/release controls     | IMPLEMENTED BUT NEEDS POLISH   | admin routers/components; manifest and native-release helpers                                                                                                                                           | Deep safety model                                              | End-to-end real venue proof is the missing piece.                                                                                                                                                                                                                                             |
 | Admin     | AI controls, costs, evaluations             | IMPLEMENTED BUT NEEDS POLISH   | AI config, cost/budget forms, evaluation operations                                                                                                                                                     | Strong internals                                               | Local provider execution disabled; live routing/fallback not verified.                                                                                                                                                                                                                        |
@@ -224,7 +236,7 @@ Railway has separate dashboard, web, and worker configurations plus Dockerfiles 
 
 Supabase provides the PostgreSQL target. A password-prompted logical backup script pins PostgreSQL/pgvector client versions, requires SSL, refuses overwrite, uses a consistent snapshot, verifies `pg_restore --list`, and emits a hash/manifest. Older retained documentation records a successful archive and local restore rehearsal. It also records that the Supabase Free plan had no scheduled backups or PITR at that time. Current provider backup settings and a recent restore drill remain unknown.
 
-CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. The workflow is strong on paper; the current remote CI status was not accessible. Local compose uses floating MinIO `latest` and ClamAV `stable` tags, reducing reproducibility.
+CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates run a 26-gate assessment and can be projected as immutable platform evidence. Current remote CI status remains separate. Local compose now pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
 
 ## Security / Tenant Isolation
 
@@ -234,7 +246,7 @@ Tenant isolation is application-enforced through Prisma middleware, tenant-aware
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
 
-Privacy is not complete. Guest messages and identifiers are persisted, but policy-to-execution retention/deletion is not. The retention readiness function intentionally refuses readiness until all required decisions are recorded; no general erasure scheduler/executor was found. Offboarding export/revocation is stronger than deletion. The marketing footer links to `/privacy`, but the public app has no privacy page, making the link broken. Prompt construction tells the model to use bounded public context, but a dedicated prompt-injection sanitizer/evaluation suite was not found.
+Privacy is not complete. Guest messages and identifiers are persisted, but policy-to-execution retention/deletion is not. The retention readiness function intentionally refuses readiness until all required decisions are recorded; no general erasure scheduler/executor exists. Offboarding export/revocation is stronger than deletion. The marketing footer now reaches an honest `/privacy` policy-status surface, but owner/legal policy text is still unresolved. Prompt construction tells the model to use bounded public context, but a dedicated prompt-injection sanitizer/evaluation suite was not found.
 
 ## Testing / Quality
 
@@ -265,7 +277,7 @@ The visual system is one of Torchiko’s strengths. The marketing page, lightwei
 The weakest visible areas are not generic styling problems:
 
 - the public chat’s provider-disabled failure copy implies uncertain delivery instead of temporary service unavailability;
-- the marketing privacy link is broken and demo acquisition is a personal `mailto:`;
+- the privacy route is intentionally only a policy-status surface, and final owner/legal content remains unresolved;
 - the client portal is so intentionally narrow that analytics/content ownership may feel absent;
 - internal pages expose both legacy compatibility and native concepts, increasing decision load;
 - brand vocabulary is mixed: Torchiko externally, PathFinder OS internally, PathFinder in the welcome email, Tochi as character/assistant;
@@ -291,14 +303,14 @@ destructive-data authority. Hosted staging proof remains separate.
 ## Technical Debt / Drift
 
 1. **Dual content/deployment architecture:** legacy `Place`/`VenueKnowledgeEntry`/`VenuePackage` remains on the live read/materialization path beside native modules/revisions/manifests/releases.
-2. **Uncommitted capability tranche:** voice, entitlements, events, feedback, location and proposal work span schema/API/UI/workers and need a reviewable commit/migration boundary.
+2. **Hosted integration boundary:** voice, entitlements, events, feedback, location, CRM, billing, and proposal work are integrated locally but not uniformly proven in current hosted staging.
 3. **Application-only tenant enforcement:** strong tooling exists, but the large bypass/raw-SQL inventory is a permanent cognitive risk without database RLS or equivalent defense.
 4. **Naming/ownership drift:** Torchiko, PathFinder, Hermes and Tochi roles are inferable but not codified in one canonical architecture note; customer email still says PathFinder.
 5. **Schema-ahead behavior:** outcome learning, parts of billing and some structured response blocks imply capabilities their runtimes do not yet deliver; citations now have a bounded runtime but remain short of claim-level attribution. Operational event email has a real dark-by-default runtime, while its external activation and the other advertised channels remain gated or unimplemented.
 6. **External readiness gaps:** authenticated core service readiness exists, but green web health still proves only DB/Redis connectivity and external provider/storage/email execution remains unproven.
 7. **Documentation fragmentation:** the README is thin on setup, while numerous packet/status documents contain historically useful but stale conclusions.
 8. **Deployment configuration overlap:** root Railway/Nixpacks and service Docker configurations coexist.
-9. **Floating local service images:** MinIO/ClamAV local tags are not reproducible.
+9. **Hosted dependency ownership:** local service identities are digest-pinned, but hosted Railway dependency versions and health still require explicit observation.
 10. **Client/operator imbalance:** safety is achieved partly by making the operator do nearly everything, which becomes operational debt as customers grow.
 
 Systems that should not be casually rewritten include chat turn idempotency, tenant verification gates, immutable revision/manifest evidence, upload quarantine, evaluation run identity, AI budget admission, and worker lease/recovery primitives. Their complexity protects real failure boundaries.
@@ -319,33 +331,32 @@ The current operator-centric model will not scale. Torchiko would need automated
 
 ## Current Blockers
 
-- No current, retained, realistic end-to-end venue onboarding/publish/chat/report evidence.
-- Provider-backed chat, agents, media analysis, evaluation, report generation, and voice were not running locally.
-- Broken `/privacy` marketing link and no implemented privacy-policy surface.
-- Retention/deletion policy is not executable.
-- No CRM, billing collection, inbound email, or general outbound communication system.
-- No operational delivery for event notifications beyond the in-app console.
+- The exact integrated candidate has strong local evidence but still needs owner-authorized hosted staging integration and observation; local proof is not deployment proof.
+- Provider-backed chat, agents, media analysis, evaluation, report generation, and voice quality remain unproven for the current candidate.
+- The `/privacy` status surface exists, but owner/legal policy text and executable destructive retention policy remain unresolved and must not be invented.
+- CRM, Gmail, bounded outbound, and Stripe test-mode foundations exist; credentials, delivery, customer contact, pricing, live billing, and consequential lifecycle execution remain gated.
+- Operator email has a dark-by-default delivery foundation; SMS, push, Slack/webhook, urgent external founder escalation policy, and platform-event external delivery remain incomplete.
 - Claim-level semantic citation validation and provider-enabled citation QA remain unproven; bounded retrieved-record provenance is implemented.
-- Production/staging deployment, migration parity, secrets, backups/PITR, monitoring, and current CI status are unknown.
+- Current hosted migration parity, provider secrets/health, backups/PITR, monitoring, remote CI, and production state have not been established by this local reconciliation.
 
 ## Top 10 Things Torchiko Should Do Next
 
-1. **Run a golden real-venue lifecycle and keep its evidence** — onboarding through offboarding/export, including failure recovery. _Effort L; impact very high._ It converts code confidence into operational confidence and reveals the real bottleneck.
-2. **Make provider outages explicit in guest UX and operations** — distinguish unavailable, rejected, timed out, and ambiguous outcomes; alert the operator. _Effort S–M; impact high._ It protects visitor trust and shortens incident response.
-3. **Ship a truthful privacy surface and executable retention plan** — fix `/privacy`, decide the 12 retention questions, implement/test deletion. _Effort M–L; impact very high._ It removes a customer/compliance blocker.
-4. **Stabilize the current uncommitted capability tranche** — review migrations, commit coherently, deploy to staging, and run voice/location/feedback/event/entitlement smoke tests. _Effort M; impact high._ It turns a large local integration into a known release.
-5. **Activate and prove the bounded operator-email route when authorized** — choose recipient/severity, run a staging canary, and decide whether platform-owned events also need external projection before adding other channels. _Effort S–M; impact high._ The dark-by-default tenant outbox/worker/retry/audit foundation already exists.
-6. **Converge the content read path** — publish an explicit legacy-to-native retirement plan and metrics; do not delete compatibility code prematurely. _Effort L; impact high._ It lowers defect and onboarding complexity.
-7. **Deepen the safe client insight/correction loop** — the privacy-bounded visitor pulse and service-led correction request now exist; add calibrated trend/context depth without exposing raw conversations or direct publication. _Effort M; impact high._ It increases customer value without abandoning review safety.
-8. **Verify and improve recovery/production observability** — current backup/PITR state, restore drill, worker/scheduler/provider/storage health, queue depth and cost anomalies. _Effort M; impact high._ It makes real customers supportable.
-9. **Make agent model semantics honest** — align identity model configuration with actual execution and add a measured outcome-to-review loop. _Effort M; impact medium-high._ It prevents false control/learning claims and enables optimization.
-10. **Prove CRM-to-onboarding continuity in staging** — the local prospect/customer/location conversion is retry-fenced and durable; next prove the exact hosted flow with authorized Gmail and identity-provider configuration while keeping sending, pricing, and customer promises gated. _Effort M; impact medium-high._
+1. **Integrate the exact candidate into authorized staging and retain its evidence** — verify code SHA, migration lineage, runtime health, and rollback without broadening production authority. _Effort M; impact very high._
+2. **Repeat the golden lifecycle in hosted staging** — retain onboarding, intake, release/rollback, guest, report, support, update, export, and failure evidence against hosted dependencies. _Effort L; impact very high._
+3. **Prove provider quality and fallback deliberately** — run spend-bounded chat/evaluation/voice cases with strong models, then measure any downgrade rather than assuming equivalence. _Effort M; impact very high._
+4. **Complete launch-grade visitor and onboarding QA** — authenticated mobile, real devices, accessibility, outage states, and visual regression coverage. _Effort M–L; impact very high._
+5. **Resolve privacy/retention policy gates and design the separate executor** — retain read-only previews until founder/legal decisions exist; do not infer destructive authority. _Effort M–L; impact very high._
+6. **Converge the content read path** — use existing shadow evidence and an explicit rollback target; do not delete compatibility code prematurely. _Effort L; impact high._
+7. **Prove CRM-to-onboarding continuity in staging** — retain exact prospect/customer/location conversion while keeping sending, pricing, and promises gated. _Effort M; impact high._
+8. **Verify recovery and cost observability** — current backup/PITR, restore drill, worker/provider/storage health, queue depth, and bounded anomaly safeguards. _Effort M; impact high._
+9. **Deepen progressive agent authority evidence** — connect outcomes, rollback, approval acceptance, policy violations, and confidence without automatically loosening policy. _Effort M; impact high._
+10. **Activate only explicitly authorized external canaries** — Gmail watch, operator email, Stripe scheduled test lifecycle, and other provider flows remain separately owner-gated. _Effort M; impact medium-high._
 
 ## 5 Things We Should Explicitly NOT Work On Yet
 
 1. A city/territory-scale shared knowledge graph before the venue read path converges.
-2. Autonomous outbound sales or support email before approvals, deliverability, CRM records, and event delivery exist.
-3. A custom billing engine; use a provider only after pricing and entitlements stabilize.
+2. Autonomous outbound sales or support email; reviewed foundations exist, but customer-contact authority has not changed.
+3. Live billing expansion, refund automation, or invented commercial policy; keep Stripe test-mode evidence separate from authorization.
 4. Self-modifying or “self-learning” agents; first measure outcomes and require reviewable policy changes.
 5. A wholesale UI redesign; the current design system and primary surfaces are already coherent.
 
@@ -361,9 +372,9 @@ The current operator-centric model will not scale. Torchiko would need automated
 
 You have a real venue product with a surprisingly serious operating system behind it. A visitor can reach a polished venue guide, a client can onboard and ask for support, and you can manage content, releases, reports, AI costs, evaluations, agents, and exceptions from a strong admin workspace. The system has more safeguards than most early products: it is careful about tenant scope, retries, duplicate AI requests, bad uploads, publishing evidence, and human approvals.
 
-What looks more complete than it is is everything around the edges of that core. Voice, location, event delivery, agent learning, billing, and communications all have varying amounts of foundation, but they are not equally usable. Citations now expose bounded retrieved-record provenance, not claim-level semantic proof. CRM and outreach basically do not exist in the audited baseline. Agents can run and ask questions, but they do not learn automatically, and rich tools depend on an external bridge. Clients see a polished but intentionally narrow portal, leaving your team to do most of the work.
+What looks more complete than it is is everything around the edges of that core. Voice, location, event delivery, agent learning, billing, CRM, and communications have meaningful foundations, but they are not equally usable or externally activated. Citations expose bounded retrieved-record provenance, not claim-level semantic proof. CRM and reviewed outreach now exist internally; sending, pricing, and promises remain gated. Agents can run and ask questions, but they do not automatically apply learning, and rich tools depend on an external bridge. Clients see a polished but intentionally narrow portal, leaving your team to do most of the work.
 
-The best news is that the core is strong enough for controlled customers. The caution is that this audit did not prove one realistic venue all the way through onboarding, publication, grounded live AI, reporting, support, and recovery. Do that next. Fix the privacy link and outage message, turn on one real alert channel, verify backups/provider health, and let the resulting operational pain—not speculative architecture—choose the next build. If that golden flow becomes boring and repeatable, ten venues are realistic; the system’s human workload, not its database, will determine how quickly you get to one hundred.
+The best news is that the core is strong enough for controlled customers and the provider-dark golden lifecycle is now boring and repeatable locally. The caution is that hosted staging, provider-backed quality, real-device use, recovery, and externally gated integrations do not inherit that proof. Establish those deliberately, finish policy-dependent privacy/retention work, verify backups/provider health, and let observed operational pain—not speculative architecture—choose the next build. The system’s human workload, not its database, will determine how quickly it progresses from ten venues toward one hundred.
 
 ## Audit limitations
 
@@ -371,4 +382,4 @@ No credentials, production data, provider dashboards, browser profiles, or exter
 
 ## CRM/outreach branch delta (2026-08-20)
 
-The isolated CRM foundation branch adds the prospect and outreach operational system described in `IMPLEMENTATION_CRM_FOUNDATION.md` and `IMPLEMENTATION_PROSPECT_OUTREACH_OPERATIONS.md`. Outbound and inbound adapters are implemented but dark by default; this does not change the deployed-production claim in this document.
+The CRM foundation and outreach operational system described in `IMPLEMENTATION_CRM_FOUNDATION.md` and `IMPLEMENTATION_PROSPECT_OUTREACH_OPERATIONS.md` are integrated in the current lineage. Outbound and inbound adapters remain dark by default; this changes implementation truth but does not prove hosted deployment or authorize customer contact.

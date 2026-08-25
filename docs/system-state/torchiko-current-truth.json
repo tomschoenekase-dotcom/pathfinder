@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-25",
+  "authority": {
+    "purpose": "Machine-readable overlay for current repository capability truth",
+    "supersedesHistoricalClaimsIn": [
+      "docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md",
+      "docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md"
+    ],
+    "doesNotProve": [
+      "hosted staging deployment",
+      "production deployment",
+      "provider credentials or provider-backed quality",
+      "customer contact",
+      "live billing",
+      "legal or pricing policy",
+      "valuable-data destruction authority"
+    ]
+  },
+  "dynamicFacts": {
+    "migrationDirectory": "packages/db/prisma/migrations",
+    "composeFile": "compose.local-staging.yml",
+    "expectedLocalServiceImages": 5
+  },
+  "capabilities": [
+    {
+      "id": "release-evidence",
+      "status": "proven-locally",
+      "summary": "Exact candidate assessments and staging handoffs can be projected into immutable platform evidence without granting deployment authority.",
+      "evidence": [
+        "docs/platform-release-evidence.md",
+        "scripts/prepare-release-evidence.mjs",
+        "packages/db/src/helpers/platform-release-evidence.ts",
+        "apps/dashboard/app/api/platform-worker/release-evidence/route.ts"
+      ],
+      "remaining": "Persist and inspect the exact candidate in authorized hosted staging; deployment approval remains separate."
+    },
+    {
+      "id": "golden-venue-lifecycle",
+      "status": "proven-provider-dark-locally",
+      "summary": "A disposable end-to-end venue lifecycle and seven failure classes are retained and replayable through production domain paths.",
+      "evidence": [
+        "docs/golden-venue-runbook.md",
+        "scripts/run-disposable-golden-venue.mjs",
+        "scripts/golden-venue/fixture.json"
+      ],
+      "remaining": "Run the synthetic flow in authorized hosted staging and separately prove provider-backed answer and voice quality."
+    },
+    {
+      "id": "crm-pipeline",
+      "status": "implemented-external-gated",
+      "summary": "Prospect organizations, venues, contacts, opportunities, provenance, research/import, history, follow-up, and reviewed conversion are implemented.",
+      "evidence": [
+        "packages/api/src/routers/admin/prospect-crm.ts",
+        "packages/db/src/helpers/prospect-crm-disposable.integration.test.ts",
+        "apps/dashboard/app/(admin)/admin/prospects"
+      ],
+      "remaining": "Hosted continuity and authorized provider configuration; pricing, promises, and customer contact stay gated."
+    },
+    {
+      "id": "outreach-operations",
+      "status": "implemented-external-gated",
+      "summary": "Campaign, cohort, draft, approval, suppression, outbox, rate-policy, worker, and analytics foundations are implemented dark by default.",
+      "evidence": [
+        "packages/api/src/routers/admin/prospect-crm-outreach.ts",
+        "packages/db/src/helpers/prospect-outreach-actions.ts",
+        "apps/workers/src/processors/send-prospect-outreach.ts"
+      ],
+      "remaining": "Sending requires separate owner/provider authorization and a bounded staging canary."
+    },
+    {
+      "id": "stripe-billing",
+      "status": "implemented-sandbox-proven-live-gated",
+      "summary": "Stripe test-mode checkout, signed webhooks, internal projection, entitlement evaluation, reconciliation, portal, and governed agent proposals are implemented and sandbox-proven.",
+      "evidence": [
+        "docs/stripe-billing-staging-status-2026-08-20.md",
+        "packages/billing/src/service.ts",
+        "packages/api/src/routers/billing.ts",
+        "apps/dashboard/app/api/webhooks/stripe/route.ts"
+      ],
+      "remaining": "No live billing is configured or authorized; unresolved commercial and legal decisions remain founder-gated."
+    },
+    {
+      "id": "gmail-correspondence",
+      "status": "implemented-external-gated",
+      "summary": "Gmail OAuth, Pub/Sub, sync, source references, correspondence metadata, and source-message navigation foundations are implemented.",
+      "evidence": [
+        "docs/gmail-source-retrieval.md",
+        "packages/api/src/correspondence/gmail.ts",
+        "apps/workers/src/processors/gmail-sync.ts",
+        "apps/dashboard/app/api/integrations/gmail/pubsub/route.ts"
+      ],
+      "remaining": "Owner credentials, watch renewal, hosted continuity, and authorized delivery remain external gates."
+    },
+    {
+      "id": "local-staging-infrastructure",
+      "status": "proven-locally",
+      "summary": "PostgreSQL/pgvector, Redis, MinIO, its client, and ClamAV use content-addressed image identities and have a provider-dark local health path.",
+      "evidence": [
+        "compose.local-staging.yml",
+        "docs/local-staging-infrastructure.md",
+        "scripts/local-staging-worker.test.mjs"
+      ],
+      "remaining": "Hosted Railway configuration and dependency health remain separately owned and unproven by local compose."
+    },
+    {
+      "id": "privacy-retention",
+      "status": "partially-implemented-policy-gated",
+      "summary": "A truthful privacy-policy status surface, retention inventory, and non-destructive disposition preview exist; general deletion execution does not.",
+      "evidence": [
+        "apps/web/app/privacy/page.tsx",
+        "packages/db/src/helpers/retention-disposition-preview.ts",
+        "packages/api/src/routers/admin/retention-disposition-preview.ts"
+      ],
+      "remaining": "Founder/legal policy decisions and a separately reviewed executor are required before destructive retention actions."
+    }
+  ]
+}
