@@ -41,6 +41,10 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
+  // Platform-admin unit economics aggregates cross-tenant AI usage and append-only
+  // operating-cost evidence; the write binds the authenticated human actor and
+  // cannot alter invoices, customer pricing, anomaly policy, or service state.
+  ['packages/api/src/routers/admin/unit-economics.ts', 2],
   // Platform-admin-only exact incident correlation reads one event, its latest scoped guest turn,
   // and explicitly referenced sanitized usage rows; successful access is strictly audited.
   ['packages/api/src/routers/admin/guest-chat-incident-evidence.ts', 3],
