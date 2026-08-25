@@ -149,7 +149,7 @@ export function GuestAnswerEvaluationPanel(props: {
           ['Tenant policy', props.readiness.tenantEnabled],
         ].map(([label, enabled]) => (
           <div key={String(label)} className="rounded-xl bg-pf-surface px-3 py-2">
-            <dt className="font-semibold text-pf-deep/60">{label}</dt>
+            <dt className="font-semibold text-pf-deep/75">{label}</dt>
             <dd className="mt-1 font-semibold text-pf-deep">{enabled ? 'Enabled' : 'Off'}</dd>
           </div>
         ))}
@@ -172,13 +172,13 @@ export function GuestAnswerEvaluationPanel(props: {
             <li key={request.id} className="rounded-2xl border border-pf-light p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="font-mono text-xs text-pf-deep/60">
+                  <p className="font-mono text-xs text-pf-deep/75">
                     Turn {request.guestChatTurnId}
                   </p>
                   <p className="mt-1 text-sm font-semibold text-pf-deep">
                     {request.status} · attempt {request.attemptNumber}
                   </p>
-                  <p className="mt-1 break-all font-mono text-xs text-pf-deep/55">
+                  <p className="mt-1 break-all font-mono text-xs text-pf-deep/75">
                     answer {shortHash(request.answerHash)} · evidence{' '}
                     {shortHash(request.evidenceSetHash)}
                   </p>
