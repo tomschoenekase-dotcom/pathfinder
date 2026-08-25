@@ -34,13 +34,15 @@ export type CustomerAccessExecutorDependencies = {
   actions: ExecutionActions
 }
 
-const defaultDependencies: CustomerAccessExecutorDependencies = {
-  provider: { ensure: ensureOrganizationInvitation },
-  actions: {
-    start: startApprovedCustomerInvitationAction,
-    confirm: confirmCustomerInvitationAction,
-    markReconciliation: markCustomerInvitationReconciliationAction,
-  },
+function defaultDependencies(): CustomerAccessExecutorDependencies {
+  return {
+    provider: { ensure: ensureOrganizationInvitation },
+    actions: {
+      start: startApprovedCustomerInvitationAction,
+      confirm: confirmCustomerInvitationAction,
+      markReconciliation: markCustomerInvitationReconciliationAction,
+    },
+  }
 }
 
 /**
@@ -51,9 +53,10 @@ const defaultDependencies: CustomerAccessExecutorDependencies = {
  */
 export async function executeApprovedCustomerInvitation(
   input: ExecutionInput,
-  dependencies: CustomerAccessExecutorDependencies = defaultDependencies,
+  dependencies?: CustomerAccessExecutorDependencies,
 ) {
-  let started = await dependencies.actions.start(input)
+  const resolvedDependencies = dependencies ?? defaultDependencies()
+  let started = await resolvedDependencies.actions.start(input)
 
   if (started.state === 'INVITED') {
     return {
@@ -66,12 +69,12 @@ export async function executeApprovedCustomerInvitation(
   }
 
   if (started.state === 'RECONCILIATION_REQUIRED') {
-    const reconciled = await dependencies.actions.markReconciliation({
+    const reconciled = await resolvedDependencies.actions.markReconciliation({
       ...input,
       expectedUpdatedAt: started.request.updatedAt,
       failureClass: 'OUTCOME_AMBIGUOUS',
     })
-    started = await dependencies.actions.start({
+    started = await resolvedDependencies.actions.start({
       ...input,
       expectedUpdatedAt: reconciled.updatedAt,
     })
@@ -83,14 +86,14 @@ export async function executeApprovedCustomerInvitation(
 
   let providerResult: { id: string; replayed: boolean }
   try {
-    providerResult = await dependencies.provider.ensure({
+    providerResult = await resolvedDependencies.provider.ensure({
       organizationId: started.request.tenantId,
       emailAddress: started.request.targetEmail,
       role: 'org:member',
       inviterUserId: started.inviterUserId,
     })
   } catch (error) {
-    await dependencies.actions.markReconciliation({
+    await resolvedDependencies.actions.markReconciliation({
       ...input,
       expectedUpdatedAt: started.request.updatedAt,
       failureClass: 'OUTCOME_AMBIGUOUS',
@@ -98,7 +101,7 @@ export async function executeApprovedCustomerInvitation(
     throw error
   }
 
-  const confirmed = await dependencies.actions.confirm({
+  const confirmed = await resolvedDependencies.actions.confirm({
     ...input,
     expectedUpdatedAt: started.request.updatedAt,
     providerInvitationId: providerResult.id,
