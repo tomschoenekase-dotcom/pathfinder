@@ -251,6 +251,12 @@ export function ProspectDirectory({
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
+            href="/admin/prospects/inbound"
+            className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 shadow-sm"
+          >
+            Inbound interest
+          </Link>
+          <Link
             href="/admin/prospects/new"
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm"
           >

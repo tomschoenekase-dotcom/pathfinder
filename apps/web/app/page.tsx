@@ -79,12 +79,12 @@ export default function WebHomePage() {
                 required.
               </p>
               <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-                <a
-                  href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
+                <Link
+                  href="/request-demo"
                   className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
                 >
                   Request a demo
-                </a>
+                </Link>
                 <a
                   href="#how-it-works"
                   className="inline-flex min-h-12 items-center justify-center rounded-full border border-pf-light/30 px-7 text-sm font-semibold text-pf-light transition hover:border-pf-light hover:bg-pf-light/10"
@@ -240,12 +240,12 @@ export default function WebHomePage() {
                 Ready to give your guests a smarter experience?
               </h2>
             </div>
-            <a
-              href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
+            <Link
+              href="/request-demo"
               className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-white px-6 text-sm font-semibold text-pf-primary transition hover:bg-pf-surface"
             >
               Get in touch
-            </a>
+            </Link>
           </div>
         </FadeIn>
       </section>
@@ -256,12 +256,12 @@ export default function WebHomePage() {
             © {new Date().getFullYear()} Torchiko. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a
-              href="mailto:tomschoenekase@gmail.com"
+            <Link
+              href="/request-demo"
               className="text-xs text-white/30 transition hover:text-white"
             >
               Contact
-            </a>
+            </Link>
             <Link href="/privacy" className="text-xs text-white/30 transition hover:text-white">
               Privacy notice
             </Link>

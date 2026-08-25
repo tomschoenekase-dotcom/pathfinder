@@ -72,6 +72,7 @@ import { adminPlatformWorkerPolicyCredentialsRouter } from './platform-worker-po
 import { adminUnitEconomicsRouter } from './unit-economics'
 import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
 import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
+import { adminPublicInterestRouter } from './public-interest'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -93,6 +94,7 @@ export const adminRouter = mergeRouters(
   adminUnitEconomicsRouter,
   adminGuestAnswerAttributionsRouter,
   adminRetentionDispositionPreviewRouter,
+  adminPublicInterestRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

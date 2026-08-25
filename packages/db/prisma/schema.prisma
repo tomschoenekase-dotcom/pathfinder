@@ -5807,6 +5807,64 @@ enum ProspectResearchAttemptStatus {
   EXPIRED
 }
 
+/// Public interest is staged separately from canonical CRM truth until a
+/// platform operator deliberately reconciles it.
+enum PublicInterestSubmissionStatus {
+  NEW
+  REVIEWED
+  ARCHIVED
+}
+
+enum PublicInterestReviewDecision {
+  MARK_REVIEWED
+  ARCHIVE
+  REOPEN
+}
+
+/// Immutable, provider-dark evidence submitted from the public marketing site.
+/// It never sends email or creates a canonical prospect automatically.
+model PublicInterestSubmission {
+  id               String                           @id @default(cuid())
+  requestId        String                           @unique @map("request_id") @db.Uuid
+  requestHash      String                           @map("request_hash") @db.Char(64)
+  organizationName String                           @map("organization_name") @db.VarChar(160)
+  contactName      String                           @map("contact_name") @db.VarChar(120)
+  workEmail        String                           @map("work_email") @db.VarChar(320)
+  normalizedEmail  String                           @map("normalized_email") @db.VarChar(320)
+  website          String?                          @db.VarChar(1000)
+  cityRegion       String?                          @map("city_region") @db.VarChar(200)
+  venueType        String?                          @map("venue_type") @db.VarChar(100)
+  message          String?                          @db.VarChar(2000)
+  sourcePath       String                           @default("/request-demo") @map("source_path") @db.VarChar(200)
+  status           PublicInterestSubmissionStatus   @default(NEW)
+  reviewedAt       DateTime?                        @map("reviewed_at")
+  reviewedBy       String?                          @map("reviewed_by") @db.VarChar(191)
+  createdAt        DateTime                         @default(now()) @map("created_at")
+  updatedAt        DateTime                         @updatedAt @map("updated_at")
+  reviews          PublicInterestSubmissionReview[]
+
+  @@index([status, createdAt, id], map: "public_interest_submissions_status_created_idx")
+  @@index([normalizedEmail, createdAt], map: "public_interest_submissions_email_created_idx")
+  @@map("public_interest_submissions")
+}
+
+/// Append-only review history. operationId + operationHash make retries exact
+/// without weakening the current status projection on the submission.
+model PublicInterestSubmissionReview {
+  id            String                       @id @default(cuid())
+  operationId   String                       @unique @map("operation_id") @db.Uuid
+  operationHash String                       @map("operation_hash") @db.Char(64)
+  submissionId  String                       @map("submission_id")
+  decision      PublicInterestReviewDecision
+  reason        String?                      @db.VarChar(1000)
+  reviewerId    String                       @map("reviewer_id") @db.VarChar(191)
+  createdAt     DateTime                     @default(now()) @map("created_at")
+  submission    PublicInterestSubmission     @relation(fields: [submissionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([submissionId, createdAt, id], map: "public_interest_reviews_submission_created_idx")
+  @@map("public_interest_submission_reviews")
+}
+
 /// Platform-owned sales territory. Prospects remain outside tenant scope until conversion.
 model ProspectTerritory {
   id            String                 @id @default(cuid())

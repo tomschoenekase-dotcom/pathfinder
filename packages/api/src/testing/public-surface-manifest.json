@@ -66,6 +66,13 @@
       "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
     },
     {
+      "path": "publicInterest.submit",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/public-interest.test.ts"]
+    },
+    {
       "path": "venue.getBySlug",
       "kind": "query",
       "exposure": "public",
