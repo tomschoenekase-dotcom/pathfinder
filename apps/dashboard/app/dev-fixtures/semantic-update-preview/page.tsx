@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  SemanticOperationalUpdateDraftAction,
   SemanticUpdatePreview,
   SemanticUpdateDraftAction,
   SemanticUpdatePreviewResult,
@@ -96,6 +97,30 @@ export default function SemanticUpdatePreviewFixture() {
               venueId="fixture-venue"
               creating={false}
               draft={{ packageId: 'fixture-package', packageStatus: 'DRAFT', replayed: false }}
+              onCreate={() => undefined}
+            />
+          </article>
+          <article className="lg:col-span-2">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Temporal handoff complete
+            </p>
+            <SemanticUpdatePreviewResult
+              preview={{
+                classification: 'TEMPORAL',
+                operationCount: 1,
+                authority: 'VENUE_CONFIRMED',
+                confidence: 0.98,
+                blockers: [],
+                questions: [],
+              }}
+            />
+            <SemanticOperationalUpdateDraftAction
+              creating={false}
+              draft={{
+                operationalUpdateId: 'fixture-operational-update',
+                operationalUpdateStatus: 'DRAFT',
+                replayed: false,
+              }}
               onCreate={() => undefined}
             />
           </article>

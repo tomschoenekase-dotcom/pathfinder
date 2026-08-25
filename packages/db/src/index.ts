@@ -806,8 +806,10 @@ export type {
   OperationalUpdateActionErrorCode,
   OperationalUpdateActionResult,
   OperationalUpdateFields,
+  OperationalUpdateDraftFinalizer,
   OperationalUpdateHumanActor,
   OperationalUpdatePreview,
+  SelectedOperationalUpdate,
 } from './helpers/operational-update-actions'
 export {
   createIntakeProposal,

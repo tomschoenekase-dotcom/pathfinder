@@ -140,16 +140,16 @@ model ClientCreateIntentEvent {
 }
 
 model Tenant {
-  id                                 String                                    @id
+  id                                 String                                      @id
   name                               String
-  slug                               String                                    @unique
-  planTier                           String                                    @default("free") @map("plan_tier")
-  status                             TenantStatus                              @default(ACTIVE)
-  config                             Json                                      @default("{}")
-  nextPaymentDue                     DateTime?                                 @map("next_payment_due")
-  engagementMode                     TenantEngagementMode                      @default(STOIC) @map("engagement_mode")
-  createdAt                          DateTime                                  @default(now()) @map("created_at")
-  updatedAt                          DateTime                                  @updatedAt @map("updated_at")
+  slug                               String                                      @unique
+  planTier                           String                                      @default("free") @map("plan_tier")
+  status                             TenantStatus                                @default(ACTIVE)
+  config                             Json                                        @default("{}")
+  nextPaymentDue                     DateTime?                                   @map("next_payment_due")
+  engagementMode                     TenantEngagementMode                        @default(STOIC) @map("engagement_mode")
+  createdAt                          DateTime                                    @default(now()) @map("created_at")
+  updatedAt                          DateTime                                    @updatedAt @map("updated_at")
   memberships                        TenantMembership[]
   featureFlags                       TenantFeatureFlag[]
   entitlementOverrides               ProductEntitlementOverride[]
@@ -190,6 +190,7 @@ model Tenant {
   operationalEventDeliveries         OperationalEventDelivery[]
   knowledgeChangeProposals           KnowledgeChangeProposal[]
   knowledgeProposalPackageHandoffs   KnowledgeProposalPackageHandoff[]
+  knowledgeProposalUpdateHandoffs    KnowledgeProposalOperationalUpdateHandoff[]
   messageFeedback                    MessageFeedback[]
   venueFloors                        VenueFloor[]
   venueLocations                     VenueLocation[]
@@ -1270,35 +1271,35 @@ enum VenuePackageStatus {
 }
 
 model Venue {
-  id                                  String                                    @id @default(cuid())
-  tenantId                            String                                    @map("tenant_id")
+  id                                  String                                      @id @default(cuid())
+  tenantId                            String                                      @map("tenant_id")
   name                                String
   slug                                String
   description                         String?
-  guideNotes                          String?                                   @map("guide_notes")
-  aiGuideNotes                        String?                                   @map("ai_guide_notes")
-  aiFeaturedPlaceId                   String?                                   @map("ai_featured_place_id")
-  aiTone                              String?                                   @default("FRIENDLY") @map("ai_tone")
-  tonePreset                          String?                                   @default("friendly") @map("tone_preset")
-  tonePresetVersion                   Int?                                      @default(1) @map("tone_preset_version")
-  aiGuideName                         String?                                   @map("ai_guide_name")
-  chatTheme                           String?                                   @default("default") @map("chat_theme")
-  chatAccentColor                     String?                                   @map("chat_accent_color")
-  chatFont                            String?                                   @default("jakarta") @map("chat_font")
-  chatLogoUrl                         String?                                   @map("chat_logo_url")
-  chatBannerUrl                       String?                                   @map("chat_banner_url")
+  guideNotes                          String?                                     @map("guide_notes")
+  aiGuideNotes                        String?                                     @map("ai_guide_notes")
+  aiFeaturedPlaceId                   String?                                     @map("ai_featured_place_id")
+  aiTone                              String?                                     @default("FRIENDLY") @map("ai_tone")
+  tonePreset                          String?                                     @default("friendly") @map("tone_preset")
+  tonePresetVersion                   Int?                                        @default(1) @map("tone_preset_version")
+  aiGuideName                         String?                                     @map("ai_guide_name")
+  chatTheme                           String?                                     @default("default") @map("chat_theme")
+  chatAccentColor                     String?                                     @map("chat_accent_color")
+  chatFont                            String?                                     @default("jakarta") @map("chat_font")
+  chatLogoUrl                         String?                                     @map("chat_logo_url")
+  chatBannerUrl                       String?                                     @map("chat_banner_url")
   category                            String?
-  guideMode                           String                                    @default("location_aware") @map("guide_mode")
-  defaultCenterLat                    Float?                                    @map("default_center_lat")
-  defaultCenterLng                    Float?                                    @map("default_center_lng")
-  geoBoundary                         Json?                                     @map("geo_boundary")
-  isActive                            Boolean                                   @default(true) @map("is_active")
-  secondLayerEnabled                  Boolean                                   @default(false) @map("second_layer_enabled")
-  secondLayerLabel                    String                                    @default("Employee") @map("second_layer_label")
-  secondLayerAccessKey                String?                                   @unique @map("second_layer_access_key")
-  createdAt                           DateTime                                  @default(now()) @map("created_at")
-  updatedAt                           DateTime                                  @updatedAt @map("updated_at")
-  tenant                              Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  guideMode                           String                                      @default("location_aware") @map("guide_mode")
+  defaultCenterLat                    Float?                                      @map("default_center_lat")
+  defaultCenterLng                    Float?                                      @map("default_center_lng")
+  geoBoundary                         Json?                                       @map("geo_boundary")
+  isActive                            Boolean                                     @default(true) @map("is_active")
+  secondLayerEnabled                  Boolean                                     @default(false) @map("second_layer_enabled")
+  secondLayerLabel                    String                                      @default("Employee") @map("second_layer_label")
+  secondLayerAccessKey                String?                                     @unique @map("second_layer_access_key")
+  createdAt                           DateTime                                    @default(now()) @map("created_at")
+  updatedAt                           DateTime                                    @updatedAt @map("updated_at")
+  tenant                              Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   places                              Place[]
   sessions                            VisitorSession[]
   operationalUpdates                  OperationalUpdate[]
@@ -1324,6 +1325,7 @@ model Venue {
   operationalEvents                   OperationalEvent[]
   knowledgeChangeProposals            KnowledgeChangeProposal[]
   knowledgeProposalPackageHandoffs    KnowledgeProposalPackageHandoff[]
+  knowledgeProposalUpdateHandoffs     KnowledgeProposalOperationalUpdateHandoff[]
   messageFeedback                     MessageFeedback[]
   floors                              VenueFloor[]
   structuredLocations                 VenueLocation[]
@@ -1390,7 +1392,7 @@ model Venue {
   credentialActivations               ExternalCredentialActivation[]
   aiConfigurationOverrides            AiScopedWorkloadConfigurationOverride[]
   venueBotConfiguration               VenueBotConfiguration?
-  personalityProfiles                 PersonalityProfile[]                      @relation("VenuePersonalityProfiles")
+  personalityProfiles                 PersonalityProfile[]                        @relation("VenuePersonalityProfiles")
   customCharacters                    CustomCharacter[]
   clientAssistantThreads              ClientAssistantThread[]
   clientAssistantTurns                ClientAssistantTurn[]
@@ -1995,43 +1997,43 @@ model VenueContentImportReceipt {
 /// Immutable, reviewable revision of the currently supported venue-content
 /// package. Lifecycle metadata is mutable only through guarded state changes.
 model VenuePackage {
-  id                      String                         @id @default(cuid())
-  tenantId                String                         @map("tenant_id")
-  venueId                 String                         @map("venue_id")
-  draftKey                String                         @map("draft_key") @db.Uuid
-  manifestArtifactId      String?                        @unique(map: "venue_packages_manifest_artifact_key") @map("manifest_artifact_id")
-  schemaVersion           Int                            @map("schema_version")
-  payload                 Json
-  payloadHash             String                         @map("payload_hash") @db.Char(64)
-  baseDigest              String                         @map("base_digest") @db.Char(64)
-  validationReport        Json                           @map("validation_report")
-  previewPlan             Json                           @map("preview_plan")
-  status                  VenuePackageStatus             @default(DRAFT)
-  createdBy               String                         @map("created_by")
-  approvedBy              String?                        @map("approved_by")
-  approvedAt              DateTime?                      @map("approved_at")
-  approvedCommandKey      String?                        @map("approved_command_key") @db.Uuid
-  approvalWarningDigest   String?                        @map("approval_warning_digest") @db.Char(64)
-  approvedWarningCodes    Json?                          @map("approved_warning_codes")
-  appliedBy               String?                        @map("applied_by")
-  appliedAt               DateTime?                      @map("applied_at")
-  appliedCommandKey       String?                        @map("applied_command_key") @db.Uuid
-  appliedEntities         Json?                          @map("applied_entities")
-  revertedBy              String?                        @map("reverted_by")
-  revertedAt              DateTime?                      @map("reverted_at")
-  revertedCommandKey      String?                        @map("reverted_command_key") @db.Uuid
-  createdAt               DateTime                       @default(now()) @map("created_at")
-  updatedAt               DateTime                       @updatedAt @map("updated_at")
-  tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  duplicateAnalysis       VenuePackageDuplicateAnalysis?
-  contentVersions         ContentVersion[]
-  sourcedPlaces           Place[]
-  sourcedKnowledgeEntries VenueKnowledgeEntry[]
-  intakeHandoffs          IntakePackageHandoff[]
+  id                       String                           @id @default(cuid())
+  tenantId                 String                           @map("tenant_id")
+  venueId                  String                           @map("venue_id")
+  draftKey                 String                           @map("draft_key") @db.Uuid
+  manifestArtifactId       String?                          @unique(map: "venue_packages_manifest_artifact_key") @map("manifest_artifact_id")
+  schemaVersion            Int                              @map("schema_version")
+  payload                  Json
+  payloadHash              String                           @map("payload_hash") @db.Char(64)
+  baseDigest               String                           @map("base_digest") @db.Char(64)
+  validationReport         Json                             @map("validation_report")
+  previewPlan              Json                             @map("preview_plan")
+  status                   VenuePackageStatus               @default(DRAFT)
+  createdBy                String                           @map("created_by")
+  approvedBy               String?                          @map("approved_by")
+  approvedAt               DateTime?                        @map("approved_at")
+  approvedCommandKey       String?                          @map("approved_command_key") @db.Uuid
+  approvalWarningDigest    String?                          @map("approval_warning_digest") @db.Char(64)
+  approvedWarningCodes     Json?                            @map("approved_warning_codes")
+  appliedBy                String?                          @map("applied_by")
+  appliedAt                DateTime?                        @map("applied_at")
+  appliedCommandKey        String?                          @map("applied_command_key") @db.Uuid
+  appliedEntities          Json?                            @map("applied_entities")
+  revertedBy               String?                          @map("reverted_by")
+  revertedAt               DateTime?                        @map("reverted_at")
+  revertedCommandKey       String?                          @map("reverted_command_key") @db.Uuid
+  createdAt                DateTime                         @default(now()) @map("created_at")
+  updatedAt                DateTime                         @updatedAt @map("updated_at")
+  tenant                   Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  duplicateAnalysis        VenuePackageDuplicateAnalysis?
+  contentVersions          ContentVersion[]
+  sourcedPlaces            Place[]
+  sourcedKnowledgeEntries  VenueKnowledgeEntry[]
+  intakeHandoffs           IntakePackageHandoff[]
   knowledgeProposalHandoff KnowledgeProposalPackageHandoff?
-  supportHandoffs         SupportPackageHandoff[]
-  supportPreviewFeedback  SupportPreviewFeedback[]
-  manifestArtifact        VenuePackageManifestArtifact?  @relation(fields: [manifestArtifactId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportHandoffs          SupportPackageHandoff[]
+  supportPreviewFeedback   SupportPreviewFeedback[]
+  manifestArtifact         VenuePackageManifestArtifact?    @relation(fields: [manifestArtifactId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([id, tenantId, venueId])
   @@unique([manifestArtifactId, tenantId, venueId], map: "venue_packages_manifest_artifact_scope_key")
@@ -2913,40 +2915,41 @@ enum KnowledgeChangeProposalStatus {
 /// Human-reviewed bridge from conversational evidence to canonical venue knowledge.
 /// Approval never mutates the target entry; publishing remains a distinct audited action.
 model KnowledgeChangeProposal {
-  id                        String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                  String                        @map("tenant_id")
-  venueId                   String                        @map("venue_id")
-  sessionId                 String?                       @map("session_id")
-  conversationInsightId     String?                       @map("conversation_insight_id") @db.Uuid
-  supportRequestId          String?                       @map("support_request_id")
-  supportRequestVersion     Int?                          @map("support_request_version")
-  targetKnowledgeEntryId    String?                       @map("target_knowledge_entry_id")
-  publishedKnowledgeEntryId String?                       @map("published_knowledge_entry_id")
-  observedVisitorClaim      String?                       @map("observed_visitor_claim") @db.VarChar(2000)
-  aiInference               String?                       @map("ai_inference") @db.VarChar(2000)
-  proposedChange            String                        @map("proposed_change") @db.VarChar(10000)
-  reason                    String                        @db.VarChar(2000)
-  confidence                Decimal                       @db.Decimal(5, 4)
-  evidenceMessageIds        Json                          @default("[]") @map("evidence_message_ids")
-  status                    KnowledgeChangeProposalStatus @default(DRAFT)
-  createdByType             String                        @map("created_by_type") @db.VarChar(32)
-  createdById               String                        @map("created_by_id") @db.VarChar(191)
-  reviewerId                String?                       @map("reviewer_id") @db.VarChar(191)
-  reviewNote                String?                       @map("review_note") @db.VarChar(2000)
-  reviewedAt                DateTime?                     @map("reviewed_at")
-  publishedAt               DateTime?                     @map("published_at")
-  publishErrorCode          String?                       @map("publish_error_code") @db.VarChar(100)
-  createdAt                 DateTime                      @default(now()) @map("created_at")
-  updatedAt                 DateTime                      @updatedAt @map("updated_at")
-  tenant                    Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                     Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  session                   VisitorSession?               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  conversationInsight       ConversationInsight?          @relation(fields: [conversationInsightId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  supportRequest            SupportRequest?               @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "knowledge_proposals_support_request_fkey")
-  supportRequestEvent       SupportRequestAuditEvent?     @relation(fields: [supportRequestId, tenantId, venueId, supportRequestVersion], references: [supportRequestId, tenantId, venueId, requestVersion], onDelete: Restrict, onUpdate: Restrict, map: "knowledge_proposals_support_event_fkey")
-  targetKnowledgeEntry      VenueKnowledgeEntry?          @relation("KnowledgeProposalTarget", fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  publishedKnowledgeEntry   VenueKnowledgeEntry?          @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                        String                                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String                                     @map("tenant_id")
+  venueId                   String                                     @map("venue_id")
+  sessionId                 String?                                    @map("session_id")
+  conversationInsightId     String?                                    @map("conversation_insight_id") @db.Uuid
+  supportRequestId          String?                                    @map("support_request_id")
+  supportRequestVersion     Int?                                       @map("support_request_version")
+  targetKnowledgeEntryId    String?                                    @map("target_knowledge_entry_id")
+  publishedKnowledgeEntryId String?                                    @map("published_knowledge_entry_id")
+  observedVisitorClaim      String?                                    @map("observed_visitor_claim") @db.VarChar(2000)
+  aiInference               String?                                    @map("ai_inference") @db.VarChar(2000)
+  proposedChange            String                                     @map("proposed_change") @db.VarChar(10000)
+  reason                    String                                     @db.VarChar(2000)
+  confidence                Decimal                                    @db.Decimal(5, 4)
+  evidenceMessageIds        Json                                       @default("[]") @map("evidence_message_ids")
+  status                    KnowledgeChangeProposalStatus              @default(DRAFT)
+  createdByType             String                                     @map("created_by_type") @db.VarChar(32)
+  createdById               String                                     @map("created_by_id") @db.VarChar(191)
+  reviewerId                String?                                    @map("reviewer_id") @db.VarChar(191)
+  reviewNote                String?                                    @map("review_note") @db.VarChar(2000)
+  reviewedAt                DateTime?                                  @map("reviewed_at")
+  publishedAt               DateTime?                                  @map("published_at")
+  publishErrorCode          String?                                    @map("publish_error_code") @db.VarChar(100)
+  createdAt                 DateTime                                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                                   @updatedAt @map("updated_at")
+  tenant                    Tenant                                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                   VisitorSession?                            @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  conversationInsight       ConversationInsight?                       @relation(fields: [conversationInsightId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest            SupportRequest?                            @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "knowledge_proposals_support_request_fkey")
+  supportRequestEvent       SupportRequestAuditEvent?                  @relation(fields: [supportRequestId, tenantId, venueId, supportRequestVersion], references: [supportRequestId, tenantId, venueId, requestVersion], onDelete: Restrict, onUpdate: Restrict, map: "knowledge_proposals_support_event_fkey")
+  targetKnowledgeEntry      VenueKnowledgeEntry?                       @relation("KnowledgeProposalTarget", fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  publishedKnowledgeEntry   VenueKnowledgeEntry?                       @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   packageHandoff            KnowledgeProposalPackageHandoff?
+  operationalUpdateHandoff  KnowledgeProposalOperationalUpdateHandoff?
 
   @@unique([id, tenantId, venueId])
   @@unique([supportRequestId, tenantId, venueId, supportRequestVersion], map: "knowledge_proposals_support_version_key")
@@ -2977,6 +2980,28 @@ model KnowledgeProposalPackageHandoff {
   @@unique([venuePackageId, tenantId, venueId], map: "knowledge_proposal_package_handoffs_package_scope_key")
   @@index([tenantId, venueId, createdAt], map: "knowledge_proposal_package_handoffs_scope_created_idx")
   @@map("knowledge_proposal_package_handoffs")
+}
+
+/// Immutable identity bridge from one approved temporal knowledge proposal to
+/// one separately reviewable OperationalUpdate draft. It grants no scheduling authority.
+model KnowledgeProposalOperationalUpdateHandoff {
+  id                  String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String                  @map("tenant_id")
+  venueId             String                  @map("venue_id")
+  proposalId          String                  @map("proposal_id") @db.Uuid
+  operationalUpdateId String                  @map("operational_update_id")
+  previewHash         String                  @map("preview_hash") @db.Char(64)
+  createdBy           String                  @map("created_by") @db.VarChar(191)
+  createdAt           DateTime                @default(now()) @map("created_at")
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal            KnowledgeChangeProposal @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  operationalUpdate   OperationalUpdate       @relation(fields: [operationalUpdateId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([proposalId, tenantId, venueId], map: "knowledge_proposal_update_handoffs_proposal_scope_key")
+  @@unique([operationalUpdateId, tenantId, venueId], map: "knowledge_proposal_update_handoffs_update_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "knowledge_proposal_update_handoffs_scope_created_idx")
+  @@map("knowledge_proposal_operational_update_handoffs")
 }
 
 enum VenueLocationKind {
@@ -4010,29 +4035,31 @@ model GuestChatProviderOperation {
 }
 
 model OperationalUpdate {
-  id          String                    @id @default(cuid())
-  tenantId    String                    @map("tenant_id")
-  venueId     String                    @map("venue_id")
-  placeId     String?                   @map("place_id")
-  updateType  OperationalUpdateType     @default(GENERAL_NOTICE) @map("update_type")
-  severity    OperationalUpdateSeverity
-  priority    OperationalUpdatePriority @default(NORMAL)
-  title       String
-  body        String?
-  redirectTo  String?                   @map("redirect_to")
-  startsAt    DateTime                  @default(now()) @map("starts_at")
-  expiresAt   DateTime                  @map("expires_at")
-  status      OperationalUpdateStatus   @default(DRAFT)
-  isActive    Boolean                   @default(false) @map("is_active")
-  createdBy   String                    @map("created_by")
-  publishedBy String?                   @map("published_by")
-  publishedAt DateTime?                 @map("published_at")
-  createdAt   DateTime                  @default(now()) @map("created_at")
-  updatedAt   DateTime                  @updatedAt @map("updated_at")
-  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue       Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  place       Place?                    @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  id                       String                                     @id @default(cuid())
+  tenantId                 String                                     @map("tenant_id")
+  venueId                  String                                     @map("venue_id")
+  placeId                  String?                                    @map("place_id")
+  updateType               OperationalUpdateType                      @default(GENERAL_NOTICE) @map("update_type")
+  severity                 OperationalUpdateSeverity
+  priority                 OperationalUpdatePriority                  @default(NORMAL)
+  title                    String
+  body                     String?
+  redirectTo               String?                                    @map("redirect_to")
+  startsAt                 DateTime                                   @default(now()) @map("starts_at")
+  expiresAt                DateTime                                   @map("expires_at")
+  status                   OperationalUpdateStatus                    @default(DRAFT)
+  isActive                 Boolean                                    @default(false) @map("is_active")
+  createdBy                String                                     @map("created_by")
+  publishedBy              String?                                    @map("published_by")
+  publishedAt              DateTime?                                  @map("published_at")
+  createdAt                DateTime                                   @default(now()) @map("created_at")
+  updatedAt                DateTime                                   @updatedAt @map("updated_at")
+  tenant                   Tenant                                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                    Venue                                      @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  place                    Place?                                     @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  knowledgeProposalHandoff KnowledgeProposalOperationalUpdateHandoff?
 
+  @@unique([id, tenantId, venueId], map: "operational_updates_id_scope_key")
   @@index([tenantId])
   @@index([tenantId, updatedAt])
   @@index([tenantId, venueId, status, isActive, startsAt, expiresAt, priority], map: "operational_updates_guest_visibility_idx")

@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   semanticPreview: vi.fn(),
   semanticFinalizer: vi.fn(),
   createVenuePackageDraft: vi.fn(),
+  createOperationalUpdate: vi.fn(),
+  operationalFinalizer: vi.fn(),
+  operationalHandoffFind: vi.fn(),
 }))
 
 const transactionClient = {
@@ -34,6 +37,7 @@ vi.mock('@pathfinder/db', () => ({
   writeAuditLogStrict: mocks.audit,
   publishOperationalEvent: mocks.publish,
   prepareSupportKnowledgeProposalAction: mocks.prepareSupport,
+  createOperationalUpdateAction: mocks.createOperationalUpdate,
   SupportKnowledgeProposalActionError: class SupportKnowledgeProposalActionError extends Error {
     constructor(
       readonly code: string,
@@ -49,6 +53,9 @@ vi.mock('../../lib/semantic-venue-updater-service', async (importOriginal) => {
 })
 vi.mock('../../lib/semantic-venue-update-finalizer', () => ({
   semanticVenueUpdateDraftFinalizer: mocks.semanticFinalizer,
+}))
+vi.mock('../../lib/semantic-operational-update-finalizer', () => ({
+  semanticOperationalUpdateDraftFinalizer: mocks.operationalFinalizer,
 }))
 vi.mock('../venue-package', () => ({
   createVenuePackageDraftService: mocks.createVenuePackageDraft,
@@ -74,7 +81,11 @@ const input = {
 
 function context(): TRPCContext {
   return {
-    db: {} as TRPCContext['db'],
+    db: {
+      knowledgeProposalOperationalUpdateHandoff: {
+        findFirst: mocks.operationalHandoffFind,
+      },
+    } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: {
       userId: 'admin-1',
@@ -110,6 +121,12 @@ describe('admin knowledge proposals', () => {
       replayed: false,
     })
     mocks.semanticFinalizer.mockReturnValue(vi.fn())
+    mocks.operationalFinalizer.mockReturnValue(vi.fn())
+    mocks.operationalHandoffFind.mockResolvedValue(null)
+    mocks.createOperationalUpdate.mockResolvedValue({
+      update: { id: '44444444-4444-4444-8444-444444444444', status: 'DRAFT' },
+      preview: { lifecycle: 'DRAFT' },
+    })
     mocks.semanticPreview.mockResolvedValue({
       proposalStatus: 'APPROVED',
       previewHash: 'a'.repeat(64),
@@ -277,6 +294,212 @@ describe('admin knowledge proposals', () => {
         finalizer: expect.any(Function),
       }),
     )
+  })
+
+  it('creates only an inert temporal OperationalUpdate DRAFT through the canonical action', async () => {
+    const desired = {
+      title: 'Atrium closure',
+      category: 'TEMPORARY_CLOSURE',
+      content: 'The atrium is closed for maintenance.',
+      isEnabled: true,
+    }
+    mocks.semanticPreview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash: 'b'.repeat(64),
+      classification: 'TEMPORAL',
+      venuePackagePatch: null,
+      operationalUpdateDraft: {
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: desired.title,
+        body: desired.content,
+        startsAt: '2030-01-01T08:00:00.000Z',
+        expiresAt: '2030-01-01T12:00:00.000Z',
+        status: 'DRAFT',
+        autoSchedule: false,
+        autoPublish: false,
+      },
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticOperationalUpdateDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'b'.repeat(64),
+        relation: 'NEW_FACT',
+        desired,
+        validFrom: '2030-01-01T08:00:00.000Z',
+        validUntil: '2030-01-01T12:00:00.000Z',
+        operationalUpdateType: 'TEMPORARY_CLOSURE',
+      }),
+    ).resolves.toEqual({
+      operationalUpdateId: '44444444-4444-4444-8444-444444444444',
+      operationalUpdateStatus: 'DRAFT',
+      replayed: false,
+      previewHash: 'b'.repeat(64),
+      classification: 'TEMPORAL',
+      autoScheduled: false,
+      autoPublished: false,
+    })
+
+    expect(mocks.createOperationalUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
+        actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+        schedule: false,
+        fields: expect.objectContaining({
+          venueId: 'venue-1',
+          updateType: 'TEMPORARY_CLOSURE',
+        }),
+        finalizer: expect.any(Function),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('returns only an exact temporal DRAFT replay', async () => {
+    const desired = {
+      title: 'Atrium closure',
+      category: 'TEMPORARY_CLOSURE',
+      content: 'The atrium is closed for maintenance.',
+      isEnabled: true,
+    }
+    const temporalPreview = {
+      proposalStatus: 'APPROVED',
+      previewHash: 'b'.repeat(64),
+      classification: 'TEMPORAL',
+      venuePackagePatch: null,
+      operationalUpdateDraft: {
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: desired.title,
+        body: desired.content,
+        startsAt: '2030-01-01T08:00:00.000Z',
+        expiresAt: '2030-01-01T12:00:00.000Z',
+        status: 'DRAFT',
+        autoSchedule: false,
+        autoPublish: false,
+      },
+    }
+    mocks.semanticPreview.mockResolvedValueOnce(temporalPreview)
+    mocks.operationalHandoffFind.mockResolvedValueOnce({
+      previewHash: temporalPreview.previewHash,
+      operationalUpdate: {
+        id: '44444444-4444-4444-8444-444444444444',
+        status: 'DRAFT',
+        isActive: false,
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: desired.title,
+        body: desired.content,
+        startsAt: new Date('2030-01-01T08:00:00.000Z'),
+        expiresAt: new Date('2030-01-01T12:00:00.000Z'),
+      },
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticOperationalUpdateDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: temporalPreview.previewHash,
+        relation: 'NEW_FACT',
+        desired,
+        validFrom: '2030-01-01T08:00:00.000Z',
+        validUntil: '2030-01-01T12:00:00.000Z',
+        operationalUpdateType: 'TEMPORARY_CLOSURE',
+      }),
+    ).resolves.toMatchObject({ replayed: true, operationalUpdateStatus: 'DRAFT' })
+    expect(mocks.createOperationalUpdate).not.toHaveBeenCalled()
+  })
+
+  it('reconciles an exact temporal DRAFT created by a concurrent request', async () => {
+    const desired = {
+      title: 'Atrium closure',
+      category: 'TEMPORARY_CLOSURE',
+      content: 'The atrium is closed for maintenance.',
+      isEnabled: true,
+    }
+    const temporalPreview = {
+      proposalStatus: 'APPROVED',
+      previewHash: 'b'.repeat(64),
+      classification: 'TEMPORAL',
+      venuePackagePatch: null,
+      operationalUpdateDraft: {
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: desired.title,
+        body: desired.content,
+        startsAt: '2030-01-01T08:00:00.000Z',
+        expiresAt: '2030-01-01T12:00:00.000Z',
+        status: 'DRAFT',
+        autoSchedule: false,
+        autoPublish: false,
+      },
+    }
+    mocks.semanticPreview.mockResolvedValueOnce(temporalPreview)
+    mocks.createOperationalUpdate.mockRejectedValueOnce({ code: 'P2002' })
+    mocks.operationalHandoffFind.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      previewHash: temporalPreview.previewHash,
+      operationalUpdate: {
+        id: '44444444-4444-4444-8444-444444444444',
+        status: 'DRAFT',
+        isActive: false,
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: desired.title,
+        body: desired.content,
+        startsAt: new Date('2030-01-01T08:00:00.000Z'),
+        expiresAt: new Date('2030-01-01T12:00:00.000Z'),
+      },
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticOperationalUpdateDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: temporalPreview.previewHash,
+        relation: 'NEW_FACT',
+        desired,
+        validFrom: '2030-01-01T08:00:00.000Z',
+        validUntil: '2030-01-01T12:00:00.000Z',
+        operationalUpdateType: 'TEMPORARY_CLOSURE',
+      }),
+    ).resolves.toMatchObject({ replayed: true, operationalUpdateStatus: 'DRAFT' })
+  })
+
+  it('enforces operational title and body limits before temporal DRAFT creation', async () => {
+    await expect(
+      app.createCaller(context()).admin.createSemanticOperationalUpdateDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'b'.repeat(64),
+        relation: 'NEW_FACT',
+        desired: {
+          title: 'x'.repeat(61),
+          category: 'TEMPORARY_CLOSURE',
+          content: 'y'.repeat(301),
+          isEnabled: true,
+        },
+        validFrom: '2030-01-01T08:00:00.000Z',
+        validUntil: '2030-01-01T12:00:00.000Z',
+        operationalUpdateType: 'TEMPORARY_CLOSURE',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.semanticPreview).not.toHaveBeenCalled()
   })
 
   it('rejects preview drift before package creation', async () => {

@@ -190,8 +190,8 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The reviewed 193-migration state contains 219 public tables: the B.5 boundary contains 193 and the
-subsequent 52-migration suffix adds 26. The post-migration guard freezes that exact topology along
+The reviewed 194-migration state contains 220 public tables: the B.5 boundary contains 193 and the
+subsequent 53-migration suffix adds 27. The post-migration guard freezes that exact topology along
 with the ordered ledger, checksums, valid indexes, and validated constraints.
 
 If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.

@@ -57,6 +57,7 @@ export const TENANTED_TABLES = [
   'OperationalEventDeliveryAttempt',
   'KnowledgeChangeProposal',
   'KnowledgeProposalPackageHandoff',
+  'KnowledgeProposalOperationalUpdateHandoff',
   'VenueFloor',
   'VenueLocation',
   'VenueLocationConnection',

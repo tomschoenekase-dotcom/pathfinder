@@ -25,7 +25,7 @@ export class OperationalUpdateActionError extends Error {
 export type OperationalUpdateHumanActor = {
   type: 'HUMAN'
   id: string
-  role: 'MANAGER' | 'OWNER'
+  role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
 }
 export type OperationalUpdateActor = OperationalUpdateHumanActor | MachineActorContext
 
@@ -76,7 +76,7 @@ export const operationalUpdateActionSelect = {
   place: { select: { id: true, name: true } },
 } as const
 
-type SelectedUpdate = {
+export type SelectedOperationalUpdate = {
   id: string
   tenantId: string
   venueId: string
@@ -105,13 +105,13 @@ export type OperationalUpdatePreview = {
   expiresAt: string
 }
 
-export type OperationalUpdateActionResult<TUpdate = SelectedUpdate> = {
+export type OperationalUpdateActionResult<TUpdate = SelectedOperationalUpdate> = {
   update: TUpdate
   preview: OperationalUpdatePreview
 }
 
 export function buildOperationalUpdatePreview(
-  update: Pick<SelectedUpdate, 'status' | 'isActive' | 'startsAt' | 'expiresAt'>,
+  update: Pick<SelectedOperationalUpdate, 'status' | 'isActive' | 'startsAt' | 'expiresAt'>,
   now = new Date(),
 ): OperationalUpdatePreview {
   const current = now.getTime()
@@ -129,6 +129,12 @@ export function buildOperationalUpdatePreview(
   }
 }
 
+export type OperationalUpdateDraftFinalizer = (input: {
+  tx: typeof db
+  update: SelectedOperationalUpdate
+  preview: OperationalUpdatePreview
+}) => Promise<void>
+
 function validateActor(actor: OperationalUpdateActor, schedule: boolean): void {
   if (actor.type === 'AGENT') {
     if (schedule || actor.capability !== 'updates:draft') {
@@ -139,7 +145,7 @@ function validateActor(actor: OperationalUpdateActor, schedule: boolean): void {
     }
     return
   }
-  if (!actor.id || !['MANAGER', 'OWNER'].includes(actor.role)) {
+  if (!actor.id || !['MANAGER', 'OWNER', 'PLATFORM_ADMIN'].includes(actor.role)) {
     throw new OperationalUpdateActionError('INVALID_INPUT', 'A manager human actor is required')
   }
 }
@@ -154,7 +160,10 @@ function validateWindow(input: Pick<OperationalUpdateFields, 'startsAt' | 'expir
   }
 }
 
-function assertSchedulable(update: Pick<SelectedUpdate, 'status' | 'expiresAt'>, now: Date): void {
+function assertSchedulable(
+  update: Pick<SelectedOperationalUpdate, 'status' | 'expiresAt'>,
+  now: Date,
+): void {
   if (update.status !== 'DRAFT') {
     throw new OperationalUpdateActionError('CONFLICT', 'Only a draft can be scheduled')
   }
@@ -170,7 +179,7 @@ function conflict(): never {
   )
 }
 
-function toAuditState(update: SelectedUpdate) {
+function toAuditState(update: SelectedOperationalUpdate) {
   return {
     id: update.id,
     tenantId: update.tenantId,
@@ -259,6 +268,8 @@ export async function createOperationalUpdateAction(
     fields: OperationalUpdateFields
     schedule: boolean
     now?: Date
+    id?: string
+    finalizer?: OperationalUpdateDraftFinalizer
   },
   client: OperationalUpdateActionClient = db,
 ): Promise<OperationalUpdateActionResult> {
@@ -274,6 +285,7 @@ export async function createOperationalUpdateAction(
     if (input.schedule) await assertCapacity(tx, { tenantId: input.tenantId, ...input.fields })
     const created = await tx.operationalUpdate.create({
       data: {
+        ...(input.id ? { id: input.id } : {}),
         tenantId: input.tenantId,
         venueId: input.fields.venueId,
         placeId: input.fields.placeId ?? null,
@@ -308,7 +320,9 @@ export async function createOperationalUpdateAction(
       },
       tx,
     )
-    return { update: created, preview: buildOperationalUpdatePreview(created, now) }
+    const preview = buildOperationalUpdatePreview(created, now)
+    if (input.finalizer) await input.finalizer({ tx, update: created, preview })
+    return { update: created, preview }
   })
 }
 

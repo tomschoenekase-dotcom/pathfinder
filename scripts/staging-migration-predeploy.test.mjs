@@ -71,9 +71,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 193-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 194-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 219)
+  assert.equal(EXPECTED.finalPublicTableCount, 220)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
@@ -218,7 +218,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed fifty-eight-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed sixty-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -290,6 +290,7 @@ test('exact previous staging release advances only through the reviewed fifty-ei
       '20260825014000_add_guest_answer_attribution_evaluator_workflow',
       '20260825160000_add_venue_response_depth',
       '20260825170000_add_knowledge_proposal_package_handoff',
+      '20260825180000_add_knowledge_proposal_operational_update_handoff',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -345,6 +346,7 @@ test('exact previous staging release advances only through the reviewed fifty-ei
     '20260825014000_add_guest_answer_attribution_evaluator_workflow',
     '20260825160000_add_venue_response_depth',
     '20260825170000_add_knowledge_proposal_package_handoff',
+    '20260825180000_add_knowledge_proposal_operational_update_handoff',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

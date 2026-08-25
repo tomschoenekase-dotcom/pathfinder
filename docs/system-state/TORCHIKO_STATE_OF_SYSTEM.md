@@ -33,7 +33,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | `agent-operational-trust-evidence` | Exact-action rollback, explicit violations, and confidence pairs are provider-dark proven without promotion.   |
 | `identity-vocabulary`              | Customer, founder, character, operations-worker, and engineering identities have a tested ownership contract.  |
 | `support-knowledge-correction`     | Exact reviewed client corrections become immutable, separately reviewed proposals without publication/contact. |
-| `semantic-venue-update-draft`      | Approved proposals deterministically create one linked reviewable package DRAFT without downstream authority.  |
+| `semantic-venue-update-draft`      | Approved proposals create one linked package or inactive operational DRAFT without downstream authority.       |
 
 ## How to read this report
 
@@ -116,7 +116,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 193 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 194 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.

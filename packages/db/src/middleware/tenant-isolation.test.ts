@@ -138,6 +138,7 @@ describe('tenantIsolationMiddleware', () => {
       'OperationalEventDeliveryAttempt',
       'KnowledgeChangeProposal',
       'KnowledgeProposalPackageHandoff',
+      'KnowledgeProposalOperationalUpdateHandoff',
       'VenueFloor',
       'VenueLocation',
       'VenueLocationConnection',

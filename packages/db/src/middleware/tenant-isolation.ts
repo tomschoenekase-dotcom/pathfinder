@@ -51,6 +51,7 @@ const APPEND_ONLY_MODELS = [
   'SupportRequestAuditEvent',
   'SupportPackageHandoff',
   'KnowledgeProposalPackageHandoff',
+  'KnowledgeProposalOperationalUpdateHandoff',
   'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',

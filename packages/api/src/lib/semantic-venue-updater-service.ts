@@ -47,6 +47,16 @@ export function semanticVenueUpdateDraftKey(
   )
 }
 
+export function semanticVenueOperationalUpdateId(
+  input: Pick<SemanticVenueUpdatePreviewParameters, 'tenantId' | 'venueId' | 'proposalId'> & {
+    previewHash: string
+  },
+) {
+  return deterministicUuid(
+    `pathfinder:semantic-operational-update:v1:${input.tenantId}:${input.venueId}:${input.proposalId}:${input.previewHash}`,
+  )
+}
+
 function currentAuthority(entry: {
   humanConfirmedAt: Date | null
   authorship: string

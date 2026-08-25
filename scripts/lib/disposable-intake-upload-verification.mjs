@@ -1406,7 +1406,7 @@ export async function runDisposableSemanticVenueUpdateShakedown(options = {}) {
       integration: {
         packageDirectory: 'packages/db',
         testFile: 'src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts',
-        expectedPassed: 1,
+        expectedPassed: 2,
         environment: {
           RUN_KNOWLEDGE_PROPOSAL_PACKAGE_HANDOFF_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
