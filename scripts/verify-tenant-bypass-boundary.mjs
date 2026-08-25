@@ -40,8 +40,9 @@ const approvedCallCounts = new Map([
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
   ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
-  // Platform-admin-only attribution recording and listing retain exact tenant, venue, and turn scope.
-  ['packages/api/src/routers/admin/guest-answer-attributions.ts', 2],
+  // Platform-admin-only attribution recording, listing, and calibration retain exact tenant,
+  // venue, and (for raw records) turn scope. Calibration returns derived reviewer-free evidence.
+  ['packages/api/src/routers/admin/guest-answer-attributions.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
   // Platform-admin unit economics aggregates cross-tenant AI usage and append-only
   // operating-cost evidence; the write binds the authenticated human actor and
