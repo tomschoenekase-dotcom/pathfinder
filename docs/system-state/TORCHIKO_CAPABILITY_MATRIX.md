@@ -8,6 +8,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 | Truth ID                        | Current status                      | Boundary still retained                                                                             |
 | ------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `guest-prompt-integrity`        | PROVEN PROVIDER-DARK LOCALLY        | Model-specific resistance and hosted staging behavior remain unproven.                              |
 | `release-evidence`              | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate. |
 | `golden-venue-lifecycle`        | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                         |
 | `native-guest-read`             | PROVEN PROVIDER-DARK LOCALLY        | Activation evidence and compatibility retirement remain hosted/approval gated.                      |

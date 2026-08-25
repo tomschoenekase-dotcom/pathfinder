@@ -15,6 +15,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | Truth ID                         | Current state                                                                                                |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `founder-operating-conversation` | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
+| `guest-prompt-integrity`         | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.        |
 | `release-evidence`               | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
 | `golden-venue-lifecycle`         | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
 | `native-guest-read`              | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
