@@ -204,14 +204,16 @@
     {
       "id": "claim-attribution-calibration",
       "status": "proven-provider-dark-locally",
-      "summary": "Frozen guest answers can retain append-only exact-claim support reviews and deterministic independent-reviewer agreement while exposing no answer text, source text, threshold, or release decision.",
+      "summary": "Frozen guest answers can retain append-only human reviews and default-off machine semantic reviews with exact hashes, three-layer admission, dispatch fencing, safe recovery, and deterministic human-only agreement while exposing no threshold or release decision.",
       "evidence": [
         "docs/guest-answer-attribution.md",
         "packages/contracts/src/guest-answer-attribution-agreement.ts",
         "packages/db/src/helpers/guest-answer-attribution-agreement.ts",
+        "packages/db/src/helpers/guest-answer-attribution-evaluation-actions.ts",
+        "apps/workers/src/processors/guest-answer-attribution-evaluation.ts",
         "packages/api/src/routers/admin/guest-answer-attributions.ts"
       ],
-      "remaining": "A representative calibrated corpus, provider-backed history, automatic semantic evaluator, approved threshold, and visitor-facing claim UX remain unproven or product-gated."
+      "remaining": "Provider-enabled staging history, a representative calibrated corpus, any approved threshold or automatic sampling policy, and visitor-facing claim UX remain unproven or product-gated."
     },
     {
       "id": "agent-operational-trust-evidence",

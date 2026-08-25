@@ -29,6 +29,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/weekly-digest.ts', 3],
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['apps/workers/src/processors/evaluation-dispatch.ts', 2],
+  // Default-off evaluator re-enters exact tenant+venue scope for policy, lease, dispatch,
+  // completion, and bounded recovery. No bypass broadens result or release authority.
+  ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
   ['apps/workers/src/processors/gmail-sync.ts', 4],
@@ -42,7 +45,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
   // Platform-admin-only attribution recording, listing, and calibration retain exact tenant,
   // venue, and (for raw records) turn scope. Calibration returns derived reviewer-free evidence.
-  ['packages/api/src/routers/admin/guest-answer-attributions.ts', 3],
+  ['packages/api/src/routers/admin/guest-answer-attributions.ts', 7],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
   // Platform-admin unit economics aggregates cross-tenant AI usage plus append-only
   // cost and measured-quantity evidence; the write binds the authenticated human actor

@@ -176,6 +176,7 @@ model Tenant {
   venueReportConfigurations          VenueReportConfiguration[]
   answerAnalysisSnapshots            AnswerAnalysisSnapshot[]
   guestAnswerAttributions            GuestAnswerAttribution[]
+  guestAnswerAttributionEvaluations  GuestAnswerAttributionEvaluationRequest[]
   venueWeeklyThemes                  VenueWeeklyTheme[]
   mediaIngestionProjects             MediaIngestionProject[]
   aiUsageEvents                      AiUsageEvent[]
@@ -1303,6 +1304,7 @@ model Venue {
   reportConfiguration                 VenueReportConfiguration?
   answerAnalysisSnapshots             AnswerAnalysisSnapshot[]
   guestAnswerAttributions             GuestAnswerAttribution[]
+  guestAnswerAttributionEvaluations   GuestAnswerAttributionEvaluationRequest[]
   weeklyThemes                        VenueWeeklyTheme[]
   mediaIngestionProjects              MediaIngestionProject[]
   aiUsageEvents                       AiUsageEvent[]
@@ -2381,6 +2383,7 @@ model VisitorSession {
   knowledgeChangeProposals        KnowledgeChangeProposal[]
   messageFeedback                 MessageFeedback[]
   guestAnswerAttributions         GuestAnswerAttribution[]
+  guestAnswerAttributionEvaluations GuestAnswerAttributionEvaluationRequest[]
 
   @@unique([venueId, anonymousToken])
   @@unique([id, tenantId, venueId])
@@ -3846,6 +3849,7 @@ model GuestChatTurn {
   assistantMessage         Message?                     @relation("GuestChatTurnAssistantMessage", fields: [assistantMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
   conversationInsights     ConversationInsight[]
   answerAttributions       GuestAnswerAttribution[]
+  answerAttributionEvaluations GuestAnswerAttributionEvaluationRequest[]
 
   @@unique([id, tenantId, venueId, sessionId])
   @@unique([userMessageId, tenantId, venueId, sessionId, id])
@@ -3888,12 +3892,63 @@ model GuestAnswerAttribution {
   venue                  Venue          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   session                VisitorSession @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   guestChatTurn          GuestChatTurn  @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  evaluationRequest      GuestAnswerAttributionEvaluationRequest?
 
   @@unique([tenantId, operationId], map: "guest_answer_attributions_operation_key")
   @@unique([id, tenantId, venueId], map: "guest_answer_attributions_scope_key")
   @@index([tenantId, venueId, createdAt], map: "guest_answer_attributions_scope_created_idx")
   @@index([tenantId, venueId, guestChatTurnId, createdAt], map: "guest_answer_attributions_turn_created_idx")
   @@map("guest_answer_attributions")
+}
+
+enum GuestAnswerAttributionEvaluationStatus {
+  STAGED
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  AMBIGUOUS
+}
+
+/// Durable, default-off request to semantically review one exact frozen guest answer.
+/// The mutable lifecycle grants no quality threshold, release, publication, or visitor effect.
+model GuestAnswerAttributionEvaluationRequest {
+  id                  String                                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId         String                                   @map("operation_id") @db.Uuid
+  inputHash           String                                   @map("input_hash") @db.Char(64)
+  tenantId            String                                   @map("tenant_id")
+  venueId             String                                   @map("venue_id")
+  sessionId           String                                   @map("session_id")
+  guestChatTurnId     String                                   @map("guest_chat_turn_id") @db.Uuid
+  answerHash          String                                   @map("answer_hash") @db.Char(64)
+  evidenceSetHash     String                                   @map("evidence_set_hash") @db.Char(64)
+  status              GuestAnswerAttributionEvaluationStatus   @default(STAGED)
+  attemptNumber       Int                                      @default(0) @map("attempt_number")
+  leaseToken          String?                                  @map("lease_token") @db.Uuid
+  leaseExpiresAt      DateTime?                                @map("lease_expires_at")
+  providerDispatchedAt DateTime?                               @map("provider_dispatched_at")
+  resultAttributionId String?                                  @map("result_attribution_id") @db.Uuid
+  lastErrorCode       String?                                  @map("last_error_code") @db.VarChar(64)
+  createdById         String                                   @map("created_by_id") @db.VarChar(191)
+  queuedAt            DateTime?                                @map("queued_at")
+  startedAt           DateTime?                                @map("started_at")
+  completedAt         DateTime?                                @map("completed_at")
+  failedAt            DateTime?                                @map("failed_at")
+  createdAt           DateTime                                 @default(now()) @map("created_at")
+  updatedAt           DateTime                                 @updatedAt @map("updated_at")
+  tenant              Tenant                                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session             VisitorSession                           @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  guestChatTurn       GuestChatTurn                            @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  resultAttribution   GuestAnswerAttribution?                  @relation(fields: [resultAttributionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "guest_answer_attribution_evaluations_operation_key")
+  @@unique([id, tenantId, venueId], map: "guest_answer_attribution_evaluations_scope_key")
+  @@unique([resultAttributionId, tenantId, venueId], map: "guest_answer_attribution_evaluations_result_key")
+  @@index([tenantId, venueId, createdAt], map: "guest_answer_attribution_evaluations_scope_created_idx")
+  @@index([status, leaseExpiresAt], map: "guest_answer_attribution_evaluations_recovery_idx")
+  @@index([tenantId, venueId, guestChatTurnId, createdAt], map: "guest_answer_attribution_evaluations_turn_created_idx")
+  @@map("guest_answer_attribution_evaluation_requests")
 }
 
 model GuestChatProviderOperation {

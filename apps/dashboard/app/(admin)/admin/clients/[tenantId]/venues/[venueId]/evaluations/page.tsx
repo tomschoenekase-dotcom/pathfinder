@@ -26,6 +26,7 @@ export default async function EvaluationOperationsPage({
       onboardingMetrics,
       sourceInsights,
       attributionAgreement,
+      answerEvaluations,
     ] = await Promise.all([
       caller.admin.listEvaluationRuns({
         tenantId,
@@ -46,6 +47,11 @@ export default async function EvaluationOperationsPage({
       caller.admin
         .previewGuestAnswerAttributionAgreement({ tenantId, venueId, limit: 100 })
         .catch(() => null),
+      caller.admin.listGuestAnswerAttributionEvaluationRequests({
+        tenantId,
+        venueId,
+        limit: 25,
+      }),
     ])
     return (
       <EvaluationOperationsView
@@ -65,6 +71,9 @@ export default async function EvaluationOperationsPage({
         onboardingMetrics={onboardingMetrics}
         sourceInsights={sourceInsights}
         attributionAgreement={attributionAgreement}
+        answerEvaluationRequests={answerEvaluations.items}
+        answerEvaluationReadiness={answerEvaluations.readiness}
+        answerEvaluationExecutionEnabled={answerEvaluations.executionEnabled}
       />
     )
   } catch {

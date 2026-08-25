@@ -68,6 +68,14 @@ export const EVALUATION_RUN_PROCESS_JOB = 'evaluation-run-process'
 export const EVALUATION_RUN_DISPATCH_JOB = 'evaluation-run-dispatch'
 export const EVALUATION_RUN_RETRY_BACKOFF = 'evaluation-run-retry'
 
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE = queueName(
+  'guest-answer-attribution-evaluation',
+)
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB =
+  'guest-answer-attribution-evaluation-process'
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB =
+  'guest-answer-attribution-evaluation-recovery'
+
 export const AGENT_RUN_QUEUE = queueName('agent-run')
 export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
 export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
@@ -117,6 +125,7 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
   MEDIA_INGESTION_QUEUE,
   EVALUATION_RUN_QUEUE,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
   AGENT_RUN_QUEUE,
   PROSPECT_IMPORT_QUEUE,
   GMAIL_SYNC_QUEUE,

@@ -71,7 +71,12 @@ describe('guest answer attribution agreement read', () => {
       authorizesRelease: false,
     })
     expect(result).not.toHaveProperty('passed')
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 101 }))
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 101,
+        where: { tenantId: 'tenant-1', venueId: 'venue-1', actorType: 'HUMAN' },
+      }),
+    )
   })
 
   it('counts malformed records and reports truncation without treating them as evidence', async () => {

@@ -58,6 +58,8 @@ import {
   EVALUATION_RUN_PROCESS_JOB,
   EVALUATION_RUN_QUEUE,
   EVALUATION_RUN_RETRY_BACKOFF,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
 } from './queues'
 import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 import type {
@@ -75,6 +77,7 @@ import type {
   WeeklyReportJobPayload,
   MediaIngestionJobPayload,
   EvaluationRunJobPayload,
+  GuestAnswerAttributionEvaluationJobPayload,
   ProspectImportCommitJobPayload,
   ProspectImportInspectionJobPayload,
   ProspectImportStagingJobPayload,
@@ -358,6 +361,41 @@ export async function enqueueEvaluationRun(
     tenantId: payload.tenantId,
     venueId: payload.venueId,
     runId: payload.runId,
+  })
+  return { enqueued: true }
+}
+
+/** Machine semantic review remains default-off. Every caller must pass the independently
+ * revalidated evaluation-runtime gate; importing this function cannot dispatch provider work. */
+export async function enqueueGuestAnswerAttributionEvaluation(
+  payload: GuestAnswerAttributionEvaluationJobPayload,
+  options: { enabled?: boolean; dispatchKey?: string } = {},
+): Promise<{ enqueued: boolean }> {
+  if (options.enabled !== true) return { enqueued: false }
+  if (
+    !UUID_PATTERN.test(payload.requestId) ||
+    !/^[0-9a-f]{64}$/u.test(payload.answerHash) ||
+    !/^[0-9a-f]{64}$/u.test(payload.evidenceSetHash) ||
+    !payload.tenantId.trim() ||
+    !payload.venueId.trim()
+  ) {
+    throw new Error('Guest answer attribution evaluation payload has invalid exact identity')
+  }
+  await getQueue(GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE).add(
+    GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+    payload,
+    {
+      attempts: 1,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+      jobId: `guest-answer-attribution-evaluation-${payload.requestId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`,
+    },
+  )
+  logger.info({
+    action: 'jobs.guest-answer-attribution-evaluation.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    requestId: payload.requestId,
   })
   return { enqueued: true }
 }

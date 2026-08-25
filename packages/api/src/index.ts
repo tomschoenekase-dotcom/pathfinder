@@ -12,6 +12,10 @@ export { CreateVenueInput, UpdateVenueInput } from './routers/venue'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './routers/place'
 export type { GuestPlaceCard } from './lib/guest-place-card'
 export {
+  GUEST_ANSWER_ATTRIBUTION_EVALUATOR_PROMPT_VERSION,
+  runProviderBackedGuestAnswerAttributionEvaluation,
+} from './lib/evaluation/guest-answer-attribution'
+export {
   buildWebsiteIntakeProposal,
   isPublicWebsiteAddress,
   WebsiteIntakePolicyError,

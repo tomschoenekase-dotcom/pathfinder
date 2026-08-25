@@ -42,7 +42,7 @@ opted-in audited staging CLI documented in `terminal-job-redrive.md`.
 
 The administrator readiness route and the separately authorized
 `POST /api/platform-worker/operations-readiness` endpoint reuse one canonical v2 projection. It
-observes all 20 declared BullMQ queues directly from Redis and returns only bounded counts, total
+observes all 21 declared BullMQ queues directly from Redis and returns only bounded counts, total
 depth, retained failed pressure, pause state, scheduler count, and oldest nonterminal age. A ready
 status requires a complete live observation in addition to database/Redis connectivity, migration
 parity, and a fresh worker heartbeat; a failed or timed-out queue observation degrades explicitly.

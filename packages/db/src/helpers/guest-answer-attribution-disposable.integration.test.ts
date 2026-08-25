@@ -2,12 +2,23 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { buildGuestAnswerEvidenceBundle } from '@pathfinder/contracts/guest-answer-attribution-node'
+import {
+  buildGuestAnswerEvidenceBundle,
+  createVerifiedGuestAnswerAttribution,
+} from '@pathfinder/contracts/guest-answer-attribution-node'
 
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { recordHumanReviewedGuestAnswerAttributionAction } from './guest-answer-attribution-actions'
 import { readGuestAnswerAttributionAgreement } from './guest-answer-attribution-agreement'
+import {
+  claimGuestAnswerAttributionEvaluationRequestAction,
+  completeGuestAnswerAttributionEvaluationRequestAction,
+  markGuestAnswerAttributionEvaluationDispatchedAction,
+  prepareGuestAnswerAttributionEvaluationRequestAction,
+  queueGuestAnswerAttributionEvaluationRequestAction,
+  recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
+} from './guest-answer-attribution-evaluation-actions'
 import {
   claimGuestChatTurnAction,
   finalizeGuestChatTurnAction,
@@ -215,6 +226,121 @@ describe.skipIf(!enabled)('guest answer attribution disposable lifecycle', () =>
         },
       })
       expect(agreement.reportHash).toMatch(/^[0-9a-f]{64}$/u)
+
+      const evaluatorActor = {
+        type: 'HUMAN' as const,
+        id: 'integration-admin',
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const staged = await prepareGuestAnswerAttributionEvaluationRequestAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        guestChatTurnId: turnId,
+        actor: evaluatorActor,
+      })
+      expect(staged).toMatchObject({ replayed: false, request: { status: 'STAGED' } })
+      const queued = await queueGuestAnswerAttributionEvaluationRequestAction({
+        tenantId,
+        venueId,
+        requestId: staged.request.id,
+        actor: evaluatorActor,
+      })
+      expect(queued.request.status).toBe('QUEUED')
+      const leaseToken = randomUUID()
+      const claimed = await claimGuestAnswerAttributionEvaluationRequestAction({
+        tenantId,
+        venueId,
+        requestId: staged.request.id,
+        leaseToken,
+      })
+      expect(claimed.state).toBe('claimed')
+      if (claimed.state !== 'claimed') throw new Error('Expected evaluator request claim')
+      await markGuestAnswerAttributionEvaluationDispatchedAction({
+        tenantId,
+        venueId,
+        requestId: staged.request.id,
+        leaseToken,
+      })
+      const machineAttribution = createVerifiedGuestAnswerAttribution({
+        answer,
+        evidence,
+        evaluator: {
+          provider: 'synthetic-provider-dark',
+          model: 'synthetic-evaluator',
+          configurationVersion: 'integration-config-v1',
+          promptVersion: 'guest-answer-attribution-evaluator-v1',
+        },
+        claims: request.claims,
+      })
+      const completed = await completeGuestAnswerAttributionEvaluationRequestAction({
+        tenantId,
+        venueId,
+        requestId: staged.request.id,
+        leaseToken,
+        attribution: machineAttribution,
+      })
+      expect(completed.attribution).toMatchObject({
+        actorType: 'SYSTEM',
+        actorId: 'guest-answer-attribution-evaluator-v1',
+      })
+      await expect(
+        db.guestAnswerAttributionEvaluationRequest.update({
+          where: { id: staged.request.id },
+          data: { lastErrorCode: 'mutated' },
+        }),
+      ).rejects.toThrow(/terminal.*immutable/iu)
+      await expect(
+        db.guestAnswerAttributionEvaluationRequest.delete({ where: { id: staged.request.id } }),
+      ).rejects.toThrow(/cannot be deleted/iu)
+
+      const stageRecoveryRequest = async () => {
+        const prepared = await prepareGuestAnswerAttributionEvaluationRequestAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          guestChatTurnId: turnId,
+          actor: evaluatorActor,
+        })
+        await queueGuestAnswerAttributionEvaluationRequestAction({
+          tenantId,
+          venueId,
+          requestId: prepared.request.id,
+          actor: evaluatorActor,
+        })
+        const recoveryLease = randomUUID()
+        await claimGuestAnswerAttributionEvaluationRequestAction({
+          tenantId,
+          venueId,
+          requestId: prepared.request.id,
+          leaseToken: recoveryLease,
+        })
+        return { requestId: prepared.request.id, leaseToken: recoveryLease }
+      }
+      const safeRecovery = await stageRecoveryRequest()
+      const ambiguousRecovery = await stageRecoveryRequest()
+      await markGuestAnswerAttributionEvaluationDispatchedAction({
+        tenantId,
+        venueId,
+        requestId: ambiguousRecovery.requestId,
+        leaseToken: ambiguousRecovery.leaseToken,
+      })
+      const recovery = await recoverStaleGuestAnswerAttributionEvaluationRequestsAction({
+        now: new Date(Date.now() + 10 * 60 * 1_000),
+      })
+      expect(recovery).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ requestId: safeRecovery.requestId, state: 'QUEUED' }),
+          expect.objectContaining({ requestId: ambiguousRecovery.requestId, state: 'AMBIGUOUS' }),
+        ]),
+      )
+      const postMachineAgreement = await readGuestAnswerAttributionAgreement({
+        tenantId,
+        venueId,
+        limit: 100,
+      })
+      expect(postMachineAgreement.report.independentPairCount).toBe(1)
+      expect(postMachineAgreement.report.inputRecordCount).toBe(2)
       await expect(
         recordHumanReviewedGuestAnswerAttributionAction({
           ...request,
@@ -237,7 +363,7 @@ describe.skipIf(!enabled)('guest answer attribution disposable lifecycle', () =>
       await expect(
         db.$executeRaw`DELETE FROM "guest_answer_attributions" WHERE "id" = ${first.attribution.id}::uuid`,
       ).rejects.toThrow(/append-only/iu)
-      expect(await db.guestAnswerAttribution.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(await db.guestAnswerAttribution.count({ where: { tenantId, venueId } })).toBe(3)
       expect(await db.operationalEvent.count({ where: { tenantId, venueId } })).toBe(0)
       expect(await db.knowledgeChangeProposal.count({ where: { tenantId, venueId } })).toBe(0)
     })

@@ -48,6 +48,7 @@ export const TENANTED_TABLES = [
   'VoiceTranscriptSegment',
   'GuestChatTurn',
   'GuestAnswerAttribution',
+  'GuestAnswerAttributionEvaluationRequest',
   'GuestChatProviderOperation',
   'AiUsageEvent',
   'ConversationInsight',

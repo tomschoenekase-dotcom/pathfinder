@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { AdminSectionShell } from '../../../components/admin/AdminSectionShell'
 import { AnswerAttributionAgreementCard } from '../../../components/admin/AnswerAttributionAgreementCard'
+import { GuestAnswerEvaluationPanel } from '../../../components/admin/GuestAnswerEvaluationPanel'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
 import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -156,6 +157,32 @@ function AdminFixture() {
                   },
                 },
               }}
+            />
+          </div>
+          <div className="mt-5">
+            <GuestAnswerEvaluationPanel
+              tenantId="fixture-tenant"
+              venueId="fixture-venue"
+              readiness={{
+                processEnabled: false,
+                durableGlobalEnabled: false,
+                tenantEnabled: false,
+              }}
+              executionEnabled={false}
+              requests={[
+                {
+                  id: '10000000-0000-4000-8000-000000000001',
+                  guestChatTurnId: '20000000-0000-4000-8000-000000000001',
+                  answerHash: 'a'.repeat(64),
+                  evidenceSetHash: 'b'.repeat(64),
+                  status: 'STAGED',
+                  attemptNumber: 0,
+                  providerDispatchedAt: null,
+                  resultAttributionId: null,
+                  lastErrorCode: null,
+                  createdAt: new Date('2026-08-25T11:00:00.000Z'),
+                },
+              ]}
             />
           </div>
         </div>

@@ -4,11 +4,27 @@ const mocks = vi.hoisted(() => ({
   record: vi.fn(),
   readAgreement: vi.fn(),
   findMany: vi.fn(),
+  findEvaluationRequests: vi.fn(),
+  tenantFlag: vi.fn(),
+  durableEnabled: vi.fn(),
+  prepareEvaluation: vi.fn(),
+  queueEvaluation: vi.fn(),
+  enqueueEvaluation: vi.fn(),
+  env: { EVALUATION_RUNNER_ENABLED: true },
   bypass: vi.fn(async (callback: () => unknown) => callback()),
 }))
 
+vi.mock('@pathfinder/config', () => ({ env: mocks.env }))
+vi.mock('@pathfinder/jobs', () => ({
+  enqueueGuestAnswerAttributionEvaluation: mocks.enqueueEvaluation,
+}))
+
 vi.mock('@pathfinder/db', () => ({
-  db: { guestAnswerAttribution: { findMany: mocks.findMany } },
+  db: {
+    guestAnswerAttribution: { findMany: mocks.findMany },
+    guestAnswerAttributionEvaluationRequest: { findMany: mocks.findEvaluationRequests },
+    tenantFeatureFlag: { findUnique: mocks.tenantFlag },
+  },
   GuestAnswerAttributionActionError: class GuestAnswerAttributionActionError extends Error {
     constructor(
       readonly code: string,
@@ -17,6 +33,17 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  GuestAnswerAttributionEvaluationError: class GuestAnswerAttributionEvaluationError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  prepareGuestAnswerAttributionEvaluationRequestAction: mocks.prepareEvaluation,
+  queueGuestAnswerAttributionEvaluationRequestAction: mocks.queueEvaluation,
   recordHumanReviewedGuestAnswerAttributionAction: mocks.record,
   readGuestAnswerAttributionAgreement: mocks.readAgreement,
   withTenantIsolationBypass: mocks.bypass,
@@ -36,8 +63,18 @@ const caller = adminGuestAnswerAttributionsRouter.createCaller({
 describe('admin guest answer attributions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.env.EVALUATION_RUNNER_ENABLED = true
     mocks.record.mockResolvedValue({ attribution: { id: 'attribution-1' }, replayed: false })
     mocks.findMany.mockResolvedValue([])
+    mocks.findEvaluationRequests.mockResolvedValue([])
+    mocks.tenantFlag.mockResolvedValue({ enabled: true })
+    mocks.durableEnabled.mockResolvedValue(true)
+    mocks.prepareEvaluation.mockResolvedValue({ request: { id: 'request-1' }, replayed: false })
+    mocks.queueEvaluation.mockResolvedValue({
+      request: { id: 'request-1', answerHash: 'a'.repeat(64), evidenceSetHash: 'b'.repeat(64) },
+      replayed: false,
+    })
+    mocks.enqueueEvaluation.mockResolvedValue({ enqueued: true })
     mocks.readAgreement.mockResolvedValue({
       target: 'HUMAN_CLAIM_REVIEW_CALIBRATION',
       reportHash: 'f'.repeat(64),
@@ -99,6 +136,54 @@ describe('admin guest answer attributions', () => {
         take: 10,
       }),
     )
+  })
+
+  it('stages exact answer evidence under the authenticated human operator', async () => {
+    await caller.prepareGuestAnswerAttributionEvaluation({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+    })
+    expect(mocks.prepareEvaluation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+        actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
+  })
+
+  it('publishes only after all three execution gates and a durable QUEUED transition', async () => {
+    const result = await caller.queueGuestAnswerAttributionEvaluation({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      requestId: '33333333-3333-4333-8333-333333333333',
+    })
+    expect(result.enqueued).toBe(true)
+    expect(mocks.queueEvaluation).toHaveBeenCalledBefore(mocks.enqueueEvaluation)
+    expect(mocks.enqueueEvaluation).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: '33333333-3333-4333-8333-333333333333',
+        answerHash: 'a'.repeat(64),
+        evidenceSetHash: 'b'.repeat(64),
+      },
+      { enabled: true },
+    )
+  })
+
+  it('fails closed before queue mutation when the process gate is off', async () => {
+    mocks.env.EVALUATION_RUNNER_ENABLED = false
+    await expect(
+      caller.queueGuestAnswerAttributionEvaluation({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.queueEvaluation).not.toHaveBeenCalled()
+    expect(mocks.enqueueEvaluation).not.toHaveBeenCalled()
   })
 
   it('returns hashed descriptive agreement for independent human reviewers without a quality verdict', async () => {

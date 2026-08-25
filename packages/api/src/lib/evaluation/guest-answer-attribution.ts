@@ -4,6 +4,7 @@ import {
   routeAiCapability,
   type AiAdmissionGuard,
   type AiBudgetGate,
+  type AiEffectiveWorkloadConfiguration,
   type AiUsageSink,
 } from '@pathfinder/ai'
 import {
@@ -53,6 +54,7 @@ export async function runProviderBackedGuestAnswerAttributionEvaluation(params: 
   admissionGuard: AiAdmissionGuard
   budgetGate: AiBudgetGate
   usageSink: AiUsageSink
+  configuration?: AiEffectiveWorkloadConfiguration
   invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
   signal?: AbortSignal
@@ -72,9 +74,12 @@ export async function runProviderBackedGuestAnswerAttributionEvaluation(params: 
     claims: [],
   })
 
-  const configuration = resolveAiWorkloadConfiguration({
-    workloadId: 'guest-answer-attribution-evaluation',
-  })
+  const configuration =
+    params.configuration ??
+    resolveAiWorkloadConfiguration({ workloadId: 'guest-answer-attribution-evaluation' })
+  if (configuration.workloadId !== 'guest-answer-attribution-evaluation') {
+    throw new Error('Guest answer evaluator received configuration for another workload')
+  }
   const route = routeAiCapability({
     workloadId: configuration.workloadId,
     configuration,

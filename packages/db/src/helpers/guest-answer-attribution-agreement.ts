@@ -29,7 +29,7 @@ export async function readGuestAnswerAttributionAgreement(
   }
   const limit = input.limit
   const rows = await client.guestAnswerAttribution.findMany({
-    where: { tenantId: input.tenantId, venueId: input.venueId },
+    where: { tenantId: input.tenantId, venueId: input.venueId, actorType: 'HUMAN' },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     select: calibrationSelect,

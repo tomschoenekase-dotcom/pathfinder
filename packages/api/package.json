@@ -13,7 +13,8 @@
     "./correspondence": "./src/correspondence/index.ts",
     "./prospect-import-storage": "./src/prospect-import-storage.ts",
     "./google-workspace": "./src/google-workspace/index.ts",
-    "./intake-upload-verification": "./src/intake-upload-verification.ts"
+    "./intake-upload-verification": "./src/intake-upload-verification.ts",
+    "./guest-answer-attribution-evaluation": "./src/lib/evaluation/guest-answer-attribution.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

@@ -1699,7 +1699,7 @@ describe('safe operational MCP composition', () => {
 
     expect(database.guestAnswerAttribution.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 'tenant-1', venueId: 'venue-1' },
+        where: { tenantId: 'tenant-1', venueId: 'venue-1', actorType: 'HUMAN' },
         take: 21,
       }),
     )

@@ -136,6 +136,22 @@ export type {
   GuestAnswerAttributionActor,
   RecordGuestAnswerAttributionInput,
 } from './helpers/guest-answer-attribution-actions'
+export {
+  claimGuestAnswerAttributionEvaluationRequestAction,
+  completeGuestAnswerAttributionEvaluationRequestAction,
+  failGuestAnswerAttributionEvaluationRequestAction,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_LEASE_MS,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATOR_ACTOR_ID,
+  GuestAnswerAttributionEvaluationError,
+  markGuestAnswerAttributionEvaluationDispatchedAction,
+  prepareGuestAnswerAttributionEvaluationRequestAction,
+  queueGuestAnswerAttributionEvaluationRequestAction,
+  recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
+} from './helpers/guest-answer-attribution-evaluation-actions'
+export type {
+  GuestAnswerAttributionEvaluationActor,
+  GuestAnswerAttributionEvaluationErrorCode,
+} from './helpers/guest-answer-attribution-evaluation-actions'
 export type {
   GuestChatClaim,
   GuestChatFinalize,

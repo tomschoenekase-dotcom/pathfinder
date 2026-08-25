@@ -13,6 +13,10 @@ import {
   AnswerAttributionAgreementCard,
   type AnswerAttributionAgreementData,
 } from './AnswerAttributionAgreementCard'
+import {
+  GuestAnswerEvaluationPanel,
+  type GuestAnswerEvaluationRequest,
+} from './GuestAnswerEvaluationPanel'
 
 type EvaluationSummary = {
   resultCount: number
@@ -109,6 +113,13 @@ type EvaluationOperationsViewProps = {
   onboardingMetrics?: OnboardingMilestoneRollup
   sourceInsights?: EvaluationSourceInsight[]
   attributionAgreement?: AnswerAttributionAgreementData | null
+  answerEvaluationRequests?: GuestAnswerEvaluationRequest[]
+  answerEvaluationReadiness?: {
+    processEnabled: boolean
+    durableGlobalEnabled: boolean
+    tenantEnabled: boolean
+  }
+  answerEvaluationExecutionEnabled?: boolean
 }
 
 function shortHash(value: string | null) {
@@ -192,6 +203,9 @@ export function EvaluationOperationsView({
   onboardingMetrics,
   sourceInsights = [],
   attributionAgreement,
+  answerEvaluationRequests,
+  answerEvaluationReadiness,
+  answerEvaluationExecutionEnabled = false,
 }: EvaluationOperationsViewProps) {
   return (
     <div className="space-y-8">
@@ -214,6 +228,16 @@ export function EvaluationOperationsView({
 
       {attributionAgreement !== undefined ? (
         <AnswerAttributionAgreementCard data={attributionAgreement} />
+      ) : null}
+
+      {answerEvaluationRequests && answerEvaluationReadiness ? (
+        <GuestAnswerEvaluationPanel
+          tenantId={tenantId}
+          venueId={venueId}
+          requests={answerEvaluationRequests}
+          readiness={answerEvaluationReadiness}
+          executionEnabled={answerEvaluationExecutionEnabled}
+        />
       ) : null}
 
       {onboardingMetrics ? <OnboardingMilestoneMetricsPanel rollup={onboardingMetrics} /> : null}

@@ -129,6 +129,7 @@ describe('tenantIsolationMiddleware', () => {
       'VoiceTranscriptSegment',
       'GuestChatTurn',
       'GuestAnswerAttribution',
+      'GuestAnswerAttributionEvaluationRequest',
       'GuestChatProviderOperation',
       'AiUsageEvent',
       'ConversationInsight',

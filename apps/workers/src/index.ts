@@ -42,6 +42,9 @@ import {
   EVALUATION_RUN_DISPATCH_JOB,
   EVALUATION_RUN_QUEUE,
   EVALUATION_RUN_RETRY_BACKOFF,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
   GENERATION_DISPATCH_SCHEDULER_JOB,
@@ -74,6 +77,7 @@ import {
   type EmbedCompanyKnowledgeJobPayload,
   type EmbedPlaceJobPayload,
   type EvaluationRunJobPayload,
+  type GuestAnswerAttributionEvaluationJobPayload,
   type GenerationDispatchKickJobPayload,
   type GmailSyncJobPayload,
   type SendWelcomeEmailJobPayload,
@@ -110,6 +114,10 @@ import { processEmbedCompanyKnowledgeJob } from './processors/embed-company-know
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processEvaluationRunJob } from './processors/evaluation-run'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
+import {
+  processGuestAnswerAttributionEvaluationJob,
+  recoverGuestAnswerAttributionEvaluations,
+} from './processors/guest-answer-attribution-evaluation'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
@@ -612,6 +620,26 @@ async function handleAgentRunQueueJob(
   })
 }
 
+async function handleGuestAnswerAttributionEvaluationQueueJob(
+  job: Job<GuestAnswerAttributionEvaluationJobPayload | Record<string, never>>,
+  token?: string,
+  signal?: AbortSignal,
+) {
+  if (job.name === GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB) {
+    await recoverGuestAnswerAttributionEvaluations()
+    return
+  }
+  if (job.name !== GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB) {
+    throw new Error(`Unsupported guest answer attribution evaluation job: ${job.name}`)
+  }
+  await runAiJobWithIncidentControl(job, token, async () => {
+    await processGuestAnswerAttributionEvaluationJob(
+      job.data as GuestAnswerAttributionEvaluationJobPayload,
+      signal,
+    )
+  })
+}
+
 async function handleOperationalEventDeliveryJob(job: Job<OperationalEventDeliveryJobPayload>) {
   if (job.name !== OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB) {
     throw new Error(`Unsupported operational event delivery job: ${job.name}`)
@@ -715,6 +743,9 @@ export async function startWorkers() {
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
+  const guestAnswerAttributionEvaluationQueue = env.EVALUATION_RUNNER_ENABLED
+    ? new Queue(GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE, { connection })
+    : null
   const agentRunQueue = env.AGENT_RUNNER_ENABLED ? new Queue(AGENT_RUN_QUEUE, { connection }) : null
 
   const schedulerQueueResources = [
@@ -739,6 +770,14 @@ export async function startWorkers() {
     { name: VOICE_SESSION_RECOVERY_QUEUE, close: () => voiceSessionRecoveryQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
+      : []),
+    ...(guestAnswerAttributionEvaluationQueue
+      ? [
+          {
+            name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+            close: () => guestAnswerAttributionEvaluationQueue.close(),
+          },
+        ]
       : []),
     ...(agentRunQueue ? [{ name: AGENT_RUN_QUEUE, close: () => agentRunQueue.close() }] : []),
   ]
@@ -1019,6 +1058,26 @@ export async function startWorkers() {
               },
             ),
           remove: () => evaluationRunQueue.removeJobScheduler(EVALUATION_RUN_DISPATCH_JOB),
+        },
+      ])
+    }
+    if (guestAnswerAttributionEvaluationQueue) {
+      await applySchedulerState(env.EVALUATION_RUNNER_ENABLED, [
+        {
+          upsert: () =>
+            guestAnswerAttributionEvaluationQueue.upsertJobScheduler(
+              GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+              { every: 60_000 },
+              {
+                name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+                data: {},
+                opts: { attempts: 1, removeOnComplete: 100, removeOnFail: 500 },
+              },
+            ),
+          remove: () =>
+            guestAnswerAttributionEvaluationQueue.removeJobScheduler(
+              GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+            ),
         },
       ])
     }
@@ -1317,6 +1376,17 @@ export async function startWorkers() {
       )
     : null
 
+  const guestAnswerAttributionEvaluationWorker = env.EVALUATION_RUNNER_ENABLED
+    ? observeWorkerRuntime(
+        GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+        new Worker(
+          GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+          handleGuestAnswerAttributionEvaluationQueueJob,
+          { connection, concurrency: 1 },
+        ),
+      )
+    : null
+
   const agentRunWorker = env.AGENT_RUNNER_ENABLED
     ? observeWorkerRuntime(
         AGENT_RUN_QUEUE,
@@ -1374,6 +1444,14 @@ export async function startWorkers() {
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
     ...(evaluationRunWorker ? [{ name: EVALUATION_RUN_QUEUE, worker: evaluationRunWorker }] : []),
+    ...(guestAnswerAttributionEvaluationWorker
+      ? [
+          {
+            name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+            worker: guestAnswerAttributionEvaluationWorker,
+          },
+        ]
+      : []),
     ...(agentRunWorker ? [{ name: AGENT_RUN_QUEUE, worker: agentRunWorker }] : []),
   ]
 
@@ -1421,6 +1499,9 @@ export async function startWorkers() {
       VOICE_SESSION_RECOVERY_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
+      ...(guestAnswerAttributionEvaluationWorker
+        ? [GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE]
+        : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
       ...(intakeVerification ? [intakeVerification.queue.name] : []),
     ],
@@ -1489,6 +1570,8 @@ export async function startWorkers() {
     mediaIngestionWorker,
     evaluationRunWorker,
     evaluationRunQueue,
+    guestAnswerAttributionEvaluationWorker,
+    guestAnswerAttributionEvaluationQueue,
     agentRunWorker,
     agentRunQueue,
     weeklyReportQueue,

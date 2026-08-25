@@ -124,6 +124,15 @@ export type EvaluationRunJobPayload = {
   runIdentityHash: string
 }
 
+/** Carries only exact durable identity. The worker reloads answer and evidence from Postgres. */
+export type GuestAnswerAttributionEvaluationJobPayload = {
+  tenantId: string
+  venueId: string
+  requestId: string
+  answerHash: string
+  evidenceSetHash: string
+}
+
 /** Carries only durable identity. Prompts, scopes, and model policy are always
  * reloaded from Postgres by the worker and are never trusted from Redis. */
 export type AgentRunJobPayload = {

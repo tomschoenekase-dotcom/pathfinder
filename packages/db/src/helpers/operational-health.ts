@@ -1,6 +1,7 @@
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260825013000_link_support_knowledge_proposals'
+export const EXPECTED_LATEST_MIGRATION =
+  '20260825014000_add_guest_answer_attribution_evaluator_workflow'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 export const WORKER_HEARTBEAT_FRESHNESS_MS = 90_000
 export const SERVICE_DEPENDENCY_OBSERVATION_KEY = 'operations.service-dependencies.v1'
