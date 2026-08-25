@@ -751,8 +751,12 @@ export async function runDisposableOperatingCostShakedown(options = {}) {
         'idempotent-replay',
         'append-only-corrections',
         'concurrent-supersession-fence',
+        'database-declared-intake-and-media-bytes',
+        'complete-queue-snapshot-admission',
+        'content-addressed-usage-replay',
+        'append-only-quantity-evidence',
         'strict-audit-evidence',
-        'no-invoice-price-or-service-effect',
+        'no-dollar-invoice-price-threshold-or-service-effect',
       ],
       integration: {
         packageDirectory: 'packages/db',
@@ -862,7 +866,7 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
       lifecycleEvent: 'test:operations-readiness:disposable',
       successAction: 'operations-readiness.migration-parity.disposable-shakedown.passed',
       proofScope: [
-        'fresh-182-migration-chain',
+        'fresh-183-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
         'fresh-read-only-object-storage-probe',

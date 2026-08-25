@@ -180,6 +180,7 @@ model Tenant {
   aiUsageEvents                      AiUsageEvent[]
   aiUsageDailyRollups                AiUsageDailyRollup[]
   operatingCostEvidence              OperatingCostEvidence[]
+  operationalUsageEvidence           OperationalUsageEvidence[]
   aiCostBudgets                      AiCostBudget[]
   aiCostReservations                 AiCostReservation[]
   conversationInsights               ConversationInsight[]
@@ -1304,6 +1305,7 @@ model Venue {
   aiUsageEvents                       AiUsageEvent[]
   aiUsageDailyRollups                 AiUsageDailyRollup[]
   operatingCostEvidence               OperatingCostEvidence[]
+  operationalUsageEvidence            OperationalUsageEvidence[]
   aiCostReservations                  AiCostReservation[]
   conversationInsights                ConversationInsight[]
   operationalEvents                   OperationalEvent[]
@@ -3028,6 +3030,55 @@ model OperatingCostEvidence {
   @@index([category, periodStart, periodEnd])
   @@index([recordedAt])
   @@map("operating_cost_evidence")
+}
+
+enum OperationalUsageMetric {
+  INTAKE_DECLARED_BYTES
+  MEDIA_DECLARED_BYTES
+  QUEUE_DEPTH
+  QUEUE_FAILED_JOBS
+  QUEUE_OLDEST_AGE_MILLISECONDS
+}
+
+enum OperationalUsageUnit {
+  BYTES
+  JOBS
+  MILLISECONDS
+}
+
+enum OperationalUsageMeasurementKind {
+  GAUGE
+  INTERVAL_TOTAL
+}
+
+/// Append-only measured operational quantities. This is deliberately separate
+/// from OperatingCostEvidence: a byte or queued job is not assigned a dollar
+/// value until independently sourced rate evidence exists.
+model OperationalUsageEvidence {
+  id              String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId     String                          @unique @map("operation_id") @db.Uuid
+  tenantId        String?                         @map("tenant_id")
+  venueId         String?                         @map("venue_id")
+  metric          OperationalUsageMetric
+  measurementKind OperationalUsageMeasurementKind @map("measurement_kind")
+  quantity        Decimal                         @db.Decimal(20, 6)
+  unit            OperationalUsageUnit
+  observedAt      DateTime                        @map("observed_at")
+  periodStart     DateTime?                       @map("period_start")
+  periodEnd       DateTime?                       @map("period_end")
+  sourceSystem    String                          @map("source_system") @db.VarChar(100)
+  sourceReference String                          @map("source_reference") @db.VarChar(191)
+  sourceDigest    String                          @map("source_digest") @db.Char(64)
+  recordedByType  ActorType                       @map("recorded_by_type")
+  recordedById    String                          @map("recorded_by_id") @db.VarChar(191)
+  recordedAt      DateTime                        @default(now()) @map("recorded_at")
+  tenant          Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue?                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, venueId, metric, observedAt], map: "operational_usage_evidence_scope_metric_idx")
+  @@index([metric, observedAt], map: "operational_usage_evidence_metric_time_idx")
+  @@index([recordedAt], map: "operational_usage_evidence_recorded_at_idx")
+  @@map("operational_usage_evidence")
 }
 
 enum AiCostReservationStatus {

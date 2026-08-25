@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   founderReview: vi.fn(),
   aiCosts: vi.fn(),
   operatingCosts: vi.fn(),
+  operationalUsage: vi.fn(),
+  latestOperationalUsage: vi.fn(),
   redriveSupported: vi.fn(),
 }))
 
@@ -44,6 +46,10 @@ vi.mock('@pathfinder/db', () => ({
     founderControlRoomReview: { findFirst: mocks.founderReview },
     aiUsageEvent: { groupBy: mocks.aiCosts },
     operatingCostEvidence: { findMany: mocks.operatingCosts },
+    operationalUsageEvidence: {
+      findMany: mocks.operationalUsage,
+      findFirst: mocks.latestOperationalUsage,
+    },
   },
 }))
 
@@ -78,6 +84,8 @@ describe('admin attention console', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.jobs.mockResolvedValue([])
+    mocks.operationalUsage.mockResolvedValue([])
+    mocks.latestOperationalUsage.mockResolvedValue(null)
     mocks.evaluations.mockResolvedValue([])
     mocks.approvals.mockResolvedValue([])
     mocks.support.mockResolvedValue([])

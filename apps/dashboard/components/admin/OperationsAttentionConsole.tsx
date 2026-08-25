@@ -83,9 +83,32 @@ function usd(value: string) {
   }).format(Number(value))
 }
 
+function operationalQuantity(quantity: string, unit: string | null) {
+  const value = Number(quantity)
+  if (unit === 'BYTES') {
+    if (!Number.isFinite(value)) return `${quantity} bytes`
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`
+    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MiB`
+    if (value >= 1024) return `${(value / 1024).toFixed(2)} KiB`
+    return `${value.toLocaleString()} bytes`
+  }
+  if (unit === 'MILLISECONDS') {
+    if (!Number.isFinite(value)) return `${quantity} ms`
+    if (value >= 60_000) return `${(value / 60_000).toFixed(1)} min`
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)} sec`
+    return `${value.toLocaleString()} ms`
+  }
+  return `${Number.isFinite(value) ? value.toLocaleString() : quantity} jobs`
+}
+
+function usageLabel(metric: string) {
+  return metric.replaceAll('_', ' ').toLowerCase()
+}
+
 function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
   const change = data.totals.changePercent
   const represented = data.nonAi.categories.filter((category) => category.represented)
+  const measuredUsage = data.operationalUsage.metrics.filter((metric) => metric.represented)
   return (
     <section
       id="cost-coverage"
@@ -169,6 +192,49 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
             service availability.
           </p>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-cyan-100 bg-white p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Measured operational load</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Latest quantity evidence by scope. These measurements are not converted into dollars.
+            </p>
+          </div>
+          <span className="text-xs font-medium text-slate-500">
+            {data.operationalUsage.unrepresentedMetrics.length} metrics not observed
+          </span>
+        </div>
+        {measuredUsage.length ? (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {measuredUsage.map((metric) => (
+              <li key={metric.metric} className="rounded-lg bg-slate-50 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  {usageLabel(metric.metric)}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  {operationalQuantity(metric.quantity, metric.unit)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {metric.scopeCount} {metric.scopeCount === 1 ? 'scope' : 'scopes'} · observed{' '}
+                  {date(metric.latestObservedAt)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+            No recent queue or declared-byte observations have been retained yet. Worker failures
+            remain visible separately; this view does not infer zero usage.
+          </p>
+        )}
+        {data.operationalUsage.truncated ? (
+          <p className="mt-3 text-xs font-medium text-amber-800">
+            The bounded read was truncated. Treat these totals as incomplete until the scope is
+            narrowed or the evidence is summarized.
+          </p>
+        ) : null}
       </div>
     </section>
   )

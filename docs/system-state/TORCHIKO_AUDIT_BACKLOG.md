@@ -2,7 +2,7 @@
 
 **Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 182 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 183 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -35,7 +35,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P0.3 — Prove the integrated migration lineage in disposable and staging databases — LOCAL BOUNDARY RESOLVED
 
-- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 182-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
+- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 183-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
 - **Remaining problem:** Current hosted staging migration parity, preserved-data backup evidence, exact deployed revision, and live runtime health still require the authorized owner integration workflow. Local evidence must not be promoted into a hosted-state claim.
 - **Evidence:** `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact release candidate and staging handoff artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
@@ -105,7 +105,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P1.5 — Expand health from connectivity to service readiness — PARTIALLY IMPLEMENTED 2026-08-24
 
-- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 182-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
+- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 183-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
 - **Evidence:** `packages/api/src/operations-readiness.ts`; `packages/db/src/helpers/operational-health.ts`; `scripts/operations-readiness-migration.test.mjs`; `pnpm test:operations-readiness:disposable`; `admin.operationsReadiness`; `/api/platform-worker/operations-readiness`; `OperationsReadinessSummary.tsx`; projection, HTTP, disposable integration, component, and accessibility tests.
 - **Affected system:** Deployment, observability, incident response.
 - **Remaining:** Hosted storage/ClamAV continuity, AI provider execution, email delivery, external uptime, SLO/threshold policy, and outbound alert delivery remain explicitly unproven. The local worker-side dependency path is implemented and disposable-proven; retain exact hosted evidence after authorized deployment and add other evidence-driven producers only when the relevant external configuration/policy exists.
@@ -218,14 +218,15 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Begin now**; depth can grow later.
 - **Codex autonomous:** **Partly**; humans must define truth and thresholds.
 
-### P2.4 — Unify variable and human unit economics
+### P2.4 — Unify variable and human unit economics — OPERATIONAL QUANTITY FOUNDATION IMPLEMENTED
 
 - **Status (2026-08-24):** **FOUNDATION AND FOUNDER COVERAGE VIEW IMPLEMENTED.** A provider-neutral, append-only `OperatingCostEvidence` ledger now covers nine non-AI categories with platform/tenant/venue scope, observed/estimated/allocated evidence kinds, source references, quantities, exact periods, and uniquely fenced supersession. The Founder Control Room and machine operating view combine contained 30-day evidence with canonical AI estimates, show platform-unallocated cost, compare the prior window, and name missing coverage without inventing anomaly thresholds or prorating.
-- **Retained gap:** Automated source ingestion, queue/media/storage counters, regular operator-time capture, accounting reconciliation, and a founder-set anomaly policy remain unimplemented. The view is not margin, invoice, pricing, or service-cutoff authority.
+- **Current quantity evidence (2026-08-25):** A separate append-only `OperationalUsageEvidence` ledger now retains content-addressed queue depth/failure/age gauges every 15 minutes and daily tenant/venue-scoped database-declared intake/media bytes. Founder and platform-worker views select only fresh latest-per-scope observations, expose missing/truncated coverage, and never assign a dollar value. Incomplete queue inventory is refused rather than recorded.
+- **Retained gap:** Provider storage/bandwidth/email/observability/infrastructure ingestion, regular operator-time capture, rate provenance, accounting reconciliation, and a founder-set anomaly policy remain unimplemented. Declared bytes are not provider inventory, retention state, transfer usage, or a bill. The view is not margin, invoice, pricing, or service-cutoff authority.
 - **Problem:** AI usage is deeply instrumented, while storage, hosting, email, monitoring, file processing and operator time are not presented per tenant/venue.
-- **Evidence:** `OperatingCostEvidence`; `recordOperatingCostEvidenceAction`; `admin.founderUnitEconomics`; Founder Control Room cost coverage; `pnpm test:operating-cost:disposable`.
+- **Evidence:** `OperatingCostEvidence`; `OperationalUsageEvidence`; `recordOperatingCostEvidenceAction`; `recordOperationalUsageEvidenceAction`; `inspectDeclaredOperationalUsage`; `operational-usage-observer.ts`; `admin.founderUnitEconomics`; Founder Control Room cost and measured-load coverage; `pnpm test:operating-cost:disposable`; `docs/operational-usage-evidence.md`.
 - **Affected system:** Analytics, pricing, operations.
-- **Recommended change:** Connect real provider exports and counters to the ledger, then add explicit policy-backed anomaly classification only after sufficient history and a founder threshold decision.
+- **Recommended change:** Retain hosted observations, connect real provider exports with explicit rate/source provenance, and add policy-backed anomaly classification only after sufficient history and a founder threshold decision.
 - **Why it matters:** AI optimization alone may target the wrong cost driver.
 - **Effort:** M
 - **Dependencies:** Pricing/cost-source policy.

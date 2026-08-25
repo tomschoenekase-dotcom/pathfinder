@@ -25,7 +25,21 @@ const categories = [
   'OTHER',
 ] as const
 
-type UnitEconomicsReadClient = Pick<typeof db, 'aiUsageEvent' | 'operatingCostEvidence'>
+type UnitEconomicsReadClient = Pick<
+  typeof db,
+  'aiUsageEvent' | 'operatingCostEvidence' | 'operationalUsageEvidence'
+>
+
+const usageMetrics = [
+  'INTAKE_DECLARED_BYTES',
+  'MEDIA_DECLARED_BYTES',
+  'QUEUE_DEPTH',
+  'QUEUE_FAILED_JOBS',
+  'QUEUE_OLDEST_AGE_MILLISECONDS',
+] as const
+const MAX_CURRENT_USAGE_ROWS = 5_000
+const DECLARED_USAGE_FRESH_DAYS = 2
+const QUEUE_USAGE_FRESH_MS = 60 * 60 * 1_000
 
 function sumCostUnits(values: unknown[]) {
   return values.reduce<bigint>((total, value) => total + aiCostDecimalToUnits(value), 0n)
@@ -33,6 +47,19 @@ function sumCostUnits(values: unknown[]) {
 
 function signedCostUnitsToDecimal(units: bigint) {
   return units < 0n ? `-${aiCostUnitsToDecimal(-units)}` : aiCostUnitsToDecimal(units)
+}
+
+function quantityToMicrounits(value: unknown) {
+  const [integer = '0', fraction = ''] = String(value).split('.')
+  return BigInt(integer) * 1_000_000n + BigInt(fraction.padEnd(6, '0').slice(0, 6) || '0')
+}
+
+function quantityFromMicrounits(value: bigint) {
+  const integer = value / 1_000_000n
+  const fraction = String(value % 1_000_000n)
+    .padStart(6, '0')
+    .replace(/0+$/, '')
+  return fraction ? `${integer}.${fraction}` : String(integer)
 }
 
 function partitionEvidence<
@@ -53,8 +80,62 @@ export async function readFounderUnitEconomics(
 ) {
   const currentStart = new Date(now.getTime() - WINDOW_DAYS * DAY_MS)
   const previousStart = new Date(currentStart.getTime() - WINDOW_DAYS * DAY_MS)
+  const declaredUsageFreshStart = new Date(now.getTime() - DECLARED_USAGE_FRESH_DAYS * DAY_MS)
+  const queueUsageFreshStart = new Date(now.getTime() - QUEUE_USAGE_FRESH_MS)
+  const usageRead = Promise.all([
+    client.operationalUsageEvidence.findMany({
+      where: {
+        metric: { in: ['INTAKE_DECLARED_BYTES', 'MEDIA_DECLARED_BYTES'] },
+        observedAt: { gte: declaredUsageFreshStart, lt: now },
+      },
+      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
+      take: MAX_CURRENT_USAGE_ROWS,
+      select: {
+        id: true,
+        tenantId: true,
+        venueId: true,
+        metric: true,
+        quantity: true,
+        unit: true,
+        observedAt: true,
+        sourceSystem: true,
+      },
+    }),
+    ...(['QUEUE_DEPTH', 'QUEUE_FAILED_JOBS', 'QUEUE_OLDEST_AGE_MILLISECONDS'] as const).map(
+      (metric) =>
+        client.operationalUsageEvidence.findFirst({
+          where: {
+            tenantId: null,
+            venueId: null,
+            metric,
+            observedAt: { gte: queueUsageFreshStart, lt: now },
+          },
+          orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            metric: true,
+            quantity: true,
+            unit: true,
+            observedAt: true,
+            sourceSystem: true,
+          },
+        }),
+    ),
+  ]).then(([declaredRows, ...queueRows]) => {
+    const latestDeclaredByScope = new Map<string, (typeof declaredRows)[number]>()
+    for (const row of declaredRows) {
+      const key = `${row.tenantId}\u0000${row.venueId}\u0000${row.metric}`
+      if (!latestDeclaredByScope.has(key)) latestDeclaredByScope.set(key, row)
+    }
+    return {
+      rows: [...latestDeclaredByScope.values(), ...queueRows.filter((row) => row !== null)],
+      truncated: declaredRows.length === MAX_CURRENT_USAGE_ROWS,
+    }
+  })
 
-  const [currentAiRows, previousAiRows, evidenceRows] = await Promise.all([
+  const [currentAiRows, previousAiRows, evidenceRows, usage] = await Promise.all([
     client.aiUsageEvent.groupBy({
       by: ['tenantId'],
       where: { createdAt: { gte: currentStart, lt: now } },
@@ -85,7 +166,9 @@ export async function readFounderUnitEconomics(
         sourceSystem: true,
       },
     }),
+    usageRead,
   ])
+  const usageRows = usage.rows
 
   const currentAiUnits = sumCostUnits(currentAiRows.map((row) => row._sum.estimatedCostUsd ?? '0'))
   const previousAiUnits = sumCostUnits(
@@ -119,6 +202,24 @@ export async function readFounderUnitEconomics(
   const unrepresentedCategories = categoryBreakdown
     .filter((entry) => !entry.represented)
     .map((entry) => entry.category)
+  const usageBreakdown = usageMetrics.map((metric) => {
+    const rows = usageRows.filter((row) => row.metric === metric)
+    return {
+      metric,
+      represented: rows.length > 0,
+      quantity: quantityFromMicrounits(
+        rows.reduce((sum, row) => sum + quantityToMicrounits(row.quantity), 0n),
+      ),
+      unit: rows[0]?.unit ?? null,
+      scopeCount: rows.length,
+      latestObservedAt:
+        rows.reduce<Date | null>(
+          (latest, row) => (!latest || row.observedAt > latest ? row.observedAt : latest),
+          null,
+        ) ?? null,
+      sourceSystems: [...new Set(rows.map((row) => row.sourceSystem))].sort(),
+    }
+  })
 
   return {
     schemaVersion: 'founder-unit-economics.v1' as const,
@@ -151,6 +252,25 @@ export async function readFounderUnitEconomics(
       evidenceCount: currentEvidence.included.length,
       excludedOverlappingEvidenceCount,
       categories: categoryBreakdown,
+    },
+    operationalUsage: {
+      interpretation:
+        'Latest fresh measured quantities by scope are operational evidence, not provider invoices or dollar costs.',
+      rowsReturned: usageRows.length,
+      truncated: usage.truncated,
+      freshness: {
+        declaredUsageDays: DECLARED_USAGE_FRESH_DAYS,
+        queueUsageMinutes: QUEUE_USAGE_FRESH_MS / 60_000,
+      },
+      metrics: usageBreakdown,
+      representedMetrics: usageBreakdown
+        .filter((entry) => entry.represented)
+        .map((entry) => entry.metric),
+      unrepresentedMetrics: usageBreakdown
+        .filter((entry) => !entry.represented)
+        .map((entry) => entry.metric),
+      assignsDollarValue: false as const,
+      definesAnomalyThreshold: false as const,
     },
     coverage: {
       representedCategories,

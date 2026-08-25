@@ -18,6 +18,7 @@ vi.mock('@pathfinder/db', () => {
     db: {
       aiUsageEvent: { groupBy: vi.fn() },
       operatingCostEvidence: { findMany: vi.fn() },
+      operationalUsageEvidence: { findMany: vi.fn(), findFirst: vi.fn() },
     },
     withTenantIsolationBypass: mocks.bypass,
     recordOperatingCostEvidenceAction: mocks.record,

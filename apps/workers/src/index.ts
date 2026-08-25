@@ -140,6 +140,7 @@ import {
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
 import { recordOperationalReadinessHeartbeat } from './lib/service-dependency-readiness'
+import { startOperationalUsageObserver } from './lib/operational-usage-observer'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   createEscalatingShutdownHandler,
@@ -655,6 +656,12 @@ async function handleBillingReconciliationQueueJob(job: Job<BillingReconciliatio
 export async function startWorkers() {
   if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
     const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
+    const stopUsageObserver = await startOperationalUsageObserver((error) =>
+      logger.error({
+        action: 'workers.operational-usage.failed',
+        error: error instanceof Error ? error.message : 'Unknown operational usage error',
+      }),
+    )
     const runtime = await startProviderDisabledRuntime({
       checkConnection: () => checkBullMQConnection(5_000),
       closeConnection: closeBullMQConnection,
@@ -669,6 +676,7 @@ export async function startWorkers() {
     })
     const shutdown = async () => {
       stopHeartbeat()
+      stopUsageObserver()
       await runtime.shutdown()
     }
     registerShutdownSignals(shutdown)
@@ -1336,6 +1344,12 @@ export async function startWorkers() {
 
   const stopProspectOutboxDispatcher = startProspectOutboxDispatcher()
   const stopHeartbeat = await startOperationalHeartbeat('provider-enabled')
+  const stopUsageObserver = await startOperationalUsageObserver((error) =>
+    logger.error({
+      action: 'workers.operational-usage.failed',
+      error: error instanceof Error ? error.message : 'Unknown operational usage error',
+    }),
+  )
 
   logger.info({
     action: 'workers.started',
@@ -1379,6 +1393,7 @@ export async function startWorkers() {
         resources: [
           { name: 'prospect-outbox-dispatcher', close: async () => stopProspectOutboxDispatcher() },
           { name: 'operational', close: async () => stopHeartbeat() },
+          { name: 'operational-usage', close: async () => stopUsageObserver() },
         ],
       },
       {

@@ -63,6 +63,54 @@ describe('readFounderUnitEconomics', () => {
     const result = await readFounderUnitEconomics(now, {
       aiUsageEvent: { groupBy },
       operatingCostEvidence: { findMany },
+      operationalUsageEvidence: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'intake-a',
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            metric: 'INTAKE_DECLARED_BYTES',
+            quantity: '12.000000',
+            unit: 'BYTES',
+            observedAt: new Date('2026-08-24T00:00:00.000Z'),
+            sourceSystem: 'torchiko-database-declared-usage',
+          },
+          {
+            id: 'intake-b',
+            tenantId: 'tenant-2',
+            venueId: 'venue-2',
+            metric: 'INTAKE_DECLARED_BYTES',
+            quantity: '30.500000',
+            unit: 'BYTES',
+            observedAt: new Date('2026-08-24T00:00:00.000Z'),
+            sourceSystem: 'torchiko-database-declared-usage',
+          },
+          {
+            id: 'intake-a-older',
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            metric: 'INTAKE_DECLARED_BYTES',
+            quantity: '999.000000',
+            unit: 'BYTES',
+            observedAt: new Date('2026-08-23T00:00:00.000Z'),
+            sourceSystem: 'torchiko-database-declared-usage',
+          },
+        ]),
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'queue-depth',
+            tenantId: null,
+            venueId: null,
+            metric: 'QUEUE_DEPTH',
+            quantity: '7.000000',
+            unit: 'JOBS',
+            observedAt: new Date('2026-08-24T23:55:00.000Z'),
+            sourceSystem: 'bullmq-operational-snapshot',
+          })
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(null),
+      },
     } as never)
 
     expect(result.totals).toEqual({
@@ -93,6 +141,22 @@ describe('readFounderUnitEconomics', () => {
     })
     expect(result.coverage.complete).toBe(false)
     expect(result.coverage.unrepresentedCategories).toContain('SECURITY')
+    expect(result.operationalUsage).toMatchObject({
+      rowsReturned: 3,
+      truncated: false,
+      freshness: { declaredUsageDays: 2, queueUsageMinutes: 60 },
+      representedMetrics: ['INTAKE_DECLARED_BYTES', 'QUEUE_DEPTH'],
+      unrepresentedMetrics: [
+        'MEDIA_DECLARED_BYTES',
+        'QUEUE_FAILED_JOBS',
+        'QUEUE_OLDEST_AGE_MILLISECONDS',
+      ],
+      assignsDollarValue: false,
+      definesAnomalyThreshold: false,
+    })
+    expect(
+      result.operationalUsage.metrics.find((row) => row.metric === 'INTAKE_DECLARED_BYTES'),
+    ).toMatchObject({ quantity: '42.5', unit: 'BYTES', scopeCount: 2 })
     expect(result.policy).toEqual({
       anomalyThreshold: 'UNRESOLVED',
       anomalyClassification: 'NOT_COMPUTED',

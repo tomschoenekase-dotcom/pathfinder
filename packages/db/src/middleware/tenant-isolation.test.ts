@@ -281,6 +281,7 @@ describe('tenantIsolationMiddleware', () => {
       'AuditLog',
       'JobRecord',
       'OperatingCostEvidence',
+      'OperationalUsageEvidence',
       'CompanyKnowledgeItem',
       'CompanyKnowledgeRevision',
       'CompanyKnowledgeSource',

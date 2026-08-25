@@ -72,6 +72,69 @@ const empty: Data = {
       excludedOverlappingEvidenceCount: 0,
       categories: [],
     },
+    operationalUsage: {
+      interpretation: 'Latest measured quantities are not provider invoices or dollar costs.',
+      rowsReturned: 0,
+      truncated: false,
+      freshness: { declaredUsageDays: 2, queueUsageMinutes: 60 },
+      metrics: [
+        {
+          metric: 'INTAKE_DECLARED_BYTES',
+          represented: false,
+          quantity: '0',
+          unit: null,
+          scopeCount: 0,
+          latestObservedAt: null,
+          sourceSystems: [],
+        },
+        {
+          metric: 'MEDIA_DECLARED_BYTES',
+          represented: false,
+          quantity: '0',
+          unit: null,
+          scopeCount: 0,
+          latestObservedAt: null,
+          sourceSystems: [],
+        },
+        {
+          metric: 'QUEUE_DEPTH',
+          represented: false,
+          quantity: '0',
+          unit: null,
+          scopeCount: 0,
+          latestObservedAt: null,
+          sourceSystems: [],
+        },
+        {
+          metric: 'QUEUE_FAILED_JOBS',
+          represented: false,
+          quantity: '0',
+          unit: null,
+          scopeCount: 0,
+          latestObservedAt: null,
+          sourceSystems: [],
+        },
+        {
+          metric: 'QUEUE_OLDEST_AGE_MILLISECONDS',
+          represented: false,
+          quantity: '0',
+          unit: null,
+          scopeCount: 0,
+          latestObservedAt: null,
+          sourceSystems: [],
+        },
+      ],
+      representedMetrics: [],
+      unrepresentedMetrics: [
+        'INTAKE_DECLARED_BYTES',
+        'MEDIA_DECLARED_BYTES',
+        'QUEUE_DEPTH',
+        'QUEUE_FAILED_JOBS',
+        'QUEUE_OLDEST_AGE_MILLISECONDS',
+      ],
+      assignsDollarValue: false,
+      definesAnomalyThreshold: false,
+    },
     coverage: {
       representedCategories: [],
       unrepresentedCategories: [
@@ -198,6 +261,8 @@ describe('operations attention console', () => {
     ).toBeTruthy()
     expect(screen.getByText(/Completion alone is not quality evidence/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'What is costing Torchiko money?' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Measured operational load' })).toBeTruthy()
+    expect(screen.getByText(/No recent queue or declared-byte observations/)).toBeTruthy()
     expect(screen.getByText('Coverage incomplete')).toBeTruthy()
     expect(screen.getByText(/No anomaly threshold is settled/)).toBeTruthy()
     expect(

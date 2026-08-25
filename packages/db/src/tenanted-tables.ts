@@ -222,6 +222,7 @@ export const SHARED_SCOPE_TABLES = [
   // Internal non-AI cost evidence may be platform-wide or attributed to an
   // exact tenant/venue. Canonical actions validate every optional scope.
   'OperatingCostEvidence',
+  'OperationalUsageEvidence',
   'CompanyKnowledgeItem',
   'CompanyKnowledgeRevision',
   'CompanyKnowledgeSource',

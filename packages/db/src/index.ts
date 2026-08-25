@@ -140,6 +140,7 @@ export type {
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
+export { inspectDeclaredOperationalUsage } from './helpers/declared-operational-usage'
 export {
   previewRetentionDispositionAction,
   type RetentionDispositionPreviewClient,
@@ -155,6 +156,19 @@ export type {
   OperatingCostEvidenceActionClient,
   RecordOperatingCostEvidenceInput,
 } from './helpers/operating-cost-evidence-actions'
+export {
+  OperationalUsageEvidenceActionError,
+  recordOperationalUsageEvidenceAction,
+} from './helpers/operational-usage-evidence-actions'
+export type {
+  OperationalUsageEvidenceActionClient,
+  RecordOperationalUsageEvidenceInput,
+} from './helpers/operational-usage-evidence-actions'
+export {
+  recordDeclaredOperationalUsageSnapshot,
+  recordQueueOperationalUsageSnapshot,
+  type QueueOperationalUsageSnapshot,
+} from './helpers/operational-usage-evidence-producers'
 export {
   addProspectNoteAction,
   approveProspectImportAction,
