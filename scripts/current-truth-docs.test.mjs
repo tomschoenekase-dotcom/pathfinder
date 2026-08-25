@@ -63,6 +63,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
     'claim-attribution-calibration',
     'agent-operational-trust-evidence',
     'agent-runtime-routing',
+    'identity-vocabulary',
   ])
 
   for (const capability of truth.capabilities) {

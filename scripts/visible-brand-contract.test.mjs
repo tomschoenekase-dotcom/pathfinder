@@ -10,6 +10,7 @@ const roots = ['apps/dashboard', 'apps/web', 'apps/workers', 'packages/ui', 'pac
 
 const explicitFiles = [
   'packages/api/src/lib/generation-request-identity.ts',
+  'packages/api/src/routers/chat.ts',
   'packages/api/src/mcp/registry.ts',
   'packages/db/prisma/schema.prisma',
 ]
@@ -192,4 +193,38 @@ test('visible product copy uses Torchiko while legacy technical contracts remain
     [],
     `Old visible brand or domain remains outside the technical allowlist:\n${violations.join('\n')}`,
   )
+})
+
+test('the durable identity vocabulary matches customer communication and operating ownership', async () => {
+  const [vocabulary, welcomeEmail, state, matrix, backlog] = await Promise.all([
+    readFile(path.join(repositoryRoot, 'docs/identity-vocabulary.md'), 'utf8'),
+    readFile(
+      path.join(repositoryRoot, 'apps/workers/src/processors/send-welcome-email.ts'),
+      'utf8',
+    ),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md'), 'utf8'),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md'), 'utf8'),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_AUDIT_BACKLOG.md'), 'utf8'),
+  ])
+
+  for (const required of [
+    'Torchiko is the customer-facing product and service identity.',
+    'PathFinder is a retained internal technical namespace',
+    'The Founder Control Room is Torchiko',
+    'Tochi is the character and assistant identity',
+    'Hermes is an optional operational worker and bridge runtime',
+    'Codex is the engineering worker',
+  ]) {
+    assert.ok(vocabulary.includes(required), `identity vocabulary retains: ${required}`)
+  }
+
+  assert.match(welcomeEmail, /subject: 'Welcome to Torchiko'/u)
+  assert.match(welcomeEmail, /https:\/\/app\.torchiko\.com/u)
+  assert.doesNotMatch(welcomeEmail, /pathfinder\.ai|Welcome to PathFinder/iu)
+
+  for (const document of [state, matrix, backlog]) {
+    assert.match(document, /identity-vocabulary\.md/u)
+    assert.doesNotMatch(document, /welcome email still says PathFinder/iu)
+    assert.doesNotMatch(document, /still uses PathFinder branding\/link/iu)
+  }
 })

@@ -6,35 +6,39 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 ## Current truth anchors
 
-| Truth ID                           | Current status                      | Boundary still retained                                                                             |
-| ---------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `founder-operating-conversation`   | PROVEN PROVIDER-DARK LOCALLY        | Open-ended reasoning, proactive notification, and hosted provider synthesis remain unproven.        |
-| `founder-directive-task-handoff`   | PROVEN PROVIDER-DARK LOCALLY        | Approval does not execute; hosted workers and downstream action authority remain separately gated.  |
-| `guest-prompt-integrity`           | PROVEN PROVIDER-DARK LOCALLY        | Model-specific resistance and hosted staging behavior remain unproven.                              |
-| `release-evidence`                 | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate. |
-| `golden-venue-lifecycle`           | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                         |
-| `native-guest-read`                | PROVEN PROVIDER-DARK LOCALLY        | Activation evidence and compatibility retirement remain hosted/approval gated.                      |
-| `crm-pipeline`                     | IMPLEMENTED BUT EXTERNAL GATED      | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.               |
-| `outreach-operations`              | IMPLEMENTED BUT EXTERNAL GATED      | Sending remains dark pending separate authorization and a bounded canary.                           |
-| `stripe-billing`                   | SANDBOX-PROVEN; LIVE GATED          | No live billing is configured or authorized.                                                        |
-| `gmail-correspondence`             | IMPLEMENTED BUT EXTERNAL GATED      | Owner credentials, watch renewal, and hosted continuity remain external gates.                      |
-| `local-staging-infrastructure`     | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                |
-| `operational-usage-evidence`       | PROVEN PROVIDER-DARK LOCALLY        | Provider exports, rate provenance, accounting, and anomaly policy remain open.                      |
-| `first-week-account-learning`      | PROVEN PROVIDER-DARK LOCALLY        | Drafts require human review; hosted scheduling and customer communication remain gated.             |
-| `privacy-retention`                | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.             |
-| `customer-access-execution`        | PROVIDER-DARK PROVEN; LIVE GATED    | Live Clerk delivery/acceptance and any agent execution authority remain external/founder-gated.     |
-| `claim-attribution-calibration`    | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.         |
-| `agent-operational-trust-evidence` | PROVEN PROVIDER-DARK LOCALLY        | Representative history, trust thresholds, hosted staging, and every authority change remain gated.  |
+| Truth ID                           | Current status                      | Boundary still retained                                                                                 |
+| ---------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `founder-operating-conversation`   | PROVEN PROVIDER-DARK LOCALLY        | Open-ended reasoning, proactive notification, and hosted provider synthesis remain unproven.            |
+| `founder-directive-task-handoff`   | PROVEN PROVIDER-DARK LOCALLY        | Approval does not execute; hosted workers and downstream action authority remain separately gated.      |
+| `guest-prompt-integrity`           | PROVEN PROVIDER-DARK LOCALLY        | Model-specific resistance and hosted staging behavior remain unproven.                                  |
+| `release-evidence`                 | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate.     |
+| `golden-venue-lifecycle`           | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                             |
+| `native-guest-read`                | PROVEN PROVIDER-DARK LOCALLY        | Activation evidence and compatibility retirement remain hosted/approval gated.                          |
+| `crm-pipeline`                     | IMPLEMENTED BUT EXTERNAL GATED      | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.                   |
+| `outreach-operations`              | IMPLEMENTED BUT EXTERNAL GATED      | Sending remains dark pending separate authorization and a bounded canary.                               |
+| `stripe-billing`                   | SANDBOX-PROVEN; LIVE GATED          | No live billing is configured or authorized.                                                            |
+| `gmail-correspondence`             | IMPLEMENTED BUT EXTERNAL GATED      | Owner credentials, watch renewal, and hosted continuity remain external gates.                          |
+| `local-staging-infrastructure`     | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                    |
+| `operational-usage-evidence`       | PROVEN PROVIDER-DARK LOCALLY        | Provider exports, rate provenance, accounting, and anomaly policy remain open.                          |
+| `first-week-account-learning`      | PROVEN PROVIDER-DARK LOCALLY        | Drafts require human review; hosted scheduling and customer communication remain gated.                 |
+| `privacy-retention`                | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.                 |
+| `customer-access-execution`        | PROVIDER-DARK PROVEN; LIVE GATED    | Live Clerk delivery/acceptance and any agent execution authority remain external/founder-gated.         |
+| `claim-attribution-calibration`    | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.             |
+| `agent-operational-trust-evidence` | PROVEN PROVIDER-DARK LOCALLY        | Representative history, trust thresholds, hosted staging, and every authority change remain gated.      |
+| `identity-vocabulary`              | PROVEN LOCALLY                      | Legal/trademark/product changes and migrations of stable technical identifiers remain separately gated. |
 
 ## Product ownership in one minute
 
-| Name          | What it actually owns today                                                                                          |
-| ------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Torchiko      | Umbrella/customer-facing product identity; not a separate code package.                                              |
-| PathFinder    | The repository and implemented venue application: public guide, client portal, operator OS, data and workers.        |
-| PathFinder OS | Internal/admin surface inside the dashboard.                                                                         |
-| Tochi         | Character/assistant presentation and behavior system; only a development character pack is currently verified.       |
-| Hermes        | Optional external command/provider supported by the agent bridge; its runtime and memory are not in this repository. |
+| Name                 | What it actually owns today                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Torchiko             | Sole customer-facing product/service identity across visitor, client, founder, marketing, and transactional copy.         |
+| PathFinder           | Retained internal repository, package, protocol, environment, and compatibility namespace; not a second customer product. |
+| Founder Control Room | Torchiko's mobile-first founder operating interface; not a coding IDE.                                                    |
+| Tochi                | Character/assistant presentation and behavior where useful; not the company or whole AI workforce.                        |
+| Hermes               | Optional operational worker/bridge runtime outside this repository, governed by exact Torchiko capabilities and policy.   |
+| Codex                | Engineering worker outside the Founder Control Room, responsible for meaningful repository/infrastructure changes.        |
+
+Full contract: [`identity-vocabulary.md`](../identity-vocabulary.md).
 
 ## Visitor and public experience
 
@@ -149,7 +153,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 | Frozen eval runs/results              | IMPLEMENTED BUT NEEDS POLISH   | Provider-gated                                    | evaluation worker/helpers                                                                                                                  | Production run history and calibration.                                                         |
 | Regression operational events         | IMPLEMENTED BUT NEEDS POLISH   | Explicit-policy gated                             | `evaluation-run.ts`; durable alert-policy read; operational events                                                                         | Founder-approved thresholds, external delivery, and live proof.                                 |
 | Hallucination detection               | PARTIALLY IMPLEMENTED          | Heuristics/evals plus human calibration evidence  | low-confidence chat, eval assertions, provider-dark lexical source coverage, answer analysis, independent-reviewer claim agreement         | Automated semantic groundedness and representative provider-backed/human calibration.           |
-| Welcome email                         | IMPLEMENTED BUT NEEDS POLISH   | Yes with Resend                                   | Clerk webhook → welcome queue/worker                                                                                                       | Brand update and delivery telemetry.                                                            |
+| Welcome email                         | IMPLEMENTED BUT EXTERNAL GATED | Yes when separately configured                    | Clerk webhook → welcome queue/worker; `identity-vocabulary.md`; visible-brand contract                                                     | Authorized provider-backed canary and external delivery telemetry.                              |
 | General outbound email                | IMPLEMENTED BUT EXTERNAL GATED | Reviewed prospect/operator routes                 | reviewed outbox, suppression/rate policy, Gmail/Resend adapters, workers, audit                                                            | Delivery remains disabled pending owner/provider authorization; no unrestricted generic sender. |
 | Inbound email                         | IMPLEMENTED BUT EXTERNAL GATED | Code-supported                                    | Gmail OAuth/Pub/Sub, sync, correspondence projection, source references                                                                    | Owner credentials, hosted watch renewal/reconciliation, and live provider proof.                |
 | Autonomous AI email                   | DOCUMENTED ONLY                | No                                                | agent prompts explicitly lack send surface                                                                                                 | Keep disabled until full safety stack exists.                                                   |

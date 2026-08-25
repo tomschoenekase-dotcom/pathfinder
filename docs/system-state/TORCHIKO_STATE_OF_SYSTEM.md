@@ -12,25 +12,26 @@
 
 The 2026-08-19 audit narrative remains historical evidence, not an unqualified statement of current capability. The following identifiers are the current anchors; every one is defined with repository evidence and an explicit remaining boundary in `torchiko-current-truth.json`:
 
-| Truth ID                           | Current state                                                                                                |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `founder-operating-conversation`   | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
-| `founder-directive-task-handoff`   | Exact directive-to-approved-agent-task handoff is provider-dark locally proven; approval does not execute.   |
-| `guest-prompt-integrity`           | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.        |
-| `release-evidence`                 | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
-| `golden-venue-lifecycle`           | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
-| `native-guest-read`                | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
-| `crm-pipeline`                     | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
-| `outreach-operations`              | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
-| `stripe-billing`                   | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
-| `gmail-correspondence`             | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
-| `local-staging-infrastructure`     | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
-| `operational-usage-evidence`       | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
-| `first-week-account-learning`      | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
-| `privacy-retention`                | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
-| `customer-access-execution`        | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
-| `claim-attribution-calibration`    | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
-| `agent-operational-trust-evidence` | Exact-action rollback, explicit violations, and confidence pairs are provider-dark proven without promotion. |
+| Truth ID                           | Current state                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `founder-operating-conversation`   | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.        |
+| `founder-directive-task-handoff`   | Exact directive-to-approved-agent-task handoff is provider-dark locally proven; approval does not execute.    |
+| `guest-prompt-integrity`           | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.         |
+| `release-evidence`                 | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.             |
+| `golden-venue-lifecycle`           | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven.  |
+| `native-guest-read`                | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally.  |
+| `crm-pipeline`                     | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.   |
+| `outreach-operations`              | Reviewed workflow is implemented dark by default; sending remains unauthorized.                               |
+| `stripe-billing`                   | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                    |
+| `gmail-correspondence`             | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.        |
+| `local-staging-infrastructure`     | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.     |
+| `operational-usage-evidence`       | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.            |
+| `first-week-account-learning`      | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.         |
+| `privacy-retention`                | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.         |
+| `customer-access-execution`        | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.    |
+| `claim-attribution-calibration`    | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.          |
+| `agent-operational-trust-evidence` | Exact-action rollback, explicit violations, and confidence pairs are provider-dark proven without promotion.  |
+| `identity-vocabulary`              | Customer, founder, character, operations-worker, and engineering identities have a tested ownership contract. |
 
 ## How to read this report
 
@@ -47,7 +48,12 @@ The source code, schema, tests, executable configuration, local staging runtime,
 
 ## Executive Summary
 
-Torchiko is a substantial multi-tenant venue intelligence platform, not a prototype landing page. PathFinder is its implemented venue application: a public conversational guide, a deliberately simple client portal, a deep internal operating system, a content/intake/release pipeline, analytics and reports, and a durable background-job layer. “Torchiko” is increasingly the customer-facing umbrella; “PathFinder OS” remains the internal application and repository vocabulary. Hermes is not a separate in-repository platform today. It appears as one optional external agent-bridge provider alongside Codex, Claude, and OpenAI-compatible local runners.
+Torchiko is a substantial multi-tenant venue intelligence platform, not a prototype landing page.
+Torchiko is the sole customer-facing product and service identity. PathFinder remains an internal
+technical namespace for the repository and compatibility-sensitive contracts rather than a second
+product customers must understand. The Founder Control Room, Tochi, Hermes, and Codex have distinct
+ownership defined in [`identity-vocabulary.md`](../identity-vocabulary.md). Hermes is not a separate
+in-repository platform; it is one optional external operational worker/bridge runtime.
 
 The strongest engineering is below the visible product. Tenant-scoped procedures, database guardrails, explicit bypass registries, idempotent chat turns, leases, retries, immutable evidence, AI budget reservations, public-surface manifests, quarantine-aware uploads, and a unusually comprehensive test suite show serious operational thinking. The public chat, remote onboarding, client portal, and admin workspaces are visually deliberate and have good empty/error states. Content packages, native releases, evaluation runs, agent runs, support cases, and audit records have real persistence and lifecycle code rather than only UI mocks.
 
@@ -144,7 +150,7 @@ The canonical allowlist is `packages/api/src/testing/public-surface-manifest.jso
 | Admin     | AI controls, costs, evaluations             | IMPLEMENTED BUT NEEDS POLISH     | AI config, cost/budget forms, evaluation operations                                                                                                                                                                            | Strong internals                                               | Local provider execution disabled; live routing/fallback not verified.                                                                                                                                                                                                                                        |
 | Admin     | Operations attention console                | IMPLEMENTED BUT NEEDS POLISH     | `attention-console.ts`; `OperationsAttentionConsole.tsx`                                                                                                                                                                       | Coherent command-center direction                              | Aggregates jobs, evals, support, agents, questions, approvals, outcomes and events.                                                                                                                                                                                                                           |
 | Admin     | CRM/sales/outreach                          | IMPLEMENTED BUT EXTERNAL GATED   | prospect organizations, venues, contacts, opportunities, stages/activity, provenance, research/import, correspondence, meetings, follow-up, reviewed outreach, and durable customer/location conversion                        | Strong local operating model                                   | Prospect-to-client conversion is retry-fenced; live Gmail credentials, delivery activation, pricing, promises, and customer contact remain gated.                                                                                                                                                             |
-| Email     | Welcome email                               | IMPLEMENTED BUT NEEDS POLISH     | `send-welcome-email.ts`; Clerk webhook/job tests                                                                                                                                                                               | Narrow and reliable                                            | Only automated send found; still uses PathFinder branding/link.                                                                                                                                                                                                                                               |
+| Email     | Welcome email                               | IMPLEMENTED BUT EXTERNALLY GATED | `send-welcome-email.ts`; Clerk webhook/job tests; `identity-vocabulary.md`; visible-brand contract                                                                                                                             | Narrow, durable, and Torchiko-branded                          | Exact delivery telemetry and an authorized provider-backed staging canary remain unproven.                                                                                                                                                                                                                    |
 | Email     | General inbound/outbound/approval           | IMPLEMENTED BUT EXTERNAL GATED   | Gmail OAuth/Pub/Sub and sync adapters; correspondence metadata/knowledge; reviewed outreach outbox, rate policy, and workers                                                                                                   | Strong dark-by-default foundation                              | Provider credentials and live watch renewal are not configured here; delivery remains disabled by default and no autonomous customer contact is authorized.                                                                                                                                                   |
 | Agents    | Durable identities/runs/questions/approvals | IMPLEMENTED BUT NEEDS POLISH     | agent Prisma models; admin agent routers/UI; `agent-run.ts`                                                                                                                                                                    | Strong state machine                                           | Real direct Anthropic execution exists; local live run not verified.                                                                                                                                                                                                                                          |
 | Agents    | Specialist delegation/tool use              | PARTIALLY IMPLEMENTED            | MCP registry/read actions; bridge runner; delegation records                                                                                                                                                                   | Conditional                                                    | Direct worker is text-only; actual tools/delegation require an external bridge.                                                                                                                                                                                                                               |
@@ -289,7 +295,8 @@ The weakest visible areas are not generic styling problems:
 - the privacy route is intentionally only a policy-status surface, and final owner/legal content remains unresolved;
 - the client portal is so intentionally narrow that analytics/content ownership may feel absent;
 - internal pages expose both legacy compatibility and native concepts, increasing decision load;
-- brand vocabulary is mixed: Torchiko externally, PathFinder OS internally, PathFinder in the welcome email, Tochi as character/assistant;
+- stable technical PathFinder identifiers remain intentionally visible to engineers, while the
+  tested identity contract keeps new visitor, customer, founder, and transactional copy on Torchiko;
 - the original audit completed only desktop interactive inspection. A later deterministic Chromium gate now confirms three synthetic phone/tablet/desktop journeys, but real-device, authenticated, deployed and assistive-technology evidence remains absent.
 
 Development fixture routes appear in production build manifests but their page/middleware guards return not-found or require auth outside development. This is acceptable, though route-level exclusion would reduce noise.
@@ -314,7 +321,10 @@ destructive-data authority. Hosted staging proof remains separate.
 1. **Dual content/deployment architecture:** legacy `Place`/`VenueKnowledgeEntry`/`VenuePackage` remains on the live read/materialization path beside native modules/revisions/manifests/releases.
 2. **Hosted integration boundary:** voice, entitlements, events, feedback, location, CRM, billing, and proposal work are integrated locally but not uniformly proven in current hosted staging.
 3. **Application-only tenant enforcement:** strong tooling exists, but the large bypass/raw-SQL inventory is a permanent cognitive risk without database RLS or equivalent defense.
-4. **Naming/ownership drift:** Torchiko, PathFinder, Hermes and Tochi roles are inferable but not codified in one canonical architecture note; customer email still says PathFinder.
+4. **Identity compatibility maintenance:** [`identity-vocabulary.md`](../identity-vocabulary.md)
+   codifies Torchiko, PathFinder, Founder Control Room, Tochi, Hermes, and Codex ownership. Stable
+   technical PathFinder identifiers remain migration-sensitive compatibility contracts, not visible
+   product copy.
 5. **Schema-ahead behavior:** outcome learning, parts of billing and some structured response blocks imply capabilities their runtimes do not yet deliver; citations now have a bounded runtime but remain short of claim-level attribution. Operational event email has a real dark-by-default runtime, while its external activation and the other advertised channels remain gated or unimplemented.
 6. **External readiness gaps:** authenticated core service readiness exists, but green web health still proves only DB/Redis connectivity and external provider/storage/email execution remains unproven.
 7. **Documentation fragmentation:** the README is thin on setup, while numerous packet/status documents contain historically useful but stale conclusions.

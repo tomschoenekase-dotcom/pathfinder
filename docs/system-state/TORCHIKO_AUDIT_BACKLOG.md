@@ -196,17 +196,17 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ## P2 — Product / Quality Improvements
 
-### P2.1 — Normalize Torchiko / PathFinder / Tochi / Hermes vocabulary
+### P2.1 — Normalize Torchiko / PathFinder / Founder Control Room / Tochi / Hermes / Codex vocabulary — LOCALLY RESOLVED 2026-08-25
 
-- **Problem:** External product, internal OS, character, and external runner names are mixed; the welcome email still says PathFinder and links `pathfinder.ai`.
-- **Evidence:** marketing/client UI, `send-welcome-email.ts`, `README.md`, agent bridge code.
+- **Status:** **LOCALLY RESOLVED.** Torchiko is the tested customer-facing product identity. PathFinder is retained only as an internal technical/compatibility namespace. Founder Control Room, Tochi, Hermes, and Codex have explicit, non-overlapping ownership. The welcome email and operational guidance use Torchiko.
+- **Evidence:** `docs/identity-vocabulary.md`; `scripts/visible-brand-contract.test.mjs`; `send-welcome-email.ts`; `chat.ts`; current-truth documents.
 - **Affected system:** Brand, documentation, onboarding, architecture.
-- **Recommended change:** Publish a one-page ownership glossary and apply it to email/UI/docs without renaming stable code mechanically.
+- **Maintenance:** Keep customer/founder copy on Torchiko and retain exact allowlisting for stable package, API, schema, environment, header, hash-domain, and migration identities. Migrate a technical identifier only with compatibility evidence.
 - **Why it matters:** Customers and future agents otherwise infer different product boundaries.
 - **Effort:** S
-- **Dependencies:** Founder naming decision.
+- **Dependencies:** None for current mechanical convergence. Legal entity, trademark, or changed product meaning remains a separate founder/legal decision.
 - **Before more venue acquisition:** **Preferably**.
-- **Codex autonomous:** **No** for naming; yes for mechanical application after approval.
+- **Codex autonomous:** **Implemented locally** under the founder packet's explicit contextual interpretation and customer-experience direction; no legal or trademark fact is inferred.
 
 ### P2.2 — Add a real mobile visual smoke suite
 

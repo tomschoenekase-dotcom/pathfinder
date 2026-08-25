@@ -586,7 +586,7 @@ export const chatRouter = router({
           linkedObjectId: reservation.turnId,
           recommendedAction: routeExhausted
             ? 'Review sanitized usage failures and recent chat reliability evidence before changing routing or incident controls.'
-            : 'Inspect the turn and recent provider outcomes in PathFinder OS.',
+            : 'Inspect the turn and recent provider outcomes in Torchiko operations.',
           deduplicationKey: routeExhausted
             ? `guest-chat-route-degraded:${input.venueId}:${routeConfigurationVersion ?? 'unknown'}`
             : `guest-chat-failure:${reservation.turnId}:${category}`,

@@ -237,6 +237,18 @@
         "packages/db/prisma/migrations/20260825012000_align_agent_runtime_model_routing/migration.sql"
       ],
       "remaining": "Authorized provider-backed staging must still prove actual fallback, model quality, spend behavior, and each subscription bridge; no deployment or credentials are authorized by local proof."
+    },
+    {
+      "id": "identity-vocabulary",
+      "status": "proven-locally",
+      "summary": "Torchiko is the customer-facing product identity while PathFinder remains a compatibility-safe internal technical namespace; Founder Control Room, Tochi, Hermes, and Codex have explicit non-overlapping ownership.",
+      "evidence": [
+        "docs/identity-vocabulary.md",
+        "scripts/visible-brand-contract.test.mjs",
+        "apps/workers/src/processors/send-welcome-email.ts",
+        "packages/api/src/routers/chat.ts"
+      ],
+      "remaining": "Legal entity, trademark, contract, and future product-direction decisions remain founder or legal work; stable technical identifiers must be migrated deliberately rather than cosmetically renamed."
     }
   ]
 }
