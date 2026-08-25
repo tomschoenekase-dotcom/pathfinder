@@ -58,10 +58,13 @@ describe('admin AI workload configuration', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1', venueScopeKey: 'venue_7' } }),
     )
     expect(result.scope).toEqual({ tenantId: 'tenant_1', venueId: 'venue_7' })
-    expect(result.workloads).toHaveLength(13)
+    expect(result.workloads).toHaveLength(14)
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('client-tochi')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain(
       'company-brain-retrieval-evaluation',
+    )
+    expect(result.workloads.map((workload) => workload.workloadId)).toContain(
+      'guest-answer-attribution-evaluation',
     )
     expect(result.workloads.every((workload) => workload.effectiveSource === 'PLATFORM')).toBe(true)
     expect(result.providerExecution).toBe(false)

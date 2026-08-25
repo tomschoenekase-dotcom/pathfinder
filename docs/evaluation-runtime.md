@@ -83,6 +83,12 @@ truncation remain visible. The output is content-addressed and returns no answer
 reviewer identity. It makes no correctness, pass/fail, severity, threshold, release, publication, or
 permission decision and performs no provider call.
 
+A separate provider-backed evaluator core can now produce the same exact-span attribution contract
+from one frozen answer/evidence identity. It is centrally routed, admission- and budget-gated,
+content-hash verified before dispatch, and strict about spans and source IDs. It is not connected to
+the evaluation queue, admin API, persistence action, scheduler, release policy, or visitor UI, so no
+automatic review occurs merely because the code exists.
+
 ## Lifecycle and failure semantics
 
 Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state advances through compare-and-set transitions:

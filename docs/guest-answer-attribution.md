@@ -63,6 +63,22 @@ identity, or location. Its rates are descriptive only: agreement does not prove 
 is correct. The report has no pass field, quality threshold, severity, release decision, content
 mutation, or authority change.
 
+## Provider-backed evaluator core
+
+The separately named `guest-answer-attribution-evaluation` workload can now run one bounded
+semantic review over an exact answer and frozen evidence bundle. It verifies every content hash
+before provider dispatch, uses only the supplied source snapshots, requires strict exact-span JSON,
+and revalidates the provider result through the same attribution contract used for human reviews.
+The route uses the central model registry, capability router, admission guard, request budget,
+usage sink, and optional pre-dispatch fence. Invalid spans, invented source IDs, tampered evidence,
+and malformed structured output fail closed.
+
+This is deliberately an evaluator core, not an activated autonomous workflow. No API procedure,
+queue consumer, schedule, persistence authority, or agent tool invokes it yet. A future caller must
+separately establish authorization, durable request/idempotency state, dispatch fencing, and the
+policy for retaining a machine-authored review. The result remains descriptive evidence with no
+pass threshold, release effect, visitor-visible effect, content mutation, or permission effect.
+
 The database enforces tenant, venue, session, and turn identity through composite foreign keys.
 Database triggers and Prisma middleware reject updates and deletes, preserving historical reviews
 even if later evaluators disagree.
@@ -80,6 +96,8 @@ Focused contract, API, MCP, database-action, tenant-isolation, and migration tes
 - deterministic segmentation-independent reviewer-agreement math, same-actor deduplication,
   malformed/identity-conflict exclusion, exact-venue API and MCP scope, and truthful mobile UI
   states.
+- provider-backed evaluator routing, pre-dispatch evidence-integrity rejection, strict exact-span
+  and source validation, descriptive metrics, and absence of pass/release fields.
 
 The disposable shakedown applies the complete migration chain to a fresh loopback-only PostgreSQL
 database with disposable Redis, MinIO, and ClamAV dependencies. It records and replays one exact
@@ -91,8 +109,10 @@ call and therefore is not semantic-quality calibration.
 
 Representative human-reviewed staging corpora still need to accumulate real agreement evidence,
 claim-segmentation examples, and venue coverage before any threshold is recommended. Provider-backed
-calibration is also outstanding. A threshold, automatic review policy, client-visible claim UI, or
-autonomous evaluator write path is a separate product, cost, privacy, and authority decision.
+calibration runs and representative history are also outstanding. The bounded evaluator core
+exists, but activation, durable machine-review persistence, a threshold, automatic review policy,
+client-visible claim UI, or autonomous evaluator write path remain separate product, cost, privacy,
+and authority decisions.
 
 No production deployment, provider enablement, customer contact, visitor-visible claim label,
 pricing action, billing action, or release authorization is included in this implementation.

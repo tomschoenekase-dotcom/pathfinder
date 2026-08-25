@@ -5,6 +5,7 @@ export const AI_MODEL_KEYS = {
   ANSWER_ANALYSIS: 'answer-analysis',
   CLIENT_TOCHI: 'client-tochi',
   COMPANY_BRAIN_RETRIEVAL_EVALUATION: 'company-brain-retrieval-evaluation',
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION: 'guest-answer-attribution-evaluation',
   GUEST_CHAT: 'guest-chat',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -87,6 +88,9 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // Bounded, explicitly invoked grounding evaluation. This is not an online
   // customer workflow and must still pass the caller's admission/budget gates.
   [AI_MODEL_KEYS.COMPANY_BRAIN_RETRIEVAL_EVALUATION]: haikuSpec(900, 30_000),
+  // Bounded, explicitly invoked semantic review of one frozen guest answer and its
+  // exact evidence bundle. Execution remains policy-, admission-, and budget-gated.
+  [AI_MODEL_KEYS.GUEST_ANSWER_ATTRIBUTION_EVALUATION]: sonnetSpec(4_000),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),
