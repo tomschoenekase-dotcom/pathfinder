@@ -154,8 +154,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/location-floor-authoring.ts', 3],
   ['packages/api/src/routers/admin/location-proposal-application.ts', 1],
   // Platform-admin proposal review and exact support-source handoff are always constrained to the
-  // requested tenant and venue; the shared action revalidates the frozen request version/messages.
-  ['packages/api/src/routers/admin/knowledge-proposals.ts', 5],
+  // requested tenant and venue; the support action revalidates the frozen request version/messages.
+  ['packages/api/src/routers/admin/knowledge-proposals.ts', 3],
+  ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],
   // Human platform-admin-only prospect CRM reads/writes. Platform-owned prospect
