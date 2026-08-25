@@ -272,6 +272,8 @@ describe('tenantIsolationMiddleware', () => {
       'EncryptedIntegrationCredential',
       'GmailOAuthAttempt',
       'ProspectInboundQuarantine',
+      'PublicInterestSubmission',
+      'PublicInterestSubmissionReview',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual([
       'AuditLog',

@@ -205,6 +205,10 @@ export const PLATFORM_TABLES = [
   'EncryptedIntegrationCredential',
   'GmailOAuthAttempt',
   'ProspectInboundQuarantine',
+  // Provider-dark public acquisition evidence is platform-owned until a separately reviewed
+  // conversion creates canonical CRM or customer state.
+  'PublicInterestSubmission',
+  'PublicInterestSubmissionReview',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and
