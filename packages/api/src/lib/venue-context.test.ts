@@ -5,6 +5,7 @@ import {
   buildVenueSystemPromptParts,
   escapeUntrustedPromptData,
   formatDistance,
+  guestResponseWordLimit,
   GUEST_CHAT_PROMPT_VERSION,
 } from './venue-context'
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
@@ -42,7 +43,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v6')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v7')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -182,6 +183,30 @@ describe('guest chat prompt provenance', () => {
       },
     ]
     expect(hashGuestChatPromptManifest(prompts)).toBe(GUEST_CHAT_PROMPT_CONTRACT_HASH)
+  })
+})
+
+describe('guest response-depth policy', () => {
+  it('uses a balanced central default and bounded per-venue expansion limits', () => {
+    expect(guestResponseWordLimit(undefined)).toBe(90)
+    expect(guestResponseWordLimit('BRIEF')).toBe(60)
+    expect(guestResponseWordLimit('DETAILED')).toBe(130)
+    expect(guestResponseWordLimit('BRIEF', 'EXPAND')).toBe(100)
+    expect(guestResponseWordLimit('BALANCED', 'EXPAND')).toBe(150)
+    expect(guestResponseWordLimit('DETAILED', 'EXPAND')).toBe(200)
+  })
+
+  it('renders the selected policy without turning its limit into a target', () => {
+    const { staticPart } = buildVenueSystemPromptParts({
+      venue: { ...venue, responseDepth: 'DETAILED' },
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      responseIntent: 'EXPAND',
+    })
+    expect(staticPart).toContain('visitor explicitly asked for more detail')
+    expect(staticPart).toContain('Use fewer words whenever the answer is already complete')
+    expect(staticPart).toContain('Never exceed 200 words')
   })
 })
 

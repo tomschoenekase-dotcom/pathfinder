@@ -13,6 +13,7 @@ const classic = {
   personalityMode: 'PRESET',
   tonePreset: 'concise',
   tonePresetVersion: 1,
+  responseDepth: 'BALANCED',
   personalityProfileId: null,
   characterKey: 'tochi',
   customCharacterId: null,
@@ -59,6 +60,15 @@ describe('Venue Bot configuration contracts', () => {
         presentationMode: 'CLASSIC',
       }),
     ).toMatchObject({ expectedRevision: 3, presentationMode: 'CLASSIC' })
+  })
+
+  it('accepts only the three governed response-depth settings', () => {
+    expect(
+      VenueBotConfigurationValues.parse({ ...classic, responseDepth: 'DETAILED' }),
+    ).toMatchObject({ responseDepth: 'DETAILED' })
+    expect(
+      VenueBotConfigurationValues.safeParse({ ...classic, responseDepth: 'UNBOUNDED' }).success,
+    ).toBe(false)
   })
 
   it('returns an exact sanitized public projection and fails safely to Classic', () => {

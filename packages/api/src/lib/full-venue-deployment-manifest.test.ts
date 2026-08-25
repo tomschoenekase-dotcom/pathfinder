@@ -71,6 +71,7 @@ describe('FULL venue deployment manifest projection', () => {
             personalityMode: true,
             tonePreset: true,
             tonePresetVersion: true,
+            responseDepth: true,
             personalityProfileId: true,
             characterKey: true,
             customCharacterId: true,
@@ -103,6 +104,7 @@ describe('FULL venue deployment manifest projection', () => {
         personalityMode: 'PRESET',
         tonePreset: 'friendly',
         tonePresetVersion: 1,
+        responseDepth: 'BALANCED',
         personalityProfileId: null,
         characterKey: 'tochi',
         customCharacterId: null,
@@ -116,6 +118,7 @@ describe('FULL venue deployment manifest projection', () => {
       presentationMode: 'CHARACTER',
       characterKey: 'tochi',
       tonePreset: 'friendly',
+      responseDepth: 'BALANCED',
     })
     expect(JSON.stringify(result.manifest.aiConfiguration.venueBot)).not.toMatch(
       /tenant|storage|workflow|asset|revision/iu,

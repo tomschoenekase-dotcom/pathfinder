@@ -240,6 +240,8 @@ export function VenueChatFixture({
           connectionState={network}
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
+          onRequestMore={() => undefined}
+          requestMoreLabel="Tell me more"
           onDraftChange={() => undefined}
           onNewConversation={() => undefined}
           onPlaceView={() => undefined}

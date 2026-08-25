@@ -36,6 +36,7 @@ function configuration(state: FixtureState): VenueBotConfigurationSnapshot {
     personalityMode: state === 'custom' ? 'CUSTOM' : 'PRESET',
     tonePreset: state === 'classic' ? 'friendly' : 'informative',
     tonePresetVersion: 1,
+    responseDepth: 'BALANCED',
     personalityProfileId: state === 'custom' ? customProfile.id : null,
     characterKey: state === 'character' ? 'tochi' : null,
     customCharacterId: null,

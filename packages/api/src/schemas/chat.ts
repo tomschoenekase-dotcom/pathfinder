@@ -69,6 +69,7 @@ export const ChatSendInput = z
     visitorId: z.string().uuid().optional(),
     secondLayerKey: z.string().uuid().optional(),
     message: z.string().trim().min(1).max(1000),
+    responseIntent: z.enum(['DEFAULT', 'EXPAND']).optional(),
     ...guestCoordinatesShape,
     language: SupportedChatLanguageInput.optional(),
   })

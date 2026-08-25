@@ -79,6 +79,8 @@ vi.mock('./ChatWindow', () => ({
     errorMessage,
     messages,
     onSend,
+    onRequestMore,
+    requestMoreLabel,
     onDraftChange,
     onRetry,
     retryLabel,
@@ -89,6 +91,8 @@ vi.mock('./ChatWindow', () => ({
     errorMessage?: string | null
     messages: Array<{ places?: Array<{ id: string }> }>
     onSend: (message: string) => void
+    onRequestMore?: () => void
+    requestMoreLabel?: string
     onDraftChange?: (draft: string) => void
     onRetry?: () => void
     retryLabel?: string
@@ -110,6 +114,7 @@ vi.mock('./ChatWindow', () => ({
         ))}
       <button onClick={() => onSend('Where is the café?')}>Send test message</button>
       <button onClick={() => onSend('Where is parking?')}>Send different message</button>
+      {onRequestMore ? <button onClick={onRequestMore}>{requestMoreLabel}</button> : null}
       <button onClick={() => onDraftChange?.('Edited draft')}>Edit draft</button>
       {onRetry ? <button onClick={onRetry}>{retryLabel ?? 'Retry same message'}</button> : null}
     </div>
@@ -653,6 +658,28 @@ describe('VenueChatExperience presentation boundary', () => {
 
     resolveSend({ response: 'English fallback.', sessionId: 'session-1', places: [] })
     expect(await screen.findByText('Messages: 2')).toBeTruthy()
+  })
+
+  it('sends the explicit localized expansion intent through the same durable turn path', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174012'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'أخبرني المزيد عن ذلك' }))
+
+    await waitFor(() =>
+      expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+        operationId: expect.any(String),
+        venueId: activeVenue.id,
+        anonymousToken: mocks.anonymousToken,
+        message: 'أخبرني المزيد عن ذلك.',
+        language: 'العربية',
+        responseIntent: 'EXPAND',
+      }),
+    )
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(

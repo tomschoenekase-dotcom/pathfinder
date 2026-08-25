@@ -23,6 +23,7 @@ export const venueBotConfigurationSelect = {
   personalityMode: true,
   tonePreset: true,
   tonePresetVersion: true,
+  responseDepth: true,
   personalityProfileId: true,
   characterKey: true,
   customCharacterId: true,
@@ -48,6 +49,7 @@ type VenueBotConfigurationRow = {
   personalityMode: 'PRESET' | 'CUSTOM'
   tonePreset: string
   tonePresetVersion: number
+  responseDepth: 'BRIEF' | 'BALANCED' | 'DETAILED'
   personalityProfileId: string | null
   characterKey: string | null
   customCharacterId: string | null
@@ -71,6 +73,7 @@ function safeAudit(value: VenueBotConfigurationRow) {
     personalityMode: value.personalityMode,
     tonePreset: value.tonePreset,
     tonePresetVersion: value.tonePresetVersion,
+    responseDepth: value.responseDepth,
     personalityProfileId: value.personalityProfileId,
     characterKey: value.characterKey,
     customCharacterId: value.customCharacterId,
@@ -126,6 +129,7 @@ export async function updateVenueBotConfigurationAction(
       personalityMode: input.fields.personalityMode ?? before.personalityMode,
       tonePreset: input.fields.tonePreset ?? before.tonePreset,
       tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
+      responseDepth: input.fields.responseDepth ?? before.responseDepth,
       personalityProfileId:
         input.fields.personalityProfileId !== undefined
           ? input.fields.personalityProfileId

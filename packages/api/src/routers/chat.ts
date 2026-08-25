@@ -48,7 +48,7 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
-import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { buildVenueSystemPromptParts, guestResponseWordLimit } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { requireGlobalAi } from '../middleware/require-global-ai'
@@ -115,10 +115,6 @@ const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
-// Backstop for the word-count rules in venue-context.ts. Prompt instructions
-// are honored loosely by the model, not exactly — this guarantees the cap
-// guests actually see, regardless of how closely the model followed the prompt.
-const MAX_RESPONSE_WORDS = 60
 const SESSION_SYNC_GLOBAL_LIMIT = 3000
 const SESSION_SYNC_SESSION_LIMIT = 120
 const SESSION_SYNC_VENUE_LIMIT = 3000
@@ -139,6 +135,7 @@ type PublicChatVenue = {
   aiTone: string | null
   tonePreset: string | null
   tonePresetVersion: number | null
+  responseDepth?: 'BRIEF' | 'BALANCED' | 'DETAILED' | null
   aiGuideName: string | null
   category: string | null
   guideMode: string | null
@@ -234,7 +231,8 @@ const admittedChatSendProcedure = publicProcedure
              CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.formality END AS "customFormality",
              CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.custom_instruction END AS "customInstruction",
              vbc.presentation_mode AS "venueBotPresentationMode",
-             vbc.character_key AS "venueBotCharacterKey"
+             vbc.character_key AS "venueBotCharacterKey",
+             vbc.response_depth AS "responseDepth"
       FROM venues v
       LEFT JOIN venue_bot_configurations vbc
         ON vbc.venue_id = v.id AND vbc.tenant_id = v.tenant_id
@@ -996,6 +994,7 @@ export const chatRouter = router({
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
       guideMode,
+      responseIntent: input.responseIntent ?? 'DEFAULT',
       ...(selectedEngagementQuestion || allowAiInventedQuestion
         ? {
             engagementQuestion: {
@@ -1088,7 +1087,10 @@ export const chatRouter = router({
       })
 
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
-      assistantResponse = enforceResponseWordCap(strippedResponse, MAX_RESPONSE_WORDS)
+      assistantResponse = enforceResponseWordCap(
+        strippedResponse,
+        guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
+      )
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({

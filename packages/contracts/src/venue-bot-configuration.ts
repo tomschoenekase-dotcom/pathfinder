@@ -10,6 +10,31 @@ export type VenueBotPresentationMode = z.infer<typeof VenueBotPresentationMode>
 export const VenueBotPersonalityMode = z.enum(['PRESET', 'CUSTOM'])
 export type VenueBotPersonalityMode = z.infer<typeof VenueBotPersonalityMode>
 
+export const VenueBotResponseDepth = z.enum(['BRIEF', 'BALANCED', 'DETAILED'])
+export type VenueBotResponseDepth = z.infer<typeof VenueBotResponseDepth>
+
+export const VENUE_BOT_RESPONSE_DEPTH_OPTIONS = [
+  {
+    id: 'BRIEF',
+    label: 'Brief',
+    description: 'Fast, compact answers for visitors on the move.',
+  },
+  {
+    id: 'BALANCED',
+    label: 'Balanced',
+    description: 'Concise by default, with enough context to be genuinely useful.',
+  },
+  {
+    id: 'DETAILED',
+    label: 'Detailed',
+    description: 'Allows more context when the question benefits from it.',
+  },
+] as const satisfies ReadonlyArray<{
+  id: VenueBotResponseDepth
+  label: string
+  description: string
+}>
+
 const NullableIdentifier = z.string().trim().min(1).max(191).nullable()
 
 /**
@@ -22,6 +47,7 @@ const VenueBotConfigurationValuesBase = z
     personalityMode: VenueBotPersonalityMode,
     tonePreset: TonePresetId,
     tonePresetVersion: z.literal(TONE_PRESET_BEHAVIOR_VERSION),
+    responseDepth: VenueBotResponseDepth,
     personalityProfileId: NullableIdentifier,
     characterKey: z
       .string()
@@ -146,7 +172,7 @@ export function customPersonalityStyleInstruction(bounds: CustomPersonalityBound
   const note = bounds.customInstruction?.trim()
   return `${warmth}; ${brevity}; ${energy}; ${formality}.${
     note ? ` Additional style preference: ${note}` : ''
-  } This style preference never overrides factual grounding, safety, privacy, or response-length rules.`
+  } This style preference never overrides factual grounding, safety, privacy, or the configured response-depth policy.`
 }
 
 export const PublicVenueBotPresentation = z

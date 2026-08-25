@@ -161,6 +161,7 @@ function venueBotConfigurationState(
     personalityMode: row?.personalityMode ?? 'PRESET',
     tonePreset: row?.tonePreset ?? tone.preset,
     tonePresetVersion: row?.tonePresetVersion ?? tone.behaviorVersion,
+    responseDepth: row?.responseDepth ?? 'BALANCED',
     personalityProfileId: row?.personalityProfileId ?? null,
     characterKey: row?.characterKey ?? null,
     customCharacterId: row?.customCharacterId ?? null,

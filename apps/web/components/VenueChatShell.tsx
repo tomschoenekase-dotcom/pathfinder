@@ -59,6 +59,8 @@ export function VenueChatShell(props: {
     refresh: () => void
   }
   onSend: (message: string) => void
+  onRequestMore?: () => void
+  requestMoreLabel?: string
   onDraftChange?: (draft: string) => void
   onRetry?: (() => void) | null
   retryLabel?: string
@@ -88,6 +90,8 @@ export function VenueChatShell(props: {
     characterMotion = 'system',
     location,
     onSend,
+    onRequestMore,
+    requestMoreLabel,
     onDraftChange,
     onRetry,
     retryLabel,
@@ -221,6 +225,8 @@ export function VenueChatShell(props: {
             messages={messages}
             assistantLabel={guideName}
             onSend={onSend}
+            {...(onRequestMore ? { onRequestMore } : {})}
+            {...(requestMoreLabel ? { requestMoreLabel } : {})}
             {...(onDraftChange ? { onDraftChange } : {})}
             {...(onRetry ? { onRetry } : {})}
             {...(retryLabel ? { retryLabel } : {})}

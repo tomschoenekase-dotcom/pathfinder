@@ -20,6 +20,8 @@ type Message = {
 type ChatWindowProps = {
   messages: Message[]
   onSend: (message: string) => void
+  onRequestMore?: () => void
+  requestMoreLabel?: string
   onDraftChange?: (draft: string) => void
   onRetry?: () => void
   retryLabel?: string
@@ -42,6 +44,8 @@ type ChatWindowProps = {
 export function ChatWindow({
   messages,
   onSend,
+  onRequestMore,
+  requestMoreLabel = 'Tell me more',
   onDraftChange,
   onRetry,
   retryLabel = 'Retry same message',
@@ -180,6 +184,19 @@ export function ChatWindow({
             />
           </div>
         ))}
+
+        {onRequestMore && messages.at(-1)?.role === 'assistant' ? (
+          <div className="flex justify-start pl-1">
+            <button
+              type="button"
+              onClick={onRequestMore}
+              disabled={isLoading || !isOnline}
+              className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+            >
+              {requestMoreLabel}
+            </button>
+          </div>
+        ) : null}
 
         {isLoading ? <TypingIndicator /> : null}
       </div>

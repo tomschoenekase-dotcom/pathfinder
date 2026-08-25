@@ -15,6 +15,7 @@ const base = {
   personalityMode: 'PRESET' as const,
   tonePreset: 'friendly',
   tonePresetVersion: 1,
+  responseDepth: 'BALANCED' as const,
   personalityProfileId: null,
   characterKey: null,
   customCharacterId: null,

@@ -41,6 +41,19 @@ type PendingTurn = {
   anonymousToken: string
 }
 
+const EXPANSION_REQUEST_MESSAGES: Record<SupportedChatLanguage, string> = {
+  English: 'Tell me more about that.',
+  Español: 'Cuéntame más sobre eso.',
+  Français: 'Dites-m’en plus à ce sujet.',
+  Deutsch: 'Erzähl mir mehr darüber.',
+  Italiano: 'Dimmi di più al riguardo.',
+  Português: 'Conte-me mais sobre isso.',
+  中文: '请再详细介绍一下。',
+  日本語: 'それについてもう少し詳しく教えてください。',
+  한국어: '그것에 대해 더 자세히 알려 주세요.',
+  العربية: 'أخبرني المزيد عن ذلك.',
+}
+
 function trpcErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null
   const candidate = error as { code?: unknown; data?: { code?: unknown } }
@@ -419,7 +432,7 @@ export function VenueChatExperience({
     }
   }
 
-  function handleSend(raw: string) {
+  function handleSend(raw: string, responseIntent: 'DEFAULT' | 'EXPAND' = 'DEFAULT') {
     const message = raw.trim()
     if (
       !isOnline ||
@@ -446,6 +459,7 @@ export function VenueChatExperience({
       ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
       message,
+      ...(responseIntent === 'EXPAND' ? { responseIntent } : {}),
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
       ...(language === 'English' ? {} : { language }),
     }
@@ -562,6 +576,8 @@ export function VenueChatExperience({
       onSend={(message) => {
         handleSend(message)
       }}
+      onRequestMore={() => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND')}
+      requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
       retryLabel={recoveryMode === 'check-history' ? 'Check conversation' : 'Retry same message'}

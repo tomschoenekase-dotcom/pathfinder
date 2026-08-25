@@ -1765,6 +1765,7 @@ describe('venue router', () => {
       personalityMode: 'PRESET',
       tonePreset: 'friendly',
       tonePresetVersion: 1,
+      responseDepth: 'BALANCED',
       personalityProfileId: null,
       characterKey: null,
       customCharacterId: null,
@@ -1780,6 +1781,7 @@ describe('venue router', () => {
     ).resolves.toMatchObject({
       presentationMode: 'CLASSIC',
       tonePreset: 'friendly',
+      responseDepth: 'BALANCED',
       revision: 1,
       updatedAt: updatedAt.toISOString(),
     })
@@ -1803,6 +1805,7 @@ describe('venue router', () => {
       personalityMode: 'PRESET',
       tonePreset: 'friendly',
       tonePresetVersion: 1,
+      responseDepth: 'BALANCED',
       personalityProfileId: null,
       characterKey: null,
       customCharacterId: null,

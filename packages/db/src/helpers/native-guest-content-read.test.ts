@@ -39,6 +39,7 @@ const state = {
     personalityMode: 'PRESET' as const,
     tonePreset: 'friendly' as const,
     tonePresetVersion: 1 as const,
+    responseDepth: 'BALANCED' as const,
     personalityProfileId: null,
     characterKey: null,
     customCharacterId: null,

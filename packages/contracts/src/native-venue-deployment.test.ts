@@ -87,6 +87,7 @@ describe('NATIVE_CORE_V1 FULL manifest', () => {
         personalityMode: 'PRESET',
         tonePreset: 'friendly',
         tonePresetVersion: 1,
+        responseDepth: 'BALANCED',
         personalityProfileId: null,
         characterKey: 'tochi',
         customCharacterId: null,

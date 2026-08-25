@@ -59,6 +59,7 @@ const venueSelect = {
       personalityMode: true,
       tonePreset: true,
       tonePresetVersion: true,
+      responseDepth: true,
       personalityProfileId: true,
       characterKey: true,
       customCharacterId: true,

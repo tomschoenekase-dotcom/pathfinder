@@ -159,6 +159,7 @@ describe('venue deployment manifest lifecycle bridge', () => {
             personalityMode: 'PRESET',
             tonePreset: 'friendly',
             tonePresetVersion: 1,
+            responseDepth: 'BALANCED',
             personalityProfileId: null,
             characterKey: null,
             customCharacterId: null,

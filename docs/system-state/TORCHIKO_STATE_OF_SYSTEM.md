@@ -115,7 +115,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 191 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 192 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -262,7 +262,7 @@ Tenant isolation is application-enforced through Prisma middleware, tenant-aware
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
 
-Privacy is not complete. Guest messages and identifiers are persisted, but policy-to-execution retention/deletion is not. The retention readiness function intentionally refuses readiness until all required decisions are recorded; no general erasure scheduler/executor exists. Offboarding export/revocation is stronger than deletion. The marketing footer now reaches an honest `/privacy` policy-status surface, but owner/legal policy text is still unresolved. The newer guest-chat prompt v6 explicitly separates and delimiter-escapes venue/retrieved data from instructions, and onboarding evaluation suite v3 includes prompt-disclosure and cross-tenant canaries. This provider-dark proof does not establish model-specific resistance; provider-backed adversarial evaluation remains necessary.
+Privacy is not complete. Guest messages and identifiers are persisted, but policy-to-execution retention/deletion is not. The retention readiness function intentionally refuses readiness until all required decisions are recorded; no general erasure scheduler/executor exists. Offboarding export/revocation is stronger than deletion. The marketing footer now reaches an honest `/privacy` policy-status surface, but owner/legal policy text is still unresolved. Guest-chat prompt v7 explicitly separates and delimiter-escapes venue/retrieved data from instructions, adds one shared response-depth contract, and onboarding evaluation suite v3 includes prompt-disclosure and cross-tenant canaries. This provider-dark proof does not establish model-specific resistance; provider-backed adversarial evaluation remains necessary.
 
 ## Testing / Quality
 

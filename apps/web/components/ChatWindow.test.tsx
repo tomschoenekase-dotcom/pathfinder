@@ -316,6 +316,32 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('offers one explicit expansion action only after an assistant answer', () => {
+    const onRequestMore = vi.fn()
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'assistant', content: 'The gallery is upstairs.' }]}
+        onSend={vi.fn()}
+        onRequestMore={onRequestMore}
+        requestMoreLabel="Tell me more"
+        isLoading={false}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me more' }))
+    expect(onRequestMore).toHaveBeenCalledOnce()
+
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the gallery?' }]}
+        onSend={vi.fn()}
+        onRequestMore={onRequestMore}
+        isLoading={false}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+  })
+
   it('renders descriptive cards without coordinates and records a real details action', () => {
     const onPlaceCardClick = vi.fn()
     render(

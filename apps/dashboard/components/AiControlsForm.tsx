@@ -13,8 +13,10 @@ import type {
   VenueBotConfigurationSnapshot,
   VenueBotPersonalityMode,
   VenueBotPresentationMode,
+  VenueBotResponseDepth,
   PersonalityProfileSnapshot,
 } from '@pathfinder/contracts/venue-bot-configuration'
+import { VENUE_BOT_RESPONSE_DEPTH_OPTIONS } from '@pathfinder/contracts/venue-bot-configuration'
 
 import { useTRPCClient } from '../lib/trpc'
 import { CustomPersonalityEditor } from './CustomPersonalityEditor'
@@ -24,6 +26,7 @@ type VenueBotEditorState = {
   personalityMode: VenueBotPersonalityMode
   tonePreset: TonePresetId
   personalityProfileId: string | null
+  responseDepth: VenueBotResponseDepth
 }
 
 export type AiControlsVenue = {
@@ -51,6 +54,7 @@ function editorState(configuration: VenueBotConfigurationSnapshot): VenueBotEdit
     personalityMode: configuration.personalityMode,
     tonePreset: configuration.tonePreset,
     personalityProfileId: configuration.personalityProfileId,
+    responseDepth: configuration.responseDepth,
   }
 }
 
@@ -59,7 +63,8 @@ function statesMatch(left: VenueBotEditorState, right: VenueBotEditorState) {
     left.presentationMode === right.presentationMode &&
     left.personalityMode === right.personalityMode &&
     left.tonePreset === right.tonePreset &&
-    left.personalityProfileId === right.personalityProfileId
+    left.personalityProfileId === right.personalityProfileId &&
+    left.responseDepth === right.responseDepth
   )
 }
 
@@ -156,6 +161,7 @@ export function AiControlsForm({
       personalityMode?: VenueBotPersonalityMode
       tonePreset?: TonePresetId
       personalityProfileId?: string | null
+      responseDepth?: VenueBotResponseDepth
     } = {}
     if (draft.presentationMode !== savedState.presentationMode) {
       changes.presentationMode = draft.presentationMode
@@ -168,6 +174,9 @@ export function AiControlsForm({
     }
     if (draft.personalityProfileId !== savedState.personalityProfileId) {
       changes.personalityProfileId = draft.personalityProfileId
+    }
+    if (draft.responseDepth !== savedState.responseDepth) {
+      changes.responseDepth = draft.responseDepth
     }
 
     mutationInFlight.current = true
@@ -374,6 +383,55 @@ export function AiControlsForm({
             }))
           }
         />
+      </section>
+
+      <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pf-primary">
+          Answer depth
+        </p>
+        <h2 id="response-depth-heading" className="mt-2 text-2xl font-semibold text-pf-deep">
+          How much context should visitors get?
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+          Every setting stays concise and venue-grounded. Visitors can still choose Tell me more
+          when an answer deserves extra context.
+        </p>
+        <div
+          role="group"
+          aria-labelledby="response-depth-heading"
+          className="mt-6 divide-y divide-pf-light border-y border-pf-light md:grid md:grid-cols-3 md:divide-x md:divide-y-0"
+        >
+          {VENUE_BOT_RESPONSE_DEPTH_OPTIONS.map((option) => {
+            const selected = draft.responseDepth === option.id
+            return (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={selected}
+                disabled={isSaving}
+                onClick={() => {
+                  setDraft((current) => ({ ...current, responseDepth: option.id }))
+                  clearMessages()
+                }}
+                className={`relative min-h-28 px-4 py-5 text-left transition focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+                  selected
+                    ? 'bg-pf-primary/[0.06] shadow-[inset_3px_0_0_var(--color-pf-primary)] md:shadow-[inset_0_3px_0_var(--color-pf-primary)]'
+                    : 'hover:bg-pf-surface'
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3 text-lg font-semibold text-pf-deep">
+                  {option.label}
+                  {selected ? (
+                    <Check className="h-4 w-4 text-pf-primary" aria-hidden="true" />
+                  ) : null}
+                </span>
+                <span className="mt-2 block text-sm leading-6 text-pf-deep/70">
+                  {option.description}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       {formError ? (

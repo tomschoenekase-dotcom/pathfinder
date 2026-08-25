@@ -53,7 +53,7 @@
     {
       "id": "guest-prompt-integrity",
       "status": "proven-provider-dark-locally",
-      "summary": "Guest prompt v6 separates trusted rules/operator guidance from delimiter-escaped venue and retrieved data, rejects guest authority over hidden context, and versions adversarial onboarding checks for prompt and cross-tenant disclosure.",
+      "summary": "Guest prompt v7 separates trusted rules/operator guidance from delimiter-escaped venue and retrieved data, rejects guest authority over hidden context, and applies the venue response-depth contract with explicit visitor expansion intent.",
       "evidence": [
         "docs/TOCHI-PROMPT-BEHAVIOR.md",
         "packages/api/src/lib/venue-context.ts",

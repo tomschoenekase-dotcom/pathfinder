@@ -259,7 +259,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '9f381badfcf7e8208cd17102526b7f6a28c8302c609a9a60429dc8cb97dac26e',
+    hash: 'faa1ef0aa5d4570ff4b33d05ac666ef03b8229afe03e94dec0e1980049012e36',
     policy: 'public-venue-id',
   },
   {
