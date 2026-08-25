@@ -18,6 +18,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 | `local-staging-infrastructure`  | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                |
 | `operational-usage-evidence`    | PROVEN PROVIDER-DARK LOCALLY        | Provider exports, rate provenance, accounting, and anomaly policy remain open.                      |
 | `privacy-retention`             | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.             |
+| `customer-access-execution`     | PROVIDER-DARK PROVEN; LIVE GATED    | Live Clerk delivery/acceptance and any agent execution authority remain external/founder-gated.     |
 | `claim-attribution-calibration` | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.         |
 
 ## Product ownership in one minute

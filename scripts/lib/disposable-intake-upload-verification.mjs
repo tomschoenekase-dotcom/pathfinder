@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -1050,6 +1050,48 @@ export async function runDisposableSupportInformationRequestShakedown(options = 
         expectedPassed: 1,
         environment: {
           RUN_SUPPORT_INFORMATION_REQUEST_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableCustomerAccessExecutionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'custaccess',
+      databasePrefix: 'pathfinder_disposable_customer_access_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_CUSTOMER_ACCESS_EXECUTION_SHAKEDOWN',
+      lifecycleEvent: 'test:customer-access-execution:disposable',
+      successAction: 'customer-access-execution.disposable-shakedown.passed',
+      proofScope: [
+        'exact-owner-authored-request',
+        'human-approval-revalidated',
+        'provider-start-committed-before-io',
+        'provider-adapter-isolated',
+        'ambiguous-outcome-fails-to-reconciliation',
+        'idempotent-provider-reconciliation',
+        'provider-evidence-confirmed',
+        'no-local-membership-created',
+        'tenant-and-venue-isolation',
+        'audit-lifecycle-retained',
+        'cleanup-verified-absent',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/customer-access-execution-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_CUSTOMER_ACCESS_EXECUTION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

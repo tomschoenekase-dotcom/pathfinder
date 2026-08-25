@@ -10,4 +10,5 @@ export const customerAccessApprovalSelect = {
   supportRequestId: true,
   sourceSupportMessageId: true,
   providerInvitationId: true,
+  updatedAt: true,
 } as const

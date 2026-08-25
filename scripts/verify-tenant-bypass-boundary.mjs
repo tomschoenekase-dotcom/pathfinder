@@ -57,6 +57,9 @@ const approvedCallCounts = new Map([
   // Separately authenticated platform worker reads the same bounded readiness projection.
   ['packages/api/src/platform-worker-policy/operations-readiness-http.ts', 1],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
+  // Human-admin-only execution re-enters one exact tenant+venue approved invitation,
+  // fences provider I/O, and never writes membership directly.
+  ['packages/api/src/routers/admin/customer-access-execution.ts', 1],
   // Platform-admin run trace merges bounded summaries for one exact tenant+venue+run.
   ['packages/api/src/routers/admin/agent-run-trace.ts', 1],
   ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],

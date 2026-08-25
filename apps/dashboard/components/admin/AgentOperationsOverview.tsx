@@ -62,6 +62,7 @@ type Approval = {
     supportRequestId: string
     sourceSupportMessageId: string
     providerInvitationId: string | null
+    updatedAt: Date
   } | null
 }
 

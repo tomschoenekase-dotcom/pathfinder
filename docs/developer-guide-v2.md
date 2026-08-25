@@ -177,6 +177,12 @@ membership or claim provider/local atomicity in the invitation route. The existi
 `EngagementQuestionsManager` demonstrates revision propagation only; its legacy portal route remains
 redirect-only. Do not cite that dormant component test as evidence of a reachable client control.
 
+Approved customer-access requests use a durable provider executor without changing that
+source-of-truth boundary. Revalidate the exact owner-authored evidence and human approval, commit
+`PROVIDER_STARTED` before Clerk I/O, retain ambiguous outcomes as `RECONCILIATION_REQUIRED`, and
+reuse matching pending invitations on retry. Never create `TenantMembership` from the invitation
+response.
+
 Guest design is an exact-scoped Internal Workspace admin boundary with the real HUMAN
 `PLATFORM_ADMIN`, revision CAS and strict audit. Branding assets may only retain the currently
 reviewed reference or clear it; this is not an upload seam. Its style card is deliberately

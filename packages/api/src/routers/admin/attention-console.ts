@@ -26,6 +26,7 @@ import {
 } from './attention-pagination'
 import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
+import { customerAccessApprovalSelect } from './customer-access-approval-select'
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -111,15 +112,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           createdAt: true,
           agentIdentity: { select: { name: true } },
           customerAccessRequest: {
-            select: {
-              id: true,
-              targetEmail: true,
-              requestedRole: true,
-              status: true,
-              supportRequestId: true,
-              sourceSupportMessageId: true,
-              providerInvitationId: true,
-            },
+            select: customerAccessApprovalSelect,
           },
         },
       }),

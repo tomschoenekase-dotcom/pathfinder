@@ -24,6 +24,7 @@ const founderControlRoomPath = path.join(repositoryRoot, 'docs', 'founder-contro
 const allowedStatuses = new Set([
   'implemented-external-gated',
   'implemented-sandbox-proven-live-gated',
+  'implemented-provider-dark-proven-live-gated',
   'partially-implemented-policy-gated',
   'proven-locally',
   'proven-provider-dark-locally',
@@ -54,6 +55,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
     'local-staging-infrastructure',
     'operational-usage-evidence',
     'privacy-retention',
+    'customer-access-execution',
     'claim-attribution-calibration',
   ])
 

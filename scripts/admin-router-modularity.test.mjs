@@ -78,6 +78,7 @@ const expectedAdminProcedures = [
   'emergencyStopProspectDelivery',
   'enableAgentIdentity',
   'executeApprovedBillingCommand',
+  'executeApprovedCustomerInvitation',
   'finalizeOffboardingExportArtifact',
   'founderOperatingView',
   'founderUnitEconomics',

@@ -183,6 +183,7 @@ describe('agent operations views', () => {
                 supportRequestId: 'support_1',
                 sourceSupportMessageId: 'message_1',
                 providerInvitationId: null,
+                updatedAt: new Date('2026-08-11T12:01:00Z'),
               },
             },
           ],

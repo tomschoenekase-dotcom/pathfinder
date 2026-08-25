@@ -35,6 +35,7 @@ import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
 import { adminOffboardingExportFinalizationRouter } from './offboarding-export-finalization'
 import { adminIncidentControlRouter } from './incident-control'
+import { adminCustomerAccessExecutionRouter } from './customer-access-execution'
 import { adminIntakeOperationsRouter } from './intake-operations'
 import { adminIntakeUploadReviewRouter } from './intake-upload-review'
 import { adminLegacyContentRouter } from './legacy-content'
@@ -150,4 +151,5 @@ export const adminRouter = mergeRouters(
   adminTochiRolloutRouter,
   adminTerminalRedrivePreviewRouter,
   adminOperationalEvidenceRouter,
+  adminCustomerAccessExecutionRouter,
 )

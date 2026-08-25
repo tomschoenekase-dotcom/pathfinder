@@ -2739,10 +2739,11 @@ enum CustomerAccessRequestedRole {
   MEMBER
 }
 
-/// Reviewable, provider-dark request to invite one customer user. AI workers may
-/// prepare this record from an exact client-authored support message, but the
-/// request cannot contact Clerk or send email until a separate approved executor
-/// is implemented and invoked. The venue is evidence scope; membership is tenant-wide.
+/// Reviewable request to invite one customer user. AI workers may prepare it
+/// from exact client-authored evidence. Only a separately invoked executor may
+/// cross the provider boundary after exact human approval; accepted membership
+/// still arrives through verified provider synchronization. The venue is
+/// evidence scope while membership is tenant-wide.
 model CustomerAccessRequest {
   id                     String                      @id @default(cuid())
   operationId            String                      @map("operation_id") @db.Uuid

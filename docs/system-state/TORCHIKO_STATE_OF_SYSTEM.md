@@ -24,6 +24,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | `local-staging-infrastructure`  | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
 | `operational-usage-evidence`    | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
 | `privacy-retention`             | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
+| `customer-access-execution`     | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
 | `claim-attribution-calibration` | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
 
 ## How to read this report

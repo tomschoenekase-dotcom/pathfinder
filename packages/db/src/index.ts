@@ -963,6 +963,16 @@ export type {
   PrepareCustomerAccessRequestInput,
 } from './helpers/customer-access-request-actions'
 export {
+  confirmCustomerInvitationAction,
+  CustomerAccessExecutionError,
+  markCustomerInvitationReconciliationAction,
+  startApprovedCustomerInvitationAction,
+} from './helpers/customer-access-execution-actions'
+export type {
+  CustomerAccessExecutionActor,
+  CustomerAccessExecutionClient,
+} from './helpers/customer-access-execution-actions'
+export {
   LocationDraftProposalActionError,
   prepareLocationDraftProposalAction,
 } from './helpers/location-draft-proposal-actions'

@@ -140,6 +140,18 @@
       "remaining": "Founder/legal policy decisions and a separately reviewed executor are required before destructive retention actions."
     },
     {
+      "id": "customer-access-execution",
+      "status": "implemented-provider-dark-proven-live-gated",
+      "summary": "Owner-evidenced invitation proposals can hand off after exact human approval to a human-admin provider executor with pre-I/O fencing, explicit reconciliation, idempotent pending-invitation reuse, and no fabricated local membership.",
+      "evidence": [
+        "docs/customer-access-execution.md",
+        "packages/db/src/helpers/customer-access-execution-actions.ts",
+        "packages/api/src/lib/customer-access-executor.ts",
+        "packages/api/src/customer-access-execution-disposable.integration.test.ts"
+      ],
+      "remaining": "Authorized hosted Clerk configuration, real invitation delivery/acceptance/webhook proof, and any higher agent execution authority remain external or founder-gated."
+    },
+    {
       "id": "claim-attribution-calibration",
       "status": "proven-provider-dark-locally",
       "summary": "Frozen guest answers can retain append-only exact-claim support reviews and deterministic independent-reviewer agreement while exposing no answer text, source text, threshold, or release decision.",
