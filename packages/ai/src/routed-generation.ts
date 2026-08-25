@@ -7,7 +7,7 @@ import {
   type AiUsageSink,
 } from './anthropic'
 import type { AiAdmissionGuard } from './admission'
-import type { AiBudgetGate } from './budget'
+import { withAiRequestBudgetCeiling, type AiBudgetGate } from './budget'
 import type { AiModelKey } from './model-registry'
 import { AI_MODEL_REGISTRY } from './model-registry'
 import type { AiRouteCandidate, AiRoutePlan } from './capability-routing'
@@ -40,11 +40,16 @@ export async function generateTextForCapability<TParsed = string>(params: {
   usageSink: AiUsageSink
   admissionGuard: AiAdmissionGuard
   budgetGate: AiBudgetGate
+  requestBudgetCeilingE8Usd?: string | null
   parseResponse?: (text: string) => TParsed
   invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
+  const budgetGate =
+    params.requestBudgetCeilingE8Usd === undefined || params.requestBudgetCeilingE8Usd === null
+      ? params.budgetGate
+      : withAiRequestBudgetCeiling(params.budgetGate, BigInt(params.requestBudgetCeilingE8Usd))
   let lastError: unknown
   let dispatchFencePassed = false
   let budgetAttemptNumberOffset = 0
@@ -64,7 +69,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
             fallbackUsed: candidate.fallback,
           }),
         admissionGuard: params.admissionGuard,
-        budgetGate: params.budgetGate,
+        budgetGate,
         ...(params.maxOutputTokens !== undefined
           ? { maxOutputTokens: params.maxOutputTokens }
           : {}),

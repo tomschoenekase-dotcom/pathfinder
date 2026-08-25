@@ -225,6 +225,18 @@
         "docs/founder-control-room.md"
       ],
       "remaining": "Accumulate representative reviewed history before defining any trust threshold; hosted staging integration and every policy/permission change remain separately gated."
+    },
+    {
+      "id": "agent-runtime-routing",
+      "status": "proven-provider-dark-locally",
+      "summary": "Direct agent identities select the centrally governed agent-run workload; execution resolves exact scoped routing, provider health, fallback, limits, and a cumulative request-cost ceiling while bridge targets remain explicit.",
+      "evidence": [
+        "docs/agent-runtime-model-routing.md",
+        "apps/workers/src/processors/agent-run.ts",
+        "packages/ai/src/routed-generation.ts",
+        "packages/db/prisma/migrations/20260825012000_align_agent_runtime_model_routing/migration.sql"
+      ],
+      "remaining": "Authorized provider-backed staging must still prove actual fallback, model quality, spend behavior, and each subscription bridge; no deployment or credentials are authorized by local proof."
     }
   ]
 }

@@ -108,7 +108,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 188 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 189 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -206,7 +206,7 @@ Agent questions support yes/no, choice, multi-select, short/long text, approval/
 
 `packages/ai` centralizes text generation, embeddings, realtime voice, model pricing, budget admission/reservations, usage events, workload configuration, and provider-neutral route planning. Today Anthropic handles registered text workloads, OpenAI handles embeddings and realtime voice, and fallback routing can filter unhealthy/disabled providers and models. The current launch-capability work makes future optimization structurally possible because calls record workload, capability, provider, model, tokens, cost estimate, latency, and fallback use.
 
-Model switching is easier for registered application workloads than for agents: change a validated workload configuration/registry entry rather than every caller. A notable mismatch remains in direct agent runs: the identity’s provider decides direct-vs-bridge execution, but the direct worker invokes the hard-coded `AI_MODEL_KEYS.AGENT_RUN`. The displayed/configured identity `modelName` is not itself the executed Anthropic model. That should be made explicit or corrected before advertising per-agent model selection.
+Model switching now uses the same governed path for registered application workloads and direct agents. An identity selects either `agent-runtime-routing` through the centrally managed `agent-run` workload or an explicit subscription-bridge target. The direct worker resolves the exact tenant/venue configuration, provider-health exclusions, fallbacks, timeout, attempts, output bound, and cumulative request ceiling, then retains route evidence. Provider-backed fallback behavior and bridge compatibility remain staging-gated.
 
 ### Persistent agents and tools
 

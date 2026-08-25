@@ -72,6 +72,9 @@ export const AgentExecutionProvider = z.enum([
 ])
 export type AgentExecutionProvider = z.infer<typeof AgentExecutionProvider>
 
+/** Direct agents select a governed workload route, never a frozen provider model. */
+export const AGENT_DIRECT_EXECUTION_ROUTE = 'central:agent-run' as const
+
 /**
  * The capability required to stage each autonomous action. This mapping is
  * intentionally closed: adding an action requires a reviewed contract change.
@@ -137,8 +140,18 @@ export function agentConfigurationCoherenceIssue(
   if (hasProvider !== hasModel) {
     return 'Execution provider and model must be configured together'
   }
-  if (fields.defaultProvider === 'anthropic' && fields.defaultModel !== 'claude-sonnet-4-6') {
-    return 'Anthropic specialists currently require claude-sonnet-4-6'
+  if (
+    fields.defaultProvider === 'anthropic' &&
+    fields.defaultModel !== AGENT_DIRECT_EXECUTION_ROUTE
+  ) {
+    return 'Direct specialists must use the centrally governed agent-run route'
+  }
+  if (
+    fields.defaultProvider &&
+    fields.defaultProvider !== 'anthropic' &&
+    fields.defaultModel === AGENT_DIRECT_EXECUTION_ROUTE
+  ) {
+    return 'Bridge specialists require an explicit bridge model target'
   }
   return null
 }

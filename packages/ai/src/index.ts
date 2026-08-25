@@ -17,6 +17,8 @@ export {
   embeddingAttemptCostCeilingUnits,
   observedAiCostUnits,
   textAttemptCostCeilingUnits,
+  withAiRequestBudgetCeiling,
+  AiRequestBudgetCeilingExceededError,
   NOOP_AI_BUDGET_GATE,
   type AiBudgetAttempt,
   type AiBudgetGate,

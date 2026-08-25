@@ -2,7 +2,7 @@
 
 **Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 188 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 189 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -35,7 +35,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P0.3 — Prove the integrated migration lineage in disposable and staging databases — LOCAL BOUNDARY RESOLVED
 
-- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 188-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
+- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 189-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
 - **Remaining problem:** Current hosted staging migration parity, preserved-data backup evidence, exact deployed revision, and live runtime health still require the authorized owner integration workflow. Local evidence must not be promoted into a hosted-state claim.
 - **Evidence:** `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact release candidate and staging handoff artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
@@ -105,7 +105,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P1.5 — Expand health from connectivity to service readiness — PARTIALLY IMPLEMENTED 2026-08-24
 
-- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 188-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
+- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 189-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
 - **Evidence:** `packages/api/src/operations-readiness.ts`; `packages/db/src/helpers/operational-health.ts`; `scripts/operations-readiness-migration.test.mjs`; `pnpm test:operations-readiness:disposable`; `admin.operationsReadiness`; `/api/platform-worker/operations-readiness`; `OperationsReadinessSummary.tsx`; projection, HTTP, disposable integration, component, and accessibility tests.
 - **Affected system:** Deployment, observability, incident response.
 - **Remaining:** Hosted storage/ClamAV continuity, AI provider execution, email delivery, external uptime, SLO/threshold policy, and outbound alert delivery remain explicitly unproven. The local worker-side dependency path is implemented and disposable-proven; retain exact hosted evidence after authorized deployment and add other evidence-driven producers only when the relevant external configuration/policy exists.
@@ -154,18 +154,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Recommended**, not blocking a few design partners.
 - **Codex autonomous:** **Implemented** for local code/tests; external sending and customer commitments remain gated.
 
-### P1.9 — Verify voice, model fallback, and agent bridges in staging — PARTIALLY RESOLVED 2026-08-25
+### P1.9 — Verify voice, model fallback, and agent bridges in staging — LOCALLY RESOLVED / EXTERNAL PROOF GATED 2026-08-25
 
-- **Problem:** These are substantial code paths but were unavailable in local runtime; direct agent identity model configuration also does not directly control the registry model used.
-- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `voice-session-recovery.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; provider-dark Golden Venue lifecycle plus disposable voice-recovery PostgreSQL shakedown.
+- **Problem:** These are substantial code paths but provider-backed voice, fallback, and bridges remain unavailable in the local provider-dark runtime.
+- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `voice-session-recovery.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; `docs/agent-runtime-model-routing.md`; provider-dark Golden Venue lifecycle plus disposable voice-recovery PostgreSQL shakedown.
 - **Affected system:** AI platform, visitor voice, agents, cost controls.
-- **Current implementation:** Provider-dark voice entitlement, ownership, quota, transcript/usage replay, fallback, authorization-failure, and now abandoned-session recovery are proven. A once-per-minute bounded worker releases stale authorization/ready/active capacity using existing technical/provider/session-duration boundaries and records job/analytics evidence. Fresh and terminal sessions remain unchanged and replay is mutation-free.
-- **Recommended change:** Run provider-enabled smoke tests with strict spend caps; verify WebRTC/browser/provider compatibility, model fallback, and agent bridge execution on staging. Align or relabel identity model selection.
+- **Current implementation:** Provider-dark voice entitlement, ownership, quota, transcript/usage replay, fallback, authorization-failure, and abandoned-session recovery are proven. Direct agent identities now select the centrally governed `agent-run` workload; the worker resolves scoped model/fallback/health/timeout/retry/output/budget policy, enforces a cumulative request ceiling before provider I/O, and retains route evidence. Bridge targets remain explicit. A once-per-minute bounded worker releases stale voice capacity and records job/analytics evidence.
+- **Recommended change:** Run provider-enabled smoke tests with strict spend caps; verify WebRTC/browser/provider compatibility, actual fallback, and agent bridge execution on staging.
 - **Why it matters:** These features should not be marketed or relied upon until their real provider boundaries are proven.
 - **Effort:** M
 - **Dependencies:** Provider credentials, staging, spend authorization, bridge binaries.
 - **Before more venue acquisition:** **Yes if sold**, otherwise keep disabled.
-- **Codex autonomous:** **Implemented** for provider-dark lifecycle, recovery, and test harnesses. Credentials, spend authorization, and external provider execution remain gated.
+- **Codex autonomous:** **Implemented** for provider-dark lifecycle, recovery, governed direct-agent routing, request ceilings, and test harnesses. Credentials, spend authorization, and external provider execution remain gated.
 
 ### P1.10 — Strengthen bounded citations into claim-level evidence — PARTIALLY RESOLVED 2026-08-25
 

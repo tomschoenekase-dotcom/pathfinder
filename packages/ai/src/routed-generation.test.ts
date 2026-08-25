@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { setAnthropicClientForTesting } from './anthropic'
-import { NOOP_AI_BUDGET_GATE, type AiBudgetGate } from './budget'
+import {
+  AiRequestBudgetCeilingExceededError,
+  NOOP_AI_BUDGET_GATE,
+  type AiBudgetGate,
+} from './budget'
 import { resolveAiWorkloadConfiguration } from './workload-configuration'
 import { routeAiCapability } from './capability-routing'
 import { generateTextForCapability } from './routed-generation'
@@ -108,6 +112,32 @@ describe('routed text generation', () => {
         budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toBe(admissionFailure)
+
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a governed request ceiling before any provider dispatch', async () => {
+    const create = vi.fn()
+    setAnthropicClientForTesting({ messages: { create } })
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'agent-run' })
+
+    await expect(
+      generateTextForCapability({
+        route: routeAiCapability({
+          capability: 'REASONING',
+          workloadId: 'agent-run',
+          configuration,
+        }),
+        system: [{ type: 'text', text: 'Operator' }],
+        messages: [{ role: 'user', content: 'Analyze' }],
+        maxOutputTokens: 1,
+        maxAttempts: 1,
+        requestBudgetCeilingE8Usd: '1',
+        usageSink: vi.fn().mockResolvedValue(undefined),
+        admissionGuard: vi.fn().mockResolvedValue(undefined),
+        budgetGate: NOOP_AI_BUDGET_GATE,
+      }),
+    ).rejects.toBeInstanceOf(AiRequestBudgetCeilingExceededError)
 
     expect(create).not.toHaveBeenCalled()
   })

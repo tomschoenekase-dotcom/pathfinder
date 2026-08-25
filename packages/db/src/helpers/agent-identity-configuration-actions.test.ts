@@ -297,13 +297,13 @@ describe('staged AgentIdentity configuration actions', () => {
     tx.agentIdentity.findFirst.mockResolvedValue(
       identity({
         defaultProvider: 'anthropic',
-        defaultModel: 'claude-sonnet-4-6',
+        defaultModel: 'central:agent-run',
       }),
     )
     tx.agentIdentity.findFirstOrThrow.mockResolvedValue(
       identity({
         defaultProvider: 'anthropic',
-        defaultModel: 'claude-sonnet-4-6',
+        defaultModel: 'central:agent-run',
         enabled: true,
       }),
     )

@@ -870,7 +870,7 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
       lifecycleEvent: 'test:operations-readiness:disposable',
       successAction: 'operations-readiness.migration-parity.disposable-shakedown.passed',
       proofScope: [
-        'fresh-188-migration-chain',
+        'fresh-189-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
         'fresh-read-only-object-storage-probe',

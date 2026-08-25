@@ -28,7 +28,7 @@ describe('agent delegation action', () => {
           autonomyLevel: 'READ_ONLY',
           autonomousActions: [],
           defaultProvider: 'anthropic',
-          defaultModel: 'claude-sonnet-4-6',
+          defaultModel: 'central:agent-run',
         }),
       },
       agentTimelineEvent: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },

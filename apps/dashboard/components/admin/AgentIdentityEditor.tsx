@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 
 import {
+  AGENT_DIRECT_EXECUTION_ROUTE,
   AgentAccessCapability,
   AgentAutonomousAction,
   AgentConfigurationAutonomyLevel,
@@ -53,9 +54,11 @@ function apiFields(fields: Fields) {
 function FieldsEditor({
   fields,
   setFields,
+  configurationHref,
 }: {
   fields: Fields
   setFields: (next: Fields) => void
+  configurationHref: string
 }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -123,7 +126,7 @@ function FieldsEditor({
         />
       </label>
       <label className="text-sm font-medium text-pf-deep">
-        Execution provider
+        Execution route
         <select
           className="mt-1 w-full rounded-xl border border-pf-light bg-white px-3 py-2"
           value={fields.defaultProvider ?? ''}
@@ -133,7 +136,7 @@ function FieldsEditor({
               defaultProvider: (event.target.value || null) as Fields['defaultProvider'],
               defaultModel:
                 event.target.value === 'anthropic'
-                  ? 'claude-sonnet-4-6'
+                  ? AGENT_DIRECT_EXECUTION_ROUTE
                   : event.target.value
                     ? fields.defaultProvider === 'anthropic'
                       ? 'subscription-default'
@@ -145,22 +148,33 @@ function FieldsEditor({
           <option value="">Not configured</option>
           {AgentExecutionProvider.options.map((provider) => (
             <option key={provider} value={provider}>
-              {provider}
+              {provider === 'anthropic' ? 'Torchiko managed AI' : provider}
             </option>
           ))}
         </select>
       </label>
       <label className="text-sm font-medium text-pf-deep">
-        Model or bridge target
+        {fields.defaultProvider === 'anthropic' ? 'Managed workload' : 'Bridge model target'}
         <input
           className="mt-1 w-full rounded-xl border border-pf-light bg-white px-3 py-2"
           value={fields.defaultModel ?? ''}
-          disabled={!fields.defaultProvider}
+          disabled={!fields.defaultProvider || fields.defaultProvider === 'anthropic'}
           placeholder={
-            fields.defaultProvider === 'anthropic' ? 'claude-sonnet-4-6' : 'subscription-default'
+            fields.defaultProvider === 'anthropic'
+              ? AGENT_DIRECT_EXECUTION_ROUTE
+              : 'subscription-default'
           }
           onChange={(event) => setFields({ ...fields, defaultModel: event.target.value || null })}
         />
+        {fields.defaultProvider === 'anthropic' ? (
+          <span className="mt-1 block text-xs font-normal leading-5 text-pf-deep/60">
+            Exact model, fallback, timeout, retries, output, and request budget are governed in{' '}
+            <a className="font-semibold text-pf-primary underline" href={configurationHref}>
+              AI workload configuration
+            </a>
+            . Saving or enabling this identity does not call a provider.
+          </span>
+        ) : null}
       </label>
       <fieldset className="rounded-xl border border-pf-light p-3">
         <legend className="px-1 text-sm font-semibold text-pf-deep">Access capabilities</legend>
@@ -425,7 +439,11 @@ export function AgentIdentityCreateEditor({
             ))}
           </div>
         </fieldset>
-        <FieldsEditor fields={fields} setFields={setFields} />
+        <FieldsEditor
+          fields={fields}
+          setFields={setFields}
+          configurationHref={`/admin/clients/${tenantId}/venues/${venueId}/ai-configuration`}
+        />
         <button
           type="submit"
           disabled={busy}
@@ -506,7 +524,11 @@ export function AgentIdentityEditEditor({
             disable them.
           </p>
         ) : (
-          <FieldsEditor fields={fields} setFields={setFields} />
+          <FieldsEditor
+            fields={fields}
+            setFields={setFields}
+            configurationHref={`/admin/clients/${tenantId}/venues/${venueId}/ai-configuration`}
+          />
         )}
         <div className="flex flex-wrap gap-3">
           <button

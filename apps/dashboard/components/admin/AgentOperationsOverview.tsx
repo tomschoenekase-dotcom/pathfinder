@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { AgentIdentityConfigurationFields } from '@pathfinder/contracts'
+import {
+  AGENT_DIRECT_EXECUTION_ROUTE,
+  AgentIdentityConfigurationFields,
+} from '@pathfinder/contracts'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
@@ -367,8 +370,11 @@ export function AgentOperationsOverview({
                 <p className="mt-4 text-xs text-pf-deep/55">
                   {identity.agentType.replace(/_/g, ' ')} · {identity._count.runs} runs ·{' '}
                   {identity._count.approvalRequests} approvals ·{' '}
-                  {[identity.defaultProvider, identity.defaultModel].filter(Boolean).join(' / ') ||
-                    'No default model'}
+                  {identity.defaultModel === AGENT_DIRECT_EXECUTION_ROUTE
+                    ? 'Torchiko managed AI / agent-run workload'
+                    : [identity.defaultProvider, identity.defaultModel]
+                        .filter(Boolean)
+                        .join(' / ') || 'No execution route'}
                 </p>
                 <IdentityConfigurationEditor
                   tenantId={tenantId}

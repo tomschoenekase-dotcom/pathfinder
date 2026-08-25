@@ -194,6 +194,7 @@ export async function runProviderBackedCompanyBrainRetrievalEvaluation(params: {
     maxAttempts: configuration.maxAttempts,
     admissionGuard: params.admissionGuard,
     budgetGate: params.budgetGate,
+    requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
     usageSink: params.usageSink,
     parseResponse: parseProviderAnswer,
   })

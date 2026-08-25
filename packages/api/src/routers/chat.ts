@@ -1060,6 +1060,7 @@ export const chatRouter = router({
             venueId: input.venueId,
           }),
         budgetGate: chatAccounting.budgetGate,
+        requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
