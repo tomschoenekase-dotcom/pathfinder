@@ -47,6 +47,7 @@ function actions(): PathfinderMcpDomainActions {
     knowledgeSearch: vi.fn().mockResolvedValue(result),
     knowledgeGet: vi.fn().mockResolvedValue(result),
     listKnowledgeGaps: vi.fn().mockResolvedValue(result),
+    listGuestAnswerAttributions: vi.fn().mockResolvedValue(result),
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
@@ -98,6 +99,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.account.correspondence',
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
+        'torchiko.quality.list_answer_attributions',
         'torchiko.customer_access.prepare_invitation',
         'torchiko.integrations.health',
         'torchiko.reports.get_lifecycle',
@@ -155,6 +157,28 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.accountCorrespondence).toHaveBeenCalled()
     expect(domain.processMeeting).toHaveBeenCalled()
     expect(domain.knowledgeSearch).toHaveBeenCalled()
+  })
+
+  it('binds reviewed answer attribution reads to exact venue review scope', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+      limit: 5,
+    }
+
+    await registry.callTool('torchiko.quality.list_answer_attributions', input, {
+      credential: { ...credential, capabilities: ['conversations:review'] },
+    })
+
+    expect(domain.listGuestAnswerAttributions).toHaveBeenCalledWith(input, expect.anything())
+    await expect(
+      registry.callTool('torchiko.quality.list_answer_attributions', input, {
+        credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow('Capability denied')
   })
 
   it('admits provider-dark invitation preparation only with exact venue capability', async () => {

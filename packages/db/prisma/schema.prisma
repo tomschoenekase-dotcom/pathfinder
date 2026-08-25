@@ -141,6 +141,7 @@ model Tenant {
   weeklyReports                      WeeklyReport[]
   venueReportConfigurations          VenueReportConfiguration[]
   answerAnalysisSnapshots            AnswerAnalysisSnapshot[]
+  guestAnswerAttributions            GuestAnswerAttribution[]
   venueWeeklyThemes                  VenueWeeklyTheme[]
   mediaIngestionProjects             MediaIngestionProject[]
   aiUsageEvents                      AiUsageEvent[]
@@ -1264,6 +1265,7 @@ model Venue {
   weeklyReports                       WeeklyReport[]
   reportConfiguration                 VenueReportConfiguration?
   answerAnalysisSnapshots             AnswerAnalysisSnapshot[]
+  guestAnswerAttributions             GuestAnswerAttribution[]
   weeklyThemes                        VenueWeeklyTheme[]
   mediaIngestionProjects              MediaIngestionProject[]
   aiUsageEvents                       AiUsageEvent[]
@@ -2338,6 +2340,7 @@ model VisitorSession {
   conversationInsights            ConversationInsight[]
   knowledgeChangeProposals        KnowledgeChangeProposal[]
   messageFeedback                 MessageFeedback[]
+  guestAnswerAttributions         GuestAnswerAttribution[]
 
   @@unique([venueId, anonymousToken])
   @@unique([id, tenantId, venueId])
@@ -3614,6 +3617,7 @@ model GuestChatTurn {
   userMessage              Message?                     @relation("GuestChatTurnUserMessage", fields: [userMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
   assistantMessage         Message?                     @relation("GuestChatTurnAssistantMessage", fields: [assistantMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
   conversationInsights     ConversationInsight[]
+  answerAttributions       GuestAnswerAttribution[]
 
   @@unique([id, tenantId, venueId, sessionId])
   @@unique([userMessageId, tenantId, venueId, sessionId, id])
@@ -3622,6 +3626,46 @@ model GuestChatTurn {
   @@unique([sessionId, turnSequence])
   @@index([tenantId, venueId, createdAt])
   @@map("guest_chat_turns")
+}
+
+/// Append-only, attributable semantic review of exact claims in one completed public answer.
+/// The frozen source bundle remains integrity-bound inside GuestChatTurn.replayMetadata.
+/// Metrics are descriptive evidence only and do not imply a quality or release threshold.
+model GuestAnswerAttribution {
+  id                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId            String         @map("operation_id") @db.Uuid
+  inputHash              String         @map("input_hash") @db.Char(64)
+  tenantId               String         @map("tenant_id")
+  venueId                String         @map("venue_id")
+  sessionId              String         @map("session_id")
+  guestChatTurnId        String         @map("guest_chat_turn_id") @db.Uuid
+  schemaVersion          String         @map("schema_version") @db.VarChar(64)
+  answerHash             String         @map("answer_hash") @db.Char(64)
+  evidenceSetHash        String         @map("evidence_set_hash") @db.Char(64)
+  evaluatorProvider      String         @map("evaluator_provider") @db.VarChar(100)
+  evaluatorModel         String         @map("evaluator_model") @db.VarChar(191)
+  evaluatorConfiguration String         @map("evaluator_configuration") @db.VarChar(191)
+  evaluatorPromptVersion String         @map("evaluator_prompt_version") @db.VarChar(191)
+  attributionSnapshot    Json           @map("attribution_snapshot")
+  claimCount             Int            @map("claim_count")
+  supportedCount         Int            @map("supported_count")
+  unsupportedCount       Int            @map("unsupported_count")
+  uncertainCount         Int            @map("uncertain_count")
+  nonFactualCount        Int            @map("non_factual_count")
+  supportRate            Decimal?       @map("support_rate") @db.Decimal(8, 7)
+  actorType              ActorType      @map("actor_type")
+  actorId                String         @map("actor_id") @db.VarChar(191)
+  createdAt              DateTime       @default(now()) @map("created_at")
+  tenant                 Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                VisitorSession @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  guestChatTurn          GuestChatTurn  @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "guest_answer_attributions_operation_key")
+  @@unique([id, tenantId, venueId], map: "guest_answer_attributions_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "guest_answer_attributions_scope_created_idx")
+  @@index([tenantId, venueId, guestChatTurnId, createdAt], map: "guest_answer_attributions_turn_created_idx")
+  @@map("guest_answer_attributions")
 }
 
 model GuestChatProviderOperation {

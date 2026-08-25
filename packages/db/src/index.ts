@@ -107,6 +107,16 @@ export {
   reserveGuestChatTurnAction,
   skipGuestChatProviderOperationAction,
 } from './helpers/guest-chat-turn-actions'
+export {
+  GuestAnswerAttributionActionError,
+  recordHumanReviewedGuestAnswerAttributionAction,
+} from './helpers/guest-answer-attribution-actions'
+export type {
+  GuestAnswerAttributionActionClient,
+  GuestAnswerAttributionActionErrorCode,
+  GuestAnswerAttributionActor,
+  RecordGuestAnswerAttributionInput,
+} from './helpers/guest-answer-attribution-actions'
 export type {
   GuestChatClaim,
   GuestChatFinalize,

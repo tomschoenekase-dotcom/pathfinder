@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|attribution|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|answer_attribution|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -760,6 +760,46 @@ export async function runDisposableOperatingCostShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_OPERATING_COST_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableGuestAnswerAttributionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'attribution',
+      databasePrefix: 'pathfinder_disposable_answer_attribution_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_ANSWER_ATTRIBUTION_SHAKEDOWN',
+      lifecycleEvent: 'test:guest-answer-attribution:disposable',
+      successAction: 'guest-answer-attribution.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'exact-answer-and-source-hashes',
+        'human-attributed-semantic-judgment',
+        'idempotent-replay',
+        'strict-tenant-venue-turn-scope',
+        'append-only-history',
+        'strict-audit-evidence',
+        'no-quality-threshold-or-release-effect',
+        'no-knowledge-or-operational-mutation',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/guest-answer-attribution-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_GUEST_ANSWER_ATTRIBUTION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

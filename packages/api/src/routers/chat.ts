@@ -50,6 +50,7 @@ import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
+import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -722,6 +723,7 @@ export const chatRouter = router({
                 }),
           },
           select: {
+            id: true,
             updateType: true,
             severity: true,
             priority: true,
@@ -1179,6 +1181,58 @@ export const chatRouter = router({
         })),
       ],
     })
+    const answerEvidence = buildGuestAnswerEvidenceBundle({
+      assistantResponse,
+      staticSystemPrompt: staticPart,
+      dynamicSystemPrompt: dynamicPart,
+      ...(generationRouteConfigurationVersion
+        ? { routeConfigurationVersion: generationRouteConfigurationVersion }
+        : {}),
+      sources: [
+        {
+          sourceId: `venue:${venue.id}`,
+          kind: 'VENUE_PROFILE',
+          label: venue.name,
+          snapshot: {
+            id: venue.id,
+            name: venue.name,
+            description: venue.description,
+            category: venue.category,
+            guideNotes: venue.guideNotes,
+            aiGuideNotes: venue.aiGuideNotes,
+            guideMode,
+          },
+        },
+        ...relevantPlaces.map((place, rank) => ({
+          sourceId: `place:${place.id}`,
+          kind: 'PLACE' as const,
+          label: place.name,
+          rank,
+          snapshot: place,
+        })),
+        ...relevantKnowledgeEntries.map((entry, rank) => ({
+          sourceId: `knowledge:${entry.id}`,
+          kind: 'KNOWLEDGE' as const,
+          label: entry.title,
+          rank,
+          snapshot: entry,
+        })),
+        ...activeUpdates.map((update, rank) => ({
+          sourceId: `operational-update:${update.id}`,
+          kind: 'OPERATIONAL_UPDATE' as const,
+          label: update.title,
+          rank,
+          snapshot: update,
+        })),
+        ...publishedUniversalContent.map((content, rank) => ({
+          sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+          kind: 'PUBLISHED_CONTENT' as const,
+          label: `${content.kind} ${content.moduleId}`,
+          rank,
+          snapshot: content,
+        })),
+      ],
+    })
     let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
     try {
       finalized = await finalizeGuestChatTurnAction({
@@ -1188,7 +1242,7 @@ export const chatRouter = router({
           turnId: reservation.turnId,
           claimId,
           assistantResponse,
-          replayMetadata: { places: mentionedPlaces, citations },
+          replayMetadata: { places: mentionedPlaces, citations, answerEvidence },
           fallbackCode: fallbackFailureCode,
           nextPending: engagementAskedThisTurn
             ? selectedEngagementQuestion

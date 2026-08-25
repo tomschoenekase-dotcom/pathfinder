@@ -92,6 +92,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.search',
   'torchiko.knowledge.get',
   'torchiko.knowledge.list_gaps',
+  'torchiko.quality.list_answer_attributions',
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
@@ -191,6 +192,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeSearch'
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
+    | 'listGuestAnswerAttributions'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
@@ -3961,6 +3963,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeSearch'
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
+    | 'listGuestAnswerAttributions'
     | 'integrationHealth'
     | 'reportLifecycle'
   > = {
@@ -4125,6 +4128,43 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         kind: 'torchiko.visitor-knowledge-gaps',
         summary: `${data.length} reviewable visitor knowledge gap(s).`,
         data: jsonData({ items: data }),
+      }
+    },
+    async listGuestAnswerAttributions(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Answer attribution review requires venue scope')
+      const items = await database.guestAnswerAttribution.findMany({
+        where: {
+          tenantId: context.credential.tenantId,
+          venueId,
+          ...(input.guestChatTurnId ? { guestChatTurnId: input.guestChatTurnId } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: input.limit,
+        select: {
+          id: true,
+          guestChatTurnId: true,
+          answerHash: true,
+          evidenceSetHash: true,
+          evaluatorProvider: true,
+          evaluatorModel: true,
+          evaluatorConfiguration: true,
+          evaluatorPromptVersion: true,
+          attributionSnapshot: true,
+          claimCount: true,
+          supportedCount: true,
+          unsupportedCount: true,
+          uncertainCount: true,
+          nonFactualCount: true,
+          supportRate: true,
+          createdAt: true,
+        },
+      })
+      return {
+        kind: 'torchiko.guest-answer-attributions',
+        summary: `${items.length} reviewed guest-answer attribution record(s).`,
+        data: jsonData({ items }),
       }
     },
     async integrationHealth(input, context) {

@@ -10,6 +10,8 @@
     "./venue-configuration": "./src/venue-configuration.ts",
     "./venue-bot-configuration": "./src/venue-bot-configuration.ts",
     "./guest-response": "./src/guest-response.ts",
+    "./guest-answer-attribution": "./src/guest-answer-attribution.ts",
+    "./guest-answer-attribution-node": "./src/guest-answer-attribution-node.ts",
     "./support-workflow": "./src/support-workflow.ts",
     "./content-model": "./src/content-model.ts",
     "./intake-engine": "./src/intake-engine.ts",

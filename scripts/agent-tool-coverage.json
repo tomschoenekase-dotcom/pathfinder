@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 414,
-    "sha256": "b4838edafd8a432dce178579987a12d141f6f7de938aef26d10764b79994944f",
+    "count": 416,
+    "sha256": "3eab1182e1758577c59793d8d1fdc016a6405cd4c48fc1738190edd1a03078cd",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "b4838edafd8a432dce178579987a12d141f6f7de938aef26d10764b79994944f",
-      "sha256": "4319e4bf4811f467280a852b8a693429f9a60ddece9c9588110d7063e8fcb404"
+      "operationInventorySha256": "3eab1182e1758577c59793d8d1fdc016a6405cd4c48fc1738190edd1a03078cd",
+      "sha256": "8532b4ad81270673e1bbfbb51feb05bf7a1618469f8300aa7d669275a2b027b3"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -412,6 +412,14 @@
         "surfaces": ["resource:pathfinder.conversations"],
         "decision": "Agents receive privacy-bounded conversation metadata and review signals, not unrestricted raw replay or visitor interaction authority.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-reviewed-answer-attributions",
+        "kind": "bounded-alternative",
+        "operations": ["admin.listGuestAnswerAttributions"],
+        "surfaces": ["tool:torchiko.quality.list_answer_attributions"],
+        "decision": "An authorized review worker can read bounded, exact-venue, append-only evaluator-attributed claim evidence. The tool exposes no visitor identity or location and grants no annotation write, quality threshold, release decision, publication, or operational mutation authority.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-agent-run-reads",

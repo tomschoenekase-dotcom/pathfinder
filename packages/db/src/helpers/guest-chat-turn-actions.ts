@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
+import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+
 import { db } from '../client'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
 
@@ -80,6 +82,9 @@ export const GuestChatReplayMetadata = z
   .object({
     places: z.array(placeCardSchema).max(20),
     citations: z.array(citationSchema).max(12).default([]),
+    // Internal-only, content-addressed evidence for later bounded answer evaluation. Public replay
+    // projections deliberately return only places and citations.
+    answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
   })
   .strict()
 
@@ -277,6 +282,11 @@ async function projectExistingTurn(
           turn.replayMetadata !== null &&
           Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'citations')
             ? { citations: metadata.data.citations }
+            : {}),
+          ...(typeof turn.replayMetadata === 'object' &&
+          turn.replayMetadata !== null &&
+          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'answerEvidence')
+            ? { answerEvidence: metadata.data.answerEvidence }
             : {}),
         }),
       )
@@ -1059,6 +1069,7 @@ export async function finalizeGuestChatTurnAction(args: {
         response: input.assistantResponse,
         places: replayMetadata.places,
         citations: replayMetadata.citations,
+        ...(replayMetadata.answerEvidence ? { answerEvidence: replayMetadata.answerEvidence } : {}),
       }),
     )
     .digest('hex')

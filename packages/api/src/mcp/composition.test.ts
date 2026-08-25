@@ -1564,6 +1564,73 @@ describe('safe operational MCP composition', () => {
     })
   })
 
+  it('returns bounded evaluator-attributed answer evidence without adding release authority', async () => {
+    const database = {
+      guestAnswerAttribution: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+            answerHash: 'a'.repeat(64),
+            evidenceSetHash: 'b'.repeat(64),
+            evaluatorProvider: 'human',
+            evaluatorModel: 'human-reviewer',
+            evaluatorConfiguration: 'founder-review',
+            evaluatorPromptVersion: 'guest-answer-attribution-v1',
+            attributionSnapshot: {
+              contractVersion: 'guest-answer-attribution-v1',
+              claims: [],
+            },
+            claimCount: 0,
+            supportedCount: 0,
+            unsupportedCount: 0,
+            uncertainCount: 0,
+            nonFactualCount: 0,
+            supportRate: null,
+            createdAt: new Date('2026-08-25T01:00:00.000Z'),
+          },
+        ]),
+      },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const result = await registry.callTool(
+      'torchiko.quality.list_answer_attributions',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+        limit: 5,
+      },
+      { credential: { ...credential, capabilities: ['conversations:review'] } },
+    )
+
+    expect(database.guestAnswerAttribution.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+        },
+        take: 5,
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.guest-answer-attributions',
+      data: {
+        items: [
+          expect.objectContaining({
+            evaluatorProvider: 'human',
+            claimCount: 0,
+            supportRate: null,
+          }),
+        ],
+      },
+    })
+    expect(JSON.stringify(result.structuredContent)).not.toMatch(
+      /passed|releaseDecision|threshold/i,
+    )
+  })
+
   it('returns explicit bounded incident-control health without reasons, actors, or recovery authority', async () => {
     const now = new Date('2030-01-01T12:00:00.000Z')
     const database = {

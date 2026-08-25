@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { GUEST_ANSWER_EVIDENCE_VERSION } from '@pathfinder/contracts'
+import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract'
+
 import {
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
@@ -240,6 +243,25 @@ describe('guest chat turn actions', () => {
         detail: 'Place: Cafe',
       },
     ]
+    const answerEvidence = {
+      schemaVersion: GUEST_ANSWER_EVIDENCE_VERSION,
+      promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
+      answerHash: 'a'.repeat(64),
+      systemPromptHash: 'b'.repeat(64),
+      evidenceSetHash: 'c'.repeat(64),
+      routeConfigurationVersion: 'route-v1',
+      system: { staticPart: 'Static prompt', dynamicPart: 'Dynamic prompt' },
+      sources: [
+        {
+          sourceId: 'venue:venue-1',
+          kind: 'VENUE_PROFILE' as const,
+          label: 'Museum',
+          rank: null,
+          snapshot: '{"name":"Museum"}',
+          snapshotHash: 'd'.repeat(64),
+        },
+      ],
+    }
     const createMany = vi.fn().mockResolvedValue({ count: 2 })
     const tx = {
       $executeRaw: vi.fn(),
@@ -280,7 +302,7 @@ describe('guest chat turn actions', () => {
           turnId,
           claimId,
           assistantResponse: 'The cafe is downstairs.',
-          replayMetadata: { places: [], citations },
+          replayMetadata: { places: [], citations, answerEvidence },
           fallbackCode: null,
           nextPending: { kind: 'NONE' },
         },
@@ -316,7 +338,10 @@ describe('guest chat turn actions', () => {
     ])
     expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ replayMetadata: { places: [], citations } }),
+        data: expect.objectContaining({
+          replayMetadata: { places: [], citations, answerEvidence },
+          responseHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        }),
       }),
     )
   })

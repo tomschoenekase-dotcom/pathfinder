@@ -162,15 +162,17 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes if sold**, otherwise keep disabled.
 - **Codex autonomous:** **No** for credentials/external execution; yes for test harnesses.
 
-### P1.10 — Strengthen bounded citations into claim-level evidence — PARTIALLY RESOLVED 2026-08-23
+### P1.10 — Strengthen bounded citations into claim-level evidence — PARTIALLY RESOLVED 2026-08-25
 
 - **Problem:** Guest chat now exposes deterministic provenance for explicitly named retrieved records, but that does not prove sentence-level semantic support.
-- **Evidence:** `packages/api/src/lib/guest-citations.ts`; `packages/api/src/routers/chat.ts`; `packages/db/src/helpers/guest-chat-turn-actions.ts`; `ResponseRenderer.tsx`; exact candidate evidence at `f142ef6e2a08a082ef46e8c00b9a582950c45870`.
+- **Evidence:** `packages/api/src/lib/guest-citations.ts`; `packages/contracts/src/guest-answer-attribution.ts`; `packages/api/src/lib/guest-answer-evidence.ts`; `packages/api/src/routers/chat.ts`; `packages/db/src/helpers/guest-chat-turn-actions.ts`; `packages/db/src/helpers/guest-answer-attribution-actions.ts`; `docs/guest-answer-attribution.md`; `ResponseRenderer.tsx`; exact retrieved-record citation candidate evidence at `f142ef6e2a08a082ef46e8c00b9a582950c45870`.
 - **Affected system:** Guest trust, knowledge provenance, quality evaluation.
-- **Recommended change:** Add claim-level semantic attribution and evaluation metrics, then calibrate with provider-enabled staging evidence. Continue describing the current feature narrowly as retrieved-record provenance.
+- **Recommended change:** Use the implemented exact-evidence and claim-annotation contracts to build a representative human/provider-reviewed staging corpus. Measure evaluator agreement and claim segmentation before proposing any threshold. Continue describing the visitor feature narrowly as retrieved-record provenance.
+- **Current implementation:** Newly generated public answers retain private, content-addressed answer/prompt/route/source evidence. A human platform administrator can record exact-span support judgments as append-only, evaluator-attributed history after every hash is reverified. Metrics are descriptive and contain no pass/release decision. A separately authorized, exact-venue MCP read exposes bounded completed reviews while the recording mutation remains human-only and unbound.
+- **Remaining gap:** No automatic evaluator, calibrated corpus, evaluator-agreement evidence, approved quality threshold, release gate, or visitor-visible claim-level UX exists. Provider-backed staging calibration and product review remain required.
 - **Why it matters:** Grounding is more valuable when visitors/operators can understand the source, especially for changing venue facts.
 - **Effort:** M
-- **Dependencies:** Provider-enabled staging, truth-set calibration, and a claim-attribution contract.
+- **Dependencies:** Provider-enabled staging, representative truth-set calibration, and human review; the claim-attribution contract is implemented locally.
 - **Before more venue acquisition:** **No**, unless citations are promised contractually.
 - **Codex autonomous:** **Partly**; UX/product policy should be approved.
 

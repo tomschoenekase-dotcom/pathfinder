@@ -82,6 +82,7 @@ function database() {
     agentOutcomeObservation: { findMany: vi.fn() },
     agentImprovementProposal: { findMany: vi.fn() },
     onboardingMilestoneEvent: { findMany: vi.fn() },
+    guestAnswerAttribution: { findMany: vi.fn() },
   }
 }
 
@@ -96,6 +97,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   knowledgeSearch: vi.fn(),
   knowledgeGet: vi.fn(),
   listKnowledgeGaps: vi.fn(),
+  listGuestAnswerAttributions: vi.fn(),
   proposeKnowledgeCorrection: vi.fn(),
   proposeLocationDraft: vi.fn(),
   proposeSupportTriage: vi.fn(),
