@@ -18,6 +18,7 @@ const matrixPath = path.join(
   'system-state',
   'TORCHIKO_CAPABILITY_MATRIX.md',
 )
+const backlogPath = path.join(repositoryRoot, 'docs', 'system-state', 'TORCHIKO_AUDIT_BACKLOG.md')
 
 const allowedStatuses = new Set([
   'implemented-external-gated',
@@ -68,20 +69,23 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   }
 })
 
-test('dynamic repository facts agree with both current-state documents', async () => {
+test('dynamic repository facts agree with all current-state documents', async () => {
   const truth = await loadTruth()
   const migrationRoot = path.resolve(repositoryRoot, truth.dynamicFacts.migrationDirectory)
   const migrationEntries = await readdir(migrationRoot, { withFileTypes: true })
   const migrationCount = migrationEntries.filter((entry) => entry.isDirectory()).length
   assert.ok(migrationCount > 0)
 
-  const [stateDocument, capabilityMatrix] = await Promise.all([
+  const [stateDocument, capabilityMatrix, auditBacklog] = await Promise.all([
     readFile(statePath, 'utf8'),
     readFile(matrixPath, 'utf8'),
+    readFile(backlogPath, 'utf8'),
   ])
-  for (const document of [stateDocument, capabilityMatrix]) {
+  for (const document of [stateDocument, capabilityMatrix, auditBacklog]) {
     assert.match(document, /torchiko-current-truth\.json/)
     assert.match(document, new RegExp(`\\b${migrationCount} migrations\\b`))
+  }
+  for (const document of [stateDocument, capabilityMatrix]) {
     for (const capability of truth.capabilities) {
       assert.match(document, new RegExp(`\\b${capability.id}\\b`))
     }
@@ -103,11 +107,12 @@ test('local staging image truth is content-addressed and stale blockers stay ret
     assert.match(imageLine, /@sha256:[a-f0-9]{64}$/)
   }
 
-  const [stateDocument, capabilityMatrix] = await Promise.all([
+  const [stateDocument, capabilityMatrix, auditBacklog] = await Promise.all([
     readFile(statePath, 'utf8'),
     readFile(matrixPath, 'utf8'),
+    readFile(backlogPath, 'utf8'),
   ])
-  const currentDocuments = `${stateDocument}\n${capabilityMatrix}`
+  const currentDocuments = `${stateDocument}\n${capabilityMatrix}\n${auditBacklog}`
   for (const retiredClaim of [
     'No current, retained, realistic end-to-end venue onboarding/publish/chat/report evidence.',
     'No CRM, billing collection, inbound email, or general outbound communication system.',
@@ -118,6 +123,8 @@ test('local staging image truth is content-addressed and stale blockers stay ret
     'the public app has no privacy page',
     'the marketing privacy link is broken',
     'Uncommitted capability tranche',
+    'Prove the uncommitted migration tranche',
+    'but no route exists',
   ]) {
     assert.ok(!currentDocuments.includes(retiredClaim), `retired claim absent: ${retiredClaim}`)
   }

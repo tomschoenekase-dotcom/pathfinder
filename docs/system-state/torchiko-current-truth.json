@@ -5,7 +5,8 @@
     "purpose": "Machine-readable overlay for current repository capability truth",
     "supersedesHistoricalClaimsIn": [
       "docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md",
-      "docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md"
+      "docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md",
+      "docs/system-state/TORCHIKO_AUDIT_BACKLOG.md"
     ],
     "doesNotProve": [
       "hosted staging deployment",

@@ -1,8 +1,8 @@
 # Torchiko Audit Backlog
 
-**Snapshot:** 2026-08-19 · branch `codex/torchiko-cloud-staging-20260819` · HEAD `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b` plus the current dirty working tree.
+**Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 182 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -33,17 +33,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **No**; credentials, cost, and production backup authority are required. Codex can prepare and verify the runbook.
 
-### P0.3 — Prove the uncommitted migration tranche in disposable and staging databases
+### P0.3 — Prove the integrated migration lineage in disposable and staging databases — LOCAL BOUNDARY RESOLVED
 
-- **Problem:** The audited working tree adds eleven sequential migrations for entitlements, routing observability, voice, conversation intelligence, operational events, proposals, location, widget plans, multimodal usage, voice rollups, feedback, and agent questions. They are not a clean reviewed release boundary.
-- **Evidence:** untracked directories `packages/db/prisma/migrations/20260819140000_*` through `20260819155000_*`; 553-line schema addition in the tracked diff; dirty API/UI/worker changes.
+- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 182-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
+- **Remaining problem:** Current hosted staging migration parity, preserved-data backup evidence, exact deployed revision, and live runtime health still require the authorized owner integration workflow. Local evidence must not be promoted into a hosted-state claim.
+- **Evidence:** `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact release candidate and staging handoff artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
-- **Recommended change:** Review ordering and constraints, run disposable migration from a production-lineage schema, exercise downgrade-by-forward-fix assumptions, deploy to staging, run public-surface/tenant/raw-SQL/browser smoke gates, and commit as one documented release or a carefully ordered series.
-- **Why it matters:** A green TypeScript build cannot prove schema compatibility. This tranche touches critical public and operational paths.
+- **Recommended change:** Review and integrate only the exact admitted candidate into the owner staging branch, preserve difficult-to-recreate data with fresh backup/restore evidence, apply the checked-in predeploy, then run exact-revision hosted health and staging-profile verification.
+- **Why it matters:** The local schema boundary is trustworthy; the remaining risk is confusing it with current hosted database and runtime state.
 - **Effort:** M
-- **Dependencies:** Clean change ownership, staging database authorization, current backup.
+- **Dependencies:** Owner staging integration, current preserved-data backup/restore evidence, and exact hosted target confirmation.
 - **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **Partly**; local/disposable work is safe, staging deployment requires authority.
+- **Codex autonomous:** **Local proof complete**; hosted staging deployment/migration remains owner gated under the checked-in workflow.
 
 ## P1 — High-Value Near-Term
 
@@ -77,17 +78,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Affected system:** Guest chat, reliability, support, operational events.
 - **Before more venue acquisition:** **Code complete; live provider proof remains.**
 
-### P1.3 — Publish a real privacy page and align data disclosures
+### P1.3 — Finalize the privacy policy and align data disclosures — IMPLEMENTATION FOUNDATION COMPLETE
 
-- **Problem:** The marketing footer links to `/privacy`, but no route exists. Existing guest copy does not substitute for a full policy.
-- **Evidence:** `apps/web/app/page.tsx:265`; production build route list has no `/privacy`.
+- **Status:** **TRUTHFUL STATUS SURFACE IMPLEMENTED 2026-08-25; POLICY TEXT REMAINS OWNER/LEGAL GATED.** The marketing footer reaches an accessible `/privacy` route that explicitly says the final policy is under review and avoids inventing retention, rights, legal-entity, or contact commitments.
+- **Remaining problem:** A status surface does not substitute for approved policy. Final wording must cover conversations, identifiers, uploads, providers, retention, rights, and an authorized contact route, and must agree with the eventual executable retention policy.
+- **Evidence:** `apps/web/app/privacy/page.tsx`; marketing link tests; `privacy-retention` current-truth anchor.
 - **Affected system:** Marketing, guest trust, privacy/compliance.
-- **Recommended change:** Obtain approved policy text covering conversations, anonymous identifiers, uploads, providers, retention, rights and contact; add the route, metadata, accessible layout, tests and link checking.
-- **Why it matters:** A broken legal/trust link is visible to every prospective customer and visitor.
+- **Recommended change:** Obtain approved policy text and contact details, replace the clearly marked review-state copy, then verify metadata, accessibility, link behavior, and disclosure/retention consistency.
+- **Why it matters:** The broken-link defect is closed, but prospects and visitors still need final trustworthy disclosures before launch.
 - **Effort:** S
 - **Dependencies:** Owner/legal-approved wording and contact details.
 - **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **No** for policy text; **yes** for implementation after approval.
+- **Codex autonomous:** **Status route complete**; no for inventing policy text, contact details, or legal commitments; yes for mechanical application and verification after approval.
 
 ### P1.4 — Deliver P0/P1 operational events outside the admin UI — IMPLEMENTED BUT EXTERNAL GATED 2026-08-24
 
