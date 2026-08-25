@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 
 import { ReleaseEvidenceRecordFields } from '@pathfinder/contracts/release-evidence'
-import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 import { db } from '../client'
@@ -191,7 +190,7 @@ export async function recordPlatformReleaseEvidenceAction(
           gates: input.assessment.gates,
           limitations: input.assessment.limitations,
           rollback: input.assessment.rollback,
-          stagingHandoff: input.stagingHandoff ?? Prisma.DbNull,
+          ...(input.stagingHandoff ? { stagingHandoff: input.stagingHandoff } : {}),
           sourceReference: input.sourceReference,
           recordedByType: input.actor.type,
           recordedById: input.actor.id,
