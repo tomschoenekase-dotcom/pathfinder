@@ -164,6 +164,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 15],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+  // Public-interest records are platform-owned ingress evidence rather than tenant data.
+  // The human-only inbox performs one bounded list and one append-only review transaction;
+  // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
+  ['packages/api/src/routers/admin/public-interest.ts', 2],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
