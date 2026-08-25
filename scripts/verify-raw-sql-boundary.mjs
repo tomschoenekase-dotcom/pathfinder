@@ -50,6 +50,7 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-record-lock',
   'tenant-intake-upload-multipart-lock',
   'tenant-intake-proposal-request-lock',
+  'tenant-intake-website-research-lock',
   'tenant-client-assistant-preference-lock',
   'tenant-client-assistant-turn-operation-lock',
   'tenant-client-assistant-thread-lock',
@@ -70,6 +71,12 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/intake-website-research-actions.ts',
+    method: '$executeRaw',
+    hash: '0fd09329fbefc35b5e37e2277ea7e3f4b4bcba971e6d3e3ecd16bc133b8dcbe8',
+    policy: 'tenant-intake-website-research-lock',
+  },
   {
     file: 'packages/db/src/helpers/prospect-send-outbox-actions.ts',
     method: '$queryRaw',

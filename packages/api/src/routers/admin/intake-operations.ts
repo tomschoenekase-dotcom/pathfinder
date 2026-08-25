@@ -16,6 +16,11 @@ import {
 import { router } from '../../core'
 import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
 import { getIntakeBuilderLifecycle } from '../../lib/intake-builder-lifecycle-service'
+import {
+  executeWebsiteIntakeResearch,
+  WebsiteResearchExecutionError,
+} from '../../lib/website-intake-research-service'
+import { createWebsiteIntakeRuntimeDependencies } from '../../lib/website-intake-runtime'
 import { createVenuePackageDraftService } from '../venue-package'
 import {
   buildIntakeVenuePackageCandidate,
@@ -63,6 +68,52 @@ function mapCandidateError(error: unknown): never {
 }
 
 export const adminIntakeOperationsRouter = router({
+  executeWebsiteIntakeResearch: adminProcedure
+    .input(
+      z
+        .object({
+          ...adminScope,
+          runId: z.string().trim().min(1).max(191),
+          operationId: z.string().uuid(),
+          priorReceiptId: z.string().uuid().optional(),
+          maxPages: z.number().int().min(1).max(10).default(5),
+          maxDepth: z.number().int().min(0).max(2).default(1),
+          maxBytesPerPage: z.number().int().min(1).max(2_000_000).default(1_000_000),
+          maxDurationMs: z.number().int().min(1_000).max(60_000).default(30_000),
+          maxCostUnits: z.number().int().min(1).max(100).default(20),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userAgent = 'TorchikoBuilder/1.0'
+      const { priorReceiptId, ...researchInput } = input
+      try {
+        return await executeWebsiteIntakeResearch({
+          db: ctx.db,
+          request: {
+            ...researchInput,
+            ...(priorReceiptId ? { priorReceiptId } : {}),
+            userAgent,
+            createdBy: ctx.session.userId,
+          },
+          dependencies: createWebsiteIntakeRuntimeDependencies({ userAgent }),
+        })
+      } catch (error) {
+        if (error instanceof WebsiteResearchExecutionError) {
+          throw new TRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'CONFLICT'
+                  ? 'CONFLICT'
+                  : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
+
   getIntakeBuilderLifecycle: adminProcedure
     .input(z.object({ ...adminScope, runId: z.string().trim().min(1).max(191) }).strict())
     .query(async ({ ctx, input }) => {

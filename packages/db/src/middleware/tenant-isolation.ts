@@ -75,6 +75,7 @@ const APPEND_ONLY_MODELS = [
   'ContentModulePublication',
   'IntakeRun',
   'IntakeEvidenceRecord',
+  'IntakeWebsiteResearchReceipt',
   'IntakeUploadVerificationReceipt',
   'IntakeRunEvent',
   'IntakePackageHandoff',

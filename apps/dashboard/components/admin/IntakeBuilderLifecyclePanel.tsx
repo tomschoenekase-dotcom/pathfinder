@@ -37,13 +37,19 @@ export function IntakeBuilderLifecyclePanel({
   const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [researchBusy, setResearchBusy] = useState(false)
+  const [researchError, setResearchError] = useState<string | null>(null)
   const sequence = useRef(0)
+  const researchOperationId = useRef<string | null>(null)
 
   useEffect(() => {
     sequence.current += 1
     setLifecycle(null)
     setError(null)
     setBusy(false)
+    setResearchBusy(false)
+    setResearchError(null)
+    researchOperationId.current = null
   }, [runId, tenantId, venueId])
 
   async function load() {
@@ -63,6 +69,33 @@ export function IntakeBuilderLifecyclePanel({
       }
     } finally {
       if (request === sequence.current) setBusy(false)
+    }
+  }
+
+  async function runWebsiteResearch() {
+    if (!lifecycle || researchBusy) return
+    const operationId = researchOperationId.current ?? crypto.randomUUID()
+    researchOperationId.current = operationId
+    setResearchBusy(true)
+    setResearchError(null)
+    try {
+      await client.admin.executeWebsiteIntakeResearch.mutate({
+        tenantId,
+        venueId,
+        runId,
+        operationId,
+        ...(lifecycle.websiteResearch?.receiptId
+          ? { priorReceiptId: lifecycle.websiteResearch.receiptId }
+          : {}),
+      })
+      researchOperationId.current = null
+      await load()
+    } catch (cause) {
+      setResearchError(
+        cause instanceof Error ? cause.message : 'Website research could not be retained.',
+      )
+    } finally {
+      setResearchBusy(false)
     }
   }
 
@@ -86,10 +119,27 @@ export function IntakeBuilderLifecyclePanel({
     )
   }
 
-  return <IntakeBuilderLifecycleView lifecycle={lifecycle} />
+  return (
+    <IntakeBuilderLifecycleView
+      lifecycle={lifecycle}
+      onRunWebsiteResearch={() => void runWebsiteResearch()}
+      researchBusy={researchBusy}
+      researchError={researchError}
+    />
+  )
 }
 
-export function IntakeBuilderLifecycleView({ lifecycle }: { lifecycle: Lifecycle }) {
+export function IntakeBuilderLifecycleView({
+  lifecycle,
+  onRunWebsiteResearch,
+  researchBusy = false,
+  researchError = null,
+}: {
+  lifecycle: Lifecycle
+  onRunWebsiteResearch?: () => void
+  researchBusy?: boolean
+  researchError?: string | null
+}) {
   const active = lifecycle.stages.find(({ stage }) => stage === lifecycle.currentStage)!
   return (
     <section
@@ -135,6 +185,61 @@ export function IntakeBuilderLifecycleView({ lifecycle }: { lifecycle: Lifecycle
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {lifecycle.websiteResearch ? (
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-xs text-pf-deep/60">Attempt</dt>
+            <dd className="font-semibold text-pf-deep">
+              {lifecycle.websiteResearch.attemptCount}/4
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-pf-deep/60">Pages</dt>
+            <dd className="font-semibold text-pf-deep">{lifecycle.websiteResearch.fetchedPages}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-pf-deep/60">Downloaded</dt>
+            <dd className="font-semibold text-pf-deep">
+              {Math.ceil(lifecycle.websiteResearch.fetchedBytes / 1024).toLocaleString()} KB
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-pf-deep/60">Cost · time</dt>
+            <dd className="font-semibold text-pf-deep">
+              {lifecycle.websiteResearch.estimatedCostUnits} units ·{' '}
+              {(lifecycle.websiteResearch.latencyMs / 1000).toFixed(1)}s
+            </dd>
+          </div>
+        </dl>
+      ) : null}
+
+      {onRunWebsiteResearch &&
+      (lifecycle.nextAction === 'RUN_WEBSITE_RESEARCH' ||
+        lifecycle.nextAction === 'RETRY_WEBSITE_RESEARCH') ? (
+        <div className="mt-4">
+          <button
+            type="button"
+            disabled={researchBusy}
+            onClick={onRunWebsiteResearch}
+            className="min-h-11 rounded-full bg-pf-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-pf-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none"
+          >
+            {researchBusy
+              ? 'Researching website…'
+              : lifecycle.nextAction === 'RETRY_WEBSITE_RESEARCH'
+                ? 'Retry bounded research'
+                : 'Run bounded research'}
+          </button>
+          <p className="mt-2 text-xs text-pf-deep/60">
+            Up to 5 pages, one link level, 20 cost units, and 30 seconds. Results stay review-only.
+          </p>
+        </div>
+      ) : null}
+      {researchError ? (
+        <p className="mt-3 text-sm text-rose-700" role="alert">
+          {researchError}
+        </p>
       ) : null}
 
       <p className="mt-3 text-xs text-pf-deep/60">

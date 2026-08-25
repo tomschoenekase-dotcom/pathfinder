@@ -7,6 +7,7 @@ const base = {
   sourceKind: 'INTERVIEW',
   runStatus: 'AWAITING_REVIEW',
   evidenceCount: 2,
+  websiteResearch: null,
   candidate: {
     ready: true,
     candidateHash: 'a'.repeat(64),
@@ -72,10 +73,73 @@ describe('intake Builder lifecycle projection', () => {
     expect(result).toMatchObject({
       currentStage: 'RESEARCH',
       currentState: 'BLOCKED',
-      nextAction: 'CONFIGURE_RESEARCH_ADAPTER',
+      nextAction: 'RUN_WEBSITE_RESEARCH',
     })
     expect(result.stages.find(({ stage }) => stage === 'EXTRACT')).toMatchObject({
       state: 'PENDING',
+    })
+  })
+
+  it('projects retryable, exhausted, and successful website research truth', () => {
+    const failedResearch = {
+      receiptId: 'receipt-a',
+      outcome: 'FAILED' as const,
+      attemptCount: 1,
+      canRetry: true,
+      attemptedFetches: 1,
+      fetchedPages: 0,
+      fetchedBytes: 0,
+      estimatedCostUnits: 0,
+      latencyMs: 25,
+      errorCode: 'TIME_LIMIT',
+      errorMessage: 'The bounded crawl reached its time limit.',
+    }
+    const retryable = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'WEBSITE',
+      candidate: null,
+      websiteResearch: failedResearch,
+    })
+    expect(retryable).toMatchObject({
+      currentStage: 'RESEARCH',
+      currentState: 'BLOCKED',
+      nextAction: 'RETRY_WEBSITE_RESEARCH',
+    })
+    expect(retryable.stages.find(({ stage }) => stage === 'RESEARCH')?.evidenceRefs).toContain(
+      'website-research:receipt-a',
+    )
+
+    const exhausted = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'WEBSITE',
+      candidate: null,
+      websiteResearch: { ...failedResearch, attemptCount: 4, canRetry: false },
+    })
+    expect(exhausted.nextAction).toBe('REVIEW_WEBSITE_SOURCE')
+
+    const succeeded = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'WEBSITE',
+      websiteResearch: { ...failedResearch, outcome: 'SUCCEEDED', canRetry: false },
+      candidate: {
+        ready: false,
+        candidateHash: 'b'.repeat(64),
+        candidateCount: 2,
+        issues: [
+          {
+            code: 'WEBSITE_MAPPING_REQUIRED',
+            path: 'candidate',
+            message: 'Mapping requires review.',
+          },
+        ],
+      },
+    })
+    expect(succeeded).toMatchObject({
+      currentStage: 'RECONCILE',
+      nextAction: 'RESOLVE_CLARIFICATION',
+    })
+    expect(succeeded.stages.find(({ stage }) => stage === 'RESEARCH')).toMatchObject({
+      state: 'COMPLETE',
     })
   })
 

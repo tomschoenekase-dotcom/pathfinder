@@ -177,6 +177,12 @@ export {
 export { createGoogleWorkspaceSourceStores } from './helpers/google-workspace-source-actions'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  IntakeWebsiteResearchActionError,
+  MAX_WEBSITE_RESEARCH_RECEIPTS_PER_RUN,
+  recordWebsiteResearchReceiptAction,
+  type RecordWebsiteResearchReceiptInput,
+} from './helpers/intake-website-research-actions'
+export {
   OperatingCostEvidenceActionError,
   recordOperatingCostEvidenceAction,
 } from './helpers/operating-cost-evidence-actions'

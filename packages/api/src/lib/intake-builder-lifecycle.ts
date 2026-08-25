@@ -29,6 +29,19 @@ export type IntakeBuilderLifecycleInput = {
   sourceKind: string
   runStatus: string
   evidenceCount: number
+  websiteResearch: null | {
+    receiptId: string
+    outcome: 'SUCCEEDED' | 'INACCESSIBLE' | 'FAILED'
+    attemptCount: number
+    canRetry: boolean
+    attemptedFetches: number
+    fetchedPages: number
+    fetchedBytes: number
+    estimatedCostUnits: number
+    latencyMs: number
+    errorCode: string | null
+    errorMessage: string | null
+  }
   candidate: null | {
     ready: boolean
     candidateHash: string | null
@@ -45,7 +58,9 @@ export type IntakeBuilderLifecycleInput = {
 }
 
 export type IntakeBuilderNextAction =
-  | 'CONFIGURE_RESEARCH_ADAPTER'
+  | 'RUN_WEBSITE_RESEARCH'
+  | 'RETRY_WEBSITE_RESEARCH'
+  | 'REVIEW_WEBSITE_SOURCE'
   | 'RESOLVE_CLARIFICATION'
   | 'CREATE_PACKAGE_DRAFT'
   | 'REPAIR_PACKAGE_EVIDENCE'
@@ -90,21 +105,47 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
   }
 
   const researchRequired = input.sourceKind === 'WEBSITE'
-  if (researchRequired && input.candidate === null) {
-    set('ANALYZE', 'CURRENT', evidenceRefs, [
-      blocker(
-        'RESEARCH_ADAPTER_REQUIRED',
-        'sourceKind',
-        'Website intake requires the bounded research adapter before analysis can complete.',
-      ),
-    ])
+  const researchRefs = input.websiteResearch
+    ? [
+        ...evidenceRefs,
+        `website-research:${input.websiteResearch.receiptId}`,
+        `website-pages:${input.websiteResearch.fetchedPages}`,
+        `website-bytes:${input.websiteResearch.fetchedBytes}`,
+        `website-cost-units:${input.websiteResearch.estimatedCostUnits}`,
+        `website-latency-ms:${input.websiteResearch.latencyMs}`,
+      ]
+    : evidenceRefs
+  if (researchRequired && input.websiteResearch === null) {
+    set('ANALYZE', 'CURRENT', evidenceRefs)
     set('RESEARCH', 'BLOCKED', evidenceRefs, [
       blocker(
-        'RESEARCH_ADAPTER_REQUIRED',
-        'sourceKind',
-        'No reviewed website research result is linked to this intake run.',
+        'WEBSITE_RESEARCH_REQUIRED',
+        'websiteResearch',
+        'Run bounded website research before analysis can complete.',
       ),
     ])
+  } else if (researchRequired && input.websiteResearch?.outcome !== 'SUCCEEDED') {
+    const exhausted = !input.websiteResearch?.canRetry
+    const code = input.websiteResearch?.errorCode ?? 'WEBSITE_RESEARCH_FAILED'
+    const message =
+      input.websiteResearch?.errorMessage ?? 'Website research did not retain a usable result.'
+    set('ANALYZE', 'CURRENT', researchRefs)
+    set('RESEARCH', 'BLOCKED', researchRefs, [
+      blocker(
+        exhausted ? 'WEBSITE_RESEARCH_LIMIT_REACHED' : code,
+        'websiteResearch',
+        exhausted ? `${message} The bounded attempt limit is reached.` : message,
+      ),
+    ])
+  } else if (researchRequired && input.candidate === null) {
+    set('ANALYZE', 'BLOCKED', researchRefs, [
+      blocker(
+        'WEBSITE_RESEARCH_EVIDENCE_INVALID',
+        'websiteResearch',
+        'Stored website research cannot be projected into reviewed Builder evidence.',
+      ),
+    ])
+    set('RESEARCH', 'COMPLETE', researchRefs)
   } else if (input.candidate === null) {
     set('ANALYZE', 'BLOCKED', evidenceRefs, [
       blocker('SOURCE_NOT_SUPPORTED', 'sourceKind', 'This source has no reviewed Builder mapping.'),
@@ -118,7 +159,7 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
     set(
       'RESEARCH',
       researchRequired ? 'COMPLETE' : 'SKIPPED',
-      researchRequired ? evidenceRefs : ['policy:source-does-not-require-public-research'],
+      researchRequired ? researchRefs : ['policy:source-does-not-require-public-research'],
     )
   }
 
@@ -266,7 +307,16 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
 
   let nextAction: IntakeBuilderNextAction = 'NONE'
   if (current.stage === 'ANALYZE' || current.stage === 'RESEARCH') {
-    nextAction = 'CONFIGURE_RESEARCH_ADAPTER'
+    nextAction =
+      input.sourceKind !== 'WEBSITE'
+        ? 'RESOLVE_CLARIFICATION'
+        : input.websiteResearch === null
+          ? 'RUN_WEBSITE_RESEARCH'
+          : input.websiteResearch.outcome !== 'SUCCEEDED'
+            ? input.websiteResearch.canRetry
+              ? 'RETRY_WEBSITE_RESEARCH'
+              : 'REVIEW_WEBSITE_SOURCE'
+            : 'RESOLVE_CLARIFICATION'
   } else if (
     current.stage === 'NORMALIZE' ||
     current.stage === 'EXTRACT' ||
@@ -292,7 +342,9 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
   return {
     schemaVersion: 1 as const,
     runId: input.runId,
+    sourceKind: input.sourceKind,
     runStatus: input.runStatus,
+    websiteResearch: input.websiteResearch,
     currentStage: current.stage,
     currentState: current.state,
     nextAction,

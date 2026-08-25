@@ -17,6 +17,7 @@ describe('getIntakeBuilderLifecycle', () => {
       sourceKind: 'WEBSITE',
       status: 'AWAITING_REVIEW',
       _count: { evidence: 1 },
+      websiteResearchReceipts: [],
       packageHandoff: null,
     })
 
@@ -36,7 +37,7 @@ describe('getIntakeBuilderLifecycle', () => {
     expect(result).toMatchObject({
       currentStage: 'RESEARCH',
       currentState: 'BLOCKED',
-      nextAction: 'CONFIGURE_RESEARCH_ADAPTER',
+      nextAction: 'RUN_WEBSITE_RESEARCH',
     })
   })
 
@@ -59,6 +60,7 @@ describe('getIntakeBuilderLifecycle', () => {
       sourceKind: 'INTERVIEW',
       status: 'AWAITING_REVIEW',
       _count: { evidence: 2 },
+      websiteResearchReceipts: [],
       packageHandoff: {
         packageDraft: {
           id: 'package-a',
@@ -90,5 +92,76 @@ describe('getIntakeBuilderLifecycle', () => {
       currentState: 'BLOCKED',
       nextAction: 'REPAIR_PACKAGE_EVIDENCE',
     })
+  })
+
+  it('projects retained website citations into an explicitly unmapped review candidate', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-a',
+      sourceKind: 'WEBSITE',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      websiteResearchReceipts: [
+        {
+          id: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          outcome: 'SUCCEEDED',
+          researchSnapshot: {
+            schemaVersion: 1,
+            sourceId: 'run-a',
+            pages: [
+              {
+                url: 'https://example.org/',
+                depth: 0,
+                byteSize: 10,
+                normalizedHash: 'a'.repeat(64),
+              },
+            ],
+            citations: [
+              {
+                evidenceId: 'evidence-a',
+                fieldPath: 'venue.name',
+                value: 'Example Hall',
+                sourceUrl: 'https://example.org/',
+                locator: 'title',
+                confidence: 0.9,
+                dateSensitive: false,
+                effectiveDate: null,
+              },
+            ],
+            evidence: [],
+            discrepancies: [],
+          },
+          candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+          attemptedFetches: 1,
+          fetchedPages: 1,
+          fetchedBytes: 10,
+          estimatedCostUnits: 2,
+          latencyMs: 40,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+      packageHandoff: null,
+    })
+
+    const result = await getIntakeBuilderLifecycle({
+      db: { intakeRun: { findFirst } } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+
+    expect(result).toMatchObject({
+      currentStage: 'RECONCILE',
+      nextAction: 'RESOLVE_CLARIFICATION',
+      websiteResearch: {
+        outcome: 'SUCCEEDED',
+        attemptCount: 1,
+        canRetry: false,
+        fetchedPages: 1,
+      },
+    })
+    expect(result.stages.find(({ stage }) => stage === 'RECONCILE')?.blockers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'WEBSITE_MAPPING_REQUIRED' })]),
+    )
   })
 })

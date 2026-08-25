@@ -3,8 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { onboardingBootstrapInputHash } from '@pathfinder/db'
 
 const reviewedDraft = vi.hoisted(() => ({ orchestrate: vi.fn() }))
+const websiteResearch = vi.hoisted(() => ({
+  execute: vi.fn(),
+  dependencies: { resolveHostname: vi.fn() },
+}))
 vi.mock('../venue-package', () => ({
   createVenuePackageDraftService: reviewedDraft.orchestrate,
+}))
+vi.mock('../../lib/website-intake-research-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/website-intake-research-service')>()
+  return { ...actual, executeWebsiteIntakeResearch: websiteResearch.execute }
+})
+vi.mock('../../lib/website-intake-runtime', () => ({
+  createWebsiteIntakeRuntimeDependencies: vi.fn(() => websiteResearch.dependencies),
 }))
 
 import type { TRPCContext } from '../../context'
@@ -85,6 +96,61 @@ describe('platform admin intake operations', () => {
       status: 'AWAITING_REVIEW',
       displayName: 'Site',
       createdAt: new Date(),
+    })
+  })
+
+  it('gates bounded website research and supplies only server-owned execution policy', async () => {
+    const operationId = 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    await expect(
+      testRouter.createCaller(context(false)).operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(websiteResearch.execute).not.toHaveBeenCalled()
+
+    websiteResearch.execute.mockResolvedValue({
+      receiptId: operationId,
+      outcome: 'SUCCEEDED',
+      replayed: false,
+      packageDraftCreated: false,
+      autoApproved: false,
+      autoApplied: false,
+      autoPublished: false,
+    })
+    const result = await testRouter
+      .createCaller(context())
+      .operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+      })
+
+    expect(websiteResearch.execute).toHaveBeenCalledWith({
+      db,
+      request: {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+        maxPages: 5,
+        maxDepth: 1,
+        maxBytesPerPage: 1_000_000,
+        maxDurationMs: 30_000,
+        maxCostUnits: 20,
+        userAgent: 'TorchikoBuilder/1.0',
+        createdBy: 'platform-admin',
+      },
+      dependencies: websiteResearch.dependencies,
+    })
+    expect(result).toMatchObject({
+      packageDraftCreated: false,
+      autoApproved: false,
+      autoApplied: false,
+      autoPublished: false,
     })
   })
 

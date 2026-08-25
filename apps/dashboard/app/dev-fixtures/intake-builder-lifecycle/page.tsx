@@ -1,3 +1,5 @@
+'use client'
+
 import {
   IntakeBuilderLifecycleView,
   type IntakeBuilderLifecycle,
@@ -23,10 +25,12 @@ const stages = [
 const lifecycle: IntakeBuilderLifecycle = {
   schemaVersion: 1,
   runId: 'fixture-run',
+  sourceKind: 'WEBSITE',
   runStatus: 'AWAITING_REVIEW',
+  websiteResearch: null,
   currentStage: 'RESEARCH',
   currentState: 'BLOCKED',
-  nextAction: 'CONFIGURE_RESEARCH_ADAPTER',
+  nextAction: 'RUN_WEBSITE_RESEARCH',
   requiresHumanApproval: false,
   autoApprove: false,
   autoApply: false,
@@ -44,9 +48,9 @@ const lifecycle: IntakeBuilderLifecycle = {
       stage === 'RESEARCH'
         ? [
             {
-              code: 'RESEARCH_ADAPTER_REQUIRED',
-              path: 'sourceKind',
-              message: 'No reviewed website research result is linked to this intake run.',
+              code: 'WEBSITE_RESEARCH_REQUIRED',
+              path: 'websiteResearch',
+              message: 'Run bounded website research before analysis can complete.',
             },
           ]
         : [],
@@ -59,7 +63,7 @@ export default function IntakeBuilderLifecycleFixture() {
       <div className="mx-auto max-w-5xl rounded-2xl border border-pf-light bg-white p-4 sm:p-6">
         <p className="text-sm font-medium text-pf-deep">Website proposal · awaiting review</p>
         <p className="mt-1 text-sm text-pf-deep/70">1 evidence record · no package draft</p>
-        <IntakeBuilderLifecycleView lifecycle={lifecycle} />
+        <IntakeBuilderLifecycleView lifecycle={lifecycle} onRunWebsiteResearch={() => undefined} />
       </div>
     </main>
   )
