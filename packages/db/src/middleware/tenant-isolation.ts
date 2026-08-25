@@ -40,6 +40,7 @@ const APPEND_ONLY_MODELS = [
   'EvalResult',
   'EvalReview',
   'OnboardingMilestoneEvent',
+  'FirstWeekAccountReview',
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',

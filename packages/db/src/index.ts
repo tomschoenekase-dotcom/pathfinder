@@ -1141,6 +1141,11 @@ export type {
 } from './helpers/intake-upload-actions'
 export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
 export {
+  FirstWeekAccountReviewError,
+  materializeDueFirstWeekAccountReviews,
+} from './helpers/first-week-account-reviews'
+export type { MaterializeFirstWeekAccountReviewsInput } from './helpers/first-week-account-reviews'
+export {
   AgentImprovementProposalActionError,
   prepareAgentImprovementProposalAction,
 } from './helpers/agent-improvement-proposal-actions'

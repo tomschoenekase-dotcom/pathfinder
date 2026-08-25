@@ -30,6 +30,7 @@ export const TENANTED_TABLES = [
   'EvalResult',
   'EvalReview',
   'OnboardingMilestoneEvent',
+  'FirstWeekAccountReview',
   'VenueContentImportReceipt',
   'VenuePackage',
   'VenuePackageManifestArtifact',

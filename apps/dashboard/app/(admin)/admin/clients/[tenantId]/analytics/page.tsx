@@ -51,6 +51,13 @@ function formatRole(role: MessageRow['role']): string {
   return role === 'user' ? 'GUEST' : 'AI'
 }
 
+function formatMilestone(milestone: string): string {
+  if (milestone === 'DAY_1') return 'Day 1'
+  if (milestone === 'DAY_3') return 'Day 3'
+  if (milestone === 'DAY_7') return 'Day 7'
+  return milestone.replaceAll('_', ' ')
+}
+
 export default async function AdminClientAnalyticsPage({ params }: AdminClientAnalyticsPageProps) {
   const { tenantId } = await params
   const caller = await createAdminCaller()
@@ -77,7 +84,7 @@ export default async function AdminClientAnalyticsPage({ params }: AdminClientAn
     )
   }
 
-  const { tenant, stats, questionClusters, recentSessions } = data
+  const { tenant, stats, questionClusters, recentSessions, firstWeekReviews } = data
 
   return (
     <div className="space-y-10">
@@ -99,6 +106,96 @@ export default async function AdminClientAnalyticsPage({ params }: AdminClientAn
         <StatCard label="Total sessions" value={stats.totalSessions} />
         <StatCard label="Total messages" value={stats.totalMessages} />
         <StatCard label="Unique visitors" value={stats.uniqueVisitors} />
+      </section>
+
+      <section id="first-week-reviews" className="space-y-4" aria-labelledby="first-week-heading">
+        <div className="space-y-1">
+          <h2
+            id="first-week-heading"
+            className="text-2xl font-semibold tracking-tight text-pf-deep"
+          >
+            First-week learning
+          </h2>
+          <p className="text-sm leading-6 text-pf-deep/60">
+            Privacy-bounded day 1, 3, and 7 evidence. Drafts require human review and cannot send
+            from this surface.
+          </p>
+        </div>
+        {firstWeekReviews.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-pf-light bg-pf-white p-8 text-center text-sm text-pf-deep/60 shadow-sm">
+            Reviews appear automatically after a venue release reaches its first-day milestones.
+          </div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {firstWeekReviews.map((review) => (
+              <article
+                key={review.id}
+                className="min-w-0 rounded-3xl border border-pf-light bg-pf-white p-5 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-pf-deep/50">
+                      {formatMilestone(review.milestone)} · {review.venue.name}
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-pf-deep">
+                      {review.disposition === 'DRAFT_READY'
+                        ? 'Check-in draft ready'
+                        : 'No follow-up suggested'}
+                    </h3>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      review.disposition === 'DRAFT_READY'
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-emerald-100 text-emerald-900'
+                    }`}
+                  >
+                    {review.disposition === 'DRAFT_READY' ? 'Review draft' : 'Quiet milestone'}
+                  </span>
+                </div>
+
+                <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {[
+                    ['Sessions', review.metrics.publicSessions],
+                    ['Questions', review.metrics.guestQuestions],
+                    ['Knowledge gaps', review.metrics.knowledgeGapInsights],
+                    ['Low confidence', review.metrics.lowConfidenceInsights],
+                    ['Negative ratings', review.metrics.negativeFeedback],
+                    ['AI failures', review.metrics.failedAiRequests],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-2xl bg-pf-surface p-3">
+                      <dt className="text-xs font-medium text-pf-deep/60">{label}</dt>
+                      <dd className="mt-1 text-xl font-semibold text-pf-deep">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <p className="mt-4 text-xs text-pf-deep/50">
+                  Window ended {formatDateTime(review.dueAt)} · estimated AI cost $
+                  {review.metrics.estimatedAiCostUsd}
+                </p>
+
+                {review.disposition === 'DRAFT_READY' && review.draftSubject && review.draftBody ? (
+                  <details className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+                      Review internal draft
+                    </summary>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-900">
+                      Draft only — nothing has been sent
+                    </p>
+                    <p className="mt-3 text-sm font-semibold text-pf-deep">{review.draftSubject}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-pf-deep/80">
+                      {review.draftBody}
+                    </p>
+                    {review.draftReason ? (
+                      <p className="mt-3 text-xs leading-5 text-pf-deep/60">{review.draftReason}</p>
+                    ) : null}
+                  </details>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="space-y-4">

@@ -212,6 +212,7 @@ model Tenant {
   evalReviews                        EvalReview[]
   evalRunCostReservations            EvalRunCostReservation[]
   onboardingMilestoneEvents          OnboardingMilestoneEvent[]
+  firstWeekAccountReviews            FirstWeekAccountReview[]
   agentIdentities                    AgentIdentity[]
   agentRuns                          AgentRun[]
   agentActions                       AgentAction[]
@@ -1333,6 +1334,7 @@ model Venue {
   evalReviews                         EvalReview[]
   evalRunCostReservations             EvalRunCostReservation[]
   onboardingMilestoneEvents           OnboardingMilestoneEvent[]
+  firstWeekAccountReviews             FirstWeekAccountReview[]
   agentIdentities                     AgentIdentity[]
   agentRuns                           AgentRun[]
   agentActions                        AgentAction[]
@@ -3484,29 +3486,71 @@ model EvalResult {
 /// Append-only, sanitized onboarding milestone/outcome evidence. This records
 /// domain transitions, never page views, raw conversations, or mutable counters.
 model OnboardingMilestoneEvent {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String   @map("tenant_id")
-  venueId        String   @map("venue_id")
-  eventType      String   @map("event_type") @db.VarChar(64)
-  eventVersion   Int      @default(1) @map("event_version")
-  idempotencyKey String   @map("idempotency_key") @db.VarChar(191)
-  identityHash   String   @map("identity_hash") @db.Char(64)
-  occurredAt     DateTime @map("occurred_at")
-  actorType      String   @map("actor_type") @db.VarChar(32)
-  actorId        String?  @map("actor_id") @db.VarChar(191)
-  sourceType     String   @map("source_type") @db.VarChar(64)
-  sourceId       String   @map("source_id") @db.VarChar(191)
-  sourceRevision String?  @map("source_revision") @db.VarChar(191)
-  category       String?  @db.VarChar(100)
-  durationMs     Int?     @map("duration_ms")
-  createdAt      DateTime @default(now()) @map("created_at")
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue          Venue    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                   @map("tenant_id")
+  venueId          String                   @map("venue_id")
+  eventType        String                   @map("event_type") @db.VarChar(64)
+  eventVersion     Int                      @default(1) @map("event_version")
+  idempotencyKey   String                   @map("idempotency_key") @db.VarChar(191)
+  identityHash     String                   @map("identity_hash") @db.Char(64)
+  occurredAt       DateTime                 @map("occurred_at")
+  actorType        String                   @map("actor_type") @db.VarChar(32)
+  actorId          String?                  @map("actor_id") @db.VarChar(191)
+  sourceType       String                   @map("source_type") @db.VarChar(64)
+  sourceId         String                   @map("source_id") @db.VarChar(191)
+  sourceRevision   String?                  @map("source_revision") @db.VarChar(191)
+  category         String?                  @db.VarChar(100)
+  durationMs       Int?                     @map("duration_ms")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  firstWeekReviews FirstWeekAccountReview[]
 
   @@unique([tenantId, venueId, eventType, idempotencyKey], map: "onboarding_milestone_events_replay_key")
+  @@unique([id, tenantId, venueId], map: "onboarding_milestone_events_id_scope_key")
   @@index([tenantId, venueId, occurredAt, id], map: "onboarding_milestone_events_timeline_idx")
   @@index([tenantId, eventType, occurredAt], map: "onboarding_milestone_events_rollup_idx")
   @@map("onboarding_milestone_events")
+}
+
+enum FirstWeekReviewMilestone {
+  DAY_1
+  DAY_3
+  DAY_7
+}
+
+enum FirstWeekReviewDisposition {
+  NO_ACTION
+  DRAFT_READY
+}
+
+/// Append-only, privacy-bounded first-week learning evidence. Metrics are
+/// aggregate counts/cost only; drafts have no recipient, provider, or send authority.
+model FirstWeekAccountReview {
+  id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                String                     @map("tenant_id")
+  venueId                 String                     @map("venue_id")
+  releaseMilestoneEventId String                     @map("release_milestone_event_id") @db.Uuid
+  milestone               FirstWeekReviewMilestone
+  reviewVersion           Int                        @default(1) @map("review_version")
+  releaseAt               DateTime                   @map("release_at")
+  dueAt                   DateTime                   @map("due_at")
+  snapshotHash            String                     @map("snapshot_hash") @db.Char(64)
+  metrics                 Json
+  disposition             FirstWeekReviewDisposition
+  draftSubject            String?                    @map("draft_subject") @db.VarChar(191)
+  draftBody               String?                    @map("draft_body") @db.VarChar(4000)
+  draftReason             String?                    @map("draft_reason") @db.VarChar(500)
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  tenant                  Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  releaseMilestoneEvent   OnboardingMilestoneEvent   @relation(fields: [releaseMilestoneEventId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, releaseMilestoneEventId, milestone], map: "first_week_account_reviews_milestone_key")
+  @@unique([snapshotHash], map: "first_week_account_reviews_snapshot_hash_key")
+  @@index([tenantId, venueId, dueAt, id], map: "first_week_account_reviews_timeline_idx")
+  @@index([tenantId, disposition, dueAt, id], map: "first_week_account_reviews_attention_idx")
+  @@map("first_week_account_reviews")
 }
 
 /// Append-only human review conclusion. It stores a bounded conclusion, never hidden reasoning.

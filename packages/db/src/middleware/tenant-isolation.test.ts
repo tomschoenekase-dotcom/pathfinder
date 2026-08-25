@@ -111,6 +111,7 @@ describe('tenantIsolationMiddleware', () => {
       'EvalResult',
       'EvalReview',
       'OnboardingMilestoneEvent',
+      'FirstWeekAccountReview',
       'VenueContentImportReceipt',
       'VenuePackage',
       'VenuePackageManifestArtifact',

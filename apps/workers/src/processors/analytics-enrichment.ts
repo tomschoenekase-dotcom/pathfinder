@@ -15,6 +15,7 @@ import {
   assertVenueAiAvailable,
   db,
   isAiAdmissionControlError,
+  materializeDueFirstWeekAccountReviews,
   recordOrReplayOnboardingMilestoneEvent,
   updateJobRecord,
   withTenantIsolationBypass,
@@ -750,6 +751,7 @@ export async function processAnalyticsEnrichmentJob(
     let totalRollups = 0
     let totalClusters = 0
     let totalThemes = 0
+    let totalFirstWeekReviews = 0
 
     await withTenantIsolationBypass(async () => {
       const venues = await db.venue.findMany({
@@ -796,6 +798,14 @@ export async function processAnalyticsEnrichmentJob(
           }
         })
 
+        const firstWeekReviews = await materializeDueFirstWeekAccountReviews({
+          tenantId: payload.tenantId,
+          venueId: venue.id,
+          now: dayEnd,
+          systemJobId: jobRecordId,
+        })
+        totalFirstWeekReviews += firstWeekReviews.filter((review) => !review.replayed).length
+
         totalRollups += rollups.length
       }
     })
@@ -809,6 +819,7 @@ export async function processAnalyticsEnrichmentJob(
       rollupCount: totalRollups,
       clusterCount: totalClusters,
       themeCount: totalThemes,
+      firstWeekReviewCount: totalFirstWeekReviews,
     })
   } catch (error) {
     if (isAiAdmissionControlError(error)) throw error

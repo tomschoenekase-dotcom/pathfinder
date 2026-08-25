@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
+import { FirstWeekAccountReviewMetrics } from '@pathfinder/contracts'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
@@ -28,6 +29,7 @@ export const adminClientAnalyticsRouter = router({
           uniqueVisitors,
           recentSessions,
           questionClusters,
+          firstWeekReviews,
         ] = await Promise.all([
           db.tenant.findUnique({
             where: { id: input.tenantId },
@@ -90,6 +92,25 @@ export const adminClientAnalyticsRouter = router({
               venue: { select: { name: true } },
             },
           }),
+          db.firstWeekAccountReview.findMany({
+            where: { tenantId: input.tenantId },
+            orderBy: [{ dueAt: 'desc' }, { id: 'desc' }],
+            take: 30,
+            select: {
+              id: true,
+              venueId: true,
+              milestone: true,
+              releaseAt: true,
+              dueAt: true,
+              metrics: true,
+              disposition: true,
+              draftSubject: true,
+              draftBody: true,
+              draftReason: true,
+              createdAt: true,
+              venue: { select: { name: true } },
+            },
+          }),
         ])
 
         if (!tenant) {
@@ -108,6 +129,11 @@ export const adminClientAnalyticsRouter = router({
             messageCount: session.messages.filter((message) => message.role === 'user').length,
           })),
           questionClusters,
+          firstWeekReviews: firstWeekReviews.map((review) => ({
+            ...review,
+            metrics: FirstWeekAccountReviewMetrics.parse(review.metrics),
+            communicationAuthority: 'draft-only' as const,
+          })),
         }
       })
     }),

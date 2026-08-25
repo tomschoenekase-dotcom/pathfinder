@@ -56,6 +56,7 @@ const approvedPolicies = new Set([
   'tenant-client-assistant-completion-lock',
   'tenant-client-assistant-handoff-lock',
   'tenant-customer-access-request-lock',
+  'tenant-first-week-review-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
@@ -337,6 +338,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'cac8f03557d08d95fc8b2642544c804de72cbeab1e60dddc5ac4fe81a56015bd',
     policy: 'tenant-customer-access-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/first-week-account-reviews.ts',
+    method: '$executeRaw',
+    hash: '0188079f60cc9ec225e98669674c3812e1c034006b1f85cbf00f1a1f6eae9e2f',
+    policy: 'tenant-first-week-review-lock',
   },
   {
     file: 'packages/db/src/helpers/offboarding-plan-actions.ts',

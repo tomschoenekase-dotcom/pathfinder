@@ -129,6 +129,18 @@
       "remaining": "Hosted observations, provider exports, rate provenance, accounting reconciliation, and founder-approved anomaly policy remain external or unresolved."
     },
     {
+      "id": "first-week-account-learning",
+      "status": "proven-provider-dark-locally",
+      "summary": "The nightly learning path materializes immutable, release-anchored day 1, 3, and 7 aggregate reviews and surfaces only useful customer check-in drafts for human review.",
+      "evidence": [
+        "docs/first-week-account-learning.md",
+        "packages/db/src/helpers/first-week-account-reviews.ts",
+        "packages/db/src/helpers/first-week-account-reviews-disposable.integration.test.ts",
+        "apps/dashboard/app/(admin)/admin/clients/[tenantId]/analytics/page.tsx"
+      ],
+      "remaining": "Hosted scheduler continuity and any customer communication remain unproven and gated; drafts have no recipient, provider, or sending authority."
+    },
+    {
       "id": "privacy-retention",
       "status": "partially-implemented-policy-gated",
       "summary": "A truthful privacy-policy status surface, retention inventory, and non-destructive disposition preview exist; general deletion execution does not.",

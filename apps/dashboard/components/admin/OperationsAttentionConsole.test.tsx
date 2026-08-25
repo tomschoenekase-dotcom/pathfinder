@@ -642,6 +642,43 @@ describe('operations attention console', () => {
     )
   })
 
+  it('routes first-week learning drafts to the aggregate review evidence', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          events: {
+            items: [
+              {
+                id: 'event_first_week',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'customer-learning.first-week-draft-ready',
+                sourceSubsystem: 'first-week-account-review',
+                severity: 'INFO',
+                title: 'day 3 customer check-in draft',
+                summary: 'A privacy-bounded first-week review produced a draft for human review.',
+                recommendedAction: 'Review the aggregate evidence and edit or discard the draft.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'FirstWeekAccountReview',
+                linkedObjectId: 'review_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/analytics#first-week-reviews',
+    )
+  })
+
   it('renders platform CRM attention without a fabricated tenant link', () => {
     render(
       <OperationsAttentionConsole

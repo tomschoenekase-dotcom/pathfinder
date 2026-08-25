@@ -14,6 +14,7 @@ const {
   visitorSessionUpdateMany,
   messageCount,
   questionClusterFindMany,
+  firstWeekAccountReviewFindMany,
   aiUsageDailyRollupFindMany,
   userUpsert,
   tenantMembershipUpsert,
@@ -73,6 +74,7 @@ const {
   visitorSessionUpdateMany: vi.fn(),
   messageCount: vi.fn(),
   questionClusterFindMany: vi.fn(),
+  firstWeekAccountReviewFindMany: vi.fn(),
   aiUsageDailyRollupFindMany: vi.fn(),
   userUpsert: vi.fn(),
   tenantMembershipUpsert: vi.fn(),
@@ -151,6 +153,9 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     },
     questionCluster: {
       findMany: questionClusterFindMany,
+    },
+    firstWeekAccountReview: {
+      findMany: firstWeekAccountReviewFindMany,
     },
     aiUsageDailyRollup: {
       findMany: aiUsageDailyRollupFindMany,
@@ -527,6 +532,32 @@ describe('admin router', () => {
         venue: { name: 'Main Venue' },
       },
     ])
+    firstWeekAccountReviewFindMany.mockResolvedValueOnce([
+      {
+        id: 'review_1',
+        venueId: 'venue_1',
+        milestone: 'DAY_3',
+        releaseAt: new Date('2026-06-28T00:00:00.000Z'),
+        dueAt: new Date('2026-07-01T00:00:00.000Z'),
+        metrics: {
+          publicSessions: 3,
+          guestQuestions: 5,
+          lowConfidenceInsights: 1,
+          knowledgeGapInsights: 0,
+          negativeFeedback: 0,
+          supportRequestsCreated: 0,
+          aiRequests: 5,
+          failedAiRequests: 0,
+          estimatedAiCostUsd: '0.02',
+        },
+        disposition: 'DRAFT_READY',
+        draftSubject: 'A quick first-week check-in',
+        draftBody: 'Draft only.',
+        draftReason: 'Review before sending.',
+        createdAt: new Date('2026-07-01T00:05:00.000Z'),
+        venue: { name: 'Main Venue' },
+      },
+    ])
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.getClientAnalytics({ tenantId: 'tenant_1' })
@@ -540,6 +571,13 @@ describe('admin router', () => {
     expect(result.recentSessions).toHaveLength(1)
     expect(result.recentSessions[0]?.messageCount).toBe(1)
     expect(result.questionClusters).toHaveLength(1)
+    expect(result.firstWeekReviews).toEqual([
+      expect.objectContaining({
+        id: 'review_1',
+        milestone: 'DAY_3',
+        communicationAuthority: 'draft-only',
+      }),
+    ])
     expect(visitorSessionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         distinct: ['visitorId'],
@@ -564,6 +602,7 @@ describe('admin router', () => {
     messageCount.mockResolvedValueOnce(0)
     visitorSessionFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     questionClusterFindMany.mockResolvedValueOnce([])
+    firstWeekAccountReviewFindMany.mockResolvedValueOnce([])
 
     const caller = testRouter.createCaller(adminCtx())
 

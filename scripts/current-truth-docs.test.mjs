@@ -54,6 +54,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
     'gmail-correspondence',
     'local-staging-infrastructure',
     'operational-usage-evidence',
+    'first-week-account-learning',
     'privacy-retention',
     'customer-access-execution',
     'claim-attribution-calibration',

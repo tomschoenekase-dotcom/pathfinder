@@ -41,6 +41,7 @@
     "./prospect-staging-package": "./src/prospect-staging-package.ts",
     "./location-authoring": "./src/location-authoring.ts",
     "./agent-bridge": "./src/agent-bridge.ts",
+    "./first-week-account-review": "./src/first-week-account-review.ts",
     "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"
   },
   "types": "./src/index.ts",

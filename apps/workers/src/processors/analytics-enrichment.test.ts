@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   aiUsageEventCreate: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
   recordOrReplayOnboardingMilestoneEvent: vi.fn(),
+  materializeDueFirstWeekAccountReviews: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -82,6 +83,7 @@ vi.mock('@pathfinder/db', () => ({
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
   recordOrReplayOnboardingMilestoneEvent: mocks.recordOrReplayOnboardingMilestoneEvent,
+  materializeDueFirstWeekAccountReviews: mocks.materializeDueFirstWeekAccountReviews,
 }))
 
 import {
@@ -163,6 +165,7 @@ describe('processAnalyticsEnrichmentJob', () => {
       event: { id: 'milestone_1' },
       replayed: false,
     })
+    mocks.materializeDueFirstWeekAccountReviews.mockResolvedValue([])
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         dailyRollup: { deleteMany: mocks.rollupDeleteMany, createMany: mocks.rollupCreateMany },
@@ -283,6 +286,12 @@ describe('processAnalyticsEnrichmentJob', () => {
     })
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+    expect(mocks.materializeDueFirstWeekAccountReviews).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      now: new Date('2026-06-19T00:00:00.000Z'),
+      systemJobId: 'job_record_1',
+    })
     for (const call of mocks.analyticsFindMany.mock.calls.slice(0, 3)) {
       expect(call[0]).toEqual(
         expect.objectContaining({

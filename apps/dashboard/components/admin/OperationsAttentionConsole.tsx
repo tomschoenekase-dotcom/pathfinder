@@ -52,6 +52,9 @@ function tenantEventHref(event: Data['events']['items'][number]) {
   if (event.eventType.startsWith('ai-cost-budget.')) {
     return `/admin/clients/${event.tenantId}#ai-cost-budget`
   }
+  if (event.eventType.startsWith('customer-learning.first-week-')) {
+    return `/admin/clients/${event.tenantId}/analytics#first-week-reviews`
+  }
   if (!event.venueId) return `/admin/clients/${event.tenantId}`
   if (event.eventType.startsWith('evaluation.'))
     return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`

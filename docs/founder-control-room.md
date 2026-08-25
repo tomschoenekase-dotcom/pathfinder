@@ -82,6 +82,19 @@ answer a question, decide an approval, resume a worker, or execute a queue item.
 submissions fail closed and require a refreshed briefing. Counts remain a bounded visible delta,
 not a claim of exhaustive historical accounting.
 
+## First-week customer learning
+
+The nightly analytics path materializes immutable day 1, day 3, and day 7 reviews from each
+venue's first canonical release milestone. Reviews contain aggregate session, question,
+quality-signal, support, failure, and estimated AI-cost evidence only. Raw conversation content,
+feedback reasons, and insight summaries remain in their canonical stores.
+
+Quiet milestones produce no Control Room item. When the aggregate evidence supports a useful
+customer check-in, a deduplicated tenant operational event links directly to the internal client
+analytics review. The draft is visibly internal and has no recipient, provider, outbox, or sending
+action. It must be edited, discarded, or sent through a separately authorized communication
+workflow.
+
 ## Decision and execution boundary
 
 The Control Room lets the founder answer an agent question or record an approval decision in

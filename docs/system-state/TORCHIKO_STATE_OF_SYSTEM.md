@@ -23,6 +23,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | `gmail-correspondence`          | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
 | `local-staging-infrastructure`  | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
 | `operational-usage-evidence`    | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
+| `first-week-account-learning`   | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
 | `privacy-retention`             | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
 | `customer-access-execution`     | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
 | `claim-attribution-calibration` | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
@@ -103,7 +104,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 183 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 184 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
