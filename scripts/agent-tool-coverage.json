@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 416,
-    "sha256": "3eab1182e1758577c59793d8d1fdc016a6405cd4c48fc1738190edd1a03078cd",
+    "count": 417,
+    "sha256": "622c20b067de559979bc968b7f5c04e4f217b46ef408f079349cd4cc9ac3b63c",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "3eab1182e1758577c59793d8d1fdc016a6405cd4c48fc1738190edd1a03078cd",
-      "sha256": "8532b4ad81270673e1bbfbb51feb05bf7a1618469f8300aa7d669275a2b027b3"
+      "operationInventorySha256": "622c20b067de559979bc968b7f5c04e4f217b46ef408f079349cd4cc9ac3b63c",
+      "sha256": "29b881413b705645d4b298922f850c461fb25a1bd4d274ef40166f48ae7ac0fd"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -75,6 +75,14 @@
         "surfaces": ["tool:torchiko.account.get_context", "resource:pathfinder.clients"],
         "decision": "Agents receive tenant-scoped relationship context and client identity without the unrestricted platform directory or management surface.",
         "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-retention-disposition-preview",
+        "kind": "direct-tool",
+        "operations": ["admin.previewRetentionDisposition"],
+        "surfaces": ["resource:pathfinder.retention-preview"],
+        "decision": "Platform administrators and separately capability-gated agents receive the same full-client, count-only retention coverage evidence. The resource cannot accept policy, approval, deletion, anonymization, revocation, provider, or backup actions.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
       },
       {
         "id": "bounded-account-correspondence",
@@ -661,11 +669,11 @@
     },
     {
       "id": "offboarding",
-      "pattern": "Offboarding",
-      "agentCoverage": "restricted",
+      "pattern": "Offboarding|RetentionDisposition",
+      "agentCoverage": "partial",
       "developerCoverage": "full",
-      "decision": "Finalization is high consequence; agents may gain preview/read support but not autonomous finalization.",
-      "evidence": "docs/agents/GAP_REPORT.md"
+      "decision": "Agents may inspect a count-only, policy-unresolved retention preview; offboarding finalization, policy approval, revocation, deletion, anonymization, and provider-side actions remain restricted.",
+      "evidence": "docs/retention-disposition-preview.md"
     }
   ]
 }

@@ -10,15 +10,16 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P0.1 — Decide and execute customer-data retention/deletion
 
-- **Problem:** Retention is represented as an inventory/readiness contract, but there is no general deletion/retention executor. Guest conversations, uploads, support records, analytics, and derived AI data can accumulate without an executable policy.
-- **Evidence:** `docs/retention-policy-architecture.md`; retention models/helpers in `packages/db`; offboarding/export code; readiness intentionally remains false until all required decisions exist.
+- **Status:** **READ-ONLY DATABASE PREVIEW IMPLEMENTED 2026-08-25; POLICY AND EXECUTION REMAIN BLOCKED.** A platform administrator or separately capability-gated agent can now inspect one full client across every canonical tenant-linked/shared-scope model. Exact counts, unclassified models, platform-unscoped data, external-artifact exclusions, unresolved policy, and unavailable counts are explicit. The preview always denies execution and performs no mutation.
+- **Problem:** There is still no approved general deletion/anonymization policy or executor. Guest conversations, uploads, support records, analytics, and derived AI data can accumulate without an executable policy.
+- **Evidence:** `docs/retention-disposition-preview.md`; `docs/retention-policy-architecture.md`; `previewRetentionDispositionAction`; `pathfinder.retention-preview`; `pnpm test:retention-disposition-preview:disposable`; offboarding/export code.
 - **Affected system:** Privacy, database, uploads, analytics, support, AI usage, offboarding.
-- **Recommended change:** Have the owner/legal decision-maker set the required policy values; implement dry-run inventories, dependency-aware deletion/anonymization, legal holds, audit receipts, replay safety, and restore-aware tests.
+- **Recommended change:** Have the owner/legal decision-maker classify remaining models and external artifacts and set the required policy values; then extend the preview into dependency-aware deletion/anonymization, legal holds, audit receipts, replay safety, provider/object-store coverage, and restore-aware tests.
 - **Why it matters:** Real client and visitor data without an executable policy creates compliance and trust risk and makes later deletion much harder.
 - **Effort:** L
 - **Dependencies:** Product/legal decisions; storage inventory; backup policy.
 - **Before more venue acquisition:** **Yes**, at least policy decisions and a tested manual deletion path.
-- **Codex autonomous:** **No** for policy; **partly** for implementation after explicit decisions.
+- **Codex autonomous:** **Read-only preview complete**; no for policy or destructive execution without explicit decisions.
 
 ### P0.2 — Re-establish current backup/PITR and restore evidence
 

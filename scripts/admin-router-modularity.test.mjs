@@ -204,6 +204,7 @@ const expectedAdminProcedures = [
   'previewFullVenueDeploymentManifest',
   'previewOffboardingExportManifest',
   'previewProspectImportRepair',
+  'previewRetentionDisposition',
   'previewTerminalJobRedrive',
   'previewUniversalContent',
   'projectNativeVenueDeployment',

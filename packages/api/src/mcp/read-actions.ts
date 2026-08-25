@@ -9,6 +9,7 @@ import {
   WORKER_HEARTBEAT_KEY,
   assessNativeGuestReadActivationAction,
   measureNativeContentConvergenceAction,
+  previewRetentionDispositionAction,
   projectWorkerHeartbeat,
 } from '@pathfinder/db'
 
@@ -65,6 +66,7 @@ type ReadDb = Pick<
 type McpReadServices = {
   assessNativeGuestReadActivation?: typeof assessNativeGuestReadActivationAction
   measureNativeContentConvergence?: typeof measureNativeContentConvergenceAction
+  previewRetentionDisposition?: typeof previewRetentionDispositionAction
 }
 
 type CursorPayload = Readonly<{
@@ -201,6 +203,9 @@ export async function readMcpResource(
     case 'readiness':
       rejectCursor(cursor, input.resource)
       return readReadiness(db, context.credential.tenantId, input.venueId!, services)
+    case 'retention-preview':
+      rejectCursor(cursor, input.resource)
+      return readRetentionPreview(db, context.credential.tenantId, services)
     case 'questions':
       return readQuestions(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'outcomes':
@@ -223,12 +228,26 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
       'Verified tenant and client scope do not match.',
     )
   }
-  if (!['clients', 'billing', 'feature-flags'].includes(input.resource) && !input.venueId) {
+  if (
+    !['clients', 'billing', 'feature-flags', 'retention-preview'].includes(input.resource) &&
+    !input.venueId
+  ) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'This resource requires exact venue scope.')
   }
   if (input.venueId && !credential.venueIds.includes(input.venueId)) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'Verified venue scope does not match.')
   }
+}
+
+async function readRetentionPreview(
+  db: ReadDb,
+  tenantId: string,
+  services: McpReadServices,
+): Promise<McpToolResult> {
+  const previewRetentionDisposition =
+    services.previewRetentionDisposition ?? previewRetentionDispositionAction
+  const preview = await previewRetentionDisposition({ tenantId }, db as never)
+  return result('retention-preview', preview)
 }
 
 async function readBilling(

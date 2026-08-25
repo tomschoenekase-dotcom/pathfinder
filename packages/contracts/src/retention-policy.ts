@@ -269,6 +269,76 @@ export type RetentionReadiness = {
   policyVersion: string | null
 }
 
+export const RETENTION_DISPOSITION_PREVIEW_VERSION =
+  'torchiko-retention-disposition-preview-v1' as const
+
+export const RetentionInventoryScopeClass = z.enum([
+  'TENANT_ROOT',
+  'TENANT_DIRECT',
+  'SHARED_TENANT_LINK',
+  'PLATFORM_UNSCOPED',
+])
+export type RetentionInventoryScopeClass = z.infer<typeof RetentionInventoryScopeClass>
+
+export const RetentionInventoryCountState = z.enum(['EXACT', 'UNAVAILABLE', 'UNSCOPED'])
+export type RetentionInventoryCountState = z.infer<typeof RetentionInventoryCountState>
+
+export const RetentionDispositionBlocker = z.enum([
+  'TENANT_NOT_FOUND',
+  'UNRESOLVED_POLICY',
+  'UNCLASSIFIED_TENANT_DATA',
+  'PLATFORM_UNSCOPED_DATA',
+  'EXTERNAL_ARTIFACTS_NOT_COUNTED',
+  'COUNT_UNAVAILABLE',
+  'NO_REVIEWED_EXECUTOR',
+])
+export type RetentionDispositionBlocker = z.infer<typeof RetentionDispositionBlocker>
+
+export type RetentionDispositionInventoryItem = Readonly<{
+  model: string
+  scopeClass: RetentionInventoryScopeClass
+  countState: RetentionInventoryCountState
+  rowCount: string | null
+  decisionKey: RetentionDecisionKey | null
+  lifecycle: RetentionInventoryEntry['lifecycle'] | null
+  deletionBoundary: RetentionInventoryEntry['deletionBoundary'] | null
+  containsPersonalData: boolean | null
+  clientExportEligible: boolean | null
+  notes: string
+}>
+
+/**
+ * Read-only evidence for owner/legal policy work. This contract intentionally cannot represent an
+ * executable deletion, anonymization, revocation, approval grant, or policy default.
+ */
+export type RetentionDispositionPreview = Readonly<{
+  schemaVersion: typeof RETENTION_DISPOSITION_PREVIEW_VERSION
+  generatedAt: string
+  scope: Readonly<{ tenantId: string; venueIds: null; fullTenantOnly: true }>
+  mode: 'READ_ONLY_NO_EFFECT'
+  tenantExists: boolean
+  policy: RetentionReadiness
+  coverage: Readonly<{
+    exactCountedModels: number
+    unavailableCountModels: number
+    tenantLinkedUnclassifiedModels: number
+    platformUnscopedModels: number
+    policyMappedModels: number
+    exactTenantLinkedRows: string
+  }>
+  inventory: readonly RetentionDispositionInventoryItem[]
+  blockers: readonly RetentionDispositionBlocker[]
+  boundaries: Readonly<{
+    readyForExecution: false
+    destructiveActionAvailable: false
+    anonymizationActionAvailable: false
+    approvalGrantAvailable: false
+    externalArtifactsCounted: false
+    providerRecordsCounted: false
+    backupRestoreTreatmentResolved: false
+  }>
+}>
+
 export function assessRetentionReadiness(policy: RetentionPolicySet | null): RetentionReadiness {
   if (!policy) {
     return {

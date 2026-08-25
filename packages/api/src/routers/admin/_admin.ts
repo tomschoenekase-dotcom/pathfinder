@@ -71,6 +71,7 @@ import { adminCompanyBrainRouter } from './company-brain'
 import { adminPlatformWorkerPolicyCredentialsRouter } from './platform-worker-policy-credentials'
 import { adminUnitEconomicsRouter } from './unit-economics'
 import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
+import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -91,6 +92,7 @@ export const adminRouter = mergeRouters(
   adminPlatformWorkerPolicyCredentialsRouter,
   adminUnitEconomicsRouter,
   adminGuestAnswerAttributionsRouter,
+  adminRetentionDispositionPreviewRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

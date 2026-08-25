@@ -10,6 +10,7 @@ import {
   parsePublishedPort,
   runDisposableGoldenVenueShakedown,
   runDisposableIntakeVerificationShakedown,
+  runDisposableRetentionDispositionPreviewShakedown,
   validateLocalDockerEndpoint,
   validateVitestReport,
 } from './lib/disposable-intake-upload-verification.mjs'
@@ -179,7 +180,7 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
         const name = args[args.indexOf('--name') + 1]
         assert.match(
           name,
-          /^pathfinder-disposable-(?:intake|golden)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
+          /^pathfinder-disposable-(?:intake|golden|retention)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
         )
         running.add(name)
         return { status: 0, stdout: 'container-id\n', stderr: '' }
@@ -322,6 +323,52 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
     /"failureScope":\["provider-outage","voice-authorization-failure","rate-limit","bad-upload","duplicate-request","failed-worker","report-failure","ambiguous-provider-outcome"\]/u,
   )
   assert.match(stdout.value, /"proofMetrics":\{"expectedFixtureQuestions":4\}/u)
+  assert.match(stdout.value, /"cleanup":"verified-absent"/u)
+  assert.equal(runtime.running.size, 0)
+})
+
+test('runs the retention preview with a count-only provider-dark integration contract', async () => {
+  const runtime = fakeRuntime()
+  const stdout = {
+    value: '',
+    write(value) {
+      this.value += value
+    },
+  }
+  await assert.doesNotReject(
+    runDisposableRetentionDispositionPreviewShakedown({
+      env: {
+        npm_execpath: 'pnpm-cli.cjs',
+        npm_lifecycle_event: 'test:retention-disposition-preview:disposable',
+        ANTHROPIC_API_KEY: 'must-not-propagate',
+        OPENAI_API_KEY: 'must-not-propagate',
+      },
+      spawnSyncImpl: runtime.spawnSyncImpl,
+      fetchImpl: async () => ({ ok: true }),
+      waitImpl: async () => {},
+      stdout,
+      repositoryRoot: 'C:/pathfinder',
+    }),
+  )
+  const integrationCall = runtime.calls.find(
+    ({ command, args }) => command === process.execPath && args.includes('vitest'),
+  )
+  assert.ok(integrationCall)
+  assert.ok(integrationCall.args.includes('packages/db'))
+  assert.ok(
+    integrationCall.args.includes(
+      'src/helpers/retention-disposition-preview.disposable.integration.test.ts',
+    ),
+  )
+  assert.equal(runtime.childEnvironments[0].RUN_RETENTION_DISPOSITION_PREVIEW_DB_INTEGRATION, '1')
+  assert.equal(runtime.childEnvironments[0].ANTHROPIC_API_KEY, undefined)
+  assert.equal(runtime.childEnvironments[0].OPENAI_API_KEY, undefined)
+  assert.match(
+    stdout.value,
+    /"action":"retention-disposition-preview\.disposable-shakedown\.passed"/u,
+  )
+  assert.match(stdout.value, /"exact-full-client-database-counts"/u)
+  assert.match(stdout.value, /"no-delete-anonymize-revocation-or-approval-effect"/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.running.size, 0)
 })

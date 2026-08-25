@@ -62,6 +62,7 @@ export const McpCapability = z.enum([
   'deployments:read',
   'feature-flags:read',
   'readiness:read',
+  'retention:read',
   'questions:read',
   'outcomes:read',
   'agent-improvements:read',
@@ -393,6 +394,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'pathfinder://clients/{clientId}/venues/{venueId}/readiness',
     'venue',
     'readiness:read',
+  ],
+  [
+    'retention-preview',
+    'Retention disposition preview',
+    'Full-client, read-only database count and policy-coverage evidence; never authorizes deletion, anonymization, revocation, or external provider action.',
+    'pathfinder://clients/{clientId}/retention-preview',
+    'client',
+    'retention:read',
   ],
   [
     'questions',

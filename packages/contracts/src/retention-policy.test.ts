@@ -4,6 +4,10 @@ import {
   assessRetentionReadiness,
   assertRetentionExecutionAuthorized,
   RETENTION_DATA_INVENTORY,
+  RETENTION_DISPOSITION_PREVIEW_VERSION,
+  RetentionDispositionBlocker,
+  RetentionInventoryCountState,
+  RetentionInventoryScopeClass,
   RetentionDecisionKey,
   RetentionPolicySet,
 } from './retention-policy'
@@ -73,5 +77,18 @@ describe('retention policy architecture', () => {
     expect(readiness.ready).toBe(false)
     expect(readiness.unresolvedDecisionKeys).not.toContain('guest-conversations')
     expect(readiness.unresolvedDecisionKeys).toHaveLength(RetentionDecisionKey.options.length - 1)
+  })
+
+  it('keeps the disposition preview vocabulary explicitly read-only and fail-closed', () => {
+    expect(RETENTION_DISPOSITION_PREVIEW_VERSION).toBe('torchiko-retention-disposition-preview-v1')
+    expect(RetentionInventoryScopeClass.options).toEqual([
+      'TENANT_ROOT',
+      'TENANT_DIRECT',
+      'SHARED_TENANT_LINK',
+      'PLATFORM_UNSCOPED',
+    ])
+    expect(RetentionInventoryCountState.options).toEqual(['EXACT', 'UNAVAILABLE', 'UNSCOPED'])
+    expect(RetentionDispositionBlocker.options).toContain('NO_REVIEWED_EXECUTOR')
+    expect(RetentionDispositionBlocker.options).toContain('UNRESOLVED_POLICY')
   })
 })

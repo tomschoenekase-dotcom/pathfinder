@@ -57,6 +57,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.feature-flags',
       'pathfinder.onboarding-summary',
       'pathfinder.readiness',
+      'pathfinder.retention-preview',
       'pathfinder.questions',
       'pathfinder.outcomes',
       'pathfinder.agent-improvements',

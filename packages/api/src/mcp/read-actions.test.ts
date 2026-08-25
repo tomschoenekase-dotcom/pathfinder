@@ -38,6 +38,7 @@ const credential: VerifiedMcpCredentialScope = {
     'deployments:read',
     'feature-flags:read',
     'readiness:read',
+    'retention:read',
     'questions:read',
     'outcomes:read',
     'agent-improvements:read',
@@ -343,6 +344,55 @@ describe('MCP v0 concrete read bindings', () => {
       ),
     ).rejects.toMatchObject({ code: 'SCOPE_INVARIANT' })
     expect(db.supportRequest.findMany).not.toHaveBeenCalled()
+  })
+
+  it('returns only full-client read-only retention evidence through its dedicated capability', async () => {
+    const db = database()
+    const previewRetentionDisposition = vi.fn().mockResolvedValue({
+      schemaVersion: 'torchiko-retention-disposition-preview-v1',
+      generatedAt: '2026-08-25T02:00:00.000Z',
+      scope: { tenantId: 'tenant-1', venueIds: null, fullTenantOnly: true },
+      mode: 'READ_ONLY_NO_EFFECT',
+      tenantExists: true,
+      policy: {
+        ready: false,
+        policyVersion: null,
+        unresolvedDecisionKeys: ['guest-conversations'],
+      },
+      coverage: {
+        exactCountedModels: 1,
+        unavailableCountModels: 0,
+        tenantLinkedUnclassifiedModels: 1,
+        platformUnscopedModels: 1,
+        policyMappedModels: 1,
+        exactTenantLinkedRows: '3',
+      },
+      inventory: [],
+      blockers: ['UNRESOLVED_POLICY', 'NO_REVIEWED_EXECUTOR'],
+      boundaries: {
+        readyForExecution: false,
+        destructiveActionAvailable: false,
+        anonymizationActionAvailable: false,
+        approvalGrantAvailable: false,
+        externalArtifactsCounted: false,
+        providerRecordsCounted: false,
+        backupRestoreTreatmentResolved: false,
+      },
+    })
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'retention-preview', clientId: 'tenant-1', limit: 25 },
+      { credential },
+      { previewRetentionDisposition },
+    )
+    expect(previewRetentionDisposition).toHaveBeenCalledWith({ tenantId: 'tenant-1' }, db)
+    expect(response).toMatchObject({
+      kind: 'pathfinder.retention-preview',
+      data: {
+        mode: 'READ_ONLY_NO_EFFECT',
+        boundaries: { readyForExecution: false, destructiveActionAvailable: false },
+      },
+    })
   })
 
   it('uses deterministic resource-bound cursors and rejects substitution or malformed tokens', () => {

@@ -127,6 +127,11 @@ export type {
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
+export {
+  previewRetentionDispositionAction,
+  type RetentionDispositionPreviewClient,
+  type RetentionDispositionPreviewInput,
+} from './helpers/retention-disposition-preview'
 export { createGoogleWorkspaceSourceStores } from './helpers/google-workspace-source-actions'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
