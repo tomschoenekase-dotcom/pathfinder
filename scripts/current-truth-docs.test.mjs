@@ -19,6 +19,7 @@ const matrixPath = path.join(
   'TORCHIKO_CAPABILITY_MATRIX.md',
 )
 const backlogPath = path.join(repositoryRoot, 'docs', 'system-state', 'TORCHIKO_AUDIT_BACKLOG.md')
+const founderControlRoomPath = path.join(repositoryRoot, 'docs', 'founder-control-room.md')
 
 const allowedStatuses = new Set([
   'implemented-external-gated',
@@ -45,12 +46,15 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.deepEqual(ids, [
     'release-evidence',
     'golden-venue-lifecycle',
+    'native-guest-read',
     'crm-pipeline',
     'outreach-operations',
     'stripe-billing',
     'gmail-correspondence',
     'local-staging-infrastructure',
+    'operational-usage-evidence',
     'privacy-retention',
+    'claim-attribution-calibration',
   ])
 
   for (const capability of truth.capabilities) {
@@ -107,12 +111,13 @@ test('local staging image truth is content-addressed and stale blockers stay ret
     assert.match(imageLine, /@sha256:[a-f0-9]{64}$/)
   }
 
-  const [stateDocument, capabilityMatrix, auditBacklog] = await Promise.all([
+  const [stateDocument, capabilityMatrix, auditBacklog, founderControlRoom] = await Promise.all([
     readFile(statePath, 'utf8'),
     readFile(matrixPath, 'utf8'),
     readFile(backlogPath, 'utf8'),
+    readFile(founderControlRoomPath, 'utf8'),
   ])
-  const currentDocuments = `${stateDocument}\n${capabilityMatrix}\n${auditBacklog}`
+  const currentDocuments = `${stateDocument}\n${capabilityMatrix}\n${auditBacklog}\n${founderControlRoom}`
   for (const retiredClaim of [
     'No current, retained, realistic end-to-end venue onboarding/publish/chat/report evidence.',
     'No CRM, billing collection, inbound email, or general outbound communication system.',
@@ -125,6 +130,10 @@ test('local staging image truth is content-addressed and stale blockers stay ret
     'Uncommitted capability tranche',
     'Prove the uncommitted migration tranche',
     'but no route exists',
+    'No surface switches reads',
+    'implement a bounded read-switch executor',
+    'has no runtime switch executor',
+    'read-switch execution remains unavailable',
   ]) {
     assert.ok(!currentDocuments.includes(retiredClaim), `retired claim absent: ${retiredClaim}`)
   }

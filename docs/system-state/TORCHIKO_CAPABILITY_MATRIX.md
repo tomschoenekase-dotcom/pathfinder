@@ -6,16 +6,19 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 ## Current truth anchors
 
-| Truth ID                       | Current status                      | Boundary still retained                                                                             |
-| ------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `release-evidence`             | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate. |
-| `golden-venue-lifecycle`       | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                         |
-| `crm-pipeline`                 | IMPLEMENTED BUT EXTERNAL GATED      | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.               |
-| `outreach-operations`          | IMPLEMENTED BUT EXTERNAL GATED      | Sending remains dark pending separate authorization and a bounded canary.                           |
-| `stripe-billing`               | SANDBOX-PROVEN; LIVE GATED          | No live billing is configured or authorized.                                                        |
-| `gmail-correspondence`         | IMPLEMENTED BUT EXTERNAL GATED      | Owner credentials, watch renewal, and hosted continuity remain external gates.                      |
-| `local-staging-infrastructure` | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                |
-| `privacy-retention`            | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.             |
+| Truth ID                        | Current status                      | Boundary still retained                                                                             |
+| ------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `release-evidence`              | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate. |
+| `golden-venue-lifecycle`        | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                         |
+| `native-guest-read`             | PROVEN PROVIDER-DARK LOCALLY        | Activation evidence and compatibility retirement remain hosted/approval gated.                      |
+| `crm-pipeline`                  | IMPLEMENTED BUT EXTERNAL GATED      | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.               |
+| `outreach-operations`           | IMPLEMENTED BUT EXTERNAL GATED      | Sending remains dark pending separate authorization and a bounded canary.                           |
+| `stripe-billing`                | SANDBOX-PROVEN; LIVE GATED          | No live billing is configured or authorized.                                                        |
+| `gmail-correspondence`          | IMPLEMENTED BUT EXTERNAL GATED      | Owner credentials, watch renewal, and hosted continuity remain external gates.                      |
+| `local-staging-infrastructure`  | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                |
+| `operational-usage-evidence`    | PROVEN PROVIDER-DARK LOCALLY        | Provider exports, rate provenance, accounting, and anomaly policy remain open.                      |
+| `privacy-retention`             | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.             |
+| `claim-attribution-calibration` | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.         |
 
 ## Product ownership in one minute
 

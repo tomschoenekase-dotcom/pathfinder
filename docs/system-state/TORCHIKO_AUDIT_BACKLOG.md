@@ -127,19 +127,20 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **No** for design partners; **yes** before broad self-serve sales.
 - **Codex autonomous:** **Partly**; product scope/wording needs approval.
 
-### P1.7 — Define and measure the legacy-to-native content cutover
+### P1.7 — Retain evidence for the gated legacy-to-native content cutover — EXECUTOR IMPLEMENTED 2026-08-23
 
-- **Problem:** Guest retrieval still reads legacy Places/Knowledge while native modules/revisions/manifests/releases are the preferred lifecycle. Compatibility materialization has known field limits.
+- **Status:** **DEFAULT-DARK EXECUTOR AND PROVIDER-DARK ROLLBACK REHEARSAL IMPLEMENTED.** Guest retrieval can use one exact immutable native deployment head only after the server gate, exact-venue policy, strict evidence references, matching applied head, and matching PASS evaluation evidence all succeed. `DARK` validates without switching; `ACTIVE` substitutes only a complete authorized result set. Any error, drift, or missing authorized ID falls the entire request back to compatibility.
+- **Historical problem:** Guest retrieval always read legacy Places/Knowledge while native modules/revisions/manifests/releases were the preferred lifecycle. Compatibility materialization has known field limits.
 - **Evidence:** `semantic-search.ts`; `legacy-content-actions.ts`; native content and deployment helpers; admin “Legacy compatibility” UI.
 - **Affected system:** Knowledge, retrieval, packages, release, admin, migrations.
-- **Recommended change:** Document one authoritative read/write path per content type, add parity metrics and shadow reads, block new unneeded legacy writes, migrate a fixture cohort, then retire only after measured equivalence.
-- **Current implementation:** An exact, read-only tenant/venue convergence measurement compares materialized guest-visible state with the active native deployment head under the venue content lock. A separate admin shadow comparison compares completed legacy and exact-native evaluation runs only when frozen corpus, case evidence, model, and prompt identities remain compatible; content and snapshot-wrapper configuration are the sole declared changes. It reports raw per-case quality, score, latency, cost, and missing-result deltas without inferring a pass threshold. The comparison now assembles a deterministic, non-executable per-venue read-switch contract that combines exact-head convergence with frozen shadow evidence, enumerates every remaining evidence/policy/runtime blocker, and retains the legacy compatibility path as the mandatory rollback target. A two-venue disposable cohort proves a nonzero native materialization and exact canonical revert while retaining the compatibility row and isolating the control venue. No surface switches reads, deletes compatibility data, or authorizes cutover.
-- **Remaining gap:** Accumulate representative shadow evidence, establish founder-approved quality thresholds, implement a bounded read-switch executor, rehearse actual read-path rollback in a hosted disposable/staging fixture cohort, and retire compatibility paths only after the evidence and production gate are approved.
+- **Recommended change:** Accumulate representative provider-backed shadow evidence, retain a genuine quality-policy and rollback reference, rehearse the exact executor in authorized hosted staging, and keep compatibility available until a separately approved retirement gate is proven.
+- **Current implementation:** Exact convergence and frozen same-corpus shadow comparisons feed a deterministic activation contract. A read-only admin preflight and bounded AI readiness projection expose gate validity without leaking hashes or reference values. A fresh two-tenant disposable rehearsal proves active native reads, dark mode, public/second-layer authorization, exact replay, kill-switch rollback, missing-ID whole-request fallback, cross-tenant isolation, provider-dark chat, and cleanup. The compatibility row and semantic index remain mandatory authorization/ranking and rollback infrastructure.
+- **Remaining gap:** Accumulate representative provider-backed shadow evidence, establish genuine founder-approved quality policy, rehearse the exact executor against authorized hosted staging, record a real rollback reference, obtain separate production approval, and retire compatibility paths only after further evidence and approval.
 - **Why it matters:** Dual systems multiply defects, training burden, and migration risk.
 - **Effort:** L
 - **Dependencies:** Golden lifecycle, production content inventory, relevance tests.
 - **Before more venue acquisition:** **Start before**, completion can be incremental.
-- **Codex autonomous:** **Partly**; measurement, shadow evaluation, and contract assembly are autonomous, while executor enablement, production cutover, and compatibility retirement remain gated.
+- **Codex autonomous:** **Local executor and rehearsal complete**; hosted activation, production cutover, threshold/policy decisions, and compatibility retirement remain gated.
 
 ### P1.8 — Establish minimal lead-to-client continuity — IMPLEMENTED 2026-08-24
 

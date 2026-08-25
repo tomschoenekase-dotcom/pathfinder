@@ -157,13 +157,16 @@ closed on corpus, case-evidence, model, or prompt drift, and reports raw case/la
 It also assembles a deterministic read-switch contract from that comparison and the current exact-
 head convergence result. The contract is evidence-only: it lists missing evidence and retained
 policy/runtime gates, preserves compatibility retrieval as the rollback target, and requires a
-rollback rehearsal. It does not infer an approval threshold, implement a read executor, switch guest
-retrieval, authorize automatic rollback, or authorize legacy retirement.
+rollback rehearsal. It does not infer an approval threshold, activate the separately implemented
+guest-read executor, authorize automatic rollback, or authorize legacy retirement.
 
 The canonical native deployment lifecycle has separately passed a disposable two-venue rehearsal
 that applied a nonzero content change, preserved the control venue, and restored the exact retained
-compatibility state on revert. That proves materialization rollback, not a guest read-path switch;
-the contract therefore continues to report the runtime read-switch rehearsal as unresolved.
+compatibility state on revert. The default-dark guest-read executor has also passed a fresh
+two-tenant provider-dark rehearsal covering `ACTIVE`, `DARK`, public/second-layer authorization,
+whole-request fallback, tenant isolation, preflight, bounded AI readiness, and immediate server
+kill-switch rollback. The Control Room remains diagnostic: it cannot set the server or venue flag,
+certify quality/rollback evidence, approve production, or retire compatibility data.
 
 The same separately credentialed boundary exposes
 `POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.

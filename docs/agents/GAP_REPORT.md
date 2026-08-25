@@ -39,13 +39,15 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 
 ## P1 gaps
 
-1. **Partially closed — provider-free conversation assessment.** Synthetic replay preparation now
+1. **Partially closed — provider-free conversation assessment and human calibration.** Synthetic replay preparation now
    includes fixture-owned match terms and location/hours evidence, and the developer interface can
    compare an answer supplied over bounded stdin with every required fact. It retains only the
    response digest and length, explains each lexical match or miss, never calls a provider, and
-   exits nonzero on missing requirements. Arbitrary unsupported-claim detection, answer-usefulness
-   judgment, provider-backed execution, provider trace explanation, and “why did the model do
-   that?” remain incomplete.
+   exits nonzero on missing requirements. Frozen real answer/source identity can also receive
+   append-only exact-claim human reviews and deterministic, segmentation-independent agreement
+   evidence without exposing answer/source text or applying a threshold. Automatic semantic
+   unsupported-claim detection, answer-usefulness judgment, provider-backed execution, calibrated
+   correctness, provider trace explanation, and “why did the model do that?” remain incomplete.
 2. **Closed — provider-free visitor configuration and scheduled-update simulation.** All four
    canonical worlds now include explicitly synthetic Bot/Voice configuration and operational
    update windows. The developer interface deterministically resolves requested-mode fallback and
@@ -78,13 +80,17 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    feature flags. Tenant-attributed live queue state,
    external provider probes, broader deployment identity, incident reasons, control mutation, and
    automatic restoration remain partial or gated; empty persisted records are not called healthy.
-5. **Partially closed — cost-protection observability.** The exact-venue `ai-usage` resource now
+5. **Partially closed — cost-protection and operational-load observability.** The exact-venue `ai-usage` resource now
    returns daily usage/cost rollups together with the configured tenant hard-budget window,
    remaining/reserved/committed capacity, revision, and breach state. This makes the reviewed
    `admin.getAiCostBudget` bounded-alternative binding real instead of relying on usage rows alone.
-   No anomaly threshold, automatic service suspension, budget mutation, customer pricing effect,
-   operator reason, or operator identity is exposed or authorized. Pre-breach anomaly policy,
-   infrastructure-wide cost aggregation, and external alert delivery remain unresolved or gated.
+   A separate append-only evidence ledger automatically records complete queue gauges and
+   database-declared intake/media bytes for the bounded Founder/platform-worker operating view;
+   missing and stale coverage remains explicit and no dollars are inferred. No anomaly threshold,
+   automatic service suspension, budget mutation, customer pricing effect, operator reason, or
+   operator identity is exposed or authorized. Provider usage exports, pre-breach policy,
+   infrastructure-wide cost aggregation, accounting reconciliation, and external alert delivery
+   remain unresolved or gated.
 6. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
    lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
    exact-run trace. Raw payloads, scope snapshots, event data, and execution leases are
@@ -128,6 +134,9 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
   `/api/mcp/[tenantId]/[venueId]`, still default-dark behind `AGENT_BRIDGE_HTTP_ENABLED`.
 - Added first-class machine actor, scoped approval-grant, and governed operational-update draft
   execution without granting broad autonomous mutation.
+- Added a default-dark exact-venue native guest-read executor. Strict policy, immutable active-head,
+  matching PASS evaluation, and production-approval gates fail the whole request to compatibility;
+  a fresh provider-dark rehearsal proves active/dark behavior, isolation, and immediate rollback.
 - Added canonical worker-evidence schema v2 across runs, actions, approval decisions, quality
   evaluations, and customer signals, plus one bounded operator trace over those evidence classes.
   Raw execution material remains deliberately gated.

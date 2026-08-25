@@ -48,6 +48,18 @@
       "remaining": "Run the synthetic flow in authorized hosted staging and separately prove provider-backed answer and voice quality."
     },
     {
+      "id": "native-guest-read",
+      "status": "proven-provider-dark-locally",
+      "summary": "Guest retrieval has a default-dark, exact-venue native-content executor with immutable head/evaluation gates, whole-request fallback, diagnostic preflight, and immediate compatibility rollback.",
+      "evidence": [
+        "docs/native-guest-content-read.md",
+        "packages/db/src/helpers/native-guest-content-read.ts",
+        "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "scripts/run-disposable-native-guest-read.mjs"
+      ],
+      "remaining": "Activation requires genuine reviewed quality and rollback references; hosted staging rehearsal and production approval remain separate, and compatibility data cannot yet be retired."
+    },
+    {
       "id": "crm-pipeline",
       "status": "implemented-external-gated",
       "summary": "Prospect organizations, venues, contacts, opportunities, provenance, research/import, history, follow-up, and reviewed conversion are implemented.",
@@ -105,6 +117,18 @@
       "remaining": "Hosted Railway configuration and dependency health remain separately owned and unproven by local compose."
     },
     {
+      "id": "operational-usage-evidence",
+      "status": "proven-provider-dark-locally",
+      "summary": "Append-only exact-scope evidence automatically retains fresh queue gauges and database-declared intake/media bytes for founder and bounded platform-worker inspection without assigning money.",
+      "evidence": [
+        "docs/operational-usage-evidence.md",
+        "packages/db/src/helpers/operational-usage-evidence-actions.ts",
+        "packages/db/src/helpers/operational-usage-evidence-producers.ts",
+        "apps/workers/src/lib/operational-usage-observer.ts"
+      ],
+      "remaining": "Hosted observations, provider exports, rate provenance, accounting reconciliation, and founder-approved anomaly policy remain external or unresolved."
+    },
+    {
       "id": "privacy-retention",
       "status": "partially-implemented-policy-gated",
       "summary": "A truthful privacy-policy status surface, retention inventory, and non-destructive disposition preview exist; general deletion execution does not.",
@@ -114,6 +138,18 @@
         "packages/api/src/routers/admin/retention-disposition-preview.ts"
       ],
       "remaining": "Founder/legal policy decisions and a separately reviewed executor are required before destructive retention actions."
+    },
+    {
+      "id": "claim-attribution-calibration",
+      "status": "proven-provider-dark-locally",
+      "summary": "Frozen guest answers can retain append-only exact-claim support reviews and deterministic independent-reviewer agreement while exposing no answer text, source text, threshold, or release decision.",
+      "evidence": [
+        "docs/guest-answer-attribution.md",
+        "packages/contracts/src/guest-answer-attribution-agreement.ts",
+        "packages/db/src/helpers/guest-answer-attribution-agreement.ts",
+        "packages/api/src/routers/admin/guest-answer-attributions.ts"
+      ],
+      "remaining": "A representative calibrated corpus, provider-backed history, automatic semantic evaluator, approved threshold, and visitor-facing claim UX remain unproven or product-gated."
     }
   ]
 }
