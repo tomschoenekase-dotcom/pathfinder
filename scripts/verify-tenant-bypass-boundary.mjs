@@ -87,9 +87,10 @@ const approvedCallCounts = new Map([
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
   ['packages/api/src/routers/admin/agent-questions.ts', 4],
-  // The reviewed improvement loop uses an additional exact-scope bypass to append
-  // validation evidence; it cannot promote behavior or change worker authority.
+  // The reviewed improvement loop appends exact-scope outcome and validation evidence;
+  // neither route can promote behavior or change worker authority.
   ['packages/api/src/routers/admin/agent-outcomes.ts', 5],
+  ['packages/api/src/routers/admin/agent-trust-signals.ts', 1],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
