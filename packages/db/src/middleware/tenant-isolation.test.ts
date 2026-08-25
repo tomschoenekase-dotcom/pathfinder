@@ -271,6 +271,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectEmailWebhookReceipt',
       'PlatformOperationalEvent',
       'FounderControlRoomReview',
+      'FounderOperatingExchange',
       'EncryptedIntegrationCredential',
       'GmailOAuthAttempt',
       'ProspectInboundQuarantine',

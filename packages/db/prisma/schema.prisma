@@ -2795,6 +2795,44 @@ model FounderControlRoomReview {
   @@map("founder_control_room_reviews")
 }
 
+enum FounderOperatingIntent {
+  TOP_PRIORITY
+  DECISIONS
+  INCIDENTS
+  AGENT_ACTIVITY
+  CUSTOMER_ISSUES
+  CHANGES
+  COSTS
+  DIRECTIVE
+}
+
+enum FounderOperatingDisposition {
+  ANSWERED
+  RECORDED_FOR_TRIAGE
+}
+
+/// Append-only conversational evidence for the Founder Control Room. Answers are
+/// derived from bounded canonical operating state. Directives are recorded for
+/// triage and never imply execution, approval, customer contact, or policy change.
+model FounderOperatingExchange {
+  id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId    String                      @unique @map("operation_id") @db.Uuid
+  operatorUserId String                      @map("operator_user_id") @db.VarChar(191)
+  prompt         String                      @db.VarChar(10000)
+  intent         FounderOperatingIntent
+  disposition    FounderOperatingDisposition
+  responseTitle  String                      @map("response_title") @db.VarChar(500)
+  responseBody   String                      @map("response_body") @db.VarChar(10000)
+  evidence       Json                        @default("[]")
+  snapshot       Json
+  snapshotHash   String                      @unique @map("snapshot_hash") @db.Char(64)
+  createdAt      DateTime                    @default(now()) @map("created_at")
+
+  @@index([createdAt, id], map: "founder_operating_exchanges_created_idx")
+  @@index([intent, disposition, createdAt, id], map: "founder_operating_exchanges_intent_created_idx")
+  @@map("founder_operating_exchanges")
+}
+
 enum KnowledgeChangeProposalStatus {
   DRAFT
   PENDING_REVIEW

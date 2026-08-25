@@ -12,21 +12,22 @@
 
 The 2026-08-19 audit narrative remains historical evidence, not an unqualified statement of current capability. The following identifiers are the current anchors; every one is defined with repository evidence and an explicit remaining boundary in `torchiko-current-truth.json`:
 
-| Truth ID                        | Current state                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `release-evidence`              | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
-| `golden-venue-lifecycle`        | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
-| `native-guest-read`             | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
-| `crm-pipeline`                  | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
-| `outreach-operations`           | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
-| `stripe-billing`                | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
-| `gmail-correspondence`          | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
-| `local-staging-infrastructure`  | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
-| `operational-usage-evidence`    | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
-| `first-week-account-learning`   | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
-| `privacy-retention`             | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
-| `customer-access-execution`     | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
-| `claim-attribution-calibration` | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
+| Truth ID                         | Current state                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `founder-operating-conversation` | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
+| `release-evidence`               | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
+| `golden-venue-lifecycle`         | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
+| `native-guest-read`              | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
+| `crm-pipeline`                   | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
+| `outreach-operations`            | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
+| `stripe-billing`                 | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
+| `gmail-correspondence`           | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
+| `local-staging-infrastructure`   | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
+| `operational-usage-evidence`     | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
+| `first-week-account-learning`    | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
+| `privacy-retention`              | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
+| `customer-access-execution`      | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
+| `claim-attribution-calibration`  | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
 
 ## How to read this report
 
@@ -104,7 +105,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 184 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 185 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -216,11 +217,11 @@ Hermes is therefore an adapter choice, not a separate owned subsystem in this re
 
 ### Human-in-the-loop and operations inbox
 
-The strongest direction is the unified admin attention console rather than separate AI widgets. `packages/api/src/routers/admin/attention-console.ts` reads failed jobs, evaluations, approvals, support cases, agent runs/questions/outcomes, and operational events into one prioritized view. Operational events are emitted by chat reliability, voice quota/usage, evaluation regression, knowledge-proposal, CRM, and provider-health flows. Dedupe keys, severity, read/ack/resolved states, actor data, links, and audit trails are implemented. Tenant events also have a dark-by-default operator-email route with durable delivery/attempt state, a BullMQ dispatcher, bounded retry and suppression, and a non-production sink. It is not externally activated or provider-proven here, and platform-owned pre-conversion events remain Founder Control Room-only.
+The strongest direction is the unified admin attention console rather than separate AI widgets. `packages/api/src/routers/admin/attention-console.ts` reads failed jobs, evaluations, approvals, support cases, agent runs/questions/outcomes, and operational events into one prioritized view. Its mobile-first operating conversation deterministically answers seven common founder intents from that same canonical state and stores unmatched direction as append-only triage evidence with explicit zero execution authority. Operational events are emitted by chat reliability, voice quota/usage, evaluation regression, knowledge-proposal, CRM, and provider-health flows. Dedupe keys, severity, read/ack/resolved states, actor data, links, and audit trails are implemented. Tenant events also have a dark-by-default operator-email route with durable delivery/attempt state, a BullMQ dispatcher, bounded retry and suppression, and a non-production sink. It is not externally activated or provider-proven here, and platform-owned pre-conversion events remain Founder Control Room-only.
 
 ## Data Architecture
 
-The Prisma schema contains 124 models: 113 tenanted, nine platform-scoped, and two shared, enforced by an executable registry. Core identity is `User` → `Tenant`/`Membership` → `Venue`. Public experiences attach visitor sessions, conversation sessions/messages/turns, feedback, voice sessions, and analytics events to the venue.
+The Prisma schema contains 215 models: 138 tenanted, 58 platform-scoped, and 19 shared, enforced by an executable registry. Core identity is `User` → `Tenant`/`Membership` → `Venue`. Public experiences attach visitor sessions, conversation sessions/messages/turns, feedback, voice sessions, and analytics events to the venue.
 
 Knowledge has two generations:
 

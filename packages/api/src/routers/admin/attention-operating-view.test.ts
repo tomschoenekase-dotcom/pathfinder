@@ -196,10 +196,11 @@ describe('founder operating view', () => {
           authorizesServiceCutoff: false,
         },
       },
+      founderConversation: [],
     })
 
     expect(result).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
@@ -212,6 +213,7 @@ describe('founder operating view', () => {
         totals: { knownOperatingCostUsd: '12.00000000' },
         policy: { anomalyThreshold: 'UNRESOLVED' },
       },
+      recentConversation: [],
       authority: {
         transport: 'PLATFORM_ADMIN_SESSION_ONLY',
         customerCredentialCompatible: false,

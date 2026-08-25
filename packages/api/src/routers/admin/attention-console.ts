@@ -1,4 +1,4 @@
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, listFounderOperatingExchanges, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { deriveFounderBriefing } from './attention-briefing'
@@ -27,6 +27,7 @@ import {
 import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
+import { createFounderAskHandler, founderAskInput } from './founder-operating-conversation-handler'
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -48,6 +49,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       workers,
       reviewState,
       unitEconomics,
+      founderConversation,
     ] = await Promise.all([
       db.jobRecord.findMany({
         where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -311,6 +313,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       listAttentionWorkers(now),
       readFounderBriefingReview(operatorUserId),
       readFounderUnitEconomics(now),
+      listFounderOperatingExchanges(20),
     ])
 
     const result = {
@@ -344,6 +347,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       platformEvents: page(platformEvents, query.limit),
       workers,
       unitEconomics,
+      founderConversation,
     }
     return {
       ...result,
@@ -381,6 +385,9 @@ export const adminAttentionConsoleRouter = router({
       const result = await readAttentionConsole(ctx.session.userId, input)
       return deriveFounderOperatingView(result)
     }),
+  askFounderOperatingSystem: adminProcedure
+    .input(founderAskInput)
+    .mutation(createFounderAskHandler(readAttentionConsole)),
   markFounderBriefingReviewed: adminProcedure
     .input(markFounderBriefingReviewedInput)
     .mutation(({ ctx, input }) => markFounderBriefingReviewed(ctx.session.userId, input)),

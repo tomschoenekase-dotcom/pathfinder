@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
+import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
@@ -78,6 +79,8 @@ export default async function AdminOperationsPage({
           Decisions are recorded here; consequential execution remains separately policy-gated.
         </p>
       </header>
+
+      <FounderOperatingConversation exchanges={data.founderConversation} />
 
       <section
         aria-label="Global AI incident state"

@@ -25,6 +25,19 @@
   },
   "capabilities": [
     {
+      "id": "founder-operating-conversation",
+      "status": "proven-provider-dark-locally",
+      "summary": "The mobile Founder Control Room answers seven operating intents from canonical bounded state and retains unmatched direction as append-only triage evidence without execution authority.",
+      "evidence": [
+        "docs/founder-operating-conversation.md",
+        "packages/api/src/routers/admin/founder-operating-conversation.ts",
+        "packages/db/src/helpers/founder-operating-exchanges.ts",
+        "apps/dashboard/components/admin/FounderOperatingConversation.tsx",
+        "scripts/run-disposable-founder-conversation.mjs"
+      ],
+      "remaining": "Open-ended synthesis, worker triage/execution, hosted staging integration, proactive escalation, and production rollout remain separately gated."
+    },
+    {
       "id": "release-evidence",
       "status": "proven-locally",
       "summary": "Exact candidate assessments and staging handoffs can be projected into immutable platform evidence without granting deployment authority.",

@@ -45,6 +45,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   const ids = truth.capabilities.map((capability) => capability.id)
   assert.equal(new Set(ids).size, ids.length)
   assert.deepEqual(ids, [
+    'founder-operating-conversation',
     'release-evidence',
     'golden-venue-lifecycle',
     'native-guest-read',

@@ -12,13 +12,26 @@ export function deriveFounderOperatingView(
     briefing: FounderBriefing
     agentTrustEvidence: AgentTrustEvidence
     unitEconomics: FounderUnitEconomics
+    founderConversation: Array<{
+      id: string
+      operationId: string
+      prompt: string
+      intent: string
+      disposition: string
+      responseTitle: string
+      responseBody: string
+      evidence: unknown
+      snapshot: unknown
+      snapshotHash: string
+      createdAt: Date
+    }>
   },
   transport:
     | 'PLATFORM_ADMIN_SESSION_ONLY'
     | 'PLATFORM_WORKER_CREDENTIAL' = 'PLATFORM_ADMIN_SESSION_ONLY',
 ) {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     generatedAt: input.generatedAt,
     scope: 'PLATFORM' as const,
     effect: 'READ_ONLY' as const,
@@ -29,6 +42,7 @@ export function deriveFounderOperatingView(
     boundedSnapshot: input.briefing.boundedSnapshot,
     autonomyEvidence: input.agentTrustEvidence,
     operatingCosts: input.unitEconomics,
+    recentConversation: input.founderConversation,
     authority: {
       transport,
       customerCredentialCompatible: false as const,

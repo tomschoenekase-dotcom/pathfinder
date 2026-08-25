@@ -236,9 +236,10 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
     )
     expect(operatingResponse.status).toBe(200)
     await expect(operatingResponse.json()).resolves.toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
+      recentConversation: [],
       authority: {
         transport: 'PLATFORM_WORKER_CREDENTIAL',
         customerCredentialCompatible: false,

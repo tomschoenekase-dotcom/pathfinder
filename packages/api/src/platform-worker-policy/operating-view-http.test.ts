@@ -14,10 +14,11 @@ describe('platform worker founder operating view HTTP boundary', () => {
   it('returns and strictly audits a read-only bounded operating view', async () => {
     const audit = vi.fn()
     const resolve = vi.fn().mockResolvedValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       effect: 'READ_ONLY',
       authority: { transport: 'PLATFORM_WORKER_CREDENTIAL', canExecute: false },
       autonomyEvidence: { policy: { approvalReductionRecommended: false } },
+      recentConversation: [],
     })
     const verify = vi.fn().mockResolvedValue({
       credentialId: 'credential-1',
@@ -31,9 +32,11 @@ describe('platform worker founder operating view HTTP boundary', () => {
     })
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
+      schemaVersion: 2,
       effect: 'READ_ONLY',
       authority: { transport: 'PLATFORM_WORKER_CREDENTIAL', canExecute: false },
       autonomyEvidence: { policy: { approvalReductionRecommended: false } },
+      recentConversation: [],
     })
     expect(verify).toHaveBeenCalledWith(secret, 'founder-operating-view:read')
     expect(resolve).toHaveBeenCalledWith('edith-primary', 10)

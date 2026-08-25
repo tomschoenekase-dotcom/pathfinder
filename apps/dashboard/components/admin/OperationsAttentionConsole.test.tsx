@@ -48,6 +48,7 @@ const empty: Data = {
   outcomes: { items: [], nextCursor: null },
   events: { items: [], nextCursor: null },
   platformEvents: { items: [], nextCursor: null },
+  founderConversation: [],
   workers: [],
   unitEconomics: {
     schemaVersion: 'founder-unit-economics.v1',

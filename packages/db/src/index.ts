@@ -1144,6 +1144,14 @@ export {
   FirstWeekAccountReviewError,
   materializeDueFirstWeekAccountReviews,
 } from './helpers/first-week-account-reviews'
+export {
+  FounderOperatingExchangeError,
+  listFounderOperatingExchanges,
+  readFounderOperatingExchange,
+  recordFounderOperatingExchange,
+  type FounderOperatingExchangeClient,
+  type RecordFounderOperatingExchangeInput,
+} from './helpers/founder-operating-exchanges'
 export type { MaterializeFirstWeekAccountReviewsInput } from './helpers/first-week-account-reviews'
 export {
   AgentImprovementProposalActionError,

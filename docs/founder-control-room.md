@@ -38,6 +38,27 @@ authorization boundary.
 The interface states the bounded-snapshot limitation rather than claiming exhaustive company
 awareness.
 
+## Company operating conversation
+
+The first interactive surface beneath the Control Room header is a mobile-first company operating
+conversation. It accepts short founder questions and direction. Seven deterministic read intents
+answer from the same canonical bounded state used by the rest of the page: highest priority,
+decisions, incidents, agent activity, customer issues, changes since review, and operating costs.
+Answers retain exact evidence links and an immutable snapshot hash; they do not depend on a model
+provider or silently improvise company facts.
+
+Input outside those read intents is stored as a `DIRECTIVE` with the disposition
+`RECORDED_FOR_TRIAGE`. This creates durable work context for authorized platform workers, but it
+does not create an agent run or approval, contact a customer, change pricing or billing, deploy,
+spend money, or mutate policy. The UI labels that boundary directly. Uncertain browser outcomes
+retain the same operation ID so an unchanged retry reconciles the append-only exchange instead of
+creating duplicate intent.
+
+`admin.askFounderOperatingSystem` is platform-admin-only. The read-only platform-worker operating
+view exposes the bounded recent history under schema version 2, without operator identity or new
+execution authority. See [`founder-operating-conversation.md`](./founder-operating-conversation.md)
+for persistence, replay, and proof details.
+
 ## Operating-cost coverage
 
 The Control Room includes a mobile-responsive 30-day operating-cost evidence panel. It combines
@@ -147,7 +168,9 @@ returned as machine-readable coverage labels rather than fabricated zeros.
 ## Machine-readable operating view
 
 `admin.founderOperatingView` returns a compact, versioned projection of the same canonical
-briefing, change digest, bounded metrics, and autonomy evidence used by the Control Room. The
+briefing, change digest, bounded metrics, autonomy evidence, and recent founder operating
+conversation used by the Control Room. Schema version 2 adds that append-only conversation without
+adding execution authority. The
 platform-worker boundary exposes that projection at
 `POST /api/platform-worker/founder-operating-view` behind a separately activated
 `pf_platform_` credential with `founder-operating-view:read`. Both transports explicitly report

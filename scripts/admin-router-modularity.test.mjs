@@ -28,6 +28,7 @@ const expectedAdminProcedures = [
   'approveProspectStagingPackageCommit',
   'approveVenuePackage',
   'archiveProspect',
+  'askFounderOperatingSystem',
   'attentionConsole',
   'beginProspectImport',
   'cancelEvaluationRun',

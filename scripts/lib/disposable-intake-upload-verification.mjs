@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -866,7 +866,7 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
       lifecycleEvent: 'test:operations-readiness:disposable',
       successAction: 'operations-readiness.migration-parity.disposable-shakedown.passed',
       proofScope: [
-        'fresh-184-migration-chain',
+        'fresh-185-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
         'fresh-read-only-object-storage-probe',
@@ -1134,6 +1134,46 @@ export async function runDisposableFirstWeekLearningShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_FIRST_WEEK_LEARNING_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableFounderConversationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'founderconversation',
+      databasePrefix: 'pathfinder_disposable_founder_conversation_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_FOUNDER_CONVERSATION_SHAKEDOWN',
+      lifecycleEvent: 'test:founder-conversation:disposable',
+      successAction: 'founder-conversation.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'platform-scoped-question-and-directive-evidence',
+        'exact-operation-replay',
+        'parameter-drift-rejected',
+        'append-only-update-delete-truncate-protection',
+        'strict-audit-without-prompt-copy',
+        'bounded-history',
+        'explicit-zero-authority-snapshot',
+        'no-tenant-venue-agent-approval-event-delivery-contact-or-billing-effects',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/founder-operating-exchanges-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_FOUNDER_CONVERSATION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

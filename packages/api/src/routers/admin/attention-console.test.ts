@@ -22,9 +22,21 @@ const mocks = vi.hoisted(() => ({
   operationalUsage: vi.fn(),
   latestOperationalUsage: vi.fn(),
   redriveSupported: vi.fn(),
+  founderConversation: vi.fn(),
+  recordFounderExchange: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  FounderOperatingExchangeError: class FounderOperatingExchangeError extends Error {
+    constructor(
+      readonly code: 'CONFLICT' | 'NOT_FOUND',
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  listFounderOperatingExchanges: mocks.founderConversation,
+  recordFounderOperatingExchange: mocks.recordFounderExchange,
   withTenantIsolationBypass: mocks.bypass,
   writeAuditLogStrict: vi.fn(),
   db: {
@@ -103,6 +115,23 @@ describe('admin attention console', () => {
     mocks.aiCosts.mockResolvedValue([])
     mocks.operatingCosts.mockResolvedValue([])
     mocks.redriveSupported.mockReturnValue(false)
+    mocks.founderConversation.mockResolvedValue([])
+    mocks.recordFounderExchange.mockResolvedValue({
+      exchange: {
+        id: 'exchange_1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        prompt: 'What needs my decision?',
+        intent: 'DECISIONS',
+        disposition: 'ANSWERED',
+        responseTitle: 'No visible founder decisions',
+        responseBody: 'No pending questions or approvals are visible.',
+        evidence: [],
+        snapshot: {},
+        snapshotHash: 'a'.repeat(64),
+        createdAt: new Date('2026-08-25T12:00:00.000Z'),
+      },
+      replayed: false,
+    })
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -113,6 +142,12 @@ describe('admin attention console', () => {
     await expect(caller.founderOperatingView({ limit: 10 })).rejects.toMatchObject({
       code: 'FORBIDDEN',
     })
+    await expect(
+      caller.askFounderOperatingSystem({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        prompt: 'What needs my decision?',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(mocks.bypass).not.toHaveBeenCalled()
   })
 
@@ -144,6 +179,7 @@ describe('admin attention console', () => {
       orderBy: [{ reviewedThrough: 'desc' }, { createdAt: 'desc' }],
       select: expect.any(Object),
     })
+    expect(mocks.founderConversation).toHaveBeenCalledWith(20)
     expect(mocks.aiCosts).toHaveBeenCalledTimes(2)
     expect(mocks.operatingCosts).toHaveBeenCalledWith(
       expect.objectContaining({ select: expect.any(Object) }),
@@ -329,7 +365,7 @@ describe('admin attention console', () => {
     })
 
     expect(result).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
       focus: { kind: 'CLEAR' },
@@ -349,6 +385,33 @@ describe('admin attention console', () => {
     expect(result).not.toHaveProperty('jobs')
     expect(result).not.toHaveProperty('approvals')
     expect(result).not.toHaveProperty('events')
+  })
+
+  it('records a deterministic founder exchange without granting execution authority', async () => {
+    const result = await testRouter.createCaller(context()).admin.askFounderOperatingSystem({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      prompt: 'What needs my decision?',
+    })
+
+    expect(result).toMatchObject({ replayed: false, exchange: { id: 'exchange_1' } })
+    expect(mocks.recordFounderExchange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        operatorUserId: 'operator_1',
+        intent: 'DECISIONS',
+        disposition: 'ANSWERED',
+        snapshot: expect.objectContaining({
+          authority: expect.objectContaining({
+            canExecute: false,
+            canApprove: false,
+            canContactCustomers: false,
+            canChangePricing: false,
+            canSpendMoney: false,
+            canMutatePolicy: false,
+          }),
+        }),
+      }),
+    )
   })
 
   it('acknowledges and resolves only active event states with the operator identity', async () => {

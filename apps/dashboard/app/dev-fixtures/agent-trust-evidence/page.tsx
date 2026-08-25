@@ -21,6 +21,7 @@ const data: Data = {
   outcomes: emptyPage,
   events: emptyPage,
   platformEvents: emptyPage,
+  founderConversation: [],
   workers: [],
   unitEconomics: {
     schemaVersion: 'founder-unit-economics.v1',
