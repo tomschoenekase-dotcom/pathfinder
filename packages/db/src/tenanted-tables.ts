@@ -212,6 +212,9 @@ export const PLATFORM_TABLES = [
 export const SHARED_SCOPE_TABLES = [
   'AuditLog',
   'JobRecord',
+  // Internal non-AI cost evidence may be platform-wide or attributed to an
+  // exact tenant/venue. Canonical actions validate every optional scope.
+  'OperatingCostEvidence',
   'CompanyKnowledgeItem',
   'CompanyKnowledgeRevision',
   'CompanyKnowledgeSource',

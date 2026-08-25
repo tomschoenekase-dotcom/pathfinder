@@ -80,6 +80,59 @@ describe('founder operating view', () => {
           explanation: 'Negative evidence is present.',
         },
       },
+      unitEconomics: {
+        schemaVersion: 'founder-unit-economics.v1',
+        generatedAt,
+        window: {
+          days: 30,
+          start: new Date('2026-07-23T20:00:00.000Z'),
+          endExclusive: generatedAt,
+          previousStart: new Date('2026-06-23T20:00:00.000Z'),
+        },
+        totals: {
+          knownOperatingCostUsd: '12.00000000',
+          priorKnownOperatingCostUsd: '10.00000000',
+          changeUsd: '2.00000000',
+          changePercent: 20,
+        },
+        ai: {
+          estimatedCostUsd: '12.00000000',
+          requestCount: 4,
+          attributedTenantCount: 1,
+          completeness: 'PROVIDER_PRICING_ESTIMATE',
+        },
+        nonAi: {
+          evidencedCostUsd: '0.00000000',
+          platformUnallocatedUsd: '0.00000000',
+          tenantOrVenueAttributedUsd: '0.00000000',
+          evidenceCount: 0,
+          excludedOverlappingEvidenceCount: 0,
+          categories: [],
+        },
+        coverage: {
+          representedCategories: [],
+          unrepresentedCategories: [
+            'STORAGE',
+            'EMAIL',
+            'MEDIA_PROCESSING',
+            'INFRASTRUCTURE',
+            'OBSERVABILITY',
+            'SECURITY',
+            'BANDWIDTH',
+            'OPERATOR_TIME',
+            'OTHER',
+          ],
+          complete: false,
+          interpretation: 'Only contained evidence is summed.',
+        },
+        policy: {
+          anomalyThreshold: 'UNRESOLVED',
+          anomalyClassification: 'NOT_COMPUTED',
+          affectsInvoices: false,
+          affectsCustomerPricing: false,
+          authorizesServiceCutoff: false,
+        },
+      },
     })
 
     expect(result).toMatchObject({
@@ -91,6 +144,10 @@ describe('founder operating view', () => {
       autonomyEvidence: {
         state: 'NEGATIVE_EVIDENCE_PRESENT',
         policy: { approvalReductionRecommended: false },
+      },
+      operatingCosts: {
+        totals: { knownOperatingCostUsd: '12.00000000' },
+        policy: { anomalyThreshold: 'UNRESOLVED' },
       },
       authority: {
         transport: 'PLATFORM_ADMIN_SESSION_ONLY',

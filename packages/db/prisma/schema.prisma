@@ -145,6 +145,7 @@ model Tenant {
   mediaIngestionProjects             MediaIngestionProject[]
   aiUsageEvents                      AiUsageEvent[]
   aiUsageDailyRollups                AiUsageDailyRollup[]
+  operatingCostEvidence              OperatingCostEvidence[]
   aiCostBudgets                      AiCostBudget[]
   aiCostReservations                 AiCostReservation[]
   conversationInsights               ConversationInsight[]
@@ -1267,6 +1268,7 @@ model Venue {
   mediaIngestionProjects              MediaIngestionProject[]
   aiUsageEvents                       AiUsageEvent[]
   aiUsageDailyRollups                 AiUsageDailyRollup[]
+  operatingCostEvidence               OperatingCostEvidence[]
   aiCostReservations                  AiCostReservation[]
   conversationInsights                ConversationInsight[]
   operationalEvents                   OperationalEvent[]
@@ -2939,6 +2941,57 @@ model AiUsageDailyRollup {
   @@index([tenantId, venueId, date])
   @@index([feature, date])
   @@map("ai_usage_daily_rollups")
+}
+
+enum OperatingCostCategory {
+  STORAGE
+  EMAIL
+  MEDIA_PROCESSING
+  INFRASTRUCTURE
+  OBSERVABILITY
+  SECURITY
+  BANDWIDTH
+  OPERATOR_TIME
+  OTHER
+}
+
+enum OperatingCostEvidenceKind {
+  OBSERVED
+  ESTIMATED
+  ALLOCATED
+}
+
+/// Append-only internal cost evidence. AI provider estimates remain canonical
+/// in AiUsageEvent; this ledger covers non-AI operating costs and is never an
+/// invoice, customer price, accounting statement, or automatic cutoff policy.
+model OperatingCostEvidence {
+  id              String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId     String                    @unique @map("operation_id") @db.Uuid
+  tenantId        String?                   @map("tenant_id")
+  venueId         String?                   @map("venue_id")
+  category        OperatingCostCategory
+  evidenceKind    OperatingCostEvidenceKind @map("evidence_kind")
+  amountUsd       Decimal                   @map("amount_usd") @db.Decimal(18, 8)
+  quantity        Decimal?                  @db.Decimal(20, 6)
+  quantityUnit    String?                   @map("quantity_unit") @db.VarChar(32)
+  periodStart     DateTime                  @map("period_start")
+  periodEnd       DateTime                  @map("period_end")
+  sourceSystem    String                    @map("source_system") @db.VarChar(100)
+  sourceReference String                    @map("source_reference") @db.VarChar(191)
+  description     String                    @db.VarChar(500)
+  supersedesId    String?                   @unique @map("supersedes_id") @db.Uuid
+  recordedBy      String                    @map("recorded_by") @db.VarChar(191)
+  recordedAt      DateTime                  @default(now()) @map("recorded_at")
+  tenant          Tenant?                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersedes      OperatingCostEvidence?    @relation("OperatingCostEvidenceSupersession", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy    OperatingCostEvidence?    @relation("OperatingCostEvidenceSupersession")
+
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, periodStart, periodEnd])
+  @@index([category, periodStart, periodEnd])
+  @@index([recordedAt])
+  @@map("operating_cost_evidence")
 }
 
 enum AiCostReservationStatus {

@@ -120,6 +120,14 @@ export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
 export { createGoogleWorkspaceSourceStores } from './helpers/google-workspace-source-actions'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  OperatingCostEvidenceActionError,
+  recordOperatingCostEvidenceAction,
+} from './helpers/operating-cost-evidence-actions'
+export type {
+  OperatingCostEvidenceActionClient,
+  RecordOperatingCostEvidenceInput,
+} from './helpers/operating-cost-evidence-actions'
+export {
   addProspectNoteAction,
   approveProspectImportAction,
   cancelProspectImportAction,

@@ -214,10 +214,12 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.4 — Unify variable and human unit economics
 
+- **Status (2026-08-24):** **FOUNDATION AND FOUNDER COVERAGE VIEW IMPLEMENTED.** A provider-neutral, append-only `OperatingCostEvidence` ledger now covers nine non-AI categories with platform/tenant/venue scope, observed/estimated/allocated evidence kinds, source references, quantities, exact periods, and uniquely fenced supersession. The Founder Control Room and machine operating view combine contained 30-day evidence with canonical AI estimates, show platform-unallocated cost, compare the prior window, and name missing coverage without inventing anomaly thresholds or prorating.
+- **Retained gap:** Automated source ingestion, queue/media/storage counters, regular operator-time capture, accounting reconciliation, and a founder-set anomaly policy remain unimplemented. The view is not margin, invoice, pricing, or service-cutoff authority.
 - **Problem:** AI usage is deeply instrumented, while storage, hosting, email, monitoring, file processing and operator time are not presented per tenant/venue.
-- **Evidence:** AI usage events/daily rollups/budget UI; no unified cost ledger.
+- **Evidence:** `OperatingCostEvidence`; `recordOperatingCostEvidenceAction`; `admin.founderUnitEconomics`; Founder Control Room cost coverage; `pnpm test:operating-cost:disposable`.
 - **Affected system:** Analytics, pricing, operations.
-- **Recommended change:** Add a provider-neutral cost category ledger/estimates, queue/media/storage counters and optional operator-minute inputs; report uncertainty separately from invoices.
+- **Recommended change:** Connect real provider exports and counters to the ledger, then add explicit policy-backed anomaly classification only after sufficient history and a founder threshold decision.
 - **Why it matters:** AI optimization alone may target the wrong cost driver.
 - **Effort:** M
 - **Dependencies:** Pricing/cost-source policy.

@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   updatePlatformEvent: vi.fn(),
   workers: vi.fn(),
   founderReview: vi.fn(),
+  aiCosts: vi.fn(),
+  operatingCosts: vi.fn(),
   redriveSupported: vi.fn(),
 }))
 
@@ -40,6 +42,8 @@ vi.mock('@pathfinder/db', () => ({
     },
     agentWorker: { findMany: mocks.workers },
     founderControlRoomReview: { findFirst: mocks.founderReview },
+    aiUsageEvent: { groupBy: mocks.aiCosts },
+    operatingCostEvidence: { findMany: mocks.operatingCosts },
   },
 }))
 
@@ -88,6 +92,8 @@ describe('admin attention console', () => {
     mocks.updatePlatformEvent.mockResolvedValue({ count: 1 })
     mocks.workers.mockResolvedValue([])
     mocks.founderReview.mockResolvedValue(null)
+    mocks.aiCosts.mockResolvedValue([])
+    mocks.operatingCosts.mockResolvedValue([])
     mocks.redriveSupported.mockReturnValue(false)
   })
 
@@ -130,6 +136,10 @@ describe('admin attention console', () => {
       orderBy: [{ reviewedThrough: 'desc' }, { createdAt: 'desc' }],
       select: expect.any(Object),
     })
+    expect(mocks.aiCosts).toHaveBeenCalledTimes(2)
+    expect(mocks.operatingCosts).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.any(Object) }),
+    )
     const calls = JSON.stringify([
       mocks.jobs.mock.calls[0]![0],
       mocks.evaluations.mock.calls[0]![0],

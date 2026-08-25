@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 412,
-    "sha256": "208194ca160a1ce195ae337bf9704e95aef77d88f5c08ba4f56ddfb7e5a9094c",
+    "count": 414,
+    "sha256": "b4838edafd8a432dce178579987a12d141f6f7de938aef26d10764b79994944f",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "208194ca160a1ce195ae337bf9704e95aef77d88f5c08ba4f56ddfb7e5a9094c",
-      "sha256": "14fb3393020a219c39f894535329c2a48507b114805ac3e2a5cb9934ff0d0d75"
+      "operationInventorySha256": "b4838edafd8a432dce178579987a12d141f6f7de938aef26d10764b79994944f",
+      "sha256": "4319e4bf4811f467280a852b8a693429f9a60ddece9c9588110d7063e8fcb404"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -618,6 +618,14 @@
       "developerCoverage": "full",
       "decision": "Client identity and venue state are readable; account lifecycle mutations remain privileged and auditable.",
       "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "unit-economics",
+      "pattern": "UnitEconomics",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Authorized operators may inspect bounded cost evidence and record append-only operating-cost observations; the surface does not set anomaly thresholds, customer prices, invoice amounts, service cutoffs, or accounting truth.",
+      "evidence": "docs/ai-cost-protection.md"
     },
     {
       "id": "operations-reporting",

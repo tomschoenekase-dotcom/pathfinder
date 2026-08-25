@@ -74,6 +74,106 @@ function briefingTone(urgency: Data['briefing']['focus']['urgency']) {
   return 'border-emerald-300/40 bg-emerald-300/10'
 }
 
+function usd(value: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value))
+}
+
+function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
+  const change = data.totals.changePercent
+  const represented = data.nonAi.categories.filter((category) => category.represented)
+  return (
+    <section
+      id="cost-coverage"
+      aria-labelledby="cost-coverage-heading"
+      className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-5 shadow-sm sm:p-6"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-cyan-900">
+            Operating-cost coverage
+          </p>
+          <h2 id="cost-coverage-heading" className="mt-1 text-lg font-semibold text-slate-950">
+            What is costing Torchiko money?
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
+            A 30-day internal evidence view. AI values are provider-pricing estimates; non-AI values
+            only include current evidence wholly contained in this window.
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-950 ring-1 ring-cyan-200">
+          {data.coverage.complete ? 'Coverage complete' : 'Coverage incomplete'}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {[
+          ['Known total', usd(data.totals.knownOperatingCostUsd)],
+          ['AI estimate', usd(data.ai.estimatedCostUsd)],
+          ['Non-AI evidence', usd(data.nonAi.evidencedCostUsd)],
+          ['Platform unallocated', usd(data.nonAi.platformUnallocatedUsd)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-cyan-100 bg-white p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              {label}
+            </dt>
+            <dd className="mt-1 text-xl font-semibold text-slate-950">{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="rounded-xl border border-cyan-100 bg-white p-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Evidence by category</h3>
+            <p className="text-xs text-slate-500">
+              {change === null
+                ? 'No comparable prior-window baseline'
+                : `${change > 0 ? '+' : ''}${change.toFixed(2)}% from prior known total`}
+            </p>
+          </div>
+          {represented.length ? (
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {represented.map((category) => (
+                <li
+                  key={category.category}
+                  className="flex min-h-11 items-center justify-between rounded-lg bg-slate-50 px-3 text-sm"
+                >
+                  <span className="font-medium text-slate-700">
+                    {category.category.replaceAll('_', ' ').toLowerCase()}
+                  </span>
+                  <span className="font-semibold text-slate-950">{usd(category.amountUsd)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+              No non-AI evidence falls wholly inside this 30-day window yet.
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+          <h3 className="font-semibold">Coverage, not accounting</h3>
+          <p className="mt-1">
+            {data.coverage.unrepresentedCategories.length} non-AI categories have no included
+            evidence. {data.nonAi.excludedOverlappingEvidenceCount} overlapping{' '}
+            {data.nonAi.excludedOverlappingEvidenceCount === 1 ? 'entry was' : 'entries were'}{' '}
+            excluded instead of inventing a prorating rule.
+          </p>
+          <p className="mt-2">
+            No anomaly threshold is settled. This view cannot change invoices, customer prices, or
+            service availability.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function OperationsAttentionConsole({ data }: { data: Data }) {
   const { focus, metrics, boundedSnapshot, reviewState } = data.briefing
   const reviewChanges = reviewState.changesSinceLastReview
@@ -185,6 +285,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             ['#approval-attention-heading', 'Approvals'],
             ['#alerts', 'Alerts'],
             ['#ai-workforce', 'Agents'],
+            ['#cost-coverage', 'Costs'],
           ].map(([href, label]) => (
             <a
               key={href}
@@ -196,6 +297,8 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
           ))}
         </nav>
       </section>
+
+      <FounderCostCoverage data={data.unitEconomics} />
 
       <section
         aria-label="AI organization summary"

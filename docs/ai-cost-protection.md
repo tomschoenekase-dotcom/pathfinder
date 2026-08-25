@@ -29,6 +29,12 @@ so repeated denials do not flood the Control Room. The Founder briefing treats t
 customer/system risk and links directly to that tenant's AI cost budget controls. Acknowledging or
 resolving the alert does not reset, increase, disable, or otherwise mutate the budget.
 
+The Control Room separately exposes a 30-day operating-cost coverage view. It combines AI usage
+estimates with append-only non-AI evidence and a prior-window comparison, while naming missing
+categories and excluded overlapping periods. That view is descriptive and cannot configure or
+reset an AI budget. Conversely, this hard-budget system does not claim that AI spend represents
+Torchiko's complete unit economics.
+
 ## Agent-readable cost protection
 
 An exact client/venue worker with `resources:read` and `ai-usage:read` can retrieve the current
@@ -59,3 +65,7 @@ event, and future-request blocking. API and dashboard contracts prove that cost 
 Founder briefing risk and route to the correct tenant controls rather than unrelated chat logs.
 The agent-observability disposable proof separately verifies exact-venue usage isolation, current
 tenant budget state, private policy omission, capability enforcement, and zero persistent residue.
+The operating-cost disposable shakedown (`pnpm test:operating-cost:disposable`) separately applies
+the fresh migration chain and proves platform/tenant/venue scope, replay safety, append-only
+corrections, a concurrent supersession fence, strict audit evidence, and absence of invoice,
+pricing, or service effects.

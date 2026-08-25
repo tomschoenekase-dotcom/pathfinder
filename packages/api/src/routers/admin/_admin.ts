@@ -69,6 +69,7 @@ import { adminBillingRolloutRouter } from './billing-rollout'
 import { adminBillingPortfolioRouter } from './billing-portfolio'
 import { adminCompanyBrainRouter } from './company-brain'
 import { adminPlatformWorkerPolicyCredentialsRouter } from './platform-worker-policy-credentials'
+import { adminUnitEconomicsRouter } from './unit-economics'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -87,6 +88,7 @@ export const adminRouter = mergeRouters(
   adminBillingPortfolioRouter,
   adminCompanyBrainRouter,
   adminPlatformWorkerPolicyCredentialsRouter,
+  adminUnitEconomicsRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

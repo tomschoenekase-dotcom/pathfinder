@@ -275,6 +275,7 @@ describe('tenantIsolationMiddleware', () => {
     expect(SHARED_SCOPE_TABLES_LIST).toEqual([
       'AuditLog',
       'JobRecord',
+      'OperatingCostEvidence',
       'CompanyKnowledgeItem',
       'CompanyKnowledgeRevision',
       'CompanyKnowledgeSource',

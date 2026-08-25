@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -722,6 +722,44 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_AGENT_IMPROVEMENT_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableOperatingCostShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'costs',
+      databasePrefix: 'pathfinder_disposable_operating_cost_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_OPERATING_COST_SHAKEDOWN',
+      lifecycleEvent: 'test:operating-cost:disposable',
+      successAction: 'operating-cost-evidence.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'platform-tenant-venue-scope',
+        'idempotent-replay',
+        'append-only-corrections',
+        'concurrent-supersession-fence',
+        'strict-audit-evidence',
+        'no-invoice-price-or-service-effect',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/operating-cost-evidence-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_OPERATING_COST_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

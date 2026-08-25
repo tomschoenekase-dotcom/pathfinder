@@ -43,6 +43,59 @@ const empty: Data = {
   events: { items: [], nextCursor: null },
   platformEvents: { items: [], nextCursor: null },
   workers: [],
+  unitEconomics: {
+    schemaVersion: 'founder-unit-economics.v1',
+    generatedAt: new Date('2026-08-11T14:30:00.000Z'),
+    window: {
+      days: 30,
+      start: new Date('2026-07-12T14:30:00.000Z'),
+      endExclusive: new Date('2026-08-11T14:30:00.000Z'),
+      previousStart: new Date('2026-06-12T14:30:00.000Z'),
+    },
+    totals: {
+      knownOperatingCostUsd: '0.00000000',
+      priorKnownOperatingCostUsd: '0.00000000',
+      changeUsd: '0.00000000',
+      changePercent: null,
+    },
+    ai: {
+      estimatedCostUsd: '0.00000000',
+      requestCount: 0,
+      attributedTenantCount: 0,
+      completeness: 'PROVIDER_PRICING_ESTIMATE',
+    },
+    nonAi: {
+      evidencedCostUsd: '0.00000000',
+      platformUnallocatedUsd: '0.00000000',
+      tenantOrVenueAttributedUsd: '0.00000000',
+      evidenceCount: 0,
+      excludedOverlappingEvidenceCount: 0,
+      categories: [],
+    },
+    coverage: {
+      representedCategories: [],
+      unrepresentedCategories: [
+        'STORAGE',
+        'EMAIL',
+        'MEDIA_PROCESSING',
+        'INFRASTRUCTURE',
+        'OBSERVABILITY',
+        'SECURITY',
+        'BANDWIDTH',
+        'OPERATOR_TIME',
+        'OTHER',
+      ],
+      complete: false,
+      interpretation: 'Only current evidence wholly contained in the window is summed.',
+    },
+    policy: {
+      anomalyThreshold: 'UNRESOLVED',
+      anomalyClassification: 'NOT_COMPUTED',
+      affectsInvoices: false,
+      affectsCustomerPricing: false,
+      authorizesServiceCutoff: false,
+    },
+  },
   agentTrustEvidence: {
     schemaVersion: 2,
     state: 'NO_OUTCOME_EVIDENCE',
@@ -144,6 +197,9 @@ describe('operations attention console', () => {
       screen.getByRole('heading', { name: 'Has the AI workforce earned more trust?' }),
     ).toBeTruthy()
     expect(screen.getByText(/Completion alone is not quality evidence/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'What is costing Torchiko money?' })).toBeTruthy()
+    expect(screen.getByText('Coverage incomplete')).toBeTruthy()
+    expect(screen.getByText(/No anomaly threshold is settled/)).toBeTruthy()
     expect(
       screen.getByText(/No reliability score, trend claim, or permission change is inferred/),
     ).toBeTruthy()

@@ -38,6 +38,26 @@ authorization boundary.
 The interface states the bounded-snapshot limitation rather than claiming exhaustive company
 awareness.
 
+## Operating-cost coverage
+
+The Control Room includes a mobile-responsive 30-day operating-cost evidence panel. It combines
+canonical `AiUsageEvent` provider-pricing estimates with current, provider-neutral non-AI
+`OperatingCostEvidence` for storage, email, media processing, infrastructure, observability,
+security, bandwidth, operator time, and explicitly classified other costs. Platform-wide evidence
+is separated from tenant/venue attribution, and represented categories are separated from coverage
+gaps.
+
+The panel compares the known total with the prior 30-day window, but does not label a change
+normal or anomalous because no founder anomaly threshold is settled. Only evidence wholly
+contained in a window is summed; overlapping periods are counted as excluded instead of inventing
+a prorating rule. The same versioned projection is returned by `admin.founderOperatingView` for
+authorized AI operation.
+
+Non-AI evidence is append-only, idempotent, source-referenced, and scope checked. Corrections create
+a uniquely fenced superseding row rather than rewriting history. Recording evidence has no path to
+invoices, customer prices, budgets, service cutoff, or external communication. This is internal
+coverage evidence, not accounting or a cost-control policy.
+
 ## Personal review checkpoints
 
 The briefing includes an actor-scoped "since your last review" summary for critical risks,
@@ -203,4 +223,6 @@ implementation. Its incident invariant is retained as an explicit regression tes
 - A clear bounded snapshot is not proof that every external system is healthy.
 - A review checkpoint proves only that one authenticated operator marked one generated briefing as
   reviewed; it is not approval or execution evidence.
+- Cost coverage is incomplete until every relevant source is represented. No anomaly status,
+  margin, invoice truth, or customer pricing conclusion is inferred from the current evidence.
 - General-purpose application engineering remains a separate Codex workflow.

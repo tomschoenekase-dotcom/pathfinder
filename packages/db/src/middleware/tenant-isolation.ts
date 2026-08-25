@@ -29,6 +29,7 @@ const bypassTenantIsolationStorage =
 tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIsolationStorage
 const APPEND_ONLY_MODELS = [
   'AiUsageEvent',
+  'OperatingCostEvidence',
   'ProductEntitlementOverride',
   'BillingEventApplication',
   'BillingAccessOverride',
