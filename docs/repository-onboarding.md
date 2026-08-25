@@ -12,6 +12,10 @@ Prerequisites: Node.js 20.19 or newer, pnpm 9 (the repository pins 9.15.4), Git,
 4. For a provider-dark realistic stack on Windows, run `pnpm local-staging:up`. It creates a named disposable PostgreSQL database plus Redis, MinIO, and ClamAV, applies migrations through the guarded disposable runner, and starts web/dashboard/workers with outbound providers disabled.
 5. Inspect it with `pnpm local-staging:status`; stop application processes and containers with `pnpm local-staging:stop`. State is preserved under the location reported by the command.
 
+The dependency images are content-addressed. Follow
+[`local-staging-infrastructure.md`](local-staging-infrastructure.md) to upgrade them; never replace
+the checked-in digests with mutable tags during troubleshooting.
+
 Do not copy credentials into tracked files. `.env.example` documents names and default-dark posture, while `packages/config/src/env.ts` and its tests are the runtime authority. Ordinary unit/script verification supplies synthetic safe configuration; use real credentials only through an approved external environment.
 
 ## Release path

@@ -41,3 +41,16 @@ test('phone uploads use the active LAN address while privileged dependencies sta
     assert.match(compose, new RegExp(`127\\.0\\.0\\.1:${mapping}`, 'u'))
   }
 })
+
+test('every local staging dependency is content-addressed', () => {
+  const imageLines = [...compose.matchAll(/^\s+image:\s+([^\s]+)\s*$/gmu)].map((match) => match[1])
+  assert.deepEqual(imageLines.length, 5)
+  for (const image of imageLines) {
+    assert.match(
+      image,
+      /^[a-z0-9./_-]+(?::[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$/u,
+      `Unpinned local-staging image: ${image}`,
+    )
+  }
+  assert.doesNotMatch(compose, /^\s+image:\s+[^\s@]+\s*$/gmu)
+})

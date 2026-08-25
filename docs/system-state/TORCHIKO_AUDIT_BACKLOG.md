@@ -244,15 +244,16 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.6 — Pin local infrastructure images and clarify Railway ownership
 
-- **Problem:** Local MinIO/ClamAV use floating tags; root Railway/Nixpacks and per-service Docker configurations coexist.
-- **Evidence:** compose files and Railway configs; staging verifier recognizes three services.
+- **Status:** **LOCAL IMAGE REPRODUCIBILITY RESOLVED 2026-08-25; HOSTED CONFIGURATION OWNERSHIP REMAINS.** Every PostgreSQL/pgvector, Redis, MinIO, MinIO client, and ClamAV image in the provider-dark local-staging stack is bound to an exact repository digest. A static test rejects any unpinned dependency, and the upgrade runbook requires compatibility review plus local/disposable proof.
+- **Remaining problem:** Root Railway/Nixpacks and per-service Docker configurations coexist. Their hosted ownership cannot be inferred from local compose behavior.
+- **Evidence:** `compose.local-staging.yml`; `scripts/local-staging-worker.test.mjs`; `docs/local-staging-infrastructure.md`; Railway configs and staging verifier.
 - **Affected system:** Developer experience, deployment reproducibility.
-- **Recommended change:** Pin image digests/versions, document upgrade cadence, designate service configs canonical, and retire or clearly mark the root config.
+- **Recommended change:** During an authorized hosted staging integration, prove which service configuration Railway actually consumes, designate those files canonical, and retire or explicitly mark only genuinely superseded configuration.
 - **Why it matters:** Builds and local behavior should not change because an upstream tag moved.
 - **Effort:** S
 - **Dependencies:** Tested compatible versions and deployment confirmation.
 - **Before more venue acquisition:** **No**.
-- **Codex autonomous:** **Partly**; production config removal requires confirmation.
+- **Codex autonomous:** **Local pinning implemented**; hosted configuration removal requires confirmation.
 
 ### P2.7 — Improve repository onboarding and doc discoverability
 

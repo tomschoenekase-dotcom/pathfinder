@@ -2,7 +2,7 @@ name: pathfinder-local-staging
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
     environment:
       POSTGRES_DB: pathfinder_disposable_local_staging
       POSTGRES_USER: pathfinder
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     command: ['redis-server', '--appendonly', 'yes']
     ports:
       - '127.0.0.1:56380:6379'
@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: pathfinder-local-staging
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     depends_on:
       minio:
         condition: service_healthy
@@ -67,7 +67,7 @@ services:
     restart: 'no'
 
   clamav:
-    image: clamav/clamav:stable
+    image: clamav/clamav:stable@sha256:78810772a92b4a9168115bc6b2e0ffd702640893b9577f8c3d0432762d2655c4
     ports:
       - '127.0.0.1:53310:3310'
     volumes:
