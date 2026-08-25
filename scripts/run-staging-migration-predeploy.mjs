@@ -42,7 +42,8 @@ const EXPECTED = Object.freeze({
   b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
   finalMigration: '20260825160000_add_venue_response_depth',
   manifestHash: '8a2574fe6668c415e3c2344461c228bf5671763b10417bb8c381868b2cd0aac0',
-  finalPublicTableCount: 217,
+  // The reviewed 51-migration suffix after B.5 adds 25 public tables.
+  finalPublicTableCount: 218,
 })
 
 // These are the exact checksums preserved by the verified 52-row production

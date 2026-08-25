@@ -73,6 +73,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
 
 test('repository migration manifest remains frozen at the reviewed 192-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
+  assert.equal(EXPECTED.finalPublicTableCount, 218)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
