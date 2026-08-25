@@ -44,9 +44,9 @@ const approvedCallCounts = new Map([
   // venue, and (for raw records) turn scope. Calibration returns derived reviewer-free evidence.
   ['packages/api/src/routers/admin/guest-answer-attributions.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
-  // Platform-admin unit economics aggregates cross-tenant AI usage and append-only
-  // operating-cost evidence; the write binds the authenticated human actor and
-  // cannot alter invoices, customer pricing, anomaly policy, or service state.
+  // Platform-admin unit economics aggregates cross-tenant AI usage plus append-only
+  // cost and measured-quantity evidence; the write binds the authenticated human actor
+  // and cannot alter invoices, customer pricing, anomaly policy, or service state.
   ['packages/api/src/routers/admin/unit-economics.ts', 2],
   // Platform-admin-only exact incident correlation reads one event, its latest scoped guest turn,
   // and explicitly referenced sanitized usage rows; successful access is strictly audited.
@@ -211,6 +211,10 @@ const approvedCallCounts = new Map([
   // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
   // never returns body content or mutates retention state.
   ['packages/db/src/helpers/email-body-retention.ts', 1],
+  // System-only daily measurement reads bounded database-declared intake/media byte
+  // metadata across tenants. It returns aggregate exact scopes, never object contents,
+  // assigns no dollar value, and performs no customer, billing, or service mutation.
+  ['packages/db/src/helpers/declared-operational-usage.ts', 1],
   // Signature-verified Stripe ingress resolves an unknown provider object to one
   // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
   ['packages/billing/src/service.ts', 4],
