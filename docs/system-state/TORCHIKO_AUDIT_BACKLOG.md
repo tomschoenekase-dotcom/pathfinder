@@ -2,7 +2,7 @@
 
 **Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 189 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 190 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -115,12 +115,12 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **Implemented** for local code/tests and founder visibility; deployment alerts need configuration.
 
-### P1.6 — Give clients a bounded insight and correction loop — IMPLEMENTED 2026-08-22
+### P1.6 — Give clients a bounded insight and correction loop — LOCALLY RESOLVED 2026-08-25
 
-- **Outcome:** The client dashboard now shows a venue-scoped, privacy-bounded visitor pulse with aggregate activity, helpfulness, and content-review signals. Its correction action opens a prefilled service-led content-correction request; clients never receive raw conversation access or direct publication authority.
-- **Evidence:** `portal.getVenueVisitorPulse`; `DashboardOverview.tsx`; `SupportWorkspace.tsx`; `(app)/support/page.tsx`; API, component, and route tests.
+- **Outcome:** The client dashboard shows a venue-scoped, privacy-bounded visitor pulse with aggregate activity, helpfulness, and content-review signals. Its correction action opens a prefilled service-led content-correction request. After exact operator review, one frozen request version and selected immutable messages can become one separately reviewed knowledge proposal through the mobile Support Operations workspace or a verified `knowledge:draft` worker. Neither path publishes, contacts the client, or mutates support/canonical content.
+- **Evidence:** `portal.getVenueVisitorPulse`; `DashboardOverview.tsx`; `SupportWorkspace.tsx`; `docs/support-knowledge-proposals.md`; `prepareSupportKnowledgeProposalAction`; `torchiko.knowledge.prepare_from_support`; disposable PostgreSQL, API/MCP, component, and route tests.
 - **Affected system:** Client portal, analytics, content operations, support load.
-- **Remaining work:** Calibrate useful trend depth and connect reviewed service requests into the existing operator/knowledge-proposal workflow where evidence warrants it; never direct-publish.
+- **Remaining work:** Calibrate useful trend depth with representative customer history. Proposal review, package/application work, publication, customer communication, and hosted continuity remain separate; never direct-publish.
 - **Why it matters:** Customers receive more visible value and can improve accuracy without weakening editorial safety.
 - **Effort:** M
 - **Dependencies:** Stable proposal workflow and client permissions.

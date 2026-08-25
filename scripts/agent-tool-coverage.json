@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 427,
-    "sha256": "3a6997857090dc3ea2252290fd9af0baeda3c229587027435d2d64748900472f",
+    "count": 429,
+    "sha256": "860a27311f87b1ba8cbb8850752309702d9f6acec1602d12faa90476522ab2fa",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "3a6997857090dc3ea2252290fd9af0baeda3c229587027435d2d64748900472f",
-      "sha256": "7c203dbbfed8280a6c05158480ba97edbecfa0404ba4894b20851787549c9103"
+      "operationInventorySha256": "860a27311f87b1ba8cbb8850752309702d9f6acec1602d12faa90476522ab2fa",
+      "sha256": "01f2f981e468d70a1921a3a08155d4320c2dc5d77d3fddeed942db8c1e9bfae0"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -112,6 +112,14 @@
         ],
         "decision": "Agents can retrieve permission-aware current/history knowledge and prepare evidence-linked corrections, but cannot promote or supersede canonical truth.",
         "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "support-knowledge-proposal-action",
+        "kind": "direct-tool",
+        "operations": ["admin.createSupportKnowledgeProposal"],
+        "surfaces": ["tool:torchiko.knowledge.prepare_from_support"],
+        "decision": "The administrator and governed agent tool reuse the same exact-version support-to-knowledge proposal action. Both freeze immutable reviewed-request and message evidence into a separate PENDING_REVIEW proposal; neither changes canonical knowledge, support state, publication, or customer contact.",
+        "evidence": "packages/db/src/helpers/support-knowledge-proposal-disposable.integration.test.ts"
       },
       {
         "id": "bounded-customer-access-preparation",

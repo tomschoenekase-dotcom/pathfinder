@@ -609,6 +609,33 @@ export type McpKnowledgeCorrectionProposalInput = z.infer<
   typeof McpKnowledgeCorrectionProposalInput
 >
 
+export const McpSupportKnowledgeProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  supportRequestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  evidenceMessageIds: z
+    .array(Identifier)
+    .min(1)
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, 'Evidence messages must be unique.'),
+  targetKnowledgeEntryId: Identifier.optional(),
+  correctionKind: z.enum([
+    'CREATE_KNOWLEDGE',
+    'UPDATE_KNOWLEDGE',
+    'RETIRE_KNOWLEDGE',
+    'RETRIEVAL_CORRECTION',
+    'NO_CONTENT_CHANGE',
+  ]),
+  aiInference: z.string().trim().min(1).max(2000),
+  proposedChange: z.string().trim().min(1).max(10000),
+  reason: z.string().trim().min(1).max(2000),
+  confidence: z.number().min(0).max(1),
+}).strict()
+export type McpSupportKnowledgeProposalInput = z.infer<typeof McpSupportKnowledgeProposalInput>
+
 export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1228,6 +1255,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.quality.list_answer_attributions'
   | 'torchiko.quality.preview_answer_attribution_agreement'
   | 'torchiko.knowledge.propose_correction'
+  | 'torchiko.knowledge.prepare_from_support'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
@@ -1616,6 +1644,68 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'agentRunId',
         'workerKey',
         'conversationInsightId',
+        'correctionKind',
+        'aiInference',
+        'proposedChange',
+        'reason',
+        'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.prepare_from_support',
+    title: 'Prepare a client correction proposal',
+    description:
+      'Bind one exact in-review content-correction request version and its immutable messages to a separate knowledge proposal for human review. It never edits, publishes, retires, or re-embeds canonical venue knowledge and never contacts the customer.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        supportRequestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        evidenceMessageIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        targetKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 120 },
+        correctionKind: {
+          type: 'string',
+          enum: [
+            'CREATE_KNOWLEDGE',
+            'UPDATE_KNOWLEDGE',
+            'RETIRE_KNOWLEDGE',
+            'RETRIEVAL_CORRECTION',
+            'NO_CONTENT_CHANGE',
+          ],
+        },
+        aiInference: { type: 'string', minLength: 1, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 1, maxLength: 10000 },
+        reason: { type: 'string', minLength: 1, maxLength: 2000 },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'supportRequestId',
+        'expectedVersion',
+        'evidenceMessageIds',
         'correctionKind',
         'aiInference',
         'proposedChange',

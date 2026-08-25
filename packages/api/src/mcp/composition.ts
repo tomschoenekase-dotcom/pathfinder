@@ -51,6 +51,7 @@ import {
   completeSupportRequestAction,
   triageSupportRequestAction,
   proposeKnowledgeCorrectionAction,
+  prepareSupportKnowledgeProposalAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
   supersedeSupportPackageHandoffAction,
@@ -96,6 +97,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.quality.list_answer_attributions',
   'torchiko.quality.preview_answer_attribution_agreement',
   'torchiko.knowledge.propose_correction',
+  'torchiko.knowledge.prepare_from_support',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
@@ -197,6 +199,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'listGuestAnswerAttributions'
     | 'previewGuestAnswerAttributionAgreement'
     | 'proposeKnowledgeCorrection'
+    | 'prepareKnowledgeFromSupport'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -244,6 +247,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'generateWeeklyReportDraft'
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
+    | 'prepareKnowledgeFromSupport'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -1161,6 +1165,108 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.proposal.status,
           replayed: result.replayed,
           canonicalKnowledgeChanged: false,
+        }),
+      }
+    },
+    async prepareKnowledgeFromSupport(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Support knowledge proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+
+      const result = await prepareSupportKnowledgeProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          supportRequestId: input.supportRequestId,
+          expectedVersion: input.expectedVersion,
+          evidenceMessageIds: input.evidenceMessageIds,
+          ...(input.targetKnowledgeEntryId
+            ? { targetKnowledgeEntryId: input.targetKnowledgeEntryId }
+            : {}),
+          correctionKind: input.correctionKind,
+          aiInference: input.aiInference,
+          proposedChange: input.proposedChange,
+          reason: input.reason,
+          confidence: input.confidence,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'knowledge:draft',
+            idempotencyKey: input.operationId,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'knowledge.proposal.created',
+            sourceSubsystem: 'support-operations',
+            severity: 'WARNING',
+            title: 'Client correction proposal needs review',
+            summary:
+              'An AI worker bound a reviewed support request to a proposal. Canonical venue knowledge is unchanged.',
+            actionRequired: true,
+            linkedObjectType: 'knowledge-change-proposal',
+            linkedObjectId: result.proposal.id,
+            recommendedAction:
+              'Compare the frozen support evidence with trusted venue sources, then approve or reject the proposal.',
+            deduplicationKey: `knowledge-proposal:${result.proposal.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.support-knowledge-proposal',
+        summary: result.replayed
+          ? 'Existing support-linked proposal returned; canonical venue knowledge and customer communication are unchanged.'
+          : 'Support-linked proposal prepared for human review; canonical venue knowledge and customer communication are unchanged.',
+        data: jsonData({
+          proposalId: result.proposal.id,
+          supportRequestId: result.proposal.supportRequestId,
+          supportRequestVersion: result.proposal.supportRequestVersion,
+          status: result.proposal.status,
+          canonicalKnowledgeChanged: false,
+          customerContacted: false,
+          replayed: result.replayed,
         }),
       }
     },

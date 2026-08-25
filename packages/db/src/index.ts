@@ -23,6 +23,12 @@ export {
   type ProposeKnowledgeCorrectionInput,
 } from './helpers/knowledge-correction-actions'
 export {
+  prepareSupportKnowledgeProposalAction,
+  SupportKnowledgeProposalActionError,
+  type SupportKnowledgeProposalActionErrorCode,
+  type SupportKnowledgeProposalInput,
+} from './helpers/support-knowledge-proposal-actions'
+export {
   publishOperationalEvent,
   type PublishOperationalEventInput,
 } from './helpers/operational-events'

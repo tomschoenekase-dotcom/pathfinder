@@ -22,6 +22,7 @@
     "test:guest-answer-attribution:disposable": "node scripts/run-disposable-guest-answer-attribution.mjs",
     "test:retention-disposition-preview:disposable": "node scripts/run-disposable-retention-disposition-preview.mjs",
     "test:support-triage-proposal:disposable": "node scripts/run-disposable-support-triage-proposal.mjs",
+    "test:support-knowledge-proposal:disposable": "node scripts/run-disposable-support-knowledge-proposal.mjs",
     "test:support-triage-application:disposable": "node scripts/run-disposable-support-triage-application.mjs",
     "test:support-information-request:disposable": "node scripts/run-disposable-support-information-request.mjs",
     "test:customer-access-execution:disposable": "node scripts/run-disposable-customer-access-execution.mjs",

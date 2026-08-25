@@ -17,6 +17,7 @@ import {
   McpGuestAnswerAttributionListInput,
   McpGuestAnswerAttributionAgreementInput,
   McpKnowledgeCorrectionProposalInput,
+  McpSupportKnowledgeProposalInput,
   McpLocationDraftProposalInput,
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
@@ -155,6 +156,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeKnowledgeCorrection: (
     input: McpKnowledgeCorrectionProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  prepareKnowledgeFromSupport: (
+    input: McpSupportKnowledgeProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeLocationDraft: (
@@ -433,6 +438,12 @@ export function createPathfinderMcpRegistry(
           const input = McpKnowledgeCorrectionProposalInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
           result = await actions.proposeKnowledgeCorrection(input, context)
+          break
+        }
+        case 'torchiko.knowledge.prepare_from_support': {
+          const input = McpSupportKnowledgeProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.prepareKnowledgeFromSupport(input, context)
           break
         }
         case 'torchiko.locations.propose_draft': {

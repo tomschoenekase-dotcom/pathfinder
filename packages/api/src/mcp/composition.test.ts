@@ -10,6 +10,7 @@ const {
   buildPreview,
   listGaps,
   proposeCorrection,
+  prepareSupportKnowledge,
   prepareCustomerAccess,
   prepareLocationDraft,
   prepareSupportTriage,
@@ -39,6 +40,7 @@ const {
   buildPreview: vi.fn(),
   listGaps: vi.fn(),
   proposeCorrection: vi.fn(),
+  prepareSupportKnowledge: vi.fn(),
   prepareCustomerAccess: vi.fn(),
   prepareLocationDraft: vi.fn(),
   prepareSupportTriage: vi.fn(),
@@ -71,6 +73,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
   proposeKnowledgeCorrectionAction: proposeCorrection,
+  prepareSupportKnowledgeProposalAction: prepareSupportKnowledge,
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
   prepareLocationDraftProposalAction: prepareLocationDraft,
   prepareSupportTriageProposalAction: prepareSupportTriage,
@@ -1984,6 +1987,72 @@ describe('safe operational MCP composition', () => {
     expect(result.structuredContent.data).toMatchObject({
       status: 'PENDING_REVIEW',
       canonicalKnowledgeChanged: false,
+    })
+  })
+
+  it('lets a verified knowledge worker bind reviewed support evidence without publishing or contact', async () => {
+    prepareSupportKnowledge.mockResolvedValue({
+      proposal: {
+        id: '11111111-1111-4111-8111-111111111111',
+        status: 'PENDING_REVIEW',
+        supportRequestId: 'support-request-1',
+        supportRequestVersion: 4,
+      },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({})
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'provider-dark',
+          modelName: 'deterministic-fixture',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const result = await registry.callTool(
+      'torchiko.knowledge.prepare_from_support',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        supportRequestId: 'support-request-1',
+        expectedVersion: 4,
+        evidenceMessageIds: ['support-message-1'],
+        correctionKind: 'UPDATE_KNOWLEDGE',
+        aiInference: 'The client supplied a correction that needs source verification.',
+        proposedChange: 'Use the verified east entrance.',
+        reason: 'The frozen client message identifies the stale direction.',
+        confidence: 0.86,
+      },
+      { credential: { ...credential, capabilities: ['knowledge:draft'] } },
+    )
+
+    expect(prepareSupportKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        supportRequestId: 'support-request-1',
+        expectedVersion: 4,
+        evidenceMessageIds: ['support-message-1'],
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          capability: 'knowledge:draft',
+          agentRunId: 'run-1',
+        }),
+      }),
+      database,
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      status: 'PENDING_REVIEW',
+      canonicalKnowledgeChanged: false,
+      customerContacted: false,
+      replayed: false,
     })
   })
 

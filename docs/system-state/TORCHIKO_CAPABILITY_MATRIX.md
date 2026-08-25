@@ -26,6 +26,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 | `claim-attribution-calibration`    | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.             |
 | `agent-operational-trust-evidence` | PROVEN PROVIDER-DARK LOCALLY        | Representative history, trust thresholds, hosted staging, and every authority change remain gated.      |
 | `identity-vocabulary`              | PROVEN LOCALLY                      | Legal/trademark/product changes and migrations of stable technical identifiers remain separately gated. |
+| `support-knowledge-correction`     | PROVEN PROVIDER-DARK LOCALLY        | Review, publication, contact, hosted continuity, and provider quality remain separate or gated.         |
 
 ## Product ownership in one minute
 
@@ -162,7 +163,7 @@ Full contract: [`identity-vocabulary.md`](../identity-vocabulary.md).
 
 | Capability                      | Status                       | Usable now?                                          | Owner / implementation                                                                   | What remains                                                                                                                       |
 | ------------------------------- | ---------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL/pgvector schema      | PRODUCTION-READY             | Yes locally                                          | `packages/db/prisma/schema.prisma`; 189 migrations                                       | Current staging/production parity.                                                                                                 |
+| PostgreSQL/pgvector schema      | PRODUCTION-READY             | Yes locally                                          | `packages/db/prisma/schema.prisma`; 190 migrations                                       | Current staging/production parity.                                                                                                 |
 | Prisma tenant middleware        | PRODUCTION-READY             | Yes                                                  | `middleware/tenant-isolation.ts`; tenant registry                                        | Database defense in depth at scale.                                                                                                |
 | Database RLS                    | DOCUMENTED/ABSENT            | No                                                   | no RLS policies found                                                                    | Evaluate selectively before high scale.                                                                                            |
 | Raw-SQL/bypass inventories      | PRODUCTION-READY             | Yes                                                  | verification scripts and approved callsites                                              | Keep budgets reviewed as code grows.                                                                                               |

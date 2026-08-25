@@ -101,6 +101,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   listGuestAnswerAttributions: vi.fn(),
   previewGuestAnswerAttributionAgreement: vi.fn(),
   proposeKnowledgeCorrection: vi.fn(),
+  prepareKnowledgeFromSupport: vi.fn(),
   proposeLocationDraft: vi.fn(),
   proposeSupportTriage: vi.fn(),
   applySupportTriage: vi.fn(),

@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -1024,6 +1024,48 @@ export async function runDisposableSupportTriageApplicationShakedown(options = {
 
 export const runDisposableSupportTriageProposalShakedown =
   runDisposableSupportTriageApplicationShakedown
+
+export async function runDisposableSupportKnowledgeProposalShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'supknow',
+      databasePrefix: 'pathfinder_disposable_support_knowledge_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_SUPPORT_KNOWLEDGE_SHAKEDOWN',
+      lifecycleEvent: 'test:support-knowledge-proposal:disposable',
+      successAction: 'support-knowledge-proposal.disposable-shakedown.passed',
+      proofScope: [
+        'exact-reviewed-request-version',
+        'immutable-message-evidence',
+        'idempotent-replay',
+        'one-proposal-per-source-version',
+        'machine-capability-lineage',
+        'support-state-unchanged',
+        'canonical-knowledge-unchanged',
+        'source-tamper-rejected',
+        'separate-human-review-remains-valid',
+        'no-customer-contact',
+        'no-publication',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/support-knowledge-proposal-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_SUPPORT_KNOWLEDGE_PROPOSAL_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
 
 export async function runDisposableSupportInformationRequestShakedown(options = {}) {
   return runDisposableServiceShakedown({

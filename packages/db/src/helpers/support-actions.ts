@@ -391,7 +391,7 @@ async function lockSupportOperation(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-operation:${tenantId}:${operationId}`}, 0))`
 }
 
-async function lockSupportRequest(
+export async function lockSupportRequest(
   tx: Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0],
   tenantId: string,
   requestId: string,

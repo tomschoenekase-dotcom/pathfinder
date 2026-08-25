@@ -8,8 +8,9 @@ import {
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { adminSupportCorrectionProposalsRouter } from './support-knowledge-proposals'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
@@ -17,7 +18,7 @@ function isUniqueConflict(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-export const adminKnowledgeProposalsRouter = router({
+const adminKnowledgeProposalReviewRouter = router({
   listKnowledgeProposals: adminProcedure
     .input(
       z
@@ -59,6 +60,8 @@ export const adminKnowledgeProposalsRouter = router({
             evidenceMessageIds: true,
             targetKnowledgeEntryId: true,
             conversationInsightId: true,
+            supportRequestId: true,
+            supportRequestVersion: true,
             createdByType: true,
             createdAt: true,
             updatedAt: true,
@@ -99,6 +102,8 @@ export const adminKnowledgeProposalsRouter = router({
                 id: true,
                 status: true,
                 conversationInsightId: true,
+                supportRequestId: true,
+                supportRequestVersion: true,
                 targetKnowledgeEntryId: true,
                 observedVisitorClaim: true,
                 aiInference: true,
@@ -111,6 +116,8 @@ export const adminKnowledgeProposalsRouter = router({
             if (existing) {
               const exactReplay =
                 existing.conversationInsightId === (input.conversationInsightId ?? null) &&
+                existing.supportRequestId === null &&
+                existing.supportRequestVersion === null &&
                 existing.targetKnowledgeEntryId === (input.targetKnowledgeEntryId ?? null) &&
                 existing.observedVisitorClaim === (input.observedVisitorClaim ?? null) &&
                 existing.aiInference === (input.aiInference ?? null) &&
@@ -316,3 +323,8 @@ export const adminKnowledgeProposalsRouter = router({
       ),
     ),
 })
+
+export const adminKnowledgeProposalsRouter = mergeRouters(
+  adminKnowledgeProposalReviewRouter,
+  adminSupportCorrectionProposalsRouter,
+)

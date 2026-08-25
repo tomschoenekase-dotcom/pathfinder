@@ -50,6 +50,7 @@ function actions(): PathfinderMcpDomainActions {
     listGuestAnswerAttributions: vi.fn().mockResolvedValue(result),
     previewGuestAnswerAttributionAgreement: vi.fn().mockResolvedValue(result),
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
+    prepareKnowledgeFromSupport: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
     applySupportTriage: vi.fn().mockResolvedValue(result),

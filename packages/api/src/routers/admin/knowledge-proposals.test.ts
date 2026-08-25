@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   audit: vi.fn(),
   publish: vi.fn(),
+  prepareSupport: vi.fn(),
 }))
 
 const transactionClient = {
@@ -29,6 +30,15 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: (callback: () => unknown) => callback(),
   writeAuditLogStrict: mocks.audit,
   publishOperationalEvent: mocks.publish,
+  prepareSupportKnowledgeProposalAction: mocks.prepareSupport,
+  SupportKnowledgeProposalActionError: class SupportKnowledgeProposalActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
 }))
 
 import { router } from '../../core'
@@ -77,6 +87,15 @@ describe('admin knowledge proposals', () => {
     mocks.proposalCreate.mockResolvedValue({ id: operationId, status: 'PENDING_REVIEW' })
     mocks.audit.mockResolvedValue(undefined)
     mocks.publish.mockResolvedValue(undefined)
+    mocks.prepareSupport.mockResolvedValue({
+      proposal: {
+        id: operationId,
+        status: 'PENDING_REVIEW',
+        supportRequestId: 'support-request-1',
+        supportRequestVersion: 3,
+      },
+      replayed: false,
+    })
   })
 
   it('returns only an exact idempotent replay', async () => {
@@ -84,6 +103,8 @@ describe('admin knowledge proposals', () => {
       id: operationId,
       status: 'PENDING_REVIEW',
       conversationInsightId: input.conversationInsightId,
+      supportRequestId: null,
+      supportRequestVersion: null,
       targetKnowledgeEntryId: null,
       observedVisitorClaim: null,
       aiInference: null,
@@ -126,5 +147,48 @@ describe('admin knowledge proposals', () => {
     await expect(
       app.createCaller(context()).admin.createKnowledgeProposal(input),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('prepares a support-linked proposal without canonical knowledge or customer effects', async () => {
+    await expect(
+      app.createCaller(context()).admin.createSupportKnowledgeProposal({
+        operationId,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        supportRequestId: 'support-request-1',
+        expectedVersion: 3,
+        evidenceMessageIds: ['support-message-1'],
+        correctionKind: 'UPDATE_KNOWLEDGE',
+        proposedChange: 'Use the verified east entrance.',
+        reason: 'The client supplied corrected entrance details.',
+        confidence: 0.9,
+      }),
+    ).resolves.toMatchObject({
+      id: operationId,
+      status: 'PENDING_REVIEW',
+      canonicalKnowledgeChanged: false,
+      replayed: false,
+    })
+
+    expect(mocks.prepareSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supportRequestId: 'support-request-1',
+        expectedVersion: 3,
+        actor: {
+          type: 'HUMAN',
+          actorId: 'admin-1',
+          role: 'PLATFORM_ADMIN',
+        },
+      }),
+      expect.anything(),
+    )
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          sourceSubsystem: 'support-operations',
+          linkedObjectId: operationId,
+        }),
+      }),
+    )
   })
 })

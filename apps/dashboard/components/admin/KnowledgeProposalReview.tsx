@@ -23,6 +23,8 @@ export type KnowledgeProposal = {
   reviewNote: string | null
   reviewedAt: Date | string | null
   createdByType?: string
+  supportRequestId?: string | null
+  supportRequestVersion?: number | null
 }
 
 function ProposalActions({
@@ -193,6 +195,21 @@ export function KnowledgeProposalReview({
                     Review source conversation
                   </Link>
                   <span className="text-xs text-slate-500">
+                    {proposal.evidenceMessageIds.length} exact message reference
+                    {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
+                  </span>
+                </div>
+              ) : null}
+              {proposal.supportRequestId && proposal.supportRequestVersion ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations?requestId=${encodeURIComponent(proposal.supportRequestId)}`}
+                    className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
+                  >
+                    Review source request
+                  </Link>
+                  <span className="text-xs text-slate-500">
+                    Frozen request version {proposal.supportRequestVersion} ·{' '}
                     {proposal.evidenceMessageIds.length} exact message reference
                     {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
                   </span>

@@ -12,6 +12,7 @@ import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 import { SupportAgentRunLineagePanel, type SupportRunLineage } from './SupportAgentRunLineagePanel'
+import { SupportKnowledgeProposalForm } from './SupportKnowledgeProposalForm'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
@@ -31,6 +32,7 @@ type Message = {
   authorKind: string
   visibility: string
   body: string
+  requestVersion: number | null
   createdAt: Date
   attachments: { id: string; filename: string; mediaType: string; byteSize: string }[]
 }
@@ -72,6 +74,17 @@ type Handoff = {
     createdAt: Date
   }[]
 }
+type KnowledgeProposalLineage = {
+  id: string
+  status: string
+  supportRequestId: string | null
+  supportRequestVersion: number | null
+  proposedChange: string
+  reason: string
+  evidenceMessageIds: unknown
+  createdByType: string
+  createdAt: Date
+}
 type EligibleAttachment = {
   intakeUploadId: string
   fileName: string
@@ -92,6 +105,7 @@ type Props = {
   eligibleAttachmentsNextCursor?: { createdAt: string; id: string } | null
   runLineages?: SupportRunLineage[]
   runLineagesNextCursor?: { createdAt: string; id: string } | null
+  knowledgeProposals?: KnowledgeProposalLineage[]
 }
 
 function query(
@@ -120,6 +134,7 @@ export function SupportOperationsView({
   eligibleAttachmentsNextCursor = null,
   runLineages = [],
   runLineagesNextCursor = null,
+  knowledgeProposals = [],
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/support-operations`
   return (
@@ -252,6 +267,23 @@ export function SupportOperationsView({
                     venueId={venueId}
                     support={{ requestId: selected.id, expectedVersion: selected.version }}
                   />
+                  <SupportKnowledgeProposalForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    expectedVersion={selected.version}
+                    eligible={
+                      selected.category === 'CONTENT_CORRECTION' &&
+                      [
+                        'IN_REVIEW',
+                        'PATCH_DRAFTED',
+                        'VALIDATING',
+                        'AWAITING_APPROVAL',
+                        'APPLYING',
+                      ].includes(selected.status)
+                    }
+                    messages={messages.items}
+                  />
                 </SupportVersionBoundActions>
               )}
               <section className="space-y-3" aria-labelledby="support-handoffs-heading">
@@ -300,6 +332,52 @@ export function SupportOperationsView({
                 lineages={runLineages}
                 nextCursor={runLineagesNextCursor}
               />
+              <section className="space-y-3" aria-labelledby="support-knowledge-heading">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 id="support-knowledge-heading" className="text-xl font-semibold text-pf-deep">
+                    Knowledge proposal lineage
+                  </h3>
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/knowledge-proposals`}
+                    className="inline-flex min-h-11 items-center rounded-xl border border-pf-light bg-white px-4 text-sm font-semibold text-pf-primary"
+                  >
+                    Open review queue
+                  </Link>
+                </div>
+                {knowledgeProposals.length === 0 ? (
+                  <Empty text="No knowledge proposal is bound to a frozen version of this request." />
+                ) : (
+                  <ol className="divide-y divide-pf-light rounded-2xl border border-pf-light bg-white px-4">
+                    {knowledgeProposals.map((proposal) => (
+                      <li key={proposal.id} className="py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-pf-deep">
+                            Request version {proposal.supportRequestVersion} ·{' '}
+                            {proposal.status.replaceAll('_', ' ')}
+                          </p>
+                          <span className="text-xs font-bold uppercase tracking-wide text-pf-primary">
+                            {proposal.createdByType} prepared
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-sm text-pf-deep/75">
+                          {proposal.proposedChange}
+                        </p>
+                        <p className="mt-1 text-xs text-pf-deep/65">
+                          {Array.isArray(proposal.evidenceMessageIds)
+                            ? proposal.evidenceMessageIds.length
+                            : 0}{' '}
+                          exact message reference
+                          {Array.isArray(proposal.evidenceMessageIds) &&
+                          proposal.evidenceMessageIds.length === 1
+                            ? ''
+                            : 's'}{' '}
+                          retained · {proposal.createdAt.toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
               <section className="space-y-3" aria-labelledby="support-thread-heading">
                 <h3 id="support-thread-heading" className="text-xl font-semibold text-pf-deep">
                   Thread

@@ -249,6 +249,18 @@
         "packages/api/src/routers/chat.ts"
       ],
       "remaining": "Legal entity, trademark, contract, and future product-direction decisions remain founder or legal work; stable technical identifiers must be migrated deliberately rather than cosmetically renamed."
+    },
+    {
+      "id": "support-knowledge-correction",
+      "status": "proven-provider-dark-locally",
+      "summary": "An exact in-review client content-correction request version and its immutable messages can become one separately reviewed knowledge proposal through either a platform administrator or a verified knowledge:draft worker.",
+      "evidence": [
+        "docs/support-knowledge-proposals.md",
+        "packages/db/src/helpers/support-knowledge-proposal-actions.ts",
+        "packages/db/src/helpers/support-knowledge-proposal-disposable.integration.test.ts",
+        "apps/dashboard/components/admin/SupportKnowledgeProposalForm.tsx"
+      ],
+      "remaining": "Human proposal review, any package/application workflow, canonical knowledge publication, customer communication, hosted continuity, and provider-backed quality remain separately governed or gated."
     }
   ]
 }
