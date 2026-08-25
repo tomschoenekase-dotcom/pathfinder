@@ -46,6 +46,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.equal(new Set(ids).size, ids.length)
   assert.deepEqual(ids, [
     'founder-operating-conversation',
+    'founder-directive-task-handoff',
     'guest-prompt-integrity',
     'release-evidence',
     'golden-venue-lifecycle',

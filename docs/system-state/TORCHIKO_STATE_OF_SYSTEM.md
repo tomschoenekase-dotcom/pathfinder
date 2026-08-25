@@ -15,6 +15,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | Truth ID                           | Current state                                                                                                |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `founder-operating-conversation`   | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
+| `founder-directive-task-handoff`   | Exact directive-to-approved-agent-task handoff is provider-dark locally proven; approval does not execute.   |
 | `guest-prompt-integrity`           | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.        |
 | `release-evidence`                 | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
 | `golden-venue-lifecycle`           | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
@@ -107,7 +108,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 187 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 188 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -223,7 +224,7 @@ The strongest direction is the unified admin attention console rather than separ
 
 ## Data Architecture
 
-The Prisma schema contains 215 models: 138 tenanted, 58 platform-scoped, and 19 shared, enforced by an executable registry. Core identity is `User` → `Tenant`/`Membership` → `Venue`. Public experiences attach visitor sessions, conversation sessions/messages/turns, feedback, voice sessions, and analytics events to the venue.
+The Prisma schema contains 216 models: 139 tenanted, 58 platform-scoped, and 19 shared, enforced by an executable registry. Core identity is `User` → `Tenant`/`Membership` → `Venue`. Public experiences attach visitor sessions, conversation sessions/messages/turns, feedback, voice sessions, and analytics events to the venue.
 
 Knowledge has two generations:
 

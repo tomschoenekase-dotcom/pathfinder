@@ -45,6 +45,7 @@ export function ApprovalDecisionForm({
   const isSupportPackageReversion = proposedAction === 'pathfinder.apply_support_package_reversion'
   const isSupportPackageHandoffSupersession =
     proposedAction === 'pathfinder.apply_support_package_handoff_supersession'
+  const isFounderDirectiveTask = proposedAction === 'torchiko.founder-directive.materialize-task'
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -153,7 +154,9 @@ export function ApprovalDecisionForm({
                         : proposedAction === 'pathfinder.apply_support_triage' &&
                             decision === 'APPROVED'
                           ? 'APPROVED decision recorded. Exact one-shot triage authority was issued; no action was executed.'
-                          : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
+                          : isFounderDirectiveTask && decision === 'APPROVED'
+                            ? 'APPROVED decision recorded. The exact proposed task may now be materialized by a separately authorized platform worker; no task was queued and no downstream action was executed by this decision.'
+                            : `${decision.replace(/_/g, ' ')} decision recorded. No action was executed.`,
       })
       setRequiresRefresh(true)
       router.refresh()
@@ -230,7 +233,9 @@ export function ApprovalDecisionForm({
                       ? 'Approval issues exact one-shot authority to create the reviewed in-app client-visible prompt and move this unchanged request to WAITING FOR CLIENT. The decision itself does not contact the client or change lifecycle state.'
                       : proposedAction === 'pathfinder.apply_support_triage'
                         ? 'Approval issues exact one-shot authority for the reviewed request version. The decision itself does not apply triage, send a message, or change lifecycle state.'
-                        : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
+                        : isFounderDirectiveTask
+                          ? 'Approval permits a separately capability-gated platform worker to materialize only this exact prompt, scope, identity, and retained founder directive into the canonical task queue. The decision itself queues nothing and does not widen downstream authority.'
+                          : `Approval records evidence only. It does not run, apply, publish, retry, or enqueue “${proposedAction}”.`}
       </p>
       <fieldset disabled={pending || requiresRefresh} className="mt-3">
         <legend className="sr-only">Decision</legend>

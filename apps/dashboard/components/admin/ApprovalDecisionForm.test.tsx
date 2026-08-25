@@ -73,6 +73,32 @@ describe('ApprovalDecisionForm', () => {
     })
   })
 
+  it('makes founder-directive task approval distinct from task execution', async () => {
+    mocks.mutate.mockResolvedValue({ decision: { id: 'decision_1' }, executionTriggered: false })
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_directive"
+        proposedAction="torchiko.founder-directive.materialize-task"
+      />,
+    )
+    expect(screen.getByText(/materialize only this exact prompt, scope, identity/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('APPROVED'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+    await waitFor(() =>
+      expect(
+        screen.getByText(/no task was queued and no downstream action was executed/),
+      ).toBeTruthy(),
+    )
+    expect(mocks.mutate).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      approvalRequestId: 'approval_directive',
+      decision: 'APPROVED',
+    })
+  })
+
   it('serializes writes and requires a state refresh after an ambiguous outcome', async () => {
     let reject!: (reason: unknown) => void
     mocks.mutate.mockReturnValue(

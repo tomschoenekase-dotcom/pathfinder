@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|voice_recovery)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -870,7 +870,7 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
       lifecycleEvent: 'test:operations-readiness:disposable',
       successAction: 'operations-readiness.migration-parity.disposable-shakedown.passed',
       proofScope: [
-        'fresh-187-migration-chain',
+        'fresh-188-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
         'fresh-read-only-object-storage-probe',
@@ -1178,6 +1178,49 @@ export async function runDisposableFounderConversationShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_FOUNDER_CONVERSATION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableFounderDirectiveTaskShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'foundertask',
+      databasePrefix: 'pathfinder_disposable_founder_task_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_FOUNDER_DIRECTIVE_TASK_SHAKEDOWN',
+      lifecycleEvent: 'test:founder-directive-task:disposable',
+      successAction: 'founder-directive-task.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'exact-retained-founder-directive-source',
+        'separate-platform-worker-proposal-capability',
+        'human-approval-before-task-materialization',
+        'separate-materialization-capability',
+        'canonical-agent-run-and-message-lineage',
+        'proposal-and-materialization-idempotency',
+        'parameter-drift-rejected',
+        'immutable-proposal-and-no-delete-protection',
+        'strict-audit-evidence',
+        'no-customer-contact-pricing-billing-deployment-policy-or-destructive-authority',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/founder-directive-task-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_FOUNDER_DIRECTIVE_TASK_DB_INTEGRATION: '1',
+          AGENT_RUNNER_ENABLED: 'false',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

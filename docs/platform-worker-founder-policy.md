@@ -10,16 +10,22 @@ release-candidate evidence to future trusted internal workers through separate H
   and live BullMQ queue evidence.
 - `POST /api/platform-worker/release-evidence` reads bounded immutable release history or records
   one schema-validated, append-only evidence bundle for an exact repository revision.
+- `POST /api/platform-worker/founder-directive-tasks` reads bounded directive-task state, proposes
+  one exact task for human approval, or materializes an already-approved exact task. These are three
+  separately credentialed capabilities; no proposal or approval executes work.
 
 This is not customer MCP. Its credentials use a distinct `pf_platform_` token type and the closed
 capabilities `founder-decisions:read`, `founder-operating-view:read`,
-`operations-readiness:read`, `release-evidence:read`, and `release-evidence:record`. The record
+`founder-directive-tasks:read`, `founder-directive-tasks:propose`,
+`founder-directive-tasks:materialize`, `operations-readiness:read`, `release-evidence:read`, and
+`release-evidence:record`. The record
 capability can only append release evidence; it cannot execute a release. Credentials are issued
 disabled, store only an Argon2id verifier,
 require explicit platform-admin activation,
 support explicit revocation, and strictly audit every successful read. Tenant, client, and venue
-identifiers are intentionally absent from the credential and request contracts. A tenant MCP token
-is rejected before credential lookup.
+identifiers are intentionally absent from the credential itself. Directive-task proposal requests
+carry one exact tenant and venue scope, which is revalidated against the selected enabled identity.
+A tenant MCP token is rejected before credential lookup.
 
 The request contains one to fifty unique stable decision keys. Resolution is exact and current-only;
 there is no fuzzy fallback. Missing keys remain explicit. Ambiguous current truth returns a
@@ -52,7 +58,8 @@ every successful read or record is strictly audited. A staging-ready record is r
 assessment is clean and has no failed or blocked gates. The Founder Control Room renders this same
 canonical state with an explicit evidence-only label.
 
-These endpoints cannot create questions, approve or acknowledge actions, change policy, retry,
-cancel or redrive jobs, control incidents, contact customers, deploy, run migrations, authorize
-production, destroy valuable data, or perform billing operations. No credential is activated
-automatically.
+Only the directive-task endpoint can create an approval request or, after that exact human approval,
+materialize the canonical queued task. It cannot decide its own request or widen the target agent's
+authority. These endpoints cannot change policy, control incidents, contact customers, deploy, run
+migrations, authorize production, destroy valuable data, or perform pricing or billing operations.
+No credential is activated automatically.

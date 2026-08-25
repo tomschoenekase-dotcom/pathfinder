@@ -201,6 +201,17 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/founder-directive-tasks-http.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/platform-worker/founder-operating-view/route.ts",
       "methods": ["POST"],
       "exposure": "machine-credential-authenticated-public-ingress",

@@ -1162,6 +1162,13 @@ export {
   type FounderOperatingExchangeClient,
   type RecordFounderOperatingExchangeInput,
 } from './helpers/founder-operating-exchanges'
+export {
+  FounderDirectiveTaskError,
+  materializeFounderDirectiveTaskAction,
+  proposeFounderDirectiveTaskAction,
+  readFounderDirectiveTasks,
+  type FounderDirectiveTaskClient,
+} from './helpers/founder-directive-task-actions'
 export type { MaterializeFirstWeekAccountReviewsInput } from './helpers/first-week-account-reviews'
 export {
   AgentImprovementProposalActionError,

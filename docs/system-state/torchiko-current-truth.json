@@ -35,7 +35,20 @@
         "apps/dashboard/components/admin/FounderOperatingConversation.tsx",
         "scripts/run-disposable-founder-conversation.mjs"
       ],
-      "remaining": "Open-ended synthesis, worker triage/execution, hosted staging integration, proactive escalation, and production rollout remain separately gated."
+      "remaining": "Open-ended synthesis, automatic directive classification, hosted staging integration, proactive escalation, and production rollout remain separately gated; exact scoped proposal and approved task materialization are a separate implemented capability."
+    },
+    {
+      "id": "founder-directive-task-handoff",
+      "status": "proven-provider-dark-locally",
+      "summary": "A separately credentialed platform worker can propose one exact tenant/venue/identity task from a retained founder directive; human approval and a second materialization capability are required before one canonical agent run is queued.",
+      "evidence": [
+        "docs/founder-directive-task-handoff.md",
+        "packages/db/src/helpers/founder-directive-task-actions.ts",
+        "packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts",
+        "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.ts",
+        "scripts/run-disposable-founder-directive-task.mjs"
+      ],
+      "remaining": "Hosted worker continuity, automatic broad-directive classification, representative task-result quality, and every downstream customer, pricing, billing, deployment, policy, provider-spend, production, or destructive effect remain unproven or separately gated."
     },
     {
       "id": "guest-prompt-integrity",

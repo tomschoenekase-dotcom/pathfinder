@@ -1130,6 +1130,35 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                       request={approval.customerAccessRequest}
                     />
                   ) : null}
+                  {approval.founderDirectiveTask ? (
+                    <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-800">
+                      <p className="text-xs font-bold uppercase tracking-wide text-sky-800">
+                        Founder direction → proposed task
+                      </p>
+                      <p className="mt-2 leading-6">
+                        <span className="font-semibold">Direction:</span>{' '}
+                        {approval.founderDirectiveTask.founderOperatingExchange.prompt}
+                      </p>
+                      <p className="mt-2 leading-6">
+                        <span className="font-semibold">Proposed task:</span>{' '}
+                        {approval.founderDirectiveTask.proposedPrompt}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">
+                        {approval.founderDirectiveTask.rationale}
+                      </p>
+                      {approval.founderDirectiveTask.constraints.length > 0 ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
+                          {approval.founderDirectiveTask.constraints.map((constraint) => (
+                            <li key={constraint}>{constraint}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <p className="mt-2 text-xs font-semibold text-sky-900">
+                        Approval permits exact task materialization only. It does not execute the
+                        task or widen any downstream permission.
+                      </p>
+                    </div>
+                  ) : null}
                   {approval.venueId ? (
                     <>
                       {!approval.expired ? (

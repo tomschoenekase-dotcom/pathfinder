@@ -102,6 +102,16 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           customerAccessRequest: {
             select: customerAccessApprovalSelect,
           },
+          founderDirectiveTask: {
+            select: {
+              id: true,
+              status: true,
+              proposedPrompt: true,
+              rationale: true,
+              constraints: true,
+              founderOperatingExchange: { select: { prompt: true } },
+            },
+          },
         },
       }),
       db.supportRequest.findMany({

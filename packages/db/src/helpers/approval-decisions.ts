@@ -69,6 +69,7 @@ export async function recordApprovalDecisionAction(
           expiresAt: true,
           decision: { select: { id: true } },
           customerAccessRequest: { select: { id: true, status: true } },
+          founderDirectiveTask: { select: { id: true, status: true } },
         },
       })
       if (!request) {
@@ -128,6 +129,36 @@ export async function recordApprovalDecisionAction(
         }
       }
 
+      if (request.founderDirectiveTask) {
+        if (input.venueId === null) {
+          throw new ApprovalDecisionActionError(
+            'CONFLICT',
+            'Linked founder directive task is missing its required venue scope',
+          )
+        }
+        const nextStatus =
+          input.decision === 'APPROVED'
+            ? 'APPROVED'
+            : input.decision === 'REJECTED'
+              ? 'REJECTED'
+              : 'CANCELLED'
+        const updated = await tx.founderDirectiveTaskRequest.updateMany({
+          where: {
+            id: request.founderDirectiveTask.id,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'AWAITING_APPROVAL',
+          },
+          data: { status: nextStatus },
+        })
+        if (updated.count !== 1) {
+          throw new ApprovalDecisionActionError(
+            'CONFLICT',
+            'Linked founder directive task is no longer awaiting approval',
+          )
+        }
+      }
+
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -144,6 +175,7 @@ export async function recordApprovalDecisionAction(
             riskCategory: request.riskCategory,
             executionTriggered: false,
             linkedCustomerAccessRequestId: request.customerAccessRequest?.id ?? null,
+            linkedFounderDirectiveTaskId: request.founderDirectiveTask?.id ?? null,
           },
         },
         tx,

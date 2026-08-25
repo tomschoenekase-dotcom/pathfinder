@@ -82,6 +82,7 @@ describe('tenantIsolationMiddleware', () => {
     expect(TENANTED_TABLES_LIST).toEqual([
       'TenantMembership',
       'CustomerAccessRequest',
+      'FounderDirectiveTaskRequest',
       'TenantFeatureFlag',
       'ProductEntitlementOverride',
       'BillingAccount',

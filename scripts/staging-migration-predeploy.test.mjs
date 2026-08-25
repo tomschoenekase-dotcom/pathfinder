@@ -71,7 +71,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 187-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 188-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -186,7 +186,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed fifty-three-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed fifty-four-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -252,6 +252,7 @@ test('exact previous staging release advances only through the reviewed fifty-th
       '20260825009000_add_founder_operating_exchanges',
       '20260825010000_add_agent_operational_trust_signals',
       '20260825010100_structure_agent_operational_trust_signals',
+      '20260825011000_add_founder_directive_task_handoff',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -301,6 +302,7 @@ test('exact previous staging release advances only through the reviewed fifty-th
     '20260825009000_add_founder_operating_exchanges',
     '20260825010000_add_agent_operational_trust_signals',
     '20260825010100_structure_agent_operational_trust_signals',
+    '20260825011000_add_founder_directive_task_handoff',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

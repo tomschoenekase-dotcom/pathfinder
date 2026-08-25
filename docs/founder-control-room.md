@@ -54,6 +54,13 @@ spend money, or mutate policy. The UI labels that boundary directly. Uncertain b
 retain the same operation ID so an unchanged retry reconciles the append-only exchange instead of
 creating duplicate intent.
 
+An explicitly activated platform worker can now narrow one retained directive into an exact
+tenant/venue/identity task proposal. The Control Room shows the original direction, proposed prompt,
+rationale, and constraints as a normal approval item. Approval still queues nothing. A separately
+capability-gated materialization call must present the exact approved decision before the canonical
+agent run is created, and downstream agent/tool policy remains unchanged. See
+[`founder-directive-task-handoff.md`](./founder-directive-task-handoff.md).
+
 `admin.askFounderOperatingSystem` is platform-admin-only. The read-only platform-worker operating
 view exposes the bounded recent history under schema version 2, without operator identity or new
 execution authority. See [`founder-operating-conversation.md`](./founder-operating-conversation.md)

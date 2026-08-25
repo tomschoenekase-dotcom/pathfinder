@@ -56,6 +56,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],
   // Separately authenticated platform worker reads the same bounded readiness projection.
   ['packages/api/src/platform-worker-policy/operations-readiness-http.ts', 1],
+  // Separately credentialed platform workers read/propose/materialize one exact founder
+  // directive task; every tenanted query retains explicit tenant+venue predicates.
+  ['packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts', 3],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
   // Human-admin-only execution re-enters one exact tenant+venue approved invitation,
   // fences provider I/O, and never writes membership directly.

@@ -497,6 +497,7 @@ describe('operations attention console', () => {
                 createdAt: new Date(),
                 agentIdentity: { name: 'Support operator' },
                 customerAccessRequest: null,
+                founderDirectiveTask: null,
                 expired: false,
               },
             ],
@@ -535,6 +536,48 @@ describe('operations attention console', () => {
     expect(
       screen.getByRole('link', { name: 'Open full approval context' }).getAttribute('href'),
     ).toBe('/admin/clients/tenant_1/venues/venue_1/agents#approvals')
+  })
+
+  it('shows the exact founder direction, proposed task, and retained constraints', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          approvals: {
+            items: [
+              {
+                id: 'approval_directive',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                proposedAction: 'torchiko.founder-directive.materialize-task',
+                riskCategory: 'LOW',
+                expiresAt: null,
+                createdAt: new Date(),
+                agentIdentity: { name: 'Operations specialist' },
+                customerAccessRequest: null,
+                founderDirectiveTask: {
+                  id: 'request_directive',
+                  status: 'AWAITING_APPROVAL',
+                  proposedPrompt: 'Review bounded visitor reliability evidence.',
+                  rationale: 'This is the exact scoped interpretation of the founder direction.',
+                  constraints: ['No customer contact.', 'No venue mutation.'],
+                  founderOperatingExchange: {
+                    prompt: 'Review this venue’s visitor reliability issues.',
+                  },
+                },
+                expired: false,
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('Founder direction → proposed task')).toBeTruthy()
+    expect(screen.getByText(/Review this venue’s visitor reliability issues/)).toBeTruthy()
+    expect(screen.getByText(/Review bounded visitor reliability evidence/)).toBeTruthy()
+    expect(screen.getByText('No customer contact.')).toBeTruthy()
+    expect(screen.getByText(/does not execute the task or widen/)).toBeTruthy()
   })
 
   it('links attention items to exact tenant and venue evidence without raw details', () => {

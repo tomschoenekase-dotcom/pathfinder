@@ -60,7 +60,8 @@ verified absent after the run.
 
 ## Remaining boundary
 
-This slice does not add open-ended natural-language reasoning, command execution, proactive
-notification, or provider-backed synthesis. A later worker may translate retained directives into
-separately authorized tasks. Hosted staging integration and any consequential production rollout
-remain separate gates.
+This slice does not add open-ended natural-language reasoning, proactive notification, or
+provider-backed synthesis. Retained directives can now enter the separately credentialed,
+human-approved task handoff documented in [`founder-directive-task-handoff.md`](./founder-directive-task-handoff.md);
+approval still performs no execution, and materialization only creates an exact queued agent run.
+Hosted staging integration and any consequential production rollout remain separate gates.

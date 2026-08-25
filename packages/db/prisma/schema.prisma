@@ -62,6 +62,7 @@ model PlatformWorkerPolicyCredential {
   createdAt             DateTime                        @default(now()) @map("created_at")
   updatedAt             DateTime                        @updatedAt @map("updated_at")
   releaseEvidence       PlatformReleaseEvidence[]
+  founderDirectiveTasks FounderDirectiveTaskRequest[]
 
   @@index([workerId, enabled, revokedAt], map: "platform_worker_policy_worker_state_idx")
   @@map("platform_worker_policy_credentials")
@@ -280,6 +281,7 @@ model Tenant {
   accountCommitments                 AccountCommitment[]
   accountSummaries                   AccountSummary[]
   customerAccessRequests             CustomerAccessRequest[]
+  founderDirectiveTaskRequests       FounderDirectiveTaskRequest[]
 
   @@map("tenants")
 }
@@ -1341,6 +1343,7 @@ model Venue {
   agentTimelineEvents                 AgentTimelineEvent[]
   approvalRequests                    ApprovalRequest[]
   customerAccessRequests              CustomerAccessRequest[]
+  founderDirectiveTaskRequests        FounderDirectiveTaskRequest[]
   agentQuestions                      AgentQuestion[]
   onboardingQuestionLinks             OnboardingQuestionLink[]
   agentMessages                       AgentMessage[]
@@ -2815,22 +2818,74 @@ enum FounderOperatingDisposition {
 /// derived from bounded canonical operating state. Directives are recorded for
 /// triage and never imply execution, approval, customer contact, or policy change.
 model FounderOperatingExchange {
-  id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  operationId    String                      @unique @map("operation_id") @db.Uuid
-  operatorUserId String                      @map("operator_user_id") @db.VarChar(191)
-  prompt         String                      @db.VarChar(10000)
-  intent         FounderOperatingIntent
-  disposition    FounderOperatingDisposition
-  responseTitle  String                      @map("response_title") @db.VarChar(500)
-  responseBody   String                      @map("response_body") @db.VarChar(10000)
-  evidence       Json                        @default("[]")
-  snapshot       Json
-  snapshotHash   String                      @unique @map("snapshot_hash") @db.Char(64)
-  createdAt      DateTime                    @default(now()) @map("created_at")
+  id                   String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId          String                       @unique @map("operation_id") @db.Uuid
+  operatorUserId       String                       @map("operator_user_id") @db.VarChar(191)
+  prompt               String                       @db.VarChar(10000)
+  intent               FounderOperatingIntent
+  disposition          FounderOperatingDisposition
+  responseTitle        String                       @map("response_title") @db.VarChar(500)
+  responseBody         String                       @map("response_body") @db.VarChar(10000)
+  evidence             Json                         @default("[]")
+  snapshot             Json
+  snapshotHash         String                       @unique @map("snapshot_hash") @db.Char(64)
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  directiveTaskRequest FounderDirectiveTaskRequest?
 
   @@index([createdAt, id], map: "founder_operating_exchanges_created_idx")
   @@index([intent, disposition, createdAt, id], map: "founder_operating_exchanges_intent_created_idx")
   @@map("founder_operating_exchanges")
+}
+
+enum FounderDirectiveTaskStatus {
+  AWAITING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+  MATERIALIZED
+}
+
+/// Exact, reviewable handoff from one retained founder directive into the
+/// canonical tenant/venue agent-task lifecycle. Proposal, human decision, and
+/// task materialization remain separate effects. This row grants no customer
+/// contact, pricing, billing, deployment, policy, or destructive-data authority.
+model FounderDirectiveTaskRequest {
+  id                         String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId                String                         @unique @map("operation_id") @db.Uuid
+  operationHash              String                         @map("operation_hash") @db.Char(64)
+  founderOperatingExchangeId String                         @unique @map("founder_operating_exchange_id") @db.Uuid
+  sourceSnapshotHash         String                         @map("source_snapshot_hash") @db.Char(64)
+  tenantId                   String                         @map("tenant_id")
+  venueId                    String                         @map("venue_id")
+  agentIdentityId            String                         @map("agent_identity_id")
+  approvalRequestId          String                         @unique @map("approval_request_id")
+  proposedPrompt             String                         @map("proposed_prompt") @db.VarChar(10000)
+  rationale                  String                         @db.VarChar(2000)
+  constraints                String[]                       @default([])
+  prospectScope              Json?                          @map("prospect_scope")
+  status                     FounderDirectiveTaskStatus     @default(AWAITING_APPROVAL)
+  materializationOperationId String?                        @unique @map("materialization_operation_id") @db.Uuid
+  materializationHash        String?                        @map("materialization_hash") @db.Char(64)
+  agentRunId                 String?                        @unique @map("agent_run_id")
+  requestedById              String                         @map("requested_by_id") @db.VarChar(191)
+  credentialId               String                         @map("credential_id")
+  createdAt                  DateTime                       @default(now()) @map("created_at")
+  updatedAt                  DateTime                       @updatedAt @map("updated_at")
+  founderOperatingExchange   FounderOperatingExchange       @relation(fields: [founderOperatingExchangeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant                     Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                      Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity              AgentIdentity                  @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest            ApprovalRequest                @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun                   AgentRun?                      @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  credential                 PlatformWorkerPolicyCredential @relation(fields: [credentialId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId], map: "founder_directive_task_requests_id_scope_key")
+  @@unique([approvalRequestId, tenantId], map: "founder_directive_task_requests_approval_scope_key")
+  @@unique([agentRunId, tenantId, venueId], map: "founder_directive_task_requests_run_scope_key")
+  @@index([status, createdAt, id], map: "founder_directive_task_requests_status_created_idx")
+  @@index([tenantId, venueId, status, createdAt, id], map: "founder_directive_task_requests_scope_status_idx")
+  @@index([credentialId, createdAt, id], map: "founder_directive_task_requests_credential_created_idx")
+  @@map("founder_directive_task_requests")
 }
 
 enum KnowledgeChangeProposalStatus {
@@ -4366,29 +4421,30 @@ enum WeeklyDigestStatus {
 /// A tenant-owned machine principal. Access and autonomy are intentionally
 /// independent: visibility never implies permission to mutate.
 model AgentIdentity {
-  id                     String                     @id @default(cuid())
-  tenantId               String                     @map("tenant_id")
-  venueId                String?                    @map("venue_id")
-  identityKey            String                     @map("identity_key") @db.VarChar(100)
-  name                   String                     @db.VarChar(191)
+  id                     String                        @id @default(cuid())
+  tenantId               String                        @map("tenant_id")
+  venueId                String?                       @map("venue_id")
+  identityKey            String                        @map("identity_key") @db.VarChar(100)
+  name                   String                        @db.VarChar(191)
   description            String?
-  agentType              String                     @map("agent_type") @db.VarChar(100)
-  accessScope            AgentAccessScope           @map("access_scope")
-  accessCapabilities     String[]                   @default([]) @map("access_capabilities")
-  autonomyLevel          AgentAutonomyLevel         @default(READ_ONLY) @map("autonomy_level")
-  autonomousActions      String[]                   @default([]) @map("autonomous_actions")
-  defaultProvider        String?                    @map("default_provider") @db.VarChar(100)
-  defaultModel           String?                    @map("default_model") @db.VarChar(191)
-  enabled                Boolean                    @default(false)
-  createdBy              String                     @map("created_by") @db.VarChar(191)
-  createdAt              DateTime                   @default(now()) @map("created_at")
-  updatedAt              DateTime                   @updatedAt @map("updated_at")
-  tenant                 Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                  Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentType              String                        @map("agent_type") @db.VarChar(100)
+  accessScope            AgentAccessScope              @map("access_scope")
+  accessCapabilities     String[]                      @default([]) @map("access_capabilities")
+  autonomyLevel          AgentAutonomyLevel            @default(READ_ONLY) @map("autonomy_level")
+  autonomousActions      String[]                      @default([]) @map("autonomous_actions")
+  defaultProvider        String?                       @map("default_provider") @db.VarChar(100)
+  defaultModel           String?                       @map("default_model") @db.VarChar(191)
+  enabled                Boolean                       @default(false)
+  createdBy              String                        @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  tenant                 Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue?                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   runs                   AgentRun[]
   actions                AgentAction[]
   approvalRequests       ApprovalRequest[]
   customerAccessRequests CustomerAccessRequest[]
+  founderDirectiveTasks  FounderDirectiveTaskRequest[]
   questions              AgentQuestion[]
   messages               AgentMessage[]
   outcomeObservations    AgentOutcomeObservation[]
@@ -4404,42 +4460,42 @@ model AgentIdentity {
 }
 
 model AgentRun {
-  id                        String                     @id @default(cuid())
-  operationId               String?                    @map("operation_id") @db.Uuid
-  tenantId                  String                     @map("tenant_id")
-  venueId                   String?                    @map("venue_id")
-  agentIdentityId           String                     @map("agent_identity_id")
-  parentAgentRunId          String?                    @map("parent_agent_run_id")
-  delegationReason          String?                    @map("delegation_reason") @db.VarChar(1000)
-  runType                   String                     @map("run_type") @db.VarChar(100)
-  requestedOperation        String                     @map("requested_operation") @db.VarChar(191)
-  requestPrompt             String?                    @map("request_prompt") @db.VarChar(10000)
-  scopeSnapshot             Json                       @map("scope_snapshot")
-  status                    AgentRunStatus             @default(QUEUED)
-  modelProvider             String?                    @map("model_provider") @db.VarChar(100)
-  modelName                 String?                    @map("model_name") @db.VarChar(191)
-  costE8Usd                 BigInt                     @default(0) @map("cost_e8_usd")
-  costStatus                AgentCostStatus            @default(UNREPORTED) @map("cost_status")
-  artifacts                 Json                       @default("[]")
-  errorCode                 String?                    @map("error_code") @db.VarChar(100)
-  errorMessage              String?                    @map("error_message")
-  initiatedByType           ActorType                  @map("initiated_by_type")
-  initiatedById             String                     @map("initiated_by_id") @db.VarChar(191)
-  cancelRequestedAt         DateTime?                  @map("cancel_requested_at")
-  executionLeaseToken       String?                    @map("execution_lease_token") @db.Uuid
-  executionBridgeSessionId  String?                    @map("execution_bridge_session_id")
-  executionWorkerId         String?                    @map("execution_worker_id")
-  executionLeaseExpiresAt   DateTime?                  @map("execution_lease_expires_at")
-  lastHeartbeatAt           DateTime?                  @map("last_heartbeat_at")
-  attemptNumber             Int                        @default(0) @map("attempt_number")
-  maxAttempts               Int                        @default(3) @map("max_attempts")
-  startedAt                 DateTime?                  @map("started_at")
-  completedAt               DateTime?                  @map("completed_at")
-  createdAt                 DateTime                   @default(now()) @map("created_at")
-  updatedAt                 DateTime                   @updatedAt @map("updated_at")
-  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                     Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity             AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                        String                       @id @default(cuid())
+  operationId               String?                      @map("operation_id") @db.Uuid
+  tenantId                  String                       @map("tenant_id")
+  venueId                   String?                      @map("venue_id")
+  agentIdentityId           String                       @map("agent_identity_id")
+  parentAgentRunId          String?                      @map("parent_agent_run_id")
+  delegationReason          String?                      @map("delegation_reason") @db.VarChar(1000)
+  runType                   String                       @map("run_type") @db.VarChar(100)
+  requestedOperation        String                       @map("requested_operation") @db.VarChar(191)
+  requestPrompt             String?                      @map("request_prompt") @db.VarChar(10000)
+  scopeSnapshot             Json                         @map("scope_snapshot")
+  status                    AgentRunStatus               @default(QUEUED)
+  modelProvider             String?                      @map("model_provider") @db.VarChar(100)
+  modelName                 String?                      @map("model_name") @db.VarChar(191)
+  costE8Usd                 BigInt                       @default(0) @map("cost_e8_usd")
+  costStatus                AgentCostStatus              @default(UNREPORTED) @map("cost_status")
+  artifacts                 Json                         @default("[]")
+  errorCode                 String?                      @map("error_code") @db.VarChar(100)
+  errorMessage              String?                      @map("error_message")
+  initiatedByType           ActorType                    @map("initiated_by_type")
+  initiatedById             String                       @map("initiated_by_id") @db.VarChar(191)
+  cancelRequestedAt         DateTime?                    @map("cancel_requested_at")
+  executionLeaseToken       String?                      @map("execution_lease_token") @db.Uuid
+  executionBridgeSessionId  String?                      @map("execution_bridge_session_id")
+  executionWorkerId         String?                      @map("execution_worker_id")
+  executionLeaseExpiresAt   DateTime?                    @map("execution_lease_expires_at")
+  lastHeartbeatAt           DateTime?                    @map("last_heartbeat_at")
+  attemptNumber             Int                          @default(0) @map("attempt_number")
+  maxAttempts               Int                          @default(3) @map("max_attempts")
+  startedAt                 DateTime?                    @map("started_at")
+  completedAt               DateTime?                    @map("completed_at")
+  createdAt                 DateTime                     @default(now()) @map("created_at")
+  updatedAt                 DateTime                     @updatedAt @map("updated_at")
+  tenant                    Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue?                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity             AgentIdentity                @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   actions                   AgentAction[]
   timelineEvents            AgentTimelineEvent[]
   approvalRequests          ApprovalRequest[]
@@ -4448,11 +4504,12 @@ model AgentRun {
   messages                  AgentMessage[]
   outcomeObservations       AgentOutcomeObservation[]
   supportLineage            SupportAgentRunLineage?
-  parentAgentRun            AgentRun?                  @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  delegatedRuns             AgentRun[]                 @relation("AgentRunDelegations")
-  executionBridgeSession    AgentBridgeSession?        @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  executionWorker           AgentWorker?               @relation(fields: [executionWorkerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  parentAgentRun            AgentRun?                    @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  delegatedRuns             AgentRun[]                   @relation("AgentRunDelegations")
+  executionBridgeSession    AgentBridgeSession?          @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  executionWorker           AgentWorker?                 @relation(fields: [executionWorkerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   approvalGrantConsumptions ApprovalGrantConsumption[]
+  founderDirectiveTask      FounderDirectiveTaskRequest?
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
@@ -4470,34 +4527,34 @@ model AgentRun {
 /// Immutable evidence for one attempted domain/tool action. Progress belongs
 /// in AgentTimelineEvent; retry creates a new action rather than rewriting history.
 model AgentAction {
-  id                 String               @id @default(cuid())
-  tenantId           String               @map("tenant_id")
-  venueId            String?              @map("venue_id")
-  agentRunId         String               @map("agent_run_id")
-  agentIdentityId    String               @map("agent_identity_id")
-  approvalDecisionId String?              @map("approval_decision_id")
-  actorType          ActorType            @map("actor_type")
-  actorId            String               @map("actor_id") @db.VarChar(191)
-  requestedOperation String               @map("requested_operation") @db.VarChar(191)
-  actionName         String               @map("action_name") @db.VarChar(191)
-  inputSummary       String?              @map("input_summary") @db.VarChar(1000)
-  inputReference     String?              @map("input_reference") @db.VarChar(500)
-  output             Json?
-  modelProvider      String?              @map("model_provider") @db.VarChar(100)
-  modelName          String?              @map("model_name") @db.VarChar(191)
-  costE8Usd          BigInt               @default(0) @map("cost_e8_usd")
-  status             AgentActionStatus
-  errorCode          String?              @map("error_code") @db.VarChar(100)
-  errorMessage       String?              @map("error_message")
-  beforeVersionRef   String?              @map("before_version_ref") @db.VarChar(500)
-  afterVersionRef    String?              @map("after_version_ref") @db.VarChar(500)
-  createdAt          DateTime             @default(now()) @map("created_at")
-  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue              Venue?               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun           AgentRun             @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity      AgentIdentity        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  approvalDecision   ApprovalDecision?    @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  timelineEvents     AgentTimelineEvent[]
+  id                  String                    @id @default(cuid())
+  tenantId            String                    @map("tenant_id")
+  venueId             String?                   @map("venue_id")
+  agentRunId          String                    @map("agent_run_id")
+  agentIdentityId     String                    @map("agent_identity_id")
+  approvalDecisionId  String?                   @map("approval_decision_id")
+  actorType           ActorType                 @map("actor_type")
+  actorId             String                    @map("actor_id") @db.VarChar(191)
+  requestedOperation  String                    @map("requested_operation") @db.VarChar(191)
+  actionName          String                    @map("action_name") @db.VarChar(191)
+  inputSummary        String?                   @map("input_summary") @db.VarChar(1000)
+  inputReference      String?                   @map("input_reference") @db.VarChar(500)
+  output              Json?
+  modelProvider       String?                   @map("model_provider") @db.VarChar(100)
+  modelName           String?                   @map("model_name") @db.VarChar(191)
+  costE8Usd           BigInt                    @default(0) @map("cost_e8_usd")
+  status              AgentActionStatus
+  errorCode           String?                   @map("error_code") @db.VarChar(100)
+  errorMessage        String?                   @map("error_message")
+  beforeVersionRef    String?                   @map("before_version_ref") @db.VarChar(500)
+  afterVersionRef     String?                   @map("after_version_ref") @db.VarChar(500)
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun            AgentRun                  @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity       AgentIdentity             @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision    ApprovalDecision?         @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  timelineEvents      AgentTimelineEvent[]
   outcomeObservations AgentOutcomeObservation[]
 
   @@unique([id, tenantId])
@@ -4533,28 +4590,29 @@ model AgentTimelineEvent {
 
 /// Immutable proposal. Pending is represented by the absence of a decision.
 model ApprovalRequest {
-  id                       String                    @id @default(cuid())
-  tenantId                 String                    @map("tenant_id")
-  venueId                  String?                   @map("venue_id")
-  agentIdentityId          String                    @map("agent_identity_id")
-  agentRunId               String?                   @map("agent_run_id")
-  requestedByType          ActorType                 @map("requested_by_type")
-  requestedById            String                    @map("requested_by_id") @db.VarChar(191)
-  proposedAction           String                    @map("proposed_action") @db.VarChar(191)
-  scopeSnapshot            Json                      @map("scope_snapshot")
-  reason                   String                    @db.VarChar(2000)
-  riskCategory             ApprovalRiskCategory      @map("risk_category")
-  artifacts                Json                      @default("[]")
-  expiresAt                DateTime?                 @map("expires_at")
-  createdAt                DateTime                  @default(now()) @map("created_at")
-  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity            AgentIdentity             @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun                 AgentRun?                 @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                       String                       @id @default(cuid())
+  tenantId                 String                       @map("tenant_id")
+  venueId                  String?                      @map("venue_id")
+  agentIdentityId          String                       @map("agent_identity_id")
+  agentRunId               String?                      @map("agent_run_id")
+  requestedByType          ActorType                    @map("requested_by_type")
+  requestedById            String                       @map("requested_by_id") @db.VarChar(191)
+  proposedAction           String                       @map("proposed_action") @db.VarChar(191)
+  scopeSnapshot            Json                         @map("scope_snapshot")
+  reason                   String                       @db.VarChar(2000)
+  riskCategory             ApprovalRiskCategory         @map("risk_category")
+  artifacts                Json                         @default("[]")
+  expiresAt                DateTime?                    @map("expires_at")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  tenant                   Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue?                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity            AgentIdentity                @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun                 AgentRun?                    @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   decision                 ApprovalDecision?
   billingAgentCommand      BillingAgentCommand?
   customerAccessRequest    CustomerAccessRequest?
   agentImprovementProposal AgentImprovementProposal?
+  founderDirectiveTask     FounderDirectiveTaskRequest?
 
   @@unique([id, tenantId])
   @@index([tenantId, createdAt])
@@ -4671,35 +4729,35 @@ enum AgentOutcomeVerdict {
 /// A terminal run status is execution evidence, not a quality verdict; routing and
 /// reputation must use these explicit observations instead of completion alone.
 model AgentOutcomeObservation {
-  id                    String                             @id @default(cuid())
-  operationId           String                             @map("operation_id") @db.Uuid
-  tenantId              String                             @map("tenant_id")
-  venueId               String                             @map("venue_id")
-  agentRunId            String                             @map("agent_run_id")
-  agentIdentityId       String                             @map("agent_identity_id")
-  signalKind            AgentOutcomeSignalKind             @map("signal_kind")
-  verdict               AgentOutcomeVerdict
-  summary               String                             @db.VarChar(2000)
-  evidenceRef           String?                            @map("evidence_ref") @db.VarChar(500)
-  relatedAgentActionId  String?                            @map("related_agent_action_id")
-  policyCode            String?                            @map("policy_code") @db.VarChar(191)
-  severity              AgentOutcomeSeverity?
-  predictionRef         String?                            @map("prediction_ref") @db.VarChar(191)
-  predictedConfidenceBps Int?                              @map("predicted_confidence_bps")
-  actualCorrect         Boolean?                           @map("actual_correct")
-  taskClass             String                             @map("task_class") @db.VarChar(100)
-  modelProvider         String?                            @map("model_provider") @db.VarChar(100)
-  modelName             String?                            @map("model_name") @db.VarChar(191)
-  actorType             ActorType                          @map("actor_type")
-  actorId               String                             @map("actor_id") @db.VarChar(191)
-  createdAt             DateTime                           @default(now()) @map("created_at")
-  tenant                Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun              AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity         AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  relatedAgentAction    AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  improvementEvidence   AgentImprovementProposalEvidence[]
-  approvalGrantEvidence ApprovalGrantEvidence[]
+  id                     String                             @id @default(cuid())
+  operationId            String                             @map("operation_id") @db.Uuid
+  tenantId               String                             @map("tenant_id")
+  venueId                String                             @map("venue_id")
+  agentRunId             String                             @map("agent_run_id")
+  agentIdentityId        String                             @map("agent_identity_id")
+  signalKind             AgentOutcomeSignalKind             @map("signal_kind")
+  verdict                AgentOutcomeVerdict
+  summary                String                             @db.VarChar(2000)
+  evidenceRef            String?                            @map("evidence_ref") @db.VarChar(500)
+  relatedAgentActionId   String?                            @map("related_agent_action_id")
+  policyCode             String?                            @map("policy_code") @db.VarChar(191)
+  severity               AgentOutcomeSeverity?
+  predictionRef          String?                            @map("prediction_ref") @db.VarChar(191)
+  predictedConfidenceBps Int?                               @map("predicted_confidence_bps")
+  actualCorrect          Boolean?                           @map("actual_correct")
+  taskClass              String                             @map("task_class") @db.VarChar(100)
+  modelProvider          String?                            @map("model_provider") @db.VarChar(100)
+  modelName              String?                            @map("model_name") @db.VarChar(191)
+  actorType              ActorType                          @map("actor_type")
+  actorId                String                             @map("actor_id") @db.VarChar(191)
+  createdAt              DateTime                           @default(now()) @map("created_at")
+  tenant                 Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun               AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity          AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  relatedAgentAction     AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  improvementEvidence    AgentImprovementProposalEvidence[]
+  approvalGrantEvidence  ApprovalGrantEvidence[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_outcome_observations_tenant_operation_key")

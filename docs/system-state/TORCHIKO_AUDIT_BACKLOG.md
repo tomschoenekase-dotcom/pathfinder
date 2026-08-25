@@ -2,7 +2,7 @@
 
 **Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 187 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 188 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -35,7 +35,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P0.3 — Prove the integrated migration lineage in disposable and staging databases — LOCAL BOUNDARY RESOLVED
 
-- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 187-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
+- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 188-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
 - **Remaining problem:** Current hosted staging migration parity, preserved-data backup evidence, exact deployed revision, and live runtime health still require the authorized owner integration workflow. Local evidence must not be promoted into a hosted-state claim.
 - **Evidence:** `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact release candidate and staging handoff artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
@@ -105,7 +105,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P1.5 — Expand health from connectivity to service readiness — PARTIALLY IMPLEMENTED 2026-08-24
 
-- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 187-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
+- **Outcome:** The public `/api/health` route remains a fast dependency/deployment-identity probe. A separate authenticated administrator and platform-worker readiness projection now checks exact migration parity, worker-heartbeat freshness, explicit scheduler/provider-work mode, complete live observation of all canonical BullMQ queues, paused queues, canonical long-running work, intake-verification enablement, and fresh worker-side object-storage and malware-scanner connectivity. The Founder Control Room presents the same compact evidence and does not treat a green public probe as service readiness. The expected-migration identity is mechanically bound to the latest reviewed migration and proven against a fresh disposable 188-migration database. Bounded read-only `HeadBucket` and ClamAV `PING` evidence expires after 90 seconds, preventing either an old schema constant or an old upload receipt from producing a false green.
 - **Evidence:** `packages/api/src/operations-readiness.ts`; `packages/db/src/helpers/operational-health.ts`; `scripts/operations-readiness-migration.test.mjs`; `pnpm test:operations-readiness:disposable`; `admin.operationsReadiness`; `/api/platform-worker/operations-readiness`; `OperationsReadinessSummary.tsx`; projection, HTTP, disposable integration, component, and accessibility tests.
 - **Affected system:** Deployment, observability, incident response.
 - **Remaining:** Hosted storage/ClamAV continuity, AI provider execution, email delivery, external uptime, SLO/threshold policy, and outbound alert delivery remain explicitly unproven. The local worker-side dependency path is implemented and disposable-proven; retain exact hosted evidence after authorized deployment and add other evidence-driven producers only when the relevant external configuration/policy exists.
@@ -181,6 +181,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Dependencies:** Provider-enabled staging, representative truth-set calibration, and human review; the claim-attribution contract is implemented locally.
 - **Before more venue acquisition:** **No**, unless citations are promised contractually.
 - **Codex autonomous:** **Partly**; UX/product policy should be approved.
+
+### P1.11 — Turn retained founder direction into governed work — IMPLEMENTED LOCALLY 2026-08-25
+
+- **Outcome:** One append-only Founder Control Room directive can become an exact tenant/venue/identity task proposal through a separately activated platform-worker capability. The existing human approval system records the decision without execution. A second capability can materialize only that exact approved proposal into one canonical queued agent run; downstream capabilities and approvals are unchanged.
+- **Evidence:** `docs/founder-directive-task-handoff.md`; `FounderDirectiveTaskRequest`; `packages/db/src/helpers/founder-directive-task-actions.ts`; `/api/platform-worker/founder-directive-tasks`; Control Room approval context; `pnpm test:founder-directive-task:disposable`.
+- **Affected system:** Founder Control Room, platform workers, approvals, agent runtime, Company Brain operating context.
+- **Retained boundary:** The worker must choose an exact existing tenant, venue, and enabled identity. Proposal, approval, and task materialization grant no customer contact, pricing, billing, deployment, policy, provider-spend, production, or destructive-data authority. Broad platform orchestration, automatic directive classification, hosted worker continuity, and task-result quality remain unproven.
+- **Why it matters:** Founder direction no longer ends at a passive transcript, while genuine founder judgment and consequential-action gates remain explicit.
+- **Effort:** M
+- **Dependencies:** Representative operating-worker history and authorized hosted staging for live continuity proof.
+- **Before more venue acquisition:** **No**, but high leverage for AI-operated growth.
+- **Codex autonomous:** **Implemented locally**; hosted activation and every consequential downstream effect remain separately gated.
 
 ## P2 — Product / Quality Improvements
 
