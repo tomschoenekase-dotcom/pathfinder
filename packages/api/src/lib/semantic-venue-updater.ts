@@ -27,6 +27,7 @@ export type SemanticSourceAuthority = keyof typeof SOURCE_AUTHORITY
 const sourceEvidence = z
   .object({
     id: z.string().trim().min(1).max(191),
+    sourceType: z.string().trim().min(1).max(64),
     authority: z.enum(
       Object.keys(SOURCE_AUTHORITY) as [SemanticSourceAuthority, ...SemanticSourceAuthority[]],
     ),
@@ -217,7 +218,7 @@ export function buildSemanticVenueUpdate(
   }
 
   const provenance = {
-    sourceType: primary.authority,
+    sourceType: primary.sourceType,
     ...(primary.sourceName ? { sourceName: primary.sourceName } : {}),
     ...(primary.sourceUrl ? { sourceUrl: primary.sourceUrl } : {}),
     contentOrigin: input.contentOrigin,
@@ -271,8 +272,25 @@ export function buildSemanticVenueUpdate(
         }
       : null
 
+  const previewHash = createHash('sha256')
+    .update(
+      JSON.stringify({
+        schemaVersion: 1,
+        classification,
+        confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
+        authority: primary.authority,
+        targetKnowledgeEntryId: target?.id ?? null,
+        evidenceRefs,
+        blockers,
+        venuePackagePatch,
+        operationalUpdateDraft,
+      }),
+    )
+    .digest('hex')
+
   return {
     schemaVersion: 1 as const,
+    previewHash,
     classification,
     confidence: Math.min(...rankedEvidence.map((item) => item.confidence)),
     authority: primary.authority,

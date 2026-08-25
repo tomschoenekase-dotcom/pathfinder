@@ -263,6 +263,19 @@
         "apps/dashboard/components/admin/SupportKnowledgeProposalForm.tsx"
       ],
       "remaining": "Human proposal review, any package/application workflow, canonical knowledge publication, customer communication, hosted continuity, and provider-backed quality remain separately governed or gated."
+    },
+    {
+      "id": "semantic-venue-update-draft",
+      "status": "proven-provider-dark-locally",
+      "summary": "Approved knowledge proposals can be deterministically classified and converted through an exact preview hash into one append-only-linked, separately reviewable VenuePackage DRAFT without approval, apply, scheduling, publication, or deletion authority.",
+      "evidence": [
+        "packages/api/src/lib/semantic-venue-updater.ts",
+        "packages/api/src/lib/semantic-venue-update-finalizer.ts",
+        "packages/api/src/routers/admin/knowledge-proposals.ts",
+        "packages/db/src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts",
+        "apps/dashboard/components/admin/SemanticUpdatePreview.tsx"
+      ],
+      "remaining": "Temporal operational-update persistence, durable conflict-question routing, representative semantic quality history, hosted staging rehearsal, package approval/apply, and production rollout remain separately governed or unproven."
     }
   ]
 }

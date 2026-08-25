@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
@@ -12,6 +13,12 @@ type PreviewResult = Pick<
   Preview,
   'classification' | 'operationCount' | 'authority' | 'confidence' | 'blockers' | 'questions'
 >
+
+type SemanticDraft = {
+  packageId: string
+  packageStatus: string
+  replayed: boolean
+}
 
 export function SemanticUpdatePreview({
   tenantId,
@@ -36,8 +43,16 @@ export function SemanticUpdatePreview({
   const [content, setContent] = useState('')
   const [isEnabled, setIsEnabled] = useState(true)
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [draft, setDraft] = useState<SemanticDraft | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
+
+  function invalidatePreview() {
+    setPreview(null)
+    setDraft(null)
+    setError(null)
+  }
 
   async function inspect() {
     setBusy(true)
@@ -57,11 +72,39 @@ export function SemanticUpdatePreview({
         },
       })
       setPreview(next)
+      setDraft(null)
     } catch (cause) {
       setPreview(null)
       setError(cause instanceof Error ? cause.message : 'Semantic preview is unavailable.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function createDraft() {
+    if (!preview?.venuePackagePatch || preview.proposalStatus !== 'APPROVED') return
+    setCreating(true)
+    setError(null)
+    try {
+      const created = await client.admin.createSemanticVenueUpdatePackageDraft.mutate({
+        tenantId,
+        venueId,
+        proposalId,
+        expectedUpdatedAt: new Date(proposalUpdatedAt),
+        expectedPreviewHash: preview.previewHash,
+        relation,
+        desired: {
+          title: title.trim(),
+          category: category.trim(),
+          content: content.trim(),
+          isEnabled,
+        },
+      })
+      setDraft(created)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Package DRAFT could not be created.')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -106,7 +149,10 @@ export function SemanticUpdatePreview({
           Change relationship
           <select
             value={relation}
-            onChange={(event) => setRelation(event.target.value as typeof relation)}
+            onChange={(event) => {
+              setRelation(event.target.value as typeof relation)
+              invalidatePreview()
+            }}
             className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
           >
             <option value="NEW_FACT">Addition</option>
@@ -120,7 +166,10 @@ export function SemanticUpdatePreview({
             required
             maxLength={100}
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
+            onChange={(event) => {
+              setCategory(event.target.value)
+              invalidatePreview()
+            }}
             className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
           />
         </label>
@@ -131,7 +180,10 @@ export function SemanticUpdatePreview({
           required
           maxLength={200}
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => {
+            setTitle(event.target.value)
+            invalidatePreview()
+          }}
           className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
         />
       </label>
@@ -142,7 +194,10 @@ export function SemanticUpdatePreview({
           rows={4}
           maxLength={5000}
           value={content}
-          onChange={(event) => setContent(event.target.value)}
+          onChange={(event) => {
+            setContent(event.target.value)
+            invalidatePreview()
+          }}
           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 leading-6"
         />
       </label>
@@ -150,7 +205,10 @@ export function SemanticUpdatePreview({
         <input
           type="checkbox"
           checked={isEnabled}
-          onChange={(event) => setIsEnabled(event.target.checked)}
+          onChange={(event) => {
+            setIsEnabled(event.target.checked)
+            invalidatePreview()
+          }}
         />
         Enabled in canonical knowledge
       </label>
@@ -167,8 +225,66 @@ export function SemanticUpdatePreview({
           {error}
         </p>
       ) : null}
-      {preview ? <SemanticUpdatePreviewResult preview={preview} /> : null}
+      {preview ? (
+        <>
+          <SemanticUpdatePreviewResult preview={preview} />
+          {preview.proposalStatus === 'APPROVED' && preview.venuePackagePatch ? (
+            <SemanticUpdateDraftAction
+              tenantId={tenantId}
+              venueId={venueId}
+              creating={creating}
+              draft={draft}
+              onCreate={() => void createDraft()}
+            />
+          ) : null}
+        </>
+      ) : null}
     </section>
+  )
+}
+
+export function SemanticUpdateDraftAction({
+  tenantId,
+  venueId,
+  creating,
+  draft,
+  onCreate,
+}: {
+  tenantId: string
+  venueId: string
+  creating: boolean
+  draft: SemanticDraft | null
+  onCreate: () => void
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+      <button
+        type="button"
+        disabled={creating || Boolean(draft)}
+        onClick={onCreate}
+        className="min-h-11 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {creating
+          ? 'Creating reviewable DRAFT…'
+          : draft
+            ? 'Reviewable DRAFT created'
+            : 'Create reviewable package DRAFT'}
+      </button>
+      <p className="mt-2 text-xs text-slate-600">
+        This creates and links a DRAFT only. Package approval and apply remain separate.
+      </p>
+      {draft ? (
+        <p className="mt-3 text-sm text-emerald-800" role="status">
+          {draft.replayed ? 'Reconciled existing' : 'Created'} {draft.packageStatus}{' '}
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/packages`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Open package review
+          </Link>
+        </p>
+      ) : null}
+    </div>
   )
 }
 

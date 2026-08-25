@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   publish: vi.fn(),
   prepareSupport: vi.fn(),
+  semanticPreview: vi.fn(),
+  semanticFinalizer: vi.fn(),
+  createVenuePackageDraft: vi.fn(),
 }))
 
 const transactionClient = {
@@ -39,6 +42,16 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+}))
+vi.mock('../../lib/semantic-venue-updater-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/semantic-venue-updater-service')>()
+  return { ...actual, previewSemanticVenueUpdateFromProposal: mocks.semanticPreview }
+})
+vi.mock('../../lib/semantic-venue-update-finalizer', () => ({
+  semanticVenueUpdateDraftFinalizer: mocks.semanticFinalizer,
+}))
+vi.mock('../venue-package', () => ({
+  createVenuePackageDraftService: mocks.createVenuePackageDraft,
 }))
 
 import { router } from '../../core'
@@ -95,6 +108,39 @@ describe('admin knowledge proposals', () => {
         supportRequestVersion: 3,
       },
       replayed: false,
+    })
+    mocks.semanticFinalizer.mockReturnValue(vi.fn())
+    mocks.semanticPreview.mockResolvedValue({
+      proposalStatus: 'APPROVED',
+      previewHash: 'a'.repeat(64),
+      classification: 'CORRECTION',
+      venuePackagePatch: {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: {
+          create: [],
+          update: [
+            {
+              itemKey: '33333333-3333-4333-8333-333333333333',
+              id: 'cm12345678901234567890123',
+              provenance: {
+                sourceType: 'KNOWLEDGE_PROPOSAL',
+                contentOrigin: 'HUMAN_AUTHORED',
+              },
+              value: {
+                title: 'Museum hours',
+                category: 'HOURS',
+                content: 'Open 9–5 daily.',
+                isEnabled: true,
+              },
+            },
+          ],
+          delete: [],
+        },
+      },
+    })
+    mocks.createVenuePackageDraft.mockResolvedValue({
+      value: { id: 'package-a', status: 'DRAFT', replayed: false },
     })
   })
 
@@ -190,5 +236,66 @@ describe('admin knowledge proposals', () => {
         }),
       }),
     )
+  })
+
+  it('creates only the exact approved semantic package DRAFT and preserves later approval gates', async () => {
+    const desired = {
+      title: 'Museum hours',
+      category: 'HOURS',
+      content: 'Open 9–5 daily.',
+      isEnabled: true,
+    }
+    await expect(
+      app.createCaller(context()).admin.createSemanticVenueUpdatePackageDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'a'.repeat(64),
+        relation: 'CORRECTS',
+        desired,
+      }),
+    ).resolves.toEqual({
+      packageId: 'package-a',
+      packageStatus: 'DRAFT',
+      replayed: false,
+      previewHash: 'a'.repeat(64),
+      classification: 'CORRECTION',
+      autoApproved: false,
+      autoApplied: false,
+      autoPublished: false,
+    })
+
+    expect(mocks.createVenuePackageDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        actor: { type: 'HUMAN', id: 'admin-1', role: 'PLATFORM_ADMIN' },
+        input: expect.objectContaining({
+          venueId: 'venue-1',
+          draftKey: expect.stringMatching(/^[a-f0-9-]{36}$/u),
+        }),
+        finalizer: expect.any(Function),
+      }),
+    )
+  })
+
+  it('rejects preview drift before package creation', async () => {
+    await expect(
+      app.createCaller(context()).admin.createSemanticVenueUpdatePackageDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'b'.repeat(64),
+        relation: 'CORRECTS',
+        desired: {
+          title: 'Museum hours',
+          category: 'HOURS',
+          content: 'Open 9–5 daily.',
+          isEnabled: true,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.createVenuePackageDraft).not.toHaveBeenCalled()
   })
 })

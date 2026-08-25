@@ -9,12 +9,15 @@ import {
 } from '@pathfinder/db'
 
 import { mergeRouters, router } from '../../core'
-import { adminProcedure } from '../../trpc'
+import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
   previewSemanticVenueUpdateFromProposal,
+  semanticVenueUpdateDraftKey,
   SemanticVenueUpdaterError,
 } from '../../lib/semantic-venue-updater-service'
+import { adminProcedure } from '../../trpc'
+import { createVenuePackageDraftService } from '../venue-package'
 import { adminSupportCorrectionProposalsRouter } from './support-knowledge-proposals'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
@@ -24,6 +27,90 @@ function isUniqueConflict(error: unknown) {
 }
 
 const adminKnowledgeProposalReviewRouter = router({
+  createSemanticVenueUpdatePackageDraft: adminProcedure
+    .input(
+      z
+        .object({
+          ...scope,
+          proposalId: z.string().uuid(),
+          expectedUpdatedAt: z.coerce.date(),
+          expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
+          relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
+          desired: SemanticUpdaterDesiredKnowledge,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const previewInput = {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        proposalId: input.proposalId,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        relation: input.relation,
+        desired: input.desired,
+      }
+      let preview
+      try {
+        preview = await previewSemanticVenueUpdateFromProposal({ db: ctx.db, ...previewInput })
+      } catch (error) {
+        if (error instanceof SemanticVenueUpdaterError) {
+          throw new TRPCError({
+            code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+      if (preview.proposalStatus !== 'APPROVED') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Human evidence approval is required before creating a package DRAFT.',
+        })
+      }
+      if (preview.previewHash !== input.expectedPreviewHash) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Semantic preview changed; recompute it before creating a package DRAFT.',
+        })
+      }
+      if (!preview.venuePackagePatch) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'This semantic preview does not contain a package change.',
+        })
+      }
+      const created = await createVenuePackageDraftService({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input: {
+          venueId: input.venueId,
+          draftKey: semanticVenueUpdateDraftKey({
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            proposalId: input.proposalId,
+            previewHash: preview.previewHash,
+          }),
+          payload: preview.venuePackagePatch,
+        },
+        finalizer: semanticVenueUpdateDraftFinalizer({
+          actorId: ctx.session.userId,
+          expectedPreviewHash: preview.previewHash,
+          previewInput,
+        }),
+      })
+      return {
+        packageId: created.value.id,
+        packageStatus: created.value.status,
+        replayed: created.value.replayed,
+        previewHash: preview.previewHash,
+        classification: preview.classification,
+        autoApproved: false as const,
+        autoApplied: false as const,
+        autoPublished: false as const,
+      }
+    }),
+
   previewSemanticVenueUpdate: adminProcedure
     .input(
       z

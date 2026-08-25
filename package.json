@@ -31,6 +31,7 @@
     "test:founder-directive-task:disposable": "node scripts/run-disposable-founder-directive-task.mjs",
     "test:support-completion:disposable": "node scripts/run-disposable-support-completion.mjs",
     "test:support-package-draft:disposable": "node scripts/run-disposable-support-package-draft.mjs",
+    "test:semantic-venue-update:disposable": "node scripts/run-disposable-semantic-venue-update.mjs",
     "test:agent-approval-policy:disposable": "node scripts/run-disposable-agent-approval-policy.mjs",
     "test:agent-bridge:disposable": "node scripts/run-disposable-agent-bridge.mjs",
     "test:voice-session-recovery:disposable": "node scripts/run-disposable-voice-session-recovery.mjs",

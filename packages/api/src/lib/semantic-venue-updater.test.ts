@@ -31,6 +31,7 @@ const base: SemanticUpdaterInput = {
   evidence: [
     {
       id: 'evidence-a',
+      sourceType: 'VENUE_OPERATOR',
       authority: 'VENUE_CONFIRMED',
       confidence: 0.96,
       normalizedHash: 'a'.repeat(64),

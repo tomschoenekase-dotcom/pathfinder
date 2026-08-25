@@ -1,5 +1,8 @@
+'use client'
+
 import {
   SemanticUpdatePreview,
+  SemanticUpdateDraftAction,
   SemanticUpdatePreviewResult,
 } from '../../../components/admin/SemanticUpdatePreview'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -51,6 +54,52 @@ export default function SemanticUpdatePreviewFixture() {
             ],
           }}
         />
+        <section className="grid gap-5 lg:grid-cols-2" aria-label="Approved draft handoff states">
+          <article>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Approved preview
+            </p>
+            <SemanticUpdatePreviewResult
+              preview={{
+                classification: 'CORRECTION',
+                operationCount: 1,
+                authority: 'OFFICIAL_VENUE_SOURCE',
+                confidence: 0.96,
+                blockers: [],
+                questions: [],
+              }}
+            />
+            <SemanticUpdateDraftAction
+              tenantId="fixture-tenant"
+              venueId="fixture-venue"
+              creating={false}
+              draft={null}
+              onCreate={() => undefined}
+            />
+          </article>
+          <article>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Durable handoff complete
+            </p>
+            <SemanticUpdatePreviewResult
+              preview={{
+                classification: 'CORRECTION',
+                operationCount: 1,
+                authority: 'OFFICIAL_VENUE_SOURCE',
+                confidence: 0.96,
+                blockers: [],
+                questions: [],
+              }}
+            />
+            <SemanticUpdateDraftAction
+              tenantId="fixture-tenant"
+              venueId="fixture-venue"
+              creating={false}
+              draft={{ packageId: 'fixture-package', packageStatus: 'DRAFT', replayed: false }}
+              onCreate={() => undefined}
+            />
+          </article>
+        </section>
       </div>
     </main>
   )

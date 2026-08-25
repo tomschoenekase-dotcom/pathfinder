@@ -17,15 +17,34 @@ export class SemanticVenueUpdaterError extends Error {
   }
 }
 
-type PreviewInput = Pick<
+export type SemanticVenueUpdatePreviewParameters = Pick<
   SemanticUpdaterInput,
   'relation' | 'desired' | 'validFrom' | 'validUntil' | 'operationalUpdateType'
 > & {
-  db: TRPCContext['db']
   tenantId: string
   venueId: string
   proposalId: string
   expectedUpdatedAt: Date
+}
+
+type PreviewInput = SemanticVenueUpdatePreviewParameters & { db: TRPCContext['db'] }
+
+function deterministicUuid(value: string): string {
+  const bytes = Buffer.from(createHash('sha256').update(value).digest().subarray(0, 16))
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export function semanticVenueUpdateDraftKey(
+  input: Pick<SemanticVenueUpdatePreviewParameters, 'tenantId' | 'venueId' | 'proposalId'> & {
+    previewHash: string
+  },
+) {
+  return deterministicUuid(
+    `pathfinder:semantic-venue-update-draft:v1:${input.tenantId}:${input.venueId}:${input.proposalId}:${input.previewHash}`,
+  )
 }
 
 function currentAuthority(entry: {
@@ -119,6 +138,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       evidence: [
         {
           id: `knowledge-proposal:${proposal.id}`,
+          sourceType: 'KNOWLEDGE_PROPOSAL',
           authority: proposal.status === 'APPROVED' ? 'TRUSTED_PARTNER' : 'UNVERIFIED',
           confidence: Number(proposal.confidence),
           normalizedHash,
