@@ -133,11 +133,19 @@ confirmed.
 ## Agent trust evidence
 
 The Control Room derives a versioned autonomy-evidence summary from bounded canonical
-`AgentRun`, `AgentAction`, `ApprovalDecision`, and `AgentOutcomeObservation` records. Schema v2
+`AgentRun`, `AgentAction`, `ApprovalDecision`, and `AgentOutcomeObservation` records. Schema v3
 reports run completion/failure, action success/failure/denial/cancellation, denominator-backed
 approval acceptance, quality evaluations, customer signals, and a per-agent-identity breakdown.
 Completion by itself is never treated as evidence of quality, and a denied action proves policy
 enforcement rather than a policy violation.
+
+Schema v3 also accepts three explicit append-only operational trust signals from the terminal-run
+review surface: one rollback linked to the exact responsible action, a policy violation with a
+stable policy code and severity, and an exact confidence prediction paired with reviewed
+correctness. Database constraints reject malformed combinations, duplicate rollback/action or
+prediction/run pairs, and action links outside the same tenant, venue, identity, and run. The
+Control Room reports bounded rollback evidence, explicit violation counts, observed confidence
+accuracy, and Brier score; a truncated evidence window is never presented as a complete rate.
 
 The summary is deliberately descriptive rather than a reliability score. Negative evidence takes
 precedence in the displayed state; mixed or inconclusive evidence remains unresolved; and even a
@@ -159,11 +167,10 @@ Those observations remain visible on the policy as provenance; Torchiko does not
 score, promotion threshold, or automatic recommendation. Legacy policies without that structured
 membership are surfaced honestly rather than backfilled with invented evidence.
 
-The evidence contract also names what it cannot yet measure honestly. Rollback rate is unavailable
-until rollback records have a canonical link to the responsible run/action; policy-violation rate
-is unavailable until there is an explicit canonical violation signal; and confidence calibration
-is unavailable until stored predictions can be paired with outcomes. These unavailable states are
-returned as machine-readable coverage labels rather than fabricated zeros.
+The evidence contract still refuses to interpret these observations as a reliability score or
+promotion threshold. A zero means no explicit signal exists in the bounded records, not proof that
+an agent never failed. Confidence statistics remain descriptive until representative reviewed
+history exists. None of these records changes routing, policy, authority, or runtime behavior.
 
 ## Machine-readable operating view
 

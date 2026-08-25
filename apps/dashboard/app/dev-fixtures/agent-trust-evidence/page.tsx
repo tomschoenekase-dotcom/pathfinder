@@ -153,7 +153,7 @@ const data: Data = {
     },
   },
   agentTrustEvidence: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     state: 'NEGATIVE_EVIDENCE_PRESENT',
     verdicts: { positive: 8, mixed: 2, negative: 1, inconclusive: 1 },
     observations: 12,
@@ -171,6 +171,30 @@ const data: Data = {
     },
     qualityEvaluations: { positive: 5, mixed: 1, negative: 1, inconclusive: 0 },
     customerSignals: { positive: 2, mixed: 1, negative: 0, inconclusive: 0 },
+    rollbackEvidence: {
+      observations: 2,
+      distinctActions: 2,
+      succeededActionDenominator: 14,
+      rate: null,
+      completeWindow: false,
+    },
+    policyViolationEvidence: {
+      observations: 1,
+      low: 0,
+      medium: 0,
+      high: 1,
+      critical: 0,
+      policyCodes: ['customer-contact-without-approval'],
+    },
+    confidenceCalibration: {
+      observations: 6,
+      correct: 4,
+      incorrect: 2,
+      meanPredictedConfidence: 0.78,
+      observedAccuracy: 2 / 3,
+      brierScore: 0.19,
+      completeWindow: false,
+    },
     taskClasses: ['onboarding', 'support'],
     signalKinds: ['HUMAN_REVIEW', 'QUALITY_EVALUATION'],
     byAgent: [
@@ -180,6 +204,7 @@ const data: Data = {
         runs: { visible: 12, completed: 10, failed: 2 },
         actions: { visible: 18, succeeded: 14, failed: 2, denied: 2 },
         outcomes: { positive: 8, mixed: 2, negative: 1, inconclusive: 1 },
+        operationalTrust: { rollbacks: 2, policyViolations: 1, confidencePairs: 6 },
         approvals: { decided: 5, approved: 4, rejected: 1 },
         taskClasses: ['onboarding', 'support'],
       },
@@ -190,9 +215,9 @@ const data: Data = {
       toolActions: 'AVAILABLE',
       approvalAcceptance: 'AVAILABLE',
       deniedActions: 'AVAILABLE_NOT_POLICY_VIOLATION',
-      rollbackRate: 'UNAVAILABLE_NO_CANONICAL_LINK',
-      policyViolations: 'UNAVAILABLE_NO_CANONICAL_SIGNAL',
-      confidenceCalibration: 'UNAVAILABLE_NO_PREDICTION_OUTCOME_PAIR',
+      rollbackRate: 'AVAILABLE_BOUNDED_WINDOW',
+      policyViolations: 'AVAILABLE_CANONICAL_SIGNAL',
+      confidenceCalibration: 'AVAILABLE_CANONICAL_PREDICTION_OUTCOME_PAIR',
     },
     boundedSnapshot: { hasMore: true },
     policy: {
@@ -239,7 +264,7 @@ const data: Data = {
 export default function AgentTrustEvidenceFixturePage() {
   return (
     <TRPCProvider scopeKey="agent-trust-evidence-fixture">
-      <main className="min-h-screen bg-slate-100 p-4 sm:p-8">
+      <main data-fixture="agent-trust-evidence" className="min-h-screen bg-slate-100 p-4 sm:p-8">
         <div className="mx-auto max-w-7xl">
           <OperationsAttentionConsole data={data} />
         </div>

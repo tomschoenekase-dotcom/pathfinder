@@ -1,7 +1,7 @@
 import { mergeRouters } from '../../core'
 
 import { adminAnswerAnalysisRouter } from './answer-analysis'
-import { adminAttentionConsoleRouter } from './attention-console'
+import { adminAttentionConsoleRouter } from './attention-console-router'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentBridgeOperationsRouter } from './agent-bridge-operations'

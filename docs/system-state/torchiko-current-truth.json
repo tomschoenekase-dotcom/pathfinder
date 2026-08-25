@@ -199,6 +199,19 @@
         "packages/api/src/routers/admin/guest-answer-attributions.ts"
       ],
       "remaining": "A representative calibrated corpus, provider-backed history, automatic semantic evaluator, approved threshold, and visitor-facing claim UX remain unproven or product-gated."
+    },
+    {
+      "id": "agent-operational-trust-evidence",
+      "status": "proven-provider-dark-locally",
+      "summary": "Terminal-run review can append exact-action rollback, explicit policy-code/severity violation, and confidence prediction/reviewed-outcome evidence; autonomy-evidence schema v3 derives bounded rollback, violation, accuracy, and Brier evidence without changing authority.",
+      "evidence": [
+        "packages/db/src/helpers/agent-outcome-actions.ts",
+        "packages/db/src/helpers/agent-improvement-proposal-disposable.integration.test.ts",
+        "packages/api/src/routers/admin/attention-agent-evidence.ts",
+        "apps/dashboard/components/admin/AgentOutcomeObservationForm.tsx",
+        "docs/founder-control-room.md"
+      ],
+      "remaining": "Accumulate representative reviewed history before defining any trust threshold; hosted staging integration and every policy/permission change remain separately gated."
     }
   ]
 }

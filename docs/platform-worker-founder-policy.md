@@ -32,9 +32,9 @@ remain explicit owner-controlled operations.
 
 The operating view accepts only a bounded row limit. It reuses the same canonical attention,
 briefing, run, action, approval-decision, and outcome evidence as the Founder Control Room. Its
-autonomy-evidence schema v2 reports per-agent-identity execution outcomes, approval acceptance,
-quality evaluations, and customer signals. It explicitly labels rollback rate, policy violations,
-and confidence calibration unavailable until canonical evidence exists; it does not manufacture a
+autonomy-evidence schema v3 reports per-agent-identity execution outcomes, approval acceptance,
+quality evaluations, customer signals, exact-action rollbacks, explicit policy violations, and
+confidence prediction/outcome pairs. It labels incomplete evidence windows, does not manufacture a
 reliability score, claim exhaustive history, recommend approval reduction, or change permissions.
 
 The operations-readiness request accepts no tenant, venue, queue, or job selector. Its v2 response

@@ -12,11 +12,12 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-operations-shared'
+import { adminAgentTrustSignalsRouter } from './agent-trust-signals'
 
-export const adminAgentOutcomesRouter = router({
+const adminAgentOutcomeCoreRouter = router({
   listAgentImprovementProposals: adminProcedure
     .input(
       tenantScopeInput.merge(pageInput).extend({
@@ -130,6 +131,9 @@ export const adminAgentOutcomesRouter = router({
             'QUALITY_EVALUATION',
             'CUSTOMER_SIGNAL',
             'SYSTEM_OBSERVATION',
+            'ROLLBACK',
+            'POLICY_VIOLATION',
+            'CONFIDENCE_CALIBRATION',
           ])
           .optional(),
       }),
@@ -156,6 +160,12 @@ export const adminAgentOutcomesRouter = router({
             verdict: true,
             summary: true,
             evidenceRef: true,
+            relatedAgentActionId: true,
+            policyCode: true,
+            severity: true,
+            predictionRef: true,
+            predictedConfidenceBps: true,
+            actualCorrect: true,
             taskClass: true,
             modelProvider: true,
             modelName: true,
@@ -327,3 +337,8 @@ export const adminAgentOutcomesRouter = router({
       }),
     ),
 })
+
+export const adminAgentOutcomesRouter = mergeRouters(
+  adminAgentOutcomeCoreRouter,
+  adminAgentTrustSignalsRouter,
+)

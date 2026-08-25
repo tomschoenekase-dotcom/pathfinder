@@ -7,6 +7,12 @@ type Outcome = {
   verdict: Verdict
   signalKind: string
   taskClass: string
+  relatedAgentActionId?: string | null
+  policyCode?: string | null
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | null
+  predictionRef?: string | null
+  predictedConfidenceBps?: number | null
+  actualCorrect?: boolean | null
   agentIdentity: Identity
 }
 type Run = {
@@ -37,6 +43,15 @@ const verdictCounts = (items: readonly { verdict: Verdict }[]) => ({
   mixed: items.filter((item) => item.verdict === 'MIXED').length,
   negative: items.filter((item) => item.verdict === 'NEGATIVE').length,
   inconclusive: items.filter((item) => item.verdict === 'INCONCLUSIVE').length,
+})
+
+const severityCounts = (
+  items: readonly { severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | null }[],
+) => ({
+  low: items.filter((item) => item.severity === 'LOW').length,
+  medium: items.filter((item) => item.severity === 'MEDIUM').length,
+  high: items.filter((item) => item.severity === 'HIGH').length,
+  critical: items.filter((item) => item.severity === 'CRITICAL').length,
 })
 
 export function deriveAgentTrustEvidence(input: {
@@ -81,6 +96,34 @@ export function deriveAgentTrustEvidence(input: {
     expired: input.approvalDecisions.items.filter((item) => item.decision === 'EXPIRED').length,
   }
   const approvalAcceptanceDenominator = approvalDecisions.approved + approvalDecisions.rejected
+  const rollbackSignals = input.outcomes.items.filter((item) => item.signalKind === 'ROLLBACK')
+  const rolledBackActions = new Set(
+    rollbackSignals.flatMap((item) =>
+      item.relatedAgentActionId == null ? [] : [item.relatedAgentActionId],
+    ),
+  )
+  const policyViolationSignals = input.outcomes.items.filter(
+    (item) => item.signalKind === 'POLICY_VIOLATION',
+  )
+  const confidenceSignals = input.outcomes.items.filter(
+    (item) =>
+      item.signalKind === 'CONFIDENCE_CALIBRATION' &&
+      item.predictedConfidenceBps != null &&
+      item.actualCorrect != null,
+  )
+  const rollbackDenominator = actionStatuses.succeeded
+  const rollbackWindowComplete =
+    input.outcomes.nextCursor === null && input.actions.nextCursor === null
+  const confidenceSquaredError = confidenceSignals.reduce((sum, item) => {
+    const prediction = item.predictedConfidenceBps! / 10_000
+    const actual = item.actualCorrect ? 1 : 0
+    return sum + (prediction - actual) ** 2
+  }, 0)
+  const confidenceTotalBps = confidenceSignals.reduce(
+    (sum, item) => sum + item.predictedConfidenceBps!,
+    0,
+  )
+  const confidenceCorrect = confidenceSignals.filter((item) => item.actualCorrect).length
   const identities = new Map<string, Identity>()
   for (const item of [
     ...input.runs.items,
@@ -117,6 +160,13 @@ export function deriveAgentTrustEvidence(input: {
           denied: actions.filter((item) => item.status === 'DENIED').length,
         },
         outcomes: verdictCounts(outcomes),
+        operationalTrust: {
+          rollbacks: outcomes.filter((item) => item.signalKind === 'ROLLBACK').length,
+          policyViolations: outcomes.filter((item) => item.signalKind === 'POLICY_VIOLATION')
+            .length,
+          confidencePairs: outcomes.filter((item) => item.signalKind === 'CONFIDENCE_CALIBRATION')
+            .length,
+        },
         approvals: {
           decided: approvals.length,
           approved: approvals.filter((item) => item.decision === 'APPROVED').length,
@@ -132,7 +182,7 @@ export function deriveAgentTrustEvidence(input: {
     )
 
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     state,
     verdicts,
     observations: input.outcomes.items.length,
@@ -166,6 +216,37 @@ export function deriveAgentTrustEvidence(input: {
     customerSignals: verdictCounts(
       input.outcomes.items.filter((item) => item.signalKind === 'CUSTOMER_SIGNAL'),
     ),
+    rollbackEvidence: {
+      observations: rollbackSignals.length,
+      distinctActions: rolledBackActions.size,
+      succeededActionDenominator: rollbackDenominator,
+      rate:
+        rollbackWindowComplete && rollbackDenominator > 0
+          ? rolledBackActions.size / rollbackDenominator
+          : null,
+      completeWindow: rollbackWindowComplete,
+    },
+    policyViolationEvidence: {
+      observations: policyViolationSignals.length,
+      ...severityCounts(policyViolationSignals),
+      policyCodes: [
+        ...new Set(policyViolationSignals.flatMap((item) => item.policyCode ?? [])),
+      ].sort(),
+    },
+    confidenceCalibration: {
+      observations: confidenceSignals.length,
+      correct: confidenceCorrect,
+      incorrect: confidenceSignals.length - confidenceCorrect,
+      meanPredictedConfidence:
+        confidenceSignals.length > 0
+          ? confidenceTotalBps / confidenceSignals.length / 10_000
+          : null,
+      observedAccuracy:
+        confidenceSignals.length > 0 ? confidenceCorrect / confidenceSignals.length : null,
+      brierScore:
+        confidenceSignals.length > 0 ? confidenceSquaredError / confidenceSignals.length : null,
+      completeWindow: input.outcomes.nextCursor === null,
+    },
     taskClasses: [...new Set(input.outcomes.items.map((item) => item.taskClass))].sort(),
     signalKinds: [...new Set(input.outcomes.items.map((item) => item.signalKind))].sort(),
     byAgent,
@@ -175,9 +256,11 @@ export function deriveAgentTrustEvidence(input: {
       toolActions: 'AVAILABLE' as const,
       approvalAcceptance: 'AVAILABLE' as const,
       deniedActions: 'AVAILABLE_NOT_POLICY_VIOLATION' as const,
-      rollbackRate: 'UNAVAILABLE_NO_CANONICAL_LINK' as const,
-      policyViolations: 'UNAVAILABLE_NO_CANONICAL_SIGNAL' as const,
-      confidenceCalibration: 'UNAVAILABLE_NO_PREDICTION_OUTCOME_PAIR' as const,
+      rollbackRate: rollbackWindowComplete
+        ? ('AVAILABLE_COMPLETE_WINDOW' as const)
+        : ('AVAILABLE_BOUNDED_WINDOW' as const),
+      policyViolations: 'AVAILABLE_CANONICAL_SIGNAL' as const,
+      confidenceCalibration: 'AVAILABLE_CANONICAL_PREDICTION_OUTCOME_PAIR' as const,
     },
     boundedSnapshot: {
       hasMore: [

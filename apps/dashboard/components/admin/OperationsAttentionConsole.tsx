@@ -248,7 +248,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
   const reviewChanges = reviewState.changesSinceLastReview
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-600">
         Snapshot generated {date(data.generatedAt)}. Review linked evidence before acknowledging or
         resolving an alert.
       </p>
@@ -466,6 +466,9 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                 ],
                 ['Quality negatives', data.agentTrustEvidence.qualityEvaluations.negative],
                 ['Customer negatives', data.agentTrustEvidence.customerSignals.negative],
+                ['Canonical rollbacks', data.agentTrustEvidence.rollbackEvidence.distinctActions],
+                ['Policy violations', data.agentTrustEvidence.policyViolationEvidence.observations],
+                ['Confidence pairs', data.agentTrustEvidence.confidenceCalibration.observations],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-xs font-semibold text-slate-500">{label}</dt>
@@ -474,12 +477,26 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
               ))}
             </dl>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
-            <h3 className="font-semibold">Evidence not yet canonical</h3>
+          <div className="rounded-xl border border-violet-100 bg-white p-4 text-xs leading-5 text-slate-700">
+            <h3 className="font-semibold text-slate-900">Structured trust signals</h3>
             <p className="mt-1">
-              Rollback rate, policy violations, and confidence calibration stay unavailable until
-              Torchiko has explicit linked signals. A denied action proves enforcement, not a policy
-              violation.
+              Rollback rate:{' '}
+              {data.agentTrustEvidence.rollbackEvidence.rate === null
+                ? 'awaiting a complete evidence window'
+                : `${(data.agentTrustEvidence.rollbackEvidence.rate * 100).toFixed(1)}%`}
+              . Confidence accuracy:{' '}
+              {data.agentTrustEvidence.confidenceCalibration.observedAccuracy === null
+                ? 'no reviewed pairs yet'
+                : `${(data.agentTrustEvidence.confidenceCalibration.observedAccuracy * 100).toFixed(1)}%`}
+              . Brier score:{' '}
+              {data.agentTrustEvidence.confidenceCalibration.brierScore === null
+                ? 'not available'
+                : data.agentTrustEvidence.confidenceCalibration.brierScore.toFixed(3)}
+              .
+            </p>
+            <p className="mt-2">
+              A denied action still proves enforcement, not a policy violation. Only an explicit,
+              evidence-linked violation record appears in this count.
             </p>
           </div>
         </div>
@@ -497,14 +514,16 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     Runs: {agent.runs.completed} completed / {agent.runs.failed} failed · Actions:{' '}
                     {agent.actions.succeeded} succeeded / {agent.actions.failed} failed /{' '}
                     {agent.actions.denied} denied · Outcomes: {agent.outcomes.positive} positive /{' '}
-                    {agent.outcomes.negative} negative
+                    {agent.outcomes.negative} negative · Trust: {agent.operationalTrust.rollbacks}{' '}
+                    rollbacks / {agent.operationalTrust.policyViolations} violations /{' '}
+                    {agent.operationalTrust.confidencePairs} calibrated predictions
                   </p>
                 </li>
               ))}
             </ul>
           </div>
         ) : null}
-        <p className="mt-3 text-xs leading-5 text-slate-500">
+        <p className="mt-3 text-xs leading-5 text-slate-600">
           Counts use canonical bounded run, action, approval, and explicit outcome evidence
           {data.agentTrustEvidence.boundedSnapshot.hasMore ? '; additional evidence exists' : ''}.
           No reliability score, trend claim, or permission change is inferred.

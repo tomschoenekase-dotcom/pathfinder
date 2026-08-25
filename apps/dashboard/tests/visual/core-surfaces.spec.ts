@@ -194,6 +194,31 @@ test('Founder Control Room shell is responsive and restores mobile navigation fo
   expect(runtimeErrors).toEqual([])
 })
 
+test('Founder trust evidence remains readable and truthful across real browser widths', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/agent-trust-evidence`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(page.locator('[data-fixture="agent-trust-evidence"]')).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Has the AI workforce earned more trust?' }),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Structured trust signals' })).toBeVisible()
+  await expect(page.getByText('Canonical rollbacks')).toBeVisible()
+  await expect(page.getByText('Policy violations')).toBeVisible()
+  await expect(page.getByText('Confidence pairs')).toBeVisible()
+  await expect(
+    page.getByText(/No reliability score, trend claim, or permission change is inferred/),
+  ).toBeVisible()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'founder-agent-trust-evidence')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('exact-scoped Internal Workspace remains usable across real browser widths', async ({
   page,
 }, testInfo) => {

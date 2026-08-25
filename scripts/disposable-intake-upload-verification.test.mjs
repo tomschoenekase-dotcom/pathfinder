@@ -414,7 +414,7 @@ test('runs operations readiness against the exact fresh migration lineage', asyn
     stdout.value,
     /"action":"operations-readiness\.migration-parity\.disposable-shakedown\.passed"/u,
   )
-  assert.match(stdout.value, /"fresh-185-migration-chain"/u)
+  assert.match(stdout.value, /"fresh-187-migration-chain"/u)
   assert.match(stdout.value, /"exact-latest-migration-parity"/u)
   assert.match(stdout.value, /"fresh-read-only-object-storage-probe"/u)
   assert.match(stdout.value, /"fresh-read-only-malware-scanner-probe"/u)

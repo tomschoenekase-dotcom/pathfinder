@@ -1,33 +1,19 @@
 import { db, listFounderOperatingExchanges, withTenantIsolationBypass } from '@pathfinder/db'
-import { router } from '../../core'
-import { adminProcedure } from '../../trpc'
 import { deriveFounderBriefing } from './attention-briefing'
 import { deriveAgentTrustEvidence } from './attention-agent-evidence'
 import { readAgentEvidenceRows } from './attention-agent-evidence-query'
-import { deriveFounderOperatingView } from './attention-operating-view'
 import { projectAttentionJobs } from './attention-job-recovery'
-import {
-  acknowledgeAttentionEvent,
-  attentionEventActionInput,
-  resolveAttentionEvent,
-} from './attention-event-actions'
-import {
-  markFounderBriefingReviewed,
-  markFounderBriefingReviewedInput,
-  readFounderBriefingReview,
-} from './attention-review-actions'
+import { readFounderBriefingReview } from './attention-review-actions'
 import {
   ACTIVE_SUPPORT_REQUEST_STATUSES,
   after,
   afterCondition,
-  attentionConsoleInput,
   page,
   type AttentionConsoleInput,
 } from './attention-pagination'
 import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
-import { createFounderAskHandler, founderAskInput } from './founder-operating-conversation-handler'
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -252,6 +238,12 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           signalKind: true,
           verdict: true,
           summary: true,
+          relatedAgentActionId: true,
+          policyCode: true,
+          severity: true,
+          predictionRef: true,
+          predictedConfidenceBps: true,
+          actualCorrect: true,
           taskClass: true,
           modelProvider: true,
           modelName: true,
@@ -375,26 +367,4 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
   })
 }
 
-export const adminAttentionConsoleRouter = router({
-  attentionConsole: adminProcedure
-    .input(attentionConsoleInput)
-    .query(({ ctx, input }) => readAttentionConsole(ctx.session.userId, input)),
-  founderOperatingView: adminProcedure
-    .input(attentionConsoleInput)
-    .query(async ({ ctx, input }) => {
-      const result = await readAttentionConsole(ctx.session.userId, input)
-      return deriveFounderOperatingView(result)
-    }),
-  askFounderOperatingSystem: adminProcedure
-    .input(founderAskInput)
-    .mutation(createFounderAskHandler(readAttentionConsole)),
-  markFounderBriefingReviewed: adminProcedure
-    .input(markFounderBriefingReviewedInput)
-    .mutation(({ ctx, input }) => markFounderBriefingReviewed(ctx.session.userId, input)),
-  acknowledgeOperationalEvent: adminProcedure
-    .input(attentionEventActionInput)
-    .mutation(({ ctx, input }) => acknowledgeAttentionEvent(ctx.session.userId, input)),
-  resolveOperationalEvent: adminProcedure
-    .input(attentionEventActionInput)
-    .mutation(({ ctx, input }) => resolveAttentionEvent(ctx.session.userId, input)),
-})
+export { adminAttentionConsoleRouter } from './attention-console-router'

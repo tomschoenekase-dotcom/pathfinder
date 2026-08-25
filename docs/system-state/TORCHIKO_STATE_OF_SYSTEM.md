@@ -12,23 +12,24 @@
 
 The 2026-08-19 audit narrative remains historical evidence, not an unqualified statement of current capability. The following identifiers are the current anchors; every one is defined with repository evidence and an explicit remaining boundary in `torchiko-current-truth.json`:
 
-| Truth ID                         | Current state                                                                                                |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `founder-operating-conversation` | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
-| `guest-prompt-integrity`         | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.        |
-| `release-evidence`               | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
-| `golden-venue-lifecycle`         | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
-| `native-guest-read`              | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
-| `crm-pipeline`                   | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
-| `outreach-operations`            | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
-| `stripe-billing`                 | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
-| `gmail-correspondence`           | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
-| `local-staging-infrastructure`   | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
-| `operational-usage-evidence`     | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
-| `first-week-account-learning`    | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
-| `privacy-retention`              | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
-| `customer-access-execution`      | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
-| `claim-attribution-calibration`  | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
+| Truth ID                           | Current state                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `founder-operating-conversation`   | Seven canonical operating questions and append-only directive triage are provider-dark locally proven.       |
+| `guest-prompt-integrity`           | Prompt v6 instruction/data isolation and adversarial lexical checks are provider-dark locally proven.        |
+| `release-evidence`                 | Exact candidate assessments and handoffs have an immutable, capability-gated platform projection.            |
+| `golden-venue-lifecycle`           | The disposable end-to-end lifecycle and seven failure classes are retained and provider-dark locally proven. |
+| `native-guest-read`                | Default-dark exact-venue native reads and immediate compatibility rollback are provider-dark proven locally. |
+| `crm-pipeline`                     | Implemented internally; external provider continuity, pricing, promises, and customer contact remain gated.  |
+| `outreach-operations`              | Reviewed workflow is implemented dark by default; sending remains unauthorized.                              |
+| `stripe-billing`                   | Test-mode lifecycle is sandbox-proven; live billing remains unconfigured and unauthorized.                   |
+| `gmail-correspondence`             | OAuth/Pub/Sub/sync/source-reference foundations exist; credentials and hosted continuity remain gated.       |
+| `local-staging-infrastructure`     | Five local dependency images are content-addressed and health-checked; this does not prove Railway state.    |
+| `operational-usage-evidence`       | Fresh queue gauges and declared intake/media bytes are retained without assigning money or policy.           |
+| `first-week-account-learning`      | Release-anchored day 1, 3, and 7 aggregate reviews and draft-only check-ins are provider-dark proven.        |
+| `privacy-retention`                | Privacy status and read-only disposition preview exist; policy and destructive execution remain open.        |
+| `customer-access-execution`        | Exact approved invitation execution and reconciliation are provider-dark proven; live Clerk remains gated.   |
+| `claim-attribution-calibration`    | Exact-claim reviews and independent-reviewer agreement are retained without a correctness threshold.         |
+| `agent-operational-trust-evidence` | Exact-action rollback, explicit violations, and confidence pairs are provider-dark proven without promotion. |
 
 ## How to read this report
 
@@ -106,7 +107,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 185 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 187 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -356,7 +357,7 @@ The current operator-centric model will not scale. Torchiko would need automated
 6. **Converge the content read path** — use existing shadow evidence and an explicit rollback target; do not delete compatibility code prematurely. _Effort L; impact high._
 7. **Prove CRM-to-onboarding continuity in staging** — retain exact prospect/customer/location conversion while keeping sending, pricing, and promises gated. _Effort M; impact high._
 8. **Verify recovery and cost observability** — current backup/PITR, restore drill, worker/provider/storage health, queue depth, and bounded anomaly safeguards. _Effort M; impact high._
-9. **Deepen progressive agent authority evidence** — connect outcomes, rollback, approval acceptance, policy violations, and confidence without automatically loosening policy. _Effort M; impact high._
+9. **Accumulate progressive agent authority evidence** — canonical rollback, approval acceptance, policy-violation, and confidence signals now exist without automatically loosening policy; representative reviewed history and any promotion policy remain future work. _Effort M; impact high._
 10. **Activate only explicitly authorized external canaries** — Gmail watch, operator email, Stripe scheduled test lifecycle, and other provider flows remain separately owner-gated. _Effort M; impact medium-high._
 
 ## 5 Things We Should Explicitly NOT Work On Yet

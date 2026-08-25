@@ -1139,7 +1139,11 @@ export type {
   IntakeUploadVerificationActor,
   TrustedIntakeUploadObjectIdentity,
 } from './helpers/intake-upload-actions'
-export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
+export {
+  AgentOutcomeActionError,
+  recordAgentOutcomeAction,
+  recordAgentTrustSignalAction,
+} from './helpers/agent-outcome-actions'
 export {
   FirstWeekAccountReviewError,
   materializeDueFirstWeekAccountReviews,
@@ -1178,6 +1182,7 @@ export type { ProductEntitlementClient } from './helpers/product-entitlements'
 export type {
   AgentOutcomeActionClient,
   RecordAgentOutcomeInput,
+  RecordAgentTrustSignalInput,
 } from './helpers/agent-outcome-actions'
 export {
   approveProspectSendBatchAction,

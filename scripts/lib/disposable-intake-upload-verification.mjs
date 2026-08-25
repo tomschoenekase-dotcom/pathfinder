@@ -707,6 +707,10 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
       successAction: 'agent-improvement.validation-loop.disposable-shakedown.passed',
       proofScope: [
         'exact-outcome-evidence',
+        'same-run-linked-rollback-evidence',
+        'explicit-policy-violation-evidence',
+        'confidence-prediction-outcome-pairs',
+        'append-only-operational-trust-signals',
         'versioned-improvement-hypothesis',
         'human-review-only-approval',
         'no-agent-authority-mutation',
@@ -866,7 +870,7 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
       lifecycleEvent: 'test:operations-readiness:disposable',
       successAction: 'operations-readiness.migration-parity.disposable-shakedown.passed',
       proofScope: [
-        'fresh-185-migration-chain',
+        'fresh-187-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
         'fresh-read-only-object-storage-probe',

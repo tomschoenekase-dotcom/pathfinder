@@ -6,7 +6,7 @@ import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { prepareAgentImprovementProposalAction } from './agent-improvement-proposal-actions'
 import { recordAgentImprovementValidationAction } from './agent-improvement-validation-actions'
-import { recordAgentOutcomeAction } from './agent-outcome-actions'
+import { recordAgentOutcomeAction, recordAgentTrustSignalAction } from './agent-outcome-actions'
 import { recordApprovalDecisionAction } from './approval-decisions'
 
 const enabled =
@@ -94,6 +94,84 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         }),
       ])
 
+      const appliedAction = await db.agentAction.create({
+        data: {
+          tenantId,
+          venueId,
+          agentRunId: runs[0]!.id,
+          agentIdentityId: identityId,
+          actorType: 'AGENT',
+          actorId: identityId,
+          requestedOperation: 'research.first',
+          actionName: 'research.apply-recommendation',
+          status: 'SUCCEEDED',
+        },
+      })
+      const rollbackSignal = await recordAgentTrustSignalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentRunId: runs[0]!.id,
+        signalKind: 'ROLLBACK',
+        relatedAgentActionId: appliedAction.id,
+        summary: 'The applied recommendation was rolled back after review.',
+        evidenceRef: 'fixture:rollback-review',
+        actor,
+      })
+      const policySignal = await recordAgentTrustSignalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentRunId: runs[0]!.id,
+        signalKind: 'POLICY_VIOLATION',
+        relatedAgentActionId: appliedAction.id,
+        policyCode: 'unsupported-recommendation',
+        severity: 'HIGH',
+        summary: 'The recommendation exceeded its trusted evidence.',
+        evidenceRef: 'fixture:policy-review',
+        actor,
+      })
+      const confidenceSignal = await recordAgentTrustSignalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentRunId: runs[1]!.id,
+        signalKind: 'CONFIDENCE_CALIBRATION',
+        predictionRef: 'recommendation-1',
+        predictedConfidenceBps: 7800,
+        actualCorrect: true,
+        summary: 'The reviewed recommendation was correct.',
+        evidenceRef: 'fixture:confidence-review',
+        actor,
+      })
+      expect([rollbackSignal, policySignal, confidenceSignal]).toMatchObject([
+        { signalKind: 'ROLLBACK', verdict: 'NEGATIVE', replayed: false },
+        { signalKind: 'POLICY_VIOLATION', verdict: 'NEGATIVE', replayed: false },
+        {
+          signalKind: 'CONFIDENCE_CALIBRATION',
+          verdict: 'POSITIVE',
+          replayed: false,
+        },
+      ])
+      await expect(
+        recordAgentTrustSignalAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentRunId: runs[0]!.id,
+          signalKind: 'ROLLBACK',
+          relatedAgentActionId: appliedAction.id,
+          summary: 'Duplicate rollback evidence must fail closed.',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        db.agentOutcomeObservation.update({
+          where: { id: rollbackSignal.id },
+          data: { summary: 'Append-only evidence must not change.' },
+        }),
+      ).rejects.toThrow()
+
       const operationId = randomUUID()
       const request = {
         operationId,
@@ -164,7 +242,11 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         },
       })
       expect(identityAfter).toEqual(identityBefore)
-      expect(await db.agentAction.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(
+        await db.agentAction.count({
+          where: { tenantId, venueId, id: { not: appliedAction.id } },
+        }),
+      ).toBe(0)
       expect(
         await db.agentRun.count({ where: { tenantId, venueId, status: 'AWAITING_APPROVAL' } }),
       ).toBe(0)

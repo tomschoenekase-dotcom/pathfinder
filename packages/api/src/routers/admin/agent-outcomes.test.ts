@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   findManyProposals: vi.fn(),
   record: vi.fn(),
+  recordTrustSignal: vi.fn(),
   prepareProposal: vi.fn(),
   recordValidation: vi.fn(),
 }))
@@ -37,6 +38,7 @@ vi.mock('@pathfinder/db', () => ({
   prepareAgentImprovementProposalAction: mocks.prepareProposal,
   recordAgentImprovementValidationAction: mocks.recordValidation,
   recordAgentOutcomeAction: mocks.record,
+  recordAgentTrustSignalAction: mocks.recordTrustSignal,
   withTenantIsolationBypass: mocks.bypass,
   db: {
     agentOutcomeObservation: { findMany: mocks.findMany },
@@ -107,6 +109,56 @@ describe('admin agent outcomes router', () => {
       },
       expect.anything(),
     )
+  })
+
+  it('records structured trust evidence with session-derived authority', async () => {
+    mocks.recordTrustSignal.mockResolvedValue({ id: 'outcome-trust-1', replayed: false })
+    const result = await testRouter.createCaller(context()).admin.recordAgentTrustSignal({
+      operationId: '2d4ee39a-a7c7-44ab-bf24-75c187cff002',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentRunId: 'run-1',
+      signalKind: 'CONFIDENCE_CALIBRATION',
+      predictionRef: 'answer-7',
+      predictedConfidenceBps: 8200,
+      actualCorrect: true,
+      summary: ' Reviewed answer was correct. ',
+      evidenceRef: ' eval-run-42 ',
+    })
+
+    expect(result).toEqual({ id: 'outcome-trust-1', replayed: false })
+    expect(mocks.recordTrustSignal).toHaveBeenCalledWith(
+      {
+        operationId: '2d4ee39a-a7c7-44ab-bf24-75c187cff002',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        signalKind: 'CONFIDENCE_CALIBRATION',
+        predictionRef: 'answer-7',
+        predictedConfidenceBps: 8200,
+        actualCorrect: true,
+        summary: 'Reviewed answer was correct.',
+        evidenceRef: 'eval-run-42',
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+      },
+      expect.anything(),
+    )
+  })
+
+  it('rejects non-admin trust evidence before bypassing tenant isolation', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).admin.recordAgentTrustSignal({
+        operationId: '2d4ee39a-a7c7-44ab-bf24-75c187cff002',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        signalKind: 'ROLLBACK',
+        relatedAgentActionId: 'action-1',
+        summary: 'The action required rollback.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.recordTrustSignal).not.toHaveBeenCalled()
   })
 
   it('lists only the requested tenant, venue, run, identity, and signal scope', async () => {

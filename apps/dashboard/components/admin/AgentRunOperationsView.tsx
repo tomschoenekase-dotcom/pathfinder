@@ -109,6 +109,12 @@ type OutcomeObservation = {
   verdict: string
   summary: string
   evidenceRef: string | null
+  relatedAgentActionId?: string | null
+  policyCode?: string | null
+  severity?: string | null
+  predictionRef?: string | null
+  predictedConfidenceBps?: number | null
+  actualCorrect?: boolean | null
   taskClass: string
   modelProvider: string | null
   modelName: string | null
@@ -324,7 +330,16 @@ export function AgentRunOperationsView({
       </section>
 
       {['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.status) ? (
-        <AgentOutcomeObservationForm tenantId={tenantId} venueId={venueId} agentRunId={run.id} />
+        <AgentOutcomeObservationForm
+          tenantId={tenantId}
+          venueId={venueId}
+          agentRunId={run.id}
+          actions={actions.items.map((action) => ({
+            id: action.id,
+            actionName: action.actionName,
+            status: action.status,
+          }))}
+        />
       ) : null}
 
       <section className="space-y-4" aria-labelledby="run-outcomes-heading">
@@ -357,6 +372,23 @@ export function AgentRunOperationsView({
                   {[outcome.modelProvider, outcome.modelName].filter(Boolean).join(' / ') ||
                     'No model recorded'}
                 </p>
+                {outcome.relatedAgentActionId ? (
+                  <p className="mt-2 break-all font-mono text-xs text-pf-deep/55">
+                    Related action: {outcome.relatedAgentActionId}
+                  </p>
+                ) : null}
+                {outcome.policyCode ? (
+                  <p className="mt-2 text-xs font-semibold text-rose-800">
+                    Policy: {outcome.policyCode} · {outcome.severity?.toLowerCase()}
+                  </p>
+                ) : null}
+                {outcome.predictionRef && outcome.predictedConfidenceBps != null ? (
+                  <p className="mt-2 text-xs text-pf-deep/60">
+                    Prediction {outcome.predictionRef} ·{' '}
+                    {(outcome.predictedConfidenceBps / 100).toFixed(2)}% confidence · reviewed{' '}
+                    {outcome.actualCorrect ? 'correct' : 'incorrect'}
+                  </p>
+                ) : null}
                 {outcome.evidenceRef ? (
                   <p className="mt-2 break-all font-mono text-xs text-pf-deep/55">
                     Evidence: {outcome.evidenceRef}

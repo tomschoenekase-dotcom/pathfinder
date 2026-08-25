@@ -4498,6 +4498,7 @@ model AgentAction {
   agentIdentity      AgentIdentity        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   approvalDecision   ApprovalDecision?    @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   timelineEvents     AgentTimelineEvent[]
+  outcomeObservations AgentOutcomeObservation[]
 
   @@unique([id, tenantId])
   @@unique([approvalDecisionId, tenantId])
@@ -4647,6 +4648,16 @@ enum AgentOutcomeSignalKind {
   QUALITY_EVALUATION
   CUSTOMER_SIGNAL
   SYSTEM_OBSERVATION
+  ROLLBACK
+  POLICY_VIOLATION
+  CONFIDENCE_CALIBRATION
+}
+
+enum AgentOutcomeSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 enum AgentOutcomeVerdict {
@@ -4670,6 +4681,12 @@ model AgentOutcomeObservation {
   verdict               AgentOutcomeVerdict
   summary               String                             @db.VarChar(2000)
   evidenceRef           String?                            @map("evidence_ref") @db.VarChar(500)
+  relatedAgentActionId  String?                            @map("related_agent_action_id")
+  policyCode            String?                            @map("policy_code") @db.VarChar(191)
+  severity              AgentOutcomeSeverity?
+  predictionRef         String?                            @map("prediction_ref") @db.VarChar(191)
+  predictedConfidenceBps Int?                              @map("predicted_confidence_bps")
+  actualCorrect         Boolean?                           @map("actual_correct")
   taskClass             String                             @map("task_class") @db.VarChar(100)
   modelProvider         String?                            @map("model_provider") @db.VarChar(100)
   modelName             String?                            @map("model_name") @db.VarChar(191)
@@ -4680,6 +4697,7 @@ model AgentOutcomeObservation {
   venue                 Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   agentRun              AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   agentIdentity         AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  relatedAgentAction    AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   improvementEvidence   AgentImprovementProposalEvidence[]
   approvalGrantEvidence ApprovalGrantEvidence[]
 
@@ -4688,6 +4706,7 @@ model AgentOutcomeObservation {
   @@index([tenantId, venueId, createdAt], map: "agent_outcome_observations_scope_created_idx")
   @@index([tenantId, agentIdentityId, signalKind, createdAt], map: "agent_outcome_observations_identity_signal_idx")
   @@index([tenantId, agentRunId, createdAt], map: "agent_outcome_observations_run_created_idx")
+  @@index([tenantId, signalKind, createdAt], map: "agent_outcome_observations_signal_created_idx")
   @@index([createdAt], map: "agent_outcome_observations_created_idx")
   @@map("agent_outcome_observations")
 }
