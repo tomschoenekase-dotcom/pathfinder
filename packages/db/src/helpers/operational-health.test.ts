@@ -21,6 +21,34 @@ describe('operational migration health', () => {
       parity: true,
     })
   })
+
+  it.each([
+    '20260825005000_add_public_interest_prospect_conversion',
+    '20260825006100_unreviewed_future_migration',
+  ])('fails parity for a different terminal migration: %s', async (migrationName) => {
+    const query = vi.fn().mockResolvedValue([
+      {
+        migration_name: migrationName,
+        finished_at: new Date('2026-08-25T05:00:00Z'),
+      },
+    ])
+
+    await expect(readAppliedMigrationStatus({ $queryRaw: query } as never)).resolves.toMatchObject({
+      expected: EXPECTED_LATEST_MIGRATION,
+      applied: migrationName,
+      parity: false,
+    })
+  })
+
+  it('fails parity when no completed migration is observed', async () => {
+    await expect(
+      readAppliedMigrationStatus({ $queryRaw: vi.fn().mockResolvedValue([]) } as never),
+    ).resolves.toMatchObject({
+      expected: EXPECTED_LATEST_MIGRATION,
+      applied: null,
+      parity: false,
+    })
+  })
 })
 
 describe('worker heartbeat projection', () => {

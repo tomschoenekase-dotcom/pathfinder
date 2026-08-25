@@ -10,6 +10,7 @@ import {
   parsePublishedPort,
   runDisposableGoldenVenueShakedown,
   runDisposableIntakeVerificationShakedown,
+  runDisposableOperationsReadinessShakedown,
   runDisposableRetentionDispositionPreviewShakedown,
   validateLocalDockerEndpoint,
   validateVitestReport,
@@ -180,7 +181,7 @@ function fakeRuntime({ integrationFails = false, cleanupFails = false } = {}) {
         const name = args[args.indexOf('--name') + 1]
         assert.match(
           name,
-          /^pathfinder-disposable-(?:intake|golden|retention)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
+          /^pathfinder-disposable-(?:intake|golden|retention|opsreadiness)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u,
         )
         running.add(name)
         return { status: 0, stdout: 'container-id\n', stderr: '' }
@@ -369,6 +370,51 @@ test('runs the retention preview with a count-only provider-dark integration con
   )
   assert.match(stdout.value, /"exact-full-client-database-counts"/u)
   assert.match(stdout.value, /"no-delete-anonymize-revocation-or-approval-effect"/u)
+  assert.match(stdout.value, /"cleanup":"verified-absent"/u)
+  assert.equal(runtime.running.size, 0)
+})
+
+test('runs operations readiness against the exact fresh migration lineage', async () => {
+  const runtime = fakeRuntime()
+  const stdout = {
+    value: '',
+    write(value) {
+      this.value += value
+    },
+  }
+  await assert.doesNotReject(
+    runDisposableOperationsReadinessShakedown({
+      env: {
+        npm_execpath: 'pnpm-cli.cjs',
+        npm_lifecycle_event: 'test:operations-readiness:disposable',
+        ANTHROPIC_API_KEY: 'must-not-propagate',
+        OPENAI_API_KEY: 'must-not-propagate',
+      },
+      spawnSyncImpl: runtime.spawnSyncImpl,
+      fetchImpl: async () => ({ ok: true }),
+      waitImpl: async () => {},
+      stdout,
+      repositoryRoot: 'C:/pathfinder',
+    }),
+  )
+  const integrationCall = runtime.calls.find(
+    ({ command, args }) => command === process.execPath && args.includes('vitest'),
+  )
+  assert.ok(integrationCall)
+  assert.ok(integrationCall.args.includes('packages/db'))
+  assert.ok(
+    integrationCall.args.includes('src/helpers/operational-health.disposable.integration.test.ts'),
+  )
+  assert.equal(runtime.childEnvironments[0].RUN_OPERATIONS_READINESS_DB_INTEGRATION, '1')
+  assert.equal(runtime.childEnvironments[0].ANTHROPIC_API_KEY, undefined)
+  assert.equal(runtime.childEnvironments[0].OPENAI_API_KEY, undefined)
+  assert.match(
+    stdout.value,
+    /"action":"operations-readiness\.migration-parity\.disposable-shakedown\.passed"/u,
+  )
+  assert.match(stdout.value, /"fresh-182-migration-chain"/u)
+  assert.match(stdout.value, /"exact-latest-migration-parity"/u)
+  assert.match(stdout.value, /"missing-external-evidence-remains-not-observed"/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.running.size, 0)
 })
