@@ -112,7 +112,7 @@ test('ledger accepts Prisma raw-byte checksums without weakening the normalized 
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
 })
 
-test('ledger accepts only exact reviewed baseline or final states', async () => {
+test('ledger accepts only exact reviewed migration boundaries', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -141,6 +141,10 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
     'previous-release',
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.b5CompleteCount), manifest), 'b5-complete')
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.currentStagingCount), manifest),
+    'current-staging',
+  )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
