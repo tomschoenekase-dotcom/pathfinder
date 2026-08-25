@@ -209,6 +209,7 @@ export const PLATFORM_TABLES = [
   // conversion creates canonical CRM or customer state.
   'PublicInterestSubmission',
   'PublicInterestSubmissionReview',
+  'PublicInterestProspectConversion',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

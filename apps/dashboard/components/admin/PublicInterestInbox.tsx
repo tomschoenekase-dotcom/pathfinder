@@ -16,6 +16,7 @@ export function PublicInterestInbox() {
   const [filter, setFilter] = useState<Filter>('NEW')
   const [inbox, setInbox] = useState<Inbox | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ organizationId: string; name: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -37,6 +38,7 @@ export function PublicInterestInbox() {
   async function review(item: InboxItem, decision: 'MARK_REVIEWED' | 'ARCHIVE' | 'REOPEN') {
     setBusyId(item.id)
     setError(null)
+    setNotice(null)
     try {
       await client.admin.reviewPublicInterestSubmission.mutate({
         operationId: crypto.randomUUID(),
@@ -57,6 +59,28 @@ export function PublicInterestInbox() {
     }
   }
 
+  async function createProspect(item: InboxItem) {
+    setBusyId(item.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const converted = await client.admin.convertPublicInterestSubmissionToProspect.mutate({
+        operationId: crypto.randomUUID(),
+        submissionId: item.id,
+        reason: 'Converted after human review in the inbound interest inbox.',
+      })
+      await load()
+      setNotice({
+        organizationId: converted.organization.id,
+        name: converted.organization.canonicalName,
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not create the prospect.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -71,8 +95,10 @@ export function PublicInterestInbox() {
             Inbound interest
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Public requests stay staged here until a human or authorized worker reconciles them.
-            Review never sends a message, sets a price, or creates a canonical prospect.
+            Public requests stay staged here until a platform administrator reconciles them.
+            Creating a prospect records the organization, venue, contact, and source evidence only.
+            It never contacts anyone, sets a price, creates a customer account, starts onboarding,
+            or bills.
           </p>
         </div>
         <button
@@ -89,7 +115,10 @@ export function PublicInterestInbox() {
           <button
             key={value}
             type="button"
-            onClick={() => setFilter(value)}
+            onClick={() => {
+              setNotice(null)
+              setFilter(value)
+            }}
             aria-pressed={filter === value}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${filter === value ? 'bg-slate-950 text-white' : 'border border-slate-300 bg-white text-slate-700'}`}
           >
@@ -107,6 +136,20 @@ export function PublicInterestInbox() {
           className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
         >
           {error}
+        </div>
+      ) : null}
+      {notice ? (
+        <div
+          role="status"
+          className="flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>Created {notice.name} in the prospect CRM. No communication was sent.</span>
+          <Link
+            href={`/admin/prospects/${notice.organizationId}`}
+            className="font-bold text-emerald-900 underline underline-offset-2"
+          >
+            View prospect
+          </Link>
         </div>
       ) : null}
       {!inbox && !error ? (
@@ -133,13 +176,7 @@ export function PublicInterestInbox() {
               <div>
                 <p className="text-lg font-bold text-slate-950">{item.organizationName}</p>
                 <p className="mt-1 text-sm text-slate-600">
-                  {item.contactName} ·{' '}
-                  <a
-                    className="font-semibold text-sky-700 underline underline-offset-2"
-                    href={`mailto:${item.workEmail}`}
-                  >
-                    {item.workEmail}
-                  </a>
+                  {item.contactName} · <span className="font-semibold">{item.workEmail}</span>
                 </p>
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
@@ -181,6 +218,24 @@ export function PublicInterestInbox() {
               </p>
             ) : null}
             <div className="mt-5 flex flex-wrap gap-2">
+              {!item.prospectConversion && item.status !== 'ARCHIVED' ? (
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => void createProspect(item)}
+                  className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busyId === item.id ? 'Working…' : 'Create prospect'}
+                </button>
+              ) : null}
+              {item.prospectConversion ? (
+                <Link
+                  href={`/admin/prospects/${item.prospectConversion.organizationId}`}
+                  className="rounded-xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800"
+                >
+                  View {item.prospectConversion.organization.canonicalName}
+                </Link>
+              ) : null}
               {item.status !== 'REVIEWED' ? (
                 <button
                   type="button"

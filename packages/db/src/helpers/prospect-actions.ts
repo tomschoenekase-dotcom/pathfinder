@@ -19,6 +19,7 @@ export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 export type ProspectActionClient = typeof db
+type ProspectTransactionClient = Parameters<Parameters<ProspectActionClient['$transaction']>[0]>[0]
 export type ProspectActionErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT' | 'UNSAFE_MERGE'
 
 export class ProspectActionError extends Error {
@@ -113,6 +114,14 @@ export async function createProspectAction(
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
+  return client.$transaction((tx) => createProspectInTransaction(input, tx))
+}
+
+async function createProspectInTransaction(
+  input: CreateProspectInput,
+  tx: ProspectTransactionClient,
+) {
+  requireActor(input.actor)
   const canonicalName = input.organization.canonicalName.trim()
   if (!canonicalName)
     throw new ProspectActionError('INVALID_INPUT', 'Organization name is required')
@@ -120,165 +129,342 @@ export async function createProspectAction(
   const normalizedDomain = normalizeProspectDomain(input.organization.website)
   const normalizedEmail = normalizeProspectEmail(input.contact?.email)
 
-  return client.$transaction(async (tx) => {
-    const matches = await tx.prospectOrganization.findMany({
-      where: {
-        archivedAt: null,
-        OR: [
-          { normalizedName },
-          ...(normalizedDomain ? [{ normalizedDomain }] : []),
-          ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
-        ],
-      },
-      select: { id: true, canonicalName: true, normalizedName: true, normalizedDomain: true },
-      take: 10,
-    })
-    if (matches.length) {
-      throw new ProspectActionError(
-        'CONFLICT',
-        'A possible matching prospect already exists; review duplicates before creating another.',
-      )
-    }
-    const now = new Date()
-    const organization = await tx.prospectOrganization.create({
-      data: {
-        canonicalName,
-        normalizedName,
-        aliases: input.organization.aliases ?? [],
-        website: input.organization.website ?? null,
-        normalizedDomain,
-        organizationType: input.organization.organizationType ?? null,
-        description: input.organization.description ?? null,
-        territoryId: input.organization.territoryId ?? null,
-        source: input.organization.source ?? null,
-        ownerId: input.organization.ownerId ?? null,
-        priority: input.organization.priority ?? 'NORMAL',
-        notes: input.organization.notes ?? null,
-        tags: input.organization.tags ?? [],
-        createdBy: input.actor.id,
-        updatedBy: input.actor.id,
-        opportunity: {
-          create: {
-            source: input.organization.source ?? null,
-            ownerId: input.organization.ownerId ?? null,
-            priority: input.organization.priority ?? 'NORMAL',
-            lastActivityAt: now,
-            createdBy: input.actor.id,
-            updatedBy: input.actor.id,
-            stageHistory: {
-              create: {
-                toStage: 'DISCOVERED',
-                reason: 'Prospect created',
-                actorId: input.actor.id,
-              },
+  const matches = await tx.prospectOrganization.findMany({
+    where: {
+      archivedAt: null,
+      OR: [
+        { normalizedName },
+        ...(normalizedDomain ? [{ normalizedDomain }] : []),
+        ...(normalizedEmail ? [{ contacts: { some: { normalizedEmail } } }] : []),
+      ],
+    },
+    select: { id: true, canonicalName: true, normalizedName: true, normalizedDomain: true },
+    take: 10,
+  })
+  if (matches.length) {
+    throw new ProspectActionError(
+      'CONFLICT',
+      'A possible matching prospect already exists; review duplicates before creating another.',
+    )
+  }
+  const now = new Date()
+  const organization = await tx.prospectOrganization.create({
+    data: {
+      canonicalName,
+      normalizedName,
+      aliases: input.organization.aliases ?? [],
+      website: input.organization.website ?? null,
+      normalizedDomain,
+      organizationType: input.organization.organizationType ?? null,
+      description: input.organization.description ?? null,
+      territoryId: input.organization.territoryId ?? null,
+      source: input.organization.source ?? null,
+      ownerId: input.organization.ownerId ?? null,
+      priority: input.organization.priority ?? 'NORMAL',
+      notes: input.organization.notes ?? null,
+      tags: input.organization.tags ?? [],
+      createdBy: input.actor.id,
+      updatedBy: input.actor.id,
+      opportunity: {
+        create: {
+          source: input.organization.source ?? null,
+          ownerId: input.organization.ownerId ?? null,
+          priority: input.organization.priority ?? 'NORMAL',
+          lastActivityAt: now,
+          createdBy: input.actor.id,
+          updatedBy: input.actor.id,
+          stageHistory: {
+            create: {
+              toStage: 'DISCOVERED',
+              reason: 'Prospect created',
+              actorId: input.actor.id,
             },
           },
         },
       },
-    })
-    const venue = input.venue
-      ? await tx.prospectVenue.create({
-          data: {
-            organizationId: organization.id,
-            territoryId: input.organization.territoryId ?? null,
-            name: input.venue.name.trim(),
-            normalizedName: normalizeProspectName(input.venue.name),
-            website: input.venue.website ?? null,
-            normalizedDomain: normalizeProspectDomain(input.venue.website),
-            venueType: input.venue.venueType ?? null,
-            city: input.venue.city ?? null,
-            region: input.venue.region ?? null,
-            country: input.venue.country ?? null,
-            notes: input.venue.notes ?? null,
-            lastActivityAt: now,
-            createdBy: input.actor.id,
-            updatedBy: input.actor.id,
-          },
-        })
-      : null
-    for (const rawTag of input.organization.tags ?? []) {
-      const label = rawTag.trim()
-      if (!label) continue
-      const slug = normalizeProspectName(label).replace(/\s+/gu, '-').slice(0, 100)
-      const tag = await tx.prospectTag.upsert({
-        where: { slug },
-        create: {
-          label,
-          slug,
+    },
+  })
+  const venue = input.venue
+    ? await tx.prospectVenue.create({
+        data: {
+          organizationId: organization.id,
+          territoryId: input.organization.territoryId ?? null,
+          name: input.venue.name.trim(),
+          normalizedName: normalizeProspectName(input.venue.name),
+          website: input.venue.website ?? null,
+          normalizedDomain: normalizeProspectDomain(input.venue.website),
+          venueType: input.venue.venueType ?? null,
+          city: input.venue.city ?? null,
+          region: input.venue.region ?? null,
+          country: input.venue.country ?? null,
+          notes: input.venue.notes ?? null,
+          lastActivityAt: now,
           createdBy: input.actor.id,
           updatedBy: input.actor.id,
         },
-        update: { label, updatedBy: input.actor.id },
       })
-      await tx.prospectOrganizationTag.upsert({
-        where: { organizationId_tagId: { organizationId: organization.id, tagId: tag.id } },
-        create: { organizationId: organization.id, tagId: tag.id, addedBy: input.actor.id },
-        update: {},
-      })
-    }
-    const contact = input.contact
-      ? await tx.prospectContact.create({
-          data: {
-            organizationId: organization.id,
-            venueId: venue?.id ?? null,
-            fullName: input.contact.fullName ?? null,
-            title: input.contact.title ?? null,
-            email: input.contact.email ?? null,
-            normalizedEmail,
-            phone: input.contact.phone ?? null,
-            source: input.contact.source ?? null,
-            doNotContact: input.contact.doNotContact ?? false,
-            emailReadiness: normalizedEmail ? 'REVIEW_REQUIRED' : 'UNKNOWN',
-            permissionState: input.contact.doNotContact ? 'PROHIBITED' : 'REVIEW_REQUIRED',
-            suppressedAt: input.contact.doNotContact ? now : null,
-            suppressionReason: input.contact.doNotContact
-              ? 'Marked do-not-contact at creation'
-              : null,
-            notes: input.contact.notes ?? null,
-            createdBy: input.actor.id,
-            updatedBy: input.actor.id,
-          },
-        })
-      : null
-    if (contact?.doNotContact) {
-      await tx.prospectContactSuppressionEvent.create({
+    : null
+  for (const rawTag of input.organization.tags ?? []) {
+    const label = rawTag.trim()
+    if (!label) continue
+    const slug = normalizeProspectName(label).replace(/\s+/gu, '-').slice(0, 100)
+    const tag = await tx.prospectTag.upsert({
+      where: { slug },
+      create: {
+        label,
+        slug,
+        createdBy: input.actor.id,
+        updatedBy: input.actor.id,
+      },
+      update: { label, updatedBy: input.actor.id },
+    })
+    await tx.prospectOrganizationTag.upsert({
+      where: { organizationId_tagId: { organizationId: organization.id, tagId: tag.id } },
+      create: { organizationId: organization.id, tagId: tag.id, addedBy: input.actor.id },
+      update: {},
+    })
+  }
+  const contact = input.contact
+    ? await tx.prospectContact.create({
         data: {
-          contactId: contact.id,
-          eventType: 'SUPPRESSED',
-          source: 'HUMAN',
-          reasonCode: 'DO_NOT_CONTACT_AT_CREATION',
-          reason: 'Marked do-not-contact when the contact was created',
-          actorType: 'HUMAN',
-          actorId: input.actor.id,
-          occurredAt: now,
+          organizationId: organization.id,
+          venueId: venue?.id ?? null,
+          fullName: input.contact.fullName ?? null,
+          title: input.contact.title ?? null,
+          email: input.contact.email ?? null,
+          normalizedEmail,
+          phone: input.contact.phone ?? null,
+          source: input.contact.source ?? null,
+          doNotContact: input.contact.doNotContact ?? false,
+          emailReadiness: normalizedEmail ? 'REVIEW_REQUIRED' : 'UNKNOWN',
+          permissionState: input.contact.doNotContact ? 'PROHIBITED' : 'REVIEW_REQUIRED',
+          suppressedAt: input.contact.doNotContact ? now : null,
+          suppressionReason: input.contact.doNotContact
+            ? 'Marked do-not-contact at creation'
+            : null,
+          notes: input.contact.notes ?? null,
+          createdBy: input.actor.id,
+          updatedBy: input.actor.id,
         },
       })
-    }
-    await tx.prospectActivity.create({
+    : null
+  if (contact?.doNotContact) {
+    await tx.prospectContactSuppressionEvent.create({
       data: {
-        organizationId: organization.id,
-        venueId: venue?.id ?? null,
-        contactId: contact?.id ?? null,
-        type: 'DISCOVERED',
-        summary: 'Prospect created',
-        evidence: { source: input.organization.source ?? 'manual' },
+        contactId: contact.id,
+        eventType: 'SUPPRESSED',
+        source: 'HUMAN',
+        reasonCode: 'DO_NOT_CONTACT_AT_CREATION',
+        reason: 'Marked do-not-contact when the contact was created',
+        actorType: 'HUMAN',
         actorId: input.actor.id,
         occurredAt: now,
       },
     })
-    await writeAuditLogStrict(
-      {
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
-        action: 'admin.prospect.created',
-        targetType: 'ProspectOrganization',
-        targetId: organization.id,
-        afterState: { organizationId: organization.id, venueId: venue?.id, contactId: contact?.id },
-      },
-      tx,
-    )
-    return { organization, venue, contact }
+  }
+  await tx.prospectActivity.create({
+    data: {
+      organizationId: organization.id,
+      venueId: venue?.id ?? null,
+      contactId: contact?.id ?? null,
+      type: 'DISCOVERED',
+      summary: 'Prospect created',
+      evidence: { source: input.organization.source ?? 'manual' },
+      actorId: input.actor.id,
+      occurredAt: now,
+    },
   })
+  await writeAuditLogStrict(
+    {
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+      action: 'admin.prospect.created',
+      targetType: 'ProspectOrganization',
+      targetId: organization.id,
+      afterState: { organizationId: organization.id, venueId: venue?.id, contactId: contact?.id },
+    },
+    tx,
+  )
+  return { organization, venue, contact }
+}
+
+export type ConvertPublicInterestToProspectInput = {
+  operationId: string
+  submissionId: string
+  reason?: string | undefined
+  actor: ProspectActor
+}
+
+function publicInterestConversionHash(input: ConvertPublicInterestToProspectInput): string {
+  return prospectSha256({
+    submissionId: input.submissionId,
+    reason: input.reason?.trim() || null,
+  })
+}
+
+export async function convertPublicInterestToProspectAction(
+  input: ConvertPublicInterestToProspectInput,
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  if (!input.operationId.trim() || !input.submissionId.trim()) {
+    throw new ProspectActionError('INVALID_INPUT', 'Operation and submission ids are required')
+  }
+  const operationHash = publicInterestConversionHash(input)
+
+  const run = () =>
+    client.$transaction(async (tx) => {
+      const replay = await tx.publicInterestProspectConversion.findUnique({
+        where: { operationId: input.operationId },
+        include: { organization: true, venue: true, contact: true },
+      })
+      if (replay) {
+        if (replay.operationHash !== operationHash) {
+          throw new ProspectActionError('CONFLICT', 'Operation id was already used')
+        }
+        return {
+          organization: replay.organization,
+          venue: replay.venue,
+          contact: replay.contact,
+          conversion: replay,
+          replayed: true,
+        }
+      }
+
+      const submission = await tx.publicInterestSubmission.findUnique({
+        where: { id: input.submissionId },
+        include: { prospectConversion: true },
+      })
+      if (!submission) throw new ProspectActionError('NOT_FOUND', 'Submission not found')
+      if (submission.status === 'ARCHIVED') {
+        throw new ProspectActionError('CONFLICT', 'Archived submissions must be reopened first')
+      }
+      if (submission.prospectConversion) {
+        throw new ProspectActionError(
+          'CONFLICT',
+          'This submission has already been converted to a prospect',
+        )
+      }
+
+      const created = await createProspectInTransaction(
+        {
+          organization: {
+            canonicalName: submission.organizationName,
+            ...(submission.website ? { website: submission.website } : {}),
+            ...(submission.venueType ? { organizationType: submission.venueType } : {}),
+            source: 'public-interest',
+          },
+          venue: {
+            name: submission.organizationName,
+            ...(submission.website ? { website: submission.website } : {}),
+            ...(submission.venueType ? { venueType: submission.venueType } : {}),
+          },
+          contact: {
+            fullName: submission.contactName,
+            email: submission.workEmail,
+            source: 'public-interest',
+          },
+          actor: input.actor,
+        },
+        tx,
+      )
+      if (!created.venue || !created.contact) {
+        throw new ProspectActionError(
+          'INVALID_INPUT',
+          'Prospect conversion requires a venue and contact',
+        )
+      }
+
+      await tx.prospectSourceEvidence.create({
+        data: {
+          organizationId: created.organization.id,
+          venueId: created.venue.id,
+          contactId: created.contact.id,
+          sourceType: 'PUBLIC_INTEREST_SUBMISSION',
+          sourceUrl: submission.sourcePath,
+          sourceLabel: 'Public interest request',
+          capturedValue: jsonValue({
+            submissionId: submission.id,
+            requestId: submission.requestId,
+            requestHash: submission.requestHash,
+            organizationName: submission.organizationName,
+            contactName: submission.contactName,
+            workEmail: submission.workEmail,
+            website: submission.website,
+            cityRegion: submission.cityRegion,
+            venueType: submission.venueType,
+            message: submission.message,
+            sourcePath: submission.sourcePath,
+            submittedAt: submission.createdAt.toISOString(),
+          }),
+          researchedAt: submission.createdAt,
+          createdBy: input.actor.id,
+        },
+      })
+
+      const conversion = await tx.publicInterestProspectConversion.create({
+        data: {
+          operationId: input.operationId,
+          operationHash,
+          submissionId: submission.id,
+          organizationId: created.organization.id,
+          venueId: created.venue.id,
+          contactId: created.contact.id,
+          convertedBy: input.actor.id,
+        },
+      })
+      await tx.publicInterestSubmission.update({
+        where: { id: submission.id },
+        data: { status: 'REVIEWED', reviewedAt: new Date(), reviewedBy: input.actor.id },
+      })
+      await writeAuditLogStrict(
+        {
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'admin.public-interest.converted-to-prospect',
+          targetType: 'PublicInterestSubmission',
+          targetId: submission.id,
+          afterState: {
+            operationId: input.operationId,
+            organizationId: created.organization.id,
+            venueId: created.venue.id,
+            contactId: created.contact.id,
+            reason: input.reason?.trim() || null,
+          },
+        },
+        tx,
+      )
+      return {
+        organization: created.organization,
+        venue: created.venue,
+        contact: created.contact,
+        conversion,
+        replayed: false,
+      }
+    })
+
+  try {
+    return await run()
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'P2002') throw error
+    const replay = await client.publicInterestProspectConversion.findUnique({
+      where: { operationId: input.operationId },
+      include: { organization: true, venue: true, contact: true },
+    })
+    if (replay && replay.operationHash === operationHash) {
+      return {
+        organization: replay.organization,
+        venue: replay.venue,
+        contact: replay.contact,
+        conversion: replay,
+        replayed: true,
+      }
+    }
+    throw new ProspectActionError(
+      'CONFLICT',
+      replay ? 'Operation id was already used' : 'This submission has already been converted',
+    )
+  }
 }
 
 export async function updateProspectPipelineAction(

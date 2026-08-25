@@ -5824,24 +5824,25 @@ enum PublicInterestReviewDecision {
 /// Immutable, provider-dark evidence submitted from the public marketing site.
 /// It never sends email or creates a canonical prospect automatically.
 model PublicInterestSubmission {
-  id               String                           @id @default(cuid())
-  requestId        String                           @unique @map("request_id") @db.Uuid
-  requestHash      String                           @map("request_hash") @db.Char(64)
-  organizationName String                           @map("organization_name") @db.VarChar(160)
-  contactName      String                           @map("contact_name") @db.VarChar(120)
-  workEmail        String                           @map("work_email") @db.VarChar(320)
-  normalizedEmail  String                           @map("normalized_email") @db.VarChar(320)
-  website          String?                          @db.VarChar(1000)
-  cityRegion       String?                          @map("city_region") @db.VarChar(200)
-  venueType        String?                          @map("venue_type") @db.VarChar(100)
-  message          String?                          @db.VarChar(2000)
-  sourcePath       String                           @default("/request-demo") @map("source_path") @db.VarChar(200)
-  status           PublicInterestSubmissionStatus   @default(NEW)
-  reviewedAt       DateTime?                        @map("reviewed_at")
-  reviewedBy       String?                          @map("reviewed_by") @db.VarChar(191)
-  createdAt        DateTime                         @default(now()) @map("created_at")
-  updatedAt        DateTime                         @updatedAt @map("updated_at")
-  reviews          PublicInterestSubmissionReview[]
+  id                 String                            @id @default(cuid())
+  requestId          String                            @unique @map("request_id") @db.Uuid
+  requestHash        String                            @map("request_hash") @db.Char(64)
+  organizationName   String                            @map("organization_name") @db.VarChar(160)
+  contactName        String                            @map("contact_name") @db.VarChar(120)
+  workEmail          String                            @map("work_email") @db.VarChar(320)
+  normalizedEmail    String                            @map("normalized_email") @db.VarChar(320)
+  website            String?                           @db.VarChar(1000)
+  cityRegion         String?                           @map("city_region") @db.VarChar(200)
+  venueType          String?                           @map("venue_type") @db.VarChar(100)
+  message            String?                           @db.VarChar(2000)
+  sourcePath         String                            @default("/request-demo") @map("source_path") @db.VarChar(200)
+  status             PublicInterestSubmissionStatus    @default(NEW)
+  reviewedAt         DateTime?                         @map("reviewed_at")
+  reviewedBy         String?                           @map("reviewed_by") @db.VarChar(191)
+  createdAt          DateTime                          @default(now()) @map("created_at")
+  updatedAt          DateTime                          @updatedAt @map("updated_at")
+  reviews            PublicInterestSubmissionReview[]
+  prospectConversion PublicInterestProspectConversion?
 
   @@index([status, createdAt, id], map: "public_interest_submissions_status_created_idx")
   @@index([normalizedEmail, createdAt], map: "public_interest_submissions_email_created_idx")
@@ -5863,6 +5864,26 @@ model PublicInterestSubmissionReview {
 
   @@index([submissionId, createdAt, id], map: "public_interest_reviews_submission_created_idx")
   @@map("public_interest_submission_reviews")
+}
+
+/// Append-only evidence that a human platform administrator promoted one
+/// provider-dark inbound request into the canonical prospect CRM.
+model PublicInterestProspectConversion {
+  id             String                   @id @default(cuid())
+  operationId    String                   @unique @map("operation_id") @db.Uuid
+  operationHash  String                   @map("operation_hash") @db.Char(64)
+  submissionId   String                   @unique @map("submission_id")
+  organizationId String                   @unique @map("organization_id")
+  venueId        String                   @unique @map("venue_id")
+  contactId      String                   @unique @map("contact_id")
+  convertedBy    String                   @map("converted_by") @db.VarChar(191)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  submission     PublicInterestSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          ProspectVenue            @relation(fields: [venueId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  contact        ProspectContact          @relation(fields: [contactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("public_interest_prospect_conversions")
 }
 
 /// Platform-owned sales territory. Prospects remain outside tenant scope until conversion.
@@ -6026,41 +6047,41 @@ model ProspectDeliveryControl {
 }
 
 model ProspectOrganization {
-  id                    String                         @id @default(cuid())
-  canonicalName         String                         @map("canonical_name")
-  normalizedName        String                         @map("normalized_name")
-  aliases               Json                           @default("[]")
+  id                    String                            @id @default(cuid())
+  canonicalName         String                            @map("canonical_name")
+  normalizedName        String                            @map("normalized_name")
+  aliases               Json                              @default("[]")
   website               String?
-  normalizedDomain      String?                        @map("normalized_domain")
-  organizationType      String?                        @map("organization_type")
+  normalizedDomain      String?                           @map("normalized_domain")
+  organizationType      String?                           @map("organization_type")
   description           String?
-  headquartersCity      String?                        @map("headquarters_city")
-  headquartersRegion    String?                        @map("headquarters_region")
-  headquartersCountry   String?                        @map("headquarters_country")
-  territoryId           String?                        @map("territory_id")
+  headquartersCity      String?                           @map("headquarters_city")
+  headquartersRegion    String?                           @map("headquarters_region")
+  headquartersCountry   String?                           @map("headquarters_country")
+  territoryId           String?                           @map("territory_id")
   source                String?
-  researchProvenance    Json                           @default("[]") @map("research_provenance")
+  researchProvenance    Json                              @default("[]") @map("research_provenance")
   /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
-  ownerId               String?                        @map("owner_id")
+  ownerId               String?                           @map("owner_id")
   /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
-  priority              ProspectPriority               @default(NORMAL)
-  relationshipTier      ProspectRelationshipTier       @default(STANDARD) @map("relationship_tier")
+  priority              ProspectPriority                  @default(NORMAL)
+  relationshipTier      ProspectRelationshipTier          @default(STANDARD) @map("relationship_tier")
   notes                 String?
   /// Deprecated compatibility projection. Normalized ProspectTag associations are canonical.
-  tags                  Json                           @default("[]")
-  archivedAt            DateTime?                      @map("archived_at")
-  createdBy             String                         @map("created_by")
-  updatedBy             String                         @map("updated_by")
-  createdAt             DateTime                       @default(now()) @map("created_at")
-  updatedAt             DateTime                       @updatedAt @map("updated_at")
-  territory             ProspectTerritory?             @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  tags                  Json                              @default("[]")
+  archivedAt            DateTime?                         @map("archived_at")
+  createdBy             String                            @map("created_by")
+  updatedBy             String                            @map("updated_by")
+  createdAt             DateTime                          @default(now()) @map("created_at")
+  updatedAt             DateTime                          @updatedAt @map("updated_at")
+  territory             ProspectTerritory?                @relation(fields: [territoryId], references: [id], onDelete: Restrict)
   venues                ProspectVenue[]
   contacts              ProspectContact[]
   opportunity           ProspectOpportunity?
   activities            ProspectActivity[]
   sources               ProspectSourceEvidence[]
-  duplicateCandidatesA  ProspectDuplicateCandidate[]   @relation("prospect_duplicate_a")
-  duplicateCandidatesB  ProspectDuplicateCandidate[]   @relation("prospect_duplicate_b")
+  duplicateCandidatesA  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_a")
+  duplicateCandidatesB  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_b")
   conversion            ProspectConversion?
   customerRelationships ProspectCustomerRelationship[]
   tagAssignments        ProspectOrganizationTag[]
@@ -6077,6 +6098,7 @@ model ProspectOrganization {
   commitments           AccountCommitment[]
   summaries             AccountSummary[]
   researchJob           ProspectResearchJob?
+  interestConversion    PublicInterestProspectConversion?
 
   @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
@@ -6138,49 +6160,50 @@ model ProspectResearchAttempt {
 }
 
 model ProspectVenue {
-  id                  String                       @id @default(cuid())
-  organizationId      String                       @map("organization_id")
-  territoryId         String?                      @map("territory_id")
+  id                  String                            @id @default(cuid())
+  organizationId      String                            @map("organization_id")
+  territoryId         String?                           @map("territory_id")
   name                String
-  normalizedName      String                       @map("normalized_name")
+  normalizedName      String                            @map("normalized_name")
   website             String?
-  normalizedDomain    String?                      @map("normalized_domain")
-  venueType           String?                      @map("venue_type")
-  addressLine1        String?                      @map("address_line_1")
-  addressLine2        String?                      @map("address_line_2")
+  normalizedDomain    String?                           @map("normalized_domain")
+  venueType           String?                           @map("venue_type")
+  addressLine1        String?                           @map("address_line_1")
+  addressLine2        String?                           @map("address_line_2")
   city                String?
   region              String?
-  postalCode          String?                      @map("postal_code")
+  postalCode          String?                           @map("postal_code")
   country             String?
-  estimatedSize       String?                      @map("estimated_size")
-  fitAttributes       Json                         @default("{}") @map("fit_attributes")
-  visitorOperations   Json                         @default("{}") @map("visitor_operations")
+  estimatedSize       String?                           @map("estimated_size")
+  fitAttributes       Json                              @default("{}") @map("fit_attributes")
+  visitorOperations   Json                              @default("{}") @map("visitor_operations")
   notes               String?
-  researchSources     Json                         @default("[]") @map("research_sources")
+  researchSources     Json                              @default("[]") @map("research_sources")
   /// Deprecated compatibility projections. ProspectOpportunity is the sole writer.
-  stage               ProspectStage                @default(DISCOVERED)
-  priority            ProspectPriority             @default(NORMAL)
-  nextAction          String?                      @map("next_action")
-  nextActionAt        DateTime?                    @map("next_action_at")
-  lastActivityAt      DateTime?                    @map("last_activity_at")
-  archivedAt          DateTime?                    @map("archived_at")
-  sourceImportRowId   String?                      @map("source_import_row_id")
-  createdBy           String                       @map("created_by")
-  updatedBy           String                       @map("updated_by")
-  createdAt           DateTime                     @default(now()) @map("created_at")
-  updatedAt           DateTime                     @updatedAt @map("updated_at")
-  organization        ProspectOrganization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  territory           ProspectTerritory?           @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  stage               ProspectStage                     @default(DISCOVERED)
+  priority            ProspectPriority                  @default(NORMAL)
+  nextAction          String?                           @map("next_action")
+  nextActionAt        DateTime?                         @map("next_action_at")
+  lastActivityAt      DateTime?                         @map("last_activity_at")
+  archivedAt          DateTime?                         @map("archived_at")
+  sourceImportRowId   String?                           @map("source_import_row_id")
+  createdBy           String                            @map("created_by")
+  updatedBy           String                            @map("updated_by")
+  createdAt           DateTime                          @default(now()) @map("created_at")
+  updatedAt           DateTime                          @updatedAt @map("updated_at")
+  organization        ProspectOrganization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  territory           ProspectTerritory?                @relation(fields: [territoryId], references: [id], onDelete: Restrict)
   contacts            ProspectContact[]
   activities          ProspectActivity[]
   sources             ProspectSourceEvidence[]
-  sourceImportRow     ProspectImportRow?           @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  sourceImportRow     ProspectImportRow?                @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
   conversion          ProspectConversion?
   locationConversions ProspectLocationConversion[]
   campaignMembers     ProspectCampaignMember[]
   outreachDrafts      ProspectOutreachDraft[]
   emailThreads        ProspectEmailThread[]
   emailMessages       ProspectEmailMessage[]
+  interestConversion  PublicInterestProspectConversion?
 
   @@index([organizationId, archivedAt])
   @@index([normalizedName])
@@ -6231,6 +6254,7 @@ model ProspectContact {
   emailMessages          ProspectEmailMessage[]
   suppressionEvents      ProspectContactSuppressionEvent[]
   meetingParticipants    CompanyMeetingParticipant[]
+  interestConversion     PublicInterestProspectConversion?
 
   @@index([organizationId, archivedAt])
   @@index([venueId, archivedAt])

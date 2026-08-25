@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden|improvement|costs|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|suppdone|suppkg|approvalpolicy|convergence|guestread|agentbridge)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_completion|support_package_draft|agent_approval_policy|content_convergence|native_guest_read|agent_bridge)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -760,6 +760,46 @@ export async function runDisposableOperatingCostShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_OPERATING_COST_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposablePublicInterestConversionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'publicinterest',
+      databasePrefix: 'pathfinder_disposable_public_interest_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_PUBLIC_INTEREST_SHAKEDOWN',
+      lifecycleEvent: 'test:public-interest-conversion:disposable',
+      successAction: 'public-interest.reviewed-prospect-conversion.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'provider-dark-public-intake',
+        'human-platform-admin-conversion',
+        'canonical-crm-action-reuse',
+        'idempotent-replay',
+        'duplicate-fail-closed',
+        'append-only-conversion-evidence',
+        'source-provenance-snapshot',
+        'no-communication-price-customer-onboarding-or-billing-effect',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/public-interest-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          PATHFINDER_PUBLIC_INTEREST_DISPOSABLE: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

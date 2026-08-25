@@ -38,6 +38,7 @@ const expectedAdminProcedures = [
   'completeSupportRequest',
   'configureProspectImportMapping',
   'confirmFreshnessCurrent',
+  'convertPublicInterestSubmissionToProspect',
   'createAgentTask',
   'createAndLinkIntakeCandidateDraft',
   'createAndLinkSupportReviewedVenuePackageDraft',

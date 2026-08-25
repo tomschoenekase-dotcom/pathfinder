@@ -167,7 +167,9 @@ const approvedCallCounts = new Map([
   // Public-interest records are platform-owned ingress evidence rather than tenant data.
   // The human-only inbox performs one bounded list and one append-only review transaction;
   // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
-  ['packages/api/src/routers/admin/public-interest.ts', 2],
+  // Provider-dark intake has bounded list/review plus an explicit human-admin-only
+  // conversion through the canonical CRM action. None sends, prices, or creates customer state.
+  ['packages/api/src/routers/admin/public-interest.ts', 3],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],

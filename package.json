@@ -16,6 +16,7 @@
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
     "test:operating-cost:disposable": "node scripts/run-disposable-operating-cost.mjs",
+    "test:public-interest-conversion:disposable": "node scripts/run-disposable-public-interest-conversion.mjs",
     "test:guest-answer-attribution:disposable": "node scripts/run-disposable-guest-answer-attribution.mjs",
     "test:retention-disposition-preview:disposable": "node scripts/run-disposable-retention-disposition-preview.mjs",
     "test:support-triage-proposal:disposable": "node scripts/run-disposable-support-triage-proposal.mjs",

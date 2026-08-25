@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   submissionFind: vi.fn(),
   reviewCreate: vi.fn(),
   update: vi.fn(),
+  convert: vi.fn(),
   transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
     operation({
       publicInterestSubmissionReview: { findUnique: mocks.reviewFind, create: mocks.reviewCreate },
@@ -19,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
+  convertPublicInterestToProspectAction: mocks.convert,
+  ProspectActionError: class ProspectActionError extends Error {},
   db: {
     publicInterestSubmission: { findMany: mocks.findMany, groupBy: mocks.groupBy },
     $transaction: mocks.transaction,
@@ -50,6 +53,11 @@ describe('admin public interest review', () => {
     mocks.submissionFind.mockResolvedValue({ id: 'clw1234567890abcdefghijk', status: 'NEW' })
     mocks.reviewCreate.mockResolvedValue({ id: 'review-1' })
     mocks.update.mockResolvedValue({ id: 'clw1234567890abcdefghijk', status: 'REVIEWED' })
+    mocks.convert.mockResolvedValue({
+      organization: { id: 'prospect-1' },
+      conversion: { id: 'conversion-1' },
+      replayed: false,
+    })
   })
 
   it('rejects non-admin access before entering the platform bypass', async () => {
@@ -64,12 +72,26 @@ describe('admin public interest review', () => {
       items: [],
       counts: { NEW: 2 },
       policy: {
-        createsCanonicalProspect: false,
+        automaticProspectCreation: false,
+        reviewedHumanConversionAvailable: true,
         sendsCommunication: false,
         pricingAuthorityGranted: false,
       },
     })
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 25 }))
+  })
+
+  it('delegates explicit human conversion to the canonical CRM action', async () => {
+    const input = {
+      operationId: '22222222-2222-4222-8222-222222222222',
+      submissionId: 'clw1234567890abcdefghijk',
+      reason: 'Reviewed for canonical CRM creation.',
+    }
+    await caller().convertPublicInterestSubmissionToProspect(input)
+    expect(mocks.convert).toHaveBeenCalledWith({
+      ...input,
+      actor: { type: 'HUMAN', id: 'founder-1', role: 'PLATFORM_ADMIN' },
+    })
   })
 
   it('records append-only human review evidence and updates the projection', async () => {

@@ -274,6 +274,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectInboundQuarantine',
       'PublicInterestSubmission',
       'PublicInterestSubmissionReview',
+      'PublicInterestProspectConversion',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual([
       'AuditLog',

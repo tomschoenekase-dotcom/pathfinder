@@ -153,6 +153,7 @@ export {
   reserveProspectImportUploadAction,
   configureProspectImportMappingAction,
   commitProspectImportBatchAction,
+  convertPublicInterestToProspectAction,
   createProspectAction,
   linkProspectConversionAction,
   PROSPECT_IMPORT_BATCH_MAX,
@@ -170,6 +171,7 @@ export {
 } from './helpers/prospect-email-attachment-retention-actions'
 export type {
   CreateProspectInput,
+  ConvertPublicInterestToProspectInput,
   ProspectActionClient,
   ProspectActionErrorCode,
   ProspectActor,

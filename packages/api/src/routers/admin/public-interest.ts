@@ -2,10 +2,15 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  convertPublicInterestToProspectAction,
+  db,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { mapProspectActionError, prospectActor } from './prospect-crm-common'
 
 const status = z.enum(['NEW', 'REVIEWED', 'ARCHIVED'])
 const decision = z.enum(['MARK_REVIEWED', 'ARCHIVE', 'REOPEN'])
@@ -63,6 +68,14 @@ export const adminPublicInterestRouter = router({
                   createdAt: true,
                 },
               },
+              prospectConversion: {
+                select: {
+                  organizationId: true,
+                  organization: { select: { canonicalName: true } },
+                  createdAt: true,
+                  convertedBy: true,
+                },
+              },
             },
           }),
           db.publicInterestSubmission.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -71,12 +84,32 @@ export const adminPublicInterestRouter = router({
           items,
           counts: Object.fromEntries(grouped.map((row) => [row.status, row._count._all])),
           policy: {
-            createsCanonicalProspect: false,
+            automaticProspectCreation: false,
+            reviewedHumanConversionAvailable: true,
             sendsCommunication: false,
             pricingAuthorityGranted: false,
           },
         }
       }),
+    ),
+
+  convertPublicInterestSubmissionToProspect: adminProcedure
+    .input(
+      z
+        .object({
+          operationId: z.string().uuid(),
+          submissionId: z.string().cuid(),
+          reason: z.string().trim().min(3).max(1000).optional(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        convertPublicInterestToProspectAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapProspectActionError),
+      ),
     ),
 
   reviewPublicInterestSubmission: adminProcedure

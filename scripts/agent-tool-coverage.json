@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 420,
-    "sha256": "26983f0461826b4e27d39f8115b85a204026a3c5dcd1d24aad5d3e504290a1ed",
+    "count": 421,
+    "sha256": "9ab9df4131c78b6991e97530d186525dc2f04884085821c941b727ac8383b7a2",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "26983f0461826b4e27d39f8115b85a204026a3c5dcd1d24aad5d3e504290a1ed",
-      "sha256": "760f58d4efd29871dbab5dbbd072722f9287f24329b582bc4ebe246f23241cad"
+      "operationInventorySha256": "9ab9df4131c78b6991e97530d186525dc2f04884085821c941b727ac8383b7a2",
+      "sha256": "0b6c31724e37fb490f4d6b06abbf9c14a6d7c5e0e4f3522c45e5ec077a9f382f"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -592,8 +592,8 @@
       "pattern": "PublicInterest",
       "agentCoverage": "restricted",
       "developerCoverage": "full",
-      "decision": "The public mutation is bounded external human ingress. Submission review contains contact data and remains platform-admin-only until a separately authenticated, least-privilege worker capability is reviewed; neither path sends communication, creates canonical CRM truth, or establishes pricing.",
-      "evidence": "packages/api/src/routers/public-interest.test.ts"
+      "decision": "The public mutation is bounded external human ingress. Review and explicit canonical CRM conversion remain human-platform-admin-only; conversion reuses the canonical prospect action, records immutable provenance, and cannot send, price, create customer state, onboard, or bill.",
+      "evidence": "packages/api/src/public-interest-disposable.integration.test.ts"
     },
     {
       "id": "company-brain",
