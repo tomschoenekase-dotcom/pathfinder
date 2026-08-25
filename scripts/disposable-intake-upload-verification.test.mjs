@@ -401,9 +401,11 @@ test('runs operations readiness against the exact fresh migration lineage', asyn
     ({ command, args }) => command === process.execPath && args.includes('vitest'),
   )
   assert.ok(integrationCall)
-  assert.ok(integrationCall.args.includes('packages/db'))
+  assert.ok(integrationCall.args.includes('apps/workers'))
   assert.ok(
-    integrationCall.args.includes('src/helpers/operational-health.disposable.integration.test.ts'),
+    integrationCall.args.includes(
+      'src/service-dependency-readiness.disposable.integration.test.ts',
+    ),
   )
   assert.equal(runtime.childEnvironments[0].RUN_OPERATIONS_READINESS_DB_INTEGRATION, '1')
   assert.equal(runtime.childEnvironments[0].ANTHROPIC_API_KEY, undefined)
@@ -414,7 +416,8 @@ test('runs operations readiness against the exact fresh migration lineage', asyn
   )
   assert.match(stdout.value, /"fresh-182-migration-chain"/u)
   assert.match(stdout.value, /"exact-latest-migration-parity"/u)
-  assert.match(stdout.value, /"missing-external-evidence-remains-not-observed"/u)
+  assert.match(stdout.value, /"fresh-read-only-object-storage-probe"/u)
+  assert.match(stdout.value, /"fresh-read-only-malware-scanner-probe"/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.running.size, 0)
 })

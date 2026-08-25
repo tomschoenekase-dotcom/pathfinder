@@ -8,7 +8,7 @@ import { OperationsReadinessSummary } from './OperationsReadinessSummary'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const readiness = {
-  schemaVersion: 'pathfinder.operations-readiness.v3',
+  schemaVersion: 'pathfinder.operations-readiness.v4',
   status: 'degraded',
   requirements: {
     databaseConnected: true,
@@ -20,12 +20,22 @@ const readiness = {
     allQueuesObserved: true,
     noQueuesPaused: false,
     noStuckCriticalJobs: false,
+    intakeVerificationEnabled: true,
+    objectStorageConnected: true,
+    malwareScannerConnected: true,
   },
   probes: { database: 'up', redis: 'up' },
   observedAt: new Date('2026-08-24T04:00:00.000Z'),
   migration: { parity: true },
   worker: { revision: 'revision-1' },
   scheduler: { status: 'reported-with-worker-heartbeat' },
+  serviceDependencies: {
+    state: 'FRESH',
+    fresh: true,
+    intakeVerificationRequired: true,
+    objectStorage: 'up',
+    malwareScanner: 'up',
+  },
   objectStorage: { status: 'not-observed' },
   malwareScanning: null,
   aiProviderOutcomes: [],
@@ -49,7 +59,8 @@ describe('operations readiness summary', () => {
     )
     expect(screen.getByText('Paused queues').parentElement?.textContent).toContain('1')
     expect(screen.getByText('Long-running jobs').parentElement?.textContent).toContain('2')
-    expect(screen.getByText(/does not prove provider execution/i)).toBeTruthy()
+    expect(screen.getByText('Object storage').parentElement?.textContent).toContain('Ready')
+    expect(screen.getByText(/does not prove AI-provider execution/i)).toBeTruthy()
   })
 
   it('has no automated accessibility violations', async () => {

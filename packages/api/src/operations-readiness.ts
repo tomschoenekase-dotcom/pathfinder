@@ -51,6 +51,7 @@ export function projectOperationsReadiness(input: {
   const { queue: persistedQueue, ...persisted } = input.persisted
   const liveQueueComplete =
     input.liveQueue.status === 'observed' && input.liveQueue.value.coverage.complete
+  const dependencyEvidenceFresh = persisted.serviceDependencies.fresh
   const requirements = {
     databaseConnected: input.database === 'up',
     redisConnected: input.redis === 'up',
@@ -64,9 +65,15 @@ export function projectOperationsReadiness(input: {
       input.liveQueue.value.coverage.complete &&
       input.liveQueue.value.pausedQueues === 0,
     noStuckCriticalJobs: persisted.stuckCriticalJobs === 0,
+    intakeVerificationEnabled:
+      dependencyEvidenceFresh && persisted.serviceDependencies.intakeVerificationRequired === true,
+    objectStorageConnected:
+      dependencyEvidenceFresh && persisted.serviceDependencies.objectStorage === 'up',
+    malwareScannerConnected:
+      dependencyEvidenceFresh && persisted.serviceDependencies.malwareScanner === 'up',
   }
   return {
-    schemaVersion: 'pathfinder.operations-readiness.v3',
+    schemaVersion: 'pathfinder.operations-readiness.v4',
     status: Object.values(requirements).every(Boolean) ? ('ready' as const) : ('degraded' as const),
     requirements,
     probes: { database: input.database, redis: input.redis },
@@ -93,8 +100,8 @@ export function projectOperationsReadiness(input: {
       payloadOrFailureDetailIncluded: false,
       retainedFailedCountIsCurrentIncident: false,
       providerExecutionProven: false,
-      objectStorageConnectivityProven: false,
-      malwareScannerConnectivityProven: false,
+      objectStorageConnectivityProven: requirements.objectStorageConnected,
+      malwareScannerConnectivityProven: requirements.malwareScannerConnected,
       emailDeliveryProven: false,
       retryAuthorized: false,
       cancellationAuthorized: false,

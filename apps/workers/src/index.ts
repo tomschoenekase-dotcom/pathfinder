@@ -2,7 +2,6 @@ import { Queue, Worker, type Job } from 'bullmq'
 
 import { env, logger } from '@pathfinder/config'
 import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
-import { recordWorkerHeartbeat } from '@pathfinder/db'
 import {
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
@@ -140,6 +139,7 @@ import {
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { recordOperationalReadinessHeartbeat } from './lib/service-dependency-readiness'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   createEscalatingShutdownHandler,
@@ -163,17 +163,21 @@ async function handleAccountSummaryRefreshQueueJob(job: Job<Record<string, never
 }
 
 async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-disabled') {
-  const write = () =>
-    recordWorkerHeartbeat({
-      mode,
-      schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
-      revision: resolveReleaseRevision(process.env),
-    }).catch((error: unknown) => {
+  const write = async () => {
+    try {
+      await recordOperationalReadinessHeartbeat({
+        mode,
+        schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
+        revision: resolveReleaseRevision(process.env),
+        environment: env,
+      })
+    } catch (error: unknown) {
       logger.error({
         action: 'workers.heartbeat.failed',
         error: error instanceof Error ? error.message : 'Unknown worker heartbeat error',
       })
-    })
+    }
+  }
   await write()
   const timer = setInterval(() => void write(), 30_000)
   timer.unref()

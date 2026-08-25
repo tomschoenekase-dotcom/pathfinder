@@ -47,12 +47,17 @@ export {
 export {
   EXPECTED_LATEST_MIGRATION,
   OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+  SERVICE_DEPENDENCY_FRESHNESS_MS,
+  SERVICE_DEPENDENCY_OBSERVATION_KEY,
   WORKER_HEARTBEAT_FRESHNESS_MS,
   WORKER_HEARTBEAT_KEY,
+  projectServiceDependencyObservation,
   projectWorkerHeartbeat,
   readAppliedMigrationStatus,
   readOperationalHealth,
+  recordServiceDependencyObservation,
   recordWorkerHeartbeat,
+  type ServiceDependencyStatus,
 } from './helpers/operational-health'
 
 export {

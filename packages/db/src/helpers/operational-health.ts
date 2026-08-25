@@ -3,9 +3,13 @@ import { db } from '../client'
 export const EXPECTED_LATEST_MIGRATION = '20260825006000_add_platform_release_evidence'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 export const WORKER_HEARTBEAT_FRESHNESS_MS = 90_000
+export const SERVICE_DEPENDENCY_OBSERVATION_KEY = 'operations.service-dependencies.v1'
+export const SERVICE_DEPENDENCY_FRESHNESS_MS = 90_000
 export const OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS = 15 * 60 * 1000
 
 type WorkerHeartbeatRecord = { value: unknown; updatedAt: Date } | null
+type ServiceDependencyRecord = { value: unknown; updatedAt: Date } | null
+export type ServiceDependencyStatus = 'up' | 'down' | 'unconfigured'
 
 /**
  * Secret-free, fail-closed projection shared by the administrator readiness route and bounded
@@ -107,6 +111,88 @@ export async function recordWorkerHeartbeat(input: {
   })
 }
 
+/**
+ * Projects only bounded, secret-free evidence written by the worker runtime. A service probe is
+ * useful only while it is fresh; old successes must never masquerade as current connectivity.
+ */
+export function projectServiceDependencyObservation(
+  record: ServiceDependencyRecord,
+  now = new Date(),
+) {
+  const unavailable = (state: 'NOT_OBSERVED' | 'MALFORMED', updatedAt: Date | null) => ({
+    source: 'persisted-platform-config' as const,
+    state,
+    fresh: false,
+    staleAfterMs: SERVICE_DEPENDENCY_FRESHNESS_MS,
+    observedAt: null,
+    ageMs: null,
+    intakeVerificationRequired: null,
+    objectStorage: 'unconfigured' as ServiceDependencyStatus,
+    malwareScanner: 'unconfigured' as ServiceDependencyStatus,
+    updatedAt,
+  })
+  if (!record) return unavailable('NOT_OBSERVED', null)
+  const value = record.value
+  const validStatus = (candidate: unknown): candidate is ServiceDependencyStatus =>
+    candidate === 'up' || candidate === 'down' || candidate === 'unconfigured'
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('schemaVersion' in value) ||
+    value.schemaVersion !== 1 ||
+    !('observedAt' in value) ||
+    typeof value.observedAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.observedAt)) ||
+    !('intakeVerificationRequired' in value) ||
+    typeof value.intakeVerificationRequired !== 'boolean' ||
+    !('objectStorage' in value) ||
+    !validStatus(value.objectStorage) ||
+    !('malwareScanner' in value) ||
+    !validStatus(value.malwareScanner)
+  ) {
+    return unavailable('MALFORMED', record.updatedAt)
+  }
+  const observedAt = new Date(value.observedAt)
+  const ageMs = Math.max(0, now.getTime() - observedAt.getTime())
+  const fresh = ageMs <= SERVICE_DEPENDENCY_FRESHNESS_MS
+  return {
+    source: 'persisted-platform-config' as const,
+    state: fresh ? ('FRESH' as const) : ('STALE' as const),
+    fresh,
+    staleAfterMs: SERVICE_DEPENDENCY_FRESHNESS_MS,
+    observedAt,
+    ageMs,
+    intakeVerificationRequired: value.intakeVerificationRequired,
+    objectStorage: value.objectStorage,
+    malwareScanner: value.malwareScanner,
+    updatedAt: record.updatedAt,
+  }
+}
+
+export async function recordServiceDependencyObservation(input: {
+  intakeVerificationRequired: boolean
+  objectStorage: ServiceDependencyStatus
+  malwareScanner: ServiceDependencyStatus
+  now?: Date
+}) {
+  const value = {
+    schemaVersion: 1,
+    observedAt: (input.now ?? new Date()).toISOString(),
+    intakeVerificationRequired: input.intakeVerificationRequired,
+    objectStorage: input.objectStorage,
+    malwareScanner: input.malwareScanner,
+  }
+  return db.platformConfig.upsert({
+    where: { key: SERVICE_DEPENDENCY_OBSERVATION_KEY },
+    create: {
+      key: SERVICE_DEPENDENCY_OBSERVATION_KEY,
+      value,
+      updatedBy: 'worker-runtime',
+    },
+    update: { value, updatedBy: 'worker-runtime' },
+  })
+}
+
 export async function readAppliedMigrationStatus(client = db) {
   const rows = await client.$queryRaw<Array<{ migration_name: string; finished_at: Date }>>`
     SELECT migration_name, finished_at
@@ -128,38 +214,40 @@ export async function readAppliedMigrationStatus(client = db) {
 export async function readOperationalHealth(now = new Date()) {
   const recentWindow = new Date(now.getTime() - 60 * 60 * 1000)
   const staleJobCutoff = new Date(now.getTime() - OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS)
-  const [migration, worker, jobs, ai, embedding, email, malware] = await Promise.all([
-    readAppliedMigrationStatus(),
-    db.platformConfig.findUnique({ where: { key: WORKER_HEARTBEAT_KEY } }),
-    db.jobRecord.groupBy({
-      by: ['status'],
-      where: { createdAt: { gte: recentWindow } },
-      _count: { _all: true },
-      _min: { createdAt: true },
-    }),
-    db.aiUsageEvent.groupBy({
-      by: ['success'],
-      where: { createdAt: { gte: recentWindow } },
-      _count: { _all: true },
-      _max: { createdAt: true },
-    }),
-    db.embeddingWorkClaim.groupBy({
-      by: ['status'],
-      where: { createdAt: { gte: recentWindow } },
-      _count: { _all: true },
-      _max: { updatedAt: true },
-    }),
-    db.jobRecord.findFirst({
-      where: { queue: { contains: 'send-email' } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { status: true, completedAt: true, createdAt: true, failureDisposition: true },
-    }),
-    db.intakeUploadVerificationReceipt.findFirst({
-      where: { kind: 'MALWARE' },
-      orderBy: { recordedAt: 'desc' },
-      select: { verdict: true, engine: true, engineVersion: true, recordedAt: true },
-    }),
-  ])
+  const [migration, worker, serviceDependencies, jobs, ai, embedding, email, malware] =
+    await Promise.all([
+      readAppliedMigrationStatus(),
+      db.platformConfig.findUnique({ where: { key: WORKER_HEARTBEAT_KEY } }),
+      db.platformConfig.findUnique({ where: { key: SERVICE_DEPENDENCY_OBSERVATION_KEY } }),
+      db.jobRecord.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: recentWindow } },
+        _count: { _all: true },
+        _min: { createdAt: true },
+      }),
+      db.aiUsageEvent.groupBy({
+        by: ['success'],
+        where: { createdAt: { gte: recentWindow } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      db.embeddingWorkClaim.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: recentWindow } },
+        _count: { _all: true },
+        _max: { updatedAt: true },
+      }),
+      db.jobRecord.findFirst({
+        where: { queue: { contains: 'send-email' } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { status: true, completedAt: true, createdAt: true, failureDisposition: true },
+      }),
+      db.intakeUploadVerificationReceipt.findFirst({
+        where: { kind: 'MALWARE' },
+        orderBy: { recordedAt: 'desc' },
+        select: { verdict: true, engine: true, engineVersion: true, recordedAt: true },
+      }),
+    ])
   const stuckCriticalJobs = await db.jobRecord.count({
     where: { status: 'RUNNING', startedAt: { lt: staleJobCutoff } },
   })
@@ -167,6 +255,7 @@ export async function readOperationalHealth(now = new Date()) {
     observedAt: now,
     migration,
     worker: projectWorkerHeartbeat(worker, now),
+    serviceDependencies: projectServiceDependencyObservation(serviceDependencies, now),
     queue: { source: 'persisted-job-records', recentWindow, byStatus: jobs },
     scheduler: { status: 'reported-with-worker-heartbeat' },
     objectStorage: malware

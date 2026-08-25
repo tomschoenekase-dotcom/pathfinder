@@ -18,6 +18,13 @@ const persisted = {
   },
   queue: { source: 'persisted-job-records', recentWindow: new Date(), byStatus: [] },
   scheduler: { status: 'reported-with-worker-heartbeat' },
+  serviceDependencies: {
+    state: 'FRESH',
+    fresh: true,
+    intakeVerificationRequired: true,
+    objectStorage: 'up',
+    malwareScanner: 'up',
+  },
   objectStorage: { status: 'not-observed' },
   malwareScanning: null,
   aiProviderOutcomes: [],
@@ -46,7 +53,7 @@ describe('operations readiness projection', () => {
       liveQueue: { status: 'observed', value: queue },
     })
     expect(result).toMatchObject({
-      schemaVersion: 'pathfinder.operations-readiness.v3',
+      schemaVersion: 'pathfinder.operations-readiness.v4',
       status: 'ready',
       requirements: {
         databaseConnected: true,
@@ -58,6 +65,9 @@ describe('operations readiness projection', () => {
         allQueuesObserved: true,
         noQueuesPaused: true,
         noStuckCriticalJobs: true,
+        intakeVerificationEnabled: true,
+        objectStorageConnected: true,
+        malwareScannerConnected: true,
       },
       queue: {
         live: { status: 'observed', source: 'bullmq-redis', totalDepth: 2 },
@@ -67,6 +77,8 @@ describe('operations readiness projection', () => {
         liveQueueIsPlatformWide: true,
         tenantOrVenueQueueAttributionAvailable: false,
         retryAuthorized: false,
+        objectStorageConnectivityProven: true,
+        malwareScannerConnectivityProven: true,
       },
     })
   })
@@ -80,6 +92,31 @@ describe('operations readiness projection', () => {
     ['disabled schedulers', { worker: { ...persisted.worker, schedulersEnabled: false } }, queue],
     ['paused queues', {}, { ...queue, pausedQueues: 1 }],
     ['stuck critical work', { stuckCriticalJobs: 1 }, queue],
+    [
+      'stale service dependencies',
+      { serviceDependencies: { ...persisted.serviceDependencies, fresh: false, state: 'STALE' } },
+      queue,
+    ],
+    [
+      'disabled intake verification',
+      {
+        serviceDependencies: {
+          ...persisted.serviceDependencies,
+          intakeVerificationRequired: false,
+        },
+      },
+      queue,
+    ],
+    [
+      'unavailable object storage',
+      { serviceDependencies: { ...persisted.serviceDependencies, objectStorage: 'down' } },
+      queue,
+    ],
+    [
+      'unavailable malware scanner',
+      { serviceDependencies: { ...persisted.serviceDependencies, malwareScanner: 'down' } },
+      queue,
+    ],
   ] as const)('does not report ready with %s', (_case, persistedOverride, queueOverride) => {
     const result = projectOperationsReadiness({
       database: 'up',

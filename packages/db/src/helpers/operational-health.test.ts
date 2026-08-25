@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   EXPECTED_LATEST_MIGRATION,
+  SERVICE_DEPENDENCY_FRESHNESS_MS,
   WORKER_HEARTBEAT_FRESHNESS_MS,
+  projectServiceDependencyObservation,
   projectWorkerHeartbeat,
   readAppliedMigrationStatus,
 } from './operational-health'
@@ -113,5 +115,66 @@ describe('worker heartbeat projection', () => {
         now,
       ),
     ).toMatchObject({ state: 'STALE', fresh: false, ageMs: 90_001 })
+  })
+})
+
+describe('service dependency observation projection', () => {
+  const now = new Date('2026-08-25T06:30:00.000Z')
+  const freshRecord = {
+    value: {
+      schemaVersion: 1,
+      observedAt: '2026-08-25T06:29:30.000Z',
+      intakeVerificationRequired: true,
+      objectStorage: 'up',
+      malwareScanner: 'up',
+      privateEndpoint: 'must-not-project',
+    },
+    updatedAt: new Date('2026-08-25T06:29:31.000Z'),
+  }
+
+  it('projects fresh secret-free dependency evidence', () => {
+    expect(projectServiceDependencyObservation(freshRecord, now)).toEqual({
+      source: 'persisted-platform-config',
+      state: 'FRESH',
+      fresh: true,
+      staleAfterMs: SERVICE_DEPENDENCY_FRESHNESS_MS,
+      observedAt: new Date('2026-08-25T06:29:30.000Z'),
+      ageMs: 30_000,
+      intakeVerificationRequired: true,
+      objectStorage: 'up',
+      malwareScanner: 'up',
+      updatedAt: new Date('2026-08-25T06:29:31.000Z'),
+    })
+  })
+
+  it('expires old successful observations instead of claiming current connectivity', () => {
+    expect(
+      projectServiceDependencyObservation(
+        {
+          ...freshRecord,
+          value: { ...freshRecord.value, observedAt: '2026-08-25T06:28:29.999Z' },
+        },
+        now,
+      ),
+    ).toMatchObject({ state: 'STALE', fresh: false, ageMs: 90_001 })
+  })
+
+  it.each([
+    [null, 'NOT_OBSERVED'],
+    [
+      {
+        value: {
+          schemaVersion: 1,
+          observedAt: '2026-08-25T06:29:30.000Z',
+          intakeVerificationRequired: true,
+          objectStorage: 'unknown',
+          malwareScanner: 'up',
+        },
+        updatedAt: new Date('2026-08-25T06:29:31.000Z'),
+      },
+      'MALFORMED',
+    ],
+  ] as const)('fails closed for absent or malformed dependency evidence', (record, state) => {
+    expect(projectServiceDependencyObservation(record, now)).toMatchObject({ state, fresh: false })
   })
 })

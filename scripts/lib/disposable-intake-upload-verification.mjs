@@ -865,12 +865,13 @@ export async function runDisposableOperationsReadinessShakedown(options = {}) {
         'fresh-182-migration-chain',
         'exact-latest-migration-parity',
         'fresh-provider-dark-worker-heartbeat',
-        'missing-external-evidence-remains-not-observed',
+        'fresh-read-only-object-storage-probe',
+        'fresh-read-only-malware-scanner-probe',
         'no-provider-customer-billing-or-destructive-effect',
       ],
       integration: {
-        packageDirectory: 'packages/db',
-        testFile: 'src/helpers/operational-health.disposable.integration.test.ts',
+        packageDirectory: 'apps/workers',
+        testFile: 'src/service-dependency-readiness.disposable.integration.test.ts',
         expectedPassed: 1,
         environment: {
           RUN_OPERATIONS_READINESS_DB_INTEGRATION: '1',

@@ -24,6 +24,9 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
     ['Queue observation', readiness.requirements.allQueuesObserved],
     ['Queue flow', readiness.requirements.noQueuesPaused],
     ['Long-running work', readiness.requirements.noStuckCriticalJobs],
+    ['Intake verification', readiness.requirements.intakeVerificationEnabled],
+    ['Object storage', readiness.requirements.objectStorageConnected],
+    ['Malware scanner', readiness.requirements.malwareScannerConnected],
   ] as const
 
   return (
@@ -49,8 +52,9 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
               : 'Core operations need attention'}
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-700">
-            Exact migration, worker, scheduler, and live queue evidence. A green public health probe
-            alone is not treated as proof that background or provider work can run.
+            Exact migration, worker, scheduler, live queue, storage, and malware-scanner evidence. A
+            green public health probe alone is not treated as proof that background or provider work
+            can run.
           </p>
         </div>
         <span
@@ -76,7 +80,7 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
         })}
       </ul>
 
-      <dl className="mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-3">
+      <dl className="mt-4 grid gap-2 text-xs text-slate-700 sm:grid-cols-2 xl:grid-cols-4">
         <div>
           <dt className="font-semibold text-slate-500">Worker revision</dt>
           <dd className="mt-0.5 break-all">{readiness.worker.revision ?? 'Not observed'}</dd>
@@ -93,11 +97,20 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
           <dt className="font-semibold text-slate-500">Long-running jobs</dt>
           <dd className="mt-0.5">{readiness.stuckCriticalJobs}</dd>
         </div>
+        <div>
+          <dt className="font-semibold text-slate-500">Dependency evidence</dt>
+          <dd className="mt-0.5">
+            {readiness.serviceDependencies.state === 'FRESH'
+              ? 'Fresh worker observation'
+              : readiness.serviceDependencies.state.replaceAll('_', ' ').toLowerCase()}
+          </dd>
+        </div>
       </dl>
 
       <p className="mt-4 text-xs leading-5 text-slate-600">
-        This view does not prove provider execution, object-storage or malware-scanner connectivity,
-        email delivery, an SLO, or external alert delivery. Those remain separate evidence gates.
+        Storage and malware state comes from bounded, read-only worker probes and expires after 90
+        seconds. This view does not prove AI-provider execution, email delivery, an SLO, or external
+        alert delivery. Those remain separate evidence gates.
       </p>
     </section>
   )

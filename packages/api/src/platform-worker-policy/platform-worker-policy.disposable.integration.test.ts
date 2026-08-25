@@ -277,7 +277,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       {
         resolve: async () =>
           ({
-            schemaVersion: 'pathfinder.operations-readiness.v3',
+            schemaVersion: 'pathfinder.operations-readiness.v4',
             status: 'degraded',
             queue: {
               live: {
@@ -297,7 +297,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
     )
     expect(readinessResponse.status).toBe(200)
     await expect(readinessResponse.json()).resolves.toMatchObject({
-      schemaVersion: 'pathfinder.operations-readiness.v3',
+      schemaVersion: 'pathfinder.operations-readiness.v4',
       status: 'degraded',
       queue: { live: { status: 'unavailable', reason: 'probe-failed' } },
       boundaries: { retryAuthorized: false, redriveAuthorized: false },
