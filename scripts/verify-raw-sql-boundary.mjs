@@ -55,6 +55,7 @@ const approvedPolicies = new Set([
   'tenant-client-assistant-generation-lock',
   'tenant-client-assistant-completion-lock',
   'tenant-client-assistant-handoff-lock',
+  'tenant-customer-access-request-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
@@ -330,6 +331,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'da919fd2aa26f6f73b82c4cfcce5a7d6db8ba51998196aca48ff5aa40cb675ad',
     policy: 'tenant-client-assistant-handoff-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/customer-access-execution-actions.ts',
+    method: '$executeRaw',
+    hash: 'cac8f03557d08d95fc8b2642544c804de72cbeab1e60dddc5ac4fe81a56015bd',
+    policy: 'tenant-customer-access-request-lock',
   },
   {
     file: 'packages/db/src/helpers/offboarding-plan-actions.ts',
