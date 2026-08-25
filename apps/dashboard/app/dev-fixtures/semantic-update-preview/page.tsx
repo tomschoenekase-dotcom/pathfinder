@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  SemanticConflictQuestionAction,
   SemanticOperationalUpdateDraftAction,
   SemanticUpdatePreview,
   SemanticUpdateDraftAction,
@@ -55,6 +56,40 @@ export default function SemanticUpdatePreviewFixture() {
             ],
           }}
         />
+        <section className="grid gap-5 lg:grid-cols-2" aria-label="Conflict question states">
+          <article>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Operator clarification required
+            </p>
+            <SemanticConflictQuestionAction
+              creating={false}
+              questionStatus={null}
+              identities={[
+                {
+                  id: 'content-steward',
+                  identityKey: 'content-steward',
+                  name: 'Content Steward',
+                },
+              ]}
+              selectedIdentityId="content-steward"
+              onSelectIdentity={() => undefined}
+              onCreate={() => undefined}
+            />
+          </article>
+          <article>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Guidance received
+            </p>
+            <SemanticConflictQuestionAction
+              creating={false}
+              questionStatus="ANSWERED"
+              identities={[]}
+              selectedIdentityId=""
+              onSelectIdentity={() => undefined}
+              onCreate={() => undefined}
+            />
+          </article>
+        </section>
         <section className="grid gap-5 lg:grid-cols-2" aria-label="Approved draft handoff states">
           <article>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">

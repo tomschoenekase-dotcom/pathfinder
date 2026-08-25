@@ -267,16 +267,17 @@
     {
       "id": "semantic-venue-update-draft",
       "status": "proven-provider-dark-locally",
-      "summary": "Approved knowledge proposals can be deterministically classified and converted through an exact preview hash into one append-only-linked, separately reviewable VenuePackage DRAFT or inactive OperationalUpdate DRAFT without approval, apply, scheduling, publication, or deletion authority.",
+      "summary": "Approved knowledge proposals can be deterministically classified and converted through an exact preview hash into one append-only-linked, separately reviewable VenuePackage DRAFT or inactive OperationalUpdate DRAFT. Exact conflicts can persist one idempotent blocking AgentQuestion for an enabled in-scope Content identity; answers remain guidance and require a recomputed preview. None of these paths grant approval, apply, scheduling, publication, or deletion authority.",
       "evidence": [
         "packages/api/src/lib/semantic-venue-updater.ts",
         "packages/api/src/lib/semantic-venue-update-finalizer.ts",
         "packages/api/src/lib/semantic-operational-update-finalizer.ts",
         "packages/api/src/routers/admin/knowledge-proposals.ts",
+        "packages/db/src/helpers/agent-question-actions.ts",
         "packages/db/src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts",
         "apps/dashboard/components/admin/SemanticUpdatePreview.tsx"
       ],
-      "remaining": "Durable conflict-question routing, representative semantic quality history, hosted staging rehearsal, package approval/apply, operational scheduling/publication, and production rollout remain separately governed or unproven."
+      "remaining": "Representative semantic quality history, hosted staging rehearsal, package approval/apply, operational scheduling/publication, and production rollout remain separately governed or unproven."
     }
   ]
 }

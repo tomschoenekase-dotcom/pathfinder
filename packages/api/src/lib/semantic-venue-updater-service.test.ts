@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
+import {
+  previewSemanticVenueUpdateFromProposal,
+  semanticVenueConflictQuestionOperationId,
+} from './semantic-venue-updater-service'
 
 const updatedAt = new Date('2026-08-25T13:00:00.000Z')
 
@@ -40,6 +43,20 @@ function dbFixture(status: 'PENDING_REVIEW' | 'APPROVED' = 'APPROVED') {
 }
 
 describe('previewSemanticVenueUpdateFromProposal', () => {
+  it('keeps the semantic conflict question operation identity stable and preview-specific', () => {
+    const base = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      proposalId: '11111111-1111-4111-8111-111111111111',
+    }
+    expect(semanticVenueConflictQuestionOperationId({ ...base, previewHash: 'c'.repeat(64) })).toBe(
+      '864c1f4d-59b1-5c2d-8963-167c1d952166',
+    )
+    expect(
+      semanticVenueConflictQuestionOperationId({ ...base, previewHash: 'd'.repeat(64) }),
+    ).not.toBe('864c1f4d-59b1-5c2d-8963-167c1d952166')
+  })
+
   it('scopes durable proposal/current truth and builds one approved correction patch', async () => {
     const fixture = dbFixture()
     const result = await previewSemanticVenueUpdateFromProposal({

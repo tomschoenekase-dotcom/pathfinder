@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const mutate = vi.fn()
 const mutateOperational = vi.fn()
+const mutateQuestion = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       previewSemanticVenueUpdate: { query },
       createSemanticVenueUpdatePackageDraft: { mutate },
       createSemanticOperationalUpdateDraft: { mutate: mutateOperational },
+      createSemanticConflictQuestion: { mutate: mutateQuestion },
     },
   }),
 }))
@@ -181,5 +183,73 @@ describe('SemanticUpdatePreview', () => {
       }),
     )
     expect(screen.queryByRole('button', { name: /schedule|publish/i })).toBeNull()
+  })
+
+  it('persists a conflict as one blocking operator question without execution authority', async () => {
+    query.mockResolvedValue({
+      classification: 'CONFLICT',
+      operationCount: 0,
+      authority: 'PUBLIC_SECONDARY',
+      confidence: 0.78,
+      blockers: [
+        {
+          code: 'LOWER_AUTHORITY_CONFLICT',
+          path: 'evidence',
+          message: 'Lower-authority evidence requires clarification.',
+        },
+      ],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours information should visitors receive for “Museum hours”?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      proposalStatus: 'APPROVED',
+      previewHash: 'c'.repeat(64),
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+      conflictQuestion: null,
+      questionAgentIdentities: [
+        { id: 'content-agent-1', identityKey: 'content.steward', name: 'Content Steward' },
+      ],
+    })
+    mutateQuestion.mockResolvedValue({
+      questionId: 'question-1',
+      questionStatus: 'PENDING',
+      replayed: false,
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'HOURS' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Museum hours' },
+    })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Open 10–6 daily.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+
+    expect(await screen.findByText('CONFLICT')).toBeTruthy()
+    expect(screen.getByLabelText('Content identity')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create blocking operator question' }))
+    expect(await screen.findByText(/Existing question is PENDING/)).toBeTruthy()
+    expect(mutateQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedPreviewHash: 'c'.repeat(64),
+        agentIdentityId: 'content-agent-1',
+      }),
+    )
+    expect(
+      screen.getByText(/grants no approval, apply, scheduling, or publication authority/),
+    ).toBeTruthy()
   })
 })

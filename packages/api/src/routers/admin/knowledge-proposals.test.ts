@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   createOperationalUpdate: vi.fn(),
   operationalFinalizer: vi.fn(),
   operationalHandoffFind: vi.fn(),
+  askQuestion: vi.fn(),
+  identityFind: vi.fn(),
+  identitiesFind: vi.fn(),
+  agentQuestionFind: vi.fn(),
 }))
 
 const transactionClient = {
@@ -38,6 +42,15 @@ vi.mock('@pathfinder/db', () => ({
   publishOperationalEvent: mocks.publish,
   prepareSupportKnowledgeProposalAction: mocks.prepareSupport,
   createOperationalUpdateAction: mocks.createOperationalUpdate,
+  askAgentQuestionAction: mocks.askQuestion,
+  AgentQuestionActionError: class AgentQuestionActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   SupportKnowledgeProposalActionError: class SupportKnowledgeProposalActionError extends Error {
     constructor(
       readonly code: string,
@@ -85,6 +98,8 @@ function context(): TRPCContext {
       knowledgeProposalOperationalUpdateHandoff: {
         findFirst: mocks.operationalHandoffFind,
       },
+      agentIdentity: { findFirst: mocks.identityFind, findMany: mocks.identitiesFind },
+      agentQuestion: { findFirst: mocks.agentQuestionFind },
     } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: {
@@ -123,6 +138,13 @@ describe('admin knowledge proposals', () => {
     mocks.semanticFinalizer.mockReturnValue(vi.fn())
     mocks.operationalFinalizer.mockReturnValue(vi.fn())
     mocks.operationalHandoffFind.mockResolvedValue(null)
+    mocks.identityFind.mockResolvedValue({ id: 'content-agent-1' })
+    mocks.identitiesFind.mockResolvedValue([])
+    mocks.agentQuestionFind.mockResolvedValue(null)
+    mocks.askQuestion.mockResolvedValue({
+      question: { id: 'question-1', status: 'PENDING' },
+      replayed: false,
+    })
     mocks.createOperationalUpdate.mockResolvedValue({
       update: { id: '44444444-4444-4444-8444-444444444444', status: 'DRAFT' },
       preview: { lifecycle: 'DRAFT' },
@@ -358,6 +380,223 @@ describe('admin knowledge proposals', () => {
         finalizer: expect.any(Function),
       }),
       expect.anything(),
+    )
+  })
+
+  it('persists one exact semantic conflict through the existing AgentQuestion action', async () => {
+    const desired = {
+      title: 'Museum hours',
+      category: 'HOURS',
+      content: 'Open 10–6 daily.',
+      isEnabled: true,
+    }
+    mocks.semanticPreview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash: 'c'.repeat(64),
+      classification: 'CONFLICT',
+      evidenceRefs: ['source-evidence:evidence-1:abc'],
+      blockers: [
+        {
+          code: 'LOWER_AUTHORITY_CONFLICT',
+          path: 'evidence',
+          message: 'Lower-authority evidence requires clarification.',
+        },
+      ],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours information should visitors receive for “Museum hours”?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticConflictQuestion({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'c'.repeat(64),
+        relation: 'CORRECTS',
+        desired,
+        agentIdentityId: 'content-agent-1',
+      }),
+    ).resolves.toEqual({
+      questionId: 'question-1',
+      questionStatus: 'PENDING',
+      replayed: false,
+      previewHash: 'c'.repeat(64),
+      executionTriggered: false,
+      approvalGranted: false,
+      canonicalKnowledgeChanged: false,
+    })
+    expect(mocks.identityFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'content-agent-1',
+          enabled: true,
+          agentType: 'CONTENT',
+        }),
+      }),
+    )
+    expect(mocks.askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: expect.stringMatching(/^[a-f0-9-]{36}$/u),
+        questionType: 'LONG_TEXT',
+        category: 'semantic-update-conflict',
+        blocking: true,
+        callbackMetadata: expect.objectContaining({
+          proposalId: operationId,
+          previewHash: 'c'.repeat(64),
+        }),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('rejects a stale semantic conflict preview before selecting an agent identity', async () => {
+    mocks.semanticPreview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash: 'd'.repeat(64),
+      classification: 'CONFLICT',
+      evidenceRefs: [],
+      blockers: [],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours are correct?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticConflictQuestion({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'c'.repeat(64),
+        relation: 'CORRECTS',
+        desired: {
+          title: 'Museum hours',
+          category: 'HOURS',
+          content: 'Open 10–6 daily.',
+          isEnabled: true,
+        },
+        agentIdentityId: 'content-agent-1',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.identityFind).not.toHaveBeenCalled()
+    expect(mocks.askQuestion).not.toHaveBeenCalled()
+  })
+
+  it('rejects an identity outside the enabled scoped Content draft policy', async () => {
+    mocks.semanticPreview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash: 'c'.repeat(64),
+      classification: 'CONFLICT',
+      evidenceRefs: [],
+      blockers: [],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours are correct?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+    mocks.identityFind.mockResolvedValueOnce(null)
+
+    await expect(
+      app.createCaller(context()).admin.createSemanticConflictQuestion({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+        expectedPreviewHash: 'c'.repeat(64),
+        relation: 'CORRECTS',
+        desired: {
+          title: 'Museum hours',
+          category: 'HOURS',
+          content: 'Open 10–6 daily.',
+          isEnabled: true,
+        },
+        agentIdentityId: 'wrong-agent',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.askQuestion).not.toHaveBeenCalled()
+  })
+
+  it('returns the exact answered conflict question and eligible identities with the preview', async () => {
+    mocks.semanticPreview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash: 'c'.repeat(64),
+      classification: 'CONFLICT',
+      evidenceRefs: [],
+      blockers: [],
+      questions: [
+        {
+          owner: 'VENUE_OPERATOR',
+          prompt: 'Which hours are correct?',
+          blockerCodes: ['LOWER_AUTHORITY_CONFLICT'],
+        },
+      ],
+      venuePackagePatch: null,
+      operationalUpdateDraft: null,
+    })
+    const answeredAt = new Date('2026-08-25T15:00:00.000Z')
+    mocks.agentQuestionFind.mockResolvedValueOnce({
+      id: 'question-1',
+      agentIdentityId: 'content-agent-1',
+      status: 'ANSWERED',
+      answer: 'Use the signed hours sheet.',
+      answeredAt,
+      updatedAt: answeredAt,
+    })
+    mocks.identitiesFind.mockResolvedValueOnce([
+      { id: 'content-agent-1', identityKey: 'content-steward', name: 'Content Steward' },
+    ])
+
+    const result = await app.createCaller(context()).admin.previewSemanticVenueUpdate({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      proposalId: operationId,
+      expectedUpdatedAt: new Date('2026-08-25T13:00:00.000Z'),
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Museum hours',
+        category: 'HOURS',
+        content: 'Open 10–6 daily.',
+        isEnabled: true,
+      },
+    })
+
+    expect(result).toMatchObject({
+      conflictQuestion: {
+        id: 'question-1',
+        status: 'ANSWERED',
+        answer: 'Use the signed hours sheet.',
+      },
+      questionAgentIdentities: [
+        { id: 'content-agent-1', identityKey: 'content-steward', name: 'Content Steward' },
+      ],
+    })
+    expect(mocks.agentQuestionFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          operationId: '32afb343-d542-5328-89da-7a5cf9293b6f',
+        },
+      }),
     )
   })
 

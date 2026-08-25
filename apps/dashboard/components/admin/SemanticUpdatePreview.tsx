@@ -26,6 +26,12 @@ type SemanticOperationalDraft = {
   replayed: boolean
 }
 
+type SemanticConflictQuestion = {
+  questionId: string
+  questionStatus: string
+  replayed: boolean
+}
+
 export function SemanticUpdatePreview({
   tenantId,
   venueId,
@@ -64,6 +70,8 @@ export function SemanticUpdatePreview({
   const [preview, setPreview] = useState<Preview | null>(null)
   const [draft, setDraft] = useState<SemanticDraft | null>(null)
   const [operationalDraft, setOperationalDraft] = useState<SemanticOperationalDraft | null>(null)
+  const [conflictQuestion, setConflictQuestion] = useState<SemanticConflictQuestion | null>(null)
+  const [questionAgentIdentityId, setQuestionAgentIdentityId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -72,6 +80,8 @@ export function SemanticUpdatePreview({
     setPreview(null)
     setDraft(null)
     setOperationalDraft(null)
+    setConflictQuestion(null)
+    setQuestionAgentIdentityId('')
     setError(null)
   }
 
@@ -102,11 +112,56 @@ export function SemanticUpdatePreview({
       setPreview(next)
       setDraft(null)
       setOperationalDraft(null)
+      setConflictQuestion(null)
+      setQuestionAgentIdentityId(
+        next.conflictQuestion?.agentIdentityId ?? next.questionAgentIdentities?.[0]?.id ?? '',
+      )
     } catch (cause) {
       setPreview(null)
       setError(cause instanceof Error ? cause.message : 'Semantic preview is unavailable.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function createConflictQuestion() {
+    if (
+      !preview ||
+      preview.classification !== 'CONFLICT' ||
+      preview.questions.length !== 1 ||
+      !questionAgentIdentityId
+    )
+      return
+    setCreating(true)
+    setError(null)
+    try {
+      const created = await client.admin.createSemanticConflictQuestion.mutate({
+        tenantId,
+        venueId,
+        proposalId,
+        expectedUpdatedAt: new Date(proposalUpdatedAt),
+        expectedPreviewHash: preview.previewHash,
+        relation,
+        desired: {
+          title: title.trim(),
+          category: category.trim(),
+          content: content.trim(),
+          isEnabled,
+        },
+        ...(temporal
+          ? {
+              validFrom: new Date(validFrom).toISOString(),
+              validUntil: new Date(validUntil).toISOString(),
+              operationalUpdateType,
+            }
+          : {}),
+        agentIdentityId: questionAgentIdentityId,
+      })
+      setConflictQuestion(created)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Blocking question could not be created.')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -370,9 +425,83 @@ export function SemanticUpdatePreview({
               onCreate={() => void createOperationalDraft()}
             />
           ) : null}
+          {preview.classification === 'CONFLICT' && preview.questions.length === 1 ? (
+            <SemanticConflictQuestionAction
+              creating={creating}
+              questionStatus={
+                conflictQuestion?.questionStatus ?? preview.conflictQuestion?.status ?? null
+              }
+              identities={preview.questionAgentIdentities ?? []}
+              selectedIdentityId={questionAgentIdentityId}
+              onSelectIdentity={setQuestionAgentIdentityId}
+              onCreate={() => void createConflictQuestion()}
+            />
+          ) : null}
         </>
       ) : null}
     </section>
+  )
+}
+
+export function SemanticConflictQuestionAction({
+  creating,
+  questionStatus,
+  identities,
+  selectedIdentityId,
+  onSelectIdentity,
+  onCreate,
+}: {
+  creating: boolean
+  questionStatus: string | null
+  identities: Array<{ id: string; identityKey: string; name: string }>
+  selectedIdentityId: string
+  onSelectIdentity: (identityId: string) => void
+  onCreate: () => void
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-amber-300 bg-white p-4">
+      <p className="text-sm font-semibold text-slate-950">Persist the blocking question</p>
+      {questionStatus ? (
+        <p className="mt-2 text-sm text-amber-950" role="status">
+          Existing question is {questionStatus.replaceAll('_', ' ')}. An answer records guidance
+          only; recompute a revised semantic preview before creating any DRAFT.
+        </p>
+      ) : identities.length ? (
+        <>
+          <label className="mt-3 block text-sm font-medium text-slate-800">
+            Content identity
+            <select
+              value={selectedIdentityId}
+              onChange={(event) => onSelectIdentity(event.target.value)}
+              className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+            >
+              {identities.map((identity) => (
+                <option key={identity.id} value={identity.id}>
+                  {identity.name} ({identity.identityKey})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={creating || !selectedIdentityId}
+            onClick={onCreate}
+            className="mt-3 min-h-11 rounded-lg bg-amber-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {creating ? 'Creating blocking question…' : 'Create blocking operator question'}
+          </button>
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-amber-950">
+          Configure an enabled in-scope Content identity with draft capability before persisting
+          this question.
+        </p>
+      )}
+      <p className="mt-2 text-xs text-slate-600">
+        This creates coordination state only. It grants no approval, apply, scheduling, or
+        publication authority.
+      </p>
+    </div>
   )
 }
 

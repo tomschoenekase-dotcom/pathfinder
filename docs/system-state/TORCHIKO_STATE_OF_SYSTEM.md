@@ -33,7 +33,7 @@ The 2026-08-19 audit narrative remains historical evidence, not an unqualified s
 | `agent-operational-trust-evidence` | Exact-action rollback, explicit violations, and confidence pairs are provider-dark proven without promotion.   |
 | `identity-vocabulary`              | Customer, founder, character, operations-worker, and engineering identities have a tested ownership contract.  |
 | `support-knowledge-correction`     | Exact reviewed client corrections become immutable, separately reviewed proposals without publication/contact. |
-| `semantic-venue-update-draft`      | Approved proposals create one linked package or inactive operational DRAFT without downstream authority.       |
+| `semantic-venue-update-draft`      | Approved proposals create a linked DRAFT; exact conflicts persist one governed question without authority.     |
 
 ## How to read this report
 
