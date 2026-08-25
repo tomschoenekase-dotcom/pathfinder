@@ -9,6 +9,7 @@ import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { IntakeProposalReview } from './IntakeProposalReview'
+import { IntakeBuilderLifecyclePanel } from './admin/IntakeBuilderLifecyclePanel'
 import { StaffInterviewCapture } from './StaffInterviewCapture'
 
 export type IntakeProposalSummary = {
@@ -426,6 +427,13 @@ export function IntakeProposalWorkspace({
                     </>
                   )}
                 </p>
+                {adminTenantId ? (
+                  <IntakeBuilderLifecyclePanel
+                    tenantId={adminTenantId}
+                    venueId={venueId}
+                    runId={proposal.id}
+                  />
+                ) : null}
                 {proposal.sourceKind === 'INTERVIEW' ? (
                   <IntakeProposalReview
                     venueId={venueId}

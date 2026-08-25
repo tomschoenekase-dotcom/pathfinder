@@ -15,6 +15,7 @@ import {
 
 import { router } from '../../core'
 import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
+import { getIntakeBuilderLifecycle } from '../../lib/intake-builder-lifecycle-service'
 import { createVenuePackageDraftService } from '../venue-package'
 import {
   buildIntakeVenuePackageCandidate,
@@ -62,6 +63,16 @@ function mapCandidateError(error: unknown): never {
 }
 
 export const adminIntakeOperationsRouter = router({
+  getIntakeBuilderLifecycle: adminProcedure
+    .input(z.object({ ...adminScope, runId: z.string().trim().min(1).max(191) }).strict())
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getIntakeBuilderLifecycle({ db: ctx.db, ...input })
+      } catch (error) {
+        mapCandidateError(error)
+      }
+    }),
+
   getIntakeVenuePackageCandidate: adminProcedure
     .input(
       z
