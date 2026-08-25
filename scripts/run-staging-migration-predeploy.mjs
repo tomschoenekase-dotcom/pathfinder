@@ -115,19 +115,20 @@ export async function readMigrationManifest(prismaDirectory) {
 
   const rows = []
   const checksums = new Map()
+  const ledgerChecksums = new Map()
   for (const name of names) {
-    const sql = (await readFile(path.join(migrationRoot, name, 'migration.sql'), 'utf8')).replace(
-      /\r\n/gu,
-      '\n',
-    )
+    const migrationPath = path.join(migrationRoot, name, 'migration.sql')
+    const rawSql = await readFile(migrationPath)
+    const sql = rawSql.toString('utf8').replace(/\r\n/gu, '\n')
     const checksum = createHash('sha256').update(sql).digest('hex')
     checksums.set(name, checksum)
+    ledgerChecksums.set(name, createHash('sha256').update(rawSql).digest('hex'))
     rows.push(`${name} ${checksum}`)
   }
   const hash = createHash('sha256')
     .update(`${rows.join('\n')}\n`)
     .digest('hex')
-  return { names, checksums, hash }
+  return { names, checksums, ledgerChecksums, hash }
 }
 
 export function assertFrozenManifest(manifest) {
@@ -191,9 +192,11 @@ function ledgerState(rows, manifest) {
     const expectedName = expectedNames[index]
     if (row.migration_name !== expectedName) fail('ledger migration ordering/name mismatch')
     const expectedChecksum = manifest.checksums.get(expectedName)
+    const expectedLedgerChecksum = manifest.ledgerChecksums?.get(expectedName) ?? expectedChecksum
     const verifiedBaselineChecksum = VERIFIED_BASELINE_CHECKSUMS[expectedName]
     if (
       row.checksum.toLowerCase() !== expectedChecksum &&
+      row.checksum.toLowerCase() !== expectedLedgerChecksum &&
       row.checksum.toLowerCase() !== verifiedBaselineChecksum
     )
       checksumMismatches.push(`${expectedName}:${row.checksum.toLowerCase()}:${expectedChecksum}`)

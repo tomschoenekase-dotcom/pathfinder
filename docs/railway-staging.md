@@ -184,6 +184,12 @@ known production project, SHA drift, resource drift, host/database drift, an unr
 missing opt-in, or a larger ceiling before Prisma starts. Remove the one-run opt-in after a
 successful migration.
 
+The frozen manifest identity is computed from LF-normalized migration text so it is stable across
+checkouts. Ledger verification separately accepts only the exact raw-byte checksum Prisma records
+for the same checked-in file, the normalized checksum, or an explicitly frozen historical baseline
+exception. This distinction preserves exact ledger verification when a reviewed migration is stored
+with CRLF bytes; it does not admit arbitrary checksum drift.
+
 If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.
 Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remains blocked until the
 operator supplies all of the following secret-free evidence from a separately stored logical backup
