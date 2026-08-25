@@ -38,6 +38,18 @@
       "remaining": "Open-ended synthesis, worker triage/execution, hosted staging integration, proactive escalation, and production rollout remain separately gated."
     },
     {
+      "id": "guest-prompt-integrity",
+      "status": "proven-provider-dark-locally",
+      "summary": "Guest prompt v6 separates trusted rules/operator guidance from delimiter-escaped venue and retrieved data, rejects guest authority over hidden context, and versions adversarial onboarding checks for prompt and cross-tenant disclosure.",
+      "evidence": [
+        "docs/TOCHI-PROMPT-BEHAVIOR.md",
+        "packages/api/src/lib/venue-context.ts",
+        "packages/api/src/lib/venue-context.test.ts",
+        "packages/contracts/src/onboarding-evaluation-suite.ts"
+      ],
+      "remaining": "Run provider-backed adversarial evaluations for each candidate model before claiming model-specific resistance; hosted staging integration and production rollout remain separately gated."
+    },
+    {
       "id": "release-evidence",
       "status": "proven-locally",
       "summary": "Exact candidate assessments and staging handoffs can be projected into immutable platform evidence without granting deployment authority.",

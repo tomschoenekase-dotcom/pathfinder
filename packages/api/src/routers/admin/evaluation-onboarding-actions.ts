@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
-import { buildOnboardingEvaluationSuite } from '@pathfinder/contracts'
+import {
+  buildOnboardingEvaluationSuite,
+  ONBOARDING_EVALUATION_SUITE_VERSION,
+} from '@pathfinder/contracts'
 import {
   createOrReplayEvaluationCase,
   db,
@@ -110,7 +113,7 @@ export const adminEvaluationOnboardingActionsRouter = router({
               payloadHash: pkg.payloadHash,
               baseDigest: pkg.baseDigest,
             },
-            suiteVersion: 'torchiko-onboarding-evaluation-suite-v2' as const,
+            suiteVersion: ONBOARDING_EVALUATION_SUITE_VERSION,
             cases: prepared,
           }
         }),

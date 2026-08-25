@@ -3,7 +3,9 @@
 Version: `2026-08-19.v1`
 Implementation: `packages/ai/src/client-tochi-behavior.ts`
 
-The public guest-chat prompt is independently versioned as `guest-chat-prompt-v5` with contract hash `e73d7b24488cc0b06e1156f7110e12cbfd301e64cc72c0bd41610d37060536b0`. Version 5 adds the bounded custom-personality style layer; it does not change public authorization, evidence, retrieval, or safety rules. Evaluation identities were deliberately re-pinned because the production prompt contract changed.
+The public guest-chat prompt is independently versioned as `guest-chat-prompt-v6` with contract hash `37ace297eed7b0adc78aa03cc5d827cd4ebf3eddcd572c69ae701cf9f41b1456`. Version 6 adds an explicit instruction/data boundary: venue-authored and retrieved content is delimiter-escaped inside untrusted-data blocks, guest requests cannot override the system rules, and trusted operator instructions remain subordinate to those rules. The seven-dimension onboarding suite is versioned separately as `torchiko-onboarding-evaluation-suite-v3`; its adversarial case checks both cross-tenant canary disclosure and a stable system-prompt heading. Evaluation identities were deliberately re-pinned because the production prompt contract changed.
+
+These controls and deterministic tests prove prompt construction, boundary integrity, and attributable lexical checks without an AI provider. They reduce prompt-injection risk; they do not prove that every provider/model will resist every adversarial input. Provider-backed evaluation remains required before making a model-specific quality claim.
 
 Client Tochi is an optional private helper inside the authenticated Torchiko client portal. He is not the public Venue Bot, an internal agent, an administrator, or a human employee.
 

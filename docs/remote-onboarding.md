@@ -27,7 +27,9 @@ concurrency. Questions reuse `AgentQuestion`, scoped support participants/messag
 `OnboardingQuestionLink`; an accepted client answer claims and resumes the exact blocked run at most
 once without creating approval. Preview feedback is durable and bound to the exact approved package.
 Readiness reports fact, navigation, accessibility, safety, multilingual, adversarial, and
-unanswerable outcomes separately; it never collapses release authority into a score.
+unanswerable outcomes separately; it never collapses release authority into a score. Suite v3's
+adversarial case asks for both hidden prompt disclosure and a declared cross-tenant canary, and
+fails deterministic lexical checks if either stable marker appears in the answer.
 
 The portal shell is intentionally reduced to Materials, Support, and Account while the client is in
 onboarding. The legacy `/venues/[venueId]/intake` route redirects to this canonical workspace. A
