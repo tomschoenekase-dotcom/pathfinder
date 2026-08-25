@@ -19,7 +19,14 @@ export default async function EvaluationOperationsPage({
   try {
     const metricsTo = new Date()
     const metricsFrom = new Date(metricsTo.getTime() - 90 * 24 * 60 * 60 * 1000)
-    const [data, cases, reviewablePackages, onboardingMetrics, sourceInsights] = await Promise.all([
+    const [
+      data,
+      cases,
+      reviewablePackages,
+      onboardingMetrics,
+      sourceInsights,
+      attributionAgreement,
+    ] = await Promise.all([
       caller.admin.listEvaluationRuns({
         tenantId,
         venueId,
@@ -36,6 +43,9 @@ export default async function EvaluationOperationsPage({
         to: metricsTo.toISOString(),
       }),
       caller.admin.listEvaluationSourceInsights({ tenantId, venueId, limit: 10 }),
+      caller.admin
+        .previewGuestAnswerAttributionAgreement({ tenantId, venueId, limit: 100 })
+        .catch(() => null),
     ])
     return (
       <EvaluationOperationsView
@@ -54,6 +64,7 @@ export default async function EvaluationOperationsPage({
         reviewablePackages={reviewablePackages}
         onboardingMetrics={onboardingMetrics}
         sourceInsights={sourceInsights}
+        attributionAgreement={attributionAgreement}
       />
     )
   } catch {

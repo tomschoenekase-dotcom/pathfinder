@@ -50,6 +50,19 @@ An authorized venue-scoped worker with `conversations:review` may use
 tool cannot create or change an annotation. The broader human recording procedure remains
 explicitly unbound from agent tooling.
 
+The same capability may use `torchiko.quality.preview_answer_attribution_agreement` to compute a
+bounded, deterministic calibration report from those immutable reviews. For each frozen
+answer/evidence identity, only the newest review from each human actor participates. Independent
+reviewer pairs are compared character by character, which makes coverage, support-label, and
+supported-source agreement independent of how each reviewer segmented claims. Repeated reviews
+from one actor, malformed snapshots, single-reviewer groups, truncated windows, and conflicting
+answer identities are counted explicitly instead of being silently treated as agreement.
+
+The report is content-addressed and exposes no reviewer identity, answer text, source text, visitor
+identity, or location. Its rates are descriptive only: agreement does not prove that either reviewer
+is correct. The report has no pass field, quality threshold, severity, release decision, content
+mutation, or authority change.
+
 The database enforces tenant, venue, session, and turn identity through composite foreign keys.
 Database triggers and Prisma middleware reject updates and deletes, preserving historical reviews
 even if later evaluators disagree.
@@ -63,7 +76,10 @@ Focused contract, API, MCP, database-action, tenant-isolation, and migration tes
 - human-only recording, exact idempotent replay, conflicting-operation rejection, and strict audit;
 - venue-scoped read capability and the absence of annotation/release authority;
 - legacy-turn rejection and private evidence exclusion from the public response;
-- append-only enforcement and the frozen 178-migration staging lineage.
+- append-only enforcement across the complete current migration lineage.
+- deterministic segmentation-independent reviewer-agreement math, same-actor deduplication,
+  malformed/identity-conflict exclusion, exact-venue API and MCP scope, and truthful mobile UI
+  states.
 
 The disposable shakedown applies the complete migration chain to a fresh loopback-only PostgreSQL
 database with disposable Redis, MinIO, and ClamAV dependencies. It records and replays one exact
@@ -73,11 +89,10 @@ call and therefore is not semantic-quality calibration.
 
 ## Remaining evidence and policy gates
 
-Provider-backed or human-reviewed staging corpora still need to establish evaluator agreement,
-claim segmentation quality, representative venue coverage, and any proposed release threshold.
-Those measurements must be preserved before a threshold is recommended. A threshold, automatic
-review policy, client-visible claim UI, or autonomous evaluator write path is a separate product,
-cost, privacy, and authority decision.
+Representative human-reviewed staging corpora still need to accumulate real agreement evidence,
+claim-segmentation examples, and venue coverage before any threshold is recommended. Provider-backed
+calibration is also outstanding. A threshold, automatic review policy, client-visible claim UI, or
+autonomous evaluator write path is a separate product, cost, privacy, and authority decision.
 
 No production deployment, provider enablement, customer contact, visitor-visible claim label,
 pricing action, billing action, or release authorization is included in this implementation.

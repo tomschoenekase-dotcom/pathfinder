@@ -31,6 +31,7 @@ import {
   getAccountTimeline,
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
+  readGuestAnswerAttributionAgreement,
   readSupportPackageFulfillment,
   recordCompanyMeetingExtractionAction,
   completeCompanyMeetingProcessingAction,
@@ -93,6 +94,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.get',
   'torchiko.knowledge.list_gaps',
   'torchiko.quality.list_answer_attributions',
+  'torchiko.quality.preview_answer_attribution_agreement',
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
@@ -193,6 +195,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
     | 'listGuestAnswerAttributions'
+    | 'previewGuestAnswerAttributionAgreement'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
@@ -3964,6 +3967,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
     | 'listGuestAnswerAttributions'
+    | 'previewGuestAnswerAttributionAgreement'
     | 'integrationHealth'
     | 'reportLifecycle'
   > = {
@@ -4165,6 +4169,27 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         kind: 'torchiko.guest-answer-attributions',
         summary: `${items.length} reviewed guest-answer attribution record(s).`,
         data: jsonData({ items }),
+      }
+    },
+    async previewGuestAnswerAttributionAgreement(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Answer attribution calibration requires venue scope')
+      const data = await readGuestAnswerAttributionAgreement(
+        {
+          tenantId: context.credential.tenantId,
+          venueId,
+          limit: input.limit,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.guest-answer-attribution-agreement',
+        summary:
+          data.report.independentPairCount === 0
+            ? 'No independent reviewer pair is available for calibration.'
+            : `${data.report.independentPairCount} independent reviewer pair(s) analyzed without a quality verdict.`,
+        data: jsonData(data),
       }
     },
     async integrationHealth(input, context) {

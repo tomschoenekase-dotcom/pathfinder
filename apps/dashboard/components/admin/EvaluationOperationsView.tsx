@@ -9,6 +9,10 @@ import {
   type EvaluationSourceInsight,
 } from './ConversationEvaluationCasePanel'
 import type { OnboardingMilestoneRollup } from '@pathfinder/contracts'
+import {
+  AnswerAttributionAgreementCard,
+  type AnswerAttributionAgreementData,
+} from './AnswerAttributionAgreementCard'
 
 type EvaluationSummary = {
   resultCount: number
@@ -104,6 +108,7 @@ type EvaluationOperationsViewProps = {
   failedCases?: FailedCase[]
   onboardingMetrics?: OnboardingMilestoneRollup
   sourceInsights?: EvaluationSourceInsight[]
+  attributionAgreement?: AnswerAttributionAgreementData | null
 }
 
 function shortHash(value: string | null) {
@@ -186,6 +191,7 @@ export function EvaluationOperationsView({
   failedCases = [],
   onboardingMetrics,
   sourceInsights = [],
+  attributionAgreement,
 }: EvaluationOperationsViewProps) {
   return (
     <div className="space-y-8">
@@ -205,6 +211,10 @@ export function EvaluationOperationsView({
           enabled. It cannot approve, publish, or change content.
         </div>
       </header>
+
+      {attributionAgreement !== undefined ? (
+        <AnswerAttributionAgreementCard data={attributionAgreement} />
+      ) : null}
 
       {onboardingMetrics ? <OnboardingMilestoneMetricsPanel rollup={onboardingMetrics} /> : null}
 

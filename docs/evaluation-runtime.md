@@ -68,6 +68,21 @@ package and native-release snapshots remain separately frozen execution targets;
 preflight is explicitly limited to current live content so it cannot imply it inspected a different
 target.
 
+## Provider-dark human-review calibration
+
+The venue evaluation workspace and an exact-venue `conversations:review` MCP tool can compute a
+read-only agreement report from append-only human guest-answer claim reviews. The report compares
+independent reviewers of the same answer and frozen evidence identity at character granularity, so
+different claim boundaries do not manufacture disagreement. It separately reports annotated-span
+overlap, support-label agreement, and source-set agreement for spans both reviewers marked
+supported.
+
+Only the newest review per human actor and frozen identity participates. Malformed records,
+single-reviewer groups, conflicting answer identities, repeated actor reviews, and bounded-window
+truncation remain visible. The output is content-addressed and returns no answer/source text or
+reviewer identity. It makes no correctness, pass/fail, severity, threshold, release, publication, or
+permission decision and performs no provider call.
+
 ## Lifecycle and failure semantics
 
 Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state advances through compare-and-set transitions:

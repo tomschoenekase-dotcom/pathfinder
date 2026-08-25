@@ -122,6 +122,8 @@ export {
   GuestAnswerAttributionActionError,
   recordHumanReviewedGuestAnswerAttributionAction,
 } from './helpers/guest-answer-attribution-actions'
+export { readGuestAnswerAttributionAgreement } from './helpers/guest-answer-attribution-agreement'
+export type { GuestAnswerAttributionAgreementClient } from './helpers/guest-answer-attribution-agreement'
 export type {
   GuestAnswerAttributionActionClient,
   GuestAnswerAttributionActionErrorCode,

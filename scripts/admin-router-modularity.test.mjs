@@ -204,6 +204,7 @@ const expectedAdminProcedures = [
   'prepareProspectEmailAttachmentRetention',
   'previewCurrentEvaluationSourceCoverage',
   'previewFullVenueDeploymentManifest',
+  'previewGuestAnswerAttributionAgreement',
   'previewOffboardingExportManifest',
   'previewProspectImportRepair',
   'previewRetentionDisposition',

@@ -579,6 +579,13 @@ export const McpGuestAnswerAttributionListInput = McpRequestedScope.extend({
 }).strict()
 export type McpGuestAnswerAttributionListInput = z.infer<typeof McpGuestAnswerAttributionListInput>
 
+export const McpGuestAnswerAttributionAgreementInput = McpRequestedScope.extend({
+  limit: z.number().int().min(2).max(100).default(100),
+}).strict()
+export type McpGuestAnswerAttributionAgreementInput = z.infer<
+  typeof McpGuestAnswerAttributionAgreementInput
+>
+
 export const McpKnowledgeCorrectionProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1219,6 +1226,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.get'
   | 'torchiko.knowledge.list_gaps'
   | 'torchiko.quality.list_answer_attributions'
+  | 'torchiko.quality.preview_answer_attribution_agreement'
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
@@ -1539,6 +1547,27 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         ...scopeProperties,
         guestChatTurnId: { type: 'string', format: 'uuid' },
         limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+      },
+      scopeRequired,
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'conversations:review', 'read') },
+  },
+  {
+    name: 'torchiko.quality.preview_answer_attribution_agreement',
+    title: 'Preview guest-answer reviewer agreement',
+    description:
+      'Compute a bounded, deterministic calibration report across independent human claim reviews of the same frozen guest answers. It reports coverage, support-label, and source-set agreement without deciding correctness, applying a threshold, or authorizing a release.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        limit: { type: 'integer', minimum: 2, maximum: 100, default: 100 },
       },
       scopeRequired,
     ),

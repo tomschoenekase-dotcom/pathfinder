@@ -1631,6 +1631,92 @@ describe('safe operational MCP composition', () => {
     )
   })
 
+  it('returns deterministic independent-reviewer agreement without correctness or release authority', async () => {
+    const answerHash = 'a'.repeat(64)
+    const evidenceSetHash = 'b'.repeat(64)
+    const attributionSnapshot = {
+      schemaVersion: 'guest-answer-attribution-v1',
+      answerHash,
+      evidenceSetHash,
+      evaluator: {
+        provider: 'human-review',
+        model: 'platform-admin',
+        configurationVersion: 'review-form-v1',
+        promptVersion: 'claim-rubric-v1',
+      },
+      claims: [
+        {
+          start: 0,
+          end: 4,
+          text: 'Open',
+          support: 'SUPPORTED',
+          sourceIds: ['source-1'],
+          rationale: 'The exact frozen source supports this span.',
+        },
+      ],
+      metrics: {
+        claimCount: 1,
+        supportedCount: 1,
+        unsupportedCount: 0,
+        uncertainCount: 0,
+        nonFactualCount: 0,
+        supportRate: 1,
+      },
+    }
+    const database = {
+      guestAnswerAttribution: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+            answerHash,
+            evidenceSetHash,
+            attributionSnapshot,
+            actorId: 'reviewer-a',
+            createdAt: new Date('2026-08-25T01:00:00.000Z'),
+          },
+          {
+            id: '33333333-3333-4333-8333-333333333333',
+            guestChatTurnId: '22222222-2222-4222-8222-222222222222',
+            answerHash,
+            evidenceSetHash,
+            attributionSnapshot,
+            actorId: 'reviewer-b',
+            createdAt: new Date('2026-08-25T01:01:00.000Z'),
+          },
+        ]),
+      },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const result = await registry.callTool(
+      'torchiko.quality.preview_answer_attribution_agreement',
+      { clientId: 'tenant-1', venueId: 'venue-1', limit: 20 },
+      { credential: { ...credential, capabilities: ['conversations:review'] } },
+    )
+
+    expect(database.guestAnswerAttribution.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: 'venue-1' },
+        take: 21,
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.guest-answer-attribution-agreement',
+      data: {
+        report: {
+          independentPairCount: 1,
+          metrics: { supportAgreementRate: 1, sourceAgreementRate: 1 },
+        },
+        interpretation: {
+          establishesCorrectness: false,
+          appliesQualityThreshold: false,
+          authorizesRelease: false,
+        },
+      },
+    })
+    expect(JSON.stringify(result.structuredContent)).not.toMatch(/passed|releaseDecision/i)
+  })
+
   it('returns explicit bounded incident-control health without reasons, actors, or recovery authority', async () => {
     const now = new Date('2030-01-01T12:00:00.000Z')
     const database = {

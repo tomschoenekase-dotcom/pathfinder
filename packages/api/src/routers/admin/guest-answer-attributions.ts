@@ -5,6 +5,7 @@ import { GuestAnswerClaimInputSchema } from '@pathfinder/contracts/guest-answer-
 import {
   db,
   GuestAnswerAttributionActionError,
+  readGuestAnswerAttributionAgreement,
   recordHumanReviewedGuestAnswerAttributionAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -117,5 +118,17 @@ export const adminGuestAnswerAttributionsRouter = router({
           select: attributionSelect,
         }),
       ),
+    ),
+
+  previewGuestAnswerAttributionAgreement: adminProcedure
+    .input(
+      scopeSchema
+        .extend({
+          limit: z.number().int().min(2).max(100).default(100),
+        })
+        .strict(),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(() => readGuestAnswerAttributionAgreement(input, db)),
     ),
 })

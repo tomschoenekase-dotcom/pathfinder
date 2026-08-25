@@ -7,6 +7,7 @@ import { buildGuestAnswerEvidenceBundle } from '@pathfinder/contracts/guest-answ
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { recordHumanReviewedGuestAnswerAttributionAction } from './guest-answer-attribution-actions'
+import { readGuestAnswerAttributionAgreement } from './guest-answer-attribution-agreement'
 import {
   claimGuestChatTurnAction,
   finalizeGuestChatTurnAction,
@@ -166,6 +167,54 @@ describe.skipIf(!enabled)('guest answer attribution disposable lifecycle', () =>
       await expect(recordHumanReviewedGuestAnswerAttributionAction(request)).resolves.toMatchObject(
         { replayed: true, attribution: { id: first.attribution.id } },
       )
+      const second = await recordHumanReviewedGuestAnswerAttributionAction({
+        ...request,
+        operationId: randomUUID(),
+        claims: [
+          {
+            start: 0,
+            end: 10,
+            text: answer.slice(0, 10),
+            support: 'SUPPORTED' as const,
+            sourceIds: [`venue:${venueId}`],
+            rationale: 'The frozen venue profile supports the venue subject.',
+          },
+          {
+            start: 10,
+            end: answer.length,
+            text: answer.slice(10),
+            support: 'SUPPORTED' as const,
+            sourceIds: [`venue:${venueId}`],
+            rationale: 'The frozen venue profile supports the operating-hours claim.',
+          },
+        ],
+        actor: { ...request.actor, id: 'integration-admin-2' },
+      })
+      expect(second).toMatchObject({ replayed: false, attribution: { claimCount: 2 } })
+      const agreement = await readGuestAnswerAttributionAgreement({
+        tenantId,
+        venueId,
+        limit: 100,
+      })
+      expect(agreement).toMatchObject({
+        invalidRecordCount: 0,
+        truncated: false,
+        report: {
+          independentPairCount: 1,
+          comparableGroupCount: 1,
+          metrics: {
+            coverageOverlapRate: 1,
+            supportAgreementRate: 1,
+            sourceAgreementRate: 1,
+          },
+        },
+        interpretation: {
+          establishesCorrectness: false,
+          appliesQualityThreshold: false,
+          authorizesRelease: false,
+        },
+      })
+      expect(agreement.reportHash).toMatch(/^[0-9a-f]{64}$/u)
       await expect(
         recordHumanReviewedGuestAnswerAttributionAction({
           ...request,
@@ -188,7 +237,7 @@ describe.skipIf(!enabled)('guest answer attribution disposable lifecycle', () =>
       await expect(
         db.$executeRaw`DELETE FROM "guest_answer_attributions" WHERE "id" = ${first.attribution.id}::uuid`,
       ).rejects.toThrow(/append-only/iu)
-      expect(await db.guestAnswerAttribution.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.guestAnswerAttribution.count({ where: { tenantId, venueId } })).toBe(2)
       expect(await db.operationalEvent.count({ where: { tenantId, venueId } })).toBe(0)
       expect(await db.knowledgeChangeProposal.count({ where: { tenantId, venueId } })).toBe(0)
     })

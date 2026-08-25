@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   record: vi.fn(),
+  readAgreement: vi.fn(),
   findMany: vi.fn(),
   bypass: vi.fn(async (callback: () => unknown) => callback()),
 }))
@@ -17,6 +18,7 @@ vi.mock('@pathfinder/db', () => ({
     }
   },
   recordHumanReviewedGuestAnswerAttributionAction: mocks.record,
+  readGuestAnswerAttributionAgreement: mocks.readAgreement,
   withTenantIsolationBypass: mocks.bypass,
 }))
 
@@ -36,6 +38,21 @@ describe('admin guest answer attributions', () => {
     vi.clearAllMocks()
     mocks.record.mockResolvedValue({ attribution: { id: 'attribution-1' }, replayed: false })
     mocks.findMany.mockResolvedValue([])
+    mocks.readAgreement.mockResolvedValue({
+      target: 'HUMAN_CLAIM_REVIEW_CALIBRATION',
+      reportHash: 'f'.repeat(64),
+      invalidRecordCount: 0,
+      truncated: false,
+      report: {
+        independentPairCount: 1,
+        metrics: { supportAgreementRate: 1 },
+      },
+      interpretation: {
+        establishesCorrectness: false,
+        appliesQualityThreshold: false,
+        authorizesRelease: false,
+      },
+    })
   })
 
   it('binds human review identity and exact scope to the canonical action', async () => {
@@ -82,5 +99,51 @@ describe('admin guest answer attributions', () => {
         take: 10,
       }),
     )
+  })
+
+  it('returns hashed descriptive agreement for independent human reviewers without a quality verdict', async () => {
+    const result = await caller.previewGuestAnswerAttributionAgreement({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+
+    expect(result.report.independentPairCount).toBe(1)
+    expect(result.report.metrics.supportAgreementRate).toBe(1)
+    expect(result.reportHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(result.interpretation).toEqual({
+      establishesCorrectness: false,
+      appliesQualityThreshold: false,
+      authorizesRelease: false,
+    })
+    expect(result).not.toHaveProperty('passed')
+    expect(mocks.readAgreement).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', venueId: 'venue-1', limit: 100 },
+      expect.anything(),
+    )
+  })
+
+  it('fails closed on malformed snapshots while preserving bounded calibration evidence', async () => {
+    mocks.readAgreement.mockResolvedValue({
+      target: 'HUMAN_CLAIM_REVIEW_CALIBRATION',
+      reportHash: 'f'.repeat(64),
+      invalidRecordCount: 1,
+      truncated: false,
+      report: { inputRecordCount: 0, independentPairCount: 0 },
+      interpretation: {
+        establishesCorrectness: false,
+        appliesQualityThreshold: false,
+        authorizesRelease: false,
+      },
+    })
+
+    const result = await caller.previewGuestAnswerAttributionAgreement({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      limit: 2,
+    })
+
+    expect(result.invalidRecordCount).toBe(1)
+    expect(result.report.inputRecordCount).toBe(0)
+    expect(result.report.independentPairCount).toBe(0)
   })
 })

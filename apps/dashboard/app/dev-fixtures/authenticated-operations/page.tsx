@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { AdminSectionShell } from '../../../components/admin/AdminSectionShell'
+import { AnswerAttributionAgreementCard } from '../../../components/admin/AnswerAttributionAgreementCard'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
 import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -129,6 +130,33 @@ function AdminFixture() {
 
           <div className="mt-5">
             <ReleaseEvidenceSummary evidence={releaseEvidence} />
+          </div>
+          <div className="mt-5">
+            <AnswerAttributionAgreementCard
+              data={{
+                reportHash: 'f'.repeat(64),
+                invalidRecordCount: 0,
+                truncated: false,
+                report: {
+                  inputRecordCount: 4,
+                  selectedRecordCount: 4,
+                  turnCount: 2,
+                  comparableGroupCount: 2,
+                  independentPairCount: 2,
+                  distinctReviewerCount: 2,
+                  exclusions: {
+                    repeatedReviewerRecordCount: 0,
+                    singleReviewerGroupCount: 0,
+                    identityConflictTurnCount: 0,
+                  },
+                  metrics: {
+                    coverageOverlapRate: 0.92,
+                    supportAgreementRate: 0.86,
+                    sourceAgreementRate: 0.8,
+                  },
+                },
+              }}
+            />
           </div>
         </div>
       </AdminSectionShell>

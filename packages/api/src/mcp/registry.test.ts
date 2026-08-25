@@ -48,6 +48,7 @@ function actions(): PathfinderMcpDomainActions {
     knowledgeGet: vi.fn().mockResolvedValue(result),
     listKnowledgeGaps: vi.fn().mockResolvedValue(result),
     listGuestAnswerAttributions: vi.fn().mockResolvedValue(result),
+    previewGuestAnswerAttributionAgreement: vi.fn().mockResolvedValue(result),
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
@@ -100,6 +101,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
         'torchiko.quality.list_answer_attributions',
+        'torchiko.quality.preview_answer_attribution_agreement',
         'torchiko.customer_access.prepare_invitation',
         'torchiko.integrations.health',
         'torchiko.reports.get_lifecycle',
@@ -176,6 +178,26 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.listGuestAnswerAttributions).toHaveBeenCalledWith(input, expect.anything())
     await expect(
       registry.callTool('torchiko.quality.list_answer_attributions', input, {
+        credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow('Capability denied')
+  })
+
+  it('binds answer-attribution calibration to exact venue review scope', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const input = { clientId: 'client-1', venueId: 'venue-1', limit: 20 }
+
+    await registry.callTool('torchiko.quality.preview_answer_attribution_agreement', input, {
+      credential: { ...credential, capabilities: ['conversations:review'] },
+    })
+
+    expect(domain.previewGuestAnswerAttributionAgreement).toHaveBeenCalledWith(
+      input,
+      expect.anything(),
+    )
+    await expect(
+      registry.callTool('torchiko.quality.preview_answer_attribution_agreement', input, {
         credential: { ...credential, capabilities: [] },
       }),
     ).rejects.toThrow('Capability denied')

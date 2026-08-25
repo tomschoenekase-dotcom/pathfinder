@@ -15,6 +15,7 @@ import {
   McpKnowledgeGetInput,
   McpKnowledgeGapListInput,
   McpGuestAnswerAttributionListInput,
+  McpGuestAnswerAttributionAgreementInput,
   McpKnowledgeCorrectionProposalInput,
   McpLocationDraftProposalInput,
   McpKnowledgeSearchInput,
@@ -81,6 +82,8 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.search'
         | 'torchiko.knowledge.get'
         | 'torchiko.knowledge.list_gaps'
+        | 'torchiko.quality.list_answer_attributions'
+        | 'torchiko.quality.preview_answer_attribution_agreement'
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.locations.propose_draft'
         | 'pathfinder.propose_support_triage'
@@ -144,6 +147,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   listGuestAnswerAttributions: (
     input: McpGuestAnswerAttributionListInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  previewGuestAnswerAttributionAgreement: (
+    input: McpGuestAnswerAttributionAgreementInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   proposeKnowledgeCorrection: (
@@ -414,6 +421,12 @@ export function createPathfinderMcpRegistry(
           const input = McpGuestAnswerAttributionListInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
           result = await actions.listGuestAnswerAttributions(input, context)
+          break
+        }
+        case 'torchiko.quality.preview_answer_attribution_agreement': {
+          const input = McpGuestAnswerAttributionAgreementInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.previewGuestAnswerAttributionAgreement(input, context)
           break
         }
         case 'torchiko.knowledge.propose_correction': {
@@ -753,6 +766,8 @@ async function verifyApproval(
     | 'torchiko.knowledge.search'
     | 'torchiko.knowledge.get'
     | 'torchiko.knowledge.list_gaps'
+    | 'torchiko.quality.list_answer_attributions'
+    | 'torchiko.quality.preview_answer_attribution_agreement'
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.locations.propose_draft'
     | 'pathfinder.propose_support_triage'

@@ -902,6 +902,7 @@ export async function runDisposableGuestAnswerAttributionShakedown(options = {})
         'fresh-migration-chain',
         'exact-answer-and-source-hashes',
         'human-attributed-semantic-judgment',
+        'segmentation-independent-reviewer-agreement',
         'idempotent-replay',
         'strict-tenant-venue-turn-scope',
         'append-only-history',

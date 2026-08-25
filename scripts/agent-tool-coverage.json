@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 423,
-    "sha256": "17e1231aacaaade452d5e84582f3d3c092ffba4ee148eef9945673568bafc4b4",
+    "count": 424,
+    "sha256": "f4ef39d18259d05b92cbd9eddbcb35133f97eba36b4861fca08b3b34ddbcc16a",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "17e1231aacaaade452d5e84582f3d3c092ffba4ee148eef9945673568bafc4b4",
-      "sha256": "d922e7ed9112025d5da6e12ce82d922a7dc6095469dd5258b4ecdfc5020b306a"
+      "operationInventorySha256": "f4ef39d18259d05b92cbd9eddbcb35133f97eba36b4861fca08b3b34ddbcc16a",
+      "sha256": "1208be1839b27c150c6f80f5c159fc2697abb93f7338d6b6cd362af503ee139a"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -424,9 +424,15 @@
       {
         "id": "bounded-reviewed-answer-attributions",
         "kind": "bounded-alternative",
-        "operations": ["admin.listGuestAnswerAttributions"],
-        "surfaces": ["tool:torchiko.quality.list_answer_attributions"],
-        "decision": "An authorized review worker can read bounded, exact-venue, append-only evaluator-attributed claim evidence. The tool exposes no visitor identity or location and grants no annotation write, quality threshold, release decision, publication, or operational mutation authority.",
+        "operations": [
+          "admin.listGuestAnswerAttributions",
+          "admin.previewGuestAnswerAttributionAgreement"
+        ],
+        "surfaces": [
+          "tool:torchiko.quality.list_answer_attributions",
+          "tool:torchiko.quality.preview_answer_attribution_agreement"
+        ],
+        "decision": "An authorized review worker can read bounded, exact-venue, append-only evaluator-attributed claim evidence and deterministic independent-reviewer agreement. The tools expose no visitor identity or location and grant no annotation write, quality threshold, release decision, publication, or operational mutation authority.",
         "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
