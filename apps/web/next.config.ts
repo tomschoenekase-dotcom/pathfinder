@@ -25,6 +25,9 @@ const nextConfig: NextConfig = {
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
+  outputFileTracingIncludes: {
+    '/**': ['../../node_modules/.pnpm/meriyah@*/node_modules/meriyah/**/*'],
+  },
   async headers() {
     return [
       {

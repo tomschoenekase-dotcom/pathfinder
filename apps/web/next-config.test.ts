@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import nextConfig from './next.config'
 
+describe('standalone runtime tracing', () => {
+  it('retains the parser used by the externalized observability transformer', () => {
+    expect(nextConfig.outputFileTracingIncludes?.['/**']).toContain(
+      '../../node_modules/.pnpm/meriyah@*/node_modules/meriyah/**/*',
+    )
+  })
+})
+
 describe('embed response headers', () => {
   it('leaves dynamic framing to middleware while retaining crawler denial', async () => {
     expect(nextConfig.headers).toBeTypeOf('function')

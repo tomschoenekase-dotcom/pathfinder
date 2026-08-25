@@ -26,7 +26,10 @@ const nextConfig: NextConfig = {
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   outputFileTracingIncludes: {
-    '/**': ['../../node_modules/.pnpm/@prisma+client*/**/*.node'],
+    '/**': [
+      '../../node_modules/.pnpm/@prisma+client*/**/*.node',
+      '../../node_modules/.pnpm/meriyah@*/node_modules/meriyah/**/*',
+    ],
   },
 }
 
