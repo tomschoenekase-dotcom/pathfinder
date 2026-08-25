@@ -10,6 +10,11 @@ import {
 
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
+import {
+  previewSemanticVenueUpdateFromProposal,
+  SemanticVenueUpdaterError,
+} from '../../lib/semantic-venue-updater-service'
 import { adminSupportCorrectionProposalsRouter } from './support-knowledge-proposals'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
@@ -19,6 +24,46 @@ function isUniqueConflict(error: unknown) {
 }
 
 const adminKnowledgeProposalReviewRouter = router({
+  previewSemanticVenueUpdate: adminProcedure
+    .input(
+      z
+        .object({
+          ...scope,
+          proposalId: z.string().uuid(),
+          expectedUpdatedAt: z.coerce.date(),
+          relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
+          desired: SemanticUpdaterDesiredKnowledge,
+          validFrom: z.string().datetime().optional(),
+          validUntil: z.string().datetime().optional(),
+          operationalUpdateType: z
+            .enum([
+              'GENERAL_NOTICE',
+              'TEMPORARY_CLOSURE',
+              'UNAVAILABLE_EXHIBIT',
+              'CHANGED_HOURS',
+              'MAINTENANCE',
+              'SPECIAL_EVENT',
+              'SOLD_OUT_ACTIVITY',
+              'TEMPORARY_VENDOR_LOCATION',
+            ])
+            .optional(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await previewSemanticVenueUpdateFromProposal({ db: ctx.db, ...input })
+      } catch (error) {
+        if (error instanceof SemanticVenueUpdaterError) {
+          throw new TRPCError({
+            code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
+
   listKnowledgeProposals: adminProcedure
     .input(
       z

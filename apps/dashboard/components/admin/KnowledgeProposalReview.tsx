@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { SemanticUpdatePreview } from './SemanticUpdatePreview'
 
 export type KnowledgeProposal = {
   id: string
@@ -221,6 +222,15 @@ export function KnowledgeProposalReview({
                 <p className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
                   <span className="font-semibold">Review:</span> {proposal.reviewNote}
                 </p>
+              ) : null}
+              {proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
+                <SemanticUpdatePreview
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  proposalId={proposal.id}
+                  proposalUpdatedAt={proposal.updatedAt}
+                  hasTarget={Boolean(proposal.targetKnowledgeEntryId)}
+                />
               ) : null}
             </article>
           ))}
