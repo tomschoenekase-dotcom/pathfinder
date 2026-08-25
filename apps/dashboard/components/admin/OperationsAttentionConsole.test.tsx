@@ -4,6 +4,12 @@ import { cleanup, render, screen } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('../../lib/trpc', () => ({
+  useTRPCClient: () => ({
+    admin: { executeApprovedCustomerInvitation: { mutate: vi.fn() } },
+  }),
+}))
 vi.mock('./OperationalEventActions', () => ({
   OperationalEventActions: () => <span>Event actions</span>,
 }))
