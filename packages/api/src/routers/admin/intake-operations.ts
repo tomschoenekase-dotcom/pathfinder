@@ -29,6 +29,10 @@ import {
   IntakeVenuePackageCandidateError,
 } from '../../lib/intake-venue-package-candidate'
 import { adminProcedure } from '../../trpc'
+import {
+  createWebsiteResearchClarificationQuestions,
+  WebsiteClarificationError,
+} from '../../lib/intake-website-clarifications'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
 const createInput = z.discriminatedUnion('kind', [
@@ -121,6 +125,49 @@ export const adminIntakeOperationsRouter = router({
         return await getIntakeBuilderLifecycle({ db: ctx.db, ...input })
       } catch (error) {
         mapCandidateError(error)
+      }
+    }),
+
+  createWebsiteResearchClarificationQuestions: adminProcedure
+    .input(
+      z
+        .object({
+          ...adminScope,
+          runId: z.string().trim().min(1).max(191),
+          receiptId: z.string().uuid(),
+          expectedResearchHash: z.string().regex(/^[a-f0-9]{64}$/u),
+          discrepancyIds: z.array(z.string().trim().min(1).max(191)).min(1).max(20),
+          agentIdentityId: z.string().trim().min(1).max(191),
+        })
+        .strict()
+        .superRefine((value, context) => {
+          if (new Set(value.discrepancyIds).size !== value.discrepancyIds.length) {
+            context.addIssue({
+              code: 'custom',
+              path: ['discrepancyIds'],
+              message: 'Discrepancy selections must be unique.',
+            })
+          }
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await createWebsiteResearchClarificationQuestions({ db: ctx.db, ...input })
+      } catch (error) {
+        if (error instanceof WebsiteClarificationError) {
+          throw new TRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'CONFLICT'
+                  ? 'CONFLICT'
+                  : error.code === 'INVALID_INPUT'
+                    ? 'BAD_REQUEST'
+                    : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
       }
     }),
 

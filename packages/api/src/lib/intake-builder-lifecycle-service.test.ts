@@ -164,4 +164,112 @@ describe('getIntakeBuilderLifecycle', () => {
       expect.arrayContaining([expect.objectContaining({ code: 'WEBSITE_MAPPING_REQUIRED' })]),
     )
   })
+
+  it('reads durable clarification answers as guidance while keeping mapping blocked', async () => {
+    const researchSnapshot = {
+      schemaVersion: 1,
+      sourceId: 'run-a',
+      pages: [],
+      citations: [
+        {
+          evidenceId: 'evidence-a',
+          fieldPath: 'venue.name',
+          value: 'Example Hall',
+          sourceUrl: 'https://example.org/',
+          locator: 'title',
+          confidence: 0.9,
+          dateSensitive: false,
+          effectiveDate: null,
+        },
+        {
+          evidenceId: 'evidence-b',
+          fieldPath: 'venue.name',
+          value: 'Example Ballroom',
+          sourceUrl: 'https://example.org/about',
+          locator: 'meta title',
+          confidence: 0.7,
+          dateSensitive: false,
+          effectiveDate: null,
+        },
+      ],
+      evidence: [],
+      discrepancies: [
+        {
+          id: 'discrepancy-a',
+          fieldPath: 'venue.name',
+          evidenceIds: ['evidence-a', 'evidence-b'],
+          reason: 'CONTRADICTION',
+        },
+      ],
+    }
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-a',
+      sourceKind: 'WEBSITE',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      websiteResearchReceipts: [
+        {
+          id: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          outcome: 'SUCCEEDED',
+          researchSnapshot,
+          candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+          attemptedFetches: 2,
+          fetchedPages: 2,
+          fetchedBytes: 20,
+          estimatedCostUnits: 3,
+          latencyMs: 50,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+      packageHandoff: null,
+    })
+    const questionFindMany = vi.fn().mockImplementation(({ where }) =>
+      Promise.resolve([
+        {
+          id: 'question-a',
+          operationId: where.operationId.in[0],
+          status: 'ANSWERED',
+          answer: 'Use Example Hall.',
+          agentIdentityId: 'identity-a',
+          updatedAt: new Date('2026-08-25T20:00:00.000Z'),
+        },
+      ]),
+    )
+
+    const result = await getIntakeBuilderLifecycle({
+      db: {
+        intakeRun: { findFirst },
+        agentQuestion: { findMany: questionFindMany },
+        agentIdentity: {
+          findMany: vi.fn().mockResolvedValue([{ id: 'identity-a', name: 'Content' }]),
+        },
+      } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+
+    expect(result.websiteClarificationReview).toMatchObject({
+      answersGrantAuthority: false,
+      clarifications: [
+        {
+          discrepancyId: 'discrepancy-a',
+          question: {
+            id: 'question-a',
+            status: 'ANSWERED',
+            answer: 'Use Example Hall.',
+            answerGuidanceOnly: true,
+          },
+        },
+      ],
+    })
+    expect(result.currentStage).toBe('RECONCILE')
+    expect(result.stages.find(({ stage }) => stage === 'RECONCILE')?.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('guidance only') }),
+        expect.objectContaining({ code: 'WEBSITE_MAPPING_REQUIRED' }),
+      ]),
+    )
+  })
 })

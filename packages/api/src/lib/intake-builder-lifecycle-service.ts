@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import type { TRPCContext } from '../context'
 import { VenuePackageStoredPreview, VenuePackageValidationReport } from '../schemas/venue-package'
 import {
@@ -11,73 +9,38 @@ import {
   buildIntakeVenuePackageCandidate,
   IntakeVenuePackageCandidateError,
 } from './intake-venue-package-candidate'
+import {
+  buildWebsiteClarificationReview,
+  WebsiteClarificationError,
+} from './intake-website-clarifications'
 
 const MAX_WEBSITE_RESEARCH_ATTEMPTS = 4
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
 
 function projectWebsiteCandidate(
   researchSnapshot: unknown,
   candidateSnapshot: unknown,
-  expectedRunId: string,
+  scope: { tenantId: string; venueId: string; runId: string; receiptId: string },
 ) {
-  const research = asRecord(researchSnapshot)
-  const candidateBinding = asRecord(candidateSnapshot)
-  const citations = Array.isArray(research?.citations) ? research.citations : null
-  const discrepancies = Array.isArray(research?.discrepancies) ? research.discrepancies : null
-  const pages = Array.isArray(research?.pages) ? research.pages : null
-  const evidence = Array.isArray(research?.evidence) ? research.evidence : null
-  const citationsValid = citations?.every((raw) => {
-    const citation = asRecord(raw)
-    return Boolean(
-      citation &&
-      typeof citation.evidenceId === 'string' &&
-      typeof citation.fieldPath === 'string' &&
-      typeof citation.value === 'string' &&
-      typeof citation.sourceUrl === 'string' &&
-      typeof citation.locator === 'string' &&
-      typeof citation.confidence === 'number',
-    )
-  })
-  const bindingKind = candidateBinding?.kind
-  if (
-    research?.schemaVersion !== 1 ||
-    research.sourceId !== expectedRunId ||
-    citations === null ||
-    !citationsValid ||
-    discrepancies === null ||
-    pages === null ||
-    evidence === null ||
-    (bindingKind !== 'TYPED_INTERMEDIATE' && bindingKind !== 'VENUE_PACKAGE_DRAFT')
-  ) {
-    return null
+  let review
+  try {
+    review = buildWebsiteClarificationReview({
+      ...scope,
+      researchSnapshot,
+      candidateSnapshot,
+    })
+  } catch (error) {
+    if (error instanceof WebsiteClarificationError) return null
+    throw error
   }
   const issues: IntakeBuilderBlocker[] = []
-  if (citations.length === 0) {
+  if (review.citations.length === 0) {
     issues.push({
       code: 'WEBSITE_NO_FACTS',
       path: 'citations',
       message: 'The bounded crawl retained pages but extracted no cited venue facts.',
     })
   }
-  for (const raw of discrepancies) {
-    const discrepancy = asRecord(raw)
-    if (!discrepancy || typeof discrepancy.fieldPath !== 'string') continue
+  for (const discrepancy of review.clarifications) {
     const dateSensitive = discrepancy.reason === 'DATE_SENSITIVE'
     issues.push({
       code: dateSensitive ? 'WEBSITE_DATE_SENSITIVE_DISCREPANCY' : 'WEBSITE_CONTRADICTION',
@@ -94,10 +57,8 @@ function projectWebsiteCandidate(
   })
   return {
     ready: false,
-    candidateHash: createHash('sha256')
-      .update(stableJson({ researchSnapshot, candidateSnapshot }))
-      .digest('hex'),
-    candidateCount: citations.length,
+    candidateHash: review.researchHash,
+    candidateCount: review.citations.length,
     issues,
   }
 }
@@ -156,6 +117,7 @@ export async function getIntakeBuilderLifecycle(input: {
   }
 
   let candidate: IntakeBuilderLifecycleInput['candidate'] = null
+  let websiteReview: ReturnType<typeof buildWebsiteClarificationReview> | null = null
   if (run.sourceKind === 'STRUCTURED_BOOTSTRAP' || run.sourceKind === 'INTERVIEW') {
     try {
       const built = await buildIntakeVenuePackageCandidate({
@@ -183,15 +145,118 @@ export async function getIntakeBuilderLifecycle(input: {
   }
   const latestWebsiteResearch = run.websiteResearchReceipts[0] ?? null
   if (run.sourceKind === 'WEBSITE' && latestWebsiteResearch?.outcome === 'SUCCEEDED') {
+    try {
+      websiteReview = buildWebsiteClarificationReview({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: run.id,
+        receiptId: latestWebsiteResearch.id,
+        researchSnapshot: latestWebsiteResearch.researchSnapshot,
+        candidateSnapshot: latestWebsiteResearch.candidateSnapshot,
+      })
+    } catch (error) {
+      if (!(error instanceof WebsiteClarificationError)) throw error
+    }
     candidate = projectWebsiteCandidate(
       latestWebsiteResearch.researchSnapshot,
       latestWebsiteResearch.candidateSnapshot,
-      run.id,
+      {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: run.id,
+        receiptId: latestWebsiteResearch.id,
+      },
     )
   }
 
+  const clarificationOperationIds =
+    websiteReview?.clarifications.map(({ operationId }) => operationId) ?? []
+  const [storedQuestions, clarificationIdentities] =
+    clarificationOperationIds.length > 0
+      ? await Promise.all([
+          input.db.agentQuestion.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              operationId: { in: clarificationOperationIds },
+            },
+            select: {
+              id: true,
+              operationId: true,
+              status: true,
+              answer: true,
+              agentIdentityId: true,
+              updatedAt: true,
+            },
+          }),
+          input.db.agentIdentity.findMany({
+            where: {
+              tenantId: input.tenantId,
+              enabled: true,
+              agentType: 'CONTENT',
+              accessCapabilities: { has: 'content.draft' },
+              OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
+            },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            select: { id: true, name: true },
+          }),
+        ])
+      : [[], []]
+  const questionByOperationId = new Map(
+    storedQuestions.map((question) => [question.operationId, question]),
+  )
+  const websiteClarifications =
+    websiteReview?.clarifications.map((clarification) => {
+      const question = questionByOperationId.get(clarification.operationId)
+      return {
+        discrepancyId: clarification.discrepancyId,
+        fieldPath: clarification.fieldPath,
+        reason: clarification.reason,
+        evidence: clarification.evidence,
+        proposedAnswer: clarification.proposedAnswer,
+        question: question
+          ? {
+              id: question.id,
+              status: question.status,
+              answer: question.answer,
+              agentIdentityId: question.agentIdentityId,
+              updatedAt: question.updatedAt,
+              answerGuidanceOnly: true as const,
+            }
+          : null,
+      }
+    }) ?? []
+  if (candidate && websiteReview) {
+    candidate = {
+      ...candidate,
+      issues: [
+        ...websiteClarifications.map((clarification) => ({
+          code:
+            clarification.reason === 'DATE_SENSITIVE'
+              ? 'WEBSITE_DATE_SENSITIVE_DISCREPANCY'
+              : 'WEBSITE_CONTRADICTION',
+          path: clarification.fieldPath,
+          message:
+            clarification.question === null
+              ? `Founder/admin clarification is required for ${clarification.fieldPath}.`
+              : clarification.question.status === 'PENDING'
+                ? `Founder/admin clarification is pending for ${clarification.fieldPath}.`
+                : clarification.question.status === 'ANSWERED'
+                  ? `Clarification for ${clarification.fieldPath} is guidance only; explicit mapping review is still required.`
+                  : `Clarification for ${clarification.fieldPath} remains unresolved (${clarification.question.status.toLowerCase()}).`,
+        })),
+        {
+          code: 'WEBSITE_MAPPING_REQUIRED',
+          path: 'candidate',
+          message:
+            'Cited website facts require an explicit reviewed mapping into a Venue Package draft.',
+        },
+      ],
+    }
+  }
+
   const draft = run.packageHandoff?.packageDraft
-  return projectIntakeBuilderLifecycle({
+  const lifecycle = projectIntakeBuilderLifecycle({
     runId: run.id,
     sourceKind: run.sourceKind,
     runStatus: run.status,
@@ -228,4 +293,16 @@ export async function getIntakeBuilderLifecycle(input: {
         }
       : null,
   })
+  return {
+    ...lifecycle,
+    websiteClarificationReview: websiteReview
+      ? {
+          receiptId: latestWebsiteResearch!.id,
+          researchHash: websiteReview.researchHash,
+          clarifications: websiteClarifications,
+          eligibleIdentities: clarificationIdentities,
+          answersGrantAuthority: false as const,
+        }
+      : null,
+  }
 }

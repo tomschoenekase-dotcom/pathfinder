@@ -39,6 +39,9 @@ export function IntakeBuilderLifecyclePanel({
   const [busy, setBusy] = useState(false)
   const [researchBusy, setResearchBusy] = useState(false)
   const [researchError, setResearchError] = useState<string | null>(null)
+  const [clarificationBusy, setClarificationBusy] = useState(false)
+  const [clarificationError, setClarificationError] = useState<string | null>(null)
+  const [clarificationIdentityId, setClarificationIdentityId] = useState('')
   const sequence = useRef(0)
   const researchOperationId = useRef<string | null>(null)
 
@@ -49,6 +52,9 @@ export function IntakeBuilderLifecyclePanel({
     setBusy(false)
     setResearchBusy(false)
     setResearchError(null)
+    setClarificationBusy(false)
+    setClarificationError(null)
+    setClarificationIdentityId('')
     researchOperationId.current = null
   }, [runId, tenantId, venueId])
 
@@ -62,13 +68,48 @@ export function IntakeBuilderLifecyclePanel({
         venueId,
         runId,
       })
-      if (request === sequence.current) setLifecycle(result)
+      if (request === sequence.current) {
+        setLifecycle(result)
+        setClarificationIdentityId(
+          (current) =>
+            current || result.websiteClarificationReview?.eligibleIdentities[0]?.id || '',
+        )
+      }
     } catch (cause) {
       if (request === sequence.current) {
         setError(cause instanceof Error ? cause.message : 'Builder lifecycle is unavailable.')
       }
     } finally {
       if (request === sequence.current) setBusy(false)
+    }
+  }
+
+  async function createClarificationQuestions() {
+    const review = lifecycle?.websiteClarificationReview
+    if (!review || !clarificationIdentityId || clarificationBusy) return
+    const discrepancyIds = review.clarifications
+      .filter(({ question }) => question === null)
+      .map(({ discrepancyId }) => discrepancyId)
+    if (discrepancyIds.length === 0) return
+    setClarificationBusy(true)
+    setClarificationError(null)
+    try {
+      await client.admin.createWebsiteResearchClarificationQuestions.mutate({
+        tenantId,
+        venueId,
+        runId,
+        receiptId: review.receiptId,
+        expectedResearchHash: review.researchHash,
+        discrepancyIds,
+        agentIdentityId: clarificationIdentityId,
+      })
+      await load()
+    } catch (cause) {
+      setClarificationError(
+        cause instanceof Error ? cause.message : 'Clarification questions could not be retained.',
+      )
+    } finally {
+      setClarificationBusy(false)
     }
   }
 
@@ -125,6 +166,11 @@ export function IntakeBuilderLifecyclePanel({
       onRunWebsiteResearch={() => void runWebsiteResearch()}
       researchBusy={researchBusy}
       researchError={researchError}
+      clarificationBusy={clarificationBusy}
+      clarificationError={clarificationError}
+      clarificationIdentityId={clarificationIdentityId}
+      onClarificationIdentityChange={setClarificationIdentityId}
+      onCreateClarificationQuestions={() => void createClarificationQuestions()}
     />
   )
 }
@@ -134,11 +180,21 @@ export function IntakeBuilderLifecycleView({
   onRunWebsiteResearch,
   researchBusy = false,
   researchError = null,
+  clarificationBusy = false,
+  clarificationError = null,
+  clarificationIdentityId = '',
+  onClarificationIdentityChange,
+  onCreateClarificationQuestions,
 }: {
   lifecycle: Lifecycle
   onRunWebsiteResearch?: () => void
   researchBusy?: boolean
   researchError?: string | null
+  clarificationBusy?: boolean
+  clarificationError?: string | null
+  clarificationIdentityId?: string
+  onClarificationIdentityChange?: (identityId: string) => void
+  onCreateClarificationQuestions?: () => void
 }) {
   const active = lifecycle.stages.find(({ stage }) => stage === lifecycle.currentStage)!
   return (
@@ -240,6 +296,100 @@ export function IntakeBuilderLifecycleView({
         <p className="mt-3 text-sm text-rose-700" role="alert">
           {researchError}
         </p>
+      ) : null}
+
+      {lifecycle.websiteClarificationReview ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-white p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-950">Founder clarification queue</p>
+              <p className="mt-1 max-w-2xl text-xs text-amber-900/75">
+                Public website claims are evidence, not venue truth. Answers guide a later explicit
+                mapping review and cannot create a package, approve, apply, publish, or contact the
+                venue.
+              </p>
+            </div>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">
+              {lifecycle.websiteClarificationReview.clarifications.length} discrepancy
+              {lifecycle.websiteClarificationReview.clarifications.length === 1 ? '' : 'ies'}
+            </span>
+          </div>
+
+          <ul className="mt-3 space-y-3">
+            {lifecycle.websiteClarificationReview.clarifications.map((clarification) => (
+              <li
+                key={clarification.discrepancyId}
+                className="rounded-lg border border-slate-200 p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="break-all text-sm font-semibold text-pf-deep">
+                    {clarification.fieldPath}
+                  </p>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-pf-deep/70">
+                    {clarification.question?.status.toLowerCase() ?? 'not queued'}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-pf-deep/60">
+                  {clarification.reason.replaceAll('_', ' ').toLowerCase()}
+                </p>
+                <ul className="mt-2 space-y-1 text-xs text-pf-deep/75">
+                  {clarification.evidence.map((evidence) => (
+                    <li key={`${evidence.reference}:${evidence.summary}`}>
+                      <a
+                        href={evidence.reference}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-pf-primary underline decoration-pf-primary/30 underline-offset-2"
+                      >
+                        {evidence.label}
+                      </a>
+                      {evidence.summary ? ` · ${evidence.summary}` : ''}
+                    </li>
+                  ))}
+                </ul>
+                {clarification.question?.status === 'ANSWERED' ? (
+                  <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
+                    Answer retained as guidance only: {clarification.question.answer}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+
+          {onCreateClarificationQuestions &&
+          lifecycle.websiteClarificationReview.clarifications.some(({ question }) => !question) ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="flex-1 text-xs font-medium text-pf-deep">
+                Content identity
+                <select
+                  value={clarificationIdentityId}
+                  onChange={(event) => onClarificationIdentityChange?.(event.target.value)}
+                  className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                >
+                  <option value="">Choose an in-scope identity</option>
+                  {lifecycle.websiteClarificationReview.eligibleIdentities.map((identity) => (
+                    <option key={identity.id} value={identity.id}>
+                      {identity.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={clarificationBusy || !clarificationIdentityId}
+                onClick={onCreateClarificationQuestions}
+                className="min-h-11 rounded-full bg-amber-700 px-5 text-sm font-semibold text-white transition-colors hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+              >
+                {clarificationBusy ? 'Retaining questions…' : 'Queue founder clarification'}
+              </button>
+            </div>
+          ) : null}
+          {clarificationError ? (
+            <p className="mt-2 text-sm text-rose-700" role="alert">
+              {clarificationError}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <p className="mt-3 text-xs text-pf-deep/60">
