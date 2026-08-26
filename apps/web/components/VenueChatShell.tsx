@@ -204,6 +204,7 @@ export function VenueChatShell(props: {
             permission={location.permission}
             onRefresh={location.refresh}
             show={venue.guideMode !== 'non_location'}
+            language={language}
           />
         </div>
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
@@ -223,6 +224,7 @@ export function VenueChatShell(props: {
           )}
           <ChatWindow
             messages={messages}
+            language={language}
             assistantLabel={guideName}
             onSend={onSend}
             {...(onRequestMore ? { onRequestMore } : {})}

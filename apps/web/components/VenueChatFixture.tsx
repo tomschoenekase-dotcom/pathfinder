@@ -4,6 +4,7 @@ import type {
   CharacterState,
   PublicCharacterProjection,
 } from '@pathfinder/contracts/character-system'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { TRPCProvider } from '../lib/trpc'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
@@ -202,6 +203,7 @@ export function VenueChatFixture({
   voice = 'none',
   network = 'online',
   route = 'none',
+  language = 'English',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -211,6 +213,7 @@ export function VenueChatFixture({
   voice?: VisitorFixtureVoice
   network?: NetworkConnectionState
   route?: VisitorFixtureRoute
+  language?: SupportedChatLanguage
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -232,7 +235,7 @@ export function VenueChatFixture({
           isSending={state === 'thinking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
-          language="English"
+          language={language}
           setLanguage={() => undefined}
           initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
           characterState={state}
@@ -273,6 +276,7 @@ export function VenueChatFixture({
                 venueId="fixture-great-lakes-museum"
                 anonymousToken="123e4567-e89b-42d3-a456-426614174000"
                 dataSource={FIXTURE_ROUTE_SOURCE}
+                language={language}
               />
             ) : null
           }

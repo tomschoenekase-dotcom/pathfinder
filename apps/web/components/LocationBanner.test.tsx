@@ -25,6 +25,15 @@ describe('LocationBanner', () => {
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 
+  it('uses the selected language and direction for location consent', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} language="العربية" />)
+
+    const action = screen.getByRole('button', { name: 'مشاركة الموقع' })
+    expect(action).toBeTruthy()
+    expect(action.closest('section')?.getAttribute('lang')).toBe('ar')
+    expect(action.closest('section')?.getAttribute('dir')).toBe('rtl')
+  })
+
   it.each([
     { permission: 'granted' as const, show: true },
     { permission: 'prompt' as const, show: false },

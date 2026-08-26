@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
@@ -39,6 +40,7 @@ type ChatWindowProps = {
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   isOnline?: boolean
+  language?: SupportedChatLanguage
 }
 
 export function ChatWindow({
@@ -63,6 +65,7 @@ export function ChatWindow({
   onVisitorAction,
   onMessageFeedback,
   isOnline = true,
+  language = 'English',
 }: ChatWindowProps) {
   const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
@@ -165,6 +168,7 @@ export function ChatWindow({
               role={message.role}
               content={message.content}
               assistantLabel={assistantLabel}
+              language={language}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}

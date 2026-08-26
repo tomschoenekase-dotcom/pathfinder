@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type {
   GuestResponseBlock,
   GuestResponsePlace,
@@ -23,6 +24,7 @@ type MessageBubbleProps = {
   onVisitorAction?: (action: GuestVisitorAction) => void
   messageId?: string
   onFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
+  language?: SupportedChatLanguage
 }
 
 export function MessageBubble({
@@ -40,6 +42,7 @@ export function MessageBubble({
   onVisitorAction,
   messageId,
   onFeedback,
+  language = 'English',
 }: MessageBubbleProps) {
   const isUser = role === 'user'
   const speaker = isUser ? 'You' : assistantLabel
@@ -80,6 +83,7 @@ export function MessageBubble({
         ) : (
           <ResponseRenderer
             content={content}
+            language={language}
             {...(blocks ? { blocks } : {})}
             {...(places ? { places } : {})}
             {...(onPlaceCardClick ? { onPlaceCardClick } : {})}

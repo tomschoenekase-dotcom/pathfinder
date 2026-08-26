@@ -1,5 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import { Info, MapPin, Navigation } from 'lucide-react'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
 
 type PlaceCardProps = {
   id: string
@@ -15,6 +19,7 @@ type PlaceCardProps = {
   onCardClick?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onView?: (placeId: string) => void
+  language?: SupportedChatLanguage
 }
 
 function formatDistance(meters: number): string {
@@ -38,7 +43,11 @@ export function PlaceCard({
   onCardClick,
   onDirectionsClick,
   onView,
+  language = 'English',
 }: PlaceCardProps) {
+  const { place: copy } = getVisitorUiCopy(language)
+  const [showDetails, hideDetails, areaLabel, hoursLabel, directionsTo] = copy
+  const presentation = getChatLanguagePresentation(language)
   const [isExpanded, setIsExpanded] = useState(false)
   const titleId = useId()
   const detailsId = useId()
@@ -63,6 +72,8 @@ export function PlaceCard({
   return (
     <article
       aria-labelledby={titleId}
+      lang={presentation.code}
+      dir={presentation.direction}
       className="overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm transition hover:border-[var(--chat-accent)]/40 hover:shadow-md"
     >
       {photoUrl ? (
@@ -119,7 +130,7 @@ export function PlaceCard({
               })
             }}
           >
-            {isExpanded ? `Hide details for ${name}` : `Show details for ${name}`}
+            {isExpanded ? `${hideDetails} ${name}` : `${showDetails} ${name}`}
           </button>
         ) : null}
 
@@ -131,12 +142,13 @@ export function PlaceCard({
             {shortDescription ? <p>{shortDescription}</p> : null}
             {areaName ? (
               <p>
-                <span className="font-semibold text-[var(--chat-text)]">Area:</span> {areaName}
+                <span className="font-semibold text-[var(--chat-text)]">{areaLabel}:</span>{' '}
+                {areaName}
               </p>
             ) : null}
             {hours ? (
               <p>
-                <span className="font-semibold text-[var(--chat-text)]">Hours:</span> {hours}
+                <span className="font-semibold text-[var(--chat-text)]">{hoursLabel}:</span> {hours}
               </p>
             ) : null}
           </div>
@@ -145,7 +157,7 @@ export function PlaceCard({
         {directionsUrl ? (
           <a
             href={directionsUrl}
-            aria-label={`Get directions to ${name}`}
+            aria-label={`${directionsTo} ${name}`}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
@@ -155,7 +167,7 @@ export function PlaceCard({
             }}
           >
             <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
-            Get directions
+            {directionsTo.replace(/\s(?:to|a|vers|zu|per|para|：|إلى)$/u, '')}
           </a>
         ) : null}
       </div>

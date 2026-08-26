@@ -78,4 +78,28 @@ describe('PlaceCard', () => {
     )
     expect(screen.queryByRole('link', { name: 'Get directions to Elephant House' })).toBeNull()
   })
+
+  it('localizes place controls and marks right-to-left content', () => {
+    render(
+      <PlaceCard
+        id="place_1"
+        name="المعرض الشرقي"
+        type="EXHIBIT"
+        photoUrl={null}
+        shortDescription="وصف موجز"
+        areaName="الطابق الأول"
+        hours="٩–٥"
+        distanceMeters={undefined}
+        lat={null}
+        lng={null}
+        language="العربية"
+      />,
+    )
+
+    const details = screen.getByRole('button', { name: 'عرض تفاصيل المعرض الشرقي' })
+    expect(details.closest('article')?.getAttribute('dir')).toBe('rtl')
+    fireEvent.click(details)
+    expect(screen.getByText('المنطقة:')).toBeTruthy()
+    expect(screen.getByText('الساعات:')).toBeTruthy()
+  })
 })

@@ -570,6 +570,7 @@ export function VenueChatExperience({
             venueId={venue.id}
             anonymousToken={sessionId ? anonymousToken : null}
             disabled={!isOnline || isSending}
+            language={language}
           />
         ) : null
       }

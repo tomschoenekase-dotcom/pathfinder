@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 
 import {
   VenueChatFixture,
@@ -44,6 +45,7 @@ export default async function VisitorChatVisualFixture({
     voice?: string | string[]
     network?: string | string[]
     route?: string | string[]
+    language?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -57,6 +59,11 @@ export default async function VisitorChatVisualFixture({
   const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
   const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
+  const language = oneOf(
+    params.language,
+    SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
+    'English',
+  )
 
   return (
     <VenueChatFixture
@@ -68,6 +75,7 @@ export default async function VisitorChatVisualFixture({
       voice={voice satisfies VisitorFixtureVoice}
       network={network}
       route={route satisfies VisitorFixtureRoute}
+      language={language}
     />
   )
 }

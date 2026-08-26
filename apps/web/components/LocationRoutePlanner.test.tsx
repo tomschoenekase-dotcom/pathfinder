@@ -117,6 +117,23 @@ describe('LocationRoutePlanner', () => {
     )
   })
 
+  it('localizes route controls and errors without translating venue-owned names', async () => {
+    routeQuery.mockRejectedValue(new Error('not found'))
+    render(
+      <LocationRoutePlanner
+        venueId="venue-1"
+        anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+        language="Español"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Planificar una ruta' }))
+    expect(screen.getByLabelText('Inicio')).toBeTruthy()
+    expect(screen.getAllByText('Main entrance — Ground floor')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar ruta' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('No hay una ruta revisada')
+  })
+
   it('has no automated accessibility violations in the expanded route form', async () => {
     const { container } = render(
       <LocationRoutePlanner

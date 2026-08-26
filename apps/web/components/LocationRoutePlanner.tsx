@@ -3,8 +3,11 @@
 import React, { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { useTRPCClient } from '../lib/trpc'
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type LocationCatalog = RouterOutputs['location']['catalog']['locations']
@@ -32,12 +35,28 @@ export function LocationRoutePlanner({
   anonymousToken,
   disabled = false,
   dataSource,
+  language = 'English',
 }: {
   venueId: string
   anonymousToken: string | null
   disabled?: boolean
   dataSource?: LocationRoutePlannerDataSource
+  language?: SupportedChatLanguage
 }) {
+  const { route: copy } = getVisitorUiCopy(language)
+  const [
+    toggleLabel,
+    startLabel,
+    destinationLabel,
+    accessibleOnlyLabel,
+    findingLabel,
+    findLabel,
+    chooseDifferentLabel,
+    noAccessibleRouteMessage,
+    noRouteMessage,
+    accessibleNote,
+  ] = copy
+  const presentation = getChatLanguagePresentation(language)
   const client = useTRPCClient()
   const source = useMemo<LocationRoutePlannerDataSource>(
     () =>
@@ -104,18 +123,18 @@ export function LocationRoutePlanner({
       if (generation === requestGeneration.current) setRoute(result)
     } catch {
       if (generation === requestGeneration.current)
-        setError(
-          accessibleOnly
-            ? 'No reviewed accessible route is available between those locations.'
-            : 'No reviewed route is available between those locations.',
-        )
+        setError(accessibleOnly ? noAccessibleRouteMessage : noRouteMessage)
     } finally {
       if (generation === requestGeneration.current) setIsRouting(false)
     }
   }
 
   return (
-    <section className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] text-[var(--chat-text)]">
+    <section
+      lang={presentation.code}
+      dir={presentation.direction}
+      className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] text-[var(--chat-text)]"
+    >
       <button
         type="button"
         className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold"
@@ -123,7 +142,7 @@ export function LocationRoutePlanner({
         onClick={() => setExpanded((value) => !value)}
         disabled={disabled}
       >
-        <span>Plan a route</span>
+        <span>{toggleLabel}</span>
         <span aria-hidden="true">{expanded ? '−' : '+'}</span>
       </button>
       {expanded ? (
@@ -133,7 +152,7 @@ export function LocationRoutePlanner({
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-[var(--chat-text-muted)]">
-              Start
+              {startLabel}
               <select
                 className="mt-1 min-h-11 w-full rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 text-sm text-[var(--chat-text)]"
                 value={fromLocationId}
@@ -152,7 +171,7 @@ export function LocationRoutePlanner({
               </select>
             </label>
             <label className="text-xs font-medium text-[var(--chat-text-muted)]">
-              Destination
+              {destinationLabel}
               <select
                 className="mt-1 min-h-11 w-full rounded-xl border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3 text-sm text-[var(--chat-text)]"
                 value={toLocationId}
@@ -181,18 +200,18 @@ export function LocationRoutePlanner({
                 setError(null)
               }}
             />
-            Use only connections marked accessible
+            {accessibleOnlyLabel}
           </label>
           <button
             type="submit"
             className="mt-2 min-h-11 w-full rounded-xl bg-[var(--chat-accent)] px-4 text-sm font-semibold text-[var(--chat-accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled || isRouting || fromLocationId === toLocationId}
           >
-            {isRouting ? 'Finding route…' : 'Find route'}
+            {isRouting ? findingLabel : findLabel}
           </button>
           {fromLocationId === toLocationId ? (
             <p className="mt-2 text-sm text-[var(--chat-text-muted)]" role="status">
-              Choose two different locations.
+              {chooseDifferentLabel}
             </p>
           ) : null}
           {error ? (
@@ -203,13 +222,12 @@ export function LocationRoutePlanner({
           {route ? (
             <div className="mt-4" aria-live="polite">
               <p className="text-sm font-semibold">
-                {route.from.displayName} to {route.to.displayName}
+                {language === 'English'
+                  ? `${route.from.displayName} to ${route.to.displayName}`
+                  : `${route.from.displayName} → ${route.to.displayName}`}
               </p>
               {route.accessibleOnly ? (
-                <p className="mt-1 text-xs text-[var(--chat-text-muted)]">
-                  Uses only connections the venue marked accessible. Confirm critical access needs
-                  with venue staff.
-                </p>
+                <p className="mt-1 text-xs text-[var(--chat-text-muted)]">{accessibleNote}</p>
               ) : null}
               <ol className="mt-3 space-y-2">
                 {route.segments.map((segment, index) => (
