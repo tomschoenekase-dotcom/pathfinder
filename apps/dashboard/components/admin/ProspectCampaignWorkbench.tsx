@@ -20,17 +20,21 @@ type Campaign = Awaited<
 type Readiness = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectOutreachReadiness']['query']>
 >
+type Rehearsal = Awaited<
+  ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectNoSendRehearsal']['query']>
+>
 
 export function ProspectCampaignWorkbench({
   campaignId,
   fixture,
 }: {
   campaignId: string
-  fixture?: { campaign: Campaign; readiness: Readiness }
+  fixture?: { campaign: Campaign; readiness: Readiness; rehearsal?: Rehearsal }
 }) {
   const client = useTRPCClient()
   const [campaign, setCampaign] = useState<Campaign | null>(fixture?.campaign ?? null)
   const [readiness, setReadiness] = useState<Readiness | null>(fixture?.readiness ?? null)
+  const [rehearsal, setRehearsal] = useState<Rehearsal | null>(fixture?.rehearsal ?? null)
   const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set())
   const [editingMember, setEditingMember] = useState<string | null>(null)
   const [subject, setSubject] = useState('')
@@ -47,12 +51,14 @@ export function ProspectCampaignWorkbench({
 
   const refresh = useCallback(async () => {
     if (fixture) return
-    const [next, ready] = await Promise.all([
+    const [next, ready, noSendRehearsal] = await Promise.all([
       client.admin.getProspectCampaign.query({ campaignId }),
       client.admin.getProspectOutreachReadiness.query(),
+      client.admin.getProspectNoSendRehearsal.query({ campaignId }),
     ])
     setCampaign(next)
     setReadiness(ready)
+    setRehearsal(noSendRehearsal)
   }, [campaignId, client, fixture])
   useEffect(() => {
     void refresh()
@@ -235,6 +241,94 @@ export function ProspectCampaignWorkbench({
         >
           {notice}
         </div>
+      ) : null}
+
+      {rehearsal ? (
+        <section
+          className={`rounded-2xl border p-5 shadow-sm ${
+            rehearsal.readyForHumanReview
+              ? 'border-emerald-300 bg-emerald-50'
+              : 'border-amber-300 bg-amber-50'
+          }`}
+          aria-labelledby="no-send-rehearsal-heading"
+        >
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div className="flex gap-3">
+              {rehearsal.readyForHumanReview ? (
+                <CheckCircle2
+                  className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700"
+                  aria-hidden="true"
+                />
+              ) : (
+                <AlertTriangle
+                  className="mt-0.5 h-5 w-5 shrink-0 text-amber-800"
+                  aria-hidden="true"
+                />
+              )}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-600">
+                  Zero-send safety proof
+                </p>
+                <h2 id="no-send-rehearsal-heading" className="mt-1 font-semibold text-slate-950">
+                  {rehearsal.readyForHumanReview
+                    ? 'Ready for human review — never ready to send'
+                    : 'No-send rehearsal found blockers'}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-700">
+                  This read-only rehearsal made {rehearsal.safety.providerCallsMade} provider calls
+                  and cost ${rehearsal.safety.estimatedProviderCostUsd.toFixed(2)}. It cannot draft,
+                  approve, queue, or release a message.
+                </p>
+              </div>
+            </div>
+            <span className="self-start rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+              {rehearsal.outcome.replaceAll('_', ' ')}
+            </span>
+          </div>
+
+          <dl className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ['Delivery', rehearsal.safety.deliveryDark ? 'Dark' : 'Enabled'],
+              ['Scope', rehearsal.safety.internalOnly ? 'Internal only' : 'External allowed'],
+              ['Contacts', `${rehearsal.cohort.memberCount} of ${rehearsal.cohort.maxCohort}`],
+              ['Frozen recipients', String(rehearsal.frozenSnapshots.recipientCount)],
+              ['Unsafe contacts', String(rehearsal.cohort.unsafeMemberCount)],
+              ['Missing provenance', String(rehearsal.cohort.missingProvenanceCount)],
+              ['Duplicate identities', String(rehearsal.frozenSnapshots.duplicateIdentityCount)],
+              ['Drafts needing review', String(rehearsal.review.draftsNeedingReviewCount)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-black/5 bg-white/80 px-3 py-2.5">
+                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  {label}
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-slate-950">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {rehearsal.blockers.length ? (
+            <div className="mt-4">
+              <p className="text-xs font-bold text-amber-950">Resolve before human review:</p>
+              <ul className="mt-2 flex flex-wrap gap-2" aria-label="No-send rehearsal blockers">
+                {rehearsal.blockers.map((blocker) => (
+                  <li
+                    key={blocker}
+                    className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200"
+                  >
+                    {blocker.replaceAll('_', ' ').toLowerCase()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <p className="mt-4 text-xs text-slate-600">
+            Emergency stop:{' '}
+            {rehearsal.safety.emergencyStopDirection.toLowerCase().replace('_', ' ')}. Open
+            organization duplicate candidates: {rehearsal.cohort.openOrganizationDuplicateCount}.
+            Provider account not required for this rehearsal.
+          </p>
+        </section>
       ) : null}
 
       <section

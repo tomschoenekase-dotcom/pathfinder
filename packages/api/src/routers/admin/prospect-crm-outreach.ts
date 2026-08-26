@@ -25,6 +25,7 @@ import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospec
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
+import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const id = z.string().min(1).max(191)
@@ -297,6 +298,17 @@ export const adminProspectCrmOutreachRouter = router({
   getProspectOutreachReadiness: adminProcedure
     .use(requireCrmProspectOutreach)
     .query(() => withTenantIsolationBypass(() => getProspectOutreachReadinessProjection())),
+
+  getProspectNoSendRehearsal: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ campaignId: id }).strict())
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const rehearsal = await getProspectNoSendRehearsalProjection(input.campaignId)
+        if (!rehearsal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found' })
+        return rehearsal
+      }),
+    ),
 
   emergencyStopProspectDelivery: adminProcedure
     .use(requireCrmProspectOutreach)

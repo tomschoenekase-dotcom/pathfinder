@@ -45,6 +45,59 @@ const readiness = {
   },
 }
 
+const rehearsal = {
+  campaignId: 'campaign-fixture',
+  generatedAt: now,
+  mode: 'NO_SEND_REHEARSAL',
+  outcome: 'READY_FOR_HUMAN_REVIEW',
+  readyForHumanReview: true,
+  readyToSend: false,
+  blockers: [],
+  safety: {
+    deliveryDark: true,
+    processDeliveryEnabled: false,
+    globalDeliveryEnabled: false,
+    internalOnly: true,
+    emergencyStopAvailable: true,
+    emergencyStopDirection: 'DISABLE_ONLY',
+    providerRequired: false,
+    providerCallsMade: 0,
+    estimatedProviderCostUsd: 0,
+  },
+  cohort: {
+    memberCount: 2,
+    maxCohort: 5000,
+    maxBatch: 500,
+    bounded: true,
+    unsafeMemberCount: 0,
+    missingProvenanceCount: 0,
+    duplicateMemberEmailCount: 0,
+    openOrganizationDuplicateCount: 0,
+  },
+  review: {
+    missingDraftCount: 0,
+    draftsNeedingReviewCount: 1,
+    approvedDraftCount: 1,
+    approvalEvidenceMissingCount: 0,
+  },
+  frozenSnapshots: {
+    activeBatchCount: 1,
+    recipientCount: 1,
+    invalidBatchCount: 0,
+    duplicateEmailCount: 0,
+    duplicateIdentityCount: 0,
+    identities: [
+      {
+        batchId: 'batch-1',
+        status: 'APPROVED',
+        recipientCount: 1,
+        snapshotHash: 'c'.repeat(64),
+      },
+    ],
+  },
+  campaign: { status: 'DRAFT', paused: false },
+}
+
 const campaign = {
   id: 'campaign-fixture',
   name: 'Chicago museums · August',
@@ -323,7 +376,11 @@ export default async function ProspectCrmFixture({
           ) : (
             <ProspectCampaignWorkbench
               campaignId="campaign-fixture"
-              fixture={{ campaign: campaign as never, readiness: readiness as never }}
+              fixture={{
+                campaign: campaign as never,
+                readiness: readiness as never,
+                rehearsal: rehearsal as never,
+              }}
             />
           )}
         </div>
