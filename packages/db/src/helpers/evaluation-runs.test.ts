@@ -57,12 +57,12 @@ describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v8')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v9')
     expect(GUEST_CHAT_PROMPT_CONTRACT_HASH).toBe(
-      'c4178f9c4200c7e27c959d16f5dcfdbacc1f8172c70b2210fd03159eb03d144d',
+      '9243a01c585a472c98134cc99b585cb95de64a683f77348468d6391a8081d183',
     )
     expect(evaluationRunIdentityHash(identity())).toBe(
-      '1107323174a2feb846f6669f5f708b11d154a369a723af7319ad34fb3ceaa164',
+      'e223ec6b02d538e998c03f08187279e3c01626a7305a790d0d24e3489ea87b4d',
     )
     const client = mockClient()
     client.evalRun.findFirst.mockResolvedValueOnce(null)
