@@ -48,6 +48,7 @@ import {
   detectEvaluationRegression,
   executeFrozenEvaluationRun,
   evaluationPromptCostCeiling,
+  frozenEvaluationModelKey,
   frozenContent,
   processEvaluationRunJob,
   type EvaluationRunnerDependencies,
@@ -593,6 +594,27 @@ describe('executeFrozenEvaluationRun', () => {
       } as CanonicalJsonValue),
     ).toThrow('input boundary')
     expect(lifecycleMocks.generateText).not.toHaveBeenCalled()
+  })
+
+  it('resolves and prices the exact frozen OpenAI candidate without accepting arbitrary models', () => {
+    const openAiModel = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_OPENAI)
+    const openAiRun = {
+      ...frozenRun(),
+      modelProvider: openAiModel.provider,
+      modelName: openAiModel.model,
+      modelSnapshotHash: evaluationSnapshotHash(
+        'pathfinder-eval-model-snapshot-v1',
+        openAiModel as never,
+      ),
+      modelSnapshot: openAiModel,
+    }
+    expect(frozenEvaluationModelKey(openAiRun)).toBe(AI_MODEL_KEYS.GUEST_CHAT_OPENAI)
+    expect(
+      evaluationPromptCostCeiling(evalCase, contentSnapshot, AI_MODEL_KEYS.GUEST_CHAT_OPENAI),
+    ).toBeLessThan(evaluationPromptCostCeiling(evalCase, contentSnapshot))
+    expect(() => frozenEvaluationModelKey({ ...openAiRun, modelName: 'arbitrary-model' })).toThrow(
+      'EVALUATION_MODEL_IDENTITY_MISMATCH',
+    )
   })
 
   it('cancels without dispatching when the tenant or process gate closes', async () => {

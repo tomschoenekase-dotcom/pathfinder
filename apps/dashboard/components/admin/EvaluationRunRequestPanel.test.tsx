@@ -113,7 +113,7 @@ describe('EvaluationRunRequestPanel', () => {
     )
     expect(screen.getByText(/warning at a 8% pass-rate drop and error at 20%/)).toBeTruthy()
   })
-  it('sends exact IDs and E8 budget without caller-controlled hashes or model fields', async () => {
+  it('sends exact IDs, E8 budget, and an allow-listed model key without caller-controlled identities', async () => {
     renderPanel()
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.change(screen.getByLabelText('Budget ceiling'), { target: { value: '0.25' } })
@@ -125,9 +125,21 @@ describe('EvaluationRunRequestPanel', () => {
       idempotencyKey: 'request-key',
       caseIds: [item.id],
       budgetCeilingE8Usd: '25000000',
+      modelKey: 'guest-chat',
     })
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('modelName')
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('contentSnapshotHash')
+  })
+  it('requests the explicit OpenAI provider-diversity candidate', async () => {
+    renderPanel()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.change(screen.getByLabelText('Evaluation model'), {
+      target: { value: 'guest-chat-openai' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({ modelKey: 'guest-chat-openai' })
+    expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('modelName')
   })
   it('shows provider-dark current-source evidence without starting a run', async () => {
     renderPanel(false)

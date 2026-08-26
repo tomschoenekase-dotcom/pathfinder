@@ -25,6 +25,7 @@ import { adminProcedure } from '../../trpc'
 const MAX_RUN_CASES = 50
 const MAX_RUN_BUDGET_E8_USD = 100_000_000n
 const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
+const EVALUATION_MODEL_KEYS = [AI_MODEL_KEYS.GUEST_CHAT, AI_MODEL_KEYS.GUEST_CHAT_OPENAI] as const
 
 export const adminEvaluationOperationActionsRouter = router({
   requestEvaluationRun: adminProcedure
@@ -40,6 +41,7 @@ export const adminEvaluationOperationActionsRouter = router({
             .max(MAX_RUN_CASES)
             .refine((ids) => new Set(ids).size === ids.length, 'Evaluation cases must be unique'),
           budgetCeilingE8Usd: z.string().regex(/^\d+$/u),
+          modelKey: z.enum(EVALUATION_MODEL_KEYS).default(AI_MODEL_KEYS.GUEST_CHAT),
           nativeReleaseId: z.string().uuid().optional(),
           approvedPackageId: z.string().min(1).max(191).optional(),
           reviewablePackageId: z.string().min(1).max(191).optional(),
@@ -196,7 +198,7 @@ export const adminEvaluationOperationActionsRouter = router({
             const item = byId.get(caseId)!
             return { caseId: item.id, revision: item.revision, caseHash: item.caseHash }
           })
-          const model = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
+          const model = getAiModelSpec(input.modelKey)
           const nativePlan = nativeRelease
             ? (nativeRelease.plan as {
                 desired?: unknown
@@ -352,6 +354,7 @@ export const adminEvaluationOperationActionsRouter = router({
                       : 'pathfinder-evaluation-run-config-v1',
                 maximumCases: MAX_RUN_CASES,
                 requestedCases: manifest.length,
+                modelKey: input.modelKey,
                 contentSnapshotSchemaVersion: snapshot.schemaVersion,
                 contentComponentCounts: snapshot.componentCounts,
                 contentSnapshot: snapshot.manifest,

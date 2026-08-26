@@ -95,6 +95,13 @@ Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state ad
 
 `STAGED -> QUEUED -> RUNNING -> COMPLETED | FAILED | CANCELLED`
 
+The admin request may select only the registered `guest-chat` baseline or the registered
+`guest-chat-openai` provider-diversity candidate. The API freezes the selected registry
+specification into the run identity; the worker re-hashes it, resolves it back to that allow-listed
+key, prices the prompt with that exact specification, and dispatches that exact key. Arbitrary
+provider or model names are never accepted, and a changed registry entry fails closed instead of
+silently evaluating a different model.
+
 Retryable failure leaves worker ownership as `RETRY_SCHEDULED`; the next exact BullMQ attempt may claim `RETRY_SCHEDULED -> RUNNING`. Already-terminal cases are loaded and identity-checked, skipped on retry, and their exact stored cost is carried into the remaining frozen budget, preventing double dispatch and double spend.
 
 Attempt number and maximum attempts are fixed and monotonic. A provider/operational error is retryable until BullMQ's third and final attempt. Only an exhausted attempt marks the run `FAILED`; a final attempt that successfully persists per-case operational failure evidence marks the execution `COMPLETED`, because execution finished even though quality was not scored. `EvalResult.outcome` keeps `SCORED` quality evidence separate from `OPERATIONAL_FAILURE`, `BUDGET_BLOCKED`, and `CANCELLED` evidence.

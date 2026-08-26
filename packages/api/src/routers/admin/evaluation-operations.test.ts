@@ -30,8 +30,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
 
 vi.mock('@pathfinder/ai', () => ({
-  AI_MODEL_KEYS: { GUEST_CHAT: 'guest-chat' },
-  getAiModelSpec: () => ({ provider: 'anthropic', model: 'frozen-model', maxOutputTokens: 512 }),
+  AI_MODEL_KEYS: { GUEST_CHAT: 'guest-chat', GUEST_CHAT_OPENAI: 'guest-chat-openai' },
+  getAiModelSpec: (modelKey: string) =>
+    modelKey === 'guest-chat-openai'
+      ? { provider: 'openai', model: 'openai-candidate', maxOutputTokens: 512 }
+      : { provider: 'anthropic', model: 'frozen-model', maxOutputTokens: 512 },
 }))
 
 vi.mock('@pathfinder/jobs', () => ({ enqueueEvaluationRun: mocks.enqueueRun }))
@@ -313,6 +316,44 @@ describe('admin evaluation operations router', () => {
       dispatchPending: false,
       status: 'COMPLETED',
     })
+  })
+
+  it('freezes only an allow-listed OpenAI evaluation candidate selected by registry key', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    mocks.caseFindMany.mockResolvedValue([{ id: caseId, revision: 1, caseHash: 'b'.repeat(64) }])
+    mocks.createSnapshot.mockResolvedValue({
+      schemaVersion: 'pathfinder-venue-content-snapshot-v1',
+      hash: 'c'.repeat(64),
+      contentVersion: 1n,
+      componentCounts: { venue: 1, places: 0, knowledgeEntries: 0 },
+      manifest: { tenantId: 'tenant_1', venueId: 'venue_1', frozen: true },
+    })
+    mocks.createRun.mockImplementation(async ({ identity }) => ({
+      run: { id: caseId, identityHash: 'd'.repeat(64), status: 'STAGED' },
+      replayed: false,
+      identity,
+    }))
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+
+    await testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      idempotencyKey: 'openai-candidate-request',
+      caseIds: [caseId],
+      budgetCeilingE8Usd: '5102400',
+      modelKey: 'guest-chat-openai',
+    })
+
+    expect(mocks.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          modelProvider: 'openai',
+          modelName: 'openai-candidate',
+          modelSnapshot: expect.objectContaining({ provider: 'openai' }),
+          runConfigSnapshot: expect.objectContaining({ modelKey: 'guest-chat-openai' }),
+        }),
+      }),
+    )
   })
 
   it('freezes an exact prospective native release snapshot without reading current venue content', async () => {

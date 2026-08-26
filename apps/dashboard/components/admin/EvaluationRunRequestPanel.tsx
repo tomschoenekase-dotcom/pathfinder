@@ -36,6 +36,18 @@ type SourceCoveragePreview = {
   }[]
 }
 
+const EVALUATION_MODEL_CANDIDATES = [
+  {
+    key: 'guest-chat',
+    label: 'Anthropic · Claude Haiku 4.5 (default guest route)',
+  },
+  {
+    key: 'guest-chat-openai',
+    label: 'OpenAI · GPT-5 mini (provider-diversity candidate)',
+  },
+] as const
+type EvaluationModelKey = (typeof EVALUATION_MODEL_CANDIDATES)[number]['key']
+
 export function evaluationBudgetToE8Usd(value: string): string | null {
   if (!/^(?:0|1)(?:\.\d{0,8})?$/u.test(value) || Number(value) > 1) return null
   const [whole, fraction = ''] = value.split('.')
@@ -70,6 +82,7 @@ export function EvaluationRunRequestPanel(props: {
   const [nextCursor, setNextCursor] = useState(props.initialNextCursor)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [budget, setBudget] = useState('0.25')
+  const [modelKey, setModelKey] = useState<EvaluationModelKey>('guest-chat')
   const [reviewablePackageId, setReviewablePackageId] = useState(
     props.reviewablePackages?.[0]?.id ?? '',
   )
@@ -108,6 +121,7 @@ export function EvaluationRunRequestPanel(props: {
     setNextCursor(props.initialNextCursor)
     setSelected(new Set())
     setBudget('0.25')
+    setModelKey('guest-chat')
     setReviewablePackageId(props.reviewablePackages?.[0]?.id ?? '')
     setMessage(null)
     setSourceCoverage(null)
@@ -165,6 +179,7 @@ export function EvaluationRunRequestPanel(props: {
         idempotencyKey: idempotencyKey.current,
         caseIds: [...selected],
         budgetCeilingE8Usd,
+        modelKey,
         ...(reviewablePackageId ? { reviewablePackageId } : {}),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
@@ -388,6 +403,26 @@ export function EvaluationRunRequestPanel(props: {
           </ul>
         </section>
       ) : null}
+      <label className="mt-5 block text-sm font-semibold text-pf-deep">
+        Evaluation model
+        <select
+          aria-label="Evaluation model"
+          value={modelKey}
+          onChange={(event) => setModelKey(event.target.value as EvaluationModelKey)}
+          disabled={busy || !props.runnerEnabled}
+          className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
+        >
+          {EVALUATION_MODEL_CANDIDATES.map((candidate) => (
+            <option key={candidate.key} value={candidate.key}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-2 text-xs text-pf-deep/55">
+        The request freezes the exact server-registered model specification. Arbitrary provider or
+        model names are not accepted.
+      </p>
       <label className="mt-5 block text-sm font-semibold text-pf-deep">
         Budget ceiling (USD, maximum $1)
         <input

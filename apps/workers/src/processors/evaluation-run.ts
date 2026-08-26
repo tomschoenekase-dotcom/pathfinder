@@ -405,20 +405,32 @@ export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
   return content
 }
 
-function assertFrozenModel(run: FrozenEvaluationRun): void {
-  const active = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
-  if (
-    active.provider !== run.modelProvider ||
-    active.model !== run.modelName ||
-    evaluationSnapshotHash('pathfinder-eval-model-snapshot-v1', run.modelSnapshot as never) !==
-      run.modelSnapshotHash ||
-    canonicalEvaluationJson(active as unknown as CanonicalJsonValue) !==
-      canonicalEvaluationJson(run.modelSnapshot as CanonicalJsonValue)
-  ) {
-    // The provider facade can select only registered models. Refuse an old or
-    // changed model instead of silently running a different one.
-    throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
+const EVALUATION_MODEL_KEYS = [AI_MODEL_KEYS.GUEST_CHAT, AI_MODEL_KEYS.GUEST_CHAT_OPENAI] as const
+type EvaluationModelKey = (typeof EVALUATION_MODEL_KEYS)[number]
+
+export function frozenEvaluationModelKey(run: FrozenEvaluationRun): EvaluationModelKey {
+  const snapshotHash = evaluationSnapshotHash(
+    'pathfinder-eval-model-snapshot-v1',
+    run.modelSnapshot as never,
+  )
+  if (snapshotHash !== run.modelSnapshotHash) throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
+
+  for (const modelKey of EVALUATION_MODEL_KEYS) {
+    const active = getAiModelSpec(modelKey)
+    if (
+      active.provider === run.modelProvider &&
+      active.model === run.modelName &&
+      canonicalEvaluationJson(active as unknown as CanonicalJsonValue) ===
+        canonicalEvaluationJson(run.modelSnapshot as CanonicalJsonValue)
+    ) {
+      return modelKey
+    }
   }
+
+  // The provider facade can select only the two explicitly governed guest-chat
+  // candidates. Refuse an old, changed, or unrelated registry model instead of
+  // silently dispatching a different provider.
+  throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
 }
 
 /** Pure orchestration seam. Queue/DB/provider adapters remain injectable so tests
@@ -437,7 +449,7 @@ export async function executeFrozenEvaluationRun(
   ) {
     throw new Error('EVALUATION_RUN_IDENTITY_MISMATCH')
   }
-  assertFrozenModel(run)
+  frozenEvaluationModelKey(run)
   const contentSnapshot = frozenContent(run)
   const manifest = EvalCaseManifestSchema.parse(run.caseManifestSnapshot)
   if (manifest.length > EVALUATION_RUN_MAX_CASES) throw new Error('EVALUATION_CASE_LIMIT_EXCEEDED')
@@ -649,8 +661,9 @@ function evaluationPrompt(
 export function evaluationPromptCostCeiling(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
+  modelKey: EvaluationModelKey = AI_MODEL_KEYS.GUEST_CHAT,
 ): bigint {
-  const spec = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
+  const spec = getAiModelSpec(modelKey)
   return textAttemptCostCeilingUnits({
     spec,
     ...evaluationPrompt(evalCase, content),
@@ -741,8 +754,9 @@ function defaultDependencies(
         leaseToken,
       }),
     evaluate: async ({ run, evalCase, contentSnapshot, remainingBudgetE8Usd, leaseToken }) => {
+      const modelKey = frozenEvaluationModelKey(run)
       const prompt = evaluationPrompt(evalCase, contentSnapshot)
-      const reserved = evaluationPromptCostCeiling(evalCase, contentSnapshot)
+      const reserved = evaluationPromptCostCeiling(evalCase, contentSnapshot, modelKey)
       if (reserved > remainingBudgetE8Usd) throw new EvaluationDeclaredBudgetError()
       const renewLease = () =>
         renewEvaluationRunLease({
@@ -768,7 +782,7 @@ function defaultDependencies(
         operation: (providerSignal) =>
           generateText({
             signal: providerSignal,
-            modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+            modelKey,
             ...prompt,
             maxAttempts: 1,
             usageSink: createWorkerAiUsageSink({
