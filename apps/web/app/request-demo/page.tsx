@@ -36,7 +36,7 @@ export default function RequestDemoPage() {
             </p>
             <ul className="mt-8 space-y-4 text-sm leading-6 text-pf-light/80">
               <li>Visitor answers grounded in your real venue information</li>
-              <li>Bot and voice experiences that work from a guest&apos;s phone</li>
+              <li>Guest access by QR code or link, with no app download</li>
               <li>A guided onboarding process instead of a wall of settings</li>
             </ul>
           </section>

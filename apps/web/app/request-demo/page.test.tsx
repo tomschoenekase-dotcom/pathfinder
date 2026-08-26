@@ -15,6 +15,8 @@ describe('request demo page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Show us your venue.' })).toBeTruthy()
     expect(screen.getByRole('heading', { level: 2, name: 'Request a conversation' })).toBeTruthy()
     expect(screen.getByText('Demo form')).toBeTruthy()
+    expect(screen.getByText('Guest access by QR code or link, with no app download')).toBeTruthy()
+    expect(screen.queryByText(/voice experiences/iu)).toBeNull()
     expect(metadata.title).toContain('Request a Torchiko demo')
   })
 })
