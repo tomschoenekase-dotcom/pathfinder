@@ -21,6 +21,7 @@ vi.mock('../../lib/website-intake-runtime', () => ({
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
 import { intakeCandidateDraftKey } from '../../lib/intake-venue-package-candidate'
+import { WebsiteResearchExecutionError } from '../../lib/website-intake-research-service'
 import { adminIntakeOperationsRouter } from './intake-operations'
 
 const venueFindFirst = vi.fn()
@@ -151,6 +152,27 @@ describe('platform admin intake operations', () => {
       autoApproved: false,
       autoApplied: false,
       autoPublished: false,
+    })
+  })
+
+  it('keeps classified website research rejections actionable for the operator', async () => {
+    websiteResearch.execute.mockRejectedValueOnce(
+      new WebsiteResearchExecutionError(
+        'INVALID_INPUT',
+        'Only a website intake run can execute website research.',
+      ),
+    )
+
+    await expect(
+      testRouter.createCaller(context()).operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId: 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Only a website intake run can execute website research.',
     })
   })
 

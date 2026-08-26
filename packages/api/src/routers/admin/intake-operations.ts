@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { logger } from '@pathfinder/config'
 import {
   IntakeActionError,
   OnboardingBootstrapError,
@@ -13,7 +14,7 @@ import {
   websiteProposalInput,
 } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { publicTRPCError, router } from '../../core'
 import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
 import { getIntakeBuilderLifecycle } from '../../lib/intake-builder-lifecycle-service'
 import {
@@ -110,7 +111,15 @@ export const adminIntakeOperationsRouter = router({
         })
       } catch (error) {
         if (error instanceof WebsiteResearchExecutionError) {
-          throw new TRPCError({
+          logger.warn({
+            action: 'intake.website-research.rejected',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: input.runId,
+            errorCode: error.code,
+            error: error.message,
+          })
+          throw publicTRPCError({
             code:
               error.code === 'NOT_FOUND'
                 ? 'NOT_FOUND'
@@ -120,6 +129,25 @@ export const adminIntakeOperationsRouter = router({
             message: error.message,
           })
         }
+        const errorCode =
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          typeof error.code === 'string'
+            ? error.code
+            : null
+        logger.error({
+          action: 'intake.website-research.unhandled',
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: input.runId,
+          errorName: error instanceof Error ? error.name : 'Unknown',
+          errorCode,
+          error:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : 'Unknown website research failure',
+        })
         throw error
       }
     }),
