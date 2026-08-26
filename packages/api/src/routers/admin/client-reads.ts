@@ -151,6 +151,7 @@ export const adminClientReadsRouter = router({
             lat: true,
             lng: true,
             importanceScore: true,
+            updatedAt: true,
           },
         })
 

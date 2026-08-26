@@ -190,6 +190,11 @@ export function ClientWorkspaceShell({
           label: 'Guest design',
           description: 'Branding and responsive preview',
         },
+        {
+          href: `${venueRoot}/qr-kit`,
+          label: 'QR launch kit',
+          description: 'Print and scan-test guest entry codes',
+        },
       ]
     : []
   const venueInsightNavigation: NavigationItem[] = venueRoot
