@@ -10,6 +10,13 @@ All three gates must be explicitly true before the API creates a run identity:
 2. `PlatformConfig[evaluation-runner-v1-global]` must contain the exact JSON `{ "version": 1, "enabled": true }`. This is the durable, cross-service rollout intent shared by the API and worker. Missing, malformed, or unreadable state is disabled.
 3. The exact tenant must have the `evaluation-runner-v1` `TenantFeatureFlag` enabled. The admin request checks it before enqueueing, and the worker rechecks it before each case and immediately before provider dispatch.
 
+When `EVALUATION_RUNNER_ENABLED=true` and `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, the worker
+bootstrap selects the isolated `evaluation-only` runtime. That runtime requires Redis, both database
+URLs, and the two registered evaluation-provider credentials, but constructs only the evaluation-run
+and guest-answer-attribution queues and consumers. It rejects combination with the CRM-only or
+intake-verification-only modes. This keeps a bounded evaluation window from waking embedding,
+generation, media, email, reporting, billing, or other outbound-provider queues.
+
 Disabling the process gate stops new consumer registration. Disabling either durable scope gate while a run is active causes remaining cases to receive `CANCELLED` operational evidence. Neither condition changes content or publishes a package. A process-env mismatch cannot be proven away by application code: the durable global record is the operator's cross-service coordination source, while every process-local gate still fails closed. A worker deployed with its local gate false consumes nothing even if another service is misconfigured true.
 
 New identities begin `STAGED`, and the API never publishes execution work directly. A default-off worker scheduler scans a bounded batch after rechecking the durable global and tenant gates. It CASes the exact identity to `QUEUED` before deterministic BullMQ publication. Every scan also republishes `QUEUED` identities idempotently, repairing a crash between the database transition and queue add. The execution consumer refuses `STAGED`, so it never treats an early or malformed publication as complete or calls a provider. Pre-migration rows become `LEGACY`, never `QUEUED`; no historical completion state is inferred without an authorized database assessment.

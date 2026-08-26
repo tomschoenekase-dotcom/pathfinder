@@ -9,7 +9,7 @@ function assertRequiredEnvironment(keys: string[]): void {
   }
 }
 
-function registerProviderDisabledShutdown(shutdown: () => Promise<void>): void {
+function registerShutdown(shutdown: () => Promise<void>): void {
   let shuttingDown = false
   const handleSignal = () => {
     if (shuttingDown) process.exit(1)
@@ -44,7 +44,7 @@ export async function bootstrapWorkers() {
         queues: runtime.queues,
       })}\n`,
     )
-    registerProviderDisabledShutdown(runtime.shutdown)
+    registerShutdown(runtime.shutdown)
     return runtime
   }
 
@@ -57,7 +57,14 @@ export async function bootstrapWorkers() {
     const { startIntakeUploadVerificationRuntime } =
       await import('./intake-upload-verification-runtime.js')
     const runtime = await startIntakeUploadVerificationRuntime()
-    registerProviderDisabledShutdown(runtime.shutdown)
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
+  if (policy.mode === 'evaluation-only') {
+    const { startEvaluationOnlyRuntime } = await import('./evaluation-only-runtime.js')
+    const runtime = await startEvaluationOnlyRuntime()
+    registerShutdown(runtime.shutdown)
     return runtime
   }
 

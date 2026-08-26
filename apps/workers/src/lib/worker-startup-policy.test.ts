@@ -90,12 +90,44 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits an isolated evaluation runtime without enabling unrelated provider queues', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        EVALUATION_RUNNER_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'evaluation-only',
+      requiredEnvironmentKeys: [
+        'REDIS_URL',
+        'DATABASE_URL',
+        'DIRECT_DATABASE_URL',
+        'ANTHROPIC_API_KEY',
+        'OPENAI_API_KEY',
+      ],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it('rejects mixing the isolated evaluation runtime with other provider-disabled modes', () => {
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        CRM_BACKGROUND_WORKERS_ENABLED: 'true',
+        EVALUATION_RUNNER_ENABLED: 'true',
+      }),
+    ).toThrow('EVALUATION_RUNNER_ENABLED cannot be combined')
+  })
+
   it.each(
     WORKER_EXECUTION_FLAGS.filter(
       (flag) =>
         flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
-        flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
+        flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
+        flag !== 'EVALUATION_RUNNER_ENABLED',
     ),
   )('rejects %s when provider workers are disabled', (flag) => {
     expect(() =>

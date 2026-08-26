@@ -131,6 +131,12 @@ For production workers, all eight controls must be explicitly set to `true` or `
 implicit authorization. Scheduler flags do not by themselves freeze ordinary consumers; a cutover
 freeze still requires stopped/drained worker replicas and inspected queues.
 
+For an isolated staging evaluation window, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
+`EVALUATION_RUNNER_ENABLED=true`, and keep the CRM and intake-only modes false. The worker must report
+`mode=evaluation-only` and exactly the evaluation-run plus guest-answer-attribution queues. Any
+unrelated queue registration, mixed worker generation, or broad provider-enabled mode blocks the
+evaluation canary.
+
 ## Release procedure
 
 Local destructive migration proofs must use the disposable-only wrapper, never a raw migration

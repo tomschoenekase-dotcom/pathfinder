@@ -13,7 +13,8 @@ const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
   (flag) =>
     flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
-    flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
+    flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
+    flag !== 'EVALUATION_RUNNER_ENABLED',
 )
 
 export type WorkerStartupEnvironment = Partial<
@@ -21,7 +22,12 @@ export type WorkerStartupEnvironment = Partial<
 >
 
 export type WorkerStartupPolicy = {
-  mode: 'provider-enabled' | 'crm-only' | 'intake-upload-verification-only' | 'provider-disabled'
+  mode:
+    | 'provider-enabled'
+    | 'crm-only'
+    | 'intake-upload-verification-only'
+    | 'evaluation-only'
+    | 'provider-disabled'
   requiredEnvironmentKeys: string[]
   intakeUploadVerificationEnabled: boolean
 }
@@ -48,11 +54,17 @@ export function resolveWorkerStartupPolicy(
   const crmBackgroundEnabled = environment.CRM_BACKGROUND_WORKERS_ENABLED === 'true'
   const intakeUploadVerificationEnabled =
     environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
+  const evaluationRunnerEnabled = environment.EVALUATION_RUNNER_ENABLED === 'true'
   if (!providerEnabled) {
     const conflictingFlag = DEPENDENT_EXECUTION_FLAGS.find((flag) => environment[flag] === 'true')
     if (conflictingFlag) {
       throw new Error(
         `${conflictingFlag} cannot be enabled while outbound provider workers are disabled`,
+      )
+    }
+    if (evaluationRunnerEnabled && (crmBackgroundEnabled || intakeUploadVerificationEnabled)) {
+      throw new Error(
+        'EVALUATION_RUNNER_ENABLED cannot be combined with CRM or intake-only worker modes while outbound provider workers are disabled',
       )
     }
   }
@@ -112,9 +124,21 @@ export function resolveWorkerStartupPolicy(
             ],
             intakeUploadVerificationEnabled: true,
           }
-        : {
-            mode: 'provider-disabled',
-            requiredEnvironmentKeys: ['REDIS_URL'],
-            intakeUploadVerificationEnabled: false,
-          }
+        : evaluationRunnerEnabled
+          ? {
+              mode: 'evaluation-only',
+              requiredEnvironmentKeys: [
+                'REDIS_URL',
+                'DATABASE_URL',
+                'DIRECT_DATABASE_URL',
+                'ANTHROPIC_API_KEY',
+                'OPENAI_API_KEY',
+              ],
+              intakeUploadVerificationEnabled: false,
+            }
+          : {
+              mode: 'provider-disabled',
+              requiredEnvironmentKeys: ['REDIS_URL'],
+              intakeUploadVerificationEnabled: false,
+            }
 }
