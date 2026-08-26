@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
-import { generateEmbeddings } from '@pathfinder/ai'
+import { AiGatewayError, generateEmbeddings } from '@pathfinder/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@pathfinder/config', () => ({
@@ -13,7 +13,13 @@ vi.mock('@pathfinder/ai', () => ({
     KNOWLEDGE_CONTENT: 'knowledge-content',
   },
   AiGatewayError: class AiGatewayError extends Error {
-    code = 'provider-error'
+    code: string
+
+    constructor(message: string, options?: { code?: string }) {
+      super(message)
+      this.name = 'AiGatewayError'
+      this.code = options?.code ?? 'provider-error'
+    }
   },
   getAiEmbeddingProfile: (key: string) => `test-profile:${key}`,
   generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
@@ -723,6 +729,36 @@ describe('venue package router', () => {
         data: expect.objectContaining({
           status: 'FAILED',
           errorCode: 'usage-persistence-failed',
+        }),
+      }),
+    )
+    expect(JSON.stringify(analysisUpdateMany.mock.calls)).not.toContain('SECRET_SENTINEL')
+    expect(writeAuditLogStrict).not.toHaveBeenCalled()
+  })
+
+  it('reports missing embedding configuration without exposing provider details', async () => {
+    analysisFindFirst.mockResolvedValueOnce(null)
+    vi.mocked(generateEmbeddings).mockRejectedValueOnce(
+      new AiGatewayError('SECRET_SENTINEL provider setup detail', {
+        attempts: 0,
+        code: 'provider-not-configured',
+      }),
+    )
+
+    await expect(
+      testRouter
+        .createCaller(context('MANAGER'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    ).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'The embedding provider is not configured; no draft was saved.',
+    })
+    expect(packageCreate).not.toHaveBeenCalled()
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'provider-not-configured',
         }),
       }),
     )

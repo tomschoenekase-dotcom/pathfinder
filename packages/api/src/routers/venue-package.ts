@@ -1343,7 +1343,10 @@ export async function createVenuePackageDraftService(request: {
     await settleFailure('FAILED', errorCode)
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
-      message: 'Duplicate analysis could not complete; no draft was saved.',
+      message:
+        errorCode === 'provider-not-configured' || errorCode === 'provider-client-initialization'
+          ? 'The embedding provider is not configured; no draft was saved.'
+          : 'Duplicate analysis could not complete; no draft was saved.',
     })
   }
 
