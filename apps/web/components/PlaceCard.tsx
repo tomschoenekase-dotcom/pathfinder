@@ -46,7 +46,7 @@ export function PlaceCard({
   language = 'English',
 }: PlaceCardProps) {
   const { place: copy } = getVisitorUiCopy(language)
-  const [showDetails, hideDetails, areaLabel, hoursLabel, directionsTo] = copy
+  const [showDetails, hideDetails, areaLabel, hoursLabel, directionsLabel, directionsTo] = copy
   const presentation = getChatLanguagePresentation(language)
   const [isExpanded, setIsExpanded] = useState(false)
   const titleId = useId()
@@ -157,7 +157,7 @@ export function PlaceCard({
         {directionsUrl ? (
           <a
             href={directionsUrl}
-            aria-label={`${directionsTo} ${name}`}
+            aria-label={directionsTo(name)}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
@@ -167,7 +167,7 @@ export function PlaceCard({
             }}
           >
             <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
-            {directionsTo.replace(/\s(?:to|a|vers|zu|per|para|：|إلى)$/u, '')}
+            {directionsLabel}
           </a>
         ) : null}
       </div>

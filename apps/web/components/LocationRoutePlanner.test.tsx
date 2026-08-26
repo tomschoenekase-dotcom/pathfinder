@@ -134,6 +134,36 @@ describe('LocationRoutePlanner', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('No hay una ruta revisada')
   })
 
+  it('localizes generated fallback directions while preserving venue-owned names', async () => {
+    routeQuery.mockResolvedValue({
+      from: locations[0],
+      to: locations[1],
+      accessibleOnly: false,
+      segmentCount: 1,
+      segments: [
+        {
+          connectionId: 'lift-1',
+          kind: 'ELEVATOR',
+          accessible: true,
+          directions: null,
+          from: locations[0],
+          to: locations[1],
+        },
+      ],
+    })
+    render(
+      <LocationRoutePlanner
+        venueId="venue-1"
+        anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+        language="日本語"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'ルートを計画' }))
+    fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }))
+    expect(await screen.findByText('elevatorを通ってSky galleryへ進みます。')).toBeTruthy()
+  })
+
   it('has no automated accessibility violations in the expanded route form', async () => {
     const { container } = render(
       <LocationRoutePlanner

@@ -22,13 +22,15 @@ type VisitorUiCopy = {
     noAccessibleRoute: string,
     noRoute: string,
     accessibleNote: string,
+    continueTo: (destination: string, connection: string) => string,
   ]
   place: readonly [
     showDetails: string,
     hideDetails: string,
     area: string,
     hours: string,
-    directionsTo: string,
+    directions: string,
+    directionsTo: (name: string) => string,
   ]
 }
 
@@ -55,8 +57,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'No reviewed accessible route is available between those locations.',
       'No reviewed route is available between those locations.',
       'Uses only connections the venue marked accessible. Confirm critical access needs with venue staff.',
+      (destination, connection) => `Continue to ${destination} via ${connection}.`,
     ],
-    place: ['Show details for', 'Hide details for', 'Area', 'Hours', 'Get directions to'],
+    place: [
+      'Show details for',
+      'Hide details for',
+      'Area',
+      'Hours',
+      'Get directions',
+      (name) => `Get directions to ${name}`,
+    ],
   },
   Español: {
     location: [
@@ -80,8 +90,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'No hay una ruta accesible revisada entre esas ubicaciones.',
       'No hay una ruta revisada entre esas ubicaciones.',
       'Usa solo conexiones que el lugar marcó como accesibles. Confirma las necesidades de acceso importantes con el personal.',
+      (destination, connection) => `Continúa hasta ${destination} por ${connection}.`,
     ],
-    place: ['Mostrar detalles de', 'Ocultar detalles de', 'Zona', 'Horario', 'Cómo llegar a'],
+    place: [
+      'Mostrar detalles de',
+      'Ocultar detalles de',
+      'Zona',
+      'Horario',
+      'Cómo llegar',
+      (name) => `Cómo llegar a ${name}`,
+    ],
   },
   Français: {
     location: [
@@ -105,13 +123,15 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Aucun itinéraire accessible vérifié n’est disponible entre ces lieux.',
       'Aucun itinéraire vérifié n’est disponible entre ces lieux.',
       'Utilise uniquement les liaisons indiquées comme accessibles. Confirmez les besoins d’accès importants auprès du personnel.',
+      (destination, connection) => `Continuez vers ${destination} via ${connection}.`,
     ],
     place: [
       'Afficher les détails de',
       'Masquer les détails de',
       'Zone',
       'Horaires',
-      'Itinéraire vers',
+      'Itinéraire',
+      (name) => `Itinéraire vers ${name}`,
     ],
   },
   Deutsch: {
@@ -136,13 +156,15 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Zwischen diesen Orten ist keine geprüfte barrierefreie Route verfügbar.',
       'Zwischen diesen Orten ist keine geprüfte Route verfügbar.',
       'Verwendet nur als barrierefrei markierte Verbindungen. Klären Sie wichtige Zugangsbedürfnisse mit dem Personal.',
+      (destination, connection) => `Weiter zu ${destination} über ${connection}.`,
     ],
     place: [
       'Details anzeigen für',
       'Details ausblenden für',
       'Bereich',
       'Öffnungszeiten',
-      'Route zu',
+      'Route',
+      (name) => `Route zu ${name}`,
     ],
   },
   Italiano: {
@@ -167,8 +189,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Non è disponibile un percorso accessibile verificato tra questi luoghi.',
       'Non è disponibile un percorso verificato tra questi luoghi.',
       'Usa solo collegamenti contrassegnati come accessibili. Conferma le esigenze importanti con il personale.',
+      (destination, connection) => `Prosegui verso ${destination} tramite ${connection}.`,
     ],
-    place: ['Mostra dettagli per', 'Nascondi dettagli per', 'Area', 'Orari', 'Indicazioni per'],
+    place: [
+      'Mostra dettagli per',
+      'Nascondi dettagli per',
+      'Area',
+      'Orari',
+      'Indicazioni',
+      (name) => `Indicazioni per ${name}`,
+    ],
   },
   Português: {
     location: [
@@ -192,8 +222,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Não há uma rota acessível revisada entre esses locais.',
       'Não há uma rota revisada entre esses locais.',
       'Usa somente conexões marcadas como acessíveis. Confirme necessidades importantes de acesso com a equipe.',
+      (destination, connection) => `Continue até ${destination} por ${connection}.`,
     ],
-    place: ['Mostrar detalhes de', 'Ocultar detalhes de', 'Área', 'Horários', 'Como chegar a'],
+    place: [
+      'Mostrar detalhes de',
+      'Ocultar detalhes de',
+      'Área',
+      'Horários',
+      'Como chegar',
+      (name) => `Como chegar a ${name}`,
+    ],
   },
   中文: {
     location: [
@@ -217,8 +255,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       '这些地点之间没有经过审核的无障碍路线。',
       '这些地点之间没有经过审核的路线。',
       '仅使用场所标记为无障碍的连接。重要的无障碍需求请向工作人员确认。',
+      (destination, connection) => `经由${connection}继续前往${destination}。`,
     ],
-    place: ['显示详情：', '隐藏详情：', '区域', '时间', '获取路线：'],
+    place: [
+      '显示详情：',
+      '隐藏详情：',
+      '区域',
+      '时间',
+      '获取路线',
+      (name) => `获取前往${name}的路线`,
+    ],
   },
   日本語: {
     location: [
@@ -242,8 +288,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'この2地点間には確認済みのバリアフリールートがありません。',
       'この2地点間には確認済みのルートがありません。',
       '施設がバリアフリーと表示した経路のみを使います。重要な要件はスタッフに確認してください。',
+      (destination, connection) => `${connection}を通って${destination}へ進みます。`,
     ],
-    place: ['詳細を表示：', '詳細を隠す：', 'エリア', '時間', '道順を見る：'],
+    place: [
+      '詳細を表示：',
+      '詳細を隠す：',
+      'エリア',
+      '時間',
+      '道順を見る',
+      (name) => `${name}への道順を見る`,
+    ],
   },
   한국어: {
     location: [
@@ -267,8 +321,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       '이 장소들 사이에 검토된 접근 가능 경로가 없습니다.',
       '이 장소들 사이에 검토된 경로가 없습니다.',
       '시설이 접근 가능으로 표시한 연결만 사용합니다. 중요한 요구 사항은 직원에게 확인하세요.',
+      (destination, connection) => `${connection}을(를) 통해 ${destination}(으)로 이동하세요.`,
     ],
-    place: ['세부 정보 보기:', '세부 정보 숨기기:', '구역', '운영 시간', '길 안내:'],
+    place: [
+      '세부 정보 보기:',
+      '세부 정보 숨기기:',
+      '구역',
+      '운영 시간',
+      '길 안내',
+      (name) => `${name} 길 안내`,
+    ],
   },
   العربية: {
     location: [
@@ -292,8 +354,16 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'لا يوجد مسار ميسّر ومراجع بين هذين الموقعين.',
       'لا يوجد مسار مراجع بين هذين الموقعين.',
       'يستخدم فقط الوصلات المحددة بأنها ميسّرة. أكّد احتياجات الوصول المهمة مع الطاقم.',
+      (destination, connection) => `تابع إلى ${destination} عبر ${connection}.`,
     ],
-    place: ['عرض تفاصيل', 'إخفاء تفاصيل', 'المنطقة', 'الساعات', 'الحصول على الاتجاهات إلى'],
+    place: [
+      'عرض تفاصيل',
+      'إخفاء تفاصيل',
+      'المنطقة',
+      'الساعات',
+      'الحصول على الاتجاهات',
+      (name) => `الحصول على الاتجاهات إلى ${name}`,
+    ],
   },
 }
 

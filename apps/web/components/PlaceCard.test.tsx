@@ -102,4 +102,26 @@ describe('PlaceCard', () => {
     expect(screen.getByText('المنطقة:')).toBeTruthy()
     expect(screen.getByText('الساعات:')).toBeTruthy()
   })
+
+  it('uses natural Japanese directions text and accessible naming', () => {
+    render(
+      <PlaceCard
+        id="place_1"
+        name="東展示室"
+        type="EXHIBIT"
+        photoUrl={null}
+        shortDescription={null}
+        areaName={null}
+        hours={null}
+        distanceMeters={undefined}
+        lat={35.68}
+        lng={139.76}
+        language="日本語"
+      />,
+    )
+
+    const directions = screen.getByRole('link', { name: '東展示室への道順を見る' })
+    expect(directions.textContent).toContain('道順を見る')
+    expect(directions.textContent).not.toContain('：')
+  })
 })

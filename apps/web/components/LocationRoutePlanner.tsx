@@ -55,6 +55,7 @@ export function LocationRoutePlanner({
     noAccessibleRouteMessage,
     noRouteMessage,
     accessibleNote,
+    continueTo,
   ] = copy
   const presentation = getChatLanguagePresentation(language)
   const client = useTRPCClient()
@@ -237,7 +238,7 @@ export function LocationRoutePlanner({
                   >
                     <span className="font-semibold">{index + 1}. </span>
                     {segment.directions ??
-                      `Continue to ${segment.to.displayName} via ${connectionLabel(segment.kind)}.`}
+                      continueTo(segment.to.displayName, connectionLabel(segment.kind))}
                   </li>
                 ))}
               </ol>
