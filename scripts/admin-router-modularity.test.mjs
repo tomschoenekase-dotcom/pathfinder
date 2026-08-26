@@ -123,6 +123,7 @@ const expectedAdminProcedures = [
   'getProspectCampaign',
   'getProspectImport',
   'getProspectIntelligence',
+  'getProspectNoSendRehearsal',
   'getProspectOutreachAnalytics',
   'getProspectOutreachReadiness',
   'getProspectPipeline',
