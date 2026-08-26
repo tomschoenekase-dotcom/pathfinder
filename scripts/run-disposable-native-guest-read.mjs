@@ -15,6 +15,11 @@ async function run() {
       proofScope: [
         'actual-guest-chat-router',
         'in-process-provider-transport',
+        'evaluation-evidence-does-not-authorize-apply',
+        'human-approved-native-apply',
+        'idempotent-apply-and-revert-command-replay',
+        'drift-blocked-exact-rollback',
+        'exact-native-head-rollback',
         'active-native-read',
         'dark-legacy-read',
         'semantic-place-retrieval',

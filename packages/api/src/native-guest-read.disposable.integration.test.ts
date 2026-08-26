@@ -47,6 +47,7 @@ import {
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
   recordNativeDeploymentEvaluationEvidenceAction,
+  revertNativeVenueDeploymentAction,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
   withTenantIsolationBypass,
@@ -332,6 +333,31 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         },
         db,
       )
+
+      // Evaluation evidence does not grant publication authority. The exact DRAFT cannot apply
+      // until a human platform administrator records a separate approval command.
+      await expect(
+        applyNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: release.updatedAt.toISOString(),
+            actor,
+          },
+          db,
+        ),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'Release apply state changed.',
+      })
+      await expect(
+        db.nativeVenueDeploymentHead.findUnique({
+          where: { tenantId_venueId: { tenantId, venueId } },
+        }),
+      ).resolves.toBeNull()
+
       const approved = (await approveNativeVenueDeploymentAction(
         {
           tenantId,
@@ -343,17 +369,29 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         },
         db,
       )) as { updatedAt: string }
-      await applyNativeVenueDeploymentAction(
-        {
-          tenantId,
-          venueId,
-          releaseId: release.id,
-          commandId: randomUUID(),
-          expectedUpdatedAt: approved.updatedAt,
-          actor,
-        },
-        db,
-      )
+      const applyInput = {
+        tenantId,
+        venueId,
+        releaseId: release.id,
+        commandId: randomUUID(),
+        expectedUpdatedAt: approved.updatedAt,
+        actor,
+      }
+      const applied = (await applyNativeVenueDeploymentAction(applyInput, db)) as {
+        status: 'APPLIED'
+        updatedAt: string
+        head: { releaseId: string; stateHash: string; revision: number }
+      }
+      expect(applied).toMatchObject({
+        status: 'APPLIED',
+        head: { releaseId: release.id, stateHash: release.desiredStateHash, revision: 1 },
+      })
+      await expect(applyNativeVenueDeploymentAction(applyInput, db)).resolves.toEqual(applied)
+      await expect(
+        db.nativeVenueDeploymentCommand.count({
+          where: { tenantId, venueId, releaseId: release.id, kind: 'APPLY' },
+        }),
+      ).resolves.toBe(1)
 
       const semanticEmbedding = Array(1_536).fill(0)
       semanticEmbedding[0] = 1
@@ -819,6 +857,68 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       }
       expect(latestPrompt()).toContain('Kill Switch Compatibility Gallery')
       expect(vi.mocked(logger.info).mock.calls).toHaveLength(logCountBeforeKillSwitch)
+
+      // Exact rollback fails closed while runtime content has drifted from the immutable release.
+      await expect(
+        revertNativeVenueDeploymentAction(
+          {
+            tenantId,
+            venueId,
+            releaseId: release.id,
+            commandId: randomUUID(),
+            expectedUpdatedAt: applied.updatedAt,
+            actor,
+          },
+          db,
+        ),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'Runtime state changed after apply.',
+      })
+
+      await db.place.update({
+        where: { id: publicPlaceId },
+        data: { name: 'Native Public Gallery' },
+      })
+      const revertInput = {
+        tenantId,
+        venueId,
+        releaseId: release.id,
+        commandId: randomUUID(),
+        expectedUpdatedAt: applied.updatedAt,
+        actor,
+      }
+      const reverted = await revertNativeVenueDeploymentAction(revertInput, db)
+      expect(reverted).toMatchObject({
+        releaseId: release.id,
+        status: 'REVERTED',
+        restoredStateHash: release.baseStateHash,
+        head: null,
+      })
+      await expect(revertNativeVenueDeploymentAction(revertInput, db)).resolves.toEqual(reverted)
+      const commandCounts = await db.nativeVenueDeploymentCommand.groupBy({
+        by: ['kind'],
+        where: { tenantId, venueId, releaseId: release.id },
+        _count: { _all: true },
+      })
+      expect(commandCounts).toHaveLength(3)
+      expect(commandCounts).toEqual(
+        expect.arrayContaining([
+          { kind: 'APPLY', _count: { _all: 1 } },
+          { kind: 'APPROVE', _count: { _all: 1 } },
+          { kind: 'REVERT', _count: { _all: 1 } },
+        ]),
+      )
+      const revertedPreflight = await adminCaller.getNativeGuestReadActivationPreflight({
+        tenantId,
+        venueId,
+      })
+      expect(revertedPreflight.activation).toMatchObject({
+        head: { present: false },
+        path: 'LEGACY',
+        nativeExecutionReady: false,
+        mutationPerformed: false,
+      })
     })
   }, 120_000)
 })
