@@ -68,6 +68,9 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('link', { name: /AI configuration/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/ai-configuration',
     )
+    expect(screen.getByRole('link', { name: /Feature access/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/feature-access',
+    )
     expect(
       screen.getByRole('link', { name: /Guest conversations/ }).getAttribute('aria-current'),
     ).toBe('page')

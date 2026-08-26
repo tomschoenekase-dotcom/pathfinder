@@ -5,6 +5,7 @@ import { AnswerAttributionAgreementCard } from '../../../components/admin/Answer
 import { GuestAnswerEvaluationPanel } from '../../../components/admin/GuestAnswerEvaluationPanel'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
 import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
+import { VenueFeatureAccessControl } from '../../../components/admin/VenueFeatureAccessControl'
 import { TRPCProvider } from '../../../lib/trpc'
 
 export const dynamic = 'force-dynamic'
@@ -259,8 +260,59 @@ function WorkspaceFixture() {
   )
 }
 
+function FeatureAccessFixture() {
+  return (
+    <TRPCProvider scopeKey="feature-access-visual-fixture">
+      <main
+        className="min-h-screen bg-pf-cream p-3 text-pf-deep sm:p-6"
+        data-fixture="authenticated-operations"
+        data-fixture-surface="feature-access"
+      >
+        <ClientWorkspaceShell
+          routePathname="/admin/clients/fixture-client/venues/fixture-venue/feature-access"
+          billingAvailable
+          client={{
+            id: 'fixture-client',
+            name: 'Great Lakes Museum Group',
+            slug: 'great-lakes-museum-group',
+            status: 'ACTIVE',
+          }}
+          venues={[
+            {
+              id: 'fixture-venue',
+              name: 'Harbor Discovery Museum',
+              slug: 'harbor-discovery-museum',
+              isActive: true,
+              guestUrl: 'https://example.invalid/harbor-discovery-museum',
+            },
+          ]}
+        >
+          <VenueFeatureAccessControl
+            tenantId="fixture-client"
+            venueId="fixture-venue"
+            venueName="Harbor Discovery Museum"
+            entitlements={[
+              {
+                capability: 'voice',
+                enabled: false,
+                source: 'DEFAULT',
+                sourceId: null,
+                planTier: 'launch',
+                settings: {},
+                validUntil: null,
+              },
+            ]}
+          />
+        </ClientWorkspaceShell>
+      </main>
+    </TRPCProvider>
+  )
+}
+
 export default async function AuthenticatedOperationsFixturePage({ searchParams }: Props) {
   if (process.env.NODE_ENV !== 'development') notFound()
   const surface = (await searchParams).surface
-  return surface === 'workspace' ? <WorkspaceFixture /> : <AdminFixture />
+  if (surface === 'workspace') return <WorkspaceFixture />
+  if (surface === 'feature-access') return <FeatureAccessFixture />
+  return <AdminFixture />
 }

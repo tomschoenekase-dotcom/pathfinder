@@ -186,6 +186,11 @@ export function ClientWorkspaceShell({
           description: 'Effective models and safety defaults',
         },
         {
+          href: `${venueRoot}/feature-access`,
+          label: 'Feature access',
+          description: 'Audited, expiring venue entitlements',
+        },
+        {
           href: `${venueRoot}/guest-design`,
           label: 'Guest design',
           description: 'Branding and responsive preview',

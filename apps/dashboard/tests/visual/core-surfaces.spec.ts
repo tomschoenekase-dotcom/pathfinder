@@ -242,3 +242,34 @@ test('exact-scoped Internal Workspace remains usable across real browser widths'
   await saveViewportEvidence(page, testInfo, 'internal-workspace-content')
   expect(runtimeErrors).toEqual([])
 })
+
+test('bounded venue feature access is readable and keyboard reachable', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(
+    `${dashboardBaseUrl}/dev-fixtures/authenticated-operations?surface=feature-access`,
+  )
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator(
+      '[data-fixture="authenticated-operations"][data-fixture-surface="feature-access"]',
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Feature access' })).toBeVisible()
+  await expect(page.getByText('Two-key activation')).toBeVisible()
+  await expect(page.getByText('Not entitled')).toBeVisible()
+  const submit = page.getByRole('button', { name: 'Append Voice grant' })
+  await expect(submit).toBeDisabled()
+  await page.getByLabel('Audit reason').fill('Synthetic browser proof')
+  await page.getByRole('checkbox').check()
+  await submit.focus()
+  await expect(submit).toBeFocused()
+  await expect(submit).toBeEnabled()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'venue-feature-access')
+  expect(runtimeErrors).toEqual([])
+})
