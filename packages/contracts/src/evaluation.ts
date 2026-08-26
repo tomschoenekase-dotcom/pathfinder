@@ -33,6 +33,48 @@ export const EvalCategorySchema = z.enum([
   'multi-turn-context',
 ])
 
+export const EvalIntentSchema = z.enum([
+  'accessibility',
+  'amenity',
+  'availability',
+  'directions',
+  'policy',
+  'privacy',
+  'recommendation',
+  'safety',
+  'schedule',
+])
+export const EvalRiskSchema = z.enum(['low', 'moderate', 'high'])
+export const EvalLanguageSchema = z.enum([
+  'en',
+  'es',
+  'fr',
+  'de',
+  'it',
+  'pt',
+  'zh',
+  'ja',
+  'ko',
+  'ar',
+])
+export const EvalLocationContextSchema = z.enum([
+  'arrival',
+  'exhibit',
+  'amenity',
+  'dining',
+  'whole-venue',
+  'offsite',
+])
+
+export const EvalCoverageDimensionsSchema = z
+  .object({
+    intent: EvalIntentSchema,
+    risk: EvalRiskSchema,
+    language: EvalLanguageSchema,
+    locationContext: EvalLocationContextSchema,
+  })
+  .strict()
+
 const PhraseRuleSchema = z
   .object({
     ruleId: IdSchema,
@@ -52,6 +94,9 @@ export const EvalCaseSchema = z
     schemaVersion: z.literal(EVAL_SCHEMA_VERSION),
     caseId: IdSchema,
     category: EvalCategorySchema,
+    // Optional for pathfinder-eval-v1 compatibility. New representative corpora should provide
+    // all four dimensions; legacy persisted cases remain valid and retain their canonical hashes.
+    dimensions: EvalCoverageDimensionsSchema.optional(),
     venue: z
       .object({
         fixtureId: IdSchema,
@@ -423,6 +468,8 @@ export const EvalAggregateSchema = z
   .strict()
 
 export type EvalCase = z.infer<typeof EvalCaseSchema>
+export type EvalCoverageDimensions = z.infer<typeof EvalCoverageDimensionsSchema>
+export type EvalLanguage = z.infer<typeof EvalLanguageSchema>
 export type EvalObservationInput = z.infer<typeof EvalObservationInputSchema>
 export type EvalObservation = z.infer<typeof EvalObservationSchema>
 export type EvalResult = z.infer<typeof EvalResultSchema>
