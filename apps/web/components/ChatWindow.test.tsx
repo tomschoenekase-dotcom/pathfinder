@@ -381,4 +381,20 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onPlaceCardClick).toHaveBeenCalledOnce()
     expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
   })
+
+  it('localizes Arabic conversation, composer, and send accessibility labels', () => {
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'أين المدخل؟' }]}
+        onSend={vi.fn()}
+        isLoading={false}
+        language="العربية"
+      />,
+    )
+
+    expect(screen.getByRole('log', { name: 'المحادثة' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'اطرح سؤالًا' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'إرسال الرسالة' })).toBeTruthy()
+    expect(screen.getByText('أنت:')).toBeTruthy()
+  })
 })

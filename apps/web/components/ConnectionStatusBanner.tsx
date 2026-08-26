@@ -1,9 +1,22 @@
-import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
-export function ConnectionStatusBanner({ state }: { state: NetworkConnectionState }) {
+import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
+
+export function ConnectionStatusBanner({
+  state,
+  language = 'English',
+}: {
+  state: NetworkConnectionState
+  language?: SupportedChatLanguage
+}) {
   if (state === 'online') return null
 
   const offline = state === 'offline'
+  const presentation = getChatLanguagePresentation(language)
+  const [, , , , , , , , , , , , , , offlineTitle, offlineBody, onlineTitle, onlineBody] =
+    getVisitorUiCopy(language).shell
 
   return (
     <div
@@ -15,14 +28,12 @@ export function ConnectionStatusBanner({ state }: { state: NetworkConnectionStat
       role="status"
       aria-live="polite"
       aria-atomic="true"
+      lang={presentation.code}
+      dir={presentation.direction}
     >
       <div className="mx-auto max-w-2xl text-sm leading-5">
-        <span className="font-semibold">{offline ? "You're offline" : 'Back online'}</span>
-        <span className="ml-1">
-          {offline
-            ? 'Keep typing—your draft stays on this screen. Reconnect before sending.'
-            : 'You can send your draft. If a message needs attention, use its retry or check action.'}
-        </span>
+        <span className="font-semibold">{offline ? offlineTitle : onlineTitle}</span>
+        <span className="ml-1">{offline ? offlineBody : onlineBody}</span>
       </div>
     </div>
   )

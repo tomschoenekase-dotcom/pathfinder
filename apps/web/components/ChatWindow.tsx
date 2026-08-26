@@ -9,6 +9,8 @@ import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
 import { TypingIndicator } from './TypingIndicator'
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
 
 type Message = {
   id?: string
@@ -67,6 +69,20 @@ export function ChatWindow({
   isOnline = true,
   language = 'English',
 }: ChatWindowProps) {
+  const presentation = getChatLanguagePresentation(language)
+  const [
+    ,
+    ,
+    ,
+    conversationLabel,
+    ,
+    askQuestionLabel,
+    reconnectLabel,
+    sendingLabel,
+    sendMessageLabel,
+    sendLabel,
+    respondingLabel,
+  ] = getVisitorUiCopy(language).shell
   const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
@@ -156,7 +172,7 @@ export function ChatWindow({
         ref={scrollRef}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)] sm:px-5"
         role="log"
-        aria-label="Conversation"
+        aria-label={conversationLabel}
         aria-live="off"
         tabIndex={0}
       >
@@ -207,8 +223,8 @@ export function ChatWindow({
 
       <div className="sr-only" role="status" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
-          <span lang="en" dir="ltr">
-            {assistantLabel} is responding
+          <span lang={presentation.code} dir={presentation.direction}>
+            {assistantLabel} {respondingLabel}
           </span>
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
@@ -243,8 +259,13 @@ export function ChatWindow({
         ) : null}
 
         <div className="flex items-end gap-3">
-          <label className="sr-only" htmlFor="chat-input">
-            Ask a question
+          <label
+            className="sr-only"
+            htmlFor="chat-input"
+            lang={presentation.code}
+            dir={presentation.direction}
+          >
+            {askQuestionLabel}
           </label>
           <textarea
             ref={composerRef}
@@ -279,13 +300,7 @@ export function ChatWindow({
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
             disabled={!isOnline || isLoading || draft.trim().length === 0}
             type="button"
-            aria-label={
-              !isOnline
-                ? 'Reconnect to send message'
-                : isLoading
-                  ? 'Sending message'
-                  : 'Send message'
-            }
+            aria-label={!isOnline ? reconnectLabel : isLoading ? sendingLabel : sendMessageLabel}
             onClick={submit}
           >
             {isLoading ? (
@@ -311,7 +326,7 @@ export function ChatWindow({
                 />
               </svg>
             ) : (
-              'Send'
+              sendLabel
             )}
           </button>
         </div>

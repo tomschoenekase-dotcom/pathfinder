@@ -563,6 +563,23 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain('min-h-11')
   })
 
+  it('localizes the persistent Arabic chat shell and accessibility labels', async () => {
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+
+    expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'محادثة جديدة' })).toBeTruthy()
+    const guidance = screen.getByRole('note', { name: 'إرشادات الذكاء الاصطناعي' })
+    expect(guidance.getAttribute('lang')).toBe('ar')
+    expect(guidance.getAttribute('dir')).toBe('rtl')
+    expect(guidance.textContent).toContain('قد تكون الإجابات')
+    expect(guidance.closest('div[lang="ar"][dir="rtl"]')).toBeTruthy()
+    expect(screen.getByText('بدعم من')).toBeTruthy()
+  })
+
   it.each(['standalone', 'embed', 'webview'] as const)(
     'keeps AI accuracy and sensitive-information guidance visible in %s presentation',
     async (presentation) => {

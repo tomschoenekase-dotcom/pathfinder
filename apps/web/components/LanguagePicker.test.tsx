@@ -8,6 +8,7 @@ import {
   LanguagePicker,
   SUPPORTED_LANGUAGES,
 } from './LanguagePicker'
+import { localizeVisitorShellError } from './visitor-ui-copy'
 
 describe('LanguagePicker storage resilience', () => {
   beforeEach(() => {
@@ -57,20 +58,29 @@ describe('LanguagePicker storage resilience', () => {
     const arabic = SUPPORTED_LANGUAGES.find((language) => language.code === 'ar')!
     render(<LanguagePicker value={arabic.label} onChange={vi.fn()} />)
 
-    const picker = screen.getByRole('combobox', { name: 'Select language' })
+    const picker = screen.getByRole('combobox', { name: 'اختيار اللغة' })
     expect(picker.className).toContain('min-h-11')
     expect(picker.getAttribute('lang')).toBe('ar')
     expect(picker.getAttribute('dir')).toBe('rtl')
     const labelId = picker.getAttribute('aria-labelledby')
     const label = labelId ? document.getElementById(labelId) : null
-    expect(label?.textContent).toBe('Select language')
-    expect(label?.getAttribute('lang')).toBe('en')
-    expect(label?.getAttribute('dir')).toBe('ltr')
+    expect(label?.textContent).toBe('اختيار اللغة')
+    expect(label?.getAttribute('lang')).toBe('ar')
+    expect(label?.getAttribute('dir')).toBe('rtl')
 
     for (const option of Array.from((picker as HTMLSelectElement).options)) {
       const supported = SUPPORTED_LANGUAGES.find((language) => language.label === option.value)!
       expect(option.lang).toBe(supported.code)
       expect(option.dir).toBe(supported.code === 'ar' ? 'rtl' : 'ltr')
     }
+  })
+
+  it('localizes the governed transient recovery message after an in-page language switch', () => {
+    expect(
+      localizeVisitorShellError(
+        'The guide could not start this message. Wait a moment, then send it again as a new message.',
+        'العربية',
+      ),
+    ).toBe('تعذر على الدليل بدء معالجة هذه الرسالة. انتظر لحظة ثم أرسلها مرة أخرى كرسالة جديدة.')
   })
 })

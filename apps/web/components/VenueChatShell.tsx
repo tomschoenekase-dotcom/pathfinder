@@ -23,6 +23,7 @@ import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
 import { VoiceControl } from './VoiceControl'
+import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 
@@ -109,6 +110,22 @@ export function VenueChatShell(props: {
   const isOnline = connectionState !== 'offline'
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
+  const [
+    ,
+    backLabel,
+    newConversationLabel,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    aiGuidanceLabel,
+    aiGuidance,
+    poweredByLabel,
+  ] = getVisitorUiCopy(language).shell
   const hasLocation =
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
@@ -122,6 +139,8 @@ export function VenueChatShell(props: {
 
   return (
     <div
+      lang={languagePresentation.code}
+      dir={languagePresentation.direction}
       className="flex h-svh flex-col overflow-hidden"
       style={{ backgroundColor: palette.bg, fontFamily: fontFamily(venue.chatFont) }}
     >
@@ -142,9 +161,12 @@ export function VenueChatShell(props: {
           {presentation === 'standalone' ? (
             <Link
               href={`/${venueSlug}`}
+              lang={languagePresentation.code}
+              dir={languagePresentation.direction}
               className={`inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
             >
-              <span aria-hidden="true">←</span> Back
+              <span aria-hidden="true">{languagePresentation.direction === 'rtl' ? '→' : '←'}</span>{' '}
+              {backLabel}
             </Link>
           ) : null}
           <div className={`${presentation === 'standalone' ? 'mt-2 ' : ''}flex items-center gap-3`}>
@@ -155,6 +177,8 @@ export function VenueChatShell(props: {
               <TorchikoIcon className="h-7 w-7 flex-shrink-0" />
             )}
             <h1
+              lang=""
+              dir="auto"
               className={`text-2xl font-semibold tracking-tight ${banner ? 'text-white drop-shadow-sm' : 'text-[var(--chat-text)]'}`}
             >
               {guideName}
@@ -175,12 +199,12 @@ export function VenueChatShell(props: {
               disabled={!isOnline || isSending || !anonymousToken}
               className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              New conversation
+              {newConversationLabel}
             </button>
           </div>
         </div>
       </header>
-      <ConnectionStatusBanner state={connectionState} />
+      <ConnectionStatusBanner state={connectionState} language={language} />
       <main className="flex min-h-0 flex-1 flex-col">
         {characterPresentation ? (
           <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
@@ -234,7 +258,7 @@ export function VenueChatShell(props: {
             {...(retryLabel ? { retryLabel } : {})}
             isLoading={isSending}
             isOnline={isOnline}
-            errorMessage={sendError}
+            errorMessage={localizeVisitorShellError(sendError, language)}
             accentColor={palette.accent}
             accentContrastColor={palette.accentContrast}
             placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
@@ -278,14 +302,15 @@ export function VenueChatShell(props: {
         <p
           className="mx-auto max-w-2xl px-4 text-[11px] leading-4 text-[var(--chat-text-muted)] sm:px-6"
           role="note"
-          aria-label="AI guidance"
+          aria-label={aiGuidanceLabel}
+          lang={languagePresentation.code}
+          dir={languagePresentation.direction}
         >
-          AI-generated answers can be wrong. Verify important details with venue staff, and do not
-          share sensitive information.
+          {aiGuidance}
         </p>
         {presentation !== 'webview' ? (
           <p className="text-[10px] text-[var(--chat-text-muted)]">
-            Powered by{' '}
+            {poweredByLabel}{' '}
             {presentation === 'standalone' ? (
               <a
                 href="https://torchiko.com"
