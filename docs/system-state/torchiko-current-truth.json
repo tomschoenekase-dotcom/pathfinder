@@ -273,6 +273,10 @@
         "packages/api/src/lib/semantic-venue-update-finalizer.ts",
         "packages/api/src/lib/semantic-operational-update-finalizer.ts",
         "packages/api/src/routers/admin/knowledge-proposals.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-conflicts.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-review.ts",
         "packages/db/src/helpers/agent-question-actions.ts",
         "packages/db/src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts",
         "apps/dashboard/components/admin/SemanticUpdatePreview.tsx"
