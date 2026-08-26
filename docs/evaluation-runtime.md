@@ -12,10 +12,12 @@ All three gates must be explicitly true before the API creates a run identity:
 
 When `EVALUATION_RUNNER_ENABLED=true` and `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, the worker
 bootstrap selects the isolated `evaluation-only` runtime. That runtime requires Redis, both database
-URLs, and the two registered evaluation-provider credentials, but constructs only the evaluation-run
-and guest-answer-attribution queues and consumers. It rejects combination with the CRM-only or
-intake-verification-only modes. This keeps a bounded evaluation window from waking embedding,
-generation, media, email, reporting, billing, or other outbound-provider queues.
+URLs, and the OpenAI credential used by the bounded provider-diversity canary, but constructs only
+the evaluation-run and guest-answer-attribution queues and consumers. It rejects combination with
+the CRM-only or intake-verification-only modes. This keeps a bounded evaluation window from waking
+embedding, generation, media, email, reporting, billing, or other outbound-provider queues. The
+Anthropic candidate remains unavailable in this isolated deployment unless a separate reviewed
+credential and provider-admission change is made.
 
 Disabling the process gate stops new consumer registration. Disabling either durable scope gate while a run is active causes remaining cases to receive `CANCELLED` operational evidence. Neither condition changes content or publishes a package. A process-env mismatch cannot be proven away by application code: the durable global record is the operator's cross-service coordination source, while every process-local gate still fails closed. A worker deployed with its local gate false consumes nothing even if another service is misconfigured true.
 

@@ -103,7 +103,6 @@ describe('worker startup policy', () => {
         'REDIS_URL',
         'DATABASE_URL',
         'DIRECT_DATABASE_URL',
-        'ANTHROPIC_API_KEY',
         'OPENAI_API_KEY',
       ],
       intakeUploadVerificationEnabled: false,
