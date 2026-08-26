@@ -5,6 +5,12 @@ import type { AiMessage, AiSystemBlock, AiTokenUsage } from './anthropic'
 import type { AiModelSpec } from './model-registry'
 
 const openAiResponseSchema = z.object({
+  status: z.string().optional(),
+  incomplete_details: z
+    .object({ reason: z.string().optional() })
+    .passthrough()
+    .nullable()
+    .optional(),
   output_text: z.string().optional(),
   output: z
     .array(
@@ -43,6 +49,7 @@ export type OpenAiResponsesClient = {
         instructions: string
         input: AiMessage[]
         max_output_tokens: number
+        reasoning: { effort: 'minimal' }
         store: false
       },
       options?: { timeout?: number; signal?: AbortSignal },
@@ -51,6 +58,16 @@ export type OpenAiResponsesClient = {
 }
 
 let openAiResponsesClient: OpenAiResponsesClient | null = null
+
+export class OpenAiIncompleteResponseError extends Error {
+  readonly reason: string
+
+  constructor(reason: string) {
+    super(`OpenAI response was incomplete: ${reason}`)
+    this.name = 'OpenAiIncompleteResponseError'
+    this.reason = reason
+  }
+}
 
 function getOpenAiResponsesClient(): OpenAiResponsesClient {
   if (!openAiResponsesClient) {
@@ -82,11 +99,15 @@ export async function createOpenAiTextResponse(params: {
       instructions: params.system.map((block) => block.text).join('\n\n'),
       input: params.messages,
       max_output_tokens: params.maxOutputTokens,
+      reasoning: { effort: 'minimal' },
       store: false,
     },
     { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
   )
   const response = openAiResponseSchema.parse(raw)
+  if (response.status === 'incomplete' || response.incomplete_details) {
+    throw new OpenAiIncompleteResponseError(response.incomplete_details?.reason ?? 'unspecified')
+  }
   const cachedInputTokens = response.usage.input_tokens_details?.cached_tokens ?? 0
   const text =
     response.output_text?.trim() ||

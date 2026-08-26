@@ -6,7 +6,7 @@ import Anthropic, {
 import { z } from 'zod'
 
 import type { AiAdmissionGuard } from './admission'
-import { createOpenAiTextResponse } from './openai-text'
+import { createOpenAiTextResponse, OpenAiIncompleteResponseError } from './openai-text'
 
 import {
   createAiInvocationId,
@@ -204,6 +204,7 @@ function isRetryable(error: unknown): boolean {
 
 function errorCode(error: unknown): string {
   if (error instanceof z.ZodError) return 'invalid-provider-response'
+  if (error instanceof OpenAiIncompleteResponseError) return 'provider-incomplete-response'
   if (error instanceof APIConnectionTimeoutError) return 'provider-connection-timeout'
   if (error instanceof APIConnectionError) return 'provider-connection-error'
   if (error instanceof APIUserAbortError) return 'provider-user-abort'
