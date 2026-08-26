@@ -18,6 +18,8 @@ type VoiceState =
   | 'error'
 export type VoiceTranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: string }
 
+export const MICROPHONE_REQUEST_TIMEOUT_MS = 15_000
+
 function characterStateForVoice(state: VoiceState): CharacterState {
   if (state === 'requesting' || state === 'connecting') return 'attention'
   if (state === 'listening' || state === 'thinking' || state === 'speaking' || state === 'error')
@@ -32,7 +34,33 @@ function readableError(error: unknown): string {
   if (error instanceof Error && error.message === 'VOICE_UNSUPPORTED') {
     return 'Voice is not supported in this browser. You can continue in text.'
   }
+  if (error instanceof Error && error.message === 'MICROPHONE_REQUEST_TIMEOUT') {
+    return 'The microphone request took too long. Continue in text, check your browser permission, or try voice again.'
+  }
   return 'Voice could not connect. You can continue in text or try again.'
+}
+
+async function requestMicrophoneStream(): Promise<MediaStream> {
+  const request = navigator.mediaDevices.getUserMedia({ audio: true })
+  let timedOut = false
+  let timeoutId: number | null = null
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = window.setTimeout(() => {
+      timedOut = true
+      reject(new Error('MICROPHONE_REQUEST_TIMEOUT'))
+    }, MICROPHONE_REQUEST_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([request, timeout])
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId)
+    if (timedOut) {
+      void request
+        .then((lateStream) => lateStream.getTracks().forEach((track) => track.stop()))
+        .catch(() => undefined)
+    }
+  }
 }
 
 function voiceStateLabel(state: VoiceState): string {
@@ -261,7 +289,7 @@ export function VoiceControl({
         throw new Error('VOICE_UNSUPPORTED')
       }
       setVoiceState('requesting')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await requestMicrophoneStream()
       streamRef.current = stream
       setVoiceState('connecting')
       const locale = getChatLanguagePresentation(language).code

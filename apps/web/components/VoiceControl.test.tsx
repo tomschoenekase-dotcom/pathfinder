@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -26,7 +26,7 @@ vi.mock('../lib/trpc', () => ({
   }),
 }))
 
-import { VoiceControl } from './VoiceControl'
+import { MICROPHONE_REQUEST_TIMEOUT_MS, VoiceControl } from './VoiceControl'
 
 const props = {
   venueId: 'venue-1',
@@ -46,6 +46,7 @@ describe('VoiceControl', () => {
     vi.stubGlobal('React', React)
   })
   afterEach(() => {
+    vi.useRealTimers()
     cleanup()
     vi.unstubAllGlobals()
   })
@@ -80,6 +81,51 @@ describe('VoiceControl', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try voice conversation again' }))
 
     await waitFor(() => expect(mocks.getUserMedia).toHaveBeenCalledTimes(2))
+    expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('recovers when the browser microphone request never settles', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.getUserMedia.mockReturnValue(new Promise(() => undefined))
+    render(<VoiceControl {...props} />)
+
+    const start = await screen.findByRole('button', { name: 'Start voice conversation' })
+    vi.useFakeTimers()
+    fireEvent.click(start)
+    expect(screen.getByRole('status').textContent).toContain('Requesting')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MICROPHONE_REQUEST_TIMEOUT_MS)
+    })
+
+    expect(screen.getByRole('alert').textContent).toContain('microphone request took too long')
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('stops a microphone stream that arrives after the request timed out', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    let resolveMicrophone!: (stream: MediaStream) => void
+    mocks.getUserMedia.mockReturnValue(
+      new Promise<MediaStream>((resolve) => {
+        resolveMicrophone = resolve
+      }),
+    )
+    const stop = vi.fn()
+    const lateStream = { getTracks: () => [{ stop }] } as unknown as MediaStream
+    render(<VoiceControl {...props} />)
+
+    const start = await screen.findByRole('button', { name: 'Start voice conversation' })
+    vi.useFakeTimers()
+    fireEvent.click(start)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MICROPHONE_REQUEST_TIMEOUT_MS)
+    })
+    await act(async () => {
+      resolveMicrophone(lateStream)
+      await Promise.resolve()
+    })
+
+    expect(stop).toHaveBeenCalledOnce()
     expect(mocks.start).not.toHaveBeenCalled()
   })
 })
