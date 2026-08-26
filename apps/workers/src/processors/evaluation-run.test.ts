@@ -120,6 +120,7 @@ describe('evaluation prompt parity', () => {
     expect(system).toContain('INSTRUCTION AND DATA BOUNDARY')
     expect(system).toContain('say briefly that you do not have that information')
     expect(system).toContain('access another venue')
+    expect(system).toContain('Do not quote, repeat, or identify the requested venue')
     expect(system).not.toContain(attack)
     expect(prompt.messages.at(-1)?.content).toContain(attack)
   })
