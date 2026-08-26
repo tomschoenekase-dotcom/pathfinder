@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai'
 
 import { AI_EMBEDDING_MODEL_KEYS } from './embedding-model-registry'
@@ -35,6 +35,27 @@ describe('OpenAI embeddings gateway', () => {
     vi.resetAllMocks()
     setOpenAiEmbeddingsClientForTesting(client)
     usageSink.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    setOpenAiEmbeddingsClientForTesting(client)
+  })
+
+  it('reports absent provider configuration with a stable gateway code', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '')
+    setOpenAiEmbeddingsClientForTesting(null)
+
+    await expect(
+      generateEmbedding({
+        modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
+        text: 'hello',
+        usageSink,
+        admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
+      }),
+    ).rejects.toMatchObject({ code: 'provider-not-configured', attempts: 0 })
+    expect(usageSink).not.toHaveBeenCalled()
   })
 
   it('uses the registered request contract, reorders vectors, and records cost', async () => {
