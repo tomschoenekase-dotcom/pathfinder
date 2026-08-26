@@ -318,34 +318,58 @@ export const adminIntakeOperationsRouter = router({
       })
       const mappingReviewHash = candidate.mappingReviewHash
       const candidateHash = candidate.candidateHash
-      return createVenuePackageDraftService({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
-        input: { venueId: input.venueId, draftKey, payload: candidate.payload },
-        finalizer: async (finalizerInput) => {
-          const current = await buildWebsiteVenuePackageMappingCandidate({
-            db: finalizerInput.tx,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: input.runId,
-            receiptId: input.receiptId,
-            expectedResearchHash: input.expectedResearchHash,
-            selections: input.selections,
-            allowExistingHandoff: true,
-          })
-          if (
-            current.mappingReviewHash !== mappingReviewHash ||
-            current.candidateHash !== candidateHash
-          ) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'Website mapping evidence changed during draft creation.',
+      try {
+        return await createVenuePackageDraftService({
+          db: ctx.db,
+          tenantId: input.tenantId,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          input: { venueId: input.venueId, draftKey, payload: candidate.payload },
+          finalizer: async (finalizerInput) => {
+            const current = await buildWebsiteVenuePackageMappingCandidate({
+              db: finalizerInput.tx,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              runId: input.runId,
+              receiptId: input.receiptId,
+              expectedResearchHash: input.expectedResearchHash,
+              selections: input.selections,
+              allowExistingHandoff: true,
             })
-          }
-          return baseFinalizer(finalizerInput)
-        },
-      })
+            if (
+              current.mappingReviewHash !== mappingReviewHash ||
+              current.candidateHash !== candidateHash
+            ) {
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: 'Website mapping evidence changed during draft creation.',
+              })
+            }
+            return baseFinalizer(finalizerInput)
+          },
+        })
+      } catch (error) {
+        const diagnostic = {
+          action: 'intake.website-mapping-draft.rejected',
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: input.runId,
+          errorName: error instanceof Error ? error.name : 'Unknown',
+          errorCode:
+            typeof error === 'object' && error !== null && 'code' in error
+              ? String(error.code)
+              : null,
+          error:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : 'Unknown website mapping DRAFT failure',
+        }
+        if (error instanceof TRPCError) {
+          logger.warn(diagnostic)
+          throw publicTRPCError({ code: error.code, message: error.message })
+        }
+        logger.error(diagnostic)
+        throw error
+      }
     }),
 
   getIntakeVenuePackageCandidate: adminProcedure
