@@ -9,6 +9,22 @@ vi.mock('./EvaluationRunLifecycleControl', () => ({
 vi.mock('./EvaluationComparisonPanel', () => ({
   EvaluationComparisonPanel: () => <span>Comparison panel</span>,
 }))
+vi.mock('./EvaluationRuntimeGateControl', () => ({
+  EvaluationRuntimeGateControl: ({ readiness }: { readiness: { apiProcessEnabled: boolean } }) => (
+    <span>
+      Evaluation runtime gates · process {readiness.apiProcessEnabled ? 'enabled' : 'off'}
+    </span>
+  ),
+}))
+vi.mock('./OnboardingEvaluationSuitePanel', () => ({
+  OnboardingEvaluationSuitePanel: () => <span>Onboarding suite</span>,
+}))
+vi.mock('./ConversationEvaluationCasePanel', () => ({
+  ConversationEvaluationCasePanel: () => <span>Conversation cases</span>,
+}))
+vi.mock('./EvaluationRunRequestPanel', () => ({
+  EvaluationRunRequestPanel: () => <span>Run request</span>,
+}))
 
 import { EvaluationOperationsView } from './EvaluationOperationsView'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -135,5 +151,21 @@ describe('EvaluationOperationsView', () => {
     expect(
       screen.getByRole('link', { name: 'Open versioned package repairs' }).getAttribute('href'),
     ).toBe('/admin/clients/tenant_1/venues/venue_1/packages')
+  })
+
+  it('renders the explicit runtime gate control only with admin readiness evidence', () => {
+    render(
+      <EvaluationOperationsView
+        {...baseProps}
+        runs={[]}
+        requestPanelEnabled
+        runnerReadiness={{
+          apiProcessEnabled: false,
+          durableGlobalEnabled: false,
+          tenantEnabled: false,
+        }}
+      />,
+    )
+    expect(screen.getByText('Evaluation runtime gates · process off')).toBeTruthy()
   })
 })

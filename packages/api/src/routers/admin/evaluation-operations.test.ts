@@ -25,6 +25,11 @@ const mocks = vi.hoisted(() => ({
   nativeReleaseFind: vi.fn(),
   venueFind: vi.fn(),
   milestoneFindMany: vi.fn(),
+  platformConfigFind: vi.fn(),
+  platformConfigUpsert: vi.fn(),
+  tenantFlagUpsert: vi.fn(),
+  auditCreate: vi.fn(),
+  contentVersionContext: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
@@ -72,6 +77,8 @@ vi.mock('@pathfinder/db', () => ({
   createOrReplayEvaluationRun: mocks.createRun,
   requestEvaluationRunCancellation: mocks.cancelRun,
   isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY: 'evaluation-runner-v1-global',
+  setContentVersionContext: mocks.contentVersionContext,
   getEvaluationRegressionAlertPolicy: mocks.regressionPolicy,
   markEvaluationRunQueued: mocks.markQueued,
   db: {
@@ -79,8 +86,17 @@ vi.mock('@pathfinder/db', () => ({
       operation({
         evalCase: { findMany: mocks.caseFindMany },
         venuePackage: { findFirst: mocks.venuePackageFind },
-        tenantFeatureFlag: { findUnique: mocks.featureEnabled },
+        tenantFeatureFlag: {
+          findUnique: mocks.featureEnabled,
+          upsert: mocks.tenantFlagUpsert,
+        },
         nativeVenueDeploymentRelease: { findFirst: mocks.nativeReleaseFind },
+        venue: { findFirst: mocks.venueFind },
+        platformConfig: {
+          findUnique: mocks.platformConfigFind,
+          upsert: mocks.platformConfigUpsert,
+        },
+        auditLog: { create: mocks.auditCreate },
       }),
     ),
     evalRun: { findMany: mocks.runFindMany },
@@ -89,7 +105,7 @@ vi.mock('@pathfinder/db', () => ({
     evalCase: { findMany: mocks.caseFindMany },
     venue: { findFirst: mocks.venueFind },
     onboardingMilestoneEvent: { findMany: mocks.milestoneFindMany },
-    tenantFeatureFlag: { findUnique: mocks.featureEnabled },
+    tenantFeatureFlag: { findUnique: mocks.featureEnabled, upsert: mocks.tenantFlagUpsert },
   },
 }))
 
@@ -118,6 +134,12 @@ describe('admin evaluation operations router', () => {
     mocks.runFindMany.mockResolvedValue([])
     mocks.resultFindMany.mockResolvedValue([])
     mocks.featureEnabled.mockResolvedValue(null)
+    mocks.platformConfigFind.mockResolvedValue(null)
+    mocks.venueFind.mockResolvedValue({ id: 'venue_1' })
+    mocks.platformConfigUpsert.mockResolvedValue({})
+    mocks.tenantFlagUpsert.mockResolvedValue({})
+    mocks.auditCreate.mockResolvedValue({})
+    mocks.contentVersionContext.mockResolvedValue(undefined)
     mocks.enqueueRun.mockResolvedValue({ enqueued: false })
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
@@ -130,6 +152,96 @@ describe('admin evaluation operations router', () => {
       mismatchReasons: ['CONTENT'],
       cases: [],
       totals: null,
+    })
+  })
+
+  it('atomically enables exact durable evaluation gates after explicit confirmation', async () => {
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.setEvaluationRuntimeDurableGates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        enabled: true,
+        expectedGlobalEnabled: false,
+        expectedTenantEnabled: false,
+        confirmation: 'ENABLE EVALUATION RUNNER',
+      })
+
+    expect(result).toEqual({
+      apiProcessEnabled: true,
+      durableGlobalEnabled: true,
+      tenantEnabled: true,
+      executionEnabled: true,
+    })
+    expect(mocks.platformConfigUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: 'evaluation-runner-v1-global' },
+        update: expect.objectContaining({ value: { version: 1, enabled: true } }),
+      }),
+    )
+    expect(mocks.tenantFlagUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId_flagKey: { tenantId: 'tenant_1', flagKey: 'evaluation-runner-v1' },
+        },
+        update: expect.objectContaining({ enabled: true, setBy: 'operator_1' }),
+      }),
+    )
+    expect(mocks.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        action: 'admin.evaluation-runtime.enabled',
+        targetId: 'tenant_1:venue_1',
+        beforeState: { durableGlobalEnabled: false, tenantEnabled: false },
+        afterState: { durableGlobalEnabled: true, tenantEnabled: true },
+      }),
+    })
+  })
+
+  it('fails closed on stale durable readiness without writing either gate', async () => {
+    mocks.platformConfigFind.mockResolvedValue({ value: { version: 1, enabled: true } })
+
+    await expect(
+      testRouter.createCaller(context()).evaluations.setEvaluationRuntimeDurableGates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        enabled: true,
+        expectedGlobalEnabled: false,
+        expectedTenantEnabled: false,
+        confirmation: 'ENABLE EVALUATION RUNNER',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.platformConfigUpsert).not.toHaveBeenCalled()
+    expect(mocks.tenantFlagUpsert).not.toHaveBeenCalled()
+    expect(mocks.auditCreate).not.toHaveBeenCalled()
+  })
+
+  it('requires the exact enable phrase but permits immediate audited disable', async () => {
+    await expect(
+      testRouter.createCaller(context()).evaluations.setEvaluationRuntimeDurableGates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        enabled: true,
+        expectedGlobalEnabled: false,
+        expectedTenantEnabled: false,
+        confirmation: 'enable',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    mocks.platformConfigFind.mockResolvedValue({ value: { version: 1, enabled: true } })
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    const disabled = await testRouter
+      .createCaller(context())
+      .evaluations.setEvaluationRuntimeDurableGates({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        enabled: false,
+        expectedGlobalEnabled: true,
+        expectedTenantEnabled: true,
+      })
+    expect(disabled.executionEnabled).toBe(false)
+    expect(mocks.auditCreate).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ action: 'admin.evaluation-runtime.disabled' }),
     })
   })
 

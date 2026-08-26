@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { EvaluationRunRequestPanel, type EvaluationCaseListItem } from './EvaluationRunRequestPanel'
 import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
 import { EvaluationComparisonPanel } from './EvaluationComparisonPanel'
+import { EvaluationRuntimeGateControl } from './EvaluationRuntimeGateControl'
 import { OnboardingEvaluationSuitePanel } from './OnboardingEvaluationSuitePanel'
 import { OnboardingMilestoneMetricsPanel } from './OnboardingMilestoneMetricsPanel'
 import {
@@ -93,6 +94,11 @@ type EvaluationOperationsViewProps = {
   cases?: EvaluationCaseListItem[]
   caseNextCursor?: { createdAt: string; id: string } | null
   runnerEnabled?: boolean
+  runnerReadiness?: {
+    apiProcessEnabled: boolean
+    durableGlobalEnabled: boolean
+    tenantEnabled: boolean
+  }
   regressionAlerts?: {
     configured: boolean
     minimumPassRateDrop: number | null
@@ -195,6 +201,7 @@ export function EvaluationOperationsView({
   cases = [],
   caseNextCursor = null,
   runnerEnabled = false,
+  runnerReadiness,
   regressionAlerts,
   maximumCases = 50,
   requestPanelEnabled = false,
@@ -241,6 +248,14 @@ export function EvaluationOperationsView({
       ) : null}
 
       {onboardingMetrics ? <OnboardingMilestoneMetricsPanel rollup={onboardingMetrics} /> : null}
+
+      {requestPanelEnabled && runnerReadiness ? (
+        <EvaluationRuntimeGateControl
+          tenantId={tenantId}
+          venueId={venueId}
+          readiness={runnerReadiness}
+        />
+      ) : null}
 
       {requestPanelEnabled ? (
         <>
