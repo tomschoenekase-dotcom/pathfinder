@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { setAnthropicClientForTesting } from './anthropic'
+import { setOpenAiResponsesClientForTesting } from './openai-text'
 import {
   AiRequestBudgetCeilingExceededError,
   NOOP_AI_BUDGET_GATE,
@@ -11,7 +12,65 @@ import { routeAiCapability } from './capability-routing'
 import { generateTextForCapability } from './routed-generation'
 
 describe('routed text generation', () => {
-  afterEach(() => setAnthropicClientForTesting(null))
+  afterEach(() => {
+    setAnthropicClientForTesting(null)
+    setOpenAiResponsesClientForTesting(null)
+  })
+
+  it('routes an explicitly selected OpenAI text model through the same controls', async () => {
+    const create = vi.fn().mockResolvedValue({
+      output_text: 'Bienvenido',
+      output: [],
+      usage: {
+        input_tokens: 12,
+        output_tokens: 3,
+        input_tokens_details: { cached_tokens: 4 },
+      },
+    })
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'guest-chat-openai', maxAttempts: 1 },
+          unsafeChangesEnabled: true,
+          reason: 'bounded OpenAI text canary',
+        },
+      ],
+    })
+    const usageSink = vi.fn().mockResolvedValue(undefined)
+    const result = await generateTextForCapability({
+      route: routeAiCapability({ capability: 'STANDARD', workloadId: 'guest-chat', configuration }),
+      system: [{ type: 'text', text: 'Reply in the guest language.' }],
+      messages: [{ role: 'user', content: 'Hola' }],
+      maxAttempts: 1,
+      usageSink,
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate: NOOP_AI_BUDGET_GATE,
+    })
+
+    expect(result).toMatchObject({
+      text: 'Bienvenido',
+      provider: 'openai',
+      model: 'gpt-5-mini-2025-08-07',
+      usage: { inputTokens: 8, outputTokens: 3, cacheReadInputTokens: 4 },
+      route: { modelKey: 'guest-chat-openai', fallbackUsed: false },
+    })
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gpt-5-mini-2025-08-07',
+        instructions: 'Reply in the guest language.',
+        input: [{ role: 'user', content: 'Hola' }],
+        store: false,
+      }),
+      expect.any(Object),
+    )
+    expect(usageSink).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: 'openai', routeModelKey: 'guest-chat-openai' }),
+    )
+  })
 
   it('uses an explicit fallback and annotates usage without repeating the dispatch fence', async () => {
     const create = vi

@@ -34,6 +34,7 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'company-brain-retrieval-evaluation': ['BACKGROUND_ANALYSIS'],
   'guest-answer-attribution-evaluation': ['BACKGROUND_ANALYSIS'],
   'guest-chat': ['STANDARD', 'PREMIUM_CONVERSATION'],
+  'guest-chat-openai': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'weekly-digest': ['BACKGROUND_ANALYSIS'],
   'weekly-report': ['BACKGROUND_ANALYSIS'],
   'guest-query-embedding': ['EMBEDDING'],

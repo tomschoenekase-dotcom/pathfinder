@@ -6,6 +6,7 @@ import Anthropic, {
 import { z } from 'zod'
 
 import type { AiAdmissionGuard } from './admission'
+import { createOpenAiTextResponse } from './openai-text'
 
 import {
   createAiInvocationId,
@@ -53,7 +54,7 @@ export type AiTokenUsage = {
 export type AiTextResult<TParsed = string> = {
   text: string
   parsed: TParsed
-  provider: 'anthropic'
+  provider: 'anthropic' | 'openai'
   model: string
   pricingVersion: string
   usage: AiTokenUsage
@@ -132,6 +133,47 @@ function getAnthropicClient(): AnthropicMessagesClient {
 
 export function setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
   anthropicClient = client
+}
+
+async function createProviderResponse(params: {
+  spec: ReturnType<typeof getAiModelSpec>
+  system: AiSystemBlock[]
+  messages: AiMessage[]
+  maxOutputTokens: number
+  timeoutMs: number
+  signal?: AbortSignal
+}): Promise<{ text: string; usage: AiTokenUsage }> {
+  const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
+  if (params.spec.provider === 'openai') {
+    return createOpenAiTextResponse(params)
+  }
+
+  const raw = await getAnthropicClient().messages.create(
+    {
+      model: params.spec.model,
+      max_tokens: params.maxOutputTokens,
+      system: params.system,
+      messages: params.messages,
+    },
+    options,
+  )
+  const response = responseSchema.parse(raw)
+  return {
+    text: response.content
+      .filter(
+        (block): block is typeof block & { text: string } =>
+          block.type === 'text' && typeof block.text === 'string',
+      )
+      .map((block) => block.text)
+      .join('\n')
+      .trim(),
+    usage: {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+    },
+  }
 }
 
 function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage): number {
@@ -252,7 +294,6 @@ export async function generateText<TParsed = string>(params: {
       }
       throw admissionError
     }
-    const client = getAnthropicClient()
     const reservation = await budgetGate.reserve({
       invocationId,
       attemptNumber: budgetAttemptNumberOffset + attempt,
@@ -290,23 +331,16 @@ export async function generateText<TParsed = string>(params: {
     }
     let observedReservation: AiBudgetReservationRef | null = null
     try {
-      const raw = await client.messages.create(
-        {
-          model: spec.model,
-          max_tokens: maxOutputTokens,
-          system: params.system,
-          messages: params.messages,
-        },
-        { timeout: timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
-      )
+      const response = await createProviderResponse({
+        spec,
+        system: params.system,
+        messages: params.messages,
+        maxOutputTokens,
+        timeoutMs,
+        ...(params.signal ? { signal: params.signal } : {}),
+      })
       if (params.signal?.aborted) throw abortReason(params.signal)
-      const response = responseSchema.parse(raw)
-      const usage: AiTokenUsage = {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
-        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
-      }
+      const usage = response.usage
       observedReservation = reservation
       if (reservation) {
         try {
@@ -319,14 +353,7 @@ export async function generateText<TParsed = string>(params: {
           // must not turn one provider response into another provider attempt.
         }
       }
-      const text = response.content
-        .filter(
-          (block): block is typeof block & { text: string } =>
-            block.type === 'text' && typeof block.text === 'string',
-        )
-        .map((block) => block.text)
-        .join('\n')
-        .trim()
+      const text = response.text
       if (!text) {
         const gatewayError = new AiGatewayError('Provider response contained no text block', {
           attempts: attempt,

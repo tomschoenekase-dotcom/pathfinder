@@ -7,6 +7,7 @@ export const AI_MODEL_KEYS = {
   COMPANY_BRAIN_RETRIEVAL_EVALUATION: 'company-brain-retrieval-evaluation',
   GUEST_ANSWER_ATTRIBUTION_EVALUATION: 'guest-answer-attribution-evaluation',
   GUEST_CHAT: 'guest-chat',
+  GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
 } as const
@@ -14,7 +15,7 @@ export const AI_MODEL_KEYS = {
 export type AiModelKey = (typeof AI_MODEL_KEYS)[keyof typeof AI_MODEL_KEYS]
 
 export type AiModelSpec = {
-  provider: 'anthropic'
+  provider: 'anthropic' | 'openai'
   model: string
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
@@ -28,6 +29,26 @@ export type AiModelSpec = {
     output: number
     cacheWrite: number
     cacheRead: number
+  }
+}
+
+function openAiMiniSpec(maxOutputTokens: number): AiModelSpec {
+  return {
+    provider: 'openai',
+    model: 'gpt-5-mini-2025-08-07',
+    costTier: 'ECONOMY',
+    maxOutputTokens,
+    timeoutMs: 15_000,
+    maxAttempts: 2,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
+    pricingVersion: 'openai-public-2026-08-26',
+    pricingUsdPerMillionTokens: {
+      input: 0.25,
+      output: 2,
+      cacheWrite: 0.25,
+      cacheRead: 0.025,
+    },
   }
 }
 
@@ -92,6 +113,9 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // exact evidence bundle. Execution remains policy-, admission-, and budget-gated.
   [AI_MODEL_KEYS.GUEST_ANSWER_ATTRIBUTION_EVALUATION]: sonnetSpec(4_000),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
+  // Explicit provider-diversity candidate. Anthropic remains the platform
+  // default until a governed workload/client/venue override selects this key.
+  [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),
 }

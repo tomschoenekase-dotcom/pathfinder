@@ -11,6 +11,7 @@ export {
   type AnthropicCreateParams,
   type AnthropicMessagesClient,
 } from './anthropic'
+export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from './openai-text'
 export type { AiAdmissionGuard } from './admission'
 export {
   createAiInvocationId,

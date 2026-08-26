@@ -22,10 +22,14 @@ export type RoutedAiTextResult<TParsed = string> = AiTextResult<TParsed> & {
 }
 
 function textModelKey(candidate: AiRouteCandidate): AiModelKey {
-  if (candidate.provider !== 'anthropic' || !(candidate.modelKey in AI_MODEL_REGISTRY)) {
+  if (!(candidate.modelKey in AI_MODEL_REGISTRY)) {
     throw new Error(`No text provider adapter is registered for ${candidate.modelKey}`)
   }
-  return candidate.modelKey as AiModelKey
+  const modelKey = candidate.modelKey as AiModelKey
+  if (AI_MODEL_REGISTRY[modelKey].provider !== candidate.provider) {
+    throw new Error(`Text provider identity mismatch for ${candidate.modelKey}`)
+  }
+  return modelKey
 }
 
 /** Executes an already-authorized route plan and records route metadata on every attempt. */
