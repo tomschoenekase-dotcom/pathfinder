@@ -449,7 +449,7 @@ export async function executeFrozenEvaluationRun(
   ) {
     throw new Error('EVALUATION_RUN_IDENTITY_MISMATCH')
   }
-  frozenEvaluationModelKey(run)
+  const modelKey = frozenEvaluationModelKey(run)
   const contentSnapshot = frozenContent(run)
   const manifest = EvalCaseManifestSchema.parse(run.caseManifestSnapshot)
   if (manifest.length > EVALUATION_RUN_MAX_CASES) throw new Error('EVALUATION_CASE_LIMIT_EXCEEDED')
@@ -529,7 +529,7 @@ export async function executeFrozenEvaluationRun(
       processed += 1
       continue
     }
-    const reservedCostE8Usd = evaluationPromptCostCeiling(evalCase, contentSnapshot)
+    const reservedCostE8Usd = evaluationPromptCostCeiling(evalCase, contentSnapshot, modelKey)
     const reservation = await deps.reserve({
       run,
       evalCase: frozenCase,

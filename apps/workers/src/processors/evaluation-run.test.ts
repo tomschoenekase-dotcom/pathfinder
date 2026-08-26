@@ -617,6 +617,47 @@ describe('executeFrozenEvaluationRun', () => {
     )
   })
 
+  it('reserves each case against the exact frozen provider model', async () => {
+    const openAiModel = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_OPENAI)
+    const openAiRun = {
+      ...frozenRun(),
+      modelProvider: openAiModel.provider,
+      modelName: openAiModel.model,
+      modelSnapshotHash: evaluationSnapshotHash(
+        'pathfinder-eval-model-snapshot-v1',
+        openAiModel as never,
+      ),
+      modelSnapshot: openAiModel,
+    }
+    const reserve = vi.fn(async () => ({
+      state: 'reserved' as const,
+      reservationId: 'openai-reservation',
+    }))
+    const subject = deps({
+      loadRun: async () => openAiRun,
+      reserve,
+      evaluate: async () => ({
+        answer: 'It is here',
+        latencyMs: 4,
+        costE8Usd: 3n,
+        modelProvider: openAiModel.provider,
+        modelName: openAiModel.model,
+      }),
+    })
+
+    await executeFrozenEvaluationRun(payload, subject, { finalAttempt: true })
+
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservedCostE8Usd: evaluationPromptCostCeiling(
+          evalCase,
+          contentSnapshot,
+          AI_MODEL_KEYS.GUEST_CHAT_OPENAI,
+        ),
+      }),
+    )
+  })
+
   it('cancels without dispatching when the tenant or process gate closes', async () => {
     const evaluate = vi.fn()
     const subject = deps({ isCancelled: async () => true, evaluate })
