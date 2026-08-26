@@ -17,6 +17,7 @@ import { adminEvaluationConversationCasesRouter } from './evaluation-conversatio
 import { adminEvaluationOnboardingReadsRouter } from './evaluation-onboarding-reads'
 import { adminEvaluationOnboardingActionsRouter } from './evaluation-onboarding-actions'
 import { adminEvaluationReviewActionsRouter } from './evaluation-review-actions'
+import { adminEvaluationRuntimeGatesRouter } from './evaluation-runtime-gates'
 import { adminEvaluationSourceCoverageRouter } from './evaluation-source-coverage'
 
 const DEFAULT_PAGE_LIMIT = 20
@@ -367,4 +368,5 @@ export const adminEvaluationOperationsRouter = mergeRouters(
   adminEvaluationConversationCasesRouter,
   adminEvaluationSourceCoverageRouter,
   adminEvaluationReviewActionsRouter,
+  adminEvaluationRuntimeGatesRouter,
 )

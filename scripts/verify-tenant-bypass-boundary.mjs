@@ -129,7 +129,9 @@ const approvedCallCounts = new Map([
   // Native advisory requests freeze one exact tenant+venue release and case set transactionally.
   ['packages/api/src/routers/admin/native-deployment-evaluation-request.ts', 1],
   // Evaluation run creation freezes one exact tenant+venue target and case set transactionally.
-  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
+  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 1],
+  // Evaluation runtime control changes one exact tenant gate and shared durable intent atomically.
+  ['packages/api/src/routers/admin/evaluation-runtime-gates.ts', 1],
   // Onboarding suite preparation revalidates one exact DRAFT/APPROVED package and writes only
   // immutable tenant+venue evaluation cases; it does not approve, apply, publish, or dispatch.
   ['packages/api/src/routers/admin/evaluation-onboarding-actions.ts', 1],

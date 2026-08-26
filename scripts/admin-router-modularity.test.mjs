@@ -285,6 +285,7 @@ const expectedAdminProcedures = [
   'setAiCostBudget',
   'setAiProviderHealthOverride',
   'setBillingTenantFlag',
+  'setEvaluationRuntimeDurableGates',
   'setGlobalAiControl',
   'setProductEntitlementOverride',
   'setProductPlanCapability',
