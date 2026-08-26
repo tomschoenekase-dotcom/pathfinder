@@ -197,7 +197,12 @@ export async function recordWebsiteResearchReceiptAction(
   return client.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-website-research:${input.tenantId}:${input.venueId}:${input.runId}`}, 0))`
     const replay = await tx.intakeWebsiteResearchReceipt.findUnique({
-      where: { id: input.operationId },
+      where: {
+        id: input.operationId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: input.runId,
+      },
       select: receiptSelect,
     })
     if (replay) {

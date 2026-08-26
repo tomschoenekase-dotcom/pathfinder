@@ -93,6 +93,16 @@ describe('website research receipt action', () => {
       client as never,
     )
 
+    expect(receiptFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: operationId,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+        },
+      }),
+    )
     expect(receiptCreate).toHaveBeenCalledOnce()
     expect(eventCreate).toHaveBeenCalledWith(
       expect.objectContaining({

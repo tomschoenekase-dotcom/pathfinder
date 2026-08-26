@@ -81,13 +81,24 @@ describe('website intake research execution', () => {
 
   it('executes the bounded crawler and records terminal evidence without downstream authority', async () => {
     const deps = dependencies()
+    const db = database()
     const result = await executeWebsiteIntakeResearch({
-      db: database() as never,
+      db: db as never,
       request: request(),
       dependencies: deps,
       now: () => now,
     })
 
+    expect(db.intakeWebsiteResearchReceipt.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: operationId,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+        },
+      }),
+    )
     expect(deps.fetchPage).toHaveBeenCalledOnce()
     expect(recordReceipt).toHaveBeenCalledWith(
       expect.objectContaining({

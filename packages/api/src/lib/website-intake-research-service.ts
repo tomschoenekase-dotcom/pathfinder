@@ -161,7 +161,12 @@ export async function executeWebsiteIntakeResearch(input: {
     }),
   )
   const existing = await input.db.intakeWebsiteResearchReceipt.findUnique({
-    where: { id: input.request.operationId },
+    where: {
+      id: input.request.operationId,
+      tenantId: input.request.tenantId,
+      venueId: input.request.venueId,
+      runId: input.request.runId,
+    },
     select: {
       id: true,
       tenantId: true,
