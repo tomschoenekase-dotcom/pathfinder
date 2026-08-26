@@ -15,18 +15,14 @@ import {
 } from '@pathfinder/db'
 
 import { publicTRPCError, router } from '../../core'
-import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
 import { getIntakeBuilderLifecycle } from '../../lib/intake-builder-lifecycle-service'
 import {
   executeWebsiteIntakeResearch,
   WebsiteResearchExecutionError,
 } from '../../lib/website-intake-research-service'
 import { createWebsiteIntakeRuntimeDependencies } from '../../lib/website-intake-runtime'
-import { createVenuePackageDraftService } from '../venue-package'
 import {
   buildIntakeVenuePackageCandidate,
-  isExactIntakeCandidateHandoff,
-  intakeCandidateDraftKey,
   IntakeVenuePackageCandidateError,
 } from '../../lib/intake-venue-package-candidate'
 import { adminProcedure } from '../../trpc'
@@ -38,8 +34,11 @@ import {
   buildWebsiteVenuePackageMappingCandidate,
   WebsiteMappingError,
   WebsiteMappingSelections,
-  websiteMappingDraftKey,
 } from '../../lib/intake-website-mapping'
+import {
+  createIntakeCandidateDraftForAdmin,
+  createWebsiteMappingDraftForAdmin,
+} from './intake-draft-actions'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
 const createInput = z.discriminatedUnion('kind', [
@@ -253,122 +252,17 @@ export const adminIntakeOperationsRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      let candidate
       try {
-        candidate = await buildWebsiteVenuePackageMappingCandidate({
+        return await createWebsiteMappingDraftForAdmin({
           db: ctx.db,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: input.runId,
-          receiptId: input.receiptId,
-          expectedResearchHash: input.expectedResearchHash,
-          selections: input.selections,
-          allowExistingHandoff: true,
+          actorId: ctx.session.userId,
+          ...input,
         })
       } catch (error) {
-        if (error instanceof WebsiteMappingError) {
-          throw new TRPCError({
-            code:
-              error.code === 'NOT_FOUND'
-                ? 'NOT_FOUND'
-                : error.code === 'INVALID_INPUT'
-                  ? 'BAD_REQUEST'
-                  : error.code === 'CONFLICT'
-                    ? 'CONFLICT'
-                    : 'PRECONDITION_FAILED',
-            message: error.message,
-          })
-        }
-        throw error
-      }
-      if (
-        candidate.mappingReviewHash !== input.expectedMappingReviewHash ||
-        candidate.candidateHash !== input.expectedCandidateHash
-      ) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Website mapping evidence changed; preview it again before creating a draft.',
-        })
-      }
-      const draftKey = websiteMappingDraftKey({
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        mappingReviewHash: candidate.mappingReviewHash,
-        actorId: ctx.session.userId,
-      })
-      const existingHandoff = await isExactIntakeCandidateHandoff({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        draftKey,
-        candidateHash: candidate.candidateHash,
-        actorId: ctx.session.userId,
-      })
-      if (existingHandoff === 'MISMATCH') {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This website intake is already linked to a different package draft.',
-        })
-      }
-      const baseFinalizer = intakeReviewedDraftFinalizer({
-        actorId: ctx.session.userId,
-        intakeRunId: input.runId,
-      })
-      const mappingReviewHash = candidate.mappingReviewHash
-      const candidateHash = candidate.candidateHash
-      try {
-        return await createVenuePackageDraftService({
-          db: ctx.db,
-          tenantId: input.tenantId,
-          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
-          input: { venueId: input.venueId, draftKey, payload: candidate.payload },
-          finalizer: async (finalizerInput) => {
-            const current = await buildWebsiteVenuePackageMappingCandidate({
-              db: finalizerInput.tx,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              runId: input.runId,
-              receiptId: input.receiptId,
-              expectedResearchHash: input.expectedResearchHash,
-              selections: input.selections,
-              allowExistingHandoff: true,
-            })
-            if (
-              current.mappingReviewHash !== mappingReviewHash ||
-              current.candidateHash !== candidateHash
-            ) {
-              throw new TRPCError({
-                code: 'CONFLICT',
-                message: 'Website mapping evidence changed during draft creation.',
-              })
-            }
-            return baseFinalizer(finalizerInput)
-          },
-        })
-      } catch (error) {
-        const diagnostic = {
-          action: 'intake.website-mapping-draft.rejected',
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: input.runId,
-          errorName: error instanceof Error ? error.name : 'Unknown',
-          errorCode:
-            typeof error === 'object' && error !== null && 'code' in error
-              ? String(error.code)
-              : null,
-          error:
-            error instanceof Error
-              ? error.message.slice(0, 500)
-              : 'Unknown website mapping DRAFT failure',
-        }
         if (error instanceof TRPCError) {
-          logger.warn(diagnostic)
-          throw publicTRPCError({ code: error.code, message: error.message })
+          throw error
         }
-        logger.error(diagnostic)
-        throw error
+        mapCandidateError(error)
       }
     }),
 
@@ -400,83 +294,15 @@ export const adminIntakeOperationsRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      let candidate
       try {
-        candidate = await buildIntakeVenuePackageCandidate({
+        return await createIntakeCandidateDraftForAdmin({
           db: ctx.db,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: input.runId,
-          allowExistingHandoff: true,
+          actorId: ctx.session.userId,
+          ...input,
         })
       } catch (error) {
         mapCandidateError(error)
       }
-      if (!candidate.ready || !candidate.payload || !candidate.candidateHash) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'The reviewed intake source is not ready for a package candidate.',
-        })
-      }
-      if (candidate.candidateHash !== input.expectedCandidateHash) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'The reviewed intake candidate changed. Reload it before creating a draft.',
-        })
-      }
-      const canonicalHash = candidate.candidateHash
-      const draftKey = intakeCandidateDraftKey({
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        candidateHash: canonicalHash,
-        actorId: ctx.session.userId,
-      })
-      const existingHandoff = await isExactIntakeCandidateHandoff({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: input.runId,
-        draftKey,
-        candidateHash: canonicalHash,
-        actorId: ctx.session.userId,
-      })
-      if (existingHandoff === 'MISMATCH') {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This intake proposal is already linked to a different package draft.',
-        })
-      }
-      const baseFinalizer = intakeReviewedDraftFinalizer({
-        actorId: ctx.session.userId,
-        intakeRunId: input.runId,
-      })
-      return createVenuePackageDraftService({
-        db: ctx.db,
-        tenantId: input.tenantId,
-        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
-        input: {
-          venueId: input.venueId,
-          draftKey,
-          payload: candidate.payload,
-        },
-        finalizer: async (finalizerInput) => {
-          const current = await buildIntakeVenuePackageCandidate({
-            db: finalizerInput.tx,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: input.runId,
-            allowExistingHandoff: true,
-          })
-          if (!current.ready || !current.payload || current.candidateHash !== canonicalHash) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'The reviewed intake candidate changed during draft creation.',
-            })
-          }
-          return baseFinalizer(finalizerInput)
-        },
-      })
     }),
 
   listOnboardingBootstrapDetails: adminProcedure

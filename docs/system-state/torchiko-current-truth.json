@@ -77,7 +77,7 @@
     {
       "id": "golden-venue-lifecycle",
       "status": "proven-provider-dark-locally",
-      "summary": "A disposable end-to-end venue lifecycle and seven failure classes are retained and replayable through production domain paths.",
+      "summary": "A disposable end-to-end venue lifecycle and eight failure classes are retained and replayable through production domain paths.",
       "evidence": [
         "docs/golden-venue-runbook.md",
         "scripts/run-disposable-golden-venue.mjs",
