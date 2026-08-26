@@ -9,6 +9,8 @@ import {
   type VisitorFixtureRoute,
   type VisitorFixtureVoice,
 } from '../../../components/VenueChatFixture'
+import { VenueChatError, VenueChatSkeleton } from '../../../components/VenueChatStates'
+import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
 
 const VISITOR_FIXTURE_STATES = [
   'idle',
@@ -46,6 +48,7 @@ export default async function VisitorChatVisualFixture({
     network?: string | string[]
     route?: string | string[]
     language?: string | string[]
+    surface?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -64,6 +67,23 @@ export default async function VisitorChatVisualFixture({
     SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
     'English',
   )
+  const surface = oneOf(
+    params.surface,
+    ['chat', 'loading', 'error', 'temporarily-unavailable'] as const,
+    'chat',
+  )
+
+  if (surface === 'loading') return <VenueChatSkeleton language={language} />
+  if (surface === 'error')
+    return (
+      <VenueChatError
+        message="This venue link is not active."
+        presentation="standalone"
+        language={language}
+      />
+    )
+  if (surface === 'temporarily-unavailable')
+    return <VenueTemporarilyUnavailable language={language} />
 
   return (
     <VenueChatFixture

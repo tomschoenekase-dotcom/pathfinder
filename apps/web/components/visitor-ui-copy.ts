@@ -1,4 +1,4 @@
-import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+import { SUPPORTED_CHAT_LANGUAGES, type SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 type VisitorUiCopy = {
   shell: readonly [
@@ -57,6 +57,23 @@ type VisitorUiCopy = {
     directions: string,
     directionsTo: (name: string) => string,
   ]
+}
+
+type VisitorStateCopy = readonly [
+  loading: string,
+  venueUnavailable: string,
+  guideTemporarilyUnavailable: string,
+  temporarilyUnavailableBody: string,
+  tryAgain: string,
+  backToHome: string,
+]
+
+export function getVisitorTextPresentation(language: SupportedChatLanguage) {
+  const supported = SUPPORTED_CHAT_LANGUAGES.find((candidate) => candidate.label === language)
+  return {
+    code: supported?.code ?? 'en',
+    direction: supported?.code === 'ar' ? ('rtl' as const) : ('ltr' as const),
+  }
 }
 
 const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
@@ -833,12 +850,99 @@ const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
   ],
 }
 
+const STATE_COPY: Record<SupportedChatLanguage, VisitorStateCopy> = {
+  English: [
+    'Loading your guide…',
+    'Venue unavailable',
+    'Guide temporarily unavailable',
+    'This venue guide is temporarily unavailable. Please try again later.',
+    'Try again',
+    'Back to home',
+  ],
+  Español: [
+    'Cargando tu guía…',
+    'Lugar no disponible',
+    'Guía temporalmente no disponible',
+    'Esta guía del lugar no está disponible temporalmente. Inténtalo de nuevo más tarde.',
+    'Intentar de nuevo',
+    'Volver al inicio',
+  ],
+  Français: [
+    'Chargement de votre guide…',
+    'Lieu indisponible',
+    'Guide temporairement indisponible',
+    'Ce guide du lieu est temporairement indisponible. Réessayez plus tard.',
+    'Réessayer',
+    'Retour à l’accueil',
+  ],
+  Deutsch: [
+    'Ihr Guide wird geladen…',
+    'Ort nicht verfügbar',
+    'Guide vorübergehend nicht verfügbar',
+    'Dieser Guide ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut.',
+    'Erneut versuchen',
+    'Zur Startseite',
+  ],
+  Italiano: [
+    'Caricamento della guida…',
+    'Luogo non disponibile',
+    'Guida temporaneamente non disponibile',
+    'Questa guida del luogo è temporaneamente non disponibile. Riprova più tardi.',
+    'Riprova',
+    'Torna alla home',
+  ],
+  Português: [
+    'Carregando seu guia…',
+    'Local indisponível',
+    'Guia temporariamente indisponível',
+    'Este guia do local está temporariamente indisponível. Tente novamente mais tarde.',
+    'Tentar novamente',
+    'Voltar ao início',
+  ],
+  中文: [
+    '正在加载导览…',
+    '场所不可用',
+    '导览暂时不可用',
+    '此场所导览暂时不可用。请稍后重试。',
+    '重试',
+    '返回首页',
+  ],
+  日本語: [
+    'ガイドを読み込んでいます…',
+    '施設を利用できません',
+    'ガイドは一時的に利用できません',
+    'この施設のガイドは一時的に利用できません。後でもう一度お試しください。',
+    'もう一度試す',
+    'ホームに戻る',
+  ],
+  한국어: [
+    '가이드를 불러오는 중…',
+    '장소를 이용할 수 없음',
+    '가이드를 일시적으로 이용할 수 없음',
+    '이 장소의 가이드를 일시적으로 이용할 수 없습니다. 나중에 다시 시도하세요.',
+    '다시 시도',
+    '홈으로 돌아가기',
+  ],
+  العربية: [
+    'جارٍ تحميل دليلك…',
+    'المكان غير متاح',
+    'الدليل غير متاح مؤقتًا',
+    'دليل هذا المكان غير متاح مؤقتًا. حاول مرة أخرى لاحقًا.',
+    'حاول مرة أخرى',
+    'العودة إلى الصفحة الرئيسية',
+  ],
+}
+
 export function getVisitorUiCopy(language: SupportedChatLanguage = 'English') {
   return COPY[language] ?? COPY.English
 }
 
 export function getVisitorRecoveryCopy(language: SupportedChatLanguage = 'English') {
   return RECOVERY_COPY[language] ?? RECOVERY_COPY.English
+}
+
+export function getVisitorStateCopy(language: SupportedChatLanguage = 'English') {
+  return STATE_COPY[language] ?? STATE_COPY.English
 }
 
 export function localizeVisitorShellError(

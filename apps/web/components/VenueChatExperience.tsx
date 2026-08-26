@@ -533,9 +533,14 @@ export function VenueChatExperience({
     endSession(venue.id, previousToken, previousStartedAt)
   }
 
-  if (isBooting || venueState?.slug !== venueSlug) return <VenueChatSkeleton />
+  if (isBooting || venueState?.slug !== venueSlug) return <VenueChatSkeleton language={language} />
   if (isVenueUnavailable)
-    return <VenueTemporarilyUnavailable showHomeLink={presentation === 'standalone'} />
+    return (
+      <VenueTemporarilyUnavailable
+        showHomeLink={presentation === 'standalone'}
+        language={language}
+      />
+    )
   if (!venue)
     return (
       <VenueChatError
@@ -544,6 +549,7 @@ export function VenueChatExperience({
           'This venue link is not active.'
         }
         presentation={presentation}
+        language={language}
       />
     )
 
