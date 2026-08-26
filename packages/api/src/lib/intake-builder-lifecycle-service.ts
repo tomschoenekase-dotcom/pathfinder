@@ -13,6 +13,7 @@ import {
   buildWebsiteClarificationReview,
   WebsiteClarificationError,
 } from './intake-website-clarifications'
+import { WEBSITE_MAPPING_FIELD_PATHS } from './intake-website-mapping'
 
 const MAX_WEBSITE_RESEARCH_ATTEMPTS = 4
 
@@ -256,6 +257,9 @@ export async function getIntakeBuilderLifecycle(input: {
   }
 
   const draft = run.packageHandoff?.packageDraft
+  if (draft && run.sourceKind === 'WEBSITE' && candidate && websiteReview) {
+    candidate = { ...candidate, ready: true, issues: [] }
+  }
   const lifecycle = projectIntakeBuilderLifecycle({
     runId: run.id,
     sourceKind: run.sourceKind,
@@ -300,6 +304,18 @@ export async function getIntakeBuilderLifecycle(input: {
           receiptId: latestWebsiteResearch!.id,
           researchHash: websiteReview.researchHash,
           clarifications: websiteClarifications,
+          mappingOptions: websiteReview.citations
+            .filter(({ fieldPath }) =>
+              (WEBSITE_MAPPING_FIELD_PATHS as readonly string[]).includes(fieldPath),
+            )
+            .map((citation) => ({
+              evidenceId: citation.evidenceId,
+              fieldPath: citation.fieldPath,
+              value: citation.value,
+              sourceUrl: citation.sourceUrl,
+              locator: citation.locator,
+              confidence: citation.confidence,
+            })),
           eligibleIdentities: clarificationIdentities,
           answersGrantAuthority: false as const,
         }

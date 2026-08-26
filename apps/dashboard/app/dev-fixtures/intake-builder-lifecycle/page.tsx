@@ -45,6 +45,32 @@ const lifecycle: IntakeBuilderLifecycle = {
     researchHash: 'a'.repeat(64),
     answersGrantAuthority: false,
     eligibleIdentities: [{ id: 'fixture-content', name: 'Content reviewer' }],
+    mappingOptions: [
+      {
+        evidenceId: 'fixture-evidence-a',
+        fieldPath: 'venue.name',
+        value: 'Torchiko Hall',
+        sourceUrl: 'https://example.org/',
+        locator: 'title',
+        confidence: 0.92,
+      },
+      {
+        evidenceId: 'fixture-evidence-b',
+        fieldPath: 'venue.name',
+        value: 'Torchiko Ballroom',
+        sourceUrl: 'https://example.org/about',
+        locator: 'meta[property="og:title"]',
+        confidence: 0.76,
+      },
+      {
+        evidenceId: 'fixture-phone',
+        fieldPath: 'venue.phone',
+        value: '312-555-0100',
+        sourceUrl: 'https://example.org/contact',
+        locator: 'json-ld',
+        confidence: 0.9,
+      },
+    ],
     clarifications: [
       {
         discrepancyId: 'fixture-discrepancy',
@@ -72,9 +98,9 @@ const lifecycle: IntakeBuilderLifecycle = {
       },
     ],
   },
-  currentStage: 'RECONCILE',
+  currentStage: 'CONSTRUCT',
   currentState: 'BLOCKED',
-  nextAction: 'RESOLVE_CLARIFICATION',
+  nextAction: 'CREATE_PACKAGE_DRAFT',
   requiresHumanApproval: false,
   autoApprove: false,
   autoApply: false,
@@ -82,19 +108,19 @@ const lifecycle: IntakeBuilderLifecycle = {
   stages: stages.map((stage, index) => ({
     stage,
     state:
-      index < 6
+      index < 5
         ? ('COMPLETE' as const)
-        : stage === 'RECONCILE'
+        : stage === 'CONSTRUCT'
           ? ('BLOCKED' as const)
           : ('PENDING' as const),
-    evidenceRefs: index < 6 ? ['intake-run:fixture-run'] : [],
+    evidenceRefs: index < 5 ? ['intake-run:fixture-run'] : [],
     blockers:
-      stage === 'RECONCILE'
+      stage === 'CONSTRUCT'
         ? [
             {
-              code: 'WEBSITE_CONTRADICTION',
-              path: 'venue.name',
-              message: 'Founder/admin clarification is required for venue.name.',
+              code: 'WEBSITE_MAPPING_REVIEW_REQUIRED',
+              path: 'websiteResearch',
+              message: 'Review cited website claims before creating a package DRAFT.',
             },
           ]
         : [],
@@ -112,6 +138,9 @@ export default function IntakeBuilderLifecycleFixture() {
           clarificationIdentityId="fixture-content"
           onClarificationIdentityChange={() => undefined}
           onCreateClarificationQuestions={() => undefined}
+          mappingSelections={{ 'venue.phone': 'fixture-phone' }}
+          onMappingSelectionChange={() => undefined}
+          onPreviewWebsiteMapping={() => undefined}
         />
       </div>
     </main>

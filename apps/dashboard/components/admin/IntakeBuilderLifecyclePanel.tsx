@@ -11,6 +11,8 @@ export type IntakeBuilderLifecycle =
   inferRouterOutputs<AppRouter>['admin']['getIntakeBuilderLifecycle']
 type Lifecycle = IntakeBuilderLifecycle
 type Stage = Lifecycle['stages'][number]
+type WebsiteMappingPreview =
+  inferRouterOutputs<AppRouter>['admin']['previewWebsiteVenuePackageMapping']
 
 const stateStyles: Record<Stage['state'], string> = {
   COMPLETE: 'border-emerald-200 bg-emerald-50 text-emerald-900',
@@ -42,6 +44,11 @@ export function IntakeBuilderLifecyclePanel({
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
+  const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
+  const [mappingPreview, setMappingPreview] = useState<WebsiteMappingPreview | null>(null)
+  const [mappingReviewed, setMappingReviewed] = useState(false)
+  const [mappingBusy, setMappingBusy] = useState(false)
+  const [mappingError, setMappingError] = useState<string | null>(null)
   const sequence = useRef(0)
   const researchOperationId = useRef<string | null>(null)
 
@@ -55,6 +62,11 @@ export function IntakeBuilderLifecyclePanel({
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
+    setMappingSelections({})
+    setMappingPreview(null)
+    setMappingReviewed(false)
+    setMappingBusy(false)
+    setMappingError(null)
     researchOperationId.current = null
   }, [runId, tenantId, venueId])
 
@@ -110,6 +122,62 @@ export function IntakeBuilderLifecyclePanel({
       )
     } finally {
       setClarificationBusy(false)
+    }
+  }
+
+  function mappingSelectionList() {
+    return Object.entries(mappingSelections)
+      .filter((entry): entry is [string, string] => Boolean(entry[1]))
+      .map(([fieldPath, evidenceId]) => ({ fieldPath, evidenceId }))
+  }
+
+  async function previewWebsiteMapping() {
+    const review = lifecycle?.websiteClarificationReview
+    const selections = mappingSelectionList()
+    if (!review || selections.length === 0 || mappingBusy) return
+    setMappingBusy(true)
+    setMappingError(null)
+    setMappingPreview(null)
+    setMappingReviewed(false)
+    try {
+      setMappingPreview(
+        await client.admin.previewWebsiteVenuePackageMapping.query({
+          tenantId,
+          venueId,
+          runId,
+          receiptId: review.receiptId,
+          expectedResearchHash: review.researchHash,
+          selections,
+        }),
+      )
+    } catch (cause) {
+      setMappingError(cause instanceof Error ? cause.message : 'Website mapping preview failed.')
+    } finally {
+      setMappingBusy(false)
+    }
+  }
+
+  async function createWebsiteMappingDraft() {
+    const review = lifecycle?.websiteClarificationReview
+    if (!review || !mappingPreview || !mappingReviewed || mappingBusy) return
+    setMappingBusy(true)
+    setMappingError(null)
+    try {
+      await client.admin.createAndLinkWebsiteMappingDraft.mutate({
+        tenantId,
+        venueId,
+        runId,
+        receiptId: review.receiptId,
+        expectedResearchHash: review.researchHash,
+        expectedMappingReviewHash: mappingPreview.mappingReviewHash,
+        expectedCandidateHash: mappingPreview.candidateHash,
+        selections: mappingSelectionList(),
+      })
+      await load()
+    } catch (cause) {
+      setMappingError(cause instanceof Error ? cause.message : 'Website mapping DRAFT failed.')
+    } finally {
+      setMappingBusy(false)
     }
   }
 
@@ -171,6 +239,20 @@ export function IntakeBuilderLifecyclePanel({
       clarificationIdentityId={clarificationIdentityId}
       onClarificationIdentityChange={setClarificationIdentityId}
       onCreateClarificationQuestions={() => void createClarificationQuestions()}
+      mappingSelections={mappingSelections}
+      mappingPreview={mappingPreview}
+      mappingReviewed={mappingReviewed}
+      mappingBusy={mappingBusy}
+      mappingError={mappingError}
+      onMappingSelectionChange={(fieldPath, evidenceId) => {
+        setMappingSelections((current) => ({ ...current, [fieldPath]: evidenceId }))
+        setMappingPreview(null)
+        setMappingReviewed(false)
+        setMappingError(null)
+      }}
+      onPreviewWebsiteMapping={() => void previewWebsiteMapping()}
+      onMappingReviewedChange={setMappingReviewed}
+      onCreateWebsiteMappingDraft={() => void createWebsiteMappingDraft()}
     />
   )
 }
@@ -185,6 +267,15 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId = '',
   onClarificationIdentityChange,
   onCreateClarificationQuestions,
+  mappingSelections = {},
+  mappingPreview = null,
+  mappingReviewed = false,
+  mappingBusy = false,
+  mappingError = null,
+  onMappingSelectionChange,
+  onPreviewWebsiteMapping,
+  onMappingReviewedChange,
+  onCreateWebsiteMappingDraft,
 }: {
   lifecycle: Lifecycle
   onRunWebsiteResearch?: () => void
@@ -195,8 +286,28 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId?: string
   onClarificationIdentityChange?: (identityId: string) => void
   onCreateClarificationQuestions?: () => void
+  mappingSelections?: Record<string, string>
+  mappingPreview?: WebsiteMappingPreview | null
+  mappingReviewed?: boolean
+  mappingBusy?: boolean
+  mappingError?: string | null
+  onMappingSelectionChange?: (fieldPath: string, evidenceId: string) => void
+  onPreviewWebsiteMapping?: () => void
+  onMappingReviewedChange?: (reviewed: boolean) => void
+  onCreateWebsiteMappingDraft?: () => void
 }) {
   const active = lifecycle.stages.find(({ stage }) => stage === lifecycle.currentStage)!
+  const mappingGroups = Object.entries(
+    (lifecycle.websiteClarificationReview?.mappingOptions ?? []).reduce<
+      Record<string, NonNullable<Lifecycle['websiteClarificationReview']>['mappingOptions']>
+    >((groups, option) => {
+      const fieldOptions = (groups[option.fieldPath] ??= [])
+      fieldOptions.push(option)
+      return groups
+    }, {}),
+  )
+  const mappingComplete =
+    lifecycle.stages.find(({ stage }) => stage === 'CONSTRUCT')?.state === 'COMPLETE'
   return (
     <section
       className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4"
@@ -387,6 +498,89 @@ export function IntakeBuilderLifecycleView({
           {clarificationError ? (
             <p className="mt-2 text-sm text-rose-700" role="alert">
               {clarificationError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {lifecycle.websiteClarificationReview && mappingGroups.length > 0 && !mappingComplete ? (
+        <div className="mt-4 rounded-xl border border-sky-200 bg-white p-3">
+          <p className="text-sm font-semibold text-sky-950">Reviewed website mapping</p>
+          <p className="mt-1 max-w-2xl text-xs text-sky-900/75">
+            Choose exact cited claims, preview the resulting Venue Package, then confirm a DRAFT.
+            This does not approve, apply, or publish it.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {mappingGroups.map(([fieldPath, options]) => {
+              const blocked = lifecycle.websiteClarificationReview!.clarifications.some(
+                (clarification) =>
+                  clarification.fieldPath === fieldPath &&
+                  clarification.question?.status !== 'ANSWERED',
+              )
+              return (
+                <label key={fieldPath} className="text-xs font-medium text-pf-deep">
+                  {fieldPath}
+                  <select
+                    value={mappingSelections[fieldPath] ?? ''}
+                    disabled={blocked || mappingBusy}
+                    onChange={(event) => onMappingSelectionChange?.(fieldPath, event.target.value)}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-500"
+                  >
+                    <option value="">
+                      {blocked ? 'Answer founder clarification first' : 'Do not map this field'}
+                    </option>
+                    {options.map((option) => (
+                      <option key={option.evidenceId} value={option.evidenceId}>
+                        {option.value} · {Math.round(option.confidence * 100)}%
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })}
+          </div>
+          {onPreviewWebsiteMapping ? (
+            <button
+              type="button"
+              disabled={mappingBusy || !Object.values(mappingSelections).some(Boolean)}
+              onClick={onPreviewWebsiteMapping}
+              className="mt-3 min-h-11 rounded-full border border-sky-700 px-5 text-sm font-semibold text-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {mappingBusy ? 'Checking mapping…' : 'Preview reviewed mapping'}
+            </button>
+          ) : null}
+          {mappingPreview ? (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm font-semibold text-emerald-950">Exact DRAFT preview is ready</p>
+              <p className="mt-1 text-xs text-emerald-900/75">
+                {mappingPreview.selections.length} mapped field
+                {mappingPreview.selections.length === 1 ? '' : 's'} · no approval, apply, or
+                publication authority.
+              </p>
+              <label className="mt-3 flex min-h-11 items-start gap-2 text-sm text-emerald-950">
+                <input
+                  type="checkbox"
+                  checked={mappingReviewed}
+                  onChange={(event) => onMappingReviewedChange?.(event.target.checked)}
+                  className="mt-1 size-4"
+                />
+                <span>I reviewed these exact citations and want to create a linked DRAFT.</span>
+              </label>
+              {onCreateWebsiteMappingDraft ? (
+                <button
+                  type="button"
+                  disabled={!mappingReviewed || mappingBusy}
+                  onClick={onCreateWebsiteMappingDraft}
+                  className="mt-2 min-h-11 rounded-full bg-emerald-800 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {mappingBusy ? 'Creating DRAFT…' : 'Create linked Venue Package DRAFT'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {mappingError ? (
+            <p className="mt-2 text-sm text-rose-700" role="alert">
+              {mappingError}
             </p>
           ) : null}
         </div>

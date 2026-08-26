@@ -6,12 +6,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const mutate = vi.fn()
 const clarificationMutate = vi.fn()
+const mappingQuery = vi.fn()
+const mappingMutate = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       getIntakeBuilderLifecycle: { query },
       executeWebsiteIntakeResearch: { mutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
+      previewWebsiteVenuePackageMapping: { query: mappingQuery },
+      createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
     },
   }),
 }))
@@ -182,6 +186,91 @@ describe('IntakeBuilderLifecyclePanel', () => {
         expectedResearchHash: lifecycle.websiteClarificationReview.researchHash,
         discrepancyIds: ['discrepancy-a'],
         agentIdentityId: 'identity-a',
+      }),
+    )
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('previews exact citation selections and requires explicit review before creating a DRAFT', async () => {
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-a',
+      sourceKind: 'WEBSITE',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      websiteClarificationReview: {
+        receiptId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        researchHash: 'a'.repeat(64),
+        answersGrantAuthority: false,
+        eligibleIdentities: [],
+        clarifications: [],
+        mappingOptions: [
+          {
+            evidenceId: 'phone-a',
+            fieldPath: 'venue.phone',
+            value: '312-555-0100',
+            sourceUrl: 'https://example.org/contact',
+            locator: 'json-ld',
+            confidence: 0.9,
+          },
+        ],
+      },
+      currentStage: 'RECONCILE',
+      currentState: 'BLOCKED',
+      nextAction: 'RESOLVE_CLARIFICATION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'CONSTRUCT', state: 'PENDING', evidenceRefs: [], blockers: [] },
+        { stage: 'RECONCILE', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    const preview = {
+      runId: 'run-a',
+      receiptId: lifecycle.websiteClarificationReview.receiptId,
+      researchHash: lifecycle.websiteClarificationReview.researchHash,
+      mappingReviewHash: 'b'.repeat(64),
+      candidateHash: 'c'.repeat(64),
+      selections: [{ fieldPath: 'venue.phone', evidenceId: 'phone-a' }],
+      payload: {},
+      clarificationEvidence: [],
+      ready: true,
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+      answersGrantAuthority: false,
+    }
+    query.mockResolvedValue(lifecycle)
+    mappingQuery.mockResolvedValue(preview)
+    mappingMutate.mockResolvedValue({ packageId: 'package-a' })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-a" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    fireEvent.change(await screen.findByLabelText('venue.phone'), { target: { value: 'phone-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview reviewed mapping' }))
+    expect(await screen.findByText('Exact DRAFT preview is ready')).toBeTruthy()
+    const create = screen.getByRole('button', { name: 'Create linked Venue Package DRAFT' })
+    expect((create as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'I reviewed these exact citations and want to create a linked DRAFT.',
+      }),
+    )
+    fireEvent.click(create)
+
+    await waitFor(() =>
+      expect(mappingMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        receiptId: lifecycle.websiteClarificationReview.receiptId,
+        expectedResearchHash: lifecycle.websiteClarificationReview.researchHash,
+        expectedMappingReviewHash: preview.mappingReviewHash,
+        expectedCandidateHash: preview.candidateHash,
+        selections: preview.selections,
       }),
     )
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
