@@ -268,7 +268,13 @@ export async function recordWebsiteResearchReceiptAction(
     if (input.outcome === 'SUCCEEDED') {
       for (const evidence of input.evidence) {
         const existing = await tx.intakeEvidenceRecord.findUnique({
-          where: { id: evidence.id },
+          where: {
+            id: evidence.id,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: input.runId,
+            sourceKind: 'WEBSITE',
+          },
           select: {
             tenantId: true,
             venueId: true,

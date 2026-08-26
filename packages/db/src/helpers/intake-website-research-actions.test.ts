@@ -89,6 +89,16 @@ describe('website research receipt action', () => {
     const result = await recordWebsiteResearchReceiptAction(
       input({
         sourceUriHash: crypto.createHash('sha256').update('https://example.org/').digest('hex'),
+        evidence: [
+          {
+            id: 'evidence-a',
+            sourceId: 'run-a',
+            locator: 'https://example.org/#title',
+            normalizedHash: 'c'.repeat(64),
+            confidence: 0.9,
+            capturedAt: createdAt.toISOString(),
+          },
+        ],
       }) as never,
       client as never,
     )
@@ -100,6 +110,17 @@ describe('website research receipt action', () => {
           tenantId: 'tenant-a',
           venueId: 'venue-a',
           runId: 'run-a',
+        },
+      }),
+    )
+    expect(evidenceFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'evidence-a',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+          sourceKind: 'WEBSITE',
         },
       }),
     )
