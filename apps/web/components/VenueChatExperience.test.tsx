@@ -327,11 +327,14 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    const retry = await screen.findByRole('button', { name: 'Retry same message' })
+    await screen.findByRole('button', { name: 'إعادة محاولة الرسالة نفسها' })
+    expect(
+      screen.getByText('نتيجة هذه الرسالة غير مؤكدة. أعد محاولة الرسالة نفسها بأمان.'),
+    ).toBeTruthy()
     const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
     expect(screen.getByText('Messages: 1')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Choose English' }))
-    fireEvent.click(retry)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0]).toEqual(frozen)
     expect(await screen.findByText('Messages: 2')).toBeTruthy()
@@ -962,15 +965,19 @@ describe('VenueChatExperience presentation boundary', () => {
       messages: [{ role: 'assistant', content: 'Keep this chat.' }],
     })
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
     await screen.findByText('Messages: 1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }))
 
     expect(mocks.startNewConversation).not.toHaveBeenCalled()
     expect(screen.getByText('Messages: 1')).toBeTruthy()
+    expect(confirm).toHaveBeenCalledWith(
+      'هل تريد بدء محادثة جديدة؟ ستغادر المحادثة الحالية هذه الشاشة، لكنها لن تُحذف من سجلات Torchiko.',
+    )
   })
 
   it('preserves the current chat and reports a controlled reset failure', async () => {

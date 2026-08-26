@@ -82,5 +82,14 @@ describe('LanguagePicker storage resilience', () => {
         'العربية',
       ),
     ).toBe('تعذر على الدليل بدء معالجة هذه الرسالة. انتظر لحظة ثم أرسلها مرة أخرى كرسالة جديدة.')
+    expect(
+      localizeVisitorShellError(
+        'This message was not sent because the guide is busy. Wait a moment, then retry the same message.',
+        'العربية',
+      ),
+    ).toBe('لم تُرسل الرسالة لأن الدليل مشغول. انتظر لحظة ثم أعد محاولة الرسالة نفسها.')
+    expect(localizeVisitorShellError('Unknown safe server message.', 'العربية')).toBe(
+      'Unknown safe server message.',
+    )
   })
 })

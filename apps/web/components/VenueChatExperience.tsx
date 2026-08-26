@@ -23,6 +23,7 @@ import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
 import { LocationRoutePlanner } from './LocationRoutePlanner'
+import { getVisitorRecoveryCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 
 type VenueChatExperienceProps = {
@@ -95,6 +96,7 @@ export function VenueChatExperience({
       ? (stored as SupportedChatLanguage)
       : 'English'
   })
+  const recoveryCopy = getVisitorRecoveryCopy(language)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const conversationEpochRef = useRef(0)
   const sendingEpochRef = useRef<number | null>(null)
@@ -510,13 +512,7 @@ export function VenueChatExperience({
   function handleNewConversation() {
     if (!isOnline || !venue || !anonymousToken || isSending || activeOperationRef.current !== null)
       return
-    if (
-      messages.length &&
-      !window.confirm(
-        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
-      )
-    )
-      return
+    if (messages.length && !window.confirm(recoveryCopy[10])) return
     const previousToken = anonymousToken
     const previousStartedAt = sessionStartedAtRef.current
     if (!startNewConversation()) {
@@ -543,7 +539,10 @@ export function VenueChatExperience({
   if (!venue)
     return (
       <VenueChatError
-        message={pageError ?? 'This venue link is not active.'}
+        message={
+          localizeVisitorShellError(pageError ?? 'This venue link is not active.', language) ??
+          'This venue link is not active.'
+        }
         presentation={presentation}
       />
     )
@@ -581,7 +580,7 @@ export function VenueChatExperience({
       requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
-      retryLabel={recoveryMode === 'check-history' ? 'Check conversation' : 'Retry same message'}
+      retryLabel={recoveryMode === 'check-history' ? recoveryCopy[12] : recoveryCopy[13]}
       onNewConversation={handleNewConversation}
       onVoiceCharacterState={setStableCharacterState}
       onPlaceView={(placeId) => {
