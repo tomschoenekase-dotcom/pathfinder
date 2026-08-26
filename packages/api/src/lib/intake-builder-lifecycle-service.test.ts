@@ -11,12 +11,12 @@ vi.mock('./intake-venue-package-candidate', async (importOriginal) => {
 const buildCandidate = vi.mocked(buildIntakeVenuePackageCandidate)
 
 describe('getIntakeBuilderLifecycle', () => {
-  it('uses the exact tenant, venue, and run scope and fails website intake closed', async () => {
+  it('uses exact scope and exposes research for a newly recorded zero-evidence website source', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'run-a',
       sourceKind: 'WEBSITE',
       status: 'AWAITING_REVIEW',
-      _count: { evidence: 1 },
+      _count: { evidence: 0 },
       websiteResearchReceipts: [],
       packageHandoff: null,
     })
@@ -38,6 +38,10 @@ describe('getIntakeBuilderLifecycle', () => {
       currentStage: 'RESEARCH',
       currentState: 'BLOCKED',
       nextAction: 'RUN_WEBSITE_RESEARCH',
+    })
+    expect(result.stages.find(({ stage }) => stage === 'NORMALIZE')).toMatchObject({
+      state: 'COMPLETE',
+      evidenceRefs: expect.arrayContaining(['website-source:run-a']),
     })
   })
 

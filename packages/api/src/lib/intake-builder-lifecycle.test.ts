@@ -64,10 +64,11 @@ describe('intake Builder lifecycle projection', () => {
     })
   })
 
-  it('fails website research closed instead of implying extraction occurred', () => {
+  it('treats the recorded website source as normalized input and requires bounded research', () => {
     const result = projectIntakeBuilderLifecycle({
       ...base,
       sourceKind: 'WEBSITE',
+      evidenceCount: 0,
       candidate: null,
     })
     expect(result).toMatchObject({
@@ -77,6 +78,10 @@ describe('intake Builder lifecycle projection', () => {
     })
     expect(result.stages.find(({ stage }) => stage === 'EXTRACT')).toMatchObject({
       state: 'PENDING',
+    })
+    expect(result.stages.find(({ stage }) => stage === 'NORMALIZE')).toMatchObject({
+      state: 'COMPLETE',
+      evidenceRefs: expect.arrayContaining(['website-source:run-a']),
     })
   })
 

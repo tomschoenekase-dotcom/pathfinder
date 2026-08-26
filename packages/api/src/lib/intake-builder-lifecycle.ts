@@ -96,15 +96,21 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
   ) => stages.set(stage, { stage, state, evidenceRefs: refs, blockers })
 
   set('INGEST', 'COMPLETE', evidenceRefs)
-  if (input.evidenceCount < 1) {
+  const researchRequired = input.sourceKind === 'WEBSITE'
+  if (input.evidenceCount < 1 && !researchRequired) {
     set('NORMALIZE', 'BLOCKED', evidenceRefs, [
       blocker('MISSING_EVIDENCE', 'evidence', 'No normalized source evidence is available.'),
     ])
   } else {
-    set('NORMALIZE', 'COMPLETE', [...evidenceRefs, `evidence-count:${input.evidenceCount}`])
+    set(
+      'NORMALIZE',
+      'COMPLETE',
+      input.evidenceCount > 0
+        ? [...evidenceRefs, `evidence-count:${input.evidenceCount}`]
+        : [...evidenceRefs, `website-source:${input.runId}`],
+    )
   }
 
-  const researchRequired = input.sourceKind === 'WEBSITE'
   const researchRefs = input.websiteResearch
     ? [
         ...evidenceRefs,
