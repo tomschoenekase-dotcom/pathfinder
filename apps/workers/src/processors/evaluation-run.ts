@@ -4,6 +4,7 @@ import {
   ClientVenuePackagePreview,
   ReviewableVenuePackageEvaluationPreview,
 } from '@pathfinder/contracts'
+import { buildVenueSystemPromptParts } from '@pathfinder/api/venue-context'
 import {
   AI_MODEL_KEYS,
   generateText,
@@ -639,20 +640,167 @@ export async function executeFrozenEvaluationRun(
   return { processed, costE8Usd: spent, cancelled }
 }
 
-function evaluationPrompt(
+type VenuePromptParams = Parameters<typeof buildVenueSystemPromptParts>[0]
+
+function asRecord(value: CanonicalJsonValue | undefined): Record<string, CanonicalJsonValue> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, CanonicalJsonValue>)
+    : {}
+}
+
+function asRecords(value: CanonicalJsonValue | undefined): Record<string, CanonicalJsonValue>[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+        .map((item) => item as Record<string, CanonicalJsonValue>)
+    : []
+}
+
+function optionalString(value: CanonicalJsonValue | undefined): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function legacyPublishedContent(
+  value: CanonicalJsonValue | undefined,
+): NonNullable<VenuePromptParams['publishedUniversalContent']> {
+  return asRecords(value).flatMap((revision) => {
+    const kind = revision.kind
+    const payloadKey =
+      kind === 'SERVICE'
+        ? 'service'
+        : kind === 'POLICY'
+          ? 'policy'
+          : kind === 'EVENT'
+            ? 'event'
+            : kind === 'OPERATIONAL_FACT'
+              ? 'operationalFact'
+              : kind === 'RELATIONSHIP'
+                ? 'relationship'
+                : null
+    if (!payloadKey || typeof revision.moduleId !== 'string') return []
+    return [
+      {
+        moduleId: revision.moduleId,
+        kind,
+        payload: asRecord(revision[payloadKey]),
+      } as NonNullable<VenuePromptParams['publishedUniversalContent']>[number],
+    ]
+  })
+}
+
+function frozenVenuePromptParams(
+  content: CanonicalJsonValue,
+  guideMode: EvalCase['venue']['guideMode'],
+): VenuePromptParams {
+  const root = asRecord(content)
+  const preview = asRecord(root.preview)
+  if (Object.keys(preview).length > 0) {
+    const venue = asRecord(preview.venue)
+    const guide = asRecord(venue.guide)
+    const tone = asRecord(guide.tone)
+    const experience = asRecord(preview.experience)
+    return {
+      venue: {
+        name: String(venue.name),
+        description: optionalString(venue.description),
+        category: optionalString(venue.category),
+        aiGuideName: optionalString(guide.name),
+        tonePreset: optionalString(tone.preset),
+        tonePresetVersion: typeof tone.behaviorVersion === 'number' ? tone.behaviorVersion : null,
+        guideMode,
+      },
+      relevantPlaces: asRecords(
+        experience.places,
+      ) as unknown as VenuePromptParams['relevantPlaces'],
+      knowledgeEntries: asRecords(experience.knowledgeEntries) as unknown as NonNullable<
+        VenuePromptParams['knowledgeEntries']
+      >,
+      userLat: null,
+      userLng: null,
+      guideMode,
+    }
+  }
+
+  const nativeState = asRecord(root.state)
+  if (Object.keys(nativeState).length > 0) {
+    const venue = asRecord(nativeState.venue)
+    const configuration = asRecord(nativeState.venueBotConfiguration)
+    const generalizedModules = asRecords(nativeState.generalizedModules)
+    return {
+      venue: {
+        ...(venue as unknown as VenuePromptParams['venue']),
+        tonePreset: optionalString(configuration.tonePreset) ?? optionalString(venue.tonePreset),
+        tonePresetVersion:
+          typeof configuration.tonePresetVersion === 'number'
+            ? configuration.tonePresetVersion
+            : typeof venue.tonePresetVersion === 'number'
+              ? venue.tonePresetVersion
+              : null,
+        responseDepth:
+          configuration.responseDepth === 'BRIEF' ||
+          configuration.responseDepth === 'BALANCED' ||
+          configuration.responseDepth === 'DETAILED'
+            ? configuration.responseDepth
+            : null,
+      },
+      relevantPlaces: asRecords(
+        nativeState.places,
+      ) as unknown as VenuePromptParams['relevantPlaces'],
+      knowledgeEntries: asRecords(nativeState.knowledgeEntries) as unknown as NonNullable<
+        VenuePromptParams['knowledgeEntries']
+      >,
+      publishedUniversalContent: generalizedModules.map((module) => ({
+        moduleId: String(module.moduleId),
+        kind: module.kind as NonNullable<
+          VenuePromptParams['publishedUniversalContent']
+        >[number]['kind'],
+        payload: asRecord(module.payload),
+      })),
+      userLat: null,
+      userLng: null,
+      guideMode,
+    }
+  }
+
+  const venue = asRecord(root.venue)
+  const places = asRecords(root.places)
+  const placeNames = new Map(places.map((place) => [String(place.id), String(place.name)]))
+  return {
+    venue: venue as unknown as VenuePromptParams['venue'],
+    relevantPlaces: places as unknown as VenuePromptParams['relevantPlaces'],
+    knowledgeEntries: asRecords(root.knowledgeEntries) as unknown as NonNullable<
+      VenuePromptParams['knowledgeEntries']
+    >,
+    activeUpdates: asRecords(root.operationalUpdates).map((update) => ({
+      updateType: String(update.updateType),
+      severity: String(update.severity),
+      priority: String(update.priority),
+      title: String(update.title),
+      body: optionalString(update.body),
+      redirectTo: optionalString(update.redirectTo),
+      place:
+        typeof update.placeId === 'string' && placeNames.has(update.placeId)
+          ? { name: placeNames.get(update.placeId)! }
+          : null,
+    })),
+    publishedUniversalContent: legacyPublishedContent(root.universalRevisions),
+    userLat: null,
+    userLng: null,
+    guideMode,
+  }
+}
+
+export function evaluationPrompt(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
 ): { system: AiSystemBlock[]; messages: AiMessage[] } {
+  const prompt = buildVenueSystemPromptParts(
+    frozenVenuePromptParams(content, evalCase.venue.guideMode),
+  )
   return {
     system: [
-      {
-        type: 'text',
-        text: [
-          'Answer the final guest message using only the frozen Torchiko venue content below.',
-          'Follow the conversation turns. Do not mention this evaluation or the snapshot.',
-          `Frozen venue content JSON:\n${canonicalEvaluationJson(content)}`,
-        ].join('\n\n'),
-      },
+      { type: 'text', text: prompt.staticPart, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: prompt.dynamicPart },
     ],
     messages: evalCase.turns.map((turn) => ({ role: turn.role, content: turn.content })),
   }
@@ -664,6 +812,11 @@ export function evaluationPromptCostCeiling(
   modelKey: EvaluationModelKey = AI_MODEL_KEYS.GUEST_CHAT,
 ): bigint {
   const spec = getAiModelSpec(modelKey)
+  if (
+    new TextEncoder().encode(canonicalEvaluationJson(content)).byteLength > spec.maxInputUtf8Bytes
+  ) {
+    throw new Error('AI text input exceeds configured input boundary')
+  }
   return textAttemptCostCeilingUnits({
     spec,
     ...evaluationPrompt(evalCase, content),

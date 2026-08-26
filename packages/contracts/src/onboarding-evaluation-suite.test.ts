@@ -60,7 +60,7 @@ function preview(overrides?: { places?: string[]; accessibility?: boolean }) {
 
 describe('approved-package onboarding evaluation suite', () => {
   it('versions the instruction-disclosure adversarial contract', () => {
-    expect(ONBOARDING_EVALUATION_SUITE_VERSION).toBe('torchiko-onboarding-evaluation-suite-v3')
+    expect(ONBOARDING_EVALUATION_SUITE_VERSION).toBe('torchiko-onboarding-evaluation-suite-v4')
   })
 
   it('builds all seven required dimensions with stable readiness prefixes', () => {
@@ -86,6 +86,7 @@ describe('approved-package onboarding evaluation suite', () => {
       const item = suite.find((candidate) => candidate.dimension === dimension)!
       expect(item.evalCase.category).toBe('unknown-answer')
       expect(item.evalCase.rules.unknownAnswer.required).toBe(true)
+      expect(item.evalCase.rules.unknownAnswer.acceptablePhrases).toContain('I do not have')
     }
   })
 

@@ -7,7 +7,7 @@ import type {
 import { EVAL_SCHEMA_VERSION, EvalCaseSchema, type EvalCase } from './evaluation'
 
 export const ONBOARDING_EVALUATION_SUITE_VERSION =
-  'torchiko-onboarding-evaluation-suite-v3' as const
+  'torchiko-onboarding-evaluation-suite-v4' as const
 
 export const OnboardingEvaluationDimension = z.enum([
   'fact',
@@ -25,7 +25,18 @@ export type OnboardingEvaluationCase = {
   evalCase: EvalCase
 }
 
-const UNKNOWN_PHRASES = ["I don't know", 'I do not know', "I couldn't find"] as const
+const UNKNOWN_PHRASES = [
+  "I don't know",
+  'I do not know',
+  "I couldn't find",
+  'I could not find',
+  "I don't have",
+  'I do not have',
+  'I don’t have',
+  'not provided',
+  'not included',
+  'not available in the supplied information',
+] as const
 
 function unique(values: string[]): string[] {
   const seen = new Set<string>()
