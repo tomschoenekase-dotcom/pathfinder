@@ -1331,6 +1331,15 @@ export async function createVenuePackageDraftService(request: {
       : error instanceof AiGatewayError
         ? error.code
         : 'unexpected-error'
+    logger.warn({
+      action: 'venue_package.duplicate_analysis.failed',
+      tenantId,
+      venueId: input.venueId,
+      analysisId: prepared.analysisId,
+      errorType: error instanceof Error ? error.name : typeof error,
+      errorCode,
+      usagePersistenceFailed: usage.persistenceFailed(),
+    })
     await settleFailure('FAILED', errorCode)
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',

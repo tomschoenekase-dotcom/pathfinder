@@ -4,7 +4,7 @@ import { generateEmbeddings } from '@pathfinder/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@pathfinder/config', () => ({
-  logger: { error: vi.fn() },
+  logger: { error: vi.fn(), warn: vi.fn() },
 }))
 
 vi.mock('@pathfinder/ai', () => ({
