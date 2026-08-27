@@ -102,7 +102,10 @@ describe('VenueCharacterStage', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Simulate asset failure' }))
-    expect(screen.getByText('Character display unavailable; text chat is ready')).toBeTruthy()
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe('Character display unavailable; text chat is ready')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    expect(status.getAttribute('aria-atomic')).toBe('true')
     expect(screen.getByText('Tochi')).toBeTruthy()
 
     view.rerender(

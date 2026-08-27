@@ -77,7 +77,14 @@ export function VenueCharacterStage({
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-[var(--chat-text)]">{name}</p>
-        <p className="mt-0.5 text-xs font-medium text-[var(--chat-accent-text)]">{stateLabel}</p>
+        <p
+          className="mt-0.5 text-xs font-medium text-[var(--chat-accent-text)]"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {stateLabel}
+        </p>
         {expanded && greeting ? (
           <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--chat-text-muted)]">
             {greeting}
