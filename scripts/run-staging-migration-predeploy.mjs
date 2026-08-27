@@ -33,6 +33,8 @@ const EXPECTED = Object.freeze({
   b5CompletePublicTableCount: 193,
   currentStagingCount: 192,
   currentStagingPublicTableCount: 218,
+  hostedPredecessorCount: 195,
+  hostedPredecessorPublicTableCount: 221,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -43,6 +45,7 @@ const EXPECTED = Object.freeze({
   previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
   b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
   currentStagingFinalMigration: '20260825160000_add_venue_response_depth',
+  hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
   finalMigration: '20260826010000_add_governed_venue_media',
   manifestHash: 'ddbe6b017427b913523e7b17a164ce9900e4167dea2b256af99e1900e05cbd45',
   // The reviewed 55-migration suffix after B.5 adds 32 public tables.
@@ -175,6 +178,11 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.currentStagingCount - 1] !== EXPECTED.currentStagingFinalMigration) {
     fail('current staging boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.hostedPredecessorCount - 1] !== EXPECTED.hostedPredecessorFinalMigration
+  ) {
+    fail('hosted predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -189,6 +197,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.previousReleaseCount &&
     rows.length !== EXPECTED.b5CompleteCount &&
     rows.length !== EXPECTED.currentStagingCount &&
+    rows.length !== EXPECTED.hostedPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -226,6 +235,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.previousReleaseCount) return 'previous-release'
   if (rows.length === EXPECTED.b5CompleteCount) return 'b5-complete'
   if (rows.length === EXPECTED.currentStagingCount) return 'current-staging'
+  if (rows.length === EXPECTED.hostedPredecessorCount) return 'hosted-predecessor'
   return 'complete'
 }
 
@@ -381,7 +391,9 @@ async function main() {
                     ? EXPECTED.b5CompletePublicTableCount
                     : initialState === 'current-staging'
                       ? EXPECTED.currentStagingPublicTableCount
-                      : EXPECTED.stagingBaselinePublicTableCount
+                      : initialState === 'hosted-predecessor'
+                        ? EXPECTED.hostedPredecessorPublicTableCount
+                        : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

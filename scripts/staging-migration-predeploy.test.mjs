@@ -74,6 +74,8 @@ test('preserved-data backup evidence must match the live migration ledger bounda
 test('repository migration manifest remains frozen at the reviewed 196-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 225)
+  assert.equal(EXPECTED.hostedPredecessorCount, 195)
+  assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
@@ -144,6 +146,14 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.currentStagingCount), manifest),
     'current-staging',
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.hostedPredecessorCount), manifest),
+    'hosted-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.hostedPredecessorCount), manifest),
+    ['20260826010000_add_governed_venue_media'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
