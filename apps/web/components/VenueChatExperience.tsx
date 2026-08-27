@@ -113,8 +113,6 @@ export function VenueChatExperience({
   const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
     useSession(venue?.id ?? '', experienceStorageScope)
   const visitorId = useVisitorId()
-  currentVenueIdRef.current = venue?.id ?? null
-  currentAnonymousTokenRef.current = anonymousToken
   const {
     endSession,
     resetAnalytics,
@@ -127,6 +125,11 @@ export function VenueChatExperience({
     anonymousToken: secondLayerKey ? null : anonymousToken,
     visitorId,
   })
+
+  useEffect(() => {
+    currentVenueIdRef.current = venue?.id ?? null
+    currentAnonymousTokenRef.current = anonymousToken
+  }, [anonymousToken, venue?.id])
 
   const clearCharacterReset = useCallback(() => {
     if (characterResetTimerRef.current !== null) {
