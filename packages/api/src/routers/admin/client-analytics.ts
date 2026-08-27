@@ -69,12 +69,15 @@ export const adminClientAnalyticsRouter = router({
             take: 20,
             select: {
               id: true,
+              venueId: true,
               startedAt: true,
               lastActiveAt: true,
               visitorId: true,
-              messages: {
-                orderBy: { createdAt: 'asc' },
-                select: { id: true, role: true, content: true, createdAt: true, topic: true },
+              venue: { select: { name: true } },
+              _count: {
+                select: {
+                  messages: { where: { role: 'user' } },
+                },
               },
             },
           }),
@@ -124,9 +127,9 @@ export const adminClientAnalyticsRouter = router({
             totalMessages,
             uniqueVisitors: uniqueVisitors.length,
           },
-          recentSessions: recentSessions.map((session) => ({
+          recentSessions: recentSessions.map(({ _count, ...session }) => ({
             ...session,
-            messageCount: session.messages.filter((message) => message.role === 'user').length,
+            messageCount: _count.messages,
           })),
           questionClusters,
           firstWeekReviews: firstWeekReviews.map((review) => ({

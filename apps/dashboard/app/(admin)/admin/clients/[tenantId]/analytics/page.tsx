@@ -8,10 +8,6 @@ type AdminClientAnalyticsPageProps = {
   params: Promise<{ tenantId: string }>
 }
 
-type MessageRow = Awaited<
-  ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getClientAnalytics']>
->['recentSessions'][number]['messages'][number]
-
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-2xl border border-pf-light bg-pf-white p-5 shadow-sm">
@@ -45,10 +41,6 @@ function formatClusterKind(kind: string): string {
 function formatVisitor(visitorId: string | null): string {
   if (!visitorId) return 'Anonymous'
   return visitorId.length > 12 ? `${visitorId.slice(0, 12)}...` : visitorId
-}
-
-function formatRole(role: MessageRow['role']): string {
-  return role === 'user' ? 'GUEST' : 'AI'
 }
 
 function formatMilestone(milestone: string): string {
@@ -205,7 +197,7 @@ export default async function AdminClientAnalyticsPage({ params }: AdminClientAn
             No question clusters found. Run the analytics enrichment job to populate these.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
+          <div className="overflow-x-auto rounded-3xl border border-pf-light bg-pf-white shadow-sm">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
                 <tr>
@@ -241,37 +233,27 @@ export default async function AdminClientAnalyticsPage({ params }: AdminClientAn
         ) : (
           <div className="space-y-3">
             {recentSessions.map((session) => (
-              <details
+              <article
                 key={session.id}
                 className="rounded-3xl border border-pf-light bg-pf-white p-5 shadow-sm"
               >
-                <summary className="cursor-pointer text-sm font-semibold text-pf-deep">
-                  {formatDateTime(session.startedAt)} | {session.messageCount} messages |{' '}
-                  {formatVisitor(session.visitorId)}
-                </summary>
-                <div className="mt-5 space-y-3">
-                  {session.messages.length === 0 ? (
-                    <p className="text-sm text-pf-deep/60">No messages recorded.</p>
-                  ) : (
-                    session.messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className="grid gap-3 rounded-2xl border border-pf-light bg-pf-surface p-4 sm:grid-cols-[84px_minmax(0,1fr)_150px]"
-                      >
-                        <span className="text-xs font-semibold uppercase tracking-wider text-pf-deep/50">
-                          {formatRole(message.role)}
-                        </span>
-                        <p className="whitespace-pre-wrap text-sm leading-6 text-pf-deep">
-                          {message.content}
-                        </p>
-                        <span className="text-xs text-pf-deep/50 sm:text-right">
-                          {formatDateTime(message.createdAt)}
-                        </span>
-                      </div>
-                    ))
-                  )}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-pf-deep">
+                      {formatDateTime(session.startedAt)} · {session.venue.name}
+                    </p>
+                    <p className="mt-1 text-xs text-pf-deep/60">
+                      {session.messageCount} guest messages · {formatVisitor(session.visitorId)}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/admin/clients/${tenant.id}/venues/${session.venueId}/chatlogs/${session.id}`}
+                    className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-full border border-pf-light px-4 text-sm font-semibold text-pf-primary transition hover:border-pf-accent hover:text-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                  >
+                    Review transcript
+                  </Link>
                 </div>
-              </details>
+              </article>
             ))}
           </div>
         )}

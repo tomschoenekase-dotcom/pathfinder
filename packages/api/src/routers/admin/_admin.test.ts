@@ -13,6 +13,7 @@ const {
   visitorSessionFindMany,
   visitorSessionUpdateMany,
   messageCount,
+  messageFindMany,
   questionClusterFindMany,
   firstWeekAccountReviewFindMany,
   aiUsageDailyRollupFindMany,
@@ -73,6 +74,7 @@ const {
   visitorSessionFindMany: vi.fn(),
   visitorSessionUpdateMany: vi.fn(),
   messageCount: vi.fn(),
+  messageFindMany: vi.fn(),
   questionClusterFindMany: vi.fn(),
   firstWeekAccountReviewFindMany: vi.fn(),
   aiUsageDailyRollupFindMany: vi.fn(),
@@ -150,6 +152,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     },
     message: {
       count: messageCount,
+      findMany: messageFindMany,
     },
     questionCluster: {
       findMany: questionClusterFindMany,
@@ -485,7 +488,6 @@ describe('admin router', () => {
 
   it('admin.getClientAnalytics returns tenant stats, clusters, and recent sessions', async () => {
     const startedAt = new Date('2026-07-01T12:00:00.000Z')
-    const messageCreatedAt = new Date('2026-07-01T12:01:00.000Z')
     const windowStart = new Date('2026-06-30T00:00:00.000Z')
 
     tenantFindUnique.mockResolvedValueOnce({
@@ -500,25 +502,12 @@ describe('admin router', () => {
       .mockResolvedValueOnce([
         {
           id: 'session_1',
+          venueId: 'venue_1',
           startedAt,
           lastActiveAt: startedAt,
           visitorId: 'visitor_1',
-          messages: [
-            {
-              id: 'message_1',
-              role: 'user',
-              content: 'Where are the bathrooms?',
-              createdAt: messageCreatedAt,
-              topic: 'amenities',
-            },
-            {
-              id: 'message_2',
-              role: 'assistant',
-              content: 'They are near the lobby.',
-              createdAt: messageCreatedAt,
-              topic: 'amenities',
-            },
-          ],
+          venue: { name: 'Main Venue' },
+          _count: { messages: 1 },
         },
       ])
     questionClusterFindMany.mockResolvedValueOnce([
@@ -570,6 +559,7 @@ describe('admin router', () => {
     expect(result.tenant.name).toBe('Tenant One')
     expect(result.recentSessions).toHaveLength(1)
     expect(result.recentSessions[0]?.messageCount).toBe(1)
+    expect(result.recentSessions[0]).not.toHaveProperty('messages')
     expect(result.questionClusters).toHaveLength(1)
     expect(result.firstWeekReviews).toEqual([
       expect.objectContaining({
@@ -592,6 +582,16 @@ describe('admin router', () => {
     expect(messageCount).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ session: { experienceScope: 'PUBLIC' } }),
+      }),
+    )
+    expect(visitorSessionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 20,
+        select: expect.objectContaining({
+          venueId: true,
+          venue: { select: { name: true } },
+          _count: { select: { messages: { where: { role: 'user' } } } },
+        }),
       }),
     )
   })
@@ -725,8 +725,24 @@ describe('admin router', () => {
   })
 
   it('admin.getSessionChatlog binds the detail read to tenant, venue, and session', async () => {
-    const session = { id: 'session_1', venueId: 'venue_1' }
+    const session = { id: 'session_1', venueId: 'venue_1', messageCount: 2 }
     visitorSessionFindFirst.mockResolvedValueOnce(session)
+    messageFindMany.mockResolvedValueOnce([
+      {
+        id: 'message_2',
+        role: 'assistant',
+        content: 'Answer',
+        createdAt: new Date('2026-08-27T12:02:00.000Z'),
+        sessionSequence: 2,
+      },
+      {
+        id: 'message_1',
+        role: 'user',
+        content: 'Question',
+        createdAt: new Date('2026-08-27T12:01:00.000Z'),
+        sessionSequence: 1,
+      },
+    ])
 
     const result = await testRouter.createCaller(adminCtx()).admin.getSessionChatlog({
       tenantId: 'tenant_1',
@@ -734,7 +750,14 @@ describe('admin router', () => {
       sessionId: 'session_1',
     })
 
-    expect(result).toBe(session)
+    expect(result).toEqual({
+      ...session,
+      messages: [
+        expect.objectContaining({ id: 'message_1', sessionSequence: 1 }),
+        expect.objectContaining({ id: 'message_2', sessionSequence: 2 }),
+      ],
+      nextBeforeSequence: null,
+    })
     expect(visitorSessionFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -742,6 +765,48 @@ describe('admin router', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
         },
+      }),
+    )
+    expect(messageFindMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant_1', venueId: 'venue_1', sessionId: 'session_1' },
+      orderBy: { sessionSequence: 'desc' },
+      take: 51,
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        createdAt: true,
+        sessionSequence: true,
+      },
+    })
+  })
+
+  it('admin.getSessionChatlog returns a bounded stable older-message cursor', async () => {
+    visitorSessionFindFirst.mockResolvedValueOnce({
+      id: 'session_1',
+      venueId: 'venue_1',
+      messageCount: 500,
+    })
+    messageFindMany.mockResolvedValueOnce([
+      { id: 'm9', sessionSequence: 9 },
+      { id: 'm8', sessionSequence: 8 },
+      { id: 'm7', sessionSequence: 7 },
+    ])
+
+    const result = await testRouter.createCaller(adminCtx()).admin.getSessionChatlog({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      sessionId: 'session_1',
+      messageLimit: 2,
+      beforeSequence: 10,
+    })
+
+    expect(result.messages.map((message: { id: string }) => message.id)).toEqual(['m8', 'm9'])
+    expect(result.nextBeforeSequence).toBe(8)
+    expect(messageFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ sessionSequence: { lt: 10 } }),
+        take: 3,
       }),
     )
   })
@@ -766,6 +831,7 @@ describe('admin router', () => {
         },
       }),
     )
+    expect(messageFindMany).not.toHaveBeenCalled()
   })
 
   it('admin.setSessionNotable delegates exact scope and platform actor to the canonical action', async () => {
@@ -2333,6 +2399,40 @@ describe('admin router', () => {
           },
         }),
       }),
+    )
+  })
+
+  it('admin.listVenueSessions keeps the extra row and returns the last included row as its cursor', async () => {
+    const startedAt = new Date('2026-08-09T07:00:00.000Z')
+    visitorSessionFindMany.mockResolvedValueOnce([
+      {
+        id: 'session_2',
+        startedAt,
+        lastActiveAt: startedAt,
+        isNotable: false,
+        experienceScope: 'PUBLIC',
+        _count: { messages: 1, engagementResponses: 0, adminNotes: 0 },
+      },
+      {
+        id: 'session_1',
+        startedAt,
+        lastActiveAt: startedAt,
+        isNotable: false,
+        experienceScope: 'PUBLIC',
+        _count: { messages: 1, engagementResponses: 0, adminNotes: 0 },
+      },
+    ])
+
+    const result = await testRouter.createCaller(adminCtx()).admin.listVenueSessions({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      limit: 1,
+    })
+
+    expect(result.sessions.map((session) => session.id)).toEqual(['session_2'])
+    expect(result.nextCursor).toBe('session_2')
+    expect(visitorSessionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: [{ startedAt: 'desc' }, { id: 'desc' }], take: 2 }),
     )
   })
 

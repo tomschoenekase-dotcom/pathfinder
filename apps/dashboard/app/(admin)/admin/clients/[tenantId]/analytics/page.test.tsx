@@ -90,4 +90,35 @@ describe('AdminClientAnalyticsPage first-week learning', () => {
     expect(html).toContain('Reviews appear automatically')
     expect(html).not.toContain('Review internal draft')
   })
+
+  it('renders bounded conversation summaries and routes transcript review to the scoped history surface', async () => {
+    mocks.getClientAnalytics.mockResolvedValue({
+      tenant: { id: 'tenant_1', name: 'Museum Group', slug: 'museum-group' },
+      stats: { totalSessions: 1, totalMessages: 2400, uniqueVisitors: 1 },
+      questionClusters: [],
+      firstWeekReviews: [],
+      recentSessions: [
+        {
+          id: 'session_1',
+          venueId: 'venue_1',
+          startedAt: new Date('2026-08-27T12:00:00.000Z'),
+          lastActiveAt: new Date('2026-08-27T13:00:00.000Z'),
+          visitorId: 'visitor_1234567890',
+          venue: { name: 'North Museum' },
+          messageCount: 1200,
+        },
+      ],
+    })
+
+    const page = await AdminClientAnalyticsPage({
+      params: Promise.resolve({ tenantId: 'tenant_1' }),
+    })
+    const html = renderToStaticMarkup(page)
+
+    expect(html).toContain('1200 guest messages')
+    expect(html).toContain('North Museum')
+    expect(html).toContain('Review transcript')
+    expect(html).toContain('/admin/clients/tenant_1/venues/venue_1/chatlogs/session_1')
+    expect(html).not.toContain('Where are the bathrooms?')
+  })
 })

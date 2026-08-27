@@ -9,6 +9,7 @@ export default defineConfig({
       'tests/visual/**',
       'tests/visitor-launch/**',
       'tests/visitor-performance/**',
+      'tests/dashboard-performance/**',
       'node_modules/**',
       '.next/**',
     ],

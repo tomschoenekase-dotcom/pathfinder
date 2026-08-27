@@ -62,6 +62,22 @@ export default function VisualFixtureIndex() {
         </Link>
       </section>
 
+      <section
+        className="mt-10 border-t border-pf-light pt-6"
+        aria-labelledby="performance-fixtures"
+      >
+        <h2 id="performance-fixtures" className="text-xl font-semibold">
+          Dashboard performance
+        </h2>
+        <Link
+          href="/dev-fixtures/dashboard-performance"
+          className="mt-4 flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+        >
+          High-volume client, venue, analytics, and transcript paths{' '}
+          <span aria-hidden="true">→</span>
+        </Link>
+      </section>
+
       <section className="mt-10 border-t border-pf-light pt-6" aria-labelledby="billing-fixtures">
         <h2 id="billing-fixtures" className="text-xl font-semibold">
           Billing
