@@ -137,6 +137,10 @@ export const TENANTED_TABLES = [
   'IntakePackageHandoff',
   'IntakeUpload',
   'IntakeUploadVerificationReceipt',
+  'VenueMediaAsset',
+  'VenueMediaPlaceLink',
+  'VenueMediaKnowledgeLink',
+  'VenueMediaReview',
   'AiScopedWorkloadConfigurationOverride',
   'AiScopedWorkloadConfigurationHistory',
   // Durable bridge from a platform prospect to one exact customer tenant.

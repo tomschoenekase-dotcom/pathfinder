@@ -75,6 +75,7 @@ import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
 import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
 import { adminPublicInterestRouter } from './public-interest'
 import { adminReleaseEvidenceRouter } from './release-evidence'
+import { adminIntakeMediaAssetRouter } from './venue-media'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -98,6 +99,7 @@ export const adminRouter = mergeRouters(
   adminRetentionDispositionPreviewRouter,
   adminPublicInterestRouter,
   adminReleaseEvidenceRouter,
+  adminIntakeMediaAssetRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

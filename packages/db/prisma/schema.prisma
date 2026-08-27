@@ -286,6 +286,7 @@ model Tenant {
   accountSummaries                   AccountSummary[]
   customerAccessRequests             CustomerAccessRequest[]
   founderDirectiveTaskRequests       FounderDirectiveTaskRequest[]
+  venueMediaAssets                   VenueMediaAsset[]
 
   @@map("tenants")
 }
@@ -1414,6 +1415,7 @@ model Venue {
   accountMilestones                   AccountMilestone[]
   accountOpenLoops                    AccountOpenLoop[]
   accountCommitments                  AccountCommitment[]
+  venueMediaAssets                    VenueMediaAsset[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -1422,43 +1424,44 @@ model Venue {
 }
 
 model Place {
-  id                 String              @id @default(cuid())
-  tenantId           String              @map("tenant_id")
-  venueId            String              @map("venue_id")
+  id                 String                @id @default(cuid())
+  tenantId           String                @map("tenant_id")
+  venueId            String                @map("venue_id")
   name               String
   type               String
-  itemType           String?             @map("item_type")
-  shortDescription   String?             @map("short_description")
-  longDescription    String?             @map("long_description")
+  itemType           String?               @map("item_type")
+  shortDescription   String?               @map("short_description")
+  longDescription    String?               @map("long_description")
   lat                Float?
   lng                Float?
   tags               String[]
-  importanceScore    Int                 @default(0) @map("importance_score")
-  areaName           String?             @map("area_name")
+  importanceScore    Int                   @default(0) @map("importance_score")
+  areaName           String?               @map("area_name")
   hours              String?
-  photoUrl           String?             @map("photo_url")
-  isActive           Boolean             @default(true) @map("is_active")
-  visibility         String              @default("PUBLIC")
-  sourceType         String              @default("UNKNOWN") @map("source_type")
-  authorship         String              @default("UNKNOWN")
-  sourceName         String?             @map("source_name")
-  sourceUrl          String?             @map("source_url")
-  importedAt         DateTime?           @map("imported_at")
-  humanConfirmedAt   DateTime?           @map("human_confirmed_at")
-  humanConfirmedBy   String?             @map("human_confirmed_by")
-  lastReviewedAt     DateTime?           @map("last_reviewed_at")
-  lastReviewedBy     String?             @map("last_reviewed_by")
-  sourcePackageId    String?             @map("source_package_id")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  venue              Venue               @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  photoUrl           String?               @map("photo_url")
+  isActive           Boolean               @default(true) @map("is_active")
+  visibility         String                @default("PUBLIC")
+  sourceType         String                @default("UNKNOWN") @map("source_type")
+  authorship         String                @default("UNKNOWN")
+  sourceName         String?               @map("source_name")
+  sourceUrl          String?               @map("source_url")
+  importedAt         DateTime?             @map("imported_at")
+  humanConfirmedAt   DateTime?             @map("human_confirmed_at")
+  humanConfirmedBy   String?               @map("human_confirmed_by")
+  lastReviewedAt     DateTime?             @map("last_reviewed_at")
+  lastReviewedBy     String?               @map("last_reviewed_by")
+  sourcePackageId    String?               @map("source_package_id")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  venue              Venue                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
   operationalUpdates OperationalUpdate[]
   analyticsEvents    AnalyticsEvent[]
   dailyRollups       DailyRollup[]
-  sourcePackage      VenuePackage?       @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  sourcePackage      VenuePackage?         @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   services           ServiceContent[]
   itemContents       ItemContent[]
   events             EventContent[]
+  venueMediaLinks    VenueMediaPlaceLink[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId])
@@ -1493,6 +1496,7 @@ model VenueKnowledgeEntry {
   sourcePackage          VenuePackage?             @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   targetedByProposals    KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
   publishedFromProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalPublishedEntry")
+  venueMediaLinks        VenueMediaKnowledgeLink[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId])
@@ -1912,6 +1916,27 @@ enum IntakeUploadVerificationVerdict {
   REJECTED
 }
 
+enum VenueMediaKind {
+  IMAGE
+}
+
+enum VenueMediaImportance {
+  PRIMARY
+  SECONDARY
+}
+
+enum VenueMediaReviewAction {
+  APPROVE_CONTENT_USE
+  WITHDRAW_CONTENT_USE
+}
+
+enum VenueMediaRightsBasis {
+  VENUE_OWNED
+  LICENSED
+  PERMISSION_GRANTED
+  PUBLIC_DOMAIN
+}
+
 /// Quarantined transport metadata only. Object bytes remain outside the database
 /// and cannot become an IntakeRun until their generation, MIME, size, and hash are verified.
 model IntakeUpload {
@@ -1950,12 +1975,97 @@ model IntakeUpload {
   intakeRun              IntakeRun?                        @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   supportAttachments     SupportMessageAttachment[]
   verificationReceipts   IntakeUploadVerificationReceipt[]
+  venueMediaAsset        VenueMediaAsset?
 
   @@unique([tenantId, requestId], map: "intake_uploads_tenant_request_key")
   @@unique([intakeRunId, tenantId, venueId], map: "intake_uploads_run_scope_key")
   @@unique([id, tenantId, venueId], map: "intake_uploads_scope_key")
   @@index([tenantId, venueId, createdAt], map: "intake_uploads_scope_created_idx")
   @@map("intake_uploads")
+}
+
+/// First-class, source-controlled venue media metadata. This record never exposes bytes to a
+/// visitor by itself; a separately reviewed controlled derivative/delivery layer is required.
+model VenueMediaAsset {
+  id                  String                    @id @db.Uuid
+  tenantId            String                    @map("tenant_id")
+  venueId             String                    @map("venue_id")
+  intakeUploadId      String                    @unique @map("intake_upload_id")
+  kind                VenueMediaKind
+  semanticDescription String                    @map("semantic_description")
+  depictedSubjects    String[]                  @map("depicted_subjects")
+  altText             String                    @map("alt_text") @db.VarChar(240)
+  caption             String?                   @db.VarChar(300)
+  usageGuidance       String?                   @map("usage_guidance")
+  importance          VenueMediaImportance      @default(SECONDARY)
+  sourceName          String                    @map("source_name") @db.VarChar(500)
+  sourceUrl           String?                   @map("source_url") @db.VarChar(2000)
+  sourceCapturedAt    DateTime?                 @map("source_captured_at")
+  createdBy           String                    @map("created_by") @db.VarChar(191)
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  intakeUpload        IntakeUpload              @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  placeLinks          VenueMediaPlaceLink[]
+  knowledgeLinks      VenueMediaKnowledgeLink[]
+  reviews             VenueMediaReview[]
+
+  @@unique([id, tenantId, venueId], map: "venue_media_assets_scope_key")
+  @@unique([intakeUploadId, tenantId, venueId], map: "venue_media_assets_upload_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "venue_media_assets_scope_created_idx")
+  @@map("venue_media_assets")
+}
+
+model VenueMediaPlaceLink {
+  assetId   String          @map("asset_id") @db.Uuid
+  tenantId  String          @map("tenant_id")
+  venueId   String          @map("venue_id")
+  placeId   String          @map("place_id")
+  createdAt DateTime        @default(now()) @map("created_at")
+  asset     VenueMediaAsset @relation(fields: [assetId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  place     Place           @relation(fields: [placeId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([assetId, placeId])
+  @@index([tenantId, venueId, placeId], map: "venue_media_place_links_scope_idx")
+  @@map("venue_media_place_links")
+}
+
+model VenueMediaKnowledgeLink {
+  assetId          String              @map("asset_id") @db.Uuid
+  tenantId         String              @map("tenant_id")
+  venueId          String              @map("venue_id")
+  knowledgeEntryId String              @map("knowledge_entry_id")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  asset            VenueMediaAsset     @relation(fields: [assetId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  knowledgeEntry   VenueKnowledgeEntry @relation(fields: [knowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([assetId, knowledgeEntryId])
+  @@index([tenantId, venueId, knowledgeEntryId], map: "venue_media_knowledge_links_scope_idx")
+  @@map("venue_media_knowledge_links")
+}
+
+/// Append-only human review ledger. Approval establishes semantic/rights eligibility only; it does
+/// not publish bytes, mint a URL, or bypass the future controlled-derivative delivery gate.
+model VenueMediaReview {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String                 @map("tenant_id")
+  venueId                String                 @map("venue_id")
+  assetId                String                 @map("asset_id") @db.Uuid
+  sequence               Int
+  action                 VenueMediaReviewAction
+  rightsBasis            VenueMediaRightsBasis? @map("rights_basis")
+  rightsStatement        String?                @map("rights_statement")
+  rightsEvidenceSourceId String?                @map("rights_evidence_source_id") @db.VarChar(500)
+  reason                 String?
+  requestId              String                 @map("request_id") @db.Uuid
+  actorId                String                 @map("actor_id") @db.VarChar(191)
+  createdAt              DateTime               @default(now()) @map("created_at")
+  asset                  VenueMediaAsset        @relation(fields: [assetId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([assetId, sequence], map: "venue_media_reviews_asset_sequence_key")
+  @@unique([tenantId, requestId], map: "venue_media_reviews_tenant_request_key")
+  @@index([tenantId, venueId, assetId, sequence], map: "venue_media_reviews_scope_idx")
+  @@map("venue_media_reviews")
 }
 
 /// Immutable verdict evidence for one exact quarantined object version. PRECHECK

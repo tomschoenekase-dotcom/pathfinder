@@ -1185,6 +1185,14 @@ export {
   materializeDueFirstWeekAccountReviews,
 } from './helpers/first-week-account-reviews'
 export {
+  registerVenueMediaAssetAction,
+  resolveApprovedVenueMediaCandidates,
+  reviewVenueMediaAssetAction,
+  VenueMediaActionError,
+  type VenueMediaActionClient,
+  type VenueMediaHumanActor,
+} from './helpers/venue-media-actions'
+export {
   FounderOperatingExchangeError,
   listFounderOperatingExchanges,
   readFounderOperatingExchange,
