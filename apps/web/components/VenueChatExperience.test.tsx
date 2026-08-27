@@ -486,7 +486,7 @@ describe('VenueChatExperience presentation boundary', () => {
   )
 
   it('states that a rate-limited turn was not sent and retries the exact frozen message', async () => {
-    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174109'
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174105'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     mocks.client.chat.send.mutate
       .mockRejectedValueOnce(codedError('TOO_MANY_REQUESTS', 'RATE_LIMITED'))
