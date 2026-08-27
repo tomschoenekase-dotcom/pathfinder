@@ -405,6 +405,7 @@ export async function getCompanyKnowledgeItem(
       AND: [
         { id: input.knowledgeItemId, archivedAt: null },
         accessWhere(access, input.clientId),
+        ...(access.kind === 'CLIENT' ? [{ promotionStatus: 'PROMOTED' as const }] : []),
         ...(input.venueId ? [venueContextWhere(access, input.venueId, input.clientId)] : []),
       ],
     },

@@ -388,6 +388,18 @@ export async function promoteCompanyKnowledgeAction(
   client: CompanyKnowledgeActionClient = db,
 ) {
   const actor = parseVerifiedActorContext(input.actor)
+  if (actor.type === 'HUMAN' && actor.role !== 'PLATFORM_ADMIN') {
+    throw new CompanyKnowledgeActionError(
+      'FORBIDDEN',
+      'Company knowledge promotion requires a platform administrator',
+    )
+  }
+  if (!['HUMAN', 'AGENT'].includes(actor.type)) {
+    throw new CompanyKnowledgeActionError(
+      'FORBIDDEN',
+      'Company knowledge promotion requires a reviewed human or agent actor',
+    )
+  }
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     const item = await tx.companyKnowledgeItem.findFirst({
@@ -424,9 +436,27 @@ export async function promoteCompanyKnowledgeAction(
         'Authoritative knowledge requires human promotion',
       )
     }
-    const promoted = await tx.companyKnowledgeItem.update({
-      where: { id: item.id },
+    const transition = await tx.companyKnowledgeItem.updateMany({
+      where: { id: item.id, promotionStatus: 'CANDIDATE', archivedAt: null },
       data: { promotionStatus: 'PROMOTED', lastConfirmedAt: new Date() },
+    })
+    if (transition.count !== 1) {
+      const current = await tx.companyKnowledgeItem.findUnique({
+        where: { id: item.id },
+        select: {
+          id: true,
+          promotionStatus: true,
+          authority: true,
+          tenantId: true,
+          venueId: true,
+          updatedAt: true,
+        },
+      })
+      if (current?.promotionStatus === 'PROMOTED') return { ...current, replayed: true }
+      throw new CompanyKnowledgeActionError('CONFLICT', 'Knowledge promotion lost a state race')
+    }
+    const promoted = await tx.companyKnowledgeItem.findUniqueOrThrow({
+      where: { id: item.id },
       select: {
         id: true,
         promotionStatus: true,
@@ -492,17 +522,29 @@ export async function supersedeCompanyKnowledgeAction(
   client: CompanyKnowledgeActionClient = db,
 ) {
   const actor = parseVerifiedActorContext(input.actor)
-  if (actor.type !== 'HUMAN') {
-    throw new CompanyKnowledgeActionError('FORBIDDEN', 'Supersession requires a human actor')
+  if (actor.type !== 'HUMAN' || actor.role !== 'PLATFORM_ADMIN') {
+    throw new CompanyKnowledgeActionError(
+      'FORBIDDEN',
+      'Supersession requires a platform administrator',
+    )
   }
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     const select = {
       id: true,
       tenantId: true,
+      venueId: true,
+      organizationId: true,
+      accessScope: true,
+      type: true,
       promotionStatus: true,
       authority: true,
       supersededById: true,
+      entityLinks: {
+        where: { entityType: 'VENUE', relationship: 'APPLIES_TO' },
+        select: { entityId: true },
+        orderBy: { entityId: 'asc' },
+      },
       decision: { select: { id: true } },
     } as const
     const [prior, replacement] = await Promise.all([
@@ -532,23 +574,66 @@ export async function supersedeCompanyKnowledgeAction(
         'Replacement must be a different promoted item',
       )
     }
+    const priorScope = JSON.stringify([
+      prior.tenantId,
+      prior.venueId,
+      prior.organizationId,
+      prior.accessScope,
+      prior.type,
+      prior.entityLinks.map((link) => link.entityId),
+    ])
+    const replacementScope = JSON.stringify([
+      replacement.tenantId,
+      replacement.venueId,
+      replacement.organizationId,
+      replacement.accessScope,
+      replacement.type,
+      replacement.entityLinks.map((link) => link.entityId),
+    ])
+    if (priorScope !== replacementScope) {
+      throw new CompanyKnowledgeActionError(
+        'INVALID_SCOPE',
+        'Supersession requires matching tenant, entity, type, and venue applicability',
+      )
+    }
     if (prior.supersededById === replacement.id) return { prior, replacement, replayed: true }
     if (prior.supersededById) {
       throw new CompanyKnowledgeActionError('CONFLICT', 'Prior item is already superseded')
     }
-    const updated = await tx.companyKnowledgeItem.update({
-      where: { id: prior.id },
+    if (prior.promotionStatus !== 'PROMOTED') {
+      throw new CompanyKnowledgeActionError('CONFLICT', 'Only promoted knowledge may be superseded')
+    }
+    const transition = await tx.companyKnowledgeItem.updateMany({
+      where: { id: prior.id, promotionStatus: 'PROMOTED', supersededById: null, archivedAt: null },
       data: {
         authority: 'SUPERSEDED',
         promotionStatus: 'SUPERSEDED',
         supersededAt: new Date(),
         supersededById: replacement.id,
-        ...(prior.authority === 'AUTHORITATIVE_CURRENT' && prior.decision
-          ? { decision: { update: { status: 'SUPERSEDED' } } }
-          : {}),
       },
-      select: { id: true, supersededById: true, authority: true, promotionStatus: true },
     })
+    if (transition.count !== 1) {
+      const current = await tx.companyKnowledgeItem.findUnique({
+        where: { id: prior.id },
+        select: { id: true, supersededById: true, authority: true, promotionStatus: true },
+      })
+      if (current?.supersededById === replacement.id) {
+        return { prior: current, replacement, replayed: true }
+      }
+      throw new CompanyKnowledgeActionError('CONFLICT', 'Knowledge supersession lost a state race')
+    }
+    if (prior.authority === 'AUTHORITATIVE_CURRENT' && prior.decision) {
+      await tx.companyDecision.update({
+        where: { id: prior.decision.id },
+        data: { status: 'SUPERSEDED' },
+      })
+    }
+    const updated = {
+      id: prior.id,
+      supersededById: replacement.id,
+      authority: 'SUPERSEDED' as const,
+      promotionStatus: 'SUPERSEDED' as const,
+    }
     await writeAuditLogStrict(
       {
         tenantId: prior.tenantId,

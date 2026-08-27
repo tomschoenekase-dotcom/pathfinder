@@ -179,7 +179,21 @@ describe('company knowledge retrieval', () => {
       { venue: { findFirst: venueFindFirst }, companyKnowledgeItem: { findFirst } } as never,
     )
     expect(result.item.id).toBe('knowledge_1')
-    expect(JSON.stringify(findFirst.mock.calls[0]?.[0].where)).toContain('APPLIES_TO')
+    const where = JSON.stringify(findFirst.mock.calls[0]?.[0].where)
+    expect(where).toContain('APPLIES_TO')
+    expect(where).toContain('PROMOTED')
+  })
+
+  it('requires promoted status before client-scoped exact detail selection', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null)
+    await expect(
+      getCompanyKnowledgeItem(
+        { knowledgeItemId: 'candidate_hidden', clientId: 'tenant_1' },
+        { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+        { companyKnowledgeItem: { findFirst } } as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(JSON.stringify(findFirst.mock.calls[0]?.[0].where)).toContain('PROMOTED')
   })
 
   it('returns exact detail with provenance and supersession, but not when scoped lookup misses', async () => {

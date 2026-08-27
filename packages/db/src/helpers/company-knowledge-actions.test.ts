@@ -30,6 +30,7 @@ function harness() {
     prospectOrganization: { findFirst: vi.fn().mockResolvedValue({ id: 'org_1' }) },
     companyKnowledgeItem: {
       findUnique: vi.fn().mockResolvedValue(null),
+      findUniqueOrThrow: vi.fn(),
       findFirst: vi.fn(),
       create: vi.fn().mockResolvedValue({
         id: 'knowledge_1',
@@ -37,7 +38,9 @@ function harness() {
         promotionStatus: 'CANDIDATE',
       }),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    companyDecision: { update: vi.fn().mockResolvedValue({ id: 'decision_1' }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
     embeddingDispatch: { upsert: vi.fn().mockResolvedValue({ id: 'dispatch_1' }) },
   }
@@ -255,7 +258,7 @@ describe('company knowledge canonical actions', () => {
       venueId: 'venue_1',
       updatedAt: new Date('2030-01-01T00:00:00.000Z'),
     })
-    tx.companyKnowledgeItem.update.mockResolvedValue({
+    tx.companyKnowledgeItem.findUniqueOrThrow.mockResolvedValue({
       id: 'knowledge_1',
       tenantId: 'tenant_1',
       promotionStatus: 'PROMOTED',
@@ -280,6 +283,39 @@ describe('company knowledge canonical actions', () => {
     )
   })
 
+  it('rejects promotion by a non-admin human or an unreviewed system actor', async () => {
+    const first = harness()
+    await expect(
+      promoteCompanyKnowledgeAction(
+        {
+          knowledgeItemId: 'knowledge_1',
+          promotionReason: 'Unreviewed promotion',
+          actor: { type: 'HUMAN', actorId: 'client_1', role: 'CLIENT_ADMIN' },
+        },
+        first.client,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(first.tx.companyKnowledgeItem.findFirst).not.toHaveBeenCalled()
+
+    const second = harness()
+    await expect(
+      promoteCompanyKnowledgeAction(
+        {
+          knowledgeItemId: 'knowledge_1',
+          promotionReason: 'Background promotion',
+          actor: {
+            type: 'SYSTEM',
+            actorId: 'company-brain-refresh',
+            role: 'SYSTEM',
+            systemJobId: 'job_1',
+          },
+        },
+        second.client,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(second.tx.companyKnowledgeItem.findFirst).not.toHaveBeenCalled()
+  })
+
   it('supersedes current knowledge only through a human action and preserves linkage', async () => {
     const { tx, client } = harness()
     tx.companyKnowledgeItem.findFirst
@@ -288,6 +324,11 @@ describe('company knowledge canonical actions', () => {
         tenantId: null,
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
+        venueId: null,
+        organizationId: null,
+        accessScope: 'RESTRICTED',
+        type: 'DECISION',
+        entityLinks: [],
         supersededById: null,
         decision: { id: 'decision_old' },
       })
@@ -296,6 +337,11 @@ describe('company knowledge canonical actions', () => {
         tenantId: null,
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
+        venueId: null,
+        organizationId: null,
+        accessScope: 'RESTRICTED',
+        type: 'DECISION',
+        entityLinks: [],
         supersededById: null,
         decision: { id: 'decision_new' },
       })
@@ -315,15 +361,18 @@ describe('company knowledge canonical actions', () => {
       client,
     )
     expect(result.prior.supersededById).toBe('knowledge_new')
-    expect(tx.companyKnowledgeItem.update).toHaveBeenCalledWith(
+    expect(tx.companyKnowledgeItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          authority: 'SUPERSEDED',
-          promotionStatus: 'SUPERSEDED',
-          decision: { update: { status: 'SUPERSEDED' } },
+        where: expect.objectContaining({
+          promotionStatus: 'PROMOTED',
+          supersededById: null,
         }),
       }),
     )
+    expect(tx.companyDecision.update).toHaveBeenCalledWith({
+      where: { id: 'decision_old' },
+      data: { status: 'SUPERSEDED' },
+    })
   })
 
   it('does not assume every authoritative knowledge item has a decision child', async () => {
@@ -334,6 +383,11 @@ describe('company knowledge canonical actions', () => {
         tenantId: 'tenant_1',
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
+        venueId: 'venue_1',
+        organizationId: 'org_1',
+        accessScope: 'ORGANIZATION',
+        type: 'CLIENT_INSIGHT',
+        entityLinks: [],
         supersededById: null,
         decision: null,
       })
@@ -342,15 +396,14 @@ describe('company knowledge canonical actions', () => {
         tenantId: 'tenant_1',
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
+        venueId: 'venue_1',
+        organizationId: 'org_1',
+        accessScope: 'ORGANIZATION',
+        type: 'CLIENT_INSIGHT',
+        entityLinks: [],
         supersededById: null,
         decision: null,
       })
-    tx.companyKnowledgeItem.update.mockResolvedValue({
-      id: 'knowledge_old',
-      supersededById: 'knowledge_new',
-      authority: 'SUPERSEDED',
-      promotionStatus: 'SUPERSEDED',
-    })
     await supersedeCompanyKnowledgeAction(
       {
         priorItemId: 'knowledge_old',
@@ -361,10 +414,158 @@ describe('company knowledge canonical actions', () => {
       },
       client,
     )
-    expect(tx.companyKnowledgeItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.not.objectContaining({ decision: expect.anything() }),
-      }),
+    expect(tx.companyDecision.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects cross-scope supersession before changing current truth', async () => {
+    const { tx, client } = harness()
+    tx.companyKnowledgeItem.findFirst
+      .mockResolvedValueOnce({
+        id: 'knowledge_old',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        organizationId: 'org_1',
+        accessScope: 'ORGANIZATION',
+        type: 'CLIENT_INSIGHT',
+        promotionStatus: 'PROMOTED',
+        authority: 'DURABLE_CONTEXT',
+        supersededById: null,
+        entityLinks: [{ entityId: 'venue_1' }],
+        decision: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'knowledge_new',
+        tenantId: 'tenant_2',
+        venueId: 'venue_2',
+        organizationId: 'org_2',
+        accessScope: 'ORGANIZATION',
+        type: 'CLIENT_INSIGHT',
+        promotionStatus: 'PROMOTED',
+        authority: 'DURABLE_CONTEXT',
+        supersededById: null,
+        entityLinks: [{ entityId: 'venue_2' }],
+        decision: null,
+      })
+    await expect(
+      supersedeCompanyKnowledgeAction(
+        {
+          priorItemId: 'knowledge_old',
+          replacementItemId: 'knowledge_new',
+          reason: 'Invalid cross-tenant replacement',
+          actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+        },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_SCOPE' })
+    expect(tx.companyKnowledgeItem.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects supersession of an unpromoted candidate', async () => {
+    const { tx, client } = harness()
+    const common = {
+      tenantId: 'tenant_1',
+      venueId: null,
+      organizationId: null,
+      accessScope: 'TENANT',
+      type: 'POLICY_CONTEXT',
+      authority: 'DURABLE_CONTEXT',
+      supersededById: null,
+      entityLinks: [],
+      decision: null,
+    }
+    tx.companyKnowledgeItem.findFirst
+      .mockResolvedValueOnce({ ...common, id: 'knowledge_old', promotionStatus: 'CANDIDATE' })
+      .mockResolvedValueOnce({ ...common, id: 'knowledge_new', promotionStatus: 'PROMOTED' })
+    await expect(
+      supersedeCompanyKnowledgeAction(
+        {
+          priorItemId: 'knowledge_old',
+          replacementItemId: 'knowledge_new',
+          tenantId: 'tenant_1',
+          reason: 'Candidate cannot become historical truth',
+          actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+        },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.companyKnowledgeItem.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('replays the winner of a concurrent promotion without duplicate evidence', async () => {
+    const { tx, client } = harness()
+    tx.companyKnowledgeItem.findFirst.mockResolvedValue({
+      id: 'knowledge_1',
+      tenantId: 'tenant_1',
+      promotionStatus: 'CANDIDATE',
+      authority: 'DURABLE_CONTEXT',
+      venueId: 'venue_1',
+    })
+    tx.companyKnowledgeItem.updateMany.mockResolvedValue({ count: 0 })
+    tx.companyKnowledgeItem.findUnique.mockResolvedValue({
+      id: 'knowledge_1',
+      tenantId: 'tenant_1',
+      promotionStatus: 'PROMOTED',
+      authority: 'DURABLE_CONTEXT',
+      venueId: 'venue_1',
+      updatedAt: new Date('2030-01-01T00:01:00.000Z'),
+    })
+    const result = await promoteCompanyKnowledgeAction(
+      {
+        knowledgeItemId: 'knowledge_1',
+        tenantId: 'tenant_1',
+        promotionReason: 'Concurrent reviewed promotion',
+        actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+      },
+      client,
     )
+    expect(result).toMatchObject({ promotionStatus: 'PROMOTED', replayed: true })
+    expect(tx.embeddingDispatch.upsert).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('replays only the same replacement after a concurrent supersession', async () => {
+    const { tx, client } = harness()
+    const common = {
+      tenantId: 'tenant_1',
+      venueId: null,
+      organizationId: null,
+      accessScope: 'TENANT',
+      type: 'POLICY_CONTEXT',
+      authority: 'DURABLE_CONTEXT',
+      entityLinks: [],
+      decision: null,
+    }
+    tx.companyKnowledgeItem.findFirst
+      .mockResolvedValueOnce({
+        ...common,
+        id: 'knowledge_old',
+        promotionStatus: 'PROMOTED',
+        supersededById: null,
+      })
+      .mockResolvedValueOnce({
+        ...common,
+        id: 'knowledge_new',
+        promotionStatus: 'PROMOTED',
+        supersededById: null,
+      })
+    tx.companyKnowledgeItem.updateMany.mockResolvedValue({ count: 0 })
+    tx.companyKnowledgeItem.findUnique.mockResolvedValue({
+      id: 'knowledge_old',
+      supersededById: 'knowledge_new',
+      authority: 'SUPERSEDED',
+      promotionStatus: 'SUPERSEDED',
+    })
+    const result = await supersedeCompanyKnowledgeAction(
+      {
+        priorItemId: 'knowledge_old',
+        replacementItemId: 'knowledge_new',
+        tenantId: 'tenant_1',
+        reason: 'Concurrent replacement',
+        actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+      },
+      client,
+    )
+    expect(result).toMatchObject({ replayed: true, prior: { supersededById: 'knowledge_new' } })
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 })
