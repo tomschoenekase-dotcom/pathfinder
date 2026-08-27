@@ -79,6 +79,9 @@ describe('FreshnessAuditView', () => {
               publishedAt: new Date('2026-08-01'),
               updatedAt: new Date('2026-08-01'),
               place: null,
+              temporalState: 'EXPIRED',
+              guestVisibleNow: false,
+              cleanupPending: true,
             },
           ],
           nextCursor: null,
@@ -87,7 +90,11 @@ describe('FreshnessAuditView', () => {
     )
     expect(screen.getByText(/Last reviewed 221 days ago/)).toBeTruthy()
     expect(screen.getByText(/Missing: source name, review date/)).toBeTruthy()
-    expect(screen.getByText('Expired but active')).toBeTruthy()
+    expect(screen.getByText('Expired · guest-hidden')).toBeTruthy()
+    expect(screen.getByText(/visibility window has closed safely/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Agent questions' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/venues/venue_1/agents',
+    )
     expect(screen.queryByText('https://example.test/guide')).toBeNull()
   })
 })

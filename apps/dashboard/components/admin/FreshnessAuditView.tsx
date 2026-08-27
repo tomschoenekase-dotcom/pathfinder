@@ -28,6 +28,9 @@ export type FreshnessUpdateItem = {
   publishedAt: Date | null
   updatedAt: Date
   place: { id: string; name: string } | null
+  temporalState: 'EXPIRED' | 'LIVE' | 'SCHEDULED'
+  guestVisibleNow: boolean
+  cleanupPending: boolean
 }
 type Page<T> = { items: T[]; nextCursor: Cursor }
 type Props = {
@@ -65,7 +68,7 @@ export function FreshnessAuditView(props: Props) {
           Freshness audit
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-pf-deep">Evidence review queue</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/65">
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
           Review signals from existing confirmation, provenance, and operational-window metadata,
           with an explicit human-only confirmation action.
         </p>
@@ -92,7 +95,21 @@ export function FreshnessAuditView(props: Props) {
       <aside className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
         <strong>Evidence limitation:</strong> this audit does not compare independent sources or
         prove that content is current. A provenance gap is a missing review signal, not a factual
-        contradiction. Nothing here is auto-patched or published.
+        contradiction. Nothing here is auto-patched or published. Review durable contradictions in{' '}
+        <Link
+          className="font-semibold underline underline-offset-4"
+          href={`${base.replace(/\/freshness$/u, '')}/agents`}
+        >
+          Agent questions
+        </Link>{' '}
+        and inspect proposed replacements in{' '}
+        <Link
+          className="font-semibold underline underline-offset-4"
+          href={`${base.replace(/\/freshness$/u, '')}/knowledge-proposals`}
+        >
+          Knowledge proposals
+        </Link>
+        .
       </aside>
 
       <Queue
@@ -162,23 +179,35 @@ export function FreshnessAuditView(props: Props) {
         empty="No active published updates are within the review horizon."
       >
         {props.dateSensitive.items.map((item) => {
-          const expired = item.expiresAt <= props.observedAt
+          const expired = item.temporalState === 'EXPIRED'
+          const live = item.temporalState === 'LIVE'
           return (
             <article key={item.id} className="rounded-2xl border border-pf-light bg-white p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-bold ${expired ? 'bg-rose-100 text-rose-900' : 'bg-amber-100 text-amber-950'}`}
+                  className={`rounded-full px-2.5 py-1 text-xs font-bold ${expired ? 'bg-rose-100 text-rose-900' : live ? 'bg-amber-100 text-amber-950' : 'bg-sky-100 text-sky-950'}`}
                 >
-                  {expired ? 'Expired but active' : 'Expires soon'}
+                  {expired
+                    ? 'Expired · guest-hidden'
+                    : live
+                      ? 'Live · expires soon'
+                      : 'Scheduled · expires soon'}
                 </span>
-                <span className="text-xs font-semibold text-pf-deep/60">
+                <span className="text-xs font-semibold text-pf-deep/75">
                   {item.updateType.replace(/_/g, ' ')} · {item.priority}
                 </span>
               </div>
               <h4 className="mt-2 font-semibold text-pf-deep">{item.title}</h4>
-              <p className="mt-1 text-sm text-pf-deep/65">
+              <p className="mt-1 text-sm text-pf-deep/75">
                 {item.place?.name ? `${item.place.name} · ` : ''}
                 {item.startsAt.toLocaleString()} to {item.expiresAt.toLocaleString()}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-pf-deep/75">
+                {item.cleanupPending
+                  ? 'The visibility window has closed safely. The retained active flag is queued for operator cleanup.'
+                  : item.guestVisibleNow
+                    ? 'Currently eligible for guest visibility until the recorded expiry.'
+                    : 'Not yet guest-visible; the reviewed start time remains in the future.'}
               </p>
             </article>
           )
@@ -208,12 +237,12 @@ function Queue({
     <section className="space-y-4">
       <div>
         <h3 className="text-xl font-semibold text-pf-deep">{title}</h3>
-        <p className="mt-1 text-sm text-pf-deep/60">{description}</p>
+        <p className="mt-1 text-sm text-pf-deep/75">{description}</p>
       </div>
       {children.length ? (
         <div className="space-y-3">{children}</div>
       ) : (
-        <div className="rounded-3xl border border-dashed border-pf-light bg-white p-8 text-center text-sm text-pf-deep/65">
+        <div className="rounded-3xl border border-dashed border-pf-light bg-white p-8 text-center text-sm text-pf-deep/75">
           {empty}
         </div>
       )}
@@ -237,13 +266,13 @@ function ContentRow({
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800">
           {item.entityType.replace(/_/g, ' ')}
         </span>
-        <span className="text-xs text-pf-deep/55">{item.sourceType}</span>
+        <span className="text-xs text-pf-deep/75">{item.sourceType}</span>
       </div>
       <h4 className="mt-2 font-semibold text-pf-deep">{item.label}</h4>
-      <p className="mt-1 text-sm text-pf-deep/65">
+      <p className="mt-1 text-sm text-pf-deep/75">
         {item.sourceName ?? 'No source name'} · {detail}
       </p>
-      {item.sourceUrl ? <p className="mt-2 text-xs text-pf-deep/55">Source URL recorded</p> : null}
+      {item.sourceUrl ? <p className="mt-2 text-xs text-pf-deep/75">Source URL recorded</p> : null}
       <FreshnessReviewControl
         tenantId={tenantId}
         venueId={venueId}

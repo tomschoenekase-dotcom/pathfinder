@@ -94,7 +94,27 @@ describe('admin freshness audit', () => {
   })
 
   it('scopes date-sensitive updates and paginates by expiry', async () => {
-    await testRouter.createCaller(context()).freshness.listFreshnessAudit({
+    mocks.update.mockResolvedValue([
+      {
+        id: 'expired',
+        title: 'Past closure',
+        startsAt: new Date('2020-01-01T00:00:00.000Z'),
+        expiresAt: new Date('2020-01-02T00:00:00.000Z'),
+      },
+      {
+        id: 'live',
+        title: 'Current closure',
+        startsAt: new Date('2020-01-01T00:00:00.000Z'),
+        expiresAt: new Date('2090-01-02T00:00:00.000Z'),
+      },
+      {
+        id: 'scheduled',
+        title: 'Future closure',
+        startsAt: new Date('2090-01-01T00:00:00.000Z'),
+        expiresAt: new Date('2090-01-02T00:00:00.000Z'),
+      },
+    ])
+    const result = await testRouter.createCaller(context()).freshness.listFreshnessAudit({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       queue: 'DATE_SENSITIVE',
@@ -120,6 +140,26 @@ describe('admin freshness audit', () => {
         orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
       }),
     )
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'expired',
+        temporalState: 'EXPIRED',
+        guestVisibleNow: false,
+        cleanupPending: true,
+      }),
+      expect.objectContaining({
+        id: 'live',
+        temporalState: 'LIVE',
+        guestVisibleNow: true,
+        cleanupPending: false,
+      }),
+      expect.objectContaining({
+        id: 'scheduled',
+        temporalState: 'SCHEDULED',
+        guestVisibleNow: false,
+        cleanupPending: false,
+      }),
+    ])
   })
 
   it('requires content entity type but rejects one for update windows', async () => {
