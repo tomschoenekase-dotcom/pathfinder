@@ -315,6 +315,30 @@ describe('analytics router', () => {
     )
   })
 
+  it('analytics.trackEvent accepts stable synthetic staging entity IDs', async () => {
+    dbQueryRaw.mockResolvedValueOnce([
+      { id: 'demo-venue-riverside-aquarium', tenantId: 'demo-tenant' },
+    ])
+    analyticsEventCreate.mockResolvedValueOnce({})
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'demo-venue-riverside-aquarium',
+        eventType: 'session.started',
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tenantId: 'demo-tenant',
+          venueId: 'demo-venue-riverside-aquarium',
+        }),
+      }),
+    )
+  })
+
   it.each([
     'message.sent',
     'message.received',

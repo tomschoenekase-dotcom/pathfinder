@@ -33,6 +33,12 @@ describe('LocationBanner', () => {
     )
   })
 
+  it('keeps the location permission action at the visitor touch-target floor', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Share location' }).className).toContain('min-h-11')
+  })
+
   it('uses the selected language and direction for location consent', () => {
     render(<LocationBanner permission="prompt" onRefresh={vi.fn()} language="العربية" />)
 

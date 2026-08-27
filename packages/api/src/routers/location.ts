@@ -152,8 +152,18 @@ export const locationRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const scope = await loadPublicLocationScope(ctx.db, input)
-      if (!scope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location catalog not found.' })
-      await requirePublicLocationEntitlement(ctx.db, scope, 'Location catalog not found.')
+      // The catalog is optional visitor UI. An empty projection keeps missing,
+      // private, and unentitled topology indistinguishable without turning a
+      // normal feature-discovery request into a browser-visible 404.
+      if (!scope) return { locations: [] }
+      const entitlement = await resolveProductEntitlement({
+        client: ctx.db,
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        capability: 'location-plus',
+        featureAvailable: true,
+      })
+      if (!entitlement.enabled) return { locations: [] }
       const locations = await loadPublicRouteLocations(ctx.db, scope, new Date())
       return { locations: locations.map(projectRouteLocation) }
     }),

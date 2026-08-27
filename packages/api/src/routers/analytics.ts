@@ -21,9 +21,18 @@ const PLACE_INTEREST_WEIGHTS = {
 
 type PlaceInterestMetric = keyof typeof PLACE_INTEREST_WEIGHTS
 
+const publicEntityId = z
+  .string()
+  .min(1)
+  .max(191)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u)
+
 const publicEventIdentity = {
   sessionId: z.string().uuid(),
-  venueId: z.string().cuid(),
+  // Public venue responses expose bounded database identifiers. Synthetic
+  // staging fixtures intentionally use stable `demo-*` IDs, so requiring the
+  // legacy CUID shape here rejects an otherwise valid public venue contract.
+  venueId: publicEntityId,
   visitorId: z.string().uuid().optional(),
 } as const
 
@@ -59,28 +68,28 @@ const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
     .object({
       ...publicEventIdentity,
       eventType: z.literal('place_card.viewed'),
-      placeId: z.string().cuid(),
+      placeId: publicEntityId,
     })
     .strict(),
   z
     .object({
       ...publicEventIdentity,
       eventType: z.literal('place_card.clicked'),
-      placeId: z.string().cuid(),
+      placeId: publicEntityId,
     })
     .strict(),
   z
     .object({
       ...publicEventIdentity,
       eventType: z.literal('directions.opened'),
-      placeId: z.string().cuid(),
+      placeId: publicEntityId,
     })
     .strict(),
   z
     .object({
       ...publicEventIdentity,
       eventType: z.literal('operational_update.viewed'),
-      metadata: z.object({ operationalUpdateId: z.string().cuid() }).strict(),
+      metadata: z.object({ operationalUpdateId: publicEntityId }).strict(),
     })
     .strict(),
   z

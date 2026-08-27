@@ -77,7 +77,7 @@ export function LocationBanner({
           <p className="mt-1 text-sm leading-6 text-pf-deep/70">{content.description}</p>
         </div>
         <button
-          className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-300 bg-pf-white px-4 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-300 bg-pf-white px-4 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
           type="button"
           onClick={onRefresh}
         >

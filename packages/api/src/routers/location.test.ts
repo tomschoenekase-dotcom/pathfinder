@@ -209,6 +209,31 @@ describe('public structured location resolver', () => {
     expect(result.locations[0]?.floor).not.toHaveProperty('id')
   })
 
+  it('returns an empty optional catalog without disclosing an unavailable public scope', async () => {
+    queryRaw.mockResolvedValueOnce([])
+
+    await expect(
+      caller.location.catalog({
+        venueId: routeInput.venueId,
+        anonymousToken: routeInput.anonymousToken,
+      }),
+    ).resolves.toEqual({ locations: [] })
+    expect(entitlement).not.toHaveBeenCalled()
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty optional catalog when location guidance is not entitled', async () => {
+    entitlement.mockResolvedValueOnce({ enabled: false })
+
+    await expect(
+      caller.location.catalog({
+        venueId: routeInput.venueId,
+        anonymousToken: routeInput.anonymousToken,
+      }),
+    ).resolves.toEqual({ locations: [] })
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
   it('filters the graph to explicitly accessible connections when requested', async () => {
     findMany.mockResolvedValue(locations)
     connectionFindMany.mockResolvedValue([
