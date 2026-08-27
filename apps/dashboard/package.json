@@ -9,7 +9,8 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests",
     "test:billing-browser": "playwright test --config playwright.config.ts",
-    "test:visual-browser": "playwright test --config playwright.visual.config.ts"
+    "test:visual-browser": "playwright test --config playwright.visual.config.ts",
+    "test:visitor-launch-browser": "playwright test --config playwright.visitor-launch.config.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "6.39.3",

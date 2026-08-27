@@ -76,6 +76,25 @@ describe('VenueChatFixture', () => {
     expect(container.querySelector('[data-character-layout="compact"]')).toBeTruthy()
   }, 10_000)
 
+  it('renders mixed RTL and CJK fixture content without changing its source language', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="multilingual"
+        asset="ok"
+        motion="reduced"
+        network="offline"
+        language="العربية"
+      />,
+    )
+
+    expect(container.querySelector('[data-fixture-conversation="multilingual"]')).toBeTruthy()
+    expect(screen.getByText(/هل يمكنك اقتراح/)).toBeTruthy()
+    expect(screen.getByText(/子どもと一緒に/)).toBeTruthy()
+    expect(container.querySelector('[lang="ar"][dir="rtl"]')).toBeTruthy()
+  })
+
   it('renders the production Voice Mode recovery presentation without provider credentials', () => {
     render(
       <VenueChatFixture

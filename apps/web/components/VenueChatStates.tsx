@@ -13,11 +13,15 @@ export function VenueChatSkeleton({ language = 'English' }: { language?: Support
   return (
     <main
       className="flex min-h-dvh items-center justify-center bg-pf-surface px-6"
-      role="status"
       lang={presentation.code}
       dir={presentation.direction}
     >
-      <div className="flex flex-col items-center gap-5 text-center">
+      <div
+        className="flex flex-col items-center gap-5 text-center"
+        role="status"
+        lang={presentation.code}
+        dir={presentation.direction}
+      >
         <TorchikoIcon className="h-10 w-10 animate-pulse motion-reduce:animate-none" />
         <p className="text-sm font-medium text-pf-deep/75">{loading}</p>
       </div>

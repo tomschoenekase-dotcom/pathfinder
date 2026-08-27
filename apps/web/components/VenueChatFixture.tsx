@@ -24,7 +24,7 @@ export const VISITOR_FIXTURE_STATES = [
 ] as const satisfies readonly CharacterState[]
 
 export type VisitorFixtureMode = 'classic' | 'character'
-export type VisitorFixtureConversation = 'empty' | 'long'
+export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
 export type VisitorFixtureRoute = 'none' | 'ready'
@@ -159,6 +159,27 @@ const LONG_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+const MULTILINGUAL_CONVERSATION: ChatMessage[] = [
+  {
+    role: 'user',
+    content: 'هل يمكنك اقتراح مسار هادئ ومناسب للكراسي المتحركة من المدخل إلى معرض البحيرة؟',
+  },
+  {
+    role: 'assistant',
+    content:
+      'نعم. ابدأ من المدخل الرئيسي، واتبع علامات الردهة إلى المصعد المركزي، ثم انعطف يسارًا في الطابق العلوي. يمكن لموظفي المكان تأكيد حالة المصعد اليوم.',
+  },
+  {
+    role: 'user',
+    content: '子どもと一緒に休憩できる場所も近くにありますか？',
+  },
+  {
+    role: 'assistant',
+    content:
+      '北階段の横に読書ルームがあります。本日利用できるかどうかは、会場スタッフにご確認ください。',
+  },
+]
+
 function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
   const projection =
     asset === 'ok'
@@ -238,7 +259,13 @@ export function VenueChatFixture({
           venue={fixtureVenue(mode, asset)}
           venueSlug="fixture-great-lakes-museum"
           presentation="standalone"
-          messages={conversation === 'long' ? LONG_CONVERSATION : []}
+          messages={
+            conversation === 'long'
+              ? LONG_CONVERSATION
+              : conversation === 'multilingual'
+                ? MULTILINGUAL_CONVERSATION
+                : []
+          }
           isSending={state === 'thinking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"

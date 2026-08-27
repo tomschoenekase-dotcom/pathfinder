@@ -56,7 +56,11 @@ export default async function VisitorChatVisualFixture({
   const params = await searchParams
   const mode = oneOf(params.mode, ['classic', 'character'] as const, 'character')
   const state = oneOf(params.state, VISITOR_FIXTURE_STATES, 'idle')
-  const conversation = oneOf(params.conversation, ['empty', 'long'] as const, 'empty')
+  const conversation = oneOf(
+    params.conversation,
+    ['empty', 'long', 'multilingual'] as const,
+    'empty',
+  )
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
   const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
