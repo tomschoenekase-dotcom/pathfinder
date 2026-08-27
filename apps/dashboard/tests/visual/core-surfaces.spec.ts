@@ -23,19 +23,29 @@ async function expectViewportIntegrity(page: Page) {
     .toBe(true)
 }
 
-async function expectFixedViewportShell(page: Page) {
+async function expectScrollableVisitorShell(page: Page) {
   const dimensions = await page.evaluate(() => ({
     bodyHeight: document.body.scrollHeight,
-    htmlHeight: document.documentElement.scrollHeight,
     scrollY: window.scrollY,
     viewportHeight: window.innerHeight,
   }))
-  // Next.js development tooling may extend the document element outside the product body.
-  // The guest shell itself must remain viewport-bound and the page must not be scrolled.
-  expect(dimensions.bodyHeight, JSON.stringify(dimensions)).toBeLessThanOrEqual(
-    dimensions.viewportHeight + 1,
+  // Rich route, voice, and conversation content may exceed short viewports. The
+  // page starts at the top and the persistent composer must remain reachable.
+  expect(dimensions.bodyHeight, JSON.stringify(dimensions)).toBeGreaterThanOrEqual(
+    dimensions.viewportHeight,
   )
   expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
+
+  const composer = page.locator('#chat-input')
+  await composer.scrollIntoViewIfNeeded()
+  await composer.focus()
+  await expect(composer).toBeFocused()
+  const bounds = await composer.boundingBox()
+  const viewportHeight = await page.evaluate(() => window.innerHeight)
+  expect(bounds).not.toBeNull()
+  expect(bounds!.height).toBeGreaterThanOrEqual(56)
+  expect(bounds!.y).toBeGreaterThanOrEqual(0)
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewportHeight + 1)
 }
 
 async function hideFrameworkDevChrome(page: Page, options: { clerk?: boolean } = {}) {
@@ -101,7 +111,7 @@ test('Guest PathFinder route planning is usable in a real browser', async ({ pag
   await expect(page.getByText('Take the lift to the upper floor and turn left.')).toBeVisible()
 
   await expectViewportIntegrity(page)
-  await expectFixedViewportShell(page)
+  await expectScrollableVisitorShell(page)
   await expectAccessiblePage(page)
   await saveViewportEvidence(page, testInfo, 'guest-route-planner')
   expect(runtimeErrors).toEqual([])
