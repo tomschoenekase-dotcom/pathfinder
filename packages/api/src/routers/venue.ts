@@ -4,7 +4,11 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { currentUser, validateExistingOrganizationOwner } from '@pathfinder/auth'
-import { PersonalityProfileDraft, resolvePublicVenueBotPresentation } from '@pathfinder/contracts'
+import {
+  PersonalityProfileDraft,
+  PublicVenueMediaItem,
+  resolvePublicVenueBotPresentation,
+} from '@pathfinder/contracts'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config'
 import {
   createVenueAction,
@@ -508,6 +512,94 @@ export const venueRouter = router({
             experienceLabel: venue.secondLayerLabel,
           }
         : projectedVenue
+    }),
+
+  mediaBySlug: publicProcedure
+    .input(z.object({ slug: z.string().trim().min(1).max(200) }).strict())
+    .query(async ({ ctx, input }) => {
+      const globallyAllowed = await checkRateLimit(
+        'ratelimit:venue-media-list:ingress:global',
+        PUBLIC_VENUE_LOOKUP_GLOBAL_LIMIT_PER_MINUTE,
+        60,
+      )
+      if (!globallyAllowed) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many venue lookups.' })
+      }
+      const [venue] = await ctx.db.$queryRaw<{ id: string; tenantId: string }[]>`
+        SELECT id, tenant_id AS "tenantId"
+        FROM venues
+        WHERE slug = ${input.slug} AND is_active = true
+        LIMIT 1
+      `
+      if (!venue)
+        return {
+          items: [],
+          sourceDelivery: 'CONTROLLED_SAME_ORIGIN' as const,
+          rawStorageLocatorsExposed: false as const,
+        }
+      const rows = await ctx.db.venueMediaDerivative.findMany({
+        where: {
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          status: 'READY',
+          variant: 'CARD',
+        },
+        orderBy: [{ asset: { importance: 'asc' } }, { createdAt: 'asc' }, { id: 'asc' }],
+        take: 50,
+        select: {
+          id: true,
+          approvedReviewSequence: true,
+          mimeType: true,
+          width: true,
+          height: true,
+          byteSize: true,
+          variant: true,
+          asset: {
+            select: {
+              id: true,
+              kind: true,
+              altText: true,
+              caption: true,
+              importance: true,
+              reviews: {
+                orderBy: { sequence: 'desc' },
+                take: 1,
+                select: { sequence: true, action: true, rightsBasis: true },
+              },
+            },
+          },
+        },
+      })
+      return {
+        items: rows
+          .filter((row) => {
+            const latest = row.asset.reviews[0]
+            return (
+              latest?.sequence === row.approvedReviewSequence &&
+              latest.action === 'APPROVE_CONTENT_USE' &&
+              latest.rightsBasis !== null
+            )
+          })
+          .slice(0, 20)
+          .map((row) =>
+            PublicVenueMediaItem.parse({
+              assetId: row.asset.id,
+              derivativeId: row.id,
+              variant: row.variant,
+              kind: row.asset.kind,
+              altText: row.asset.altText,
+              caption: row.asset.caption,
+              importance: row.asset.importance,
+              width: row.width,
+              height: row.height,
+              byteSize: row.byteSize,
+              mimeType: row.mimeType,
+              deliveryPath: `/api/venue-media/${row.id}?venue=${encodeURIComponent(input.slug)}`,
+            }),
+          ),
+        sourceDelivery: 'CONTROLLED_SAME_ORIGIN' as const,
+        rawStorageLocatorsExposed: false as const,
+      }
     }),
 
   list: tenantProcedure.query(async ({ ctx }) => {

@@ -68,6 +68,7 @@ function Set-LocalStagingEnvironment {
   $env:GENERATION_DISPATCH_ENABLED = 'false'
   $env:GENERATION_RECOVERY_ENABLED = 'false'
   $env:EVALUATION_RUNNER_ENABLED = 'false'
+  $env:VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED = 'true'
 }
 
 function Get-RecordedProcess([string]$pidFile, [string]$expectedFragment) {
@@ -202,7 +203,7 @@ if ($Action -eq 'Status') {
     storageEndpoint = $env:STORAGE_ENDPOINT
     webPid = $web.OwningProcess
     workerPid = $worker.ProcessId
-    workerMode = if ($worker) { 'provider-disabled-health-only' } else { 'not-running' }
+    workerMode = if ($worker) { 'venue-media-derivative-only' } else { 'not-running' }
     containers = $containers
   }
   exit 0

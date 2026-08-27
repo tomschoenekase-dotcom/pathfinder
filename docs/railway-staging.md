@@ -123,19 +123,26 @@ older worker replica and prove that only the reviewed release SHA remains; an ol
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
 jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
 
-For production workers, all eight controls must be explicitly set to `true` or `false`:
+For production workers, all nine controls must be explicitly set to `true` or `false`:
 `OUTBOUND_PROVIDER_WORKERS_ENABLED`, `CRM_BACKGROUND_WORKERS_ENABLED`,
 `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
 `EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
-`GENERATION_RECOVERY_ENABLED`, and `EVALUATION_RUNNER_ENABLED`. Omission is a startup failure, not
-implicit authorization. Scheduler flags do not by themselves freeze ordinary consumers; a cutover
-freeze still requires stopped/drained worker replicas and inspected queues.
+`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`, and
+`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED`. Omission is a startup failure, not implicit authorization.
+Scheduler flags do not by themselves freeze ordinary consumers; a cutover freeze still requires
+stopped/drained worker replicas and inspected queues.
 
 For an isolated staging evaluation window, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
 `EVALUATION_RUNNER_ENABLED=true`, and keep the CRM and intake-only modes false. The worker must report
 `mode=evaluation-only` and exactly the evaluation-run plus guest-answer-attribution queues. Any
 unrelated queue registration, mixed worker generation, or broad provider-enabled mode blocks the
 evaluation canary.
+
+For provider-dark venue-media processing, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
+`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED=true`, and keep the CRM, intake-verification, and evaluation
+isolated modes false. The worker must report `mode=venue-media-derivative-only` and exactly the
+venue-media-derivative queue. This runtime performs deterministic image transformation and
+controlled-storage writes only; it does not import or construct the provider-enabled worker graph.
 
 ## Release procedure
 

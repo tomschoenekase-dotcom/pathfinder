@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto'
+
 import type {
   ApprovedVenueMediaCandidate,
   RegisterVenueMediaAssetInput,
+  RequestVenueMediaDerivativesInput,
   ReviewVenueMediaAssetInput,
 } from '@pathfinder/contracts'
 
@@ -25,7 +28,10 @@ export class VenueMediaActionError extends Error {
   }
 }
 
-export type VenueMediaActionClient = Pick<typeof db, '$transaction' | 'venueMediaAsset'>
+export type VenueMediaActionClient = Pick<
+  typeof db,
+  '$transaction' | 'venueMediaAsset' | 'venueMediaDerivative'
+>
 
 function assertActor(actor: VenueMediaHumanActor): void {
   if (actor.type !== 'HUMAN' || actor.role !== 'PLATFORM_ADMIN' || !actor.id.trim()) {
@@ -484,4 +490,205 @@ export async function resolveApprovedVenueMediaCandidates(input: {
       linkedKnowledgeEntryIds: row.knowledgeLinks.map((link) => link.knowledgeEntryId).sort(),
       delivery: 'CONTROLLED_DERIVATIVE_REQUIRED' as const,
     }))
+}
+
+type DerivativeRequestResult = {
+  derivativeId: string
+  variant: 'CARD' | 'DETAIL'
+  status: 'PENDING' | 'READY' | 'FAILED'
+}
+
+function derivativeRequestHash(request: RequestVenueMediaDerivativesInput): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        'torchiko-venue-media-derivative-request-v1',
+        request.tenantId,
+        request.venueId,
+        request.assetId,
+        request.expectedLatestReviewSequence,
+        [...request.variants].sort(),
+      ]),
+    )
+    .digest('hex')
+}
+
+function replayDerivativeRequest(
+  rows: Array<{
+    id: string
+    venueId: string
+    assetId: string
+    requestHash: string
+    variant: 'CARD' | 'DETAIL'
+    status: 'PENDING' | 'READY' | 'FAILED'
+  }>,
+  request: RequestVenueMediaDerivativesInput,
+  requestHash: string,
+): DerivativeRequestResult[] {
+  const expectedVariants = [...request.variants].sort()
+  const actualVariants = rows.map((row) => row.variant).sort()
+  if (
+    rows.some(
+      (row) =>
+        row.venueId !== request.venueId ||
+        row.assetId !== request.assetId ||
+        row.requestHash !== requestHash,
+    ) ||
+    JSON.stringify(actualVariants) !== JSON.stringify(expectedVariants)
+  ) {
+    throw new VenueMediaActionError(
+      'CONFLICT',
+      'This derivative request key belongs to a different exact request.',
+    )
+  }
+  return rows
+    .map((row) => ({ derivativeId: row.id, variant: row.variant, status: row.status }))
+    .sort((left, right) => left.variant.localeCompare(right.variant))
+}
+
+export async function requestVenueMediaDerivativesAction(input: {
+  db?: VenueMediaActionClient
+  request: RequestVenueMediaDerivativesInput
+  actor: VenueMediaHumanActor
+}): Promise<{ items: DerivativeRequestResult[]; replayed: boolean }> {
+  assertActor(input.actor)
+  const request = input.request
+  const requestHash = derivativeRequestHash(request)
+  const client = input.db ?? db
+
+  try {
+    return await client.$transaction(async (tx) => {
+      const replay = await tx.venueMediaDerivative.findMany({
+        where: { tenantId: request.tenantId, requestId: request.requestId },
+        select: {
+          id: true,
+          venueId: true,
+          assetId: true,
+          requestHash: true,
+          variant: true,
+          status: true,
+        },
+      })
+      if (replay.length) {
+        return { items: replayDerivativeRequest(replay, request, requestHash), replayed: true }
+      }
+
+      const asset = await tx.venueMediaAsset.findFirst({
+        where: { id: request.assetId, tenantId: request.tenantId, venueId: request.venueId },
+        select: {
+          id: true,
+          intakeUpload: {
+            select: {
+              status: true,
+              verifiedAt: true,
+              objectGeneration: true,
+              storageVersionId: true,
+              verificationReceipts: {
+                select: { kind: true, verdict: true, objectGeneration: true },
+              },
+            },
+          },
+          reviews: {
+            orderBy: { sequence: 'desc' },
+            take: 1,
+            select: { sequence: true, action: true, rightsBasis: true },
+          },
+        },
+      })
+      if (!asset) throw new VenueMediaActionError('NOT_FOUND', 'Venue media asset not found.')
+      const latest = asset.reviews[0]
+      if (latest?.sequence !== request.expectedLatestReviewSequence) {
+        throw new VenueMediaActionError(
+          'CONFLICT',
+          `Latest review sequence is ${latest?.sequence ?? 0}, not ${request.expectedLatestReviewSequence}.`,
+        )
+      }
+      if (latest.action !== 'APPROVE_CONTENT_USE' || latest.rightsBasis === null) {
+        throw new VenueMediaActionError(
+          'INVALID_INPUT',
+          'Controlled derivatives require a currently approved rights review.',
+        )
+      }
+      const upload = asset.intakeUpload
+      if (
+        upload.status !== 'AWAITING_REVIEW' ||
+        upload.verifiedAt === null ||
+        !upload.storageVersionId ||
+        !hasRequiredVerificationReceipts(upload.verificationReceipts, upload.objectGeneration)
+      ) {
+        throw new VenueMediaActionError(
+          'INVALID_INPUT',
+          'Controlled derivatives require the exact verified immutable source object.',
+        )
+      }
+
+      await tx.venueMediaDerivative.createMany({
+        data: request.variants.map((variant) => ({
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          assetId: request.assetId,
+          requestId: request.requestId,
+          requestHash,
+          variant,
+          sourceObjectGeneration: upload.objectGeneration,
+          sourceStorageVersionId: upload.storageVersionId!,
+          approvedReviewSequence: request.expectedLatestReviewSequence,
+          createdBy: input.actor.id,
+        })),
+      })
+      const created = await tx.venueMediaDerivative.findMany({
+        where: { tenantId: request.tenantId, requestId: request.requestId },
+        select: {
+          id: true,
+          venueId: true,
+          assetId: true,
+          requestHash: true,
+          variant: true,
+          status: true,
+        },
+      })
+      const items = replayDerivativeRequest(created, request, requestHash)
+      await writeAuditLogStrict(
+        {
+          tenantId: request.tenantId,
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'venue_media.derivatives_requested',
+          targetType: 'VenueMediaAsset',
+          targetId: request.assetId,
+          afterState: {
+            venueId: request.venueId,
+            requestId: request.requestId,
+            requestHash,
+            variants: items.map((item) => item.variant),
+            delivery: 'NOT_AVAILABLE_UNTIL_READY',
+          },
+        },
+        tx,
+      )
+      return { items, replayed: false }
+    })
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      const raced = await client.venueMediaDerivative.findMany({
+        where: { tenantId: request.tenantId, requestId: request.requestId },
+        select: {
+          id: true,
+          venueId: true,
+          assetId: true,
+          requestHash: true,
+          variant: true,
+          status: true,
+        },
+      })
+      if (raced.length) {
+        return { items: replayDerivativeRequest(raced, request, requestHash), replayed: true }
+      }
+      throw new VenueMediaActionError(
+        'CONFLICT',
+        'A controlled derivative already exists for this exact source and variant.',
+      )
+    }
+    throw error
+  }
 }

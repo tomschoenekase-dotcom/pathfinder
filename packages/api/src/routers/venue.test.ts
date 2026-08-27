@@ -57,6 +57,7 @@ const venueBotConfigurationUpdateMany = vi.fn()
 const personalityProfileFindFirst = vi.fn()
 const customCharacterFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
+const venueMediaDerivativeFindMany = vi.fn()
 const auditLogCreate = vi.fn()
 const placeCreateMany = vi.fn()
 const knowledgeEntryCreateMany = vi.fn()
@@ -81,6 +82,7 @@ const mockDb = {
   personalityProfile: { findFirst: personalityProfileFindFirst },
   customCharacter: { findFirst: customCharacterFindFirst },
   tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
+  venueMediaDerivative: { findMany: venueMediaDerivativeFindMany },
   place: { createMany: placeCreateMany },
   venueKnowledgeEntry: { createMany: knowledgeEntryCreateMany },
   venueContentImportReceipt: {
@@ -187,6 +189,58 @@ describe('venue router', () => {
     vi.mocked(isFeatureEnabled).mockReturnValue(false)
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
+    )
+  })
+
+  it('projects only current approved card derivatives without storage locators', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'venue_1', tenantId: 'tenant_1' }])
+    venueMediaDerivativeFindMany.mockResolvedValue([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        approvedReviewSequence: 1,
+        mimeType: 'image/webp',
+        width: 768,
+        height: 384,
+        byteSize: 42_000,
+        variant: 'CARD',
+        asset: {
+          id: '22222222-2222-4222-8222-222222222222',
+          kind: 'IMAGE',
+          altText: 'East gallery entrance',
+          caption: 'Look for the blue sign.',
+          importance: 'PRIMARY',
+          reviews: [{ sequence: 1, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+        },
+      },
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        approvedReviewSequence: 1,
+        mimeType: 'image/webp',
+        width: 640,
+        height: 480,
+        byteSize: 30_000,
+        variant: 'CARD',
+        asset: {
+          id: '44444444-4444-4444-8444-444444444444',
+          kind: 'IMAGE',
+          altText: 'Withdrawn image',
+          caption: null,
+          importance: 'SECONDARY',
+          reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+        },
+      },
+    ])
+    const result = await testRouter.createCaller(ownerCtx()).venue.mediaBySlug({ slug: 'city-zoo' })
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toMatchObject({
+      derivativeId: '11111111-1111-4111-8111-111111111111',
+      deliveryPath: '/api/venue-media/11111111-1111-4111-8111-111111111111?venue=city-zoo',
+    })
+    expect(JSON.stringify(result)).not.toMatch(/objectKey|storageVersion|sourceUrl|https?:/u)
+    expect(venueMediaDerivativeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+      }),
     )
   })
 

@@ -138,6 +138,7 @@ export const TENANTED_TABLES = [
   'IntakeUpload',
   'IntakeUploadVerificationReceipt',
   'VenueMediaAsset',
+  'VenueMediaDerivative',
   'VenueMediaPlaceLink',
   'VenueMediaKnowledgeLink',
   'VenueMediaReview',

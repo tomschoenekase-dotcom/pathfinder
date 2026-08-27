@@ -5,6 +5,7 @@ vi.mock('./audit', () => ({ writeAuditLogStrict: audit }))
 
 import {
   registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
   resolveApprovedVenueMediaCandidates,
   reviewVenueMediaAssetAction,
 } from './venue-media-actions'
@@ -16,11 +17,14 @@ const tx = {
   venueKnowledgeEntry: { findMany: vi.fn() },
   venueMediaAsset: { create: vi.fn(), findFirst: vi.fn() },
   venueMediaReview: { findFirst: vi.fn(), create: vi.fn() },
+  venueMediaDerivative: { findMany: vi.fn(), createMany: vi.fn() },
 }
 const venueMediaAsset = { findFirst: vi.fn(), findMany: vi.fn() }
+const venueMediaDerivative = { findMany: vi.fn() }
 const client = {
   $transaction: vi.fn((callback: (value: typeof tx) => unknown) => callback(tx)),
   venueMediaAsset,
+  venueMediaDerivative,
 }
 const actor = { type: 'HUMAN' as const, id: 'admin-1', role: 'PLATFORM_ADMIN' as const }
 const registration = {
@@ -48,6 +52,7 @@ const verifiedUpload = {
   mimeType: 'image/png',
   verifiedAt: new Date('2026-08-26T20:00:00.000Z'),
   objectGeneration: '544b8a1c-1f75-43f4-944d-32b2f61c82d7',
+  storageVersionId: 'source-version-1',
   verificationReceipts: [
     {
       kind: 'PRECHECK',
@@ -75,6 +80,9 @@ describe('governed venue media actions', () => {
       id: '031717d2-0395-4b16-a94c-a54d1977f7dc',
       sequence: 1,
     })
+    tx.venueMediaDerivative.findMany.mockResolvedValue([])
+    tx.venueMediaDerivative.createMany.mockResolvedValue({ count: 2 })
+    venueMediaDerivative.findMany.mockResolvedValue([])
     audit.mockResolvedValue(undefined)
   })
 
@@ -262,5 +270,80 @@ describe('governed venue media actions', () => {
       delivery: 'CONTROLLED_DERIVATIVE_REQUIRED',
     })
     expect(JSON.stringify(result)).not.toMatch(/objectKey|sourceUrl|intakeUploadId|https?:/u)
+  })
+
+  it('creates exact source- and review-bound derivative requests without delivery locators', async () => {
+    tx.venueMediaAsset.findFirst.mockResolvedValue({
+      id: registration.assetId,
+      intakeUpload: verifiedUpload,
+      reviews: [{ sequence: 1, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+    })
+    tx.venueMediaDerivative.findMany.mockReset().mockResolvedValueOnce([])
+    tx.venueMediaDerivative.createMany.mockImplementation(async ({ data }) => {
+      const requestHash = data[0].requestHash
+      tx.venueMediaDerivative.findMany.mockResolvedValueOnce(
+        ['CARD', 'DETAIL'].map((variant, index) => ({
+          id:
+            index === 0
+              ? '11111111-1111-4111-8111-111111111111'
+              : '22222222-2222-4222-8222-222222222222',
+          venueId: 'venue-1',
+          assetId: registration.assetId,
+          requestHash,
+          variant,
+          status: 'PENDING',
+        })),
+      )
+      return { count: 2 }
+    })
+
+    const result = await requestVenueMediaDerivativesAction({
+      db: client as never,
+      actor,
+      request: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        assetId: registration.assetId,
+        requestId: '33333333-3333-4333-8333-333333333333',
+        expectedLatestReviewSequence: 1,
+        variants: ['CARD', 'DETAIL'],
+      },
+    })
+    expect(tx.venueMediaDerivative.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          variant: 'CARD',
+          sourceObjectGeneration: verifiedUpload.objectGeneration,
+          sourceStorageVersionId: 'source-version-1',
+          approvedReviewSequence: 1,
+        }),
+      ]),
+    })
+    expect(result).toMatchObject({ replayed: false })
+    expect(result.items).toHaveLength(2)
+    expect(JSON.stringify(result)).not.toMatch(/objectKey|storageVersionId|https?:/u)
+  })
+
+  it('rejects derivative generation after the approval sequence changes', async () => {
+    tx.venueMediaAsset.findFirst.mockResolvedValue({
+      id: registration.assetId,
+      intakeUpload: verifiedUpload,
+      reviews: [{ sequence: 2, action: 'WITHDRAW_CONTENT_USE', rightsBasis: null }],
+    })
+    await expect(
+      requestVenueMediaDerivativesAction({
+        db: client as never,
+        actor,
+        request: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          assetId: registration.assetId,
+          requestId: '44444444-4444-4444-8444-444444444444',
+          expectedLatestReviewSequence: 1,
+          variants: ['CARD'],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.venueMediaDerivative.createMany).not.toHaveBeenCalled()
   })
 })

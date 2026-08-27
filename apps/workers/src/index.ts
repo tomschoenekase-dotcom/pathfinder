@@ -21,7 +21,6 @@ import {
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-  checkBullMQConnection,
   closeBullMQConnection,
   closeJobQueues,
   configureMediaIngestionGlobalConcurrency,
@@ -58,6 +57,9 @@ import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
+  VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
   OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
   OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
@@ -98,6 +100,7 @@ import {
   type WeeklyReportJobPayload,
   type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
+  type VenueMediaDerivativeJobPayload,
   type OperationalEventDeliveryJobPayload,
   type ProspectImportCommitJobPayload,
   type ProspectImportInspectionJobPayload,
@@ -128,6 +131,7 @@ import { startProspectOutboxDispatcher } from './processors/prospect-outbox-disp
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
+import { processVenueMediaDerivativeJob } from './processors/venue-media-derivative'
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
 import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
@@ -149,7 +153,6 @@ import {
   cancelMediaJobsAfterLockRenewalFailure,
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
-import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
 import { recordOperationalReadinessHeartbeat } from './lib/service-dependency-readiness'
 import { startOperationalUsageObserver } from './lib/operational-usage-observer'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
@@ -586,6 +589,13 @@ async function handleMediaIngestionQueueJob(
   throw new Error(`Unsupported media ingestion job: ${job.name}`)
 }
 
+async function handleVenueMediaDerivativeQueueJob(job: Job<VenueMediaDerivativeJobPayload>) {
+  if (job.name !== VENUE_MEDIA_DERIVATIVE_PROCESS_JOB) {
+    throw new Error(`Unsupported venue media derivative job: ${job.name}`)
+  }
+  await processVenueMediaDerivativeJob(job.data)
+}
+
 async function handleEvaluationRunQueueJob(
   job: Job<EvaluationRunJobPayload | Record<string, never>>,
   token?: string,
@@ -692,35 +702,6 @@ async function handleBillingReconciliationQueueJob(job: Job<BillingReconciliatio
 }
 
 export async function startWorkers() {
-  if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
-    const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
-    const stopUsageObserver = await startOperationalUsageObserver((error) =>
-      logger.error({
-        action: 'workers.operational-usage.failed',
-        error: error instanceof Error ? error.message : 'Unknown operational usage error',
-      }),
-    )
-    const runtime = await startProviderDisabledRuntime({
-      checkConnection: () => checkBullMQConnection(5_000),
-      closeConnection: closeBullMQConnection,
-      onConnectionError: (error) =>
-        logger.error({ action: 'workers.runtime.error', queueName: null, error: error.message }),
-    })
-    logger.info({
-      action: 'workers.started',
-      mode: runtime.mode,
-      outboundProviderWorkersEnabled: false,
-      queues: runtime.queues,
-    })
-    const shutdown = async () => {
-      stopHeartbeat()
-      stopUsageObserver()
-      await runtime.shutdown()
-    }
-    registerShutdownSignals(shutdown)
-    return { ...runtime, shutdown }
-  }
-
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
@@ -1357,6 +1338,20 @@ export async function startWorkers() {
     cancelAllMediaJobsAfterWorkerError(mediaIngestionWorker)
   })
 
+  const venueMediaDerivativeWorker = observeWorkerRuntime(
+    VENUE_MEDIA_DERIVATIVE_QUEUE,
+    new Worker(VENUE_MEDIA_DERIVATIVE_QUEUE, handleVenueMediaDerivativeQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) =>
+          type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
+            ? Math.min(attemptsMade * 30_000, 2 * 60_000)
+            : 0,
+      },
+    }),
+  )
+
   // This consumer does not exist unless the server-only rollout gate is
   // explicitly enabled. Each job additionally rechecks the tenant feature flag
   // before every provider dispatch, so changing either gate fails closed.
@@ -1443,6 +1438,7 @@ export async function startWorkers() {
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
+    { name: VENUE_MEDIA_DERIVATIVE_QUEUE, worker: venueMediaDerivativeWorker },
     ...(evaluationRunWorker ? [{ name: EVALUATION_RUN_QUEUE, worker: evaluationRunWorker }] : []),
     ...(guestAnswerAttributionEvaluationWorker
       ? [
@@ -1498,6 +1494,7 @@ export async function startWorkers() {
       ACCOUNT_SUMMARY_REFRESH_QUEUE,
       VOICE_SESSION_RECOVERY_QUEUE,
       MEDIA_INGESTION_QUEUE,
+      VENUE_MEDIA_DERIVATIVE_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(guestAnswerAttributionEvaluationWorker
         ? [GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE]
@@ -1568,6 +1565,7 @@ export async function startWorkers() {
     billingReconciliationWorker,
     mediaIngestionQueue,
     mediaIngestionWorker,
+    venueMediaDerivativeWorker,
     evaluationRunWorker,
     evaluationRunQueue,
     guestAnswerAttributionEvaluationWorker,

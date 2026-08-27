@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -629,6 +629,40 @@ export async function runDisposableIntakeVerificationShakedown(options = {}) {
         testFile: 'src/intake-upload-verification.disposable.integration.test.ts',
         expectedPassed: 1,
         environment: {},
+      },
+    },
+  })
+}
+
+export async function runDisposableVenueMediaDerivativeShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'venuemedia',
+      databasePrefix: 'pathfinder_disposable_venue_media_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_VENUE_MEDIA_SHAKEDOWN',
+      lifecycleEvent: 'test:venue-media-derivative:disposable',
+      successAction: 'venue-media-derivative.controlled-delivery.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'immutable-versioned-source-read',
+        'metadata-stripped-webp-derivative',
+        'retained-byte-and-sha256-identity',
+        'server-only-storage-locator',
+        'same-origin-controlled-delivery',
+        'immediate-rights-withdrawal-enforcement',
+        'provider-dark-preview-scope',
+      ],
+      integration: {
+        packageDirectory: 'apps/workers',
+        testFile: 'src/venue-media-derivative.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_VENUE_MEDIA_DERIVATIVE_DB_INTEGRATION: '1',
+          PATHFINDER_DISPOSABLE_VENUE_MEDIA_CONFIRMATION:
+            'pathfinder_disposable_venue_media_derivative',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+        },
       },
     },
   })

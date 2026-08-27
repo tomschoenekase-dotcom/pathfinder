@@ -1,12 +1,18 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { RegisterVenueMediaAssetInput, ReviewVenueMediaAssetInput } from '@pathfinder/contracts'
+import {
+  RegisterVenueMediaAssetInput,
+  RequestVenueMediaDerivativesInput,
+  ReviewVenueMediaAssetInput,
+} from '@pathfinder/contracts'
 import {
   registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
   resolveApprovedVenueMediaCandidates,
   reviewVenueMediaAssetAction,
   VenueMediaActionError,
 } from '@pathfinder/db'
+import { enqueueVenueMediaDerivative } from '@pathfinder/jobs'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
@@ -49,6 +55,31 @@ export const adminIntakeMediaAssetRouter = router({
           review: input,
           actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
         })
+      } catch (error) {
+        actionError(error)
+      }
+    }),
+  requestVenueMediaDerivatives: adminProcedure
+    .input(RequestVenueMediaDerivativesInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await requestVenueMediaDerivativesAction({
+          db: ctx.db,
+          request: input,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+        await Promise.all(
+          result.items
+            .filter((item) => item.status === 'PENDING')
+            .map((item) =>
+              enqueueVenueMediaDerivative({
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                derivativeId: item.derivativeId,
+              }),
+            ),
+        )
+        return result
       } catch (error) {
         actionError(error)
       }

@@ -1186,6 +1186,7 @@ export {
 } from './helpers/first-week-account-reviews'
 export {
   registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
   resolveApprovedVenueMediaCandidates,
   reviewVenueMediaAssetAction,
   VenueMediaActionError,

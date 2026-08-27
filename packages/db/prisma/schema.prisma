@@ -1925,6 +1925,17 @@ enum VenueMediaImportance {
   SECONDARY
 }
 
+enum VenueMediaDerivativeVariant {
+  CARD
+  DETAIL
+}
+
+enum VenueMediaDerivativeStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 enum VenueMediaReviewAction {
   APPROVE_CONTENT_USE
   WITHDRAW_CONTENT_USE
@@ -2009,6 +2020,7 @@ model VenueMediaAsset {
   placeLinks          VenueMediaPlaceLink[]
   knowledgeLinks      VenueMediaKnowledgeLink[]
   reviews             VenueMediaReview[]
+  derivatives         VenueMediaDerivative[]
 
   @@unique([id, tenantId, venueId], map: "venue_media_assets_scope_key")
   @@unique([intakeUploadId, tenantId, venueId], map: "venue_media_assets_upload_scope_key")
@@ -2066,6 +2078,41 @@ model VenueMediaReview {
   @@unique([tenantId, requestId], map: "venue_media_reviews_tenant_request_key")
   @@index([tenantId, venueId, assetId, sequence], map: "venue_media_reviews_scope_idx")
   @@map("venue_media_reviews")
+}
+
+/// Immutable, metadata-stripped browser derivative identity. Object keys and storage versions are
+/// server-only transport details and never belong in visitor-facing contracts.
+model VenueMediaDerivative {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                     @map("tenant_id")
+  venueId                  String                     @map("venue_id")
+  assetId                  String                     @map("asset_id") @db.Uuid
+  requestId                String                     @map("request_id") @db.Uuid
+  requestHash              String                     @map("request_hash") @db.Char(64)
+  variant                  VenueMediaDerivativeVariant
+  status                   VenueMediaDerivativeStatus @default(PENDING)
+  sourceObjectGeneration   String                     @map("source_object_generation") @db.Uuid
+  sourceStorageVersionId   String                     @map("source_storage_version_id") @db.VarChar(1024)
+  approvedReviewSequence   Int                        @map("approved_review_sequence")
+  objectKey                String?                    @unique(map: "venue_media_derivatives_object_key_key") @map("object_key") @db.VarChar(255)
+  storageVersionId         String?                    @map("storage_version_id") @db.VarChar(1024)
+  mimeType                 String?                    @map("mime_type") @db.VarChar(64)
+  width                    Int?
+  height                   Int?
+  byteSize                 Int?                      @map("byte_size")
+  sha256                   String?                    @db.Char(64)
+  failureCode              String?                    @map("failure_code") @db.VarChar(64)
+  createdBy                String                     @map("created_by") @db.VarChar(191)
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  completedAt              DateTime?                  @map("completed_at")
+  asset                    VenueMediaAsset            @relation(fields: [assetId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId, variant], map: "venue_media_derivatives_request_variant_key")
+  @@unique([assetId, variant, sourceObjectGeneration], map: "venue_media_derivatives_source_variant_key")
+  @@unique([id, tenantId, venueId], map: "venue_media_derivatives_scope_key")
+  @@index([tenantId, venueId, assetId, status], map: "venue_media_derivatives_scope_status_idx")
+  @@map("venue_media_derivatives")
 }
 
 /// Immutable verdict evidence for one exact quarantined object version. PRECHECK

@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-196-20260826',
+  approval: 'torchiko-staging-lineage-to-197-20260826',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 196,
+  migrationCount: 197,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -35,6 +35,8 @@ const EXPECTED = Object.freeze({
   currentStagingPublicTableCount: 218,
   hostedPredecessorCount: 195,
   hostedPredecessorPublicTableCount: 221,
+  venueMediaPredecessorCount: 196,
+  venueMediaPredecessorPublicTableCount: 225,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -46,10 +48,11 @@ const EXPECTED = Object.freeze({
   b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
   currentStagingFinalMigration: '20260825160000_add_venue_response_depth',
   hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
-  finalMigration: '20260826010000_add_governed_venue_media',
-  manifestHash: 'ddbe6b017427b913523e7b17a164ce9900e4167dea2b256af99e1900e05cbd45',
-  // The reviewed 55-migration suffix after B.5 adds 32 public tables.
-  finalPublicTableCount: 225,
+  venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
+  finalMigration: '20260826020000_add_venue_media_derivatives',
+  manifestHash: 'b10ef98b572e02cbc58672f5e41841e74d7c5675581613b6bbd7fad48500ded8',
+  // The reviewed 56-migration suffix after B.5 adds 33 public tables.
+  finalPublicTableCount: 226,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -183,6 +186,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('hosted predecessor boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.venueMediaPredecessorCount - 1] !==
+    EXPECTED.venueMediaPredecessorFinalMigration
+  ) {
+    fail('venue media predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -198,6 +207,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.b5CompleteCount &&
     rows.length !== EXPECTED.currentStagingCount &&
     rows.length !== EXPECTED.hostedPredecessorCount &&
+    rows.length !== EXPECTED.venueMediaPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -236,6 +246,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.b5CompleteCount) return 'b5-complete'
   if (rows.length === EXPECTED.currentStagingCount) return 'current-staging'
   if (rows.length === EXPECTED.hostedPredecessorCount) return 'hosted-predecessor'
+  if (rows.length === EXPECTED.venueMediaPredecessorCount) return 'venue-media-predecessor'
   return 'complete'
 }
 
@@ -393,7 +404,9 @@ async function main() {
                       ? EXPECTED.currentStagingPublicTableCount
                       : initialState === 'hosted-predecessor'
                         ? EXPECTED.hostedPredecessorPublicTableCount
-                        : EXPECTED.stagingBaselinePublicTableCount
+                        : initialState === 'venue-media-predecessor'
+                          ? EXPECTED.venueMediaPredecessorPublicTableCount
+                          : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

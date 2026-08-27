@@ -254,6 +254,7 @@ const expectedAdminProcedures = [
   'requestEvaluationRun',
   'requestNativeVenueDeploymentEvaluation',
   'requestSupportInformation',
+  'requestVenueMediaDerivatives',
   'reserveProspectImportUpload',
   'resetAiCostBudgetWindow',
   'resetAiWorkloadConfigurationOverride',

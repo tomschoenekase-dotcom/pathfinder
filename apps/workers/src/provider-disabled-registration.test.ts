@@ -4,22 +4,14 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
 const bootstrap = readFileSync(resolve(__dirname, 'bootstrap.ts'), 'utf8')
+const derivativeRuntime = readFileSync(
+  resolve(__dirname, 'venue-media-derivative-runtime.ts'),
+  'utf8',
+)
 
 describe('provider-disabled worker registration boundary', () => {
-  it('returns through the connectivity-only runtime before constructing any queue', () => {
-    const start = source.indexOf('export async function startWorkers()')
-    const disabledBranch = source.indexOf('if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED)', start)
-    const disabledReturn = source.indexOf('return { ...runtime, shutdown }', disabledBranch)
-    const firstConnection = source.indexOf('const connection = getBullMQConnection()', start)
-    const firstQueue = source.indexOf('new Queue(', start)
-    const firstWorker = source.indexOf('new Worker(', start)
-
-    expect(start).toBeGreaterThanOrEqual(0)
-    expect(disabledBranch).toBeGreaterThan(start)
-    expect(disabledReturn).toBeGreaterThan(disabledBranch)
-    expect(disabledReturn).toBeLessThan(firstConnection)
-    expect(disabledReturn).toBeLessThan(firstQueue)
-    expect(disabledReturn).toBeLessThan(firstWorker)
+  it('keeps the provider-enabled worker graph free of a hidden provider-disabled branch', () => {
+    expect(source).not.toContain('if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED)')
   })
 
   it('chooses dormant mode before importing the provider-enabled worker graph', () => {
@@ -40,5 +32,26 @@ describe('provider-disabled worker registration boundary', () => {
     expect(disabledReturn).toBeGreaterThan(disabledBranch)
     expect(providerImport).toBeGreaterThan(disabledReturn)
     expect(bootstrap).not.toContain('@pathfinder/config')
+  })
+
+  it('loads the deterministic derivative runtime without importing the provider worker graph', () => {
+    const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
+    const derivativeBranch = bootstrap.indexOf(
+      "if (policy.mode === 'venue-media-derivative-only')",
+      entryPoint,
+    )
+    const derivativeImport = bootstrap.indexOf(
+      "await import('./venue-media-derivative-runtime.js')",
+      derivativeBranch,
+    )
+    const derivativeReturn = bootstrap.indexOf('return runtime', derivativeImport)
+    const providerImport = bootstrap.indexOf("await import('./index.js')", derivativeReturn)
+
+    expect(derivativeBranch).toBeGreaterThan(entryPoint)
+    expect(derivativeImport).toBeGreaterThan(derivativeBranch)
+    expect(derivativeReturn).toBeGreaterThan(derivativeImport)
+    expect(providerImport).toBeGreaterThan(derivativeReturn)
+    expect(derivativeRuntime).toContain('VENUE_MEDIA_DERIVATIVE_QUEUE')
+    expect(derivativeRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
   })
 })

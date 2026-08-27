@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ApprovedVenueMediaCandidate,
   RegisterVenueMediaAssetInput,
+  RequestVenueMediaDerivativesInput,
   ReviewVenueMediaAssetInput,
 } from './venue-media'
 
@@ -25,6 +26,29 @@ describe('venue media contracts', () => {
     expect(RegisterVenueMediaAssetInput.parse(registration)).toMatchObject({
       importance: 'SECONDARY',
     })
+  })
+
+  it('requires an exact, unique bounded derivative request', () => {
+    expect(
+      RequestVenueMediaDerivativesInput.parse({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        assetId: '11111111-1111-4111-8111-111111111111',
+        requestId: '22222222-2222-4222-8222-222222222222',
+        expectedLatestReviewSequence: 1,
+        variants: ['CARD', 'DETAIL'],
+      }),
+    ).toMatchObject({ variants: ['CARD', 'DETAIL'] })
+    expect(() =>
+      RequestVenueMediaDerivativesInput.parse({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        assetId: '11111111-1111-4111-8111-111111111111',
+        requestId: '22222222-2222-4222-8222-222222222222',
+        expectedLatestReviewSequence: 1,
+        variants: ['CARD', 'CARD'],
+      }),
+    ).toThrow()
   })
 
   it.each([

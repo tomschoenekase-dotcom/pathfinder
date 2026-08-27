@@ -50,6 +50,7 @@
     "test:redis:media-admission": "node scripts/run-media-admission-redis-gate.mjs",
     "test:redis:queue-observability": "node scripts/run-queue-observability-redis-gate.mjs",
     "test:intake-upload-verification:disposable": "node scripts/run-disposable-intake-upload-verification.mjs",
+    "test:venue-media-derivative:disposable": "node scripts/run-disposable-venue-media-derivative.mjs",
     "embedding:freshness": "pnpm --filter @pathfinder/workers embedding:freshness",
     "embedding:claim-repair": "pnpm --filter @pathfinder/workers embedding:claim-repair",
     "jobs:terminal-redrive": "pnpm --filter @pathfinder/workers jobs:terminal-redrive",

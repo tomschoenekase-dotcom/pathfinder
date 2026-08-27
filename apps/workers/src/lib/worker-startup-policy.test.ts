@@ -109,6 +109,28 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits the deterministic venue media derivative runtime without provider workers', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'venue-media-derivative-only',
+      requiredEnvironmentKeys: [
+        'REDIS_URL',
+        'DATABASE_URL',
+        'DIRECT_DATABASE_URL',
+        'STORAGE_BUCKET',
+        'STORAGE_REGION',
+        'STORAGE_ACCESS_KEY_ID',
+        'STORAGE_SECRET_ACCESS_KEY',
+      ],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
   it('rejects mixing the isolated evaluation runtime with other provider-disabled modes', () => {
     expect(() =>
       resolveWorkerStartupPolicy({
@@ -117,7 +139,7 @@ describe('worker startup policy', () => {
         CRM_BACKGROUND_WORKERS_ENABLED: 'true',
         EVALUATION_RUNNER_ENABLED: 'true',
       }),
-    ).toThrow('EVALUATION_RUNNER_ENABLED cannot be combined')
+    ).toThrow('Provider-disabled isolated worker modes cannot be combined')
   })
 
   it.each(
@@ -126,7 +148,8 @@ describe('worker startup policy', () => {
         flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
-        flag !== 'EVALUATION_RUNNER_ENABLED',
+        flag !== 'EVALUATION_RUNNER_ENABLED' &&
+        flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
     ),
   )('rejects %s when provider workers are disabled', (flag) => {
     expect(() =>

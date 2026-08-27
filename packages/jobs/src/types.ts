@@ -106,6 +106,13 @@ export type IntakeUploadVerificationJobPayload = {
   observedUpdatedAt: string
 }
 
+/** Carries only exact durable identity. Source, rights, variant, and output policy are reloaded. */
+export type VenueMediaDerivativeJobPayload = {
+  tenantId: string
+  venueId: string
+  derivativeId: string
+}
+
 export type BillingReconciliationJobPayload = { tenantId?: string }
 
 export type MediaIngestionJobPayload = {

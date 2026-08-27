@@ -7,6 +7,7 @@ export const WORKER_EXECUTION_FLAGS = [
   'GENERATION_DISPATCH_ENABLED',
   'GENERATION_RECOVERY_ENABLED',
   'EVALUATION_RUNNER_ENABLED',
+  'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
 ] as const
 
 const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
@@ -14,7 +15,8 @@ const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
     flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
     flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
-    flag !== 'EVALUATION_RUNNER_ENABLED',
+    flag !== 'EVALUATION_RUNNER_ENABLED' &&
+    flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
 )
 
 export type WorkerStartupEnvironment = Partial<
@@ -27,6 +29,7 @@ export type WorkerStartupPolicy = {
     | 'crm-only'
     | 'intake-upload-verification-only'
     | 'evaluation-only'
+    | 'venue-media-derivative-only'
     | 'provider-disabled'
   requiredEnvironmentKeys: string[]
   intakeUploadVerificationEnabled: boolean
@@ -55,6 +58,7 @@ export function resolveWorkerStartupPolicy(
   const intakeUploadVerificationEnabled =
     environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
   const evaluationRunnerEnabled = environment.EVALUATION_RUNNER_ENABLED === 'true'
+  const venueMediaDerivativeEnabled = environment.VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED === 'true'
   if (!providerEnabled) {
     const conflictingFlag = DEPENDENT_EXECUTION_FLAGS.find((flag) => environment[flag] === 'true')
     if (conflictingFlag) {
@@ -62,10 +66,14 @@ export function resolveWorkerStartupPolicy(
         `${conflictingFlag} cannot be enabled while outbound provider workers are disabled`,
       )
     }
-    if (evaluationRunnerEnabled && (crmBackgroundEnabled || intakeUploadVerificationEnabled)) {
-      throw new Error(
-        'EVALUATION_RUNNER_ENABLED cannot be combined with CRM or intake-only worker modes while outbound provider workers are disabled',
-      )
+    const isolatedModesEnabled = [
+      crmBackgroundEnabled,
+      intakeUploadVerificationEnabled,
+      evaluationRunnerEnabled,
+      venueMediaDerivativeEnabled,
+    ].filter(Boolean).length
+    if (isolatedModesEnabled > 1) {
+      throw new Error('Provider-disabled isolated worker modes cannot be combined in one process')
     }
   }
 
@@ -135,9 +143,23 @@ export function resolveWorkerStartupPolicy(
               ],
               intakeUploadVerificationEnabled: false,
             }
-          : {
-              mode: 'provider-disabled',
-              requiredEnvironmentKeys: ['REDIS_URL'],
-              intakeUploadVerificationEnabled: false,
-            }
+          : venueMediaDerivativeEnabled
+            ? {
+                mode: 'venue-media-derivative-only',
+                requiredEnvironmentKeys: [
+                  'REDIS_URL',
+                  'DATABASE_URL',
+                  'DIRECT_DATABASE_URL',
+                  'STORAGE_BUCKET',
+                  'STORAGE_REGION',
+                  'STORAGE_ACCESS_KEY_ID',
+                  'STORAGE_SECRET_ACCESS_KEY',
+                ],
+                intakeUploadVerificationEnabled: false,
+              }
+            : {
+                mode: 'provider-disabled',
+                requiredEnvironmentKeys: ['REDIS_URL'],
+                intakeUploadVerificationEnabled: false,
+              }
 }

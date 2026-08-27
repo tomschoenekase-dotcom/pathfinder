@@ -68,6 +68,21 @@ export async function bootstrapWorkers() {
     return runtime
   }
 
+  if (policy.mode === 'venue-media-derivative-only') {
+    const { startVenueMediaDerivativeRuntime } = await import('./venue-media-derivative-runtime.js')
+    const runtime = await startVenueMediaDerivativeRuntime()
+    process.stdout.write(
+      `${JSON.stringify({
+        action: 'workers.started',
+        mode: runtime.mode,
+        outboundProviderWorkersEnabled: false,
+        queues: runtime.queues,
+      })}\n`,
+    )
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
   const { startWorkers } = await import('./index.js')
   return startWorkers()
 }

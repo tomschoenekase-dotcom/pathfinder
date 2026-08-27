@@ -23,6 +23,9 @@ export type VenueMediaKind = z.infer<typeof VenueMediaKind>
 export const VenueMediaImportance = z.enum(['PRIMARY', 'SECONDARY'])
 export type VenueMediaImportance = z.infer<typeof VenueMediaImportance>
 
+export const VenueMediaDerivativeVariant = z.enum(['CARD', 'DETAIL'])
+export type VenueMediaDerivativeVariant = z.infer<typeof VenueMediaDerivativeVariant>
+
 export const VenueMediaRightsBasis = z.enum([
   'VENUE_OWNED',
   'LICENSED',
@@ -91,6 +94,45 @@ export const ReviewVenueMediaAssetInput = z.discriminatedUnion('action', [
 ])
 
 export type ReviewVenueMediaAssetInput = z.infer<typeof ReviewVenueMediaAssetInput>
+
+export const RequestVenueMediaDerivativesInput = z
+  .object({
+    tenantId: nonEmpty.max(191),
+    venueId: nonEmpty.max(191),
+    assetId: z.string().uuid(),
+    requestId: z.string().uuid(),
+    expectedLatestReviewSequence: z.number().int().min(1),
+    variants: z
+      .array(VenueMediaDerivativeVariant)
+      .min(1)
+      .max(VenueMediaDerivativeVariant.options.length)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        'Derivative variants must be unique',
+      ),
+  })
+  .strict()
+
+export type RequestVenueMediaDerivativesInput = z.infer<typeof RequestVenueMediaDerivativesInput>
+
+export const PublicVenueMediaItem = z
+  .object({
+    assetId: z.string().uuid(),
+    derivativeId: z.string().uuid(),
+    variant: z.literal('CARD'),
+    kind: VenueMediaKind,
+    altText: nonEmpty.max(240),
+    caption: nonEmpty.max(300).nullable(),
+    importance: VenueMediaImportance,
+    width: z.number().int().positive().max(768),
+    height: z.number().int().positive().max(768),
+    byteSize: z.number().int().positive().max(900_000),
+    mimeType: z.literal('image/webp'),
+    deliveryPath: z.string().startsWith('/api/venue-media/').max(500),
+  })
+  .strict()
+
+export type PublicVenueMediaItem = z.infer<typeof PublicVenueMediaItem>
 
 /**
  * This deliberately contains no URL. Review approval makes an asset eligible for a future

@@ -105,6 +105,10 @@ export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verificatio
 export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
   'intake-upload-verification-reconciliation'
 
+export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
+export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
+export const VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF = 'venue-media-derivative-retry'
+
 /**
  * Complete BullMQ inventory used for platform-wide operational observation.
  * Every exported queue belongs here even when its worker is policy-disabled, so a
@@ -133,4 +137,5 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   VOICE_SESSION_RECOVERY_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
 ] as const)

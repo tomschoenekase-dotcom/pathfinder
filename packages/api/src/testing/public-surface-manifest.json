@@ -80,6 +80,13 @@
       "behavioralEvidence": ["packages/api/src/routers/venue.test.ts"]
     },
     {
+      "path": "venue.mediaBySlug",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-resource-read",
+      "behavioralEvidence": ["packages/api/src/routers/venue.test.ts"]
+    },
+    {
       "path": "voice.availability",
       "kind": "query",
       "exposure": "public",
@@ -297,6 +304,16 @@
       "exposure": "procedure-controlled-public-transport",
       "controlProfile": "procedure-controlled-transport",
       "behavioralEvidence": ["packages/api/src/trpc.test.ts"]
+    },
+    {
+      "source": "apps/web/app/api/venue-media/[derivativeId]/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-controlled-media-read",
+      "behavioralEvidence": [
+        "apps/web/app/api/venue-media/[derivativeId]/route.test.ts",
+        "packages/api/src/lib/venue-media-delivery.test.ts"
+      ]
     },
     {
       "source": "apps/web/app/api/widget-ready/[venueSlug]/route.ts",

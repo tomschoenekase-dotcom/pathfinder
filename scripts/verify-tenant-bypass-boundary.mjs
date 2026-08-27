@@ -16,6 +16,10 @@ const approvedCallCounts = new Map([
   // Platform recovery scans only bounded authoritative upload identities; each
   // job then re-enters one exact tenant+venue+upload scope before mutation.
   ['apps/workers/src/processors/intake-upload-verification.ts', 1],
+  // Durable derivative jobs carry one exact tenant+venue+derivative identity. The
+  // worker re-enters that scope for lookup, fail-closed terminalization, and the
+  // transactional READY transition; no bypass broadens discovery or delivery.
+  ['apps/workers/src/processors/venue-media-derivative.ts', 3],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],

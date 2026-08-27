@@ -288,6 +288,18 @@ const approvedOperations = [
     policy: 'public-venue-slug',
   },
   {
+    file: 'packages/api/src/routers/venue.ts',
+    method: '$queryRaw',
+    hash: 'da288dfe334d78f79e062fec93723952542dce7973344f6956cd2eaef5eecc74',
+    policy: 'public-venue-slug',
+  },
+  {
+    file: 'packages/api/src/lib/venue-media-delivery.ts',
+    method: '$queryRaw',
+    hash: 'cf59d6bd3dcfc1cdbfe9c89d11cfd2a3153ee394dec67acfb9cbda1cda8e6abf',
+    policy: 'public-venue-slug',
+  },
+  {
     file: 'packages/db/src/helpers/venue-create-action.ts',
     method: '$executeRaw',
     hash: '19f67dc59cfb8f7262bda219dc7c9d2feb4c8fd354150f439951d87e57faeca6',

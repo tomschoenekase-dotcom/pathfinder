@@ -219,6 +219,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeUpload',
       'IntakeUploadVerificationReceipt',
       'VenueMediaAsset',
+      'VenueMediaDerivative',
       'VenueMediaPlaceLink',
       'VenueMediaKnowledgeLink',
       'VenueMediaReview',

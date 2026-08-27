@@ -34,6 +34,9 @@ import {
   GMAIL_SYNC_WATCH_RENEWAL_JOB,
   INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -83,6 +86,7 @@ import type {
   ProspectImportStagingJobPayload,
   GmailSyncJobPayload,
   IntakeUploadVerificationJobPayload,
+  VenueMediaDerivativeJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -766,6 +770,54 @@ export async function enqueueIntakeUploadVerification(
       removeOnFail: 500,
     },
   )
+}
+
+export async function enqueueVenueMediaDerivative(
+  payload: VenueMediaDerivativeJobPayload,
+): Promise<void> {
+  if (
+    !payload.tenantId.trim() ||
+    !payload.venueId.trim() ||
+    !UUID_PATTERN.test(payload.derivativeId)
+  ) {
+    throw new Error('Venue media derivative requires exact durable identity')
+  }
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'torchiko-venue-media-derivative-v1',
+        payload.tenantId,
+        payload.venueId,
+        payload.derivativeId.toLowerCase(),
+      ]),
+    )
+    .digest('hex')
+  const queue = getQueue(VENUE_MEDIA_DERIVATIVE_QUEUE)
+  const jobId = `venue-media-derivative-${digest}`
+  const retained = await queue.getJob(jobId)
+  const retainedState = retained ? await retained.getState() : null
+  if (retained && retainedState === 'failed') {
+    await retained.retry('failed')
+    logger.info({
+      action: 'jobs.venue-media-derivative.redriven',
+      derivativeId: payload.derivativeId,
+    })
+    return
+  }
+  if (retainedState === 'completed') return
+  await queue.add(VENUE_MEDIA_DERIVATIVE_PROCESS_JOB, payload, {
+    jobId,
+    attempts: 4,
+    backoff: { type: VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF },
+    removeOnComplete: 1000,
+    removeOnFail: 5000,
+  })
+  logger.info({
+    action: 'jobs.venue-media-derivative.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    derivativeId: payload.derivativeId,
+  })
 }
 
 type OperationalSnapshotQueue = Pick<

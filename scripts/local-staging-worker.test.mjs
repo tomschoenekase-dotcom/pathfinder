@@ -5,13 +5,14 @@ import { test } from 'node:test'
 const script = await readFile(new URL('./local-staging.ps1', import.meta.url), 'utf8')
 const compose = await readFile(new URL('../compose.local-staging.yml', import.meta.url), 'utf8')
 
-test('local staging owns an observable provider-disabled worker lifecycle', () => {
+test('local staging owns an observable provider-disabled deterministic worker lifecycle', () => {
   assert.match(script, /\$workerPidFile = Join-Path \$stateRoot 'workers\.pid'/u)
   assert.match(script, /Start-WorkerProcess \$workerPidFile/u)
   assert.match(script, /Wait-ForWorker \$workerPid/u)
   assert.match(script, /Stop-RecordedProcess \$workerPidFile 'dist\/bootstrap\.js'/u)
   assert.match(script, /workerPid = \$workerPid/u)
-  assert.match(script, /workerMode = 'provider-disabled-health-only'/u)
+  assert.match(script, /workerMode = if \(\$worker\) \{ 'venue-media-derivative-only' \}/u)
+  assert.match(script, /\$env:VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED = 'true'/u)
 })
 
 test('local staging keeps every provider-executing worker path dark', () => {
