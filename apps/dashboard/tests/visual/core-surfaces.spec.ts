@@ -182,6 +182,40 @@ test('launch-language evaluation preparation stays bounded and responsive', asyn
   expect(runtimeErrors).toEqual([])
 })
 
+test('prospect rehearsal stays visibly no-send across real browser widths', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/prospect-crm?view=campaign`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  const rehearsal = page.getByRole('region', {
+    name: 'Ready for human review — never ready to send',
+  })
+  await expect(rehearsal).toBeVisible()
+  await expect(
+    rehearsal.getByText(
+      'This read-only rehearsal made 0 provider calls and cost $0.00. It cannot draft, approve, queue, or release a message.',
+    ),
+  ).toBeVisible()
+  await expect(rehearsal.getByText('Dark', { exact: true })).toBeVisible()
+  await expect(rehearsal.getByText('Internal only', { exact: true })).toBeVisible()
+  await expect(rehearsal.getByText('Unsafe contacts').locator('..').getByText('0')).toBeVisible()
+  await expect(rehearsal.getByText('Missing provenance').locator('..').getByText('0')).toBeVisible()
+  await expect(
+    rehearsal.getByText('Duplicate identities').locator('..').getByText('0'),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send now' })).toBeDisabled()
+
+  const back = page.getByRole('link', { name: 'Outreach center' })
+  await back.focus()
+  await expect(back).toBeFocused()
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'prospect-no-send-rehearsal')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('Founder Control Room shell is responsive and restores mobile navigation focus', async ({
   page,
 }, testInfo) => {

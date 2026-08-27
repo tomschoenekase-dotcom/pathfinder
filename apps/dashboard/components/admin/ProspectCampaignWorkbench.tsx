@@ -467,7 +467,7 @@ export function ProspectCampaignWorkbench({
                         <button
                           disabled={busy}
                           onClick={() => void review(draft, true)}
-                          className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                          className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
                         >
                           Approve + freeze
                         </button>
@@ -509,9 +509,14 @@ export function ProspectCampaignWorkbench({
                       )}
                     </div>
                     <p className="mt-3 text-sm font-semibold text-slate-900">{draft.subject}</p>
-                    <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                    <div
+                      role="region"
+                      aria-label={`Draft message body for ${member.organization.canonicalName}`}
+                      tabIndex={0}
+                      className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg text-sm leading-6 text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                    >
                       {draft.textBody}
-                    </p>
+                    </div>
                   </article>
                 ) : null}
                 {editing ? (
@@ -574,7 +579,7 @@ export function ProspectCampaignWorkbench({
                     <p className="text-sm font-semibold text-slate-950">
                       {batch.recipientCount} recipients · {batch.status}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-slate-400">
+                    <p className="mt-1 font-mono text-[10px] text-slate-600">
                       {batch.snapshotHash.slice(0, 20)}…
                     </p>
                   </div>
@@ -583,7 +588,7 @@ export function ProspectCampaignWorkbench({
                       <button
                         disabled={busy}
                         onClick={() => setConfirmation({ action: 'approve', batch })}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white"
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white"
                       >
                         <MailCheck className="h-4 w-4" />
                         Approve exact batch
