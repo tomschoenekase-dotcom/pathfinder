@@ -71,7 +71,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 197-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 198-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 226)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
@@ -158,6 +158,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     [
       '20260826010000_add_governed_venue_media',
       '20260826020000_add_venue_media_derivatives',
+      '20260827220000_add_operational_performance_indexes',
     ],
   )
   assert.equal(
@@ -166,7 +167,18 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.venueMediaPredecessorCount), manifest),
-    ['20260826020000_add_venue_media_derivatives'],
+    [
+      '20260826020000_add_venue_media_derivatives',
+      '20260827220000_add_operational_performance_indexes',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.performancePredecessorCount), manifest),
+    'performance-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.performancePredecessorCount), manifest),
+    ['20260827220000_add_operational_performance_indexes'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
@@ -321,6 +333,7 @@ test('exact previous staging release advances only through the reviewed sixty-th
       '20260825220000_add_intake_website_research_receipts',
       '20260826010000_add_governed_venue_media',
       '20260826020000_add_venue_media_derivatives',
+      '20260827220000_add_operational_performance_indexes',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -380,6 +393,7 @@ test('exact previous staging release advances only through the reviewed sixty-th
     '20260825220000_add_intake_website_research_receipts',
     '20260826010000_add_governed_venue_media',
     '20260826020000_add_venue_media_derivatives',
+    '20260827220000_add_operational_performance_indexes',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

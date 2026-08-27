@@ -2650,6 +2650,7 @@ model AiUsageEvent {
   @@index([sessionId])
   @@index([clientAssistantTurnId])
   @@index([feature, createdAt])
+  @@index([createdAt, id], map: "ai_usage_events_created_at_id_idx")
   @@map("ai_usage_events")
 }
 
@@ -4375,6 +4376,7 @@ model JobRecord {
   @@unique([queue, bullJobId], map: "job_records_queue_bull_job_id_key")
   @@index([queue, status])
   @@index([status, failureDisposition, terminalAt])
+  @@index([completedAt, id], map: "job_records_completed_at_id_idx")
   @@index([tenantId, createdAt])
   @@index([tenantId, venueId, createdAt])
   @@index([createdAt])

@@ -41,10 +41,34 @@ const readiness = {
   aiProviderOutcomes: [],
   embeddingOutcomes: [],
   emailProviderOutcome: null,
+  performance: {
+    complete: true,
+    jobs: {
+      terminal: 12,
+      completed: 10,
+      failed: 2,
+      retryAttempts: 3,
+      processingMs: { observed: 12, p50: 400, p95: 2400 },
+    },
+    provider: {
+      requests: 4,
+      successful: 3,
+      failed: 1,
+      retryAttempts: 1,
+      latencyMs: { observed: 4, p50: 800, p95: 3100 },
+      estimatedCostUsd: '0.12345678',
+    },
+  },
   stuckCriticalJobs: 2,
   queue: {
     persisted: { source: 'persisted-job-records' },
-    live: { status: 'observed', pausedQueues: 1 },
+    live: {
+      status: 'observed',
+      pausedQueues: 1,
+      totalDepth: 5,
+      totalFailed: 2,
+      oldestAgeMs: 12_000,
+    },
   },
   boundaries: {},
 } as never
@@ -61,6 +85,12 @@ describe('operations readiness summary', () => {
     expect(screen.getByText('Long-running jobs').parentElement?.textContent).toContain('2')
     expect(screen.getByText('Object storage').parentElement?.textContent).toContain('Ready')
     expect(screen.getByText(/does not prove AI-provider execution/i)).toBeTruthy()
+    expect(screen.getByText('Terminal jobs / 60 min').parentElement?.textContent).toContain('12')
+    expect(screen.getByText('Live queue').parentElement?.textContent).toContain('5 queued')
+    expect(screen.getByText('Provider wait').parentElement?.textContent).toContain('p95 3.1 s')
+    expect(screen.getByText('Estimated provider cost').parentElement?.textContent).toContain(
+      '$0.12345678',
+    )
   })
 
   it('has no automated accessibility violations', async () => {

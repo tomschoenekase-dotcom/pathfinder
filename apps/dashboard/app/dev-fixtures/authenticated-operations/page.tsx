@@ -5,6 +5,7 @@ import { AnswerAttributionAgreementCard } from '../../../components/admin/Answer
 import { GuestAnswerEvaluationPanel } from '../../../components/admin/GuestAnswerEvaluationPanel'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
 import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
+import { OperationsReadinessSummary } from '../../../components/admin/OperationsReadinessSummary'
 import { VenueFeatureAccessControl } from '../../../components/admin/VenueFeatureAccessControl'
 import { TRPCProvider } from '../../../lib/trpc'
 
@@ -113,6 +114,61 @@ function AdminFixture() {
               </article>
             ))}
           </section>
+
+          <div className="mt-5">
+            <OperationsReadinessSummary
+              readiness={
+                {
+                  schemaVersion: 'pathfinder.operations-readiness.v4',
+                  status: 'degraded',
+                  requirements: {
+                    databaseConnected: true,
+                    redisConnected: true,
+                    migrationParity: true,
+                    workerHeartbeatFresh: true,
+                    schedulersEnabled: false,
+                    providerWorkEnabled: false,
+                    allQueuesObserved: true,
+                    noQueuesPaused: true,
+                    noStuckCriticalJobs: true,
+                    intakeVerificationEnabled: true,
+                    objectStorageConnected: true,
+                    malwareScannerConnected: true,
+                  },
+                  worker: { revision: 'fixture-revision' },
+                  serviceDependencies: { state: 'FRESH' },
+                  stuckCriticalJobs: 0,
+                  performance: {
+                    complete: true,
+                    jobs: {
+                      terminal: 128,
+                      completed: 124,
+                      failed: 4,
+                      retryAttempts: 7,
+                      processingMs: { observed: 128, p50: 420, p95: 2800 },
+                    },
+                    provider: {
+                      requests: 18,
+                      successful: 17,
+                      failed: 1,
+                      retryAttempts: 2,
+                      latencyMs: { observed: 18, p50: 840, p95: 3400 },
+                      estimatedCostUsd: '0.31415926',
+                    },
+                  },
+                  queue: {
+                    live: {
+                      status: 'observed',
+                      pausedQueues: 0,
+                      totalDepth: 6,
+                      totalFailed: 2,
+                      oldestAgeMs: 14_000,
+                    },
+                  },
+                } as never
+              }
+            />
+          </div>
 
           <section
             className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5"

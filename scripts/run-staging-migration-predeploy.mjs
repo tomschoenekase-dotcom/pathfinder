@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-197-20260826',
+  approval: 'torchiko-staging-lineage-to-198-20260827',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 197,
+  migrationCount: 198,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -37,6 +37,8 @@ const EXPECTED = Object.freeze({
   hostedPredecessorPublicTableCount: 221,
   venueMediaPredecessorCount: 196,
   venueMediaPredecessorPublicTableCount: 225,
+  performancePredecessorCount: 197,
+  performancePredecessorPublicTableCount: 226,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -49,9 +51,10 @@ const EXPECTED = Object.freeze({
   currentStagingFinalMigration: '20260825160000_add_venue_response_depth',
   hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
   venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
-  finalMigration: '20260826020000_add_venue_media_derivatives',
-  manifestHash: 'b10ef98b572e02cbc58672f5e41841e74d7c5675581613b6bbd7fad48500ded8',
-  // The reviewed 56-migration suffix after B.5 adds 33 public tables.
+  performancePredecessorFinalMigration: '20260826020000_add_venue_media_derivatives',
+  finalMigration: '20260827220000_add_operational_performance_indexes',
+  manifestHash: '8d5fed3728c30f8dc2684134fb70a1d519bdf83835d2f8a69a16c8b51827fb80',
+  // The reviewed 57-migration suffix after B.5 adds 33 public tables.
   finalPublicTableCount: 226,
 })
 
@@ -192,6 +195,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('venue media predecessor boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.performancePredecessorCount - 1] !==
+    EXPECTED.performancePredecessorFinalMigration
+  ) {
+    fail('performance predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -208,6 +217,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.currentStagingCount &&
     rows.length !== EXPECTED.hostedPredecessorCount &&
     rows.length !== EXPECTED.venueMediaPredecessorCount &&
+    rows.length !== EXPECTED.performancePredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -247,6 +257,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.currentStagingCount) return 'current-staging'
   if (rows.length === EXPECTED.hostedPredecessorCount) return 'hosted-predecessor'
   if (rows.length === EXPECTED.venueMediaPredecessorCount) return 'venue-media-predecessor'
+  if (rows.length === EXPECTED.performancePredecessorCount) return 'performance-predecessor'
   return 'complete'
 }
 
@@ -406,7 +417,9 @@ async function main() {
                         ? EXPECTED.hostedPredecessorPublicTableCount
                         : initialState === 'venue-media-predecessor'
                           ? EXPECTED.venueMediaPredecessorPublicTableCount
-                          : EXPECTED.stagingBaselinePublicTableCount
+                          : initialState === 'performance-predecessor'
+                            ? EXPECTED.performancePredecessorPublicTableCount
+                            : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

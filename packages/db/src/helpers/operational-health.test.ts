@@ -5,9 +5,100 @@ import {
   SERVICE_DEPENDENCY_FRESHNESS_MS,
   WORKER_HEARTBEAT_FRESHNESS_MS,
   projectServiceDependencyObservation,
+  projectOperationalPerformance,
   projectWorkerHeartbeat,
   readAppliedMigrationStatus,
 } from './operational-health'
+
+describe('operational performance projection', () => {
+  const observedAt = new Date('2026-08-27T18:00:00.000Z')
+  const windowStartedAt = new Date('2026-08-27T17:00:00.000Z')
+
+  it('projects bounded throughput, retry, latency, and exact estimated cost evidence', () => {
+    expect(
+      projectOperationalPerformance({
+        observedAt,
+        windowStartedAt,
+        terminalJobs: [
+          {
+            status: 'COMPLETE',
+            startedAt: new Date('2026-08-27T17:10:00.000Z'),
+            completedAt: new Date('2026-08-27T17:10:00.100Z'),
+            attemptNumber: 1,
+          },
+          {
+            status: 'FAILED',
+            startedAt: new Date('2026-08-27T17:20:00.000Z'),
+            completedAt: new Date('2026-08-27T17:20:00.500Z'),
+            attemptNumber: 3,
+          },
+        ],
+        providerUsage: [
+          { latencyMs: 200, attempts: 1, estimatedCostUsd: '0.00000001', success: true },
+          { latencyMs: 800, attempts: 2, estimatedCostUsd: '0.12345678', success: false },
+        ],
+      }),
+    ).toMatchObject({
+      complete: true,
+      windowMs: 3_600_000,
+      jobs: {
+        terminal: 2,
+        completed: 1,
+        failed: 1,
+        retryAttempts: 2,
+        processingMs: { observed: 2, p50: 100, p95: 500 },
+      },
+      provider: {
+        requests: 2,
+        successful: 1,
+        failed: 1,
+        retryAttempts: 1,
+        latencyMs: { observed: 2, p50: 200, p95: 800 },
+        estimatedCostUsd: '0.12345679',
+      },
+      boundaries: {
+        noPayloads: true,
+        noJobIdentity: true,
+        noProviderRequestIdentity: true,
+        serviceLevelObjectivePolicy: 'UNRESOLVED',
+        estimatedCostIsInvoiceTruth: false,
+      },
+    })
+  })
+
+  it('labels capped or empty evidence honestly and ignores invalid durations', () => {
+    const result = projectOperationalPerformance({
+      observedAt,
+      windowStartedAt,
+      sampleLimit: 1,
+      terminalJobs: [
+        {
+          status: 'COMPLETE',
+          startedAt: observedAt,
+          completedAt: windowStartedAt,
+          attemptNumber: null,
+        },
+        {
+          status: 'COMPLETE',
+          startedAt: windowStartedAt,
+          completedAt: observedAt,
+          attemptNumber: 1,
+        },
+      ],
+      providerUsage: [],
+    })
+
+    expect(result).toMatchObject({
+      complete: false,
+      jobs: { terminal: 1, processingMs: { observed: 0, p50: null, p95: null } },
+      provider: {
+        requests: 0,
+        latencyMs: { observed: 0, p50: null, p95: null },
+        estimatedCostUsd: '0.00000000',
+      },
+    })
+  })
+})
 
 describe('operational migration health', () => {
   it('reports exact parity only for the expected latest finished migration', async () => {

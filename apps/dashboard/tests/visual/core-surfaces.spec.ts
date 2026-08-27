@@ -232,6 +232,12 @@ test('Founder Control Room shell is responsive and restores mobile navigation fo
   await expect(page.getByText('Evidence only', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Claim-review agreement' })).toBeVisible()
   await expect(page.getByText('Descriptive evidence only', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Last-hour worker performance' })).toBeVisible()
+  await expect(page.getByText('Terminal jobs / 60 min').locator('..')).toContainText('128')
+  await expect(page.getByText('Provider wait').locator('..')).toContainText('p95 3.4 s')
+  await expect(page.getByText('Estimated provider cost').locator('..')).toContainText('$0.31415926')
+  await page.getByRole('heading', { name: 'Last-hour worker performance' }).scrollIntoViewIfNeeded()
+  await saveViewportEvidence(page, testInfo, 'founder-worker-performance')
   await page.getByText('Gates, limits, and rollback', { exact: true }).click()
   await expect(page.getByText('Production activation remains founder-gated.')).toBeVisible()
 
