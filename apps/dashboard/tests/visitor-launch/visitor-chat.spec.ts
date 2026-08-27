@@ -19,8 +19,6 @@ async function expectViewportIntegrity(page: Page) {
     bodyWidth: document.body.scrollWidth,
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: window.innerWidth,
-    bodyHeight: document.body.scrollHeight,
-    viewportHeight: window.innerHeight,
     scrollY: window.scrollY,
   }))
   expect(dimensions.bodyWidth, JSON.stringify(dimensions)).toBeLessThanOrEqual(
@@ -29,10 +27,24 @@ async function expectViewportIntegrity(page: Page) {
   expect(dimensions.documentWidth, JSON.stringify(dimensions)).toBeLessThanOrEqual(
     dimensions.viewportWidth + 1,
   )
-  expect(dimensions.bodyHeight, JSON.stringify(dimensions)).toBeLessThanOrEqual(
-    dimensions.viewportHeight + 1,
-  )
   expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
+}
+
+async function expectComposerReachable(page: Page) {
+  const composer = page.locator('#chat-input')
+  await composer.scrollIntoViewIfNeeded()
+  if (await composer.isEnabled()) {
+    await composer.focus()
+    await expect(composer).toBeFocused()
+  } else {
+    await expect(composer).toBeDisabled()
+  }
+  const bounds = await composer.boundingBox()
+  const viewportHeight = await page.evaluate(() => window.innerHeight)
+  expect(bounds).not.toBeNull()
+  expect(bounds!.height).toBeGreaterThanOrEqual(56)
+  expect(bounds!.y).toBeGreaterThanOrEqual(0)
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewportHeight + 1)
 }
 
 async function expectAccessiblePage(page: Page) {
@@ -94,6 +106,7 @@ test('long RTL and CJK conversation remains usable while offline', async ({ page
   await expect(page.getByRole('button', { name: /الاتصال/ })).toBeDisabled()
 
   await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
   await expectTouchTargets(page)
   await expectAccessiblePage(page)
   await saveEvidence(page, testInfo, 'visitor-offline-multilingual')
@@ -120,6 +133,7 @@ test('delayed response remains bounded and motion-safe', async ({ page }, testIn
   expect(activeAnimations).toEqual([])
 
   await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
   await expectTouchTargets(page)
   await expectAccessiblePage(page)
   await saveEvidence(page, testInfo, 'visitor-delayed-response')

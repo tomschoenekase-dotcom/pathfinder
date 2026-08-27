@@ -141,7 +141,7 @@ export function VenueChatShell(props: {
     <div
       lang={languagePresentation.code}
       dir={languagePresentation.direction}
-      className="flex h-svh flex-col overflow-hidden"
+      className="flex min-h-svh flex-col overflow-x-hidden"
       style={{ backgroundColor: palette.bg, fontFamily: fontFamily(venue.chatFont) }}
     >
       <style>{`:root{--chat-accent:${palette.accent};--chat-accent-text:${palette.accentText};--chat-accent-contrast:${palette.accentContrast};--chat-surface:${palette.bg};--chat-bg:${palette.bg};--chat-card:${palette.card};--chat-border:${palette.border};--chat-text:${palette.text};--chat-text-muted:${palette.textMuted};}`}</style>
@@ -205,7 +205,7 @@ export function VenueChatShell(props: {
         </div>
       </header>
       <ConnectionStatusBanner state={connectionState} language={language} />
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="flex min-h-[24rem] flex-1 flex-col">
         {characterPresentation ? (
           <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
             <VenueCharacterBoundary
