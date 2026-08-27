@@ -6,7 +6,7 @@ import { resolveProductEntitlement } from '@pathfinder/db'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { publicProcedure } from '../trpc'
-import { findDeterministicRoute, projectRouteLocation } from './location-route'
+import { findDeterministicRoutePlan, projectRouteLocation } from './location-route'
 import { loadPublicLocationScope } from './location-public-scope'
 
 const safeExternalMap = z
@@ -183,6 +183,11 @@ export const locationRouter = router({
       const toLocationId = resolveLocationId(input.toLocationId)
       if (!fromLocationId || !toLocationId)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
+      if (fromLocationId === toLocationId)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Choose two different locations.',
+        })
 
       const connections = await ctx.db.venueLocationConnection.findMany({
         where: {
@@ -202,6 +207,7 @@ export const locationRouter = router({
           bidirectional: true,
           accessible: true,
           directions: true,
+          verifiedAt: true,
         },
       })
       if (connections.length > 1000)
@@ -209,20 +215,38 @@ export const locationRouter = router({
           code: 'PRECONDITION_FAILED',
           message: 'This venue topology exceeds the supported route size.',
         })
-      const route = findDeterministicRoute({
+      const routePlan = findDeterministicRoutePlan({
         locations,
         connections,
         fromLocationId,
         toLocationId,
       })
-      if (!route) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
+      if (!routePlan)
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
       const byId = new Map(locations.map((location) => [location.id, location]))
+      const describedSegmentCount = routePlan.steps.filter((step) =>
+        Boolean(step.connection.directions?.trim()),
+      ).length
+      const reviewedAt = routePlan.steps.reduce<Date | null>((oldest, step) => {
+        const verifiedAt = step.connection.verifiedAt
+        return !oldest || verifiedAt < oldest ? verifiedAt : oldest
+      }, null)
       return {
         from: projectRouteLocation(byId.get(fromLocationId)!),
         to: projectRouteLocation(byId.get(toLocationId)!),
         accessibleOnly: input.accessibleOnly,
-        segmentCount: route.length,
-        segments: route.map((step) => ({
+        segmentCount: routePlan.steps.length,
+        describedSegmentCount,
+        guidanceConfidence:
+          describedSegmentCount === routePlan.steps.length
+            ? ('HIGH' as const)
+            : ('LIMITED' as const),
+        hasEquivalentRoute: routePlan.hasEquivalentRoute,
+        review: {
+          status: 'VENUE_REVIEWED' as const,
+          reviewedAt,
+        },
+        segments: routePlan.steps.map((step) => ({
           connectionId: step.connection.id,
           kind: step.connection.kind,
           accessible: step.connection.accessible,

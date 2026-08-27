@@ -14,6 +14,7 @@ export type RouteConnection = {
   bidirectional: boolean
   accessible: boolean
   directions: string | null
+  verifiedAt: Date
 }
 
 type RouteStep = {
@@ -22,13 +23,32 @@ type RouteStep = {
   toLocationId: string
 }
 
-export function findDeterministicRoute(input: {
+export type DeterministicRoutePlan = {
+  steps: RouteStep[]
+  hasEquivalentRoute: boolean
+}
+
+function hasReviewedDirections(connection: RouteConnection) {
+  return Boolean(connection.directions?.trim())
+}
+
+function compareCandidatePaths(
+  left: { steps: RouteStep[]; describedSegments: number; signature: string },
+  right: { steps: RouteStep[]; describedSegments: number; signature: string },
+) {
+  return (
+    right.describedSegments - left.describedSegments ||
+    left.signature.localeCompare(right.signature)
+  )
+}
+
+export function findDeterministicRoutePlan(input: {
   locations: RouteLocation[]
   connections: RouteConnection[]
   fromLocationId: string
   toLocationId: string
-}): RouteStep[] | null {
-  if (input.fromLocationId === input.toLocationId) return []
+}): DeterministicRoutePlan | null {
+  if (input.fromLocationId === input.toLocationId) return { steps: [], hasEquivalentRoute: false }
 
   const locationById = new Map(input.locations.map((location) => [location.id, location]))
   if (!locationById.has(input.fromLocationId) || !locationById.has(input.toLocationId)) return null
@@ -68,29 +88,79 @@ export function findDeterministicRoute(input: {
   }
 
   const queue = [input.fromLocationId]
-  const visited = new Set(queue)
-  const previous = new Map<string, RouteStep>()
+  const distance = new Map([[input.fromLocationId, 0]])
+  const shortestPathCount = new Map([[input.fromLocationId, 1]])
   for (let cursor = 0; cursor < queue.length; cursor += 1) {
     const current = queue[cursor]!
+    const nextDistance = distance.get(current)! + 1
     for (const step of adjacency.get(current) ?? []) {
-      if (visited.has(step.toLocationId)) continue
-      visited.add(step.toLocationId)
-      previous.set(step.toLocationId, step)
-      if (step.toLocationId === input.toLocationId) {
-        const route: RouteStep[] = []
-        let locationId = input.toLocationId
-        while (locationId !== input.fromLocationId) {
-          const prior = previous.get(locationId)
-          if (!prior) return null
-          route.push(prior)
-          locationId = prior.fromLocationId
-        }
-        return route.reverse()
+      const knownDistance = distance.get(step.toLocationId)
+      if (knownDistance === undefined) {
+        distance.set(step.toLocationId, nextDistance)
+        shortestPathCount.set(step.toLocationId, shortestPathCount.get(current) ?? 1)
+        queue.push(step.toLocationId)
+      } else if (knownDistance === nextDistance) {
+        shortestPathCount.set(
+          step.toLocationId,
+          Math.min(
+            2,
+            (shortestPathCount.get(step.toLocationId) ?? 0) + (shortestPathCount.get(current) ?? 1),
+          ),
+        )
       }
-      queue.push(step.toLocationId)
     }
   }
-  return null
+
+  const targetDistance = distance.get(input.toLocationId)
+  if (targetDistance === undefined) return null
+
+  const bestPath = new Map<
+    string,
+    { steps: RouteStep[]; describedSegments: number; signature: string }
+  >([[input.fromLocationId, { steps: [], describedSegments: 0, signature: '' }]])
+  const orderedLocations = [...input.locations].sort(
+    (left, right) =>
+      (distance.get(left.id) ?? Number.POSITIVE_INFINITY) -
+        (distance.get(right.id) ?? Number.POSITIVE_INFINITY) ||
+      left.stableKey.localeCompare(right.stableKey) ||
+      left.id.localeCompare(right.id),
+  )
+  for (const location of orderedLocations) {
+    const currentPath = bestPath.get(location.id)
+    const currentDistance = distance.get(location.id)
+    if (!currentPath || currentDistance === undefined || currentDistance >= targetDistance) continue
+    for (const step of adjacency.get(location.id) ?? []) {
+      if (distance.get(step.toLocationId) !== currentDistance + 1) continue
+      const toLocation = locationById.get(step.toLocationId)!
+      const signature = `${currentPath.signature}|${toLocation.stableKey}:${step.connection.kind}:${step.connection.id}`
+      const candidate = {
+        steps: [...currentPath.steps, step],
+        describedSegments:
+          currentPath.describedSegments + (hasReviewedDirections(step.connection) ? 1 : 0),
+        signature,
+      }
+      const existing = bestPath.get(step.toLocationId)
+      if (!existing || compareCandidatePaths(candidate, existing) < 0) {
+        bestPath.set(step.toLocationId, candidate)
+      }
+    }
+  }
+
+  const selected = bestPath.get(input.toLocationId)
+  if (!selected) return null
+  return {
+    steps: selected.steps,
+    hasEquivalentRoute: (shortestPathCount.get(input.toLocationId) ?? 0) > 1,
+  }
+}
+
+export function findDeterministicRoute(input: {
+  locations: RouteLocation[]
+  connections: RouteConnection[]
+  fromLocationId: string
+  toLocationId: string
+}): RouteStep[] | null {
+  return findDeterministicRoutePlan(input)?.steps ?? null
 }
 
 export function projectRouteLocation(location: RouteLocation) {

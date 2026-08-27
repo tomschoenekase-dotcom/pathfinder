@@ -47,6 +47,9 @@ type VisitorUiCopy = {
     noAccessibleRoute: string,
     noRoute: string,
     accessibleNote: string,
+    reviewedRoute: string,
+    partialGuidance: string,
+    equivalentRoute: string,
     continueTo: (destination: string, connection: string) => string,
   ]
   place: readonly [
@@ -124,6 +127,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'No reviewed accessible route is available between those locations.',
       'No reviewed route is available between those locations.',
       'Uses only connections the venue marked accessible. Confirm critical access needs with venue staff.',
+      'Venue-reviewed route',
+      'Some steps do not have landmark directions. Follow the named areas and ask venue staff if the path is unclear.',
+      'Another reviewed route is available. This option has the clearest available step guidance.',
       (destination, connection) => `Continue to ${destination} via ${connection}.`,
     ],
     place: [
@@ -182,6 +188,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'No hay una ruta accesible revisada entre esas ubicaciones.',
       'No hay una ruta revisada entre esas ubicaciones.',
       'Usa solo conexiones que el lugar marcó como accesibles. Confirma las necesidades de acceso importantes con el personal.',
+      'Ruta revisada por el lugar',
+      'Algunos pasos no incluyen indicaciones con puntos de referencia. Sigue las zonas indicadas y pregunta al personal si el camino no está claro.',
+      'Hay otra ruta revisada disponible. Esta opción ofrece las indicaciones más claras disponibles.',
       (destination, connection) => `Continúa hasta ${destination} por ${connection}.`,
     ],
     place: [
@@ -240,6 +249,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Aucun itinéraire accessible vérifié n’est disponible entre ces lieux.',
       'Aucun itinéraire vérifié n’est disponible entre ces lieux.',
       'Utilise uniquement les liaisons indiquées comme accessibles. Confirmez les besoins d’accès importants auprès du personnel.',
+      'Itinéraire vérifié par le lieu',
+      'Certaines étapes n’ont pas d’indications avec des repères. Suivez les zones nommées et demandez au personnel si le chemin n’est pas clair.',
+      'Un autre itinéraire vérifié est disponible. Cette option offre les indications les plus claires disponibles.',
       (destination, connection) => `Continuez vers ${destination} via ${connection}.`,
     ],
     place: [
@@ -298,6 +310,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Zwischen diesen Orten ist keine geprüfte barrierefreie Route verfügbar.',
       'Zwischen diesen Orten ist keine geprüfte Route verfügbar.',
       'Verwendet nur als barrierefrei markierte Verbindungen. Klären Sie wichtige Zugangsbedürfnisse mit dem Personal.',
+      'Vom Veranstaltungsort geprüfte Route',
+      'Einige Schritte enthalten keine Orientierungspunkte. Folgen Sie den benannten Bereichen und fragen Sie das Personal, wenn der Weg unklar ist.',
+      'Eine weitere geprüfte Route ist verfügbar. Diese Option bietet die klarsten verfügbaren Schrittangaben.',
       (destination, connection) => `Weiter zu ${destination} über ${connection}.`,
     ],
     place: [
@@ -356,6 +371,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Non è disponibile un percorso accessibile verificato tra questi luoghi.',
       'Non è disponibile un percorso verificato tra questi luoghi.',
       'Usa solo collegamenti contrassegnati come accessibili. Conferma le esigenze importanti con il personale.',
+      'Percorso verificato dalla struttura',
+      'Alcuni passaggi non includono indicazioni con punti di riferimento. Segui le aree indicate e chiedi al personale se il percorso non è chiaro.',
+      'È disponibile un altro percorso verificato. Questa opzione offre le indicazioni più chiare disponibili.',
       (destination, connection) => `Prosegui verso ${destination} tramite ${connection}.`,
     ],
     place: [
@@ -414,6 +432,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'Não há uma rota acessível revisada entre esses locais.',
       'Não há uma rota revisada entre esses locais.',
       'Usa somente conexões marcadas como acessíveis. Confirme necessidades importantes de acesso com a equipe.',
+      'Rota revisada pelo local',
+      'Algumas etapas não têm orientações por pontos de referência. Siga as áreas indicadas e pergunte à equipe se o caminho não estiver claro.',
+      'Há outra rota revisada disponível. Esta opção oferece as orientações mais claras disponíveis.',
       (destination, connection) => `Continue até ${destination} por ${connection}.`,
     ],
     place: [
@@ -472,6 +493,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       '这些地点之间没有经过审核的无障碍路线。',
       '这些地点之间没有经过审核的路线。',
       '仅使用场所标记为无障碍的连接。重要的无障碍需求请向工作人员确认。',
+      '场所已审核路线',
+      '部分步骤没有地标指引。请按所列区域前行；如果路线不清楚，请询问工作人员。',
+      '另有一条已审核路线可用。此选项提供现有最清晰的分步指引。',
       (destination, connection) => `经由${connection}继续前往${destination}。`,
     ],
     place: [
@@ -530,6 +554,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'この2地点間には確認済みのバリアフリールートがありません。',
       'この2地点間には確認済みのルートがありません。',
       '施設がバリアフリーと表示した経路のみを使います。重要な要件はスタッフに確認してください。',
+      '施設確認済みのルート',
+      '一部の手順には目印を使った案内がありません。表示されたエリアをたどり、経路が不明な場合はスタッフに確認してください。',
+      '別の確認済みルートもあります。この案内は利用可能な中で最も明確な手順を示しています。',
       (destination, connection) => `${connection}を通って${destination}へ進みます。`,
     ],
     place: [
@@ -588,6 +615,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       '이 장소들 사이에 검토된 접근 가능 경로가 없습니다.',
       '이 장소들 사이에 검토된 경로가 없습니다.',
       '시설이 접근 가능으로 표시한 연결만 사용합니다. 중요한 요구 사항은 직원에게 확인하세요.',
+      '시설 검토 경로',
+      '일부 단계에는 랜드마크 안내가 없습니다. 표시된 구역을 따라가고 경로가 불분명하면 직원에게 문의하세요.',
+      '다른 검토된 경로도 있습니다. 이 옵션은 이용 가능한 단계 안내 중 가장 명확한 안내를 제공합니다.',
       (destination, connection) => `${connection}을(를) 통해 ${destination}(으)로 이동하세요.`,
     ],
     place: [
@@ -646,6 +676,9 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
       'لا يوجد مسار ميسّر ومراجع بين هذين الموقعين.',
       'لا يوجد مسار مراجع بين هذين الموقعين.',
       'يستخدم فقط الوصلات المحددة بأنها ميسّرة. أكّد احتياجات الوصول المهمة مع الطاقم.',
+      'مسار راجعه المكان',
+      'لا تتضمن بعض الخطوات إرشادات بالمعالم. اتبع أسماء المناطق واسأل الطاقم إذا لم يكن المسار واضحًا.',
+      'يتوفر مسار آخر مراجع. يعرض هذا الخيار أوضح إرشادات متاحة للخطوات.',
       (destination, connection) => `تابع إلى ${destination} عبر ${connection}.`,
     ],
     place: [

@@ -131,6 +131,7 @@ describe('public structured location resolver', () => {
         bidirectional: true,
         accessible: false,
         directions: 'Continue upstairs.',
+        verifiedAt: new Date('2026-08-18T12:00:00Z'),
       },
       {
         id: 'connection-alpha-1',
@@ -140,6 +141,7 @@ describe('public structured location resolver', () => {
         bidirectional: true,
         accessible: true,
         directions: 'Take Alpha hall.',
+        verifiedAt: new Date('2026-08-17T12:00:00Z'),
       },
       {
         id: 'connection-beta-1',
@@ -149,6 +151,7 @@ describe('public structured location resolver', () => {
         bidirectional: true,
         accessible: true,
         directions: 'Take Beta hall.',
+        verifiedAt: new Date('2026-08-19T12:00:00Z'),
       },
       {
         id: 'connection-alpha-2',
@@ -157,7 +160,8 @@ describe('public structured location resolver', () => {
         kind: 'ELEVATOR',
         bidirectional: true,
         accessible: true,
-        directions: 'Use the elevator.',
+        directions: null,
+        verifiedAt: new Date('2026-08-20T12:00:00Z'),
       },
     ])
 
@@ -167,9 +171,16 @@ describe('public structured location resolver', () => {
       to: { stableKey: 'gallery' },
       accessibleOnly: false,
       segmentCount: 2,
+      describedSegmentCount: 2,
+      guidanceConfidence: 'HIGH',
+      hasEquivalentRoute: true,
+      review: {
+        status: 'VENUE_REVIEWED',
+        reviewedAt: new Date('2026-08-18T12:00:00Z'),
+      },
       segments: [
-        { connectionId: 'connection-alpha-1', to: { stableKey: 'alpha-hall' } },
-        { connectionId: 'connection-alpha-2', to: { stableKey: 'gallery' } },
+        { connectionId: 'connection-beta-1', to: { stableKey: 'beta-hall' } },
+        { connectionId: 'connection-beta-2', to: { stableKey: 'gallery' } },
       ],
     })
   })
@@ -209,6 +220,7 @@ describe('public structured location resolver', () => {
         bidirectional: true,
         accessible: true,
         directions: null,
+        verifiedAt: new Date('2026-08-18T12:00:00Z'),
       },
       {
         id: 'connection-alpha-2',
@@ -218,15 +230,34 @@ describe('public structured location resolver', () => {
         bidirectional: true,
         accessible: true,
         directions: null,
+        verifiedAt: new Date('2026-08-17T12:00:00Z'),
       },
     ])
 
     const result = await caller.location.route({ ...routeInput, accessibleOnly: true })
     expect(result.segmentCount).toBe(2)
+    expect(result).toMatchObject({
+      describedSegmentCount: 0,
+      guidanceConfidence: 'LIMITED',
+      hasEquivalentRoute: false,
+      review: { status: 'VENUE_REVIEWED', reviewedAt: new Date('2026-08-17T12:00:00Z') },
+    })
     expect(result.segments.every((segment) => segment.accessible)).toBe(true)
     expect(connectionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ accessible: true }) }),
     )
+  })
+
+  it('rejects identical route endpoints before loading connections', async () => {
+    findMany.mockResolvedValue(locations)
+
+    await expect(
+      caller.location.route({
+        ...routeInput,
+        toLocationId: routeInput.fromLocationId,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(connectionFindMany).not.toHaveBeenCalled()
   })
 
   it('respects one-way connections and reveals no private endpoint existence', async () => {
@@ -240,6 +271,7 @@ describe('public structured location resolver', () => {
         bidirectional: false,
         accessible: true,
         directions: 'Outbound shuttle only.',
+        verifiedAt: new Date('2026-08-19T12:00:00Z'),
       },
     ])
 

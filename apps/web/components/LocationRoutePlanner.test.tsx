@@ -46,6 +46,10 @@ describe('LocationRoutePlanner', () => {
       to: locations[1],
       accessibleOnly: true,
       segmentCount: 1,
+      describedSegmentCount: 1,
+      guidanceConfidence: 'HIGH',
+      hasEquivalentRoute: false,
+      review: { status: 'VENUE_REVIEWED', reviewedAt: new Date('2026-08-19T12:00:00Z') },
       segments: [
         {
           connectionId: 'lift-1',
@@ -76,6 +80,7 @@ describe('LocationRoutePlanner', () => {
 
     await screen.findByText('Take the lift to the upper floor.')
     expect(screen.getByText('Main entrance to Sky gallery')).toBeTruthy()
+    expect(screen.getByText('Venue-reviewed route')).toBeTruthy()
     expect(routeQuery).toHaveBeenCalledWith({
       venueId: 'venue-1',
       anonymousToken: '123e4567-e89b-42d3-a456-426614174000',
@@ -140,6 +145,10 @@ describe('LocationRoutePlanner', () => {
       to: locations[1],
       accessibleOnly: false,
       segmentCount: 1,
+      describedSegmentCount: 0,
+      guidanceConfidence: 'LIMITED',
+      hasEquivalentRoute: true,
+      review: { status: 'VENUE_REVIEWED', reviewedAt: new Date('2026-08-19T12:00:00Z') },
       segments: [
         {
           connectionId: 'lift-1',
@@ -162,6 +171,9 @@ describe('LocationRoutePlanner', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'ルートを計画' }))
     fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }))
     expect(await screen.findByText('elevatorを通ってSky galleryへ進みます。')).toBeTruthy()
+    expect(screen.getByText('施設確認済みのルート')).toBeTruthy()
+    expect(screen.getByText(/一部の手順には目印を使った案内がありません/)).toBeTruthy()
+    expect(screen.getByText(/別の確認済みルートもあります/)).toBeTruthy()
   })
 
   it('has no automated accessibility violations in the expanded route form', async () => {

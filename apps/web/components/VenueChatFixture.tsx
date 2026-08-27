@@ -65,6 +65,13 @@ const FIXTURE_ROUTE_SOURCE = {
     },
     accessibleOnly: input.accessibleOnly,
     segmentCount: 2,
+    describedSegmentCount: 2,
+    guidanceConfidence: 'HIGH' as const,
+    hasEquivalentRoute: true,
+    review: {
+      status: 'VENUE_REVIEWED' as const,
+      reviewedAt: new Date('2026-08-19T12:00:00Z'),
+    },
     segments: [
       {
         connectionId: 'fixture-lobby-walkway',

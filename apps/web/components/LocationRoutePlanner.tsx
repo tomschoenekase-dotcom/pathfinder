@@ -55,6 +55,9 @@ export function LocationRoutePlanner({
     noAccessibleRouteMessage,
     noRouteMessage,
     accessibleNote,
+    reviewedRouteLabel,
+    partialGuidanceMessage,
+    equivalentRouteMessage,
     continueTo,
   ] = copy
   const presentation = getChatLanguagePresentation(language)
@@ -148,7 +151,7 @@ export function LocationRoutePlanner({
       </button>
       {expanded ? (
         <form
-          className="max-h-[min(24rem,45svh)] overflow-y-auto border-t border-[var(--chat-border)] px-4 pb-4 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
+          className="max-h-[min(36rem,70svh)] overflow-y-auto border-t border-[var(--chat-border)] px-4 pb-4 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
           onSubmit={handleSubmit}
         >
           <div className="grid gap-3 sm:grid-cols-2">
@@ -227,8 +230,19 @@ export function LocationRoutePlanner({
                   ? `${route.from.displayName} to ${route.to.displayName}`
                   : `${route.from.displayName} → ${route.to.displayName}`}
               </p>
+              <p className="mt-1 text-xs text-[var(--chat-text-muted)]">{reviewedRouteLabel}</p>
               {route.accessibleOnly ? (
                 <p className="mt-1 text-xs text-[var(--chat-text-muted)]">{accessibleNote}</p>
+              ) : null}
+              {route.guidanceConfidence === 'LIMITED' ? (
+                <p className="mt-2 text-sm text-[var(--chat-text)]" role="status">
+                  {partialGuidanceMessage}
+                </p>
+              ) : null}
+              {route.hasEquivalentRoute ? (
+                <p className="mt-2 text-xs text-[var(--chat-text-muted)]">
+                  {equivalentRouteMessage}
+                </p>
               ) : null}
               <ol className="mt-3 space-y-2">
                 {route.segments.map((segment, index) => (
