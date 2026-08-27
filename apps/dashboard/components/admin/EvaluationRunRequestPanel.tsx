@@ -47,6 +47,15 @@ const EVALUATION_MODEL_CANDIDATES = [
   },
 ] as const
 type EvaluationModelKey = (typeof EVALUATION_MODEL_CANDIDATES)[number]['key']
+const CORE_ONBOARDING_CASE_KEYS = new Set([
+  'onboarding-fact-reviewable-package',
+  'onboarding-navigation-reviewable-package',
+  'onboarding-accessibility-reviewable-package',
+  'onboarding-safety-reviewable-package',
+  'onboarding-multilingual-reviewable-package',
+  'onboarding-adversarial-reviewable-package',
+  'onboarding-unanswerable-reviewable-package',
+])
 
 export function evaluationBudgetToE8Usd(value: string): string | null {
   if (!/^(?:0|1)(?:\.\d{0,8})?$/u.test(value) || Number(value) > 1) return null
@@ -103,6 +112,23 @@ export function EvaluationRunRequestPanel(props: {
     ...cases
       .filter(
         (item) =>
+          CORE_ONBOARDING_CASE_KEYS.has(item.caseKey) &&
+          item.sourceType === 'ONBOARDING_REVIEWABLE_PACKAGE' &&
+          expectedSourceRef !== null &&
+          item.sourceRef === expectedSourceRef,
+      )
+      .reduce((latest, item) => {
+        const prior = latest.get(item.caseKey)
+        if (!prior || item.revision > prior.revision) latest.set(item.caseKey, item)
+        return latest
+      }, new Map<string, EvaluationCaseListItem>())
+      .values(),
+  ]
+  const latestLaunchLanguageCases = [
+    ...cases
+      .filter(
+        (item) =>
+          item.caseKey.startsWith('onboarding-language-') &&
           item.sourceType === 'ONBOARDING_REVIEWABLE_PACKAGE' &&
           expectedSourceRef !== null &&
           item.sourceRef === expectedSourceRef,
@@ -284,18 +310,35 @@ export function EvaluationRunRequestPanel(props: {
           </legend>
           {reviewablePackageId ? (
             <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
-              <button
-                type="button"
-                onClick={() => setSelected(new Set(latestOnboardingCases.map((item) => item.id)))}
-                disabled={latestOnboardingCases.length !== 7}
-                className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Select seven onboarding cases
-              </button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(latestOnboardingCases.map((item) => item.id)))}
+                  disabled={latestOnboardingCases.length !== 7}
+                  className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Select seven onboarding cases
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelected(new Set(latestLaunchLanguageCases.map((item) => item.id)))
+                  }
+                  disabled={latestLaunchLanguageCases.length !== 20}
+                  className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Select 20 launch-language cases
+                </button>
+              </div>
               <p className="mt-1 text-xs text-sky-950/75">
                 {latestOnboardingCases.length === 7
                   ? 'Selects only the latest immutable revision tied to this exact package hash.'
                   : `${latestOnboardingCases.length} of 7 exact-package cases are ready. Prepare the suite above before requesting a run.`}
+              </p>
+              <p className="mt-1 text-xs text-sky-950/75">
+                {latestLaunchLanguageCases.length === 20
+                  ? 'Selects paired grounded and honest-fallback cases for all ten launch languages.'
+                  : `${latestLaunchLanguageCases.length} of 20 exact-package language cases are ready. Prepare the language suite above before requesting a run.`}
               </p>
             </div>
           ) : null}
@@ -320,7 +363,7 @@ export function EvaluationRunRequestPanel(props: {
               />
               <span>
                 <span className="block text-sm font-semibold text-pf-deep">{item.caseKey}</span>
-                <span className="text-xs text-pf-deep/60">
+                <span className="text-xs text-pf-deep/70">
                   {item.category} · revision {item.revision}
                 </span>
               </span>
@@ -359,7 +402,7 @@ export function EvaluationRunRequestPanel(props: {
           ))}
         </select>
       </label>
-      <p className="mt-2 text-xs text-pf-deep/55">
+      <p className="mt-2 text-xs text-pf-deep/70">
         Package QA can target the exact validated DRAFT before approval. Live content is retained
         for legacy operational evaluations.
       </p>
@@ -371,7 +414,7 @@ export function EvaluationRunRequestPanel(props: {
       >
         Check current source coverage
       </button>
-      <p className="mt-2 text-xs text-pf-deep/55">
+      <p className="mt-2 text-xs text-pf-deep/70">
         Provider-free lexical evidence for the current live content only. It does not judge semantic
         support, set a threshold, pass a case, or approve a release.
       </p>
@@ -419,7 +462,7 @@ export function EvaluationRunRequestPanel(props: {
           ))}
         </select>
       </label>
-      <p className="mt-2 text-xs text-pf-deep/55">
+      <p className="mt-2 text-xs text-pf-deep/70">
         The request freezes the exact server-registered model specification. Arbitrary provider or
         model names are not accepted.
       </p>
@@ -447,7 +490,7 @@ export function EvaluationRunRequestPanel(props: {
           {message}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-pf-deep/55">
+      <p className="mt-3 text-xs text-pf-deep/70">
         A request freezes identities and queues evaluation work only. It does not publish or change
         venue content.
       </p>

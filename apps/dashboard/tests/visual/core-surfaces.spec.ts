@@ -149,6 +149,29 @@ test('remote onboarding questions remain clear and keyboard reachable', async ({
   expect(runtimeErrors).toEqual([])
 })
 
+test('launch-language evaluation preparation stays bounded and responsive', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/evaluation-language-suite`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(page.locator('[data-fixture="evaluation-language-suite"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Launch-language QA' })).toBeVisible()
+  const prepare = page.getByRole('button', { name: 'Prepare 20 language cases' })
+  await prepare.focus()
+  await expect(prepare).toBeFocused()
+  const select = page.getByRole('button', { name: 'Select 20 launch-language cases' })
+  await select.click()
+  await expect(page.getByText('Cases (20/50)')).toBeVisible()
+  await expect(page.getByText(/does not run AI, spend a budget, publish content/)).toBeVisible()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'launch-language-evaluation-suite')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('Founder Control Room shell is responsive and restores mobile navigation focus', async ({
   page,
 }, testInfo) => {

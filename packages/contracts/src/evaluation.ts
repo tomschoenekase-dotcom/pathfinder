@@ -38,6 +38,7 @@ export const EvalIntentSchema = z.enum([
   'amenity',
   'availability',
   'directions',
+  'general-information',
   'policy',
   'privacy',
   'recommendation',

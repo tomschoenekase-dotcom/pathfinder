@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
 import {
+  buildLaunchLanguageEvaluationSuite,
   buildOnboardingEvaluationSuite,
+  LAUNCH_LANGUAGE_EVALUATION_SUITE_VERSION,
   ONBOARDING_EVALUATION_SUITE_VERSION,
 } from '@pathfinder/contracts'
 import {
@@ -24,6 +26,7 @@ export const adminEvaluationOnboardingActionsRouter = router({
         tenantId: z.string().min(1),
         venueId: z.string().min(1),
         packageId: z.string().min(1).max(191),
+        suite: z.enum(['CORE', 'LAUNCH_LANGUAGES']).default('CORE'),
       }),
     )
     .mutation(async ({ input, ctx }) =>
@@ -48,7 +51,10 @@ export const adminEvaluationOnboardingActionsRouter = router({
             venueId: input.venueId,
             packageId: input.packageId,
           })
-          const suite = buildOnboardingEvaluationSuite(reviewed.preview)
+          const suite =
+            input.suite === 'LAUNCH_LANGUAGES'
+              ? buildLaunchLanguageEvaluationSuite(reviewed.preview)
+              : buildOnboardingEvaluationSuite(reviewed.preview)
           const caseKeys = suite.map(({ evalCase }) => evalCase.caseId)
           const existing = await tx.evalCase.findMany({
             where: {
@@ -113,7 +119,10 @@ export const adminEvaluationOnboardingActionsRouter = router({
               payloadHash: pkg.payloadHash,
               baseDigest: pkg.baseDigest,
             },
-            suiteVersion: ONBOARDING_EVALUATION_SUITE_VERSION,
+            suiteVersion:
+              input.suite === 'LAUNCH_LANGUAGES'
+                ? LAUNCH_LANGUAGE_EVALUATION_SUITE_VERSION
+                : ONBOARDING_EVALUATION_SUITE_VERSION,
             cases: prepared,
           }
         }),

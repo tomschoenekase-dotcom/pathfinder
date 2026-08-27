@@ -351,6 +351,66 @@ describe('admin evaluation operations router', () => {
     )
   })
 
+  it('prepares paired grounded and fallback cases for every launch language', async () => {
+    mocks.venuePackageFind.mockResolvedValue({
+      id: 'package_1',
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      status: 'DRAFT',
+    })
+    mocks.caseFindMany.mockResolvedValue([])
+    mocks.loadReviewablePreview.mockResolvedValue({
+      preview: {
+        venue: { id: 'venue_1', name: 'Test Venue' },
+        package: {
+          id: 'package_1',
+          status: 'DRAFT',
+          payloadHash: 'a'.repeat(64),
+          baseDigest: 'b'.repeat(64),
+          evidenceAt: '2026-08-24T12:00:00.000Z',
+        },
+        experience: { places: [{ name: 'Lobby' }], knowledgeEntries: [] },
+      },
+    })
+    mocks.createCase.mockImplementation(async ({ caseId, identity }) => ({
+      evalCase: {
+        id: caseId,
+        caseKey: identity.caseKey,
+        revision: identity.revision,
+        category: identity.category,
+      },
+      replayed: false,
+    }))
+
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.prepareOnboardingEvaluationSuite({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        suite: 'LAUNCH_LANGUAGES',
+      })
+
+    expect(result.suiteVersion).toBe('torchiko-launch-language-evaluation-suite-v1')
+    expect(result.cases).toHaveLength(20)
+    expect(
+      result.cases.filter((item) => item.dimension === 'launch-language-grounded'),
+    ).toHaveLength(10)
+    expect(
+      result.cases.filter((item) => item.dimension === 'launch-language-fallback'),
+    ).toHaveLength(10)
+    expect(mocks.createCase).toHaveBeenCalledTimes(20)
+    expect(mocks.createCase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          caseKey: 'onboarding-language-ar-fallback',
+          sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
+          sourceRef: `venue-package-review:package_1:${'a'.repeat(64)}:${'b'.repeat(64)}`,
+        }),
+      }),
+    )
+  })
+
   it('freezes server-derived identities as STAGED without publishing directly from the API', async () => {
     const caseId = '11111111-1111-4111-8111-111111111111'
     mocks.caseFindMany.mockResolvedValue([{ id: caseId, revision: 2, caseHash: 'b'.repeat(64) }])

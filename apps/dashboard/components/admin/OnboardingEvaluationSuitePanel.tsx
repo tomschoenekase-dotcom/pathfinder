@@ -34,7 +34,7 @@ export function OnboardingEvaluationSuitePanel(props: {
     submitting.current = false
   }, [props.tenantId, props.venueId, props.reviewablePackages])
 
-  async function prepare() {
+  async function prepare(suite: 'CORE' | 'LAUNCH_LANGUAGES') {
     if (!packageId || busy || submitting.current) return
     submitting.current = true
     setBusy(true)
@@ -44,10 +44,12 @@ export function OnboardingEvaluationSuitePanel(props: {
         tenantId: props.tenantId,
         venueId: props.venueId,
         packageId,
+        suite,
       })
       const created = result.cases.filter((item) => !item.replayed).length
+      const total = result.cases.length
       setMessage(
-        `Seven-dimension review suite ready for this exact package: ${created} new revision${created === 1 ? '' : 's'}, ${7 - created} exact replay${7 - created === 1 ? '' : 's'}.`,
+        `${suite === 'CORE' ? 'Seven-dimension review suite' : 'Ten-language grounded and fallback suite'} ready for this exact package: ${created} new revision${created === 1 ? '' : 's'}, ${total - created} exact replay${total - created === 1 ? '' : 's'}.`,
       )
       router.refresh()
     } catch {
@@ -101,14 +103,24 @@ export function OnboardingEvaluationSuitePanel(props: {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            onClick={prepare}
-            disabled={busy || !packageId}
-            className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {busy ? 'Preparing…' : 'Prepare seven cases'}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => prepare('CORE')}
+              disabled={busy || !packageId}
+              className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? 'Preparing…' : 'Prepare seven cases'}
+            </button>
+            <button
+              type="button"
+              onClick={() => prepare('LAUNCH_LANGUAGES')}
+              disabled={busy || !packageId}
+              className="min-h-11 rounded-xl border border-pf-primary bg-white px-5 text-sm font-semibold text-pf-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? 'Preparing…' : 'Prepare 20 language cases'}
+            </button>
+          </div>
         </div>
       )}
       {message ? (
@@ -116,9 +128,10 @@ export function OnboardingEvaluationSuitePanel(props: {
           {message}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-pf-deep/55">
+      <p className="mt-3 text-xs text-pf-deep/70">
         Preparing cases does not run AI, spend a budget, publish content, or change the client
-        package.
+        package. The language suite pairs one grounded answer and one honest fallback in each of the
+        ten supported launch languages.
       </p>
     </section>
   )

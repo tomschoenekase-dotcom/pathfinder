@@ -246,6 +246,54 @@ describe('EvaluationRunRequestPanel', () => {
         .map((candidate) => candidate.id),
     )
   })
+  it('selects exactly the paired ten-language suite tied to the chosen package hash', async () => {
+    const payloadHash = 'a'.repeat(64)
+    const baseDigest = 'b'.repeat(64)
+    const sourceRef = `venue-package-review:package_1:${payloadHash}:${baseDigest}`
+    const languages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko', 'ar']
+    const languageCases = languages.flatMap((language, languageIndex) =>
+      ['grounded', 'fallback'].map((kind, kindIndex) => ({
+        ...item,
+        id: `00000000-0000-4000-8000-${(languageIndex * 2 + kindIndex).toString().padStart(12, '0')}`,
+        caseKey: `onboarding-language-${language}-${kind}`,
+        revision: 1,
+        sourceType: 'ONBOARDING_REVIEWABLE_PACKAGE',
+        sourceRef,
+      })),
+    )
+    render(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialCases={languageCases}
+        initialNextCursor={null}
+        runnerEnabled
+        maximumCases={50}
+        reviewablePackages={[
+          {
+            id: 'package_1',
+            status: 'DRAFT',
+            payloadHash,
+            baseDigest,
+            createdAt: new Date(),
+            approvedAt: null,
+            supportHandoffs: [],
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select 20 launch-language cases' }))
+    expect(screen.getByText('Cases (20/50)')).toBeTruthy()
+    expect(screen.getByText(/0 of 7 exact-package cases are ready/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
+      caseIds: languageCases.map((candidate) => candidate.id),
+      reviewablePackageId: 'package_1',
+    })
+  })
   it('serializes double submission', async () => {
     let resolve!: (value: { enqueued: boolean }) => void
     mocks.mutate.mockReturnValue(
