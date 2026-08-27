@@ -34,6 +34,7 @@ const candidateGates = [
   ['build', ['pnpm', 'build']],
   ['client-bundle-secrets', ['pnpm', 'verify:client-bundles']],
   ['visual-browser', ['pnpm', 'test:visual-browser']],
+  ['visitor-launch-browser', ['pnpm', '--dir', 'apps/dashboard', 'test:visitor-launch-browser']],
   ['browser-foundation', ['pnpm', 'test:browser-foundation']],
   ['accessibility', ['pnpm', 'test:accessibility']],
 ]

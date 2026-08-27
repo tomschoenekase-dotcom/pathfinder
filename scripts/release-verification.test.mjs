@@ -55,6 +55,7 @@ test('candidate profile is a strict superset of static release gates', () => {
   assert.ok(candidateIds.includes('test'))
   assert.ok(candidateIds.includes('build'))
   assert.ok(candidateIds.includes('visual-browser'))
+  assert.ok(candidateIds.includes('visitor-launch-browser'))
   assert.ok(candidateIds.includes('accessibility'))
 })
 
