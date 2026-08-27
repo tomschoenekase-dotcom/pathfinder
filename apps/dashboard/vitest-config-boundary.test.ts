@@ -9,5 +9,6 @@ describe('dashboard test-runner boundary', () => {
     expect(config).toContain("'tests/browser/**'")
     expect(config).toContain("'tests/visual/**'")
     expect(config).toContain("'tests/visitor-launch/**'")
+    expect(config).toContain("'tests/visitor-performance/**'")
   })
 })
