@@ -76,8 +76,12 @@ export function AdminChatlogNoteForm({
 
   return (
     <div className="space-y-4">
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} className="space-y-3" aria-busy={pending}>
+        <label htmlFor="admin-chatlog-note" className="sr-only">
+          Private admin note
+        </label>
         <textarea
+          id="admin-chatlog-note"
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={4}
@@ -91,7 +95,11 @@ export function AdminChatlogNoteForm({
         >
           {pending ? 'Saving...' : 'Add note'}
         </button>
-        {errorMessage ? <p className="text-sm text-rose-600">{errorMessage}</p> : null}
+        {errorMessage ? (
+          <p className="text-sm text-rose-600" role="alert" aria-atomic="true">
+            {errorMessage}
+          </p>
+        ) : null}
       </form>
 
       <div className="space-y-3">

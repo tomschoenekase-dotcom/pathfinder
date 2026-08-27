@@ -48,6 +48,7 @@ export function AdminChatlogNotableToggle({
       <button
         type="button"
         disabled={pending}
+        aria-pressed={isNotable}
         onClick={() => {
           void handleClick()
         }}
@@ -55,7 +56,11 @@ export function AdminChatlogNotableToggle({
       >
         {pending ? 'Saving...' : isNotable ? 'Unmark notable' : 'Mark notable'}
       </button>
-      {errorMessage ? <p className="text-sm text-rose-600">{errorMessage}</p> : null}
+      {errorMessage ? (
+        <p className="text-sm text-rose-600" role="alert" aria-atomic="true">
+          {errorMessage}
+        </p>
+      ) : null}
     </div>
   )
 }

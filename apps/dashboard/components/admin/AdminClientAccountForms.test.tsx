@@ -74,8 +74,35 @@ describe('platform client account forms', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Set Suspended' }))
-    expect(await screen.findByText(/Client account changed/)).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Client account changed/)
     expect(screen.queryByText(/updated to suspended/)).toBeNull()
+  })
+
+  it('announces successful account changes and names each control group', async () => {
+    render(
+      <>
+        <AdminClientStatusForm
+          tenantId="tenant-1"
+          currentStatus="ACTIVE"
+          expectedUpdatedAt={revision}
+        />
+        <AdminClientPlanForm
+          tenantId="tenant-1"
+          currentPlanTier="free"
+          expectedUpdatedAt={revision}
+        />
+      </>,
+    )
+    expect(screen.getByRole('group', { name: 'Client status' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Client plan' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Set Suspended' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pro' }))
+    const statuses = await screen.findAllByRole('status')
+    expect(statuses.map((status) => status.textContent)).toEqual([
+      'Client status updated to suspended.',
+      'Plan updated to pro.',
+    ])
+    expect(statuses.every((status) => status.getAttribute('aria-atomic') === 'true')).toBe(true)
   })
 
   it('synchronously fences same-tick duplicate status and plan clicks', () => {
