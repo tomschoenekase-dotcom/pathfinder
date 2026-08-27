@@ -25,6 +25,14 @@ describe('LocationBanner', () => {
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 
+  it('keeps location guidance at the hosted visitor contrast floor', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
+
+    expect(screen.getByText(/General questions work without it/i).className).toContain(
+      'text-pf-deep/70',
+    )
+  })
+
   it('uses the selected language and direction for location consent', () => {
     render(<LocationBanner permission="prompt" onRefresh={vi.fn()} language="العربية" />)
 

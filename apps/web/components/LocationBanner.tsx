@@ -74,7 +74,7 @@ export function LocationBanner({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-pf-deep">{content.title}</p>
-          <p className="mt-1 text-sm leading-6 text-pf-deep/60">{content.description}</p>
+          <p className="mt-1 text-sm leading-6 text-pf-deep/70">{content.description}</p>
         </div>
         <button
           className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-300 bg-pf-white px-4 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
