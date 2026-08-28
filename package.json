@@ -11,6 +11,7 @@
     "test:accessibility": "node scripts/run-packet-2-accessibility.mjs",
     "test:browser-foundation": "node scripts/run-packet-2-browser-foundation.mjs",
     "test:billing-browser": "pnpm --dir apps/dashboard test:billing-browser",
+    "test:qr-resilience": "pnpm --dir apps/dashboard exec vitest run components/VenueQrKit.decode.test.tsx",
     "test:visual-browser": "pnpm --dir apps/dashboard test:visual-browser",
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",

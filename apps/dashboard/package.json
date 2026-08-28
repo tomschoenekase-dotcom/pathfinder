@@ -50,6 +50,8 @@
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "axe-core": "4.11.2",
-    "jsdom": "^26.1.0"
+    "jsqr": "1.4.0",
+    "jsdom": "^26.1.0",
+    "sharp": "0.35.3"
   }
 }
