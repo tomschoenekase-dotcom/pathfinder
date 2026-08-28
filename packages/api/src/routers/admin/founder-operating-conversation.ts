@@ -34,6 +34,7 @@ export type FounderConversationSource = {
       criticalRisks: number
       workingAgents: number
       customerItems: number
+      actionItems: number
     }
     boundedSnapshot: { limit: number; hasMore: boolean }
     reviewState: {
@@ -43,6 +44,7 @@ export type FounderConversationSource = {
         completedAgents: number
         outcomes: number
         customerItems: number
+        attentionItems: number
       }
       changeDigest: {
         items: Array<{

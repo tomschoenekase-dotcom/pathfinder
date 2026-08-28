@@ -246,7 +246,13 @@ const empty: Data = {
         venueId: null,
       },
     },
-    metrics: { decisions: 0, criticalRisks: 0, workingAgents: 0, customerItems: 0 },
+    metrics: {
+      decisions: 0,
+      criticalRisks: 0,
+      workingAgents: 0,
+      customerItems: 0,
+      actionItems: 0,
+    },
     boundedSnapshot: { limit: 10, hasMore: false },
     reviewState: {
       lastReviewedThrough: null,
@@ -256,6 +262,7 @@ const empty: Data = {
         completedAgents: 0,
         outcomes: 0,
         customerItems: 0,
+        attentionItems: 0,
       },
       changeDigest: { limit: 5, visibleCount: 0, mayHaveMore: false, items: [] },
       hasUnreviewedChanges: false,

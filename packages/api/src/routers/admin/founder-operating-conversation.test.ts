@@ -24,7 +24,13 @@ function fixture(): FounderConversationSource {
           venueId: 'venue_1',
         },
       },
-      metrics: { decisions: 2, criticalRisks: 1, workingAgents: 1, customerItems: 1 },
+      metrics: {
+        decisions: 2,
+        criticalRisks: 1,
+        workingAgents: 1,
+        customerItems: 1,
+        actionItems: 2,
+      },
       boundedSnapshot: { limit: 10, hasMore: false },
       reviewState: {
         changesSinceLastReview: {
@@ -33,6 +39,7 @@ function fixture(): FounderConversationSource {
           completedAgents: 1,
           outcomes: 1,
           customerItems: 1,
+          attentionItems: 1,
         },
         changeDigest: {
           mayHaveMore: false,

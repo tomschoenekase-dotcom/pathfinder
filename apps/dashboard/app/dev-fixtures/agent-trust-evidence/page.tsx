@@ -234,7 +234,7 @@ const data: Data = {
       label: 'No urgent founder action',
       title: 'The operating queues are clear.',
       detail:
-        'No critical risk, blocking question, pending approval, blocked run, or support item is visible in this bounded snapshot.',
+        'No critical risk, blocking question, pending approval, action-required event, blocked run, or support item is visible in this bounded snapshot.',
       action: { label: 'See what agents are doing', href: '#ai-workforce' },
       source: {
         scope: 'PLATFORM',
@@ -244,7 +244,13 @@ const data: Data = {
         venueId: null,
       },
     },
-    metrics: { decisions: 0, criticalRisks: 0, workingAgents: 0, customerItems: 0 },
+    metrics: {
+      decisions: 0,
+      criticalRisks: 0,
+      workingAgents: 0,
+      customerItems: 0,
+      actionItems: 0,
+    },
     boundedSnapshot: { limit: 12, hasMore: true },
     reviewState: {
       lastReviewedThrough: new Date('2026-08-22T19:00:00.000Z'),
@@ -254,6 +260,7 @@ const data: Data = {
         completedAgents: 2,
         outcomes: 3,
         customerItems: 0,
+        attentionItems: 0,
       },
       changeDigest: { limit: 5, visibleCount: 0, mayHaveMore: false, items: [] },
       hasUnreviewedChanges: true,

@@ -282,6 +282,10 @@ test('Founder trust evidence remains readable and truthful across real browser w
   await expect(page.getByText('Canonical rollbacks')).toBeVisible()
   await expect(page.getByText('Policy violations')).toBeVisible()
   await expect(page.getByText('Confidence pairs')).toBeVisible()
+  await expect(page.getByText('Action items', { exact: true })).toHaveCount(2)
+  await expect(
+    page.getByText(/No critical risk, blocking question, pending approval, action-required event/),
+  ).toBeVisible()
   await expect(
     page.getByText(/No reliability score, trend claim, or permission change is inferred/),
   ).toBeVisible()

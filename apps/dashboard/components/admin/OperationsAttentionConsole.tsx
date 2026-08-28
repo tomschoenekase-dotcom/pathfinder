@@ -289,12 +289,13 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             </p>
           </div>
 
-          <dl className="grid grid-cols-2 gap-2 lg:w-80">
+          <dl className="grid grid-cols-2 gap-2 lg:w-96">
             {[
               ['Decisions', metrics.decisions],
               ['Critical risk', metrics.criticalRisks],
               ['Working agents', metrics.workingAgents],
               ['Customer items', metrics.customerItems],
+              ['Action items', metrics.actionItems],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900 p-3">
                 <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
@@ -319,13 +320,14 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                 Counts reflect this bounded briefing snapshot, not an exhaustive historical audit.
               </p>
             </div>
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[34rem]">
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:min-w-[38rem] lg:grid-cols-6">
               {[
                 ['Critical', reviewChanges.criticalRisks],
                 ['Decisions', reviewChanges.decisions],
                 ['Completed', reviewChanges.completedAgents],
                 ['Outcomes', reviewChanges.outcomes],
                 ['Customer', reviewChanges.customerItems],
+                ['Action items', reviewChanges.attentionItems],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-slate-700 bg-slate-950 p-3">
                   <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">

@@ -149,6 +149,169 @@ describe('founder briefing contract', () => {
     })
   })
 
+  it('keeps non-critical action-required company and customer work out of the clear state', () => {
+    const value = input()
+    value.events = page([
+      {
+        id: 'learning_event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'customer-learning.first-week-draft-ready',
+        severity: 'INFO',
+        title: 'Day three customer check-in draft',
+        summary: 'Low-confidence visitor signals produced a bounded review draft.',
+        recommendedAction: 'Review the aggregate evidence and edit or discard the draft.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:02:00.000Z'),
+      },
+      {
+        id: 'payment_event_1',
+        tenantId: 'tenant_1',
+        venueId: null,
+        eventType: 'billing.payment-failed',
+        severity: 'WARNING',
+        title: 'Subscription payment failed',
+        summary: 'A verified test-mode payment event needs review.',
+        recommendedAction: 'Review the billing account and reconcile.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
+      },
+    ])
+    value.platformEvents = page([
+      {
+        id: 'reply_event_1',
+        eventType: 'crm.reply.received',
+        severity: 'INFO',
+        title: 'Prospect reply received',
+        summary: 'A matched inbound reply paused automatic follow-up.',
+        recommendedAction: 'Review the matched thread and resulting follow-up hold.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:01:00.000Z'),
+      },
+    ])
+
+    expect(deriveFounderBriefing(value)).toMatchObject({
+      focus: {
+        kind: 'CUSTOMER_ATTENTION',
+        urgency: 'HIGH',
+        label: 'Customer payment',
+        title: 'Subscription payment failed',
+        action: { href: '/admin/clients/tenant_1' },
+      },
+      metrics: { criticalRisks: 0, actionItems: 3 },
+      reviewState: { changesSinceLastReview: { attentionItems: 3 } },
+    })
+
+    value.events = page([value.events.items[0]!])
+    expect(deriveFounderBriefing(value).focus).toMatchObject({
+      kind: 'PLATFORM_ATTENTION',
+      urgency: 'HIGH',
+      label: 'Prospect reply',
+      action: { href: '/admin/prospects' },
+    })
+
+    value.platformEvents = page([])
+    expect(deriveFounderBriefing(value).focus).toMatchObject({
+      kind: 'CUSTOMER_ATTENTION',
+      urgency: 'NORMAL',
+      label: 'Customer learning',
+      action: { href: '/admin/clients/tenant_1/analytics#first-week-reviews' },
+    })
+  })
+
+  it('covers the packet seven-signal Founder Control Room acceptance priority', () => {
+    const value = input()
+    value.events = page([
+      {
+        id: 'venue_health',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Venue chat health issue',
+        summary: 'Visitor turns are failing.',
+        recommendedAction: 'Review affected turns.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:07:00.000Z'),
+      },
+      {
+        id: 'cost_anomaly',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'ai-cost-budget.request-denied',
+        severity: 'ERROR',
+        title: 'Cost protection stopped a request',
+        summary: 'A bounded reservation exceeded its limit.',
+        recommendedAction: 'Review cost evidence.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:06:00.000Z'),
+      },
+      {
+        id: 'payment_failure',
+        tenantId: 'tenant_1',
+        venueId: null,
+        eventType: 'billing.payment-failed',
+        severity: 'WARNING',
+        title: 'Subscription payment failed',
+        summary: 'Payment recovery needs review.',
+        recommendedAction: 'Review the billing account.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:05:00.000Z'),
+      },
+      {
+        id: 'visitor_learning',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'customer-learning.first-week-draft-ready',
+        severity: 'INFO',
+        title: 'Low-confidence visitor cluster',
+        summary: 'Aggregate visitor signals produced a review draft.',
+        recommendedAction: 'Review the aggregate evidence.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:04:00.000Z'),
+      },
+    ])
+    value.platformEvents = page([
+      {
+        id: 'prospect_reply',
+        eventType: 'crm.reply.received',
+        severity: 'INFO',
+        title: 'Positive prospect reply received',
+        summary: 'A matched reply paused follow-up.',
+        recommendedAction: 'Review the matched thread.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:03:00.000Z'),
+      },
+    ])
+    value.questions = page([
+      {
+        id: 'builder_question',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        question: 'Which official source controls the venue hours?',
+        context: 'Two cited sources conflict.',
+        blocking: true,
+        agentIdentity: { name: 'Venue Builder' },
+        createdAt: new Date('2026-08-22T12:02:00.000Z'),
+      },
+    ])
+    value.blockedAgents = page([
+      {
+        id: 'worker_failure',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestedOperation: 'Reconcile venue knowledge',
+        status: 'FAILED',
+        agentIdentity: { name: 'Venue Updater' },
+      },
+    ])
+
+    const result = deriveFounderBriefing(value)
+    expect(result.focus).toMatchObject({ kind: 'CUSTOMER_RISK', title: 'Venue chat health issue' })
+    expect(result.metrics).toMatchObject({ criticalRisks: 2, decisions: 1, actionItems: 5 })
+    expect(result.boundedSnapshot.hasMore).toBe(false)
+  })
+
   it('orders question, approval, blocked work, and support fallback classes deterministically', () => {
     const value = input()
     value.questions = page([

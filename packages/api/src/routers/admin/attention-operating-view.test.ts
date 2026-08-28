@@ -27,7 +27,13 @@ describe('founder operating view', () => {
             venueId: 'venue_1',
           },
         },
-        metrics: { decisions: 1, criticalRisks: 0, workingAgents: 2, customerItems: 0 },
+        metrics: {
+          decisions: 1,
+          criticalRisks: 0,
+          workingAgents: 2,
+          customerItems: 0,
+          actionItems: 1,
+        },
         boundedSnapshot: { limit: 10, hasMore: false },
         reviewState: {
           lastReviewedThrough: null,
@@ -37,6 +43,7 @@ describe('founder operating view', () => {
             completedAgents: 0,
             outcomes: 1,
             customerItems: 0,
+            attentionItems: 1,
           },
           changeDigest: { limit: 5, visibleCount: 0, mayHaveMore: false, items: [] },
           hasUnreviewedChanges: true,

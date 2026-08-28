@@ -93,6 +93,8 @@ export type FounderBriefingFocus = {
   kind:
     | 'CUSTOMER_RISK'
     | 'PLATFORM_RISK'
+    | 'CUSTOMER_ATTENTION'
+    | 'PLATFORM_ATTENTION'
     | 'FOUNDER_QUESTION'
     | 'APPROVAL'
     | 'BLOCKED_WORK'
@@ -135,6 +137,8 @@ function tenantEventHref(event: TenantEvent) {
     return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
   if (event.eventType.startsWith('knowledge.proposal.'))
     return `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
+  if (event.eventType.startsWith('customer-learning.first-week-'))
+    return `/admin/clients/${event.tenantId}/analytics#first-week-reviews`
   return `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
 }
 
@@ -154,6 +158,43 @@ function tenantSource(
   return { scope: 'TENANT' as const, objectType, objectId, tenantId, venueId }
 }
 
+type ActionRequiredEvent =
+  | { scope: 'TENANT'; event: TenantEvent }
+  | { scope: 'PLATFORM'; event: PlatformEvent }
+
+function actionRequiredRank(value: ActionRequiredEvent) {
+  const { event } = value
+  if (event.eventType === 'billing.payment-failed') return 0
+  if (event.eventType === 'crm.reply.received') return 1
+  if (event.eventType.startsWith('customer-learning.first-week-')) return 2
+  if (event.severity === 'WARNING') return 3
+  return 4
+}
+
+function selectActionRequiredEvent(input: FounderBriefingInput) {
+  return [
+    ...input.events.items
+      .filter((event) => event.actionRequired && !['CRITICAL', 'ERROR'].includes(event.severity))
+      .map((event) => ({ scope: 'TENANT' as const, event })),
+    ...input.platformEvents.items
+      .filter((event) => event.actionRequired && !['CRITICAL', 'ERROR'].includes(event.severity))
+      .map((event) => ({ scope: 'PLATFORM' as const, event })),
+  ].sort((left, right) => {
+    const rank = actionRequiredRank(left) - actionRequiredRank(right)
+    if (rank !== 0) return rank
+    const recency = right.event.lastOccurredAt.getTime() - left.event.lastOccurredAt.getTime()
+    if (recency !== 0) return recency
+    return left.event.id.localeCompare(right.event.id)
+  })[0]
+}
+
+function actionRequiredLabel(event: TenantEvent | PlatformEvent) {
+  if (event.eventType === 'billing.payment-failed') return 'Customer payment'
+  if (event.eventType === 'crm.reply.received') return 'Prospect reply'
+  if (event.eventType.startsWith('customer-learning.first-week-')) return 'Customer learning'
+  return 'Operational attention'
+}
+
 export function deriveFounderBriefing(input: FounderBriefingInput) {
   const urgentTenantEvent = input.events.items.find(
     (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
@@ -163,6 +204,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
   )
   const blockingQuestion = input.questions.items.find((question) => question.blocking)
   const approval = input.approvals.items.find((item) => !item.expired)
+  const actionRequiredEvent = selectActionRequiredEvent(input)
   const blockedRun = input.blockedAgents.items[0]
   const support = input.support.items[0]
 
@@ -224,6 +266,34 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
       action: { label: 'Make a decision', href: '/admin/operations#approval-attention-heading' },
       source: tenantSource('approval-request', approval.id, approval.tenantId, approval.venueId),
     }
+  } else if (actionRequiredEvent?.scope === 'TENANT') {
+    const event = actionRequiredEvent.event
+    focus = {
+      kind: 'CUSTOMER_ATTENTION',
+      urgency: event.severity === 'WARNING' ? 'HIGH' : 'NORMAL',
+      label: actionRequiredLabel(event),
+      title: event.title,
+      detail: event.recommendedAction || event.summary,
+      action: { label: 'Review customer context', href: tenantEventHref(event) },
+      source: tenantSource('operational-event', event.id, event.tenantId, event.venueId),
+    }
+  } else if (actionRequiredEvent?.scope === 'PLATFORM') {
+    const event = actionRequiredEvent.event
+    focus = {
+      kind: 'PLATFORM_ATTENTION',
+      urgency: event.eventType === 'crm.reply.received' ? 'HIGH' : 'NORMAL',
+      label: actionRequiredLabel(event),
+      title: event.title,
+      detail: event.recommendedAction || event.summary,
+      action: { label: 'Review company context', href: platformEventHref(event) },
+      source: {
+        scope: 'PLATFORM',
+        objectType: 'platform-operational-event',
+        objectId: event.id,
+        tenantId: null,
+        venueId: null,
+      },
+    }
   } else if (blockedRun) {
     focus = {
       kind: 'BLOCKED_WORK',
@@ -259,7 +329,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
       label: 'No urgent founder action',
       title: 'The operating queues are clear.',
       detail:
-        'No critical risk, blocking question, pending approval, blocked run, or support item is visible in this bounded snapshot.',
+        'No critical risk, blocking question, pending approval, action-required event, blocked run, or support item is visible in this bounded snapshot.',
       action: { label: 'See what agents are doing', href: '/admin/operations#ai-workforce' },
       source: {
         scope: 'PLATFORM',
@@ -302,6 +372,19 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     ).length,
     outcomes: input.outcomes.items.filter((item) => afterReview(item.createdAt)).length,
     customerItems: input.support.items.filter((item) => afterReview(item.updatedAt)).length,
+    attentionItems:
+      input.events.items.filter(
+        (event) =>
+          event.actionRequired &&
+          !['CRITICAL', 'ERROR'].includes(event.severity) &&
+          afterReview(event.lastOccurredAt),
+      ).length +
+      input.platformEvents.items.filter(
+        (event) =>
+          event.actionRequired &&
+          !['CRITICAL', 'ERROR'].includes(event.severity) &&
+          afterReview(event.lastOccurredAt),
+      ).length,
   }
   const changeDigest = deriveFounderChangeDigest({
     lastReviewedThrough: input.lastReviewedThrough,
@@ -334,6 +417,9 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
           .length,
       workingAgents: input.workingAgents.items.length,
       customerItems: input.support.items.length,
+      actionItems:
+        input.events.items.filter((event) => event.actionRequired).length +
+        input.platformEvents.items.filter((event) => event.actionRequired).length,
     },
     boundedSnapshot: {
       limit: input.limit,
