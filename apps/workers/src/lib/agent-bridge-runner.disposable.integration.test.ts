@@ -10,13 +10,18 @@ import {
   activateAgentBridgeCredentialAction,
   claimAgentBridgeTask,
   completeAgentBridgeTask,
+  createOperationalUpdateAction,
+  createProspectAction,
   db,
   failAgentBridgeTask,
   heartbeatAgentBridgeSession,
   heartbeatAgentBridgeTask,
   issueExternalCredentialAction,
+  prepareSupportTriageProposalAction,
+  recordProspectInboundReplyAction,
   registerAgentBridgeSession,
   registerAgentWorkerAction,
+  updateProspectPipelineAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -323,7 +328,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       const identities = {
         researcher: `identity-researcher-${suffix}`,
         builder: `identity-builder-${suffix}`,
+        updater: `identity-updater-${suffix}`,
+        support: `identity-support-${suffix}`,
         analyst: `identity-analyst-${suffix}`,
+        crm: `identity-crm-${suffix}`,
       }
       await db.agentIdentity.createMany({
         data: [
@@ -354,6 +362,32 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             createdBy: operator.id,
           },
           {
+            id: identities.updater,
+            tenantId,
+            venueId,
+            identityKey: `updater-${suffix}`,
+            name: 'Venue Updater',
+            agentType: 'OPERATIONS',
+            accessScope: 'VENUE',
+            accessCapabilities: ['updates:draft'],
+            autonomyLevel: 'DRAFT',
+            enabled: true,
+            createdBy: operator.id,
+          },
+          {
+            id: identities.support,
+            tenantId,
+            venueId,
+            identityKey: `support-${suffix}`,
+            name: 'Support Triage',
+            agentType: 'SUPPORT',
+            accessScope: 'VENUE',
+            accessCapabilities: ['support:triage'],
+            autonomyLevel: 'DRAFT',
+            enabled: true,
+            createdBy: operator.id,
+          },
+          {
             id: identities.analyst,
             tenantId,
             venueId,
@@ -362,6 +396,19 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             agentType: 'ANALYTICS',
             accessScope: 'VENUE',
             accessCapabilities: ['reports:draft'],
+            autonomyLevel: 'READ_ONLY',
+            enabled: true,
+            createdBy: operator.id,
+          },
+          {
+            id: identities.crm,
+            tenantId,
+            venueId,
+            identityKey: `crm-${suffix}`,
+            name: 'CRM Reply Processor',
+            agentType: 'OPERATIONS',
+            accessScope: 'VENUE',
+            accessCapabilities: ['resources:read'],
             autonomyLevel: 'READ_ONLY',
             enabled: true,
             createdBy: operator.id,
@@ -381,6 +428,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           'resources:read',
           'knowledge:read',
           'intake:draft',
+          'updates:draft',
+          'support:triage',
           'reports:draft',
         ],
         expiresAt: new Date(Date.now() + 60 * 60_000),
@@ -403,7 +452,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         ['researcher-a', 'researcher', 'knowledge:read', 'CODEX'],
         ['researcher-b', 'researcher', 'knowledge:read', 'OPENAI_COMPATIBLE'],
         ['builder', 'venue-builder', 'intake:draft', 'HERMES'],
+        ['updater', 'venue-updater', 'updates:draft', 'CODEX'],
+        ['support', 'support', 'support:triage', 'HERMES'],
         ['analyst', 'analyst', 'reports:draft', 'CLAUDE'],
+        ['crm', 'crm', 'resources:read', 'OPENAI_COMPATIBLE'],
       ] as const
       const workers = await Promise.all(
         workerSpecs.map(async ([key, role, capability, runtimeType]) => {
@@ -437,27 +489,105 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           return { workerKey, sessionId, role, capability }
         }),
       )
+      const supportRequest = await db.supportRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          category: 'GENERAL',
+          status: 'OPEN',
+          subject: 'Saturday admission price appears stale',
+          missingInformation: [],
+          createdByKind: 'OPERATOR',
+          createdById: operator.id,
+          updatedByKind: 'OPERATOR',
+          updatedById: operator.id,
+        },
+      })
+      const prospect = await createProspectAction({
+        organization: {
+          canonicalName: `Lakefront Discovery Center ${suffix}`,
+          website: `https://lakefront-${suffix}.example.test`,
+          source: 'workforce-credibility-shakedown',
+        },
+        venue: { name: `Lakefront Discovery Center ${suffix}`, city: 'Chicago', region: 'IL' },
+        actor: operator,
+      })
+      await updateProspectPipelineAction({
+        organizationId: prospect.organization.id,
+        stage: 'CONTACTED',
+        reason: 'Bounded provider-dark reply-processing fixture',
+        actor: operator,
+      })
       const runSpecs = [
-        [identities.researcher, 'researcher', 'knowledge:read'],
-        [identities.researcher, 'researcher', 'knowledge:read'],
-        [identities.builder, 'venue-builder', 'intake:draft'],
-        [identities.analyst, 'analyst', 'reports:draft'],
+        {
+          identityId: identities.researcher,
+          role: 'researcher',
+          capability: 'knowledge:read',
+          operation: 'research_bounded_prospect_contact',
+          work: { territory: 'Chicago', sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 1 },
+        },
+        {
+          identityId: identities.researcher,
+          role: 'researcher',
+          capability: 'knowledge:read',
+          operation: 'research_bounded_prospect_contact',
+          work: { territory: 'St. Louis', sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 2 },
+        },
+        {
+          identityId: identities.builder,
+          role: 'venue-builder',
+          capability: 'intake:draft',
+          operation: 'draft_venue_from_onboarding_notes',
+          work: { sourceKind: 'NOTES', venueId, reviewRequired: true },
+        },
+        {
+          identityId: identities.updater,
+          role: 'venue-updater',
+          capability: 'updates:draft',
+          operation: 'draft_changed_hours_notice',
+          work: { venueId, changedField: 'Saturday hours', publishAllowed: false },
+        },
+        {
+          identityId: identities.support,
+          role: 'support',
+          capability: 'support:triage',
+          operation: 'triage_stale_admission_issue',
+          work: { supportRequestId: supportRequest.id, customerContactAllowed: false },
+        },
+        {
+          identityId: identities.analyst,
+          role: 'analyst',
+          capability: 'reports:draft',
+          operation: 'draft_weekly_operations_report',
+          work: { venueId, visibility: 'INTERNAL_DRAFT' },
+        },
+        {
+          identityId: identities.crm,
+          role: 'crm',
+          capability: 'resources:read',
+          operation: 'process_inbound_prospect_reply',
+          work: { organizationId: prospect.organization.id, sendAllowed: false },
+        },
       ] as const
       const runs = await Promise.all(
-        runSpecs.map(([identityId, role, capability], index) =>
+        runSpecs.map((spec) =>
           db.agentRun.create({
             data: {
               operationId: randomUUID(),
               tenantId,
               venueId,
-              agentIdentityId: identityId,
-              runType: role.toUpperCase(),
-              requestedOperation: `routine_${role.replace('-', '_')}_${index + 1}`,
-              requestPrompt: null,
+              agentIdentityId: spec.identityId,
+              runType: spec.role.toUpperCase(),
+              requestedOperation: spec.operation,
+              requestPrompt: `Perform only ${spec.operation}; preserve evidence and stop at the declared authority boundary.`,
               scopeSnapshot: {
-                requiredWorkerRoles: [role],
-                requiredWorkerCapabilities: [capability],
+                requiredWorkerRoles: [spec.role],
+                requiredWorkerCapabilities: [spec.capability],
                 destructiveActionsAllowed: false,
+                customerContactAllowed: false,
+                publicationAllowed: false,
+                billingAllowed: false,
+                work: spec.work,
               },
               status: 'QUEUED',
               modelProvider: 'codex-bridge',
@@ -479,28 +609,150 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           }),
         ),
       )
-      expect(new Set(claims.map((claim) => claim.task?.id)).size).toBe(4)
+      expect(new Set(claims.map((claim) => claim.task?.id)).size).toBe(runSpecs.length)
       for (const [index, claim] of claims.entries()) {
         expect(claim.task?.scope).toMatchObject({
           requiredWorkerRoles: [workers[index]!.role],
           requiredWorkerCapabilities: [workers[index]!.capability],
           destructiveActionsAllowed: false,
+          customerContactAllowed: false,
+          publicationAllowed: false,
+          billingAllowed: false,
         })
       }
+      const artifactsByRunId = new Map<string, Record<string, unknown>>()
+      const updaterIndex = workers.findIndex((worker) => worker.role === 'venue-updater')
+      const updaterClaim = claims[updaterIndex]!.task!
+      const update = await createOperationalUpdateAction({
+        tenantId,
+        schedule: false,
+        now: new Date('2026-08-28T18:00:00.000Z'),
+        actor: {
+          type: 'AGENT',
+          role: 'AGENT',
+          actorId: identities.updater,
+          agentIdentityId: identities.updater,
+          agentRunId: updaterClaim.id,
+          workerId: workers[updaterIndex]!.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'updates:draft',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: updaterClaim.operationId!,
+        },
+        fields: {
+          venueId,
+          updateType: 'CHANGED_HOURS',
+          severity: 'INFO',
+          priority: 'NORMAL',
+          title: 'Saturday hours under review',
+          body: 'A first-party source indicates Saturday hours may have changed; verify before publishing.',
+          startsAt: new Date('2026-08-29T14:00:00.000Z'),
+          expiresAt: new Date('2026-09-06T00:00:00.000Z'),
+        },
+      })
+      expect(update).toMatchObject({
+        update: { status: 'DRAFT', isActive: false, publishedAt: null },
+        preview: { lifecycle: 'DRAFT', guestVisibleNow: false },
+      })
+      artifactsByRunId.set(updaterClaim.id, {
+        type: 'operational-update-draft',
+        operationalUpdateId: update.update.id,
+        publishTriggered: false,
+      })
+
+      const supportIndex = workers.findIndex((worker) => worker.role === 'support')
+      const supportClaim = claims[supportIndex]!.task!
+      const supportProposal = await prepareSupportTriageProposalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequest.id,
+        expectedVersion: supportRequest.version,
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Verified Saturday admission price', 'Effective date'],
+        reason:
+          'The request lacks the verified price and effective date required for a safe correction.',
+        evidence: [{ type: 'SupportRequest', id: supportRequest.id }],
+        actor: {
+          type: 'AGENT',
+          actorId: identities.support,
+          role: 'AGENT',
+          agentIdentityId: identities.support,
+          agentRunId: supportClaim.id,
+          workerId: workers[supportIndex]!.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'support:triage',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: supportClaim.operationId!,
+        },
+      })
+      expect(supportProposal).toMatchObject({
+        replayed: false,
+        approvalRequest: {
+          scopeSnapshot: {
+            supportRequestChanged: false,
+            customerContacted: false,
+            executionAuthorized: false,
+          },
+        },
+      })
+      artifactsByRunId.set(supportClaim.id, {
+        type: 'support-triage-proposal',
+        supportRequestId: supportRequest.id,
+        approvalRequestId: supportProposal.approvalRequest.id,
+        customerContacted: false,
+      })
+
+      const crmIndex = workers.findIndex((worker) => worker.role === 'crm')
+      const crmClaim = claims[crmIndex]!.task!
+      const reply = await recordProspectInboundReplyAction({
+        prospectOrganizationId: prospect.organization.id,
+        contactId: null,
+        campaignMemberId: null,
+        canonicalMessageId: `message-${suffix}`,
+        canonicalThreadId: `thread-${suffix}`,
+        matchingEvidence: ['PROVIDER_THREAD', 'RFC_REFERENCE'],
+        occurredAt: new Date('2026-08-28T18:05:00.000Z'),
+      })
+      expect(reply).toMatchObject({
+        fromStage: 'CONTACTED',
+        toStage: 'REPLIED',
+        stageChanged: true,
+      })
+      artifactsByRunId.set(crmClaim.id, {
+        type: 'crm-inbound-reply',
+        organizationId: prospect.organization.id,
+        activityId: reply.activityId,
+        stageChanged: true,
+        outboundSendTriggered: false,
+      })
       await Promise.all(
-        claims.map((claim, index) =>
-          completeAgentBridgeTask({
-            sessionId: workers[index]!.sessionId,
-            venueId,
-            runId: claim.task!.id,
-            leaseToken: claim.task!.leaseToken,
-            summary: `Routine ${workers[index]!.role} work completed without founder routing.`,
-            artifacts: [{ type: 'json', title: 'Bounded evidence', role: workers[index]!.role }],
-            modelName: 'subscription-default',
-            costE8Usd: BigInt((index + 1) * 1_000),
-            costStatus: 'EXACT',
-            credential,
-          }),
+        claims.flatMap((claim, index) =>
+          workers[index]!.role === 'support'
+            ? []
+            : [
+                completeAgentBridgeTask({
+                  sessionId: workers[index]!.sessionId,
+                  venueId,
+                  runId: claim.task!.id,
+                  leaseToken: claim.task!.leaseToken,
+                  summary: `Bounded ${workers[index]!.role} work completed without outbound or publication authority.`,
+                  artifacts: [
+                    artifactsByRunId.get(claim.task!.id) ?? {
+                      type: 'bounded-work-evidence',
+                      role: workers[index]!.role,
+                      requestedOperation: claim.task!.requestedOperation,
+                      sourceScope: claim.task!.scope.work,
+                    },
+                  ],
+                  modelName: 'subscription-default',
+                  costE8Usd: BigInt((index + 1) * 1_000),
+                  costStatus: 'EXACT',
+                  credential,
+                }),
+              ],
         ),
       )
       const completed = await db.agentRun.findMany({
@@ -515,19 +767,41 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           _count: { select: { approvalRequests: true, questions: true } },
         },
       })
-      expect(completed).toHaveLength(4)
-      expect(completed.every((run) => run.status === 'COMPLETED')).toBe(true)
-      expect(completed.every((run) => run.costStatus === 'EXACT' && run.costE8Usd > 0n)).toBe(true)
+      expect(completed).toHaveLength(runSpecs.length)
+      expect(completed.filter((run) => run.status === 'COMPLETED')).toHaveLength(
+        runSpecs.length - 1,
+      )
+      expect(completed.filter((run) => run.status === 'AWAITING_APPROVAL')).toHaveLength(1)
+      expect(
+        completed
+          .filter((run) => run.status === 'COMPLETED')
+          .every((run) => run.costStatus === 'EXACT' && run.costE8Usd > 0n),
+      ).toBe(true)
       expect(
         completed.every(
           (run) =>
             run.initiatedByType === 'SYSTEM' &&
             run.initiatedById === 'workforce-scheduler' &&
             Boolean(run.executionWorkerId) &&
-            run._count.approvalRequests === 0 &&
+            run._count.approvalRequests <= 1 &&
             run._count.questions === 0,
         ),
       ).toBe(true)
+      expect(completed.filter((run) => run._count.approvalRequests === 1)).toHaveLength(1)
+      expect(
+        await db.supportRequest.findUniqueOrThrow({
+          where: { id: supportRequest.id },
+          select: { category: true, status: true, missingInformation: true, version: true },
+        }),
+      ).toEqual({ category: 'GENERAL', status: 'OPEN', missingInformation: [], version: 1 })
+      expect(
+        await db.prospectOpportunity.findUniqueOrThrow({
+          where: { organizationId: prospect.organization.id },
+          select: { stage: true },
+        }),
+      ).toEqual({ stage: 'REPLIED' })
+      expect(await db.prospectEmailMessage.count()).toBe(0)
+      expect(await db.prospectSendOutbox.count()).toBe(0)
 
       const takeoverRun = await db.agentRun.create({
         data: {
