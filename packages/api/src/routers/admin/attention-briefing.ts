@@ -1,28 +1,16 @@
 import { deriveFounderChangeDigest } from './attention-change-digest'
+import {
+  actionRequiredLabel,
+  platformEventHref,
+  selectActionRequiredEvent,
+  tenantEventHref,
+  type PlatformAttentionEvent,
+  type TenantAttentionEvent,
+} from './attention-event-focus'
 
-type TenantEvent = {
-  id: string
-  tenantId: string
-  venueId: string | null
-  eventType: string
-  severity: string
-  title: string
-  summary: string
-  recommendedAction: string | null
-  actionRequired: boolean
-  lastOccurredAt: Date
-}
+type TenantEvent = TenantAttentionEvent
 
-type PlatformEvent = {
-  id: string
-  eventType: string
-  severity: string
-  title: string
-  summary: string
-  recommendedAction: string | null
-  actionRequired: boolean
-  lastOccurredAt: Date
-}
+type PlatformEvent = PlatformAttentionEvent
 
 type Question = {
   id: string
@@ -128,27 +116,6 @@ export type FounderBriefingInput = {
   outcomes: Page<Outcome>
 }
 
-function tenantEventHref(event: TenantEvent) {
-  if (event.eventType.startsWith('ai-cost-budget.')) {
-    return `/admin/clients/${event.tenantId}#ai-cost-budget`
-  }
-  if (!event.venueId) return `/admin/clients/${event.tenantId}`
-  if (event.eventType.startsWith('evaluation.'))
-    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
-  if (event.eventType.startsWith('knowledge.proposal.'))
-    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
-  if (event.eventType.startsWith('customer-learning.first-week-'))
-    return `/admin/clients/${event.tenantId}/analytics#first-week-reviews`
-  return `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
-}
-
-function platformEventHref(event: PlatformEvent) {
-  if (event.eventType.startsWith('crm.import.')) return '/admin/prospects/imports'
-  if (event.eventType.startsWith('crm.duplicate.')) return '/admin/prospects/duplicates'
-  if (event.eventType.startsWith('crm.')) return '/admin/prospects'
-  return '/admin/operations#alerts'
-}
-
 function tenantSource(
   objectType: string,
   objectId: string,
@@ -156,43 +123,6 @@ function tenantSource(
   venueId: string | null,
 ) {
   return { scope: 'TENANT' as const, objectType, objectId, tenantId, venueId }
-}
-
-type ActionRequiredEvent =
-  | { scope: 'TENANT'; event: TenantEvent }
-  | { scope: 'PLATFORM'; event: PlatformEvent }
-
-function actionRequiredRank(value: ActionRequiredEvent) {
-  const { event } = value
-  if (event.eventType === 'billing.payment-failed') return 0
-  if (event.eventType === 'crm.reply.received') return 1
-  if (event.eventType.startsWith('customer-learning.first-week-')) return 2
-  if (event.severity === 'WARNING') return 3
-  return 4
-}
-
-function selectActionRequiredEvent(input: FounderBriefingInput) {
-  return [
-    ...input.events.items
-      .filter((event) => event.actionRequired && !['CRITICAL', 'ERROR'].includes(event.severity))
-      .map((event) => ({ scope: 'TENANT' as const, event })),
-    ...input.platformEvents.items
-      .filter((event) => event.actionRequired && !['CRITICAL', 'ERROR'].includes(event.severity))
-      .map((event) => ({ scope: 'PLATFORM' as const, event })),
-  ].sort((left, right) => {
-    const rank = actionRequiredRank(left) - actionRequiredRank(right)
-    if (rank !== 0) return rank
-    const recency = right.event.lastOccurredAt.getTime() - left.event.lastOccurredAt.getTime()
-    if (recency !== 0) return recency
-    return left.event.id.localeCompare(right.event.id)
-  })[0]
-}
-
-function actionRequiredLabel(event: TenantEvent | PlatformEvent) {
-  if (event.eventType === 'billing.payment-failed') return 'Customer payment'
-  if (event.eventType === 'crm.reply.received') return 'Prospect reply'
-  if (event.eventType.startsWith('customer-learning.first-week-')) return 'Customer learning'
-  return 'Operational attention'
 }
 
 export function deriveFounderBriefing(input: FounderBriefingInput) {
@@ -204,7 +134,10 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
   )
   const blockingQuestion = input.questions.items.find((question) => question.blocking)
   const approval = input.approvals.items.find((item) => !item.expired)
-  const actionRequiredEvent = selectActionRequiredEvent(input)
+  const actionRequiredEvent = selectActionRequiredEvent({
+    events: input.events.items,
+    platformEvents: input.platformEvents.items,
+  })
   const blockedRun = input.blockedAgents.items[0]
   const support = input.support.items[0]
 
