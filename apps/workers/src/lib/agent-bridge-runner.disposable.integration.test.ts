@@ -7,9 +7,12 @@ import {
 } from '@pathfinder/api/agent-bridge/http-core'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
+  AI_COST_BUDGET_COVERAGE_VERSION,
+  AiCostBudgetExceededError,
   activateAgentBridgeCredentialAction,
   claimAgentBridgeTask,
   completeAgentBridgeTask,
+  createCompanyKnowledgeCandidateAction,
   createOperationalUpdateAction,
   createProspectAction,
   db,
@@ -17,10 +20,14 @@ import {
   heartbeatAgentBridgeSession,
   heartbeatAgentBridgeTask,
   issueExternalCredentialAction,
+  prepareAgentImprovementProposalAction,
+  prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
   recordProspectInboundReplyAction,
   registerAgentBridgeSession,
   registerAgentWorkerAction,
+  releaseUndispatchedAiCostAttempt,
+  reserveAiCostAttempt,
   updateProspectPipelineAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
@@ -343,8 +350,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             name: 'Researcher',
             agentType: 'RESEARCH',
             accessScope: 'VENUE',
-            accessCapabilities: ['knowledge:read'],
-            autonomyLevel: 'READ_ONLY',
+            accessCapabilities: ['knowledge.propose'],
+            autonomyLevel: 'DRAFT',
             enabled: true,
             createdBy: operator.id,
           },
@@ -356,7 +363,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             name: 'Venue Builder',
             agentType: 'BUILDER',
             accessScope: 'VENUE',
-            accessCapabilities: ['intake:draft'],
+            accessCapabilities: ['locations:propose'],
             autonomyLevel: 'DRAFT',
             enabled: true,
             createdBy: operator.id,
@@ -395,8 +402,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             name: 'Analyst',
             agentType: 'ANALYTICS',
             accessScope: 'VENUE',
-            accessCapabilities: ['reports:draft'],
-            autonomyLevel: 'READ_ONLY',
+            accessCapabilities: ['agent-improvements:propose'],
+            autonomyLevel: 'DRAFT',
             enabled: true,
             createdBy: operator.id,
           },
@@ -426,11 +433,11 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         capabilities: [
           'agent-runs:execute',
           'resources:read',
-          'knowledge:read',
-          'intake:draft',
+          'knowledge:draft',
+          'locations:propose',
           'updates:draft',
           'support:triage',
-          'reports:draft',
+          'agent-improvements:propose',
         ],
         expiresAt: new Date(Date.now() + 60 * 60_000),
       })
@@ -449,12 +456,12 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         plaintext: issued.plaintextSecret!,
       })
       const workerSpecs = [
-        ['researcher-a', 'researcher', 'knowledge:read', 'CODEX'],
-        ['researcher-b', 'researcher', 'knowledge:read', 'OPENAI_COMPATIBLE'],
-        ['builder', 'venue-builder', 'intake:draft', 'HERMES'],
+        ['researcher-a', 'researcher', 'knowledge:draft', 'CODEX'],
+        ['researcher-b', 'researcher', 'knowledge:draft', 'OPENAI_COMPATIBLE'],
+        ['builder', 'venue-builder', 'locations:propose', 'HERMES'],
         ['updater', 'venue-updater', 'updates:draft', 'CODEX'],
         ['support', 'support', 'support:triage', 'HERMES'],
-        ['analyst', 'analyst', 'reports:draft', 'CLAUDE'],
+        ['analyst', 'analyst', 'agent-improvements:propose', 'CLAUDE'],
         ['crm', 'crm', 'resources:read', 'OPENAI_COMPATIBLE'],
       ] as const
       const workers = await Promise.all(
@@ -518,27 +525,70 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         reason: 'Bounded provider-dark reply-processing fixture',
         actor: operator,
       })
+      const historicalResearchRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identities.researcher,
+          runType: 'RESEARCH',
+          requestedOperation: 'review_first_party_source_grounding',
+          requestPrompt: null,
+          scopeSnapshot: { venueId, sourcePolicy: 'FIRST_PARTY_ONLY' },
+          status: 'COMPLETED',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'SYSTEM',
+          initiatedById: 'workforce-scheduler',
+          startedAt: new Date('2026-08-27T17:00:00.000Z'),
+          completedAt: new Date('2026-08-27T17:05:00.000Z'),
+        },
+      })
+      const outcomeObservationIds = [`research-outcome-a-${suffix}`, `research-outcome-b-${suffix}`]
+      await db.agentOutcomeObservation.createMany({
+        data: outcomeObservationIds.map((id, index) => ({
+          id,
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentRunId: historicalResearchRun.id,
+          agentIdentityId: identities.researcher,
+          signalKind: index === 0 ? ('HUMAN_REVIEW' as const) : ('QUALITY_EVALUATION' as const),
+          verdict: index === 0 ? ('MIXED' as const) : ('NEGATIVE' as const),
+          summary:
+            index === 0
+              ? 'One venue fact lacked an explicit first-party source reference.'
+              : 'One stale-source candidate required manual rejection.',
+          evidenceRef: `FixtureEvidence:${suffix}:${index + 1}`,
+          taskClass: 'RESEARCH',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          actorType: 'HUMAN',
+          actorId: operator.id,
+          createdAt: new Date(`2026-08-${26 + index}T18:00:00.000Z`),
+        })),
+      })
       const runSpecs = [
         {
           identityId: identities.researcher,
           role: 'researcher',
-          capability: 'knowledge:read',
-          operation: 'research_bounded_prospect_contact',
-          work: { territory: 'Chicago', sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 1 },
+          capability: 'knowledge:draft',
+          operation: 'research_first_party_venue_fact',
+          work: { venueId, sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 1 },
         },
         {
           identityId: identities.researcher,
           role: 'researcher',
-          capability: 'knowledge:read',
-          operation: 'research_bounded_prospect_contact',
-          work: { territory: 'St. Louis', sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 2 },
+          capability: 'knowledge:draft',
+          operation: 'research_first_party_venue_fact',
+          work: { venueId, sourcePolicy: 'FIRST_PARTY_ONLY', candidateOrdinal: 2 },
         },
         {
           identityId: identities.builder,
           role: 'venue-builder',
-          capability: 'intake:draft',
-          operation: 'draft_venue_from_onboarding_notes',
-          work: { sourceKind: 'NOTES', venueId, reviewRequired: true },
+          capability: 'locations:propose',
+          operation: 'propose_location_from_onboarding_notes',
+          work: { sourceKind: 'NOTES', venueId, reviewRequired: true, activationAllowed: false },
         },
         {
           identityId: identities.updater,
@@ -557,9 +607,9 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         {
           identityId: identities.analyst,
           role: 'analyst',
-          capability: 'reports:draft',
-          operation: 'draft_weekly_operations_report',
-          work: { venueId, visibility: 'INTERNAL_DRAFT' },
+          capability: 'agent-improvements:propose',
+          operation: 'agent-improvement.propose',
+          work: { venueId, outcomeEvidenceCount: 2, executionAllowed: false },
         },
         {
           identityId: identities.crm,
@@ -621,6 +671,155 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         })
       }
       const artifactsByRunId = new Map<string, Record<string, unknown>>()
+      const researcherIndices = workers
+        .map((worker, index) => ({ worker, index }))
+        .filter(({ worker }) => worker.role === 'researcher')
+      for (const [ordinal, { worker, index }] of researcherIndices.entries()) {
+        const claim = claims[index]!.task!
+        const candidateInput = {
+          tenantId,
+          venueId,
+          type: 'MARKET_RESEARCH' as const,
+          title: `First-party venue research candidate ${ordinal + 1}`,
+          summary: `A bounded first-party venue fact candidate from research lane ${ordinal + 1}.`,
+          body: `Candidate ${ordinal + 1} requires human review before it can become durable current knowledge.`,
+          structuredData: {
+            sourcePolicy: 'FIRST_PARTY_ONLY',
+            candidateOrdinal: ordinal + 1,
+            publicationAllowed: false,
+          },
+          accessScope: 'VENUE' as const,
+          authority: 'INFERENCE' as const,
+          sourceType: 'RESEARCH' as const,
+          sourceId: claim.id,
+          sourceRef: `AgentRun:${claim.id}`,
+          idempotencyKey: claim.operationId!,
+          actor: {
+            type: 'AGENT' as const,
+            role: 'AGENT' as const,
+            actorId: identities.researcher,
+            agentIdentityId: identities.researcher,
+            agentRunId: claim.id,
+            workerId: worker.workerKey,
+            credentialId: issued.credential.id,
+            capability: 'knowledge.propose',
+            modelProvider: 'codex-bridge',
+            modelName: 'subscription-default',
+            idempotencyKey: claim.operationId!,
+          },
+        }
+        const candidate = await createCompanyKnowledgeCandidateAction(candidateInput)
+        expect(candidate).toMatchObject({ promotionStatus: 'CANDIDATE', replayed: false })
+        if (ordinal === 0) {
+          await expect(
+            createCompanyKnowledgeCandidateAction({
+              ...candidateInput,
+              summary: 'Conflicting content must not reuse the same operation identity.',
+            }),
+          ).rejects.toMatchObject({ code: 'CONFLICT' })
+        }
+        artifactsByRunId.set(claim.id, {
+          type: 'company-knowledge-candidate',
+          knowledgeItemId: candidate.id,
+          promotionStatus: candidate.promotionStatus,
+          authoritativeCurrentClaimed: false,
+        })
+      }
+
+      const builderIndex = workers.findIndex((worker) => worker.role === 'venue-builder')
+      const builderClaim = claims[builderIndex]!.task!
+      const locationProposal = await prepareLocationDraftProposalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        reason: 'Onboarding notes identify an accessible east entrance for human review.',
+        evidence: [{ type: 'OnboardingNotes', id: `notes-${suffix}` }],
+        draft: {
+          stableKey: `east-entrance-${suffix}`,
+          kind: 'ENTRANCE',
+          displayName: 'East entrance',
+          description: 'Proposed step-free entrance from the onboarding notes.',
+          visibility: 'PUBLIC',
+          floorId: null,
+          parentLocationId: null,
+          coordinates: null,
+          mapAnchor: { x: 10, y: 25 },
+          externalMapReference: null,
+          accessibilityMetadata: { stepFree: true },
+        },
+        actor: {
+          type: 'AGENT',
+          role: 'AGENT',
+          actorId: identities.builder,
+          agentIdentityId: identities.builder,
+          agentRunId: builderClaim.id,
+          workerId: workers[builderIndex]!.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'locations:propose',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: builderClaim.operationId!,
+        },
+      })
+      expect(locationProposal).toMatchObject({
+        replayed: false,
+        approvalRequest: {
+          proposedAction: 'torchiko.locations.create_draft',
+          scopeSnapshot: { canonicalVenueContentChanged: false },
+        },
+      })
+      artifactsByRunId.set(builderClaim.id, {
+        type: 'location-draft-proposal',
+        approvalRequestId: locationProposal.approvalRequest.id,
+        canonicalVenueContentChanged: false,
+        activationTriggered: false,
+      })
+
+      const analystIndex = workers.findIndex((worker) => worker.role === 'analyst')
+      const analystClaim = claims[analystIndex]!.task!
+      const improvementProposal = await prepareAgentImprovementProposalAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identities.researcher,
+        outcomeObservationIds,
+        proposalKey: `source-grounding-${suffix}`,
+        revision: 1,
+        targetKind: 'RETRIEVAL',
+        title: 'Require explicit first-party research grounding',
+        hypothesis:
+          'The retained mixed and negative outcomes indicate a correctable source-grounding gap.',
+        proposedChange:
+          'Require an explicit first-party source reference on each proposed venue fact.',
+        validationPlan:
+          'Replay the two retained cases and require human review before any workflow change.',
+        actor: {
+          type: 'AGENT',
+          role: 'AGENT',
+          actorId: identities.analyst,
+          agentIdentityId: identities.analyst,
+          agentRunId: analystClaim.id,
+          workerId: workers[analystIndex]!.workerKey,
+          credentialId: issued.credential.id,
+          capability: 'agent-improvements:propose',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          idempotencyKey: analystClaim.operationId!,
+        },
+      })
+      expect(improvementProposal).toMatchObject({
+        replayed: false,
+        targetKind: 'RETRIEVAL',
+        baselineSnapshot: { observationCount: 2, interpretation: 'descriptive-evidence-only' },
+        approvalRequest: { decision: null },
+      })
+      artifactsByRunId.set(analystClaim.id, {
+        type: 'agent-improvement-proposal',
+        proposalId: improvementProposal.id,
+        approvalRequestId: improvementProposal.approvalRequestId,
+        executionTriggered: false,
+      })
+
       const updaterIndex = workers.findIndex((worker) => worker.role === 'venue-updater')
       const updaterClaim = claims[updaterIndex]!.task!
       const update = await createOperationalUpdateAction({
@@ -730,7 +929,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       })
       await Promise.all(
         claims.flatMap((claim, index) =>
-          workers[index]!.role === 'support'
+          ['venue-builder', 'support', 'analyst'].includes(workers[index]!.role)
             ? []
             : [
                 completeAgentBridgeTask({
@@ -769,9 +968,9 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       })
       expect(completed).toHaveLength(runSpecs.length)
       expect(completed.filter((run) => run.status === 'COMPLETED')).toHaveLength(
-        runSpecs.length - 1,
+        runSpecs.length - 3,
       )
-      expect(completed.filter((run) => run.status === 'AWAITING_APPROVAL')).toHaveLength(1)
+      expect(completed.filter((run) => run.status === 'AWAITING_APPROVAL')).toHaveLength(3)
       expect(
         completed
           .filter((run) => run.status === 'COMPLETED')
@@ -787,7 +986,13 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             run._count.questions === 0,
         ),
       ).toBe(true)
-      expect(completed.filter((run) => run._count.approvalRequests === 1)).toHaveLength(1)
+      expect(completed.filter((run) => run._count.approvalRequests === 1)).toHaveLength(3)
+      expect(
+        await db.companyKnowledgeItem.count({
+          where: { tenantId, venueId, promotionStatus: 'CANDIDATE' },
+        }),
+      ).toBe(2)
+      expect(await db.venueLocation.count({ where: { tenantId, venueId } })).toBe(0)
       expect(
         await db.supportRequest.findUniqueOrThrow({
           where: { id: supportRequest.id },
@@ -803,6 +1008,71 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       expect(await db.prospectEmailMessage.count()).toBe(0)
       expect(await db.prospectSendOutbox.count()).toBe(0)
 
+      const budgetNow = new Date()
+      const budget = await db.aiCostBudget.create({
+        data: {
+          tenantId,
+          coverageVersion: AI_COST_BUDGET_COVERAGE_VERSION,
+          enabled: true,
+          startsAt: new Date(budgetNow.getTime() - 60_000),
+          endsAt: new Date(budgetNow.getTime() + 60 * 60_000),
+          limitUnits: 100n,
+          remainingUnits: 100n,
+          updatedBy: operator.id,
+          reason: 'Disposable workforce concurrency ceiling',
+        },
+      })
+      const budgetAttempts = await Promise.allSettled(
+        [1, 2].map(() =>
+          reserveAiCostAttempt({
+            db,
+            identity: {
+              tenantId,
+              venueId,
+              invocationId: randomUUID(),
+              attemptNumber: 1,
+              feature: 'agent-workforce',
+              provider: 'provider-dark-fixture',
+              model: 'subscription-default',
+              pricingVersion: 'fixture-v1',
+            },
+            reservedUnits: 75n,
+            reservationId: randomUUID(),
+            now: budgetNow,
+          }),
+        ),
+      )
+      const admittedBudgetAttempt = budgetAttempts.find(
+        (
+          result,
+        ): result is PromiseFulfilledResult<
+          NonNullable<Awaited<ReturnType<typeof reserveAiCostAttempt>>>
+        > => result.status === 'fulfilled' && result.value !== null,
+      )
+      expect(admittedBudgetAttempt).toBeDefined()
+      expect(
+        budgetAttempts.filter(
+          (result) =>
+            result.status === 'rejected' && result.reason instanceof AiCostBudgetExceededError,
+        ),
+      ).toHaveLength(1)
+      await releaseUndispatchedAiCostAttempt({
+        db,
+        reservation: admittedBudgetAttempt!.value,
+        now: budgetNow,
+      })
+      expect(
+        await db.aiCostBudget.findUniqueOrThrow({
+          where: { id_tenantId: { id: budget.id, tenantId } },
+          select: { remainingUnits: true, reservedUnits: true, committedUnits: true },
+        }),
+      ).toEqual({ remainingUnits: 100n, reservedUnits: 0n, committedUnits: 0n })
+      expect(
+        await db.operationalEvent.count({
+          where: { tenantId, eventType: 'ai-cost-budget.request-denied' },
+        }),
+      ).toBe(1)
+
       const takeoverRun = await db.agentRun.create({
         data: {
           operationId: randomUUID(),
@@ -814,7 +1084,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           requestPrompt: null,
           scopeSnapshot: {
             requiredWorkerRoles: ['researcher'],
-            requiredWorkerCapabilities: ['knowledge:read'],
+            requiredWorkerCapabilities: ['knowledge:draft'],
             destructiveActionsAllowed: false,
           },
           status: 'QUEUED',
@@ -904,6 +1174,71 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           (event) => event.eventType === 'EXECUTION_COMPLETED',
         ),
       ).toHaveLength(1)
+
+      const providerFailureRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identities.researcher,
+          runType: 'RESEARCH',
+          requestedOperation: 'research_with_unavailable_provider',
+          requestPrompt: null,
+          scopeSnapshot: {
+            requiredWorkerRoles: ['researcher'],
+            requiredWorkerCapabilities: ['knowledge:draft'],
+            destructiveActionsAllowed: false,
+            customerContactAllowed: false,
+            publicationAllowed: false,
+            billingAllowed: false,
+          },
+          status: 'QUEUED',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'SYSTEM',
+          initiatedById: 'workforce-scheduler',
+          maxAttempts: 1,
+        },
+      })
+      const providerFailureClaim = await claimAgentBridgeTask({
+        sessionId: workers[0]!.sessionId,
+        venueId,
+        workerKey: workers[0]!.workerKey,
+        credential,
+      })
+      expect(providerFailureClaim.task?.id).toBe(providerFailureRun.id)
+      await expect(
+        failAgentBridgeTask({
+          sessionId: workers[0]!.sessionId,
+          venueId,
+          runId: providerFailureRun.id,
+          leaseToken: providerFailureClaim.task!.leaseToken,
+          errorCode: 'PROVIDER_UNAVAILABLE',
+          errorMessage: 'The provider-dark fixture reports an unavailable provider.',
+          retryable: true,
+          credential,
+        }),
+      ).resolves.toMatchObject({ status: 'FAILED' })
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: providerFailureRun.id },
+          select: {
+            status: true,
+            attemptNumber: true,
+            errorCode: true,
+            artifacts: true,
+            costE8Usd: true,
+            timelineEvents: { orderBy: { createdAt: 'asc' }, select: { eventType: true } },
+          },
+        }),
+      ).toEqual({
+        status: 'FAILED',
+        attemptNumber: 1,
+        errorCode: 'PROVIDER_UNAVAILABLE',
+        artifacts: [],
+        costE8Usd: 0n,
+        timelineEvents: [{ eventType: 'EXECUTION_CLAIMED' }, { eventType: 'EXECUTION_FAILED' }],
+      })
     })
   }, 45_000)
 })
