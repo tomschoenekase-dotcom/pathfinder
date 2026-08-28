@@ -232,15 +232,25 @@ function PendingInvitationsTable({
   return (
     <div className="mt-4 overflow-hidden rounded-[1.5rem] border border-pf-light">
       <table className="w-full text-left text-sm">
+        <caption className="sr-only">Pending team invitations</caption>
         <thead>
           <tr className="border-b border-pf-light bg-pf-surface">
-            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+            <th
+              scope="col"
+              className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40"
+            >
               Email
             </th>
-            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+            <th
+              scope="col"
+              className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40"
+            >
               Role
             </th>
-            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+            <th
+              scope="col"
+              className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40"
+            >
               Status
             </th>
           </tr>
@@ -366,12 +376,21 @@ export default function SettingsPage() {
           ) : data?.members && data.members.length > 0 ? (
             <div className="mt-6 overflow-x-auto">
               <table className="w-full text-sm">
+                <caption className="sr-only">Current team members</caption>
                 <thead>
                   <tr className="border-b border-pf-primary/10 text-left">
-                    <th className="pb-3 pr-4 font-medium text-pf-deep/50">Member</th>
-                    <th className="pb-3 pr-4 font-medium text-pf-deep/50">Role</th>
-                    <th className="pb-3 pr-4 font-medium text-pf-deep/50">Status</th>
-                    <th className="pb-3 font-medium text-pf-deep/50">Joined</th>
+                    <th scope="col" className="pb-3 pr-4 font-medium text-pf-deep/50">
+                      Member
+                    </th>
+                    <th scope="col" className="pb-3 pr-4 font-medium text-pf-deep/50">
+                      Role
+                    </th>
+                    <th scope="col" className="pb-3 pr-4 font-medium text-pf-deep/50">
+                      Status
+                    </th>
+                    <th scope="col" className="pb-3 font-medium text-pf-deep/50">
+                      Joined
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-pf-primary/5">

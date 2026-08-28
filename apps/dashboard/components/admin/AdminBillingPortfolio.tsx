@@ -330,14 +330,27 @@ export function AdminBillingPortfolio({
           <section className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[72rem] text-left text-sm">
+                <caption className="sr-only">Customer billing portfolio</caption>
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-5 py-3">Customer</th>
-                    <th className="px-5 py-3">Agreement</th>
-                    <th className="px-5 py-3">Billing status</th>
-                    <th className="px-5 py-3">Paid through</th>
-                    <th className="px-5 py-3">Latest invoice</th>
-                    <th className="px-5 py-3">Health</th>
+                    <th scope="col" className="px-5 py-3">
+                      Customer
+                    </th>
+                    <th scope="col" className="px-5 py-3">
+                      Agreement
+                    </th>
+                    <th scope="col" className="px-5 py-3">
+                      Billing status
+                    </th>
+                    <th scope="col" className="px-5 py-3">
+                      Paid through
+                    </th>
+                    <th scope="col" className="px-5 py-3">
+                      Latest invoice
+                    </th>
+                    <th scope="col" className="px-5 py-3">
+                      Health
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">

@@ -562,13 +562,24 @@ export function ProspectImportWorkbench() {
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
+                <caption className="sr-only">Prospect import preview</caption>
                 <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Venue</th>
-                    <th className="px-4 py-3">Organization</th>
-                    <th className="px-4 py-3">Location</th>
-                    <th className="px-4 py-3">Website</th>
-                    <th className="px-4 py-3">Contact</th>
+                    <th scope="col" className="px-4 py-3">
+                      Venue
+                    </th>
+                    <th scope="col" className="px-4 py-3">
+                      Organization
+                    </th>
+                    <th scope="col" className="px-4 py-3">
+                      Location
+                    </th>
+                    <th scope="col" className="px-4 py-3">
+                      Website
+                    </th>
+                    <th scope="col" className="px-4 py-3">
+                      Contact
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">

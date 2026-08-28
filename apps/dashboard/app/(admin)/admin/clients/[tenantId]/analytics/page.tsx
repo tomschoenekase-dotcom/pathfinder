@@ -199,13 +199,24 @@ export default async function AdminClientAnalyticsPage({ params }: AdminClientAn
         ) : (
           <div className="overflow-x-auto rounded-3xl border border-pf-light bg-pf-white shadow-sm">
             <table className="w-full text-left text-sm">
+              <caption className="sr-only">Most frequently asked client questions</caption>
               <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Question</th>
-                  <th className="px-4 py-3 font-semibold">Type</th>
-                  <th className="px-4 py-3 font-semibold">Count</th>
-                  <th className="px-4 py-3 font-semibold">Venue</th>
-                  <th className="px-4 py-3 font-semibold">Window</th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Question
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Type
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Count
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Venue
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Window
+                  </th>
                 </tr>
               </thead>
               <tbody>

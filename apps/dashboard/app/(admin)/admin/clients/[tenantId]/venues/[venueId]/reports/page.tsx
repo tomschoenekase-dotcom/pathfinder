@@ -136,12 +136,21 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
           Report history
         </h2>
         <table className="min-w-[42rem] w-full text-left text-sm">
+          <caption className="sr-only">Venue report history</caption>
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
-              <th className="px-4 py-3 font-semibold">Date range</th>
-              <th className="px-4 py-3 font-semibold">Title</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-              <th className="px-4 py-3 font-semibold">Updated</th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Date range
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Title
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Status
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Updated
+              </th>
             </tr>
           </thead>
           <tbody>

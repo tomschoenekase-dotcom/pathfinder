@@ -579,13 +579,24 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             </ul>
             <div className="mt-4 hidden overflow-x-auto md:block">
               <table className="min-w-full text-left text-sm">
+                <caption className="sr-only">Worker runtime health</caption>
                 <thead className="text-xs uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="pb-2 pr-4">Worker</th>
-                    <th className="pb-2 pr-4">Runtime</th>
-                    <th className="pb-2 pr-4">State</th>
-                    <th className="pb-2 pr-4">Model route</th>
-                    <th className="pb-2">Heartbeat</th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Worker
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Runtime
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      State
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Model route
+                    </th>
+                    <th scope="col" className="pb-2">
+                      Heartbeat
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">

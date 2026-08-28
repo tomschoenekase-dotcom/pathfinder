@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../../lib/trpc'
 import {
@@ -135,6 +135,9 @@ export function ClientBillingPanel() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const cancelDialogRef = useRef<HTMLFormElement>(null)
+  const cancelReasonRef = useRef<HTMLTextAreaElement>(null)
+  const cancelTriggerRef = useRef<HTMLElement | null>(null)
 
   async function load() {
     try {
@@ -152,6 +155,39 @@ export function ClientBillingPanel() {
   useEffect(() => {
     void load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!cancelOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    cancelReasonRef.current?.focus()
+    function handleDialogKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setCancelOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = cancelDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )
+      if (!focusable?.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleDialogKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleDialogKeyDown)
+      cancelTriggerRef.current?.focus()
+    }
+  }, [cancelOpen])
   const view = useMemo(() => (overview ? presentation(overview) : null), [overview])
 
   async function checkout() {
@@ -317,7 +353,12 @@ export function ClientBillingPanel() {
         {...(view.model?.canRetryCheckout && !busy ? { onRetryCheckout: () => void portal() } : {})}
         {...(view.model?.canManageBilling && !busy ? { onManageBilling: () => void portal() } : {})}
         {...(view.model?.canCancel && !busy
-          ? { onRequestCancellation: () => setCancelOpen(true) }
+          ? {
+              onRequestCancellation: () => {
+                cancelTriggerRef.current = document.activeElement as HTMLElement | null
+                setCancelOpen(true)
+              },
+            }
           : {})}
         {...(!busy
           ? { onAddOnInterest: (featureKey: string) => void recordInterest(featureKey) }
@@ -328,9 +369,14 @@ export function ClientBillingPanel() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="cancel-billing-heading"
+          aria-describedby="cancel-billing-description"
           className="fixed inset-0 z-50 flex items-center justify-center bg-pf-deep/60 p-4"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setCancelOpen(false)
+          }}
         >
           <form
+            ref={cancelDialogRef}
             onSubmit={(event) => {
               event.preventDefault()
               void cancelSubscription()
@@ -340,7 +386,7 @@ export function ClientBillingPanel() {
             <h2 id="cancel-billing-heading" className="text-xl font-semibold text-pf-deep">
               Cancel at the end of your paid period?
             </h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/70">
+            <p id="cancel-billing-description" className="mt-2 text-sm leading-6 text-pf-deep/70">
               Your venue stays available through the paid-through date. Tell us why you are leaving
               so our team can follow up appropriately.
             </p>
@@ -351,11 +397,11 @@ export function ClientBillingPanel() {
               Why are you canceling?
             </label>
             <textarea
+              ref={cancelReasonRef}
               id="cancellation-reason"
               required
               minLength={3}
               maxLength={2000}
-              autoFocus
               value={cancelReason}
               onChange={(event) => setCancelReason(event.target.value)}
               className="mt-2 min-h-28 w-full rounded-xl border border-pf-light p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"

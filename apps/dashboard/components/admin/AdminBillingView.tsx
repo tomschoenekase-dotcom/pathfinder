@@ -290,6 +290,7 @@ export function AdminBillingView({ state, billing, onAction }: AdminBillingViewP
         {billing.invoices.length ? (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[42rem] text-left text-sm">
+              <caption className="sr-only">Customer invoice history</caption>
               <thead>
                 <tr className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/75">
                   <th scope="col" className="pb-3 pr-4 font-semibold">

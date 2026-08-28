@@ -98,14 +98,27 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
 
       <div className="overflow-x-auto rounded-2xl border border-pf-light bg-pf-white shadow-sm">
         <table className="w-full text-left text-sm">
+          <caption className="sr-only">Venue guest chat sessions</caption>
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
-              <th className="px-4 py-3 font-semibold">Started</th>
-              <th className="px-4 py-3 font-semibold">Experience</th>
-              <th className="px-4 py-3 font-semibold">Messages</th>
-              <th className="px-4 py-3 font-semibold">Answers</th>
-              <th className="px-4 py-3 font-semibold">Notes</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Started
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Experience
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Messages
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Answers
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Notes
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Status
+              </th>
             </tr>
           </thead>
           <tbody>

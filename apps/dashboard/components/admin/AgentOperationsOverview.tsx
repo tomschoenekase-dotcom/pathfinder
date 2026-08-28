@@ -420,13 +420,24 @@ export function AgentOperationsOverview({
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-pf-light bg-white">
             <table className="min-w-[52rem] w-full text-left text-sm">
+              <caption className="sr-only">Agent run history</caption>
               <thead className="border-b border-pf-light bg-pf-surface/50 text-xs uppercase tracking-wider text-pf-deep/55">
                 <tr>
-                  <th className="px-4 py-3">Run</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Evidence</th>
-                  <th className="px-4 py-3">Cost</th>
-                  <th className="px-4 py-3">Created</th>
+                  <th scope="col" className="px-4 py-3">
+                    Run
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Evidence
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Cost
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Created
+                  </th>
                 </tr>
               </thead>
               <tbody>
