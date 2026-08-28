@@ -180,10 +180,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.performancePredecessorCount), manifest),
-    [
-      '20260827220000_add_operational_performance_indexes',
-      '20260828155000_allow_fenced_agent_bridge_takeover',
-    ],
+    ['20260828155000_allow_fenced_agent_bridge_takeover'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({

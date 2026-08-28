@@ -37,7 +37,7 @@ const EXPECTED = Object.freeze({
   hostedPredecessorPublicTableCount: 221,
   venueMediaPredecessorCount: 196,
   venueMediaPredecessorPublicTableCount: 225,
-  performancePredecessorCount: 197,
+  performancePredecessorCount: 198,
   performancePredecessorPublicTableCount: 226,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
@@ -51,7 +51,7 @@ const EXPECTED = Object.freeze({
   currentStagingFinalMigration: '20260825160000_add_venue_response_depth',
   hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
   venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
-  performancePredecessorFinalMigration: '20260826020000_add_venue_media_derivatives',
+  performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
   finalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
   manifestHash: 'a5e84b718390babd8a2c5eaafde317dfa2c43fc99dab41d9dc0b6a79aefc4526',
   // The reviewed 58-migration suffix after B.5 adds 33 public tables.
