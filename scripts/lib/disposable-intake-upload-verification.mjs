@@ -1441,11 +1441,18 @@ export async function runDisposableSemanticVenueUpdateShakedown(options = {}) {
         'cross-scope-handoff-rejected',
         'append-only-update-delete-truncate-guards',
         'draft-only-without-approval-apply-or-publication',
+        'human-gated-package-lifecycle-with-exact-replay',
+        'human-gated-temporal-publish-and-deactivate',
+      ],
+      failureScope: [
+        'agent-package-approval-rejected-before-mutation',
+        'agent-temporal-publication-rejected-before-mutation',
+        'stale-repeat-temporal-schedule-rejected',
       ],
       integration: {
         packageDirectory: 'packages/db',
         testFile: 'src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts',
-        expectedPassed: 2,
+        expectedPassed: 4,
         environment: {
           RUN_KNOWLEDGE_PROPOSAL_PACKAGE_HANDOFF_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
