@@ -123,6 +123,13 @@ package, manifest, request, handoff, parameter, or decision drift fails closed. 
 no automatic rollback policy and includes no support-state change, customer contact, or external
 delivery authority.
 
+The disposable recovery rehearsal binds that exact one-shot reversion to one durable run with
+`maxAttempts: 1` and a zero AI request-cost ceiling. A paid provider reservation is refused before
+the underlying gate can dispatch, the canonical rollback completes once at exact zero cost with
+grant/run/worker lineage, replay does not duplicate it, and a later execution claim is refused as
+attempt-exhausted. These proof bounds do not create an automatic rollback policy or increase the
+reversion grant's authority.
+
 The intake evaluator accepts only `NOTES` within the reviewed character bound and exact client and
 venue scope. The canonical write creates an `AWAITING_REVIEW` intake run with complete machine
 lineage. It performs no extraction, package creation/application, publication, or customer contact.
@@ -152,4 +159,6 @@ outcome membership, policy issuance replay, bounded policy consumption for all s
 action classes, fail-closed parameter rejection, use exhaustion, expiry refusal, founder revocation
 after a successful exercise, zero post-revocation artifacts, private support visibility,
 approval-bound one-use opening and internal note, durable evidence, and cleanup. It performs no
-provider call, publication, customer contact, or real billing action.
+provider call, publication, customer contact, or real billing action. The support-package rehearsal
+also proves one founder-gated canonical rollback under a single-attempt, exact-zero-cost run, blocks
+paid provider reservation before dispatch, and refuses a post-rollback second attempt.

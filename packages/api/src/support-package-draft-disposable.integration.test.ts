@@ -14,42 +14,50 @@ import {
   GUEST_CHAT_PROMPT_VERSION,
 } from '@pathfinder/contracts/prompt-contract'
 
-vi.mock('@pathfinder/ai', () => ({
-  AI_EMBEDDING_MODEL_KEYS: {
-    PLACE_CONTENT: 'place-content',
-    KNOWLEDGE_CONTENT: 'knowledge-content',
-  },
-  AiGatewayError: class AiGatewayError extends Error {
-    code = 'provider-error'
-  },
-  getAiEmbeddingProfile: (key: string) => `integration-profile:${key}`,
-  generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
-    await usageSink({
-      provider: 'integration-test',
-      model: 'deterministic-embedding',
-      pricingVersion: 'test-v1',
-      usage: {
-        inputTokens: texts.length,
-        outputTokens: 0,
-        cacheCreationInputTokens: 0,
-        cacheReadInputTokens: 0,
-      },
-      estimatedCostUsd: 0,
-      latencyMs: 1,
-      attempts: 1,
-      success: true,
-    })
-    return {
-      embeddings: texts.map((text: string, index: number) => {
-        const vector = Array(1_536).fill(0)
-        vector[(text.length + index) % vector.length] = 1
-        return vector
-      }),
-    }
-  }),
-}))
+vi.mock('@pathfinder/ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/ai')>()
+  return {
+    ...actual,
+    AI_EMBEDDING_MODEL_KEYS: {
+      PLACE_CONTENT: 'place-content',
+      KNOWLEDGE_CONTENT: 'knowledge-content',
+    },
+    AiGatewayError: class AiGatewayError extends Error {
+      code = 'provider-error'
+    },
+    getAiEmbeddingProfile: (key: string) => `integration-profile:${key}`,
+    generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
+      await usageSink({
+        provider: 'integration-test',
+        model: 'deterministic-embedding',
+        pricingVersion: 'test-v1',
+        usage: {
+          inputTokens: texts.length,
+          outputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+        },
+        estimatedCostUsd: 0,
+        latencyMs: 1,
+        attempts: 1,
+        success: true,
+      })
+      return {
+        embeddings: texts.map((text: string, index: number) => {
+          const vector = Array(1_536).fill(0)
+          vector[(text.length + index) % vector.length] = 1
+          return vector
+        }),
+      }
+    }),
+  }
+})
+
+import { withAiRequestBudgetCeiling, type AiBudgetGate } from '@pathfinder/ai'
 
 import {
+  claimAgentRunExecution,
+  completeAgentRunExecution,
   consumeApprovalGrantAction,
   completeSupportRequestAction,
   createOrReplayEvaluationRun,
@@ -1293,9 +1301,63 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
         issueReason: 'Execute this exact reviewed canonical rollback once.',
         actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
       })
+      const reversionExecutionRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: reversionIdentityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'support.package-reversion.apply',
+          scopeSnapshot: {
+            accessCapabilities: ['packages:revert'],
+            approvalGrantId: reversionGrant.id,
+            maxAttempts: 1,
+            requestBudgetCeilingE8Usd: '0',
+            providerExecutionPermitted: false,
+            recoveryOnly: true,
+          },
+          status: 'QUEUED',
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          maxAttempts: 1,
+        },
+      })
+      const claimedReversion = await claimAgentRunExecution({
+        tenantId,
+        runId: reversionExecutionRun.id,
+      })
+      const underlyingBudgetGate: AiBudgetGate = {
+        reserve: vi.fn().mockResolvedValue(null),
+        markDispatched: vi.fn().mockResolvedValue(undefined),
+        settleExact: vi.fn().mockResolvedValue(undefined),
+        settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+        releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+      }
+      const rollbackBudgetGate = withAiRequestBudgetCeiling(underlyingBudgetGate, 0n)
+      await expect(
+        rollbackBudgetGate.reserve({
+          invocationId: reversionExecutionRun.operationId!,
+          attemptNumber: claimedReversion.attemptNumber,
+          provider: 'openai',
+          model: 'forbidden-for-provider-dark-rollback',
+          pricingVersion: 'test-v1',
+          reservedUnits: 1n,
+        }),
+      ).rejects.toMatchObject({
+        code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+        ceilingUnits: 0n,
+        attemptedUnits: 1n,
+      })
+      expect(underlyingBudgetGate.reserve).not.toHaveBeenCalled()
       const reversionOperationId = randomUUID()
-      const reversionActor = {
+      const reversionExecutionActorBase = {
         ...reversionActorBase,
+        agentRunId: reversionExecutionRun.id,
+        workerId: `reversion-execution-worker-${suffix}`,
+      }
+      const reversionActor = {
+        ...reversionExecutionActorBase,
         approvalGrantId: reversionGrant.id,
         idempotencyKey: reversionOperationId,
       }
@@ -1350,6 +1412,57 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
       await expect(revertCurrentContent()).resolves.toMatchObject({
         replayed: true,
         revertedPackage: { id: applied.value.id, status: 'REVERTED' },
+      })
+      expect(
+        await db.approvalGrantConsumption.findFirstOrThrow({
+          where: { tenantId, approvalGrantId: reversionGrant.id },
+          select: { agentRunId: true, workerId: true, resultReference: true },
+        }),
+      ).toMatchObject({
+        agentRunId: reversionExecutionRun.id,
+        workerId: reversionExecutionActorBase.workerId,
+        resultReference: expect.stringContaining(':REVERTED'),
+      })
+      await completeAgentRunExecution({
+        tenantId,
+        runId: reversionExecutionRun.id,
+        leaseToken: claimedReversion.leaseToken,
+        summary: 'Completed the exact approved provider-dark package rollback.',
+        artifacts: [{ type: 'VenuePackage', id: applied.value.id, status: 'REVERTED' }],
+        modelProvider: 'fixture',
+        modelName: 'deterministic-provider-dark',
+        costE8Usd: 0n,
+        costStatus: 'EXACT',
+      })
+      await expect(
+        claimAgentRunExecution({ tenantId, runId: reversionExecutionRun.id }),
+      ).rejects.toThrow('exhausted its attempts')
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: reversionExecutionRun.id },
+          select: {
+            status: true,
+            attemptNumber: true,
+            maxAttempts: true,
+            costE8Usd: true,
+            costStatus: true,
+            scopeSnapshot: true,
+          },
+        }),
+      ).toEqual({
+        status: 'COMPLETED',
+        attemptNumber: 1,
+        maxAttempts: 1,
+        costE8Usd: 0n,
+        costStatus: 'EXACT',
+        scopeSnapshot: {
+          accessCapabilities: ['packages:revert'],
+          approvalGrantId: reversionGrant.id,
+          maxAttempts: 1,
+          requestBudgetCeilingE8Usd: '0',
+          providerExecutionPermitted: false,
+          recoveryOnly: true,
+        },
       })
 
       await expect(
