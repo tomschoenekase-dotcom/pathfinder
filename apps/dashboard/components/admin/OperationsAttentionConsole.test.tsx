@@ -230,16 +230,27 @@ const empty: Data = {
     },
   },
   founderAbsenceReadiness: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date('2026-08-11T14:30:00.000Z'),
     kind: 'READINESS_SNAPSHOT',
     target: {
       ordinaryOperationDays: 7,
       launchGate: false,
-      certification: 'NOT_STARTED',
+      certification: 'NOT_CERTIFIED',
+      observationState: 'NOT_STARTED',
       observedDays: 0,
       explanation:
         'A representative uninterrupted week has not been recorded. This snapshot prepares the test.',
+    },
+    observationHistory: {
+      retainedDays: 0,
+      consecutiveDays: 0,
+      latestObservedOn: null,
+      latestCapturedAt: null,
+      latestReleaseSha: null,
+      stale: false,
+      incompleteSamples: 0,
+      immutableDailySamples: true,
     },
     summary: { dimensionsWithReviewCandidates: 0, visibleSignals: 0 },
     dimensions: [

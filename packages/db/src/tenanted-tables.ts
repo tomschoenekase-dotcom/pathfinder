@@ -156,6 +156,7 @@ export const PLATFORM_TABLES = [
   'User',
   'Tenant',
   'PlatformConfig',
+  'FounderAbsenceObservation',
   'ClerkWebhookReceipt',
   'AiWorkloadConfigurationOverride',
   'AiWorkloadConfigurationHistory',

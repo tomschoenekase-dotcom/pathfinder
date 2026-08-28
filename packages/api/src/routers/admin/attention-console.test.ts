@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   redriveSupported: vi.fn(),
   founderConversation: vi.fn(),
   recordFounderExchange: vi.fn(),
+  founderAbsenceObservations: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -62,6 +63,7 @@ vi.mock('@pathfinder/db', () => ({
       findMany: mocks.operationalUsage,
       findFirst: mocks.latestOperationalUsage,
     },
+    founderAbsenceObservation: { findMany: mocks.founderAbsenceObservations },
   },
 }))
 
@@ -75,7 +77,7 @@ vi.mock('@pathfinder/config', () => ({
 
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
-import { adminAttentionConsoleRouter } from './attention-console'
+import { adminAttentionConsoleRouter } from './attention-console-router'
 
 const testRouter = router({ admin: adminAttentionConsoleRouter })
 
@@ -132,6 +134,7 @@ describe('admin attention console', () => {
       },
       replayed: false,
     })
+    mocks.founderAbsenceObservations.mockResolvedValue([])
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -375,7 +378,7 @@ describe('admin attention console', () => {
       },
       founderAbsenceReadiness: {
         kind: 'READINESS_SNAPSHOT',
-        target: { certification: 'NOT_STARTED', launchGate: false },
+        target: { certification: 'NOT_CERTIFIED', launchGate: false },
         authority: { effect: 'READ_ONLY', canCertifyMaturity: false },
       },
       authority: {

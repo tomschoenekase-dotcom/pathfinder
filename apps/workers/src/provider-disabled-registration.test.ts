@@ -8,6 +8,10 @@ const derivativeRuntime = readFileSync(
   resolve(__dirname, 'venue-media-derivative-runtime.ts'),
   'utf8',
 )
+const founderAbsenceRuntime = readFileSync(
+  resolve(__dirname, 'founder-absence-observer-runtime.ts'),
+  'utf8',
+)
 
 describe('provider-disabled worker registration boundary', () => {
   it('keeps the provider-enabled worker graph free of a hidden provider-disabled branch', () => {
@@ -16,7 +20,10 @@ describe('provider-disabled worker registration boundary', () => {
 
   it('chooses dormant mode before importing the provider-enabled worker graph', () => {
     const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
-    const policy = bootstrap.indexOf('resolveWorkerStartupPolicy(process.env)', entryPoint)
+    const policy = bootstrap.indexOf(
+      'resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)',
+      entryPoint,
+    )
     const assertion = bootstrap.indexOf(
       'assertRequiredEnvironment(policy.requiredEnvironmentKeys)',
       entryPoint,
@@ -53,5 +60,6 @@ describe('provider-disabled worker registration boundary', () => {
     expect(providerImport).toBeGreaterThan(derivativeReturn)
     expect(derivativeRuntime).toContain('VENUE_MEDIA_DERIVATIVE_QUEUE')
     expect(derivativeRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
+    expect(founderAbsenceRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
   })
 })

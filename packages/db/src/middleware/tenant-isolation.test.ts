@@ -233,6 +233,7 @@ describe('tenantIsolationMiddleware', () => {
       'User',
       'Tenant',
       'PlatformConfig',
+      'FounderAbsenceObservation',
       'ClerkWebhookReceipt',
       'AiWorkloadConfigurationOverride',
       'AiWorkloadConfigurationHistory',

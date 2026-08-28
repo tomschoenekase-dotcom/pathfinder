@@ -141,13 +141,14 @@ export function deriveFounderAbsenceReadiness(input: FounderAbsenceInput) {
   ]
 
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     generatedAt: input.generatedAt,
     kind: 'READINESS_SNAPSHOT' as const,
     target: {
       ordinaryOperationDays: 7 as const,
       launchGate: false as const,
-      certification: 'NOT_STARTED' as const,
+      certification: 'NOT_CERTIFIED' as const,
+      observationState: 'NOT_STARTED' as const,
       observedDays: 0 as const,
       explanation:
         'A representative uninterrupted week has not been recorded. This current-state snapshot prepares the maturity test; it does not certify it.',

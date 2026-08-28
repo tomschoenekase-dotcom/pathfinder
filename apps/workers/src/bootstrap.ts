@@ -1,6 +1,9 @@
 import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
-import { resolveWorkerStartupPolicy } from './lib/worker-startup-policy'
+import {
+  resolveWorkerStartupPolicy,
+  type WorkerStartupEnvironment,
+} from './lib/worker-startup-policy'
 
 function assertRequiredEnvironment(keys: string[]): void {
   const missing = keys.filter((key) => !process.env[key])
@@ -23,7 +26,7 @@ function registerShutdown(shutdown: () => Promise<void>): void {
 }
 
 export async function bootstrapWorkers() {
-  const policy = resolveWorkerStartupPolicy(process.env)
+  const policy = resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)
   assertRequiredEnvironment(policy.requiredEnvironmentKeys)
 
   if (policy.mode === 'provider-disabled') {
@@ -76,6 +79,24 @@ export async function bootstrapWorkers() {
         action: 'workers.started',
         mode: runtime.mode,
         outboundProviderWorkersEnabled: false,
+        founderAbsenceObserverEnabled: runtime.founderAbsenceObserverEnabled,
+        queues: runtime.queues,
+      })}\n`,
+    )
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
+  if (policy.mode === 'founder-absence-observer-only') {
+    const { startFounderAbsenceObserverOnlyRuntime } =
+      await import('./founder-absence-observer-only-runtime.js')
+    const runtime = await startFounderAbsenceObserverOnlyRuntime()
+    process.stdout.write(
+      `${JSON.stringify({
+        action: 'workers.started',
+        mode: runtime.mode,
+        outboundProviderWorkersEnabled: false,
+        founderAbsenceObserverEnabled: true,
         queues: runtime.queues,
       })}\n`,
     )

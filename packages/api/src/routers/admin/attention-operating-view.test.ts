@@ -122,13 +122,14 @@ describe('founder operating view', () => {
         },
       },
       founderAbsenceReadiness: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         generatedAt,
         kind: 'READINESS_SNAPSHOT',
         target: {
           ordinaryOperationDays: 7,
           launchGate: false,
-          certification: 'NOT_STARTED',
+          certification: 'NOT_CERTIFIED',
+          observationState: 'NOT_STARTED',
           observedDays: 0,
           explanation: 'The representative week has not started.',
         },
@@ -278,7 +279,7 @@ describe('founder operating view', () => {
       },
       founderAbsenceReadiness: {
         kind: 'READINESS_SNAPSHOT',
-        target: { certification: 'NOT_STARTED' },
+        target: { certification: 'NOT_CERTIFIED' },
       },
       operatingCosts: {
         totals: { knownOperatingCostUsd: '12.00000000' },

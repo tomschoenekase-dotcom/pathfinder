@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-199-20260828',
+  approval: 'torchiko-staging-lineage-to-200-20260828',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 199,
+  migrationCount: 200,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -39,6 +39,8 @@ const EXPECTED = Object.freeze({
   venueMediaPredecessorPublicTableCount: 225,
   performancePredecessorCount: 198,
   performancePredecessorPublicTableCount: 226,
+  founderAbsencePredecessorCount: 199,
+  founderAbsencePredecessorPublicTableCount: 226,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -52,10 +54,11 @@ const EXPECTED = Object.freeze({
   hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
   venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
   performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
-  finalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
-  manifestHash: 'a5e84b718390babd8a2c5eaafde317dfa2c43fc99dab41d9dc0b6a79aefc4526',
-  // The reviewed 58-migration suffix after B.5 adds 33 public tables.
-  finalPublicTableCount: 226,
+  founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
+  finalMigration: '20260828174000_add_founder_absence_observations',
+  manifestHash: '60a2638f6ccad8989204bae12e1f0874d9b8edd8f2efafa75867fc9b668780a8',
+  // The reviewed 59-migration suffix after B.5 adds 34 public tables.
+  finalPublicTableCount: 227,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -201,6 +204,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('performance predecessor boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.founderAbsencePredecessorCount - 1] !==
+    EXPECTED.founderAbsencePredecessorFinalMigration
+  ) {
+    fail('founder absence predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -218,6 +227,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.hostedPredecessorCount &&
     rows.length !== EXPECTED.venueMediaPredecessorCount &&
     rows.length !== EXPECTED.performancePredecessorCount &&
+    rows.length !== EXPECTED.founderAbsencePredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -258,6 +268,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.hostedPredecessorCount) return 'hosted-predecessor'
   if (rows.length === EXPECTED.venueMediaPredecessorCount) return 'venue-media-predecessor'
   if (rows.length === EXPECTED.performancePredecessorCount) return 'performance-predecessor'
+  if (rows.length === EXPECTED.founderAbsencePredecessorCount) return 'founder-absence-predecessor'
   return 'complete'
 }
 
@@ -419,7 +430,9 @@ async function main() {
                           ? EXPECTED.venueMediaPredecessorPublicTableCount
                           : initialState === 'performance-predecessor'
                             ? EXPECTED.performancePredecessorPublicTableCount
-                            : EXPECTED.stagingBaselinePublicTableCount
+                            : initialState === 'founder-absence-predecessor'
+                              ? EXPECTED.founderAbsencePredecessorPublicTableCount
+                              : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

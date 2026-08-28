@@ -48,7 +48,8 @@ describe('deriveFounderAbsenceReadiness', () => {
     expect(result.target).toMatchObject({
       ordinaryOperationDays: 7,
       launchGate: false,
-      certification: 'NOT_STARTED',
+      certification: 'NOT_CERTIFIED',
+      observationState: 'NOT_STARTED',
       observedDays: 0,
     })
     expect(

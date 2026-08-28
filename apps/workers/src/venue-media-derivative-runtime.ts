@@ -12,6 +12,7 @@ import {
 import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
 import { processVenueMediaDerivativeJob } from './processors/venue-media-derivative'
+import { startFounderAbsenceObserver } from './founder-absence-observer-runtime'
 
 async function handleVenueMediaDerivativeJob(job: Job<VenueMediaDerivativeJobPayload>) {
   if (job.name !== VENUE_MEDIA_DERIVATIVE_PROCESS_JOB) {
@@ -45,7 +46,12 @@ export async function startVenueMediaDerivativeRuntime() {
       `${JSON.stringify({ action: 'workers.runtime.error', errorCode: 'venue-media-derivative-worker-error' })}\n`,
     ),
   )
+  const founderAbsenceObserver =
+    process.env.FOUNDER_ABSENCE_OBSERVER_ENABLED === 'true'
+      ? await startFounderAbsenceObserver()
+      : null
   const shutdown = async () => {
+    await founderAbsenceObserver?.shutdown()
     await worker.close()
     await connectivity.shutdown()
     await closeBullMQConnection()
@@ -54,6 +60,7 @@ export async function startVenueMediaDerivativeRuntime() {
     mode: 'venue-media-derivative-only' as const,
     queues: [VENUE_MEDIA_DERIVATIVE_QUEUE] as const,
     worker,
+    founderAbsenceObserverEnabled: founderAbsenceObserver !== null,
     shutdown,
   }
 }

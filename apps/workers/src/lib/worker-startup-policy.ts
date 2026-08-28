@@ -8,6 +8,7 @@ export const WORKER_EXECUTION_FLAGS = [
   'GENERATION_RECOVERY_ENABLED',
   'EVALUATION_RUNNER_ENABLED',
   'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
+  'FOUNDER_ABSENCE_OBSERVER_ENABLED',
 ] as const
 
 const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
@@ -16,7 +17,8 @@ const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
     flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
     flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
     flag !== 'EVALUATION_RUNNER_ENABLED' &&
-    flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
+    flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
+    flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',
 )
 
 export type WorkerStartupEnvironment = Partial<
@@ -30,6 +32,7 @@ export type WorkerStartupPolicy = {
     | 'intake-upload-verification-only'
     | 'evaluation-only'
     | 'venue-media-derivative-only'
+    | 'founder-absence-observer-only'
     | 'provider-disabled'
   requiredEnvironmentKeys: string[]
   intakeUploadVerificationEnabled: boolean
@@ -59,6 +62,18 @@ export function resolveWorkerStartupPolicy(
     environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
   const evaluationRunnerEnabled = environment.EVALUATION_RUNNER_ENABLED === 'true'
   const venueMediaDerivativeEnabled = environment.VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED === 'true'
+  const founderAbsenceObserverEnabled = environment.FOUNDER_ABSENCE_OBSERVER_ENABLED === 'true'
+  if (
+    founderAbsenceObserverEnabled &&
+    (providerEnabled ||
+      crmBackgroundEnabled ||
+      intakeUploadVerificationEnabled ||
+      evaluationRunnerEnabled)
+  ) {
+    throw new Error(
+      'FOUNDER_ABSENCE_OBSERVER_ENABLED can run only by itself or with the venue media derivative runtime',
+    )
+  }
   if (!providerEnabled) {
     const conflictingFlag = DEPENDENT_EXECUTION_FLAGS.find((flag) => environment[flag] === 'true')
     if (conflictingFlag) {
@@ -157,9 +172,15 @@ export function resolveWorkerStartupPolicy(
                 ],
                 intakeUploadVerificationEnabled: false,
               }
-            : {
-                mode: 'provider-disabled',
-                requiredEnvironmentKeys: ['REDIS_URL'],
-                intakeUploadVerificationEnabled: false,
-              }
+            : founderAbsenceObserverEnabled
+              ? {
+                  mode: 'founder-absence-observer-only',
+                  requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+                  intakeUploadVerificationEnabled: false,
+                }
+              : {
+                  mode: 'provider-disabled',
+                  requiredEnvironmentKeys: ['REDIS_URL'],
+                  intakeUploadVerificationEnabled: false,
+                }
 }

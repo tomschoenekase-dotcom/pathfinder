@@ -6,7 +6,23 @@ import type { readFounderUnitEconomics } from './unit-economics'
 type FounderBriefing = ReturnType<typeof deriveFounderBriefing>
 type AgentTrustEvidence = ReturnType<typeof deriveAgentTrustEvidence>
 type FounderUnitEconomics = Awaited<ReturnType<typeof readFounderUnitEconomics>>
-type FounderAbsenceReadiness = ReturnType<typeof deriveFounderAbsenceReadiness>
+type FounderAbsenceReadinessBase = ReturnType<typeof deriveFounderAbsenceReadiness>
+type FounderAbsenceReadiness = Omit<FounderAbsenceReadinessBase, 'target' | 'evidenceWindow'> & {
+  target: Omit<
+    FounderAbsenceReadinessBase['target'],
+    'observationState' | 'observedDays' | 'explanation'
+  > & {
+    observationState: 'NOT_STARTED' | 'IN_PROGRESS' | 'READY_FOR_REVIEW'
+    observedDays: number
+    explanation: string
+  }
+  evidenceWindow: Omit<
+    FounderAbsenceReadinessBase['evidenceWindow'],
+    'historicalContinuityVerified'
+  > & {
+    historicalContinuityVerified: boolean
+  }
+}
 
 export function deriveFounderOperatingView(
   input: {

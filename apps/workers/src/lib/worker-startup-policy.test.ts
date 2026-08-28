@@ -131,6 +131,48 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits the database-backed founder absence observer without provider workers', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        FOUNDER_ABSENCE_OBSERVER_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'founder-absence-observer-only',
+      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it('allows the observer to accompany the provider-dark venue media runtime', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED: 'true',
+        FOUNDER_ABSENCE_OBSERVER_ENABLED: 'true',
+      }),
+    ).toMatchObject({ mode: 'venue-media-derivative-only' })
+  })
+
+  it.each([
+    'CRM_BACKGROUND_WORKERS_ENABLED',
+    'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
+    'EVALUATION_RUNNER_ENABLED',
+    'OUTBOUND_PROVIDER_WORKERS_ENABLED',
+  ] as const)('rejects an observer flag that its selected %s runtime would ignore', (flag) => {
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED:
+          flag === 'OUTBOUND_PROVIDER_WORKERS_ENABLED' ? 'true' : 'false',
+        FOUNDER_ABSENCE_OBSERVER_ENABLED: 'true',
+        [flag]: 'true',
+      }),
+    ).toThrow('FOUNDER_ABSENCE_OBSERVER_ENABLED can run only by itself or with')
+  })
+
   it('rejects mixing the isolated evaluation runtime with other provider-disabled modes', () => {
     expect(() =>
       resolveWorkerStartupPolicy({
@@ -149,7 +191,8 @@ describe('worker startup policy', () => {
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
         flag !== 'EVALUATION_RUNNER_ENABLED' &&
-        flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED',
+        flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
+        flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',
     ),
   )('rejects %s when provider workers are disabled', (flag) => {
     expect(() =>

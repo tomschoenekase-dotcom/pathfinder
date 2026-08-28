@@ -8,6 +8,13 @@ function statusLabel(state: Readiness['dimensions'][number]['state']) {
   return state === 'REVIEW_CANDIDATES' ? 'Review' : 'No visible signal'
 }
 
+function observationStatus(data: Readiness) {
+  if (data.target.observationState === 'READY_FOR_REVIEW') return 'Ready for review — not certified'
+  if (data.target.observationState === 'IN_PROGRESS')
+    return `${data.target.observedDays} of ${data.target.ordinaryOperationDays} days retained`
+  return 'Not started'
+}
+
 export function FounderAbsenceReadiness({ data }: { data: Readiness }) {
   return (
     <section
@@ -32,7 +39,7 @@ export function FounderAbsenceReadiness({ data }: { data: Readiness }) {
             <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
               Test status
             </dt>
-            <dd className="mt-1 text-sm font-semibold text-slate-950">Not started</dd>
+            <dd className="mt-1 text-sm font-semibold text-slate-950">{observationStatus(data)}</dd>
           </div>
           <div className="rounded-xl bg-white p-3 ring-1 ring-indigo-100">
             <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -71,6 +78,12 @@ export function FounderAbsenceReadiness({ data }: { data: Readiness }) {
       </ol>
 
       <p className="mt-4 text-xs leading-5 text-slate-600">
+        Daily evidence is immutable.{' '}
+        {data.observationHistory.retainedDays === 0
+          ? 'No daily samples are retained yet.'
+          : `${data.observationHistory.retainedDays} daily samples are retained; ${data.observationHistory.incompleteSamples} ${data.observationHistory.incompleteSamples === 1 ? 'is' : 'are'} incomplete. The latest retained UTC date is ${data.observationHistory.latestObservedOn}.`}{' '}
+        Missing dates and incomplete samples reset the uninterrupted streak.{' '}
+        {data.observationHistory.stale ? 'The retained history is stale. ' : ''}
         Current-state evidence is{' '}
         {data.evidenceWindow.complete ? 'complete for the bounded reads' : 'bounded and incomplete'}
         . This surface cannot change permissions, resolve work, or certify maturity, and it is not a

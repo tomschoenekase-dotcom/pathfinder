@@ -14,7 +14,7 @@ import {
 import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
-import { deriveFounderAbsenceReadiness } from './attention-founder-absence'
+import { readFounderAbsenceReadinessWithHistory } from './attention-founder-absence-query'
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -359,10 +359,8 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       actions: page(agentEvidenceRows.actions, query.limit),
       approvalDecisions: page(agentEvidenceRows.approvalDecisions, query.limit),
     })
-    return {
-      ...result,
-      agentTrustEvidence,
-      founderAbsenceReadiness: deriveFounderAbsenceReadiness({
+    const founderAbsenceReadiness = await readFounderAbsenceReadinessWithHistory(
+      {
         generatedAt: result.generatedAt,
         jobs: result.jobs,
         evaluations: result.evaluations,
@@ -373,7 +371,13 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
         events: result.events,
         platformEvents: result.platformEvents,
         agentTrustEvidence,
-      }),
+      },
+      now,
+    )
+    return {
+      ...result,
+      agentTrustEvidence,
+      founderAbsenceReadiness,
       briefing: deriveFounderBriefing({
         limit: query.limit,
         events: result.events,
@@ -390,5 +394,3 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
     }
   })
 }
-
-export { adminAttentionConsoleRouter } from './attention-console-router'

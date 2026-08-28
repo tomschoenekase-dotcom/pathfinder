@@ -137,6 +137,21 @@ Optimistic concurrency for question answers uses the question's `updatedAt` valu
 forms retain their conflict/expiry checks and force a refresh when the outcome cannot be safely
 confirmed.
 
+## Founder-absence observation
+
+The Control Room includes a read-only seven-day founder-absence maturity observation. A
+provider-dark worker captures at most one immutable platform-wide snapshot per UTC date, bound to
+the exact release SHA. Each sample records bounded current-state signals for founder waits,
+permission friction, repeated escalations, customer response work, failed automation, hidden
+manual steps, and uncontrolled effects. Missing dates and incomplete bounded reads reset the
+consecutive complete-sample streak.
+
+Zero samples is `NOT_STARTED`; one through six consecutive complete samples is `IN_PROGRESS`; and
+seven is `READY_FOR_REVIEW`. The last state is deliberately not certification, launch approval, or
+permission-change authority. The observer cannot resolve work, contact customers, enable provider
+workers, or self-certify maturity. Its staging flag is default-off and may run only alone or beside
+the provider-dark venue-media derivative runtime.
+
 ## Agent trust evidence
 
 The Control Room derives a versioned autonomy-evidence summary from bounded canonical

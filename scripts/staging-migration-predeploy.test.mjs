@@ -71,13 +71,15 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 199-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 200-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 226)
+  assert.equal(EXPECTED.finalPublicTableCount, 227)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
   assert.equal(EXPECTED.venueMediaPredecessorPublicTableCount, 225)
+  assert.equal(EXPECTED.founderAbsencePredecessorCount, 199)
+  assert.equal(EXPECTED.founderAbsencePredecessorPublicTableCount, 226)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
@@ -160,6 +162,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260826020000_add_venue_media_derivatives',
       '20260827220000_add_operational_performance_indexes',
       '20260828155000_allow_fenced_agent_bridge_takeover',
+      '20260828174000_add_founder_absence_observations',
     ],
   )
   assert.equal(
@@ -172,6 +175,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260826020000_add_venue_media_derivatives',
       '20260827220000_add_operational_performance_indexes',
       '20260828155000_allow_fenced_agent_bridge_takeover',
+      '20260828174000_add_founder_absence_observations',
     ],
   )
   assert.equal(
@@ -180,7 +184,18 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.performancePredecessorCount), manifest),
-    ['20260828155000_allow_fenced_agent_bridge_takeover'],
+    [
+      '20260828155000_allow_fenced_agent_bridge_takeover',
+      '20260828174000_add_founder_absence_observations',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.founderAbsencePredecessorCount), manifest),
+    'founder-absence-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.founderAbsencePredecessorCount), manifest),
+    ['20260828174000_add_founder_absence_observations'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
@@ -259,7 +274,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
 })
 
-test('exact previous staging release advances only through the reviewed sixty-four-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed sixty-six-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -337,6 +352,7 @@ test('exact previous staging release advances only through the reviewed sixty-fo
       '20260826020000_add_venue_media_derivatives',
       '20260827220000_add_operational_performance_indexes',
       '20260828155000_allow_fenced_agent_bridge_takeover',
+      '20260828174000_add_founder_absence_observations',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -398,6 +414,7 @@ test('exact previous staging release advances only through the reviewed sixty-fo
     '20260826020000_add_venue_media_derivatives',
     '20260827220000_add_operational_performance_indexes',
     '20260828155000_allow_fenced_agent_bridge_takeover',
+    '20260828174000_add_founder_absence_observations',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

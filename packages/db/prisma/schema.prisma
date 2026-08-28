@@ -1223,6 +1223,23 @@ model PlatformConfig {
   @@map("platform_config")
 }
 
+/// One immutable, platform-wide UTC-day sample for the founder-absence maturity observation.
+/// Seven consecutive samples may become ready for human review, but never self-certify maturity.
+model FounderAbsenceObservation {
+  id               String   @id @default(cuid())
+  observedOn       DateTime @unique @map("observed_on") @db.Date
+  capturedAt       DateTime @default(now()) @map("captured_at")
+  releaseSha       String   @map("release_sha") @db.Char(40)
+  schemaVersion    Int      @default(1) @map("schema_version")
+  snapshotHash     String   @map("snapshot_hash") @db.Char(64)
+  snapshot         Json
+  evidenceComplete Boolean  @map("evidence_complete")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([capturedAt], map: "founder_absence_observations_captured_idx")
+  @@map("founder_absence_observations")
+}
+
 enum TenantRole {
   OWNER
   MANAGER
