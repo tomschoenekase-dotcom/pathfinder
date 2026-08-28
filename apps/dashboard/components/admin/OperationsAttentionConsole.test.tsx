@@ -229,6 +229,42 @@ const empty: Data = {
         'Completion alone is not quality evidence. Record explicit outcomes before considering any change to approval policy.',
     },
   },
+  founderAbsenceReadiness: {
+    schemaVersion: 1,
+    generatedAt: new Date('2026-08-11T14:30:00.000Z'),
+    kind: 'READINESS_SNAPSHOT',
+    target: {
+      ordinaryOperationDays: 7,
+      launchGate: false,
+      certification: 'NOT_STARTED',
+      observedDays: 0,
+      explanation:
+        'A representative uninterrupted week has not been recorded. This snapshot prepares the test.',
+    },
+    summary: { dimensionsWithReviewCandidates: 0, visibleSignals: 0 },
+    dimensions: [
+      {
+        key: 'FOUNDER_WAITS',
+        label: 'Founder waits',
+        visibleSignals: 0,
+        hasMore: false,
+        state: 'NO_VISIBLE_SIGNAL',
+        interpretation: 'No wait signal is visible in this bounded snapshot.',
+      },
+    ],
+    evidenceWindow: {
+      kind: 'BOUNDED_CURRENT_STATE',
+      complete: true,
+      hasMore: false,
+      historicalContinuityVerified: false,
+    },
+    authority: {
+      effect: 'READ_ONLY',
+      canChangePermissions: false,
+      canResolveWork: false,
+      canCertifyMaturity: false,
+    },
+  },
   briefing: {
     schemaVersion: 2,
     focus: {

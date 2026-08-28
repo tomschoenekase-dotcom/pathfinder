@@ -8,6 +8,7 @@ import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { FounderDecisionContext } from './FounderDecisionContext'
+import { FounderAbsenceReadiness } from './FounderAbsenceReadiness'
 import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
@@ -362,6 +363,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             ['#alerts', 'Alerts'],
             ['#ai-workforce', 'Agents'],
             ['#cost-coverage', 'Costs'],
+            ['#founder-absence-readiness', 'Absence test'],
           ].map(([href, label]) => (
             <a
               key={href}
@@ -373,6 +375,8 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
           ))}
         </nav>
       </section>
+
+      <FounderAbsenceReadiness data={data.founderAbsenceReadiness} />
 
       <FounderCostCoverage data={data.unitEconomics} />
 

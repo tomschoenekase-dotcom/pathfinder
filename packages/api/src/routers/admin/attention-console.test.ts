@@ -365,13 +365,18 @@ describe('admin attention console', () => {
     })
 
     expect(result).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
       focus: { kind: 'CLEAR' },
       autonomyEvidence: {
         state: 'NO_OUTCOME_EVIDENCE',
         policy: { approvalReductionRecommended: false },
+      },
+      founderAbsenceReadiness: {
+        kind: 'READINESS_SNAPSHOT',
+        target: { certification: 'NOT_STARTED', launchGate: false },
+        authority: { effect: 'READ_ONLY', canCertifyMaturity: false },
       },
       authority: {
         transport: 'PLATFORM_ADMIN_SESSION_ONLY',

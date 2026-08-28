@@ -121,6 +121,32 @@ describe('founder operating view', () => {
           explanation: 'Negative evidence is present.',
         },
       },
+      founderAbsenceReadiness: {
+        schemaVersion: 1,
+        generatedAt,
+        kind: 'READINESS_SNAPSHOT',
+        target: {
+          ordinaryOperationDays: 7,
+          launchGate: false,
+          certification: 'NOT_STARTED',
+          observedDays: 0,
+          explanation: 'The representative week has not started.',
+        },
+        summary: { dimensionsWithReviewCandidates: 0, visibleSignals: 0 },
+        dimensions: [],
+        evidenceWindow: {
+          kind: 'BOUNDED_CURRENT_STATE',
+          complete: true,
+          hasMore: false,
+          historicalContinuityVerified: false,
+        },
+        authority: {
+          effect: 'READ_ONLY',
+          canChangePermissions: false,
+          canResolveWork: false,
+          canCertifyMaturity: false,
+        },
+      },
       unitEconomics: {
         schemaVersion: 'founder-unit-economics.v1',
         generatedAt,
@@ -241,7 +267,7 @@ describe('founder operating view', () => {
     })
 
     expect(result).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       generatedAt,
       scope: 'PLATFORM',
       effect: 'READ_ONLY',
@@ -249,6 +275,10 @@ describe('founder operating view', () => {
       autonomyEvidence: {
         state: 'NEGATIVE_EVIDENCE_PRESENT',
         policy: { approvalReductionRecommended: false },
+      },
+      founderAbsenceReadiness: {
+        kind: 'READINESS_SNAPSHOT',
+        target: { certification: 'NOT_STARTED' },
       },
       operatingCosts: {
         totals: { knownOperatingCostUsd: '12.00000000' },

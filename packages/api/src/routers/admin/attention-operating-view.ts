@@ -1,10 +1,12 @@
 import type { deriveAgentTrustEvidence } from './attention-agent-evidence'
 import type { deriveFounderBriefing } from './attention-briefing'
+import type { deriveFounderAbsenceReadiness } from './attention-founder-absence'
 import type { readFounderUnitEconomics } from './unit-economics'
 
 type FounderBriefing = ReturnType<typeof deriveFounderBriefing>
 type AgentTrustEvidence = ReturnType<typeof deriveAgentTrustEvidence>
 type FounderUnitEconomics = Awaited<ReturnType<typeof readFounderUnitEconomics>>
+type FounderAbsenceReadiness = ReturnType<typeof deriveFounderAbsenceReadiness>
 
 export function deriveFounderOperatingView(
   input: {
@@ -12,6 +14,7 @@ export function deriveFounderOperatingView(
     briefing: FounderBriefing
     agentTrustEvidence: AgentTrustEvidence
     unitEconomics: FounderUnitEconomics
+    founderAbsenceReadiness: FounderAbsenceReadiness
     founderConversation: Array<{
       id: string
       operationId: string
@@ -31,7 +34,7 @@ export function deriveFounderOperatingView(
     | 'PLATFORM_WORKER_CREDENTIAL' = 'PLATFORM_ADMIN_SESSION_ONLY',
 ) {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     generatedAt: input.generatedAt,
     scope: 'PLATFORM' as const,
     effect: 'READ_ONLY' as const,
@@ -42,6 +45,7 @@ export function deriveFounderOperatingView(
     boundedSnapshot: input.briefing.boundedSnapshot,
     autonomyEvidence: input.agentTrustEvidence,
     operatingCosts: input.unitEconomics,
+    founderAbsenceReadiness: input.founderAbsenceReadiness,
     recentConversation: input.founderConversation,
     authority: {
       transport,

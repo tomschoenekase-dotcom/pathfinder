@@ -14,6 +14,7 @@ import {
 import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
+import { deriveFounderAbsenceReadiness } from './attention-founder-absence'
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -351,14 +352,27 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       unitEconomics,
       founderConversation,
     }
+    const agentTrustEvidence = deriveAgentTrustEvidence({
+      outcomes: result.outcomes,
+      runs: result.agents,
+      completedAgents: result.completedAgents,
+      actions: page(agentEvidenceRows.actions, query.limit),
+      approvalDecisions: page(agentEvidenceRows.approvalDecisions, query.limit),
+    })
     return {
       ...result,
-      agentTrustEvidence: deriveAgentTrustEvidence({
-        outcomes: result.outcomes,
-        runs: result.agents,
-        completedAgents: result.completedAgents,
-        actions: page(agentEvidenceRows.actions, query.limit),
-        approvalDecisions: page(agentEvidenceRows.approvalDecisions, query.limit),
+      agentTrustEvidence,
+      founderAbsenceReadiness: deriveFounderAbsenceReadiness({
+        generatedAt: result.generatedAt,
+        jobs: result.jobs,
+        evaluations: result.evaluations,
+        approvals: result.approvals,
+        support: result.support,
+        questions: result.questions,
+        blockedAgents: result.blockedAgents,
+        events: result.events,
+        platformEvents: result.platformEvents,
+        agentTrustEvidence,
       }),
       briefing: deriveFounderBriefing({
         limit: query.limit,

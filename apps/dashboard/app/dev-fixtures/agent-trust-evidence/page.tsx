@@ -226,6 +226,96 @@ const data: Data = {
         'Negative evidence is present. Inspect the underlying runs and corrections; this snapshot does not support reducing approval.',
     },
   },
+  founderAbsenceReadiness: {
+    schemaVersion: 1,
+    generatedAt: new Date('2026-08-22T20:00:00.000Z'),
+    kind: 'READINESS_SNAPSHOT',
+    target: {
+      ordinaryOperationDays: 7,
+      launchGate: false,
+      certification: 'NOT_STARTED',
+      observedDays: 0,
+      explanation:
+        'A representative uninterrupted week has not been recorded. This current-state snapshot prepares the maturity test; it does not certify it.',
+    },
+    summary: { dimensionsWithReviewCandidates: 4, visibleSignals: 9 },
+    dimensions: [
+      {
+        key: 'FOUNDER_WAITS',
+        label: 'Founder waits',
+        visibleSignals: 2,
+        hasMore: false,
+        state: 'REVIEW_CANDIDATES',
+        interpretation:
+          'Blocking questions, undecided approvals, and waiting runs are review candidates; this view cannot decide which waits are unnecessary.',
+      },
+      {
+        key: 'PERMISSION_FRICTION',
+        label: 'Permission friction',
+        visibleSignals: 2,
+        hasMore: true,
+        state: 'REVIEW_CANDIDATES',
+        interpretation:
+          'Approval-waiting runs and denied actions may show narrow permissions, but denial is not treated as a policy defect.',
+      },
+      {
+        key: 'REPEATED_ESCALATIONS',
+        label: 'Repeated escalations',
+        visibleSignals: 0,
+        hasMore: false,
+        state: 'NO_VISIBLE_SIGNAL',
+        interpretation:
+          'Counts open event groups with more than one recorded occurrence; no escalation-storm threshold has been invented.',
+      },
+      {
+        key: 'CUSTOMER_RESPONSE_WORK',
+        label: 'Customer response work',
+        visibleSignals: 1,
+        hasMore: false,
+        state: 'REVIEW_CANDIDATES',
+        interpretation:
+          'Active support work not waiting on the client is visible here; without a settled SLA, this is not labeled late or missed.',
+      },
+      {
+        key: 'FAILED_AUTOMATION',
+        label: 'Failed automation',
+        visibleSignals: 0,
+        hasMore: false,
+        state: 'NO_VISIBLE_SIGNAL',
+        interpretation: 'Visible failures are counted as signals, not deduplicated incidents.',
+      },
+      {
+        key: 'HIDDEN_MANUAL_STEPS',
+        label: 'Hidden manual steps',
+        visibleSignals: 0,
+        hasMore: false,
+        state: 'NO_VISIBLE_SIGNAL',
+        interpretation:
+          'An input-waiting run without a visible linked blocking question is a coordination gap candidate, not proof of hidden work.',
+      },
+      {
+        key: 'UNCONTROLLED_EFFECTS',
+        label: 'Uncontrolled effects',
+        visibleSignals: 4,
+        hasMore: true,
+        state: 'REVIEW_CANDIDATES',
+        interpretation:
+          'Canonical rollback, policy-violation, and negative customer signals are counted; denied actions are intentionally excluded.',
+      },
+    ],
+    evidenceWindow: {
+      kind: 'BOUNDED_CURRENT_STATE',
+      complete: false,
+      hasMore: true,
+      historicalContinuityVerified: false,
+    },
+    authority: {
+      effect: 'READ_ONLY',
+      canChangePermissions: false,
+      canResolveWork: false,
+      canCertifyMaturity: false,
+    },
+  },
   briefing: {
     schemaVersion: 2,
     focus: {
