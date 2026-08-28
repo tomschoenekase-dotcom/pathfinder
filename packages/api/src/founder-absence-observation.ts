@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-import { db, Prisma, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { deriveFounderAbsenceReadiness } from './routers/admin/attention-founder-absence'
 
 const dimensionSchema = z.object({
@@ -93,6 +93,15 @@ function hashSnapshot(snapshot: FounderAbsenceObservationSnapshot) {
     .update('torchiko-founder-absence-observation-v1\0')
     .update(JSON.stringify(snapshot))
     .digest('hex')
+}
+
+function isUniqueConstraintError(error: unknown): error is { code: 'P2002' } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  )
 }
 
 export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness>(
@@ -342,14 +351,13 @@ export async function captureFounderAbsenceObservation(input: {
           releaseSha,
           schemaVersion: 1,
           snapshotHash: hashSnapshot(snapshot),
-          snapshot: snapshot as Prisma.InputJsonValue,
+          snapshot,
           evidenceComplete: snapshot.evidenceWindow.complete,
         },
       }),
     )
   } catch (error: unknown) {
-    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
-      throw error
+    if (!isUniqueConstraintError(error)) throw error
     const existing = await withTenantIsolationBypass(() =>
       db.founderAbsenceObservation.findUnique({ where: { observedOn } }),
     )
