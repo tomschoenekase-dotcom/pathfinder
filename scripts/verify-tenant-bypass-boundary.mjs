@@ -61,6 +61,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/attention-event-actions.ts', 2],
   // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],
+  // Platform-wide founder-absence observations retain one immutable UTC-day snapshot. Reads are
+  // bounded by an explicit limit/date window; writes are append-only and cannot certify launch.
+  ['packages/api/src/founder-absence-observation.ts', 4],
   // Separately authenticated platform worker reads the same bounded readiness projection.
   ['packages/api/src/platform-worker-policy/operations-readiness-http.ts', 1],
   // Separately credentialed platform workers read/propose/materialize one exact founder
