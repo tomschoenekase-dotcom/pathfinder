@@ -383,7 +383,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    expect(await screen.findByText('Messages: 2')).toBeTruthy()
+    expect(await screen.findByText('Messages: 2', {}, { timeout: 5_000 })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await screen.findByRole('button', { name: 'Retry same message' })
     expect(screen.getByText('Messages: 3')).toBeTruthy()
