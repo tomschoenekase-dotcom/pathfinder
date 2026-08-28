@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-08-25",
+  "asOf": "2026-08-28",
   "authority": {
     "purpose": "Machine-readable overlay for current repository capability truth",
     "supersedesHistoricalClaimsIn": [
@@ -239,6 +239,19 @@
         "packages/db/prisma/migrations/20260825012000_align_agent_runtime_model_routing/migration.sql"
       ],
       "remaining": "Authorized provider-backed staging must still prove actual fallback, model quality, spend behavior, and each subscription bridge; no deployment or credentials are authorized by local proof."
+    },
+    {
+      "id": "agent-workforce-credibility",
+      "status": "proven-provider-dark-locally",
+      "summary": "An authenticated disposable bridge scenario proves heterogeneous concurrent workers, two independent instances of one role, exact role/capability routing, system-initiated execution, expired-lease takeover, stale-worker fencing, duplicate-completion prevention, durable artifacts, and exact costs.",
+      "evidence": [
+        "docs/workforce-credibility-shakedown.md",
+        "packages/db/src/helpers/agent-bridge-actions.ts",
+        "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+        "scripts/run-disposable-agent-bridge.mjs",
+        "packages/db/prisma/migrations/20260828155000_allow_fenced_agent_bridge_takeover/migration.sql"
+      ],
+      "remaining": "Live subscription/provider bridges, provider-backed output quality, distributed load capacity, customer-facing effects, production deployment, and any broader permission mapping remain separately gated or unproven."
     },
     {
       "id": "identity-vocabulary",

@@ -32,10 +32,12 @@ session UUID cannot be rebound to another credential, venue, or provider.
 
 ## Task lifecycle
 
-`claimTask` selects the oldest queued run matching the session provider and supported model. The
-database atomically claims the run, increments its bounded attempt number, creates a short execution
-lease, and binds that lease to the bridge session. Two runners cannot validly complete the same
-lease.
+`claimTask` scans a bounded oldest-first set of queued or expired-running tasks matching the session
+provider and supported model. When a run declares required worker roles or capabilities in its
+scope snapshot, only a registered compatible worker can claim it. A concurrent claim loss advances
+to the next eligible task. The database atomically claims the run, increments its bounded attempt
+number, creates a short execution lease, and binds that lease to the bridge session and worker. Two
+runners cannot validly complete the same lease.
 
 The runner then uses:
 
@@ -79,5 +81,8 @@ without Obsidian or the primary PC. Production availability still requires expli
 credential issuance, and a live worker; the UI must not imply otherwise.
 
 `pnpm test:agent-bridge:disposable` proves the provider-dark HTTP/client path, real credential and
-session verification, strict claim context, retry/reclaim, completion, artifact readback, and cost
-status against an isolated migrated database. It removes all exact disposable containers afterward.
+session verification, heterogeneous concurrent workers, same-role multiple instances, explicit
+role/capability routing, retry and fenced crash takeover, stale-settlement rejection, duplicate
+completion rejection, durable artifact readback, exact costs, and a system-initiated workflow that
+does not require founder routing. It removes all exact disposable containers afterward. See
+`docs/workforce-credibility-shakedown.md` for the exact boundary.

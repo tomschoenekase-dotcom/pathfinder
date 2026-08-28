@@ -1,8 +1,8 @@
 # Torchiko Audit Backlog
 
-**Current-truth overlay:** 2026-08-25 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
+**Current-truth overlay:** 2026-08-28 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 198 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 199 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 
@@ -154,12 +154,12 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Recommended**, not blocking a few design partners.
 - **Codex autonomous:** **Implemented** for local code/tests; external sending and customer commitments remain gated.
 
-### P1.9 — Verify voice, model fallback, and agent bridges in staging — LOCALLY RESOLVED / EXTERNAL PROOF GATED 2026-08-25
+### P1.9 — Verify voice, model fallback, and agent bridges in staging — WORKFORCE LOCALLY PROVEN / EXTERNAL PROOF GATED 2026-08-28
 
 - **Problem:** These are substantial code paths but provider-backed voice, fallback, and bridges remain unavailable in the local provider-dark runtime.
-- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `voice-session-recovery.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; `docs/agent-runtime-model-routing.md`; provider-dark Golden Venue lifecycle plus disposable voice-recovery PostgreSQL shakedown.
+- **Evidence:** `voice.ts`, `realtime-voice.ts`, `capability-routing.ts`, `voice-session-recovery.ts`, `agent-run.ts`, `agent-bridge-runner.ts`; `docs/agent-runtime-model-routing.md`; `docs/workforce-credibility-shakedown.md`; `pnpm test:agent-bridge:disposable`; provider-dark Golden Venue lifecycle plus disposable voice-recovery PostgreSQL shakedown.
 - **Affected system:** AI platform, visitor voice, agents, cost controls.
-- **Current implementation:** Provider-dark voice entitlement, ownership, quota, transcript/usage replay, fallback, authorization-failure, and abandoned-session recovery are proven. Direct agent identities now select the centrally governed `agent-run` workload; the worker resolves scoped model/fallback/health/timeout/retry/output/budget policy, enforces a cumulative request ceiling before provider I/O, and retains route evidence. Bridge targets remain explicit. A once-per-minute bounded worker releases stale voice capacity and records job/analytics evidence.
+- **Current implementation:** Provider-dark voice entitlement, ownership, quota, transcript/usage replay, fallback, authorization-failure, and abandoned-session recovery are proven. Direct agent identities now select the centrally governed `agent-run` workload; the worker resolves scoped model/fallback/health/timeout/retry/output/budget policy, enforces a cumulative request ceiling before provider I/O, and retains route evidence. The authenticated bridge now has disposable proof for heterogeneous concurrent workers, two instances of one role, exact role/capability routing, system initiation, exact cost/artifact retention, expired-lease takeover, stale-worker fencing, and duplicate-completion prevention. Bridge targets remain explicit. A once-per-minute bounded worker releases stale voice capacity and records job/analytics evidence.
 - **Recommended change:** Run provider-enabled smoke tests with strict spend caps; verify WebRTC/browser/provider compatibility, actual fallback, and agent bridge execution on staging.
 - **Why it matters:** These features should not be marketed or relied upon until their real provider boundaries are proven.
 - **Effort:** M

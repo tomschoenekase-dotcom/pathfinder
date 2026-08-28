@@ -63,6 +63,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
     'claim-attribution-calibration',
     'agent-operational-trust-evidence',
     'agent-runtime-routing',
+    'agent-workforce-credibility',
     'identity-vocabulary',
     'support-knowledge-correction',
     'semantic-venue-update-draft',

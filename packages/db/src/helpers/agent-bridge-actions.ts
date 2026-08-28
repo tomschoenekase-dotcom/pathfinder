@@ -10,6 +10,7 @@ import {
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import {
+  AgentRunExecutionError,
   claimAgentRunExecution,
   completeAgentRunExecution,
   failAgentRunExecution,
@@ -17,6 +18,28 @@ import {
 } from './agent-run-execution-actions'
 
 const SESSION_TTL_MS = 2 * 60_000
+const MAX_CLAIM_CANDIDATES = 25
+
+function readStringList(value: unknown, key: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const candidate = (value as Record<string, unknown>)[key]
+  if (!Array.isArray(candidate)) return []
+  return candidate.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+}
+
+function workerMatchesRun(
+  scopeSnapshot: unknown,
+  worker: { capabilities: string[]; agentRoles: string[] } | null,
+) {
+  const requiredRoles = readStringList(scopeSnapshot, 'requiredWorkerRoles')
+  const requiredCapabilities = readStringList(scopeSnapshot, 'requiredWorkerCapabilities')
+  if (requiredRoles.length === 0 && requiredCapabilities.length === 0) return true
+  if (!worker) return false
+  return (
+    requiredRoles.every((role) => worker.agentRoles.includes(role)) &&
+    requiredCapabilities.every((capability) => worker.capabilities.includes(capability))
+  )
+}
 
 export class AgentBridgeActionError extends Error {
   constructor(
@@ -198,36 +221,54 @@ export async function claimAgentBridgeTask(input: {
           leaseExpiresAt: { gt: new Date() },
           capabilities: { has: 'agent-runs:execute' },
         },
-        select: { id: true },
+        select: { id: true, capabilities: true, agentRoles: true },
       })
     : null
   if (input.workerKey && !worker) {
     throw new AgentBridgeActionError('FORBIDDEN', 'Portable worker is offline or unauthorized')
   }
-  const run = await db.agentRun.findFirst({
+  const now = new Date()
+  const runs = await db.agentRun.findMany({
     where: {
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
-      status: 'QUEUED',
       modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
-      ...(session.supportedModels.length
-        ? {
-            OR: [
-              { modelName: { in: session.supportedModels } },
-              { modelName: 'subscription-default' },
-            ],
-          }
-        : {}),
+      AND: [
+        {
+          OR: [{ status: 'QUEUED' }, { status: 'RUNNING', executionLeaseExpiresAt: { lt: now } }],
+        },
+        ...(session.supportedModels.length
+          ? [
+              {
+                OR: [
+                  { modelName: { in: session.supportedModels } },
+                  { modelName: 'subscription-default' },
+                ],
+              },
+            ]
+          : []),
+      ],
     },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: { id: true },
+    take: MAX_CLAIM_CANDIDATES,
+    select: { id: true, scopeSnapshot: true },
   })
-  if (!run) return { task: null }
-  const claimed = await claimAgentRunExecution({
-    tenantId: input.credential.tenantId,
-    runId: run.id,
-    bridgeSessionId: session.id,
-  })
+  let claimed: Awaited<ReturnType<typeof claimAgentRunExecution>> | null = null
+  for (const run of runs) {
+    if (!workerMatchesRun(run.scopeSnapshot, worker)) continue
+    try {
+      claimed = await claimAgentRunExecution({
+        tenantId: input.credential.tenantId,
+        runId: run.id,
+        bridgeSessionId: session.id,
+      })
+      break
+    } catch (error) {
+      if (error instanceof AgentRunExecutionError && error.code === 'NOT_CLAIMABLE') continue
+      throw error
+    }
+  }
+  if (!claimed) return { task: null }
   if (worker) {
     await db.agentRun.update({
       where: { id: claimed.id },
