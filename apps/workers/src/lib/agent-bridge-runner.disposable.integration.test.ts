@@ -23,6 +23,7 @@ import {
   prepareAgentImprovementProposalAction,
   prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
+  recordApprovalDecisionAction,
   recordProspectInboundReplyAction,
   registerAgentBridgeSession,
   registerAgentWorkerAction,
@@ -862,6 +863,38 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
 
       const supportIndex = workers.findIndex((worker) => worker.role === 'support')
       const supportClaim = claims[supportIndex]!.task!
+      const approvalCountBeforeStaleAttempt = await db.approvalRequest.count({
+        where: { tenantId, venueId },
+      })
+      await expect(
+        prepareSupportTriageProposalAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          requestId: supportRequest.id,
+          expectedVersion: supportRequest.version + 1,
+          category: 'CONTENT_CORRECTION',
+          missingInformation: ['Verified Saturday admission price'],
+          reason: 'A stale worker must not prepare a proposal against a different request version.',
+          evidence: [{ type: 'SupportRequest', id: supportRequest.id }],
+          actor: {
+            type: 'AGENT',
+            actorId: identities.support,
+            role: 'AGENT',
+            agentIdentityId: identities.support,
+            agentRunId: supportClaim.id,
+            workerId: workers[supportIndex]!.workerKey,
+            credentialId: issued.credential.id,
+            capability: 'support:triage',
+            modelProvider: 'codex-bridge',
+            modelName: 'subscription-default',
+            idempotencyKey: randomUUID(),
+          },
+        }),
+      ).rejects.toThrow('Support request changed; refresh it before proposing triage.')
+      expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(
+        approvalCountBeforeStaleAttempt,
+      )
       const supportProposal = await prepareSupportTriageProposalAction({
         operationId: randomUUID(),
         tenantId,
@@ -1007,6 +1040,62 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       ).toEqual({ stage: 'REPLIED' })
       expect(await db.prospectEmailMessage.count()).toBe(0)
       expect(await db.prospectSendOutbox.count()).toBe(0)
+
+      const deniedBuilderApproval = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: locationProposal.approvalRequest.id,
+        decision: 'REJECTED',
+        reason: 'Disposable drill: founder rejects the proposed entrance location.',
+        decidedAt: new Date('2026-08-28T18:10:00.000Z'),
+        actor: { actorType: 'HUMAN', actorId: operator.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      expect(deniedBuilderApproval).toMatchObject({ decision: 'REJECTED' })
+      expect(await db.venueLocation.count({ where: { tenantId, venueId } })).toBe(0)
+
+      const expiredApproval = await db.approvalRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identities.support,
+          agentRunId: supportClaim.id,
+          requestedByType: 'AGENT',
+          requestedById: identities.support,
+          proposedAction: 'torchiko.support.expired_disposable_drill',
+          scopeSnapshot: {
+            disposable: true,
+            executionAuthorized: false,
+            customerContacted: false,
+          },
+          reason: 'Immutable expired approval fixture for the bounded workforce drill.',
+          riskCategory: 'MEDIUM',
+          artifacts: [],
+          createdAt: new Date('2026-08-28T18:00:00.000Z'),
+          expiresAt: new Date('2026-08-28T18:11:00.000Z'),
+        },
+      })
+      await expect(
+        recordApprovalDecisionAction({
+          tenantId,
+          venueId,
+          approvalRequestId: expiredApproval.id,
+          decision: 'APPROVED',
+          reason: 'Disposable drill: a late approval must not grant authority.',
+          decidedAt: new Date('2026-08-28T18:12:00.000Z'),
+          actor: { actorType: 'HUMAN', actorId: operator.id, auditRole: 'PLATFORM_ADMIN' },
+        }),
+      ).rejects.toThrow(/expired/u)
+      expect(
+        await db.approvalDecision.count({
+          where: { approvalRequestId: expiredApproval.id },
+        }),
+      ).toBe(0)
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: analystClaim.id },
+          select: { status: true, approvalRequests: { select: { decision: true } } },
+        }),
+      ).toEqual({ status: 'AWAITING_APPROVAL', approvalRequests: [{ decision: null }] })
 
       const budgetNow = new Date()
       const budget = await db.aiCostBudget.create({
@@ -1239,6 +1328,130 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         costE8Usd: 0n,
         timelineEvents: [{ eventType: 'EXECUTION_CLAIMED' }, { eventType: 'EXECUTION_FAILED' }],
       })
+
+      const recoverableFailureRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identities.researcher,
+          runType: 'RESEARCH',
+          requestedOperation: 'recover_bounded_worker_failures',
+          requestPrompt: null,
+          scopeSnapshot: {
+            requiredWorkerRoles: ['researcher'],
+            requiredWorkerCapabilities: ['knowledge:draft'],
+            destructiveActionsAllowed: false,
+            customerContactAllowed: false,
+            publicationAllowed: false,
+            billingAllowed: false,
+          },
+          status: 'QUEUED',
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'SYSTEM',
+          initiatedById: 'workforce-scheduler',
+          maxAttempts: 5,
+        },
+      })
+      const recoverableFailures = [
+        ['TOOL_HTTP_500', 'The bounded tool returned HTTP 500.'],
+        ['DB_TRANSIENT', 'The worker observed a retryable database transaction failure.'],
+        ['INVALID_STRUCTURED_OUTPUT', 'The model output failed the exact structured contract.'],
+        ['PARTIAL_RESULT_REJECTED', 'A partial result was rejected before artifact persistence.'],
+      ] as const
+      for (const [index, [errorCode, errorMessage]] of recoverableFailures.entries()) {
+        const worker = workers[0]!
+        const claim = await claimAgentBridgeTask({
+          sessionId: worker.sessionId,
+          venueId,
+          workerKey: worker.workerKey,
+          credential,
+        })
+        expect(claim.task).toMatchObject({
+          id: recoverableFailureRun.id,
+          attemptNumber: index + 1,
+        })
+        await expect(
+          failAgentBridgeTask({
+            sessionId: worker.sessionId,
+            venueId,
+            runId: recoverableFailureRun.id,
+            leaseToken: claim.task!.leaseToken,
+            errorCode,
+            errorMessage,
+            retryable: true,
+            credential,
+          }),
+        ).resolves.toMatchObject({ status: 'QUEUED', completedAt: null })
+        expect(
+          await db.agentRun.findUniqueOrThrow({
+            where: { id: recoverableFailureRun.id },
+            select: { status: true, artifacts: true, executionLeaseToken: true },
+          }),
+        ).toEqual({ status: 'QUEUED', artifacts: [], executionLeaseToken: null })
+      }
+      const recoveryWorker = workers[0]!
+      const recoveryClaim = await claimAgentBridgeTask({
+        sessionId: recoveryWorker.sessionId,
+        venueId,
+        workerKey: recoveryWorker.workerKey,
+        credential,
+      })
+      expect(recoveryClaim.task).toMatchObject({ id: recoverableFailureRun.id, attemptNumber: 5 })
+      await completeAgentBridgeTask({
+        sessionId: recoveryWorker.sessionId,
+        venueId,
+        runId: recoverableFailureRun.id,
+        leaseToken: recoveryClaim.task!.leaseToken,
+        summary: 'The bounded retry sequence recovered without retaining partial output.',
+        artifacts: [
+          {
+            type: 'failure-recovery-evidence',
+            recovered: true,
+            retainedPartialArtifacts: false,
+          },
+        ],
+        modelName: 'subscription-default',
+        costE8Usd: 7_500n,
+        costStatus: 'EXACT',
+        credential,
+      })
+      const recoveryEvidence = await db.agentRun.findUniqueOrThrow({
+        where: { id: recoverableFailureRun.id },
+        select: {
+          status: true,
+          attemptNumber: true,
+          artifacts: true,
+          costE8Usd: true,
+          timelineEvents: { select: { eventType: true } },
+        },
+      })
+      expect(recoveryEvidence).toMatchObject({
+        status: 'COMPLETED',
+        attemptNumber: 5,
+        costE8Usd: 7_500n,
+        artifacts: [
+          {
+            type: 'failure-recovery-evidence',
+            recovered: true,
+            retainedPartialArtifacts: false,
+          },
+        ],
+      })
+      expect(
+        recoveryEvidence.timelineEvents.filter(
+          (event) => event.eventType === 'EXECUTION_RETRY_SCHEDULED',
+        ),
+      ).toHaveLength(4)
+      expect(
+        recoveryEvidence.timelineEvents.filter((event) => event.eventType === 'EXECUTION_CLAIMED'),
+      ).toHaveLength(5)
+      expect(
+        recoveryEvidence.timelineEvents.filter(
+          (event) => event.eventType === 'EXECUTION_COMPLETED',
+        ),
+      ).toHaveLength(1)
     })
   }, 45_000)
 })
