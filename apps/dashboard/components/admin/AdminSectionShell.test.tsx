@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -113,5 +113,26 @@ describe('AdminSectionShell browser foundation', () => {
     const link = screen.getByRole('link', { name: 'Billing' })
     expect(link.getAttribute('href')).toBe('/admin/billing')
     expect(link.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('offers a skip link and moves route-change focus to the new page heading', async () => {
+    const { rerender } = render(
+      <AdminSectionShell>
+        <h1>Command center</h1>
+      </AdminSectionShell>,
+    )
+    expect(screen.getByRole('link', { name: 'Skip to main content' }).getAttribute('href')).toBe(
+      '#admin-main-content',
+    )
+
+    pathname = '/admin/operations'
+    rerender(
+      <AdminSectionShell>
+        <h1>Control room</h1>
+      </AdminSectionShell>,
+    )
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Control room' })),
+    )
   })
 })

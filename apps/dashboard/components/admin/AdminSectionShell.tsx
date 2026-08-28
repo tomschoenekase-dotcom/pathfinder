@@ -23,6 +23,7 @@ import { useState } from 'react'
 import { TorchikoBrand } from '@pathfinder/ui'
 
 import { AdminCommandPalette } from './AdminCommandPalette'
+import { useRouteChangeFocus } from '../useRouteChangeFocus'
 
 type AdminSectionShellProps = {
   children: ReactNode
@@ -51,6 +52,9 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
   const mobileCloseRef = useRef<HTMLButtonElement>(null)
   const mobileTriggerRef = useRef<HTMLButtonElement>(null)
   const mobilePanelRef = useRef<HTMLElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
+
+  useRouteChangeFocus(pathname, mainRef)
 
   useEffect(() => setMobileOpen(false), [pathname])
 
@@ -144,6 +148,12 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
+      <a
+        href="#admin-main-content"
+        className="sr-only fixed left-4 top-4 z-[60] rounded-lg bg-white px-4 py-3 font-semibold text-slate-950 shadow-xl focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-sky-500"
+      >
+        Skip to main content
+      </a>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 lg:block">{sidebar}</aside>
 
       {mobileOpen ? (
@@ -195,14 +205,19 @@ export function AdminSectionShell({ children, routePathname }: AdminSectionShell
                 <p className="text-sm font-semibold text-slate-900">Platform scope</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
+            <div className="hidden items-center gap-2 text-xs font-medium text-emerald-700 sm:flex">
               <CircleGauge className="h-4 w-4" aria-hidden="true" />
               Operational view
             </div>
           </div>
         </header>
 
-        <main className="mx-auto w-full min-w-0 max-w-[96rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main
+          ref={mainRef}
+          id="admin-main-content"
+          tabIndex={-1}
+          className="mx-auto w-full min-w-0 max-w-[96rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
+        >
           {children}
         </main>
       </div>

@@ -24,6 +24,7 @@ import { TorchikoBrand } from '@pathfinder/ui'
 
 import { ClientTochiWorkspace } from './ClientTochiWorkspace'
 import { ClientTochiBoundary } from './ClientTochiBoundary'
+import { useRouteChangeFocus } from './useRouteChangeFocus'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -64,6 +65,7 @@ export function DashboardShell({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
   const { organization } = useOrganization()
   const { user } = useUser()
   const isPlatformAdmin =
@@ -89,6 +91,8 @@ export function DashboardShell({
           (!('reportsOnly' in item) || weeklyReportsAvailable) &&
           (!('paymentOnly' in item) || paymentAvailable),
       )
+
+  useRouteChangeFocus(pathname, mainRef)
 
   useEffect(() => setMenuOpen(false), [pathname])
 
@@ -193,6 +197,12 @@ export function DashboardShell({
 
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
+      <a
+        href="#client-main-content"
+        className="sr-only fixed left-4 top-4 z-[60] rounded-lg bg-white px-4 py-3 font-semibold text-pf-deep shadow-xl focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-pf-accent"
+      >
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-pf-deep px-4 text-white lg:hidden">
         <TorchikoBrand
           gapClassName="gap-2"
@@ -248,6 +258,9 @@ export function DashboardShell({
         {navigation}
       </aside>
       <main
+        ref={mainRef}
+        id="client-main-content"
+        tabIndex={-1}
         className="min-w-0 lg:pl-[252px]"
         inert={menuOpen ? true : undefined}
         aria-hidden={menuOpen ? true : undefined}
