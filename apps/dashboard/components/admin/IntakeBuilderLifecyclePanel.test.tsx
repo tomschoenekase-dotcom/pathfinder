@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const mutate = vi.fn()
 const clarificationMutate = vi.fn()
+const interviewClarificationMutate = vi.fn()
 const mappingQuery = vi.fn()
 const mappingMutate = vi.fn()
 vi.mock('../../lib/trpc', () => ({
@@ -14,6 +15,7 @@ vi.mock('../../lib/trpc', () => ({
       getIntakeBuilderLifecycle: { query },
       executeWebsiteIntakeResearch: { mutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
+      createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
       createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
     },
@@ -271,6 +273,76 @@ describe('IntakeBuilderLifecyclePanel', () => {
         expectedMappingReviewHash: preview.mappingReviewHash,
         expectedCandidateHash: preview.candidateHash,
         selections: preview.selections,
+      }),
+    )
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('queues staff-interview discrepancies as guidance and preserves source-amendment boundaries', async () => {
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-a',
+      sourceKind: 'INTERVIEW',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      websiteClarificationReview: null,
+      interviewClarificationReview: {
+        reviewHash: 'a'.repeat(64),
+        answersGrantAuthority: false,
+        sourceAmendmentRequired: true,
+        eligibleIdentities: [{ id: 'identity-a', name: 'Content reviewer' }],
+        clarifications: [
+          {
+            clarificationId: 'interview-clarification-a',
+            questionId: 'operations.hours',
+            fieldPath: 'venue.operations.hours',
+            reasons: ['LOW_CONFIDENCE'],
+            evidence: [
+              {
+                label: 'What are the public hours?',
+                reference: 'intake-evidence:evidence-a',
+                summary: 'Open nine to five. · 55% confidence',
+              },
+            ],
+            proposedAnswer: {
+              value: 'Open nine to five.',
+              confidence: 0.55,
+              evidenceId: 'evidence-a',
+              status: 'PROPOSED_ONLY',
+            },
+            question: null,
+          },
+        ],
+      },
+      currentStage: 'RECONCILE',
+      currentState: 'BLOCKED',
+      nextAction: 'RESOLVE_CLARIFICATION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'RECONCILE', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    query.mockResolvedValue(lifecycle)
+    interviewClarificationMutate.mockResolvedValue({ questions: [{ questionId: 'question-a' }] })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-a" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    expect(await screen.findByText(/Staff answers remain evidence/)).toBeTruthy()
+    expect(screen.getByText('What are the public hours?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Queue founder clarification' }))
+
+    await waitFor(() =>
+      expect(interviewClarificationMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        expectedReviewHash: lifecycle.interviewClarificationReview.reviewHash,
+        clarificationIds: ['interview-clarification-a'],
+        agentIdentityId: 'identity-a',
       }),
     )
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()

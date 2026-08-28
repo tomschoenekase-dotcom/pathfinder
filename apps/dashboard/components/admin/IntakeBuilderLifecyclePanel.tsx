@@ -18,8 +18,8 @@ const stateStyles: Record<Stage['state'], string> = {
   COMPLETE: 'border-emerald-200 bg-emerald-50 text-emerald-900',
   CURRENT: 'border-sky-200 bg-sky-50 text-sky-950',
   BLOCKED: 'border-amber-300 bg-amber-50 text-amber-950',
-  PENDING: 'border-slate-200 bg-slate-50 text-slate-500',
-  SKIPPED: 'border-slate-200 bg-white text-slate-500',
+  PENDING: 'border-slate-200 bg-slate-50 text-slate-700',
+  SKIPPED: 'border-slate-200 bg-white text-slate-700',
 }
 
 function stageLabel(stage: Stage['stage']) {
@@ -84,7 +84,10 @@ export function IntakeBuilderLifecyclePanel({
         setLifecycle(result)
         setClarificationIdentityId(
           (current) =>
-            current || result.websiteClarificationReview?.eligibleIdentities[0]?.id || '',
+            current ||
+            result.websiteClarificationReview?.eligibleIdentities[0]?.id ||
+            result.interviewClarificationReview?.eligibleIdentities[0]?.id ||
+            '',
         )
       }
     } catch (cause) {
@@ -97,24 +100,41 @@ export function IntakeBuilderLifecyclePanel({
   }
 
   async function createClarificationQuestions() {
-    const review = lifecycle?.websiteClarificationReview
-    if (!review || !clarificationIdentityId || clarificationBusy) return
-    const discrepancyIds = review.clarifications
-      .filter(({ question }) => question === null)
-      .map(({ discrepancyId }) => discrepancyId)
-    if (discrepancyIds.length === 0) return
+    const websiteReview = lifecycle?.websiteClarificationReview
+    const interviewReview = lifecycle?.interviewClarificationReview
+    if ((!websiteReview && !interviewReview) || !clarificationIdentityId || clarificationBusy)
+      return
     setClarificationBusy(true)
     setClarificationError(null)
     try {
-      await client.admin.createWebsiteResearchClarificationQuestions.mutate({
-        tenantId,
-        venueId,
-        runId,
-        receiptId: review.receiptId,
-        expectedResearchHash: review.researchHash,
-        discrepancyIds,
-        agentIdentityId: clarificationIdentityId,
-      })
+      if (websiteReview) {
+        const discrepancyIds = websiteReview.clarifications
+          .filter(({ question }) => question === null)
+          .map(({ discrepancyId }) => discrepancyId)
+        if (discrepancyIds.length === 0) return
+        await client.admin.createWebsiteResearchClarificationQuestions.mutate({
+          tenantId,
+          venueId,
+          runId,
+          receiptId: websiteReview.receiptId,
+          expectedResearchHash: websiteReview.researchHash,
+          discrepancyIds,
+          agentIdentityId: clarificationIdentityId,
+        })
+      } else if (interviewReview) {
+        const clarificationIds = interviewReview.clarifications
+          .filter(({ question }) => question === null)
+          .map(({ clarificationId }) => clarificationId)
+        if (clarificationIds.length === 0) return
+        await client.admin.createInterviewClarificationQuestions.mutate({
+          tenantId,
+          venueId,
+          runId,
+          expectedReviewHash: interviewReview.reviewHash,
+          clarificationIds,
+          agentIdentityId: clarificationIdentityId,
+        })
+      }
       await load()
     } catch (cause) {
       setClarificationError(
@@ -308,6 +328,9 @@ export function IntakeBuilderLifecycleView({
   )
   const mappingComplete =
     lifecycle.stages.find(({ stage }) => stage === 'CONSTRUCT')?.state === 'COMPLETE'
+  const clarificationReview =
+    lifecycle.websiteClarificationReview ?? lifecycle.interviewClarificationReview
+  const interviewClarifications = lifecycle.interviewClarificationReview !== null
   return (
     <section
       className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4"
@@ -338,7 +361,7 @@ export function IntakeBuilderLifecycleView({
             aria-current={stage.stage === lifecycle.currentStage ? 'step' : undefined}
           >
             <span className="block font-semibold">{stageLabel(stage.stage)}</span>
-            <span className="mt-0.5 block opacity-75">{stage.state.toLowerCase()}</span>
+            <span className="mt-0.5 block">{stage.state.toLowerCase()}</span>
           </li>
         ))}
       </ol>
@@ -409,27 +432,31 @@ export function IntakeBuilderLifecycleView({
         </p>
       ) : null}
 
-      {lifecycle.websiteClarificationReview ? (
+      {clarificationReview ? (
         <div className="mt-4 rounded-xl border border-amber-200 bg-white p-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-amber-950">Founder clarification queue</p>
               <p className="mt-1 max-w-2xl text-xs text-amber-900/75">
-                Public website claims are evidence, not venue truth. Answers guide a later explicit
-                mapping review and cannot create a package, approve, apply, publish, or contact the
-                venue.
+                {interviewClarifications
+                  ? 'Staff answers remain evidence, not venue truth. Clarifications guide a later source amendment and cannot create a package, approve, apply, publish, or contact the venue.'
+                  : 'Public website claims are evidence, not venue truth. Answers guide a later explicit mapping review and cannot create a package, approve, apply, publish, or contact the venue.'}
               </p>
             </div>
             <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">
-              {lifecycle.websiteClarificationReview.clarifications.length} discrepancy
-              {lifecycle.websiteClarificationReview.clarifications.length === 1 ? '' : 'ies'}
+              {clarificationReview.clarifications.length} clarification
+              {clarificationReview.clarifications.length === 1 ? '' : 's'}
             </span>
           </div>
 
           <ul className="mt-3 space-y-3">
-            {lifecycle.websiteClarificationReview.clarifications.map((clarification) => (
+            {clarificationReview.clarifications.map((clarification) => (
               <li
-                key={clarification.discrepancyId}
+                key={
+                  'discrepancyId' in clarification
+                    ? clarification.discrepancyId
+                    : clarification.clarificationId
+                }
                 className="rounded-lg border border-slate-200 p-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -440,20 +467,29 @@ export function IntakeBuilderLifecycleView({
                     {clarification.question?.status.toLowerCase() ?? 'not queued'}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-pf-deep/60">
-                  {clarification.reason.replaceAll('_', ' ').toLowerCase()}
+                <p className="mt-1 text-xs text-pf-deep/75">
+                  {('reason' in clarification
+                    ? clarification.reason
+                    : clarification.reasons.join(', ')
+                  )
+                    .replaceAll('_', ' ')
+                    .toLowerCase()}
                 </p>
                 <ul className="mt-2 space-y-1 text-xs text-pf-deep/75">
                   {clarification.evidence.map((evidence) => (
                     <li key={`${evidence.reference}:${evidence.summary}`}>
-                      <a
-                        href={evidence.reference}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-pf-primary underline decoration-pf-primary/30 underline-offset-2"
-                      >
-                        {evidence.label}
-                      </a>
+                      {/^https?:\/\//u.test(evidence.reference) ? (
+                        <a
+                          href={evidence.reference}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-pf-primary underline decoration-pf-primary/30 underline-offset-2"
+                        >
+                          {evidence.label}
+                        </a>
+                      ) : (
+                        <span className="font-medium text-pf-deep">{evidence.label}</span>
+                      )}
                       {evidence.summary ? ` · ${evidence.summary}` : ''}
                     </li>
                   ))}
@@ -468,7 +504,7 @@ export function IntakeBuilderLifecycleView({
           </ul>
 
           {onCreateClarificationQuestions &&
-          lifecycle.websiteClarificationReview.clarifications.some(({ question }) => !question) ? (
+          clarificationReview.clarifications.some(({ question }) => !question) ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
               <label className="flex-1 text-xs font-medium text-pf-deep">
                 Content identity
@@ -478,7 +514,7 @@ export function IntakeBuilderLifecycleView({
                   className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
                 >
                   <option value="">Choose an in-scope identity</option>
-                  {lifecycle.websiteClarificationReview.eligibleIdentities.map((identity) => (
+                  {clarificationReview.eligibleIdentities.map((identity) => (
                     <option key={identity.id} value={identity.id}>
                       {identity.name}
                     </option>
@@ -586,7 +622,7 @@ export function IntakeBuilderLifecycleView({
         </div>
       ) : null}
 
-      <p className="mt-3 text-xs text-pf-deep/60">
+      <p className="mt-3 text-xs text-pf-deep/75">
         This view is evidence-derived. Approval, apply, and publication remain separate human
         actions.
       </p>

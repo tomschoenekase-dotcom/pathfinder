@@ -9,6 +9,7 @@ import {
   buildIntakeVenuePackageCandidate,
   IntakeVenuePackageCandidateError,
 } from './intake-venue-package-candidate'
+import { loadInterviewClarificationReview } from './intake-interview-clarifications'
 import {
   buildWebsiteClarificationReview,
   WebsiteClarificationError,
@@ -119,6 +120,7 @@ export async function getIntakeBuilderLifecycle(input: {
 
   let candidate: IntakeBuilderLifecycleInput['candidate'] = null
   let websiteReview: ReturnType<typeof buildWebsiteClarificationReview> | null = null
+  let interviewReview: Awaited<ReturnType<typeof loadInterviewClarificationReview>> | null = null
   if (run.sourceKind === 'STRUCTURED_BOOTSTRAP' || run.sourceKind === 'INTERVIEW') {
     try {
       const built = await buildIntakeVenuePackageCandidate({
@@ -133,6 +135,17 @@ export async function getIntakeBuilderLifecycle(input: {
         candidateHash: built.candidateHash,
         candidateCount: built.summary.candidateCount,
         issues: built.issues,
+      }
+      if (
+        run.sourceKind === 'INTERVIEW' &&
+        built.issues.some(({ code }) => code === 'INTERVIEW_DISCREPANCY')
+      ) {
+        interviewReview = await loadInterviewClarificationReview({
+          db: input.db,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: input.runId,
+        })
       }
     } catch (error) {
       if (!(error instanceof IntakeVenuePackageCandidateError)) throw error
@@ -172,14 +185,20 @@ export async function getIntakeBuilderLifecycle(input: {
 
   const clarificationOperationIds =
     websiteReview?.clarifications.map(({ operationId }) => operationId) ?? []
+  const interviewClarificationOperationIds =
+    interviewReview?.clarifications.map(({ operationId }) => operationId) ?? []
+  const allClarificationOperationIds = [
+    ...clarificationOperationIds,
+    ...interviewClarificationOperationIds,
+  ]
   const [storedQuestions, clarificationIdentities] =
-    clarificationOperationIds.length > 0
+    allClarificationOperationIds.length > 0
       ? await Promise.all([
           input.db.agentQuestion.findMany({
             where: {
               tenantId: input.tenantId,
               venueId: input.venueId,
-              operationId: { in: clarificationOperationIds },
+              operationId: { in: allClarificationOperationIds },
             },
             select: {
               id: true,
@@ -215,6 +234,28 @@ export async function getIntakeBuilderLifecycle(input: {
         reason: clarification.reason,
         evidence: clarification.evidence,
         proposedAnswer: clarification.proposedAnswer,
+        question: question
+          ? {
+              id: question.id,
+              status: question.status,
+              answer: question.answer,
+              agentIdentityId: question.agentIdentityId,
+              updatedAt: question.updatedAt,
+              answerGuidanceOnly: true as const,
+            }
+          : null,
+      }
+    }) ?? []
+  const interviewClarifications =
+    interviewReview?.clarifications.map((clarification) => {
+      const question = questionByOperationId.get(clarification.operationId)
+      return {
+        clarificationId: clarification.clarificationId,
+        questionId: clarification.questionId,
+        fieldPath: clarification.fieldPath,
+        reasons: clarification.reasons,
+        evidence: clarification.evidence,
+        proposedAnswer: 'proposedAnswer' in clarification ? clarification.proposedAnswer : null,
         question: question
           ? {
               id: question.id,
@@ -318,6 +359,15 @@ export async function getIntakeBuilderLifecycle(input: {
             })),
           eligibleIdentities: clarificationIdentities,
           answersGrantAuthority: false as const,
+        }
+      : null,
+    interviewClarificationReview: interviewReview
+      ? {
+          reviewHash: interviewReview.reviewHash,
+          clarifications: interviewClarifications,
+          eligibleIdentities: clarificationIdentities,
+          answersGrantAuthority: false as const,
+          sourceAmendmentRequired: true as const,
         }
       : null,
   }

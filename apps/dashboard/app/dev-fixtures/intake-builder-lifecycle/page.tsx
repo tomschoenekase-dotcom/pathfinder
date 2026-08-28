@@ -98,6 +98,7 @@ const lifecycle: IntakeBuilderLifecycle = {
       },
     ],
   },
+  interviewClarificationReview: null,
   currentStage: 'CONSTRUCT',
   currentState: 'BLOCKED',
   nextAction: 'CREATE_PACKAGE_DRAFT',

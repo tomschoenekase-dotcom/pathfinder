@@ -2,13 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { getIntakeBuilderLifecycle } from './intake-builder-lifecycle-service'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
+import { loadInterviewClarificationReview } from './intake-interview-clarifications'
 
 vi.mock('./intake-venue-package-candidate', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./intake-venue-package-candidate')>()
   return { ...actual, buildIntakeVenuePackageCandidate: vi.fn() }
 })
+vi.mock('./intake-interview-clarifications', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./intake-interview-clarifications')>()
+  return { ...actual, loadInterviewClarificationReview: vi.fn() }
+})
 
 const buildCandidate = vi.mocked(buildIntakeVenuePackageCandidate)
+const loadInterviewReview = vi.mocked(loadInterviewClarificationReview)
 
 describe('getIntakeBuilderLifecycle', () => {
   it('uses exact scope and exposes research for a newly recorded zero-evidence website source', async () => {
@@ -167,6 +173,109 @@ describe('getIntakeBuilderLifecycle', () => {
     expect(result.stages.find(({ stage }) => stage === 'RECONCILE')?.blockers).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'WEBSITE_MAPPING_REQUIRED' })]),
     )
+  })
+
+  it('projects interview discrepancies into durable answerable guidance without granting authority', async () => {
+    buildCandidate.mockResolvedValueOnce({
+      runId: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      ready: false,
+      payload: null,
+      candidateHash: null,
+      issues: [
+        {
+          code: 'INTERVIEW_DISCREPANCY',
+          path: 'venue.operations.hours',
+          message: 'Resolve LOW_CONFIDENCE before creating a package candidate.',
+        },
+      ],
+      summary: { candidateCount: 1, issueCount: 1 },
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+    loadInterviewReview.mockResolvedValueOnce({
+      reviewHash: 'a'.repeat(64),
+      clarifications: [
+        {
+          clarificationId: 'interview-clarification-a',
+          questionId: 'operations.hours',
+          fieldPath: 'venue.operations.hours',
+          reasons: ['LOW_CONFIDENCE'],
+          operationId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          question: 'Please confirm the hours.',
+          context: 'Guidance only.',
+          questionType: 'LONG_TEXT',
+          choices: [],
+          evidence: [
+            {
+              label: 'What are the hours?',
+              reference: 'intake-evidence:evidence-a',
+              summary: 'Open nine to five. · 55% confidence',
+            },
+          ],
+          proposedAnswer: {
+            value: 'Open nine to five.',
+            confidence: 0.55,
+            evidenceId: 'evidence-a',
+            status: 'PROPOSED_ONLY',
+          },
+        },
+      ],
+    })
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      websiteResearchReceipts: [],
+      packageHandoff: null,
+    })
+    const questionFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'question-a',
+        operationId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        status: 'ANSWERED',
+        answer: 'Use nine to five.',
+        agentIdentityId: 'identity-a',
+        updatedAt: new Date('2026-08-28T23:00:00.000Z'),
+      },
+    ])
+
+    const result = await getIntakeBuilderLifecycle({
+      db: {
+        intakeRun: { findFirst },
+        agentQuestion: { findMany: questionFindMany },
+        agentIdentity: {
+          findMany: vi.fn().mockResolvedValue([{ id: 'identity-a', name: 'Content' }]),
+        },
+      } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+
+    expect(result).toMatchObject({
+      currentStage: 'RECONCILE',
+      nextAction: 'RESOLVE_CLARIFICATION',
+      interviewClarificationReview: {
+        reviewHash: 'a'.repeat(64),
+        answersGrantAuthority: false,
+        sourceAmendmentRequired: true,
+        clarifications: [
+          {
+            clarificationId: 'interview-clarification-a',
+            question: {
+              id: 'question-a',
+              status: 'ANSWERED',
+              answer: 'Use nine to five.',
+              answerGuidanceOnly: true,
+            },
+          },
+        ],
+      },
+    })
   })
 
   it('reads durable clarification answers as guidance while keeping mapping blocked', async () => {

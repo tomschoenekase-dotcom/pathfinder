@@ -643,6 +643,7 @@ export async function getIntakeProposalReview(input: {
       uncertain: answer.uncertain,
       confidence: answer.confidence,
       hasEvidence: answer.normalizedHash !== null,
+      evidenceId: evidence?.id ?? null,
       publicText: publicAnswer?.text ?? null,
       discrepancies,
     }

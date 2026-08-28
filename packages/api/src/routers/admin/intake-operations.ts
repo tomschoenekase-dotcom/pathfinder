@@ -14,7 +14,7 @@ import {
   websiteProposalInput,
 } from '@pathfinder/db'
 
-import { publicTRPCError, router } from '../../core'
+import { mergeRouters, publicTRPCError, router } from '../../core'
 import { getIntakeBuilderLifecycle } from '../../lib/intake-builder-lifecycle-service'
 import {
   executeWebsiteIntakeResearch,
@@ -39,6 +39,7 @@ import {
   createIntakeCandidateDraftForAdmin,
   createWebsiteMappingDraftForAdmin,
 } from './intake-draft-actions'
+import { adminIntakeInterviewClarificationsRouter } from './intake-interview-clarifications'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
 const createInput = z.discriminatedUnion('kind', [
@@ -77,7 +78,7 @@ function mapCandidateError(error: unknown): never {
   mapActionError(error)
 }
 
-export const adminIntakeOperationsRouter = router({
+const adminIntakeOperationsCoreRouter = router({
   executeWebsiteIntakeResearch: adminProcedure
     .input(
       z
@@ -355,3 +356,8 @@ export const adminIntakeOperationsRouter = router({
     }
   }),
 })
+
+export const adminIntakeOperationsRouter = mergeRouters(
+  adminIntakeOperationsCoreRouter,
+  adminIntakeInterviewClarificationsRouter,
+)
