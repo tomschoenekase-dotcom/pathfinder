@@ -19,11 +19,14 @@ import { adminEvaluationOnboardingActionsRouter } from './evaluation-onboarding-
 import { adminEvaluationReviewActionsRouter } from './evaluation-review-actions'
 import { adminEvaluationRuntimeGatesRouter } from './evaluation-runtime-gates'
 import { adminEvaluationSourceCoverageRouter } from './evaluation-source-coverage'
+import {
+  evaluationModelBudgetCeilingsE8Usd,
+  MAX_EVALUATION_RUN_BUDGET_E8_USD,
+  MAX_EVALUATION_RUN_CASES,
+} from './evaluation-policy'
 
 const DEFAULT_PAGE_LIMIT = 20
 const MAX_PAGE_LIMIT = 50
-const MAX_RUN_CASES = 50
-const MAX_RUN_BUDGET_E8_USD = 100_000_000n
 const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
 
 const inputSchema = z.object({
@@ -185,8 +188,9 @@ const adminEvaluationOperationReadsRouter = router({
               minimumPassRateDrop: null,
               errorPassRateDrop: null,
             },
-        maximumCases: MAX_RUN_CASES,
-        maximumBudgetE8Usd: MAX_RUN_BUDGET_E8_USD.toString(),
+        maximumCases: MAX_EVALUATION_RUN_CASES,
+        maximumBudgetE8Usd: MAX_EVALUATION_RUN_BUDGET_E8_USD.toString(),
+        evaluationModelBudgetCeilingsE8Usd: evaluationModelBudgetCeilingsE8Usd(),
         nextCursor:
           hasMore && last ? { createdAt: last.createdAt.toISOString(), id: last.id } : null,
       }

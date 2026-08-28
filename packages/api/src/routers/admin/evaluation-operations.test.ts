@@ -36,6 +36,8 @@ vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } 
 
 vi.mock('@pathfinder/ai', () => ({
   AI_MODEL_KEYS: { GUEST_CHAT: 'guest-chat', GUEST_CHAT_OPENAI: 'guest-chat-openai' },
+  textAttemptCostCeilingUnits: ({ spec }: { spec: { provider: string } }) =>
+    spec.provider === 'openai' ? 5_102_400n : 20_256_000n,
   getAiModelSpec: (modelKey: string) =>
     modelKey === 'guest-chat-openai'
       ? { provider: 'openai', model: 'openai-candidate', maxOutputTokens: 512 }
@@ -800,7 +802,11 @@ describe('admin evaluation operations router', () => {
         errorPassRateDrop: null,
       },
       maximumCases: 50,
-      maximumBudgetE8Usd: '100000000',
+      maximumBudgetE8Usd: '410000000',
+      evaluationModelBudgetCeilingsE8Usd: {
+        'guest-chat': '20256000',
+        'guest-chat-openai': '5102400',
+      },
       items: [{ caseKey: 'known' }],
     })
     expect(mocks.caseFindMany).toHaveBeenCalledWith(
@@ -914,6 +920,19 @@ describe('admin evaluation operations router', () => {
         budgetCeilingE8Usd: '1',
       }),
     ).rejects.toBeTruthy()
+    expect(mocks.createRun).not.toHaveBeenCalled()
+  })
+
+  it('rejects a run above the narrow $4.10 admin hard limit before scoped writes', async () => {
+    await expect(
+      testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        idempotencyKey: 'over-budget',
+        caseIds: ['11111111-1111-4111-8111-111111111111'],
+        budgetCeilingE8Usd: '410000001',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
     expect(mocks.createRun).not.toHaveBeenCalled()
   })
 

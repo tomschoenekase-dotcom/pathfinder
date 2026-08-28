@@ -22,7 +22,11 @@ vi.mock('../../lib/trpc', () => ({
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
 
-import { EvaluationRunRequestPanel, evaluationBudgetToE8Usd } from './EvaluationRunRequestPanel'
+import {
+  EvaluationRunRequestPanel,
+  evaluationBudgetFromE8Usd,
+  evaluationBudgetToE8Usd,
+} from './EvaluationRunRequestPanel'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const item = {
@@ -285,6 +289,8 @@ describe('EvaluationRunRequestPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Select 20 launch-language cases' }))
     expect(screen.getByText('Cases (20/50)')).toBeTruthy()
+    expect((screen.getByLabelText('Budget ceiling') as HTMLInputElement).value).toBe('4.0512')
+    expect(screen.getByText(/Conservative full-run ceiling.*\$4\.0512/)).toBeTruthy()
     expect(screen.getByText(/0 of 7 exact-package cases are ready/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
 
@@ -339,7 +345,18 @@ describe('EvaluationRunRequestPanel', () => {
   it('converts bounded decimal USD without floating point', () => {
     expect(evaluationBudgetToE8Usd('1')).toBe('100000000')
     expect(evaluationBudgetToE8Usd('0.00000001')).toBe('1')
-    expect(evaluationBudgetToE8Usd('1.01')).toBeNull()
+    expect(evaluationBudgetToE8Usd('4.1')).toBe('410000000')
+    expect(evaluationBudgetToE8Usd('4.10000001')).toBeNull()
+    expect(evaluationBudgetFromE8Usd(102_048_000n)).toBe('1.02048')
+  })
+
+  it('refuses a run whose ceiling cannot conservatively reserve every selected case', async () => {
+    renderPanel()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.change(screen.getByLabelText('Budget ceiling'), { target: { value: '0.20' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    expect(await screen.findByText(/needs a conservative \$0\.20256 ceiling/)).toBeTruthy()
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
 
   it('resets scope and ignores a late request response from the prior venue', async () => {

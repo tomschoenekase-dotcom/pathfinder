@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { AI_MODEL_KEYS, getAiModelSpec } from '@pathfinder/ai'
+import { getAiModelSpec } from '@pathfinder/ai'
 import { env } from '@pathfinder/config'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
@@ -21,11 +21,13 @@ import { z } from 'zod'
 import { router } from '../../core'
 import { loadReviewableVenuePackageEvaluationPreview } from '../../lib/reviewable-package-evaluation'
 import { adminProcedure } from '../../trpc'
+import {
+  EVALUATION_MODEL_KEYS,
+  MAX_EVALUATION_RUN_BUDGET_E8_USD,
+  MAX_EVALUATION_RUN_CASES,
+} from './evaluation-policy'
 
-const MAX_RUN_CASES = 50
-const MAX_RUN_BUDGET_E8_USD = 100_000_000n
 const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
-const EVALUATION_MODEL_KEYS = [AI_MODEL_KEYS.GUEST_CHAT, AI_MODEL_KEYS.GUEST_CHAT_OPENAI] as const
 
 export const adminEvaluationOperationActionsRouter = router({
   requestEvaluationRun: adminProcedure
@@ -38,10 +40,10 @@ export const adminEvaluationOperationActionsRouter = router({
           caseIds: z
             .array(z.string().uuid())
             .min(1)
-            .max(MAX_RUN_CASES)
+            .max(MAX_EVALUATION_RUN_CASES)
             .refine((ids) => new Set(ids).size === ids.length, 'Evaluation cases must be unique'),
           budgetCeilingE8Usd: z.string().regex(/^\d+$/u),
-          modelKey: z.enum(EVALUATION_MODEL_KEYS).default(AI_MODEL_KEYS.GUEST_CHAT),
+          modelKey: z.enum(EVALUATION_MODEL_KEYS).default(EVALUATION_MODEL_KEYS[0]),
           nativeReleaseId: z.string().uuid().optional(),
           approvedPackageId: z.string().min(1).max(191).optional(),
           reviewablePackageId: z.string().min(1).max(191).optional(),
@@ -61,7 +63,7 @@ export const adminEvaluationOperationActionsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const budget = BigInt(input.budgetCeilingE8Usd)
-      if (budget > MAX_RUN_BUDGET_E8_USD)
+      if (budget > MAX_EVALUATION_RUN_BUDGET_E8_USD)
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Evaluation run budget exceeds the admin hard limit',
@@ -352,7 +354,7 @@ export const adminEvaluationOperationActionsRouter = router({
                     : approvedPackage
                       ? 'pathfinder-approved-package-evaluation-run-config-v1'
                       : 'pathfinder-evaluation-run-config-v1',
-                maximumCases: MAX_RUN_CASES,
+                maximumCases: MAX_EVALUATION_RUN_CASES,
                 requestedCases: manifest.length,
                 modelKey: input.modelKey,
                 contentSnapshotSchemaVersion: snapshot.schemaVersion,

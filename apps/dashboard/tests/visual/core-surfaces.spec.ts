@@ -174,6 +174,11 @@ test('launch-language evaluation preparation stays bounded and responsive', asyn
   const select = page.getByRole('button', { name: 'Select 20 launch-language cases' })
   await select.click()
   await expect(page.getByText('Cases (20/50)')).toBeVisible()
+  await expect(page.getByLabel('Budget ceiling')).toHaveValue('4.0512')
+  await expect(page.getByText(/Conservative full-run ceiling.*\$4\.0512/)).toBeVisible()
+  await page.getByLabel('Evaluation model').selectOption('guest-chat-openai')
+  await expect(page.getByLabel('Budget ceiling')).toHaveValue('1.02048')
+  await expect(page.getByText(/Conservative full-run ceiling.*\$1\.02048/)).toBeVisible()
   await expect(page.getByText(/does not run AI, spend a budget, publish content/)).toBeVisible()
 
   await expectViewportIntegrity(page)

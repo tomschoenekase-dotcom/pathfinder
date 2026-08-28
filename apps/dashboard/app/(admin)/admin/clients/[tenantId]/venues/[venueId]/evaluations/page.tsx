@@ -67,6 +67,8 @@ export default async function EvaluationOperationsPage({
         runnerReadiness={cases.readiness}
         regressionAlerts={cases.regressionAlerts}
         maximumCases={cases.maximumCases}
+        maximumBudgetE8Usd={cases.maximumBudgetE8Usd}
+        evaluationModelBudgetCeilingsE8Usd={cases.evaluationModelBudgetCeilingsE8Usd}
         requestPanelEnabled
         reviewablePackages={reviewablePackages}
         onboardingMetrics={onboardingMetrics}

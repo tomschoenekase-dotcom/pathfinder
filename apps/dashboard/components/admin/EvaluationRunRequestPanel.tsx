@@ -57,10 +57,20 @@ const CORE_ONBOARDING_CASE_KEYS = new Set([
   'onboarding-unanswerable-reviewable-package',
 ])
 
-export function evaluationBudgetToE8Usd(value: string): string | null {
-  if (!/^(?:0|1)(?:\.\d{0,8})?$/u.test(value) || Number(value) > 1) return null
+export function evaluationBudgetToE8Usd(
+  value: string,
+  maximumBudgetE8Usd = '410000000',
+): string | null {
+  if (!/^\d+(?:\.\d{0,8})?$/u.test(value)) return null
   const [whole, fraction = ''] = value.split('.')
-  return (BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, '0') || '0')).toString()
+  const units = BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, '0') || '0')
+  return units <= BigInt(maximumBudgetE8Usd) ? units.toString() : null
+}
+
+export function evaluationBudgetFromE8Usd(value: bigint): string {
+  const whole = value / 100_000_000n
+  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/u, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
 export function EvaluationRunRequestPanel(props: {
@@ -75,6 +85,8 @@ export function EvaluationRunRequestPanel(props: {
     errorPassRateDrop: number | null
   }
   maximumCases: number
+  maximumBudgetE8Usd?: string
+  evaluationModelBudgetCeilingsE8Usd?: Record<EvaluationModelKey, string>
   reviewablePackages?: {
     id: string
     status: 'DRAFT' | 'APPROVED'
@@ -98,6 +110,14 @@ export function EvaluationRunRequestPanel(props: {
   const [message, setMessage] = useState<string | null>(null)
   const [sourceCoverage, setSourceCoverage] = useState<SourceCoveragePreview | null>(null)
   const [busy, setBusy] = useState(false)
+  const maximumBudgetE8Usd = props.maximumBudgetE8Usd ?? '410000000'
+  const modelBudgetCeilings = props.evaluationModelBudgetCeilingsE8Usd ?? {
+    'guest-chat': '20256000',
+    'guest-chat-openai': '5102400',
+  }
+  const fullRunBudgetE8Usd = BigInt(modelBudgetCeilings[modelKey]) * BigInt(selected.size)
+  const fullRunBudget = evaluationBudgetFromE8Usd(fullRunBudgetE8Usd)
+  const maximumBudget = evaluationBudgetFromE8Usd(BigInt(maximumBudgetE8Usd))
   const idempotencyKey = useRef(crypto.randomUUID())
   const submitting = useRef(false)
   const generation = useRef(0)
@@ -188,9 +208,17 @@ export function EvaluationRunRequestPanel(props: {
 
   async function submit() {
     if (submitting.current || !props.runnerEnabled) return
-    const budgetCeilingE8Usd = evaluationBudgetToE8Usd(budget)
+    const budgetCeilingE8Usd = evaluationBudgetToE8Usd(budget, maximumBudgetE8Usd)
     if (selected.size < 1 || selected.size > props.maximumCases || budgetCeilingE8Usd === null) {
-      setMessage(`Select 1–${props.maximumCases} cases and enter a budget from $0 to $1.`)
+      setMessage(
+        `Select 1–${props.maximumCases} cases and enter a budget from $0 to $${maximumBudget}.`,
+      )
+      return
+    }
+    if (BigInt(budgetCeilingE8Usd) < fullRunBudgetE8Usd) {
+      setMessage(
+        `The selected model needs a conservative $${fullRunBudget} ceiling to reserve all ${selected.size} cases. Raise the ceiling before requesting the run.`,
+      )
       return
     }
     submitting.current = true
@@ -313,7 +341,13 @@ export function EvaluationRunRequestPanel(props: {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => setSelected(new Set(latestOnboardingCases.map((item) => item.id)))}
+                  onClick={() => {
+                    const next = new Set(latestOnboardingCases.map((item) => item.id))
+                    setSelected(next)
+                    const required = BigInt(modelBudgetCeilings[modelKey]) * BigInt(next.size)
+                    if (required <= BigInt(maximumBudgetE8Usd))
+                      setBudget(evaluationBudgetFromE8Usd(required))
+                  }}
                   disabled={latestOnboardingCases.length !== 7}
                   className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -321,9 +355,13 @@ export function EvaluationRunRequestPanel(props: {
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setSelected(new Set(latestLaunchLanguageCases.map((item) => item.id)))
-                  }
+                  onClick={() => {
+                    const next = new Set(latestLaunchLanguageCases.map((item) => item.id))
+                    setSelected(next)
+                    const required = BigInt(modelBudgetCeilings[modelKey]) * BigInt(next.size)
+                    if (required <= BigInt(maximumBudgetE8Usd))
+                      setBudget(evaluationBudgetFromE8Usd(required))
+                  }}
                   disabled={latestLaunchLanguageCases.length !== 20}
                   className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -451,7 +489,15 @@ export function EvaluationRunRequestPanel(props: {
         <select
           aria-label="Evaluation model"
           value={modelKey}
-          onChange={(event) => setModelKey(event.target.value as EvaluationModelKey)}
+          onChange={(event) => {
+            const nextModelKey = event.target.value as EvaluationModelKey
+            setModelKey(nextModelKey)
+            if (selected.size > 0) {
+              const required = BigInt(modelBudgetCeilings[nextModelKey]) * BigInt(selected.size)
+              if (required <= BigInt(maximumBudgetE8Usd))
+                setBudget(evaluationBudgetFromE8Usd(required))
+            }
+          }}
           disabled={busy || !props.runnerEnabled}
           className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
         >
@@ -467,7 +513,7 @@ export function EvaluationRunRequestPanel(props: {
         model names are not accepted.
       </p>
       <label className="mt-5 block text-sm font-semibold text-pf-deep">
-        Budget ceiling (USD, maximum $1)
+        Budget ceiling (USD, maximum ${maximumBudget})
         <input
           aria-label="Budget ceiling"
           value={budget}
@@ -477,6 +523,13 @@ export function EvaluationRunRequestPanel(props: {
           className="mt-2 block min-h-11 w-full max-w-xs rounded-xl border border-pf-light px-3"
         />
       </label>
+      {selected.size > 0 ? (
+        <p className="mt-2 text-xs text-pf-deep/70">
+          Conservative full-run ceiling for {selected.size} selected case
+          {selected.size === 1 ? '' : 's'} on this model: ${fullRunBudget}. This is reservation
+          capacity, not a claim about billed provider cost.
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={submit}

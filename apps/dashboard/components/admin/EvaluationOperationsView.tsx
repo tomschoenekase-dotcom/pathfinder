@@ -105,6 +105,8 @@ type EvaluationOperationsViewProps = {
     errorPassRateDrop: number | null
   }
   maximumCases?: number
+  maximumBudgetE8Usd?: string
+  evaluationModelBudgetCeilingsE8Usd?: Record<'guest-chat' | 'guest-chat-openai', string>
   requestPanelEnabled?: boolean
   reviewablePackages?: {
     id: string
@@ -204,6 +206,11 @@ export function EvaluationOperationsView({
   runnerReadiness,
   regressionAlerts,
   maximumCases = 50,
+  maximumBudgetE8Usd = '410000000',
+  evaluationModelBudgetCeilingsE8Usd = {
+    'guest-chat': '20256000',
+    'guest-chat-openai': '5102400',
+  },
   requestPanelEnabled = false,
   reviewablePackages = [],
   failedCases = [],
@@ -277,6 +284,8 @@ export function EvaluationOperationsView({
             runnerEnabled={runnerEnabled}
             {...(regressionAlerts ? { regressionAlerts } : {})}
             maximumCases={maximumCases}
+            maximumBudgetE8Usd={maximumBudgetE8Usd}
+            evaluationModelBudgetCeilingsE8Usd={evaluationModelBudgetCeilingsE8Usd}
             reviewablePackages={reviewablePackages}
           />
         </>
