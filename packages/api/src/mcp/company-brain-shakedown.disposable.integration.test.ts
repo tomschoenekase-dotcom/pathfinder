@@ -21,6 +21,7 @@ import {
   registerAgentWorkerAction,
   recordApprovalDecisionAction,
   recordAgentOutcomeAction,
+  revokeApprovalGrantAction,
   searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
   verifyAgentBridgeCredential,
@@ -793,7 +794,8 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         },
         issueReason: 'Synthetic reviewed evidence authorizes bounded informational drafts.',
         outcomeObservationIds: [authorityOutcome.id],
-        maxUses: 2,
+        maxUses: 1,
+        expiresAt: new Date(now.getTime() + 60 * 60_000),
         actor: credentialActor,
       }
       await expect(
@@ -822,6 +824,17 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         title: 'Gallery review note',
         body: 'A bounded informational draft prepared under reviewed policy.',
       }
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'This title deliberately exceeds the reviewed forty character policy limit',
+          },
+          policyContext,
+        ),
+      ).rejects.toThrow('outside the reviewed operational-update draft policy')
       const policyCreated = await registry.callTool(
         'pathfinder.create_update_draft',
         policyWriteInput,
@@ -834,15 +847,49 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           {
             ...policyWriteInput,
             operationId: randomUUID(),
-            title: 'This title deliberately exceeds the reviewed forty character policy limit',
+            title: 'Second bounded draft',
           },
           policyContext,
         ),
-      ).rejects.toThrow('outside the reviewed operational-update draft policy')
+      ).rejects.toThrow('no remaining uses')
       expect(await db.operationalUpdate.count({ where: { tenantId, venueId } })).toBe(2)
       expect(
         await db.approvalGrantConsumption.count({ where: { approvalGrantId: policyGrant.id } }),
       ).toBe(1)
+
+      const expiredPolicy = await issueApprovalGrantAction({
+        ...policyInput,
+        operationId: randomUUID(),
+        policyKey: `expired-update-drafts-${suffix}`,
+        maxUses: 1,
+        notBefore: new Date(now.getTime() - 120_000),
+        expiresAt: new Date(now.getTime() - 60_000),
+      })
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'Expired policy draft',
+          },
+          { credential, approvalGrantId: expiredPolicy.id },
+        ),
+      ).rejects.toThrow('Approval grant is unavailable')
+      expect(
+        await db.approvalGrant.findUniqueOrThrow({
+          where: { id: expiredPolicy.id },
+          select: { expiresAt: true, useCount: true, revokedAt: true },
+        }),
+      ).toEqual({
+        expiresAt: new Date(now.getTime() - 60_000),
+        useCount: 0,
+        revokedAt: null,
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: expiredPolicy.id } }),
+      ).toBe(0)
+      expect(await db.operationalUpdate.count({ where: { tenantId, venueId } })).toBe(2)
 
       const supportPolicy = await issueApprovalGrantAction({
         operationId: randomUUID(),
@@ -916,6 +963,48 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       expect(
         await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
       ).toBe(1)
+      const revokedSupportPolicy = await revokeApprovalGrantAction({
+        tenantId,
+        venueId,
+        approvalGrantId: supportPolicy.id,
+        reason: 'Founder stop exercised after the first reviewed draft.',
+        actor: credentialActor,
+      })
+      expect(revokedSupportPolicy.replayed).toBe(false)
+      await expect(
+        registry.callTool(
+          'pathfinder.create_support_draft',
+          {
+            ...supportWriteInput,
+            operationId: randomUUID(),
+            subject: 'Blocked after founder stop',
+          },
+          supportContext,
+        ),
+      ).rejects.toThrow('Approval grant is unavailable')
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
+      ).toBe(1)
+      expect(
+        await db.supportRequest.count({
+          where: { tenantId, venueId, subject: 'Blocked after founder stop' },
+        }),
+      ).toBe(0)
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'ApprovalGrant',
+            targetId: supportPolicy.id,
+            action: 'approval-grant.revoked',
+          },
+          select: { actorType: true, actorId: true, afterState: true },
+        }),
+      ).toMatchObject({
+        actorType: 'HUMAN',
+        actorId: human.actorId,
+        afterState: { reason: 'Founder stop exercised after the first reviewed draft.' },
+      })
       const supportOpenPolicy = await issueApprovalGrantAction({
         operationId: randomUUID(),
         tenantId,

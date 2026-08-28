@@ -149,6 +149,7 @@ pnpm test:support-package-draft:disposable
 
 The shakedown uses random disposable infrastructure, verifies one-shot compatibility, exact
 outcome membership, policy issuance replay, bounded policy consumption for all six registered
-action classes, fail-closed parameter rejection, private support visibility, approval-bound one-use
-opening and internal note, durable evidence, and cleanup. It performs no provider call,
-publication, customer contact, or real billing action.
+action classes, fail-closed parameter rejection, use exhaustion, expiry refusal, founder revocation
+after a successful exercise, zero post-revocation artifacts, private support visibility,
+approval-bound one-use opening and internal note, durable evidence, and cleanup. It performs no
+provider call, publication, customer contact, or real billing action.
