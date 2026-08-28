@@ -37,6 +37,10 @@ export function classifyScript(name) {
   return 'core development'
 }
 
+export function normalizeGeneratedText(value) {
+  return value.replace(/\r\n?/gu, '\n')
+}
+
 export function renderRepositoryIndex({ packageJson, environmentSource }) {
   const scripts = Object.entries(packageJson.scripts ?? {}).sort(([left], [right]) =>
     left.localeCompare(right),

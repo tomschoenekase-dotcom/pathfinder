@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { format } from 'prettier'
 
-import { renderRepositoryIndex } from './lib/repository-index.mjs'
+import { normalizeGeneratedText, renderRepositoryIndex } from './lib/repository-index.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const outputPath = path.join(root, 'docs/repository-command-index.md')
@@ -22,7 +22,9 @@ const rendered = await format(
 
 if (check) {
   const current = await readFile(outputPath, 'utf8').catch(() => '')
-  if (current !== rendered) throw new Error('repository-index-stale')
+  if (normalizeGeneratedText(current) !== normalizeGeneratedText(rendered)) {
+    throw new Error('repository-index-stale')
+  }
   process.stdout.write('Repository command/configuration index is current.\n')
 } else {
   await writeFile(outputPath, rendered, 'utf8')

@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   classifyEnvironmentName,
   collectEnvironmentNames,
+  normalizeGeneratedText,
   renderRepositoryIndex,
 } from './lib/repository-index.mjs'
 
@@ -35,4 +36,12 @@ test('generated index never copies environment values', () => {
 test('environment classification keeps policy and identity distinct', () => {
   assert.equal(classifyEnvironmentName('VOICE_MODE_ENABLED'), 'policy/feature gate')
   assert.equal(classifyEnvironmentName('PATHFINDER_RELEASE_SHA'), 'deployment identity')
+})
+
+test('generated index verification is portable across checkout line endings', () => {
+  const lf = '# Index\n\n| Command | Area |\n'
+  const crlf = lf.replaceAll('\n', '\r\n')
+  assert.equal(normalizeGeneratedText(crlf), lf)
+  assert.equal(normalizeGeneratedText(lf), lf)
+  assert.notEqual(normalizeGeneratedText(`${crlf}changed`), lf)
 })
