@@ -475,9 +475,9 @@ describe('VenueChatExperience presentation boundary', () => {
     'reconciles history after %s and does not offer ambiguous retry',
     async (code) => {
       mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174103'
-      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
-      mocks.client.chat.send.mutate.mockRejectedValueOnce(codedError(code))
-      mocks.client.chat.history.query.mockResolvedValueOnce({
+      mocks.getBySlug.mockReset().mockResolvedValueOnce(activeVenue)
+      mocks.client.chat.send.mutate.mockReset().mockRejectedValueOnce(codedError(code))
+      mocks.client.chat.history.query.mockReset().mockResolvedValue({
         messages: [
           { role: 'user', content: 'Where is the café?' },
           { role: 'assistant', content: 'The café is downstairs.' },
