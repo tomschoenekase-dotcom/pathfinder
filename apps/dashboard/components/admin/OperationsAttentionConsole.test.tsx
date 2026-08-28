@@ -230,7 +230,7 @@ const empty: Data = {
     },
   },
   briefing: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     focus: {
       kind: 'CLEAR',
       urgency: 'NONE',
@@ -244,6 +244,14 @@ const empty: Data = {
         objectId: null,
         tenantId: null,
         venueId: null,
+      },
+      decisionContext: {
+        attentionReason: 'No founder-attention item is visible in the bounded queues.',
+        consequence: 'No visible founder-attention item is waiting.',
+        observedAt: null,
+        deadline: null,
+        occurrenceCount: 0,
+        founderResponseRequiredToProceed: false,
       },
     },
     metrics: {
@@ -387,6 +395,14 @@ describe('operations attention console', () => {
                 tenantId: 'tenant_1',
                 venueId: 'venue_1',
               },
+              decisionContext: {
+                attentionReason: 'A blocking question is waiting for founder judgment.',
+                consequence: 'The linked agent run cannot proceed past this question.',
+                observedAt: new Date('2026-08-25T11:00:00.000Z'),
+                deadline: null,
+                occurrenceCount: 1,
+                founderResponseRequiredToProceed: true,
+              },
             },
             metrics: { ...empty.briefing.metrics, decisions: 1 },
           },
@@ -395,6 +411,7 @@ describe('operations attention console', () => {
     )
     expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy()
     expect(screen.getAllByText('Which pricing assumption should I use?')).toHaveLength(2)
+    expect(screen.getByText('Required for this work to proceed')).toBeTruthy()
     expect(screen.getByText('Inline question answer')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open full agent context' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/agents#inbox',
@@ -473,6 +490,15 @@ describe('operations attention console', () => {
                 tenantId: 'tenant_1',
                 venueId: 'venue_1',
               },
+              decisionContext: {
+                attentionReason:
+                  'An open action-required event is recorded at critical or error severity.',
+                consequence: 'The recorded risk remains unresolved until it is reviewed.',
+                observedAt: new Date('2026-08-25T11:00:00.000Z'),
+                deadline: null,
+                occurrenceCount: 3,
+                founderResponseRequiredToProceed: false,
+              },
             },
             metrics: { ...empty.briefing.metrics, decisions: 1, criticalRisks: 1 },
           },
@@ -482,6 +508,8 @@ describe('operations attention console', () => {
 
     const briefing = screen.getByRole('heading', { name: 'Your next five minutes' }).parentElement
     expect(briefing?.textContent).toContain('Visitor chat is unavailable')
+    expect(screen.getByText('3 recorded occurrences')).toBeTruthy()
+    expect(screen.getByText('No response gate is recorded')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Review risk now' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/chatlogs',
     )
@@ -529,6 +557,16 @@ describe('operations attention console', () => {
                 tenantId: 'tenant_1',
                 venueId: 'venue_1',
               },
+              decisionContext: {
+                attentionReason:
+                  'A proposed action is waiting for an explicit human approval decision.',
+                consequence:
+                  'The proposed action remains unexecuted until a human decision is recorded.',
+                observedAt: new Date('2026-08-25T11:00:00.000Z'),
+                deadline: { at: new Date('2099-01-01T00:00:00.000Z'), kind: 'EXPIRES' },
+                occurrenceCount: 1,
+                founderResponseRequiredToProceed: true,
+              },
             },
             metrics: { ...empty.briefing.metrics, decisions: 1 },
           },
@@ -537,6 +575,7 @@ describe('operations attention console', () => {
     )
 
     expect(screen.getByText('Inline approval decision')).toBeTruthy()
+    expect(screen.getByText('Approval expires')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Make a decision' }).getAttribute('href')).toBe(
       '/admin/operations#approval-attention-heading',
     )

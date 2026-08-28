@@ -28,6 +28,14 @@ export type FounderConversationSource = {
       detail: string
       action: { label: string; href: string }
       source: Source
+      decisionContext: {
+        attentionReason: string
+        consequence: string
+        observedAt: Date | null
+        deadline: { at: Date; kind: 'DUE' | 'EXPIRES' } | null
+        occurrenceCount: number
+        founderResponseRequiredToProceed: boolean
+      }
     }
     metrics: {
       decisions: number
@@ -176,8 +184,15 @@ export function deriveFounderOperatingExchange(prompt: string, input: FounderCon
   if (intent === 'TOP_PRIORITY') {
     const focus = input.briefing.focus
     responseTitle = focus.label
-    responseBody = `${focus.title} ${focus.detail}`
-    items = [evidence(focus.action.label, focus.detail, focus.action.href, focus.source)]
+    responseBody = `${focus.title} ${focus.detail} Why now: ${focus.decisionContext.attentionReason} If it stays open: ${focus.decisionContext.consequence}`
+    items = [
+      evidence(
+        focus.action.label,
+        `${focus.detail} ${focus.decisionContext.consequence}`,
+        focus.action.href,
+        focus.source,
+      ),
+    ]
   } else if (intent === 'DECISIONS') {
     const count = input.questions.items.length + input.approvals.items.length
     responseTitle =

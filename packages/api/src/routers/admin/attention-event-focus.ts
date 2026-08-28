@@ -9,6 +9,7 @@ export type TenantAttentionEvent = {
   recommendedAction: string | null
   actionRequired: boolean
   lastOccurredAt: Date
+  occurrenceCount?: number
 }
 
 export type PlatformAttentionEvent = {
@@ -20,6 +21,7 @@ export type PlatformAttentionEvent = {
   recommendedAction: string | null
   actionRequired: boolean
   lastOccurredAt: Date
+  occurrenceCount?: number
 }
 
 type ActionRequiredEvent =

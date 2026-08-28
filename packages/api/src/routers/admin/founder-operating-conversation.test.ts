@@ -23,6 +23,14 @@ function fixture(): FounderConversationSource {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
         },
+        decisionContext: {
+          attentionReason: 'A blocking question is waiting for founder judgment.',
+          consequence: 'The linked agent run cannot proceed past this question.',
+          observedAt: new Date('2026-08-25T11:30:00.000Z'),
+          deadline: { at: new Date('2026-08-25T13:00:00.000Z'), kind: 'DUE' },
+          occurrenceCount: 1,
+          founderResponseRequiredToProceed: true,
+        },
       },
       metrics: {
         decisions: 2,
@@ -177,6 +185,8 @@ describe('founder operating conversation', () => {
         },
       },
     })
+    expect(result.responseBody).toContain('Why now:')
+    expect(result.responseBody).toContain('cannot proceed past this question')
   })
 
   it('records unmatched direction for triage without claiming execution', () => {

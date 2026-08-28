@@ -227,7 +227,7 @@ const data: Data = {
     },
   },
   briefing: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     focus: {
       kind: 'CLEAR',
       urgency: 'NONE',
@@ -242,6 +242,14 @@ const data: Data = {
         objectId: null,
         tenantId: null,
         venueId: null,
+      },
+      decisionContext: {
+        attentionReason: 'No founder-attention item is visible in the bounded queues.',
+        consequence: 'No visible founder-attention item is waiting.',
+        observedAt: null,
+        deadline: null,
+        occurrenceCount: 0,
+        founderResponseRequiredToProceed: false,
       },
     },
     metrics: {
@@ -268,12 +276,51 @@ const data: Data = {
   },
 }
 
-export default function AgentTrustEvidenceFixturePage() {
+export default async function AgentTrustEvidenceFixturePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ focus?: string }>
+}) {
+  const { focus } = await searchParams
+  const fixtureData =
+    focus === 'decision'
+      ? {
+          ...data,
+          briefing: {
+            ...data.briefing,
+            focus: {
+              kind: 'CUSTOMER_RISK' as const,
+              urgency: 'CRITICAL' as const,
+              label: 'Customer or system risk',
+              title: 'Visitor chat is unavailable',
+              detail: 'Inspect the affected visitor turns and provider evidence.',
+              action: { label: 'Review risk now', href: '#alerts' },
+              source: {
+                scope: 'TENANT' as const,
+                objectType: 'operational-event',
+                objectId: 'event_fixture',
+                tenantId: 'tenant_fixture',
+                venueId: 'venue_fixture',
+              },
+              decisionContext: {
+                attentionReason:
+                  'An open action-required event is recorded at critical or error severity.',
+                consequence: 'The recorded risk remains unresolved until it is reviewed.',
+                observedAt: new Date('2026-08-22T19:42:00.000Z'),
+                deadline: null,
+                occurrenceCount: 3,
+                founderResponseRequiredToProceed: false,
+              },
+            },
+            metrics: { ...data.briefing.metrics, criticalRisks: 1, actionItems: 1 },
+          },
+        }
+      : data
   return (
     <TRPCProvider scopeKey="agent-trust-evidence-fixture">
       <main data-fixture="agent-trust-evidence" className="min-h-screen bg-slate-100 p-4 sm:p-8">
         <div className="mx-auto max-w-7xl">
-          <OperationsAttentionConsole data={data} />
+          <OperationsAttentionConsole data={fixtureData} />
         </div>
       </main>
     </TRPCProvider>

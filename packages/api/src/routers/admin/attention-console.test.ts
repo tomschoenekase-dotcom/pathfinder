@@ -331,7 +331,7 @@ describe('admin attention console', () => {
     const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
 
     expect(result.briefing).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       focus: {
         kind: 'CUSTOMER_RISK',
         action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },

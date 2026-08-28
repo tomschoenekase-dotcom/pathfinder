@@ -8,7 +8,7 @@ import { useTRPCClient } from '../../lib/trpc'
 type Props = {
   reviewedThrough: Date
   previousReviewedThrough: Date | null
-  briefingSchemaVersion: 1
+  briefingSchemaVersion: 1 | 2
   hasUnreviewedChanges: boolean
 }
 

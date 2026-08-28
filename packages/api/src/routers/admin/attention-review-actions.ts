@@ -8,7 +8,7 @@ export const markFounderBriefingReviewedInput = z
     operationId: z.string().uuid(),
     reviewedThrough: z.string().datetime(),
     expectedPreviousReviewedThrough: z.string().datetime().nullable(),
-    briefingSchemaVersion: z.literal(1),
+    briefingSchemaVersion: z.union([z.literal(1), z.literal(2)]),
   })
   .strict()
 

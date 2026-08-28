@@ -7,6 +7,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
+import { FounderDecisionContext } from './FounderDecisionContext'
 import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
@@ -275,6 +276,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
               </p>
               <h3 className="mt-2 text-lg font-semibold leading-7 text-white">{focus.title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">{focus.detail}</p>
+              <FounderDecisionContext
+                context={focus.decisionContext}
+                generatedAt={data.generatedAt}
+              />
               <Link
                 href={focus.action.href}
                 className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"

@@ -29,7 +29,7 @@ describe('founder briefing contract', () => {
     const result = deriveFounderBriefing(input())
 
     expect(result).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       focus: {
         kind: 'CLEAR',
         urgency: 'NONE',
@@ -54,6 +54,7 @@ describe('founder briefing contract', () => {
         recommendedAction: 'Inspect affected turns.',
         actionRequired: true,
         lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
+        occurrenceCount: 4,
       },
     ])
     value.platformEvents = page([
@@ -96,6 +97,14 @@ describe('founder briefing contract', () => {
       },
     })
     expect(result.metrics).toMatchObject({ decisions: 1, criticalRisks: 2 })
+    expect(result.focus.decisionContext).toEqual({
+      attentionReason: 'An open action-required event is recorded at critical or error severity.',
+      consequence: 'The recorded risk remains unresolved until it is reviewed.',
+      observedAt: new Date('2026-08-22T12:00:00.000Z'),
+      deadline: null,
+      occurrenceCount: 4,
+      founderResponseRequiredToProceed: false,
+    })
   })
 
   it('routes platform CRM incidents without fabricating tenant scope', () => {
@@ -324,6 +333,7 @@ describe('founder briefing contract', () => {
         blocking: true,
         agentIdentity: { name: 'Research' },
         createdAt: new Date('2026-08-22T12:00:00.000Z'),
+        dueAt: new Date('2026-08-22T13:00:00.000Z'),
       },
     ])
     value.approvals = page([
@@ -360,7 +370,13 @@ describe('founder briefing contract', () => {
       },
     ])
 
-    expect(deriveFounderBriefing(value).focus.kind).toBe('FOUNDER_QUESTION')
+    expect(deriveFounderBriefing(value).focus).toMatchObject({
+      kind: 'FOUNDER_QUESTION',
+      decisionContext: {
+        deadline: { at: new Date('2026-08-22T13:00:00.000Z'), kind: 'DUE' },
+        founderResponseRequiredToProceed: true,
+      },
+    })
     value.questions = page([])
     expect(deriveFounderBriefing(value).focus.kind).toBe('APPROVAL')
     value.approvals = page([{ ...value.approvals.items[0]!, expired: true }])

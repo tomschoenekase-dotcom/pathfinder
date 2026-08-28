@@ -1,5 +1,12 @@
 import { deriveFounderChangeDigest } from './attention-change-digest'
 import {
+  approvalDecisionContext,
+  eventDecisionContext,
+  fallbackDecisionContext,
+  questionDecisionContext,
+  type FounderDecisionContext,
+} from './attention-founder-decision-context'
+import {
   actionRequiredLabel,
   platformEventHref,
   selectActionRequiredEvent,
@@ -21,6 +28,7 @@ type Question = {
   blocking: boolean
   agentIdentity: { name: string }
   createdAt: Date
+  dueAt?: Date | null
 }
 
 type Approval = {
@@ -32,6 +40,7 @@ type Approval = {
   expired: boolean
   agentIdentity: { name: string }
   createdAt: Date
+  expiresAt?: Date | null
 }
 
 type AgentRun = {
@@ -41,6 +50,7 @@ type AgentRun = {
   requestedOperation: string
   status: string
   agentIdentity: { name: string }
+  createdAt?: Date
 }
 
 type SupportRequest = {
@@ -51,6 +61,7 @@ type SupportRequest = {
   category: string
   status: string
   updatedAt: Date
+  createdAt?: Date
 }
 
 type CompletedAgentRun = {
@@ -100,6 +111,7 @@ export type FounderBriefingFocus = {
     tenantId: string | null
     venueId: string | null
   }
+  decisionContext: FounderDecisionContext
 }
 
 export type FounderBriefingInput = {
@@ -156,6 +168,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         urgentTenantEvent.tenantId,
         urgentTenantEvent.venueId,
       ),
+      decisionContext: eventDecisionContext(urgentTenantEvent, true),
     }
   } else if (urgentPlatformEvent) {
     focus = {
@@ -172,6 +185,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         tenantId: null,
         venueId: null,
       },
+      decisionContext: eventDecisionContext(urgentPlatformEvent, true),
     }
   } else if (blockingQuestion) {
     focus = {
@@ -188,6 +202,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         blockingQuestion.tenantId,
         blockingQuestion.venueId,
       ),
+      decisionContext: questionDecisionContext(blockingQuestion),
     }
   } else if (approval) {
     focus = {
@@ -198,6 +213,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
       detail: `${approval.agentIdentity.name} · ${approval.riskCategory.toLowerCase()} risk`,
       action: { label: 'Make a decision', href: '/admin/operations#approval-attention-heading' },
       source: tenantSource('approval-request', approval.id, approval.tenantId, approval.venueId),
+      decisionContext: approvalDecisionContext(approval),
     }
   } else if (actionRequiredEvent?.scope === 'TENANT') {
     const event = actionRequiredEvent.event
@@ -209,6 +225,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
       detail: event.recommendedAction || event.summary,
       action: { label: 'Review customer context', href: tenantEventHref(event) },
       source: tenantSource('operational-event', event.id, event.tenantId, event.venueId),
+      decisionContext: eventDecisionContext(event, false),
     }
   } else if (actionRequiredEvent?.scope === 'PLATFORM') {
     const event = actionRequiredEvent.event
@@ -226,6 +243,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         tenantId: null,
         venueId: null,
       },
+      decisionContext: eventDecisionContext(event, false),
     }
   } else if (blockedRun) {
     focus = {
@@ -241,6 +259,10 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
           : `/admin/clients/${blockedRun.tenantId}`,
       },
       source: tenantSource('agent-run', blockedRun.id, blockedRun.tenantId, blockedRun.venueId),
+      decisionContext: fallbackDecisionContext({
+        kind: 'BLOCKED_WORK',
+        observedAt: blockedRun.createdAt ?? null,
+      }),
     }
   } else if (support) {
     focus = {
@@ -254,6 +276,10 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         href: `/admin/clients/${support.tenantId}/venues/${support.venueId}/support-operations?requestId=${support.id}`,
       },
       source: tenantSource('support-request', support.id, support.tenantId, support.venueId),
+      decisionContext: fallbackDecisionContext({
+        kind: 'CUSTOMER_SUPPORT',
+        observedAt: support.updatedAt,
+      }),
     }
   } else {
     focus = {
@@ -271,6 +297,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
         tenantId: null,
         venueId: null,
       },
+      decisionContext: fallbackDecisionContext({ kind: 'CLEAR' }),
     }
   }
 
@@ -339,7 +366,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     outcomes: input.outcomes.items,
   })
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     focus,
     metrics: {
       decisions: input.questions.items.length + input.approvals.items.length,

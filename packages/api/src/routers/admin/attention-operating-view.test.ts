@@ -8,7 +8,7 @@ describe('founder operating view', () => {
     const result = deriveFounderOperatingView({
       generatedAt,
       briefing: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         focus: {
           kind: 'APPROVAL',
           urgency: 'HIGH',
@@ -25,6 +25,16 @@ describe('founder operating view', () => {
             objectId: 'approval_1',
             tenantId: 'tenant_1',
             venueId: 'venue_1',
+          },
+          decisionContext: {
+            attentionReason:
+              'A proposed action is waiting for an explicit human approval decision.',
+            consequence:
+              'The proposed action remains unexecuted until a human decision is recorded.',
+            observedAt: new Date('2026-08-25T11:00:00.000Z'),
+            deadline: null,
+            occurrenceCount: 1,
+            founderResponseRequiredToProceed: true,
           },
         },
         metrics: {
