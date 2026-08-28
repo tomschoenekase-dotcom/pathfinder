@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import type { VenueSummary } from '../components/venue-chat-types'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
+import type { GuestEntrySource } from '../lib/entry-prompt'
 import { useTRPCClient } from '../lib/trpc'
 
 type PlaceEvent = 'place_card.viewed' | 'place_card.clicked' | 'directions.opened'
@@ -20,15 +21,18 @@ export function useVenueChatAnalytics({
   venue,
   anonymousToken,
   visitorId,
+  entrySource,
 }: {
   venue: VenueSummary | null
   anonymousToken: string | null
   visitorId: string | null
+  entrySource?: GuestEntrySource
 }) {
   const client = useTRPCClient()
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
+  const entrySourceConsumedRef = useRef(false)
 
   useEffect(() => {
     if (!venue || !anonymousToken) return
@@ -36,15 +40,18 @@ export function useVenueChatAnalytics({
     if (startedSessionKeyRef.current === sessionKey) return
     startedSessionKeyRef.current = sessionKey
     sessionStartedAtRef.current = Date.now()
+    const sessionEntrySource = entrySourceConsumedRef.current ? undefined : entrySource
+    if (sessionEntrySource) entrySourceConsumedRef.current = true
     runBestEffortAnalytics(() =>
       client.analytics.trackEvent.mutate({
         venueId: venue.id,
         sessionId: anonymousToken,
         ...(visitorId ? { visitorId } : {}),
         eventType: 'session.started',
+        ...(sessionEntrySource ? { metadata: { entrySource: sessionEntrySource } } : {}),
       }),
     )
-  }, [anonymousToken, client, venue, visitorId])
+  }, [anonymousToken, client, entrySource, venue, visitorId])
 
   const endSession = useCallback(
     (venueId: string, token: string, startedAt: number | null) => {

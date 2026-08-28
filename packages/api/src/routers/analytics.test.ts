@@ -515,6 +515,26 @@ describe('analytics router', () => {
     expect(data).not.toHaveProperty('metadata')
   })
 
+  it('analytics.trackEvent persists only the bounded QR entry source on session start', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
+
+    await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      metadata: { entrySource: 'qr', timestamp: '2026-08-09T07:00:00.000Z' },
+    })
+
+    expect(analyticsEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: 'session.started',
+        metadata: { entrySource: 'qr' },
+      }),
+    })
+  })
+
   it.each([
     {
       sessionId: '00000000-0000-4000-8000-000000000001',

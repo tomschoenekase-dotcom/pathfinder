@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { VenueQrKit } from './VenueQrKit'
 
 const guestChatUrl = 'https://guide.example.com/museum/chat'
+const attributedGuestChatUrl = `${guestChatUrl}?source=qr`
 
 function renderGeneralQrSvg() {
   const markup = renderToStaticMarkup(
@@ -67,13 +68,13 @@ describe('VenueQrKit image decoding resilience', () => {
   it.each([0, 90, 180, 270])('decodes the exact public URL at %i degrees', async (rotation) => {
     const svg = renderGeneralQrSvg()
 
-    await expect(decodeQr(svg, { rotation })).resolves.toBe(guestChatUrl)
+    await expect(decodeQr(svg, { rotation })).resolves.toBe(attributedGuestChatUrl)
   })
 
   it('recovers the exact public URL through bounded center damage', async () => {
     const svg = renderGeneralQrSvg()
 
-    await expect(decodeQr(svg, { damageSize: 72 })).resolves.toBe(guestChatUrl)
+    await expect(decodeQr(svg, { damageSize: 72 })).resolves.toBe(attributedGuestChatUrl)
   })
 
   it('fails closed when damage exceeds the decoder recovery bound', async () => {

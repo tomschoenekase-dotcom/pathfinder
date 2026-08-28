@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseEntryPrompt } from './entry-prompt'
+import { parseEntryPrompt, parseGuestEntrySource } from './entry-prompt'
 
 describe('entry prompt boundary', () => {
   it('normalizes a bounded prompt without sending it', () => {
@@ -15,4 +15,14 @@ describe('entry prompt boundary', () => {
       expect(parseEntryPrompt(value)).toBe('')
     },
   )
+})
+
+describe('guest entry source boundary', () => {
+  it('accepts only the bounded QR source marker', () => {
+    expect(parseGuestEntrySource('qr')).toBe('qr')
+  })
+
+  it.each([null, '', 'QR', 'website', 'qr-extra'])('rejects unsupported source %s', (source) => {
+    expect(parseGuestEntrySource(source)).toBeUndefined()
+  })
 })

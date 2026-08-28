@@ -2,7 +2,7 @@
 
 import { QRCodeSVG } from 'qrcode.react'
 
-import { buildGuideItemEntryUrl } from '../lib/guest-chat-url'
+import { buildGuideItemEntryUrl, buildQrEntryUrl } from '../lib/guest-chat-url'
 import { CopyUrlButton } from './CopyUrlButton'
 
 type GuideItem = {
@@ -42,6 +42,7 @@ function QrCard({ label, url, revision }: { label: string; url: string; revision
 }
 
 export function VenueQrKit({ venueName, guestChatUrl, generatedAt, guideItems }: VenueQrKitProps) {
+  const venueQrUrl = buildQrEntryUrl(guestChatUrl)
   const itemEntries = guideItems.flatMap((item) => {
     const url = buildGuideItemEntryUrl(guestChatUrl, item)
     return url ? [{ ...item, url }] : []
@@ -77,7 +78,9 @@ export function VenueQrKit({ venueName, guestChatUrl, generatedAt, guideItems }:
       </p>
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
-        <QrCard label={`${venueName} guest guide`} url={guestChatUrl} revision="venue link" />
+        {venueQrUrl ? (
+          <QrCard label={`${venueName} guest guide`} url={venueQrUrl} revision="venue link" />
+        ) : null}
         {itemEntries.map((item) => (
           <QrCard key={item.id} label={item.name} url={item.url} revision={item.updatedAt} />
         ))}

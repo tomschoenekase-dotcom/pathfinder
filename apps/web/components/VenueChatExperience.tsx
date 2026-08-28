@@ -25,11 +25,13 @@ import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
 import { LocationRoutePlanner } from './LocationRoutePlanner'
 import { getVisitorRecoveryCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
+import type { GuestEntrySource } from '../lib/entry-prompt'
 
 type VenueChatExperienceProps = {
   venueSlug: string
   presentation?: VenueChatPresentation
   initialDraft?: string
+  entrySource?: GuestEntrySource
   secondLayerKey?: string
 }
 
@@ -96,6 +98,7 @@ export function VenueChatExperience({
   venueSlug,
   presentation = 'standalone',
   initialDraft = '',
+  entrySource,
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
@@ -149,6 +152,7 @@ export function VenueChatExperience({
     venue: secondLayerKey ? null : venue,
     anonymousToken: secondLayerKey ? null : anonymousToken,
     visitorId,
+    ...(!secondLayerKey && entrySource ? { entrySource } : {}),
   })
 
   useEffect(() => {

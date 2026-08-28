@@ -25,6 +25,7 @@ describe('VenueQrKit', () => {
 
     expect(screen.getByText('Museum guest guide')).toBeTruthy()
     expect(screen.getByText('Tide Clock')).toBeTruthy()
+    expect(screen.getByText('https://guide.example.com/museum/chat?source=qr')).toBeTruthy()
     expect(screen.getByText(/prompt=Tell\+me\+about\+Tide\+Clock/)).toBeTruthy()
     expect(screen.getAllByTitle(/QR code for/)).toHaveLength(2)
     expect(screen.getByText(/never send it automatically/i)).toBeTruthy()

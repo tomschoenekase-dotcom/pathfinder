@@ -44,7 +44,10 @@ const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
       // Transitional compatibility for already-cached browser bundles. The server
       // deliberately discards this timestamp and owns occurredAt below.
       metadata: z
-        .object({ timestamp: z.string().max(64).datetime() })
+        .object({
+          timestamp: z.string().max(64).datetime().optional(),
+          entrySource: z.literal('qr').optional(),
+        })
         .strict()
         .optional(),
     })
@@ -315,11 +318,15 @@ export const analyticsRouter = router({
     }
 
     const metadata =
-      input.eventType === 'session.ended' ||
-      input.eventType === 'operational_update.viewed' ||
-      input.eventType === 'visitor.action.clicked'
-        ? input.metadata
-        : undefined
+      input.eventType === 'session.started'
+        ? input.metadata?.entrySource
+          ? { entrySource: input.metadata.entrySource }
+          : undefined
+        : input.eventType === 'session.ended' ||
+            input.eventType === 'operational_update.viewed' ||
+            input.eventType === 'visitor.action.clicked'
+          ? input.metadata
+          : undefined
 
     const internalSessionId = await syncVisitorSession(ctx.db, {
       eventType: input.eventType,

@@ -990,6 +990,50 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
+  it('attributes only the first session opened from a QR route', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174031'
+    const nextToken = '123e4567-e89b-42d3-a456-426614174032'
+    mocks.anonymousToken = token
+    mocks.startNewConversation.mockImplementationOnce(() => {
+      mocks.anonymousToken = nextToken
+      return true
+    })
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const view = render(
+      <VenueChatExperience venueSlug="museum" presentation="standalone" entrySource="qr" />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith({
+        venueId: activeVenue.id,
+        sessionId: token,
+        eventType: 'session.started',
+        metadata: { entrySource: 'qr' },
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    view.rerender(
+      <VenueChatExperience venueSlug="museum" presentation="standalone" entrySource="qr" />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith({
+        venueId: activeVenue.id,
+        sessionId: nextToken,
+        eventType: 'session.started',
+      }),
+    )
+    expect(mocks.client.analytics.trackEvent.mutate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: nextToken,
+        metadata: { entrySource: 'qr' },
+      }),
+    )
+  })
+
   it('disables New conversation while a message is in flight', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174002'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
