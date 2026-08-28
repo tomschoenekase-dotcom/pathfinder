@@ -2,8 +2,9 @@
 
 import React, { createContext, useContext, useState, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { httpBatchLink, loggerLink, type TRPCClient } from '@trpc/client'
+import { httpBatchLink, loggerLink, splitLink, type TRPCClient, type TRPCLink } from '@trpc/client'
 import { createTRPCReact } from '@trpc/react-query'
+import { observable } from '@trpc/server/observable'
 import superjson from 'superjson'
 
 import type { AppRouter } from '@pathfinder/api'
@@ -14,6 +15,51 @@ export const trpc = createTRPCReact<AppRouter>()
 
 export type WebTRPCClient = TRPCClient<AppRouter>
 
+function privatePostStreamingLink(): TRPCLink<AppRouter> {
+  return () =>
+    ({ op }) =>
+      observable((observer) => {
+        const controller = new AbortController()
+        void (async () => {
+          const response = await fetch('/api/chat-stream', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(op.input),
+            signal: controller.signal,
+          })
+          if (!response.ok || !response.body) throw new Error('Chat stream could not start.')
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffered = ''
+          const acceptLine = (line: string) => {
+            if (!line) return
+            const event = JSON.parse(line) as { type?: string; code?: string }
+            if (event.type === 'error') {
+              throw Object.assign(new Error('Chat stream failed.'), {
+                data: { code: event.code ?? 'INTERNAL_SERVER_ERROR' },
+              })
+            }
+            observer.next({ result: { data: event } })
+          }
+          let streamComplete = false
+          while (!streamComplete) {
+            const { done, value } = await reader.read()
+            buffered += decoder.decode(value, { stream: !done })
+            const lines = buffered.split('\n')
+            buffered = lines.pop() ?? ''
+            for (const line of lines) acceptLine(line)
+            streamComplete = done
+          }
+          acceptLine(buffered)
+          observer.complete()
+        })().catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            observer.error(error as Parameters<typeof observer.error>[0])
+        })
+        return () => controller.abort()
+      })
+}
+
 function createBrowserTRPCClient(): WebTRPCClient {
   return trpc.createClient({
     links: [
@@ -22,9 +68,13 @@ function createBrowserTRPCClient(): WebTRPCClient {
           process.env.NODE_ENV === 'development' ||
           (options.direction === 'down' && options.result instanceof Error),
       }),
-      httpBatchLink({
-        transformer: superjson,
-        url: TRPC_ENDPOINT,
+      splitLink({
+        condition: (operation) => operation.type === 'subscription',
+        true: privatePostStreamingLink(),
+        false: httpBatchLink({
+          transformer: superjson,
+          url: TRPC_ENDPOINT,
+        }),
       }),
     ],
   })

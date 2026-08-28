@@ -391,3 +391,31 @@ test('reconciles exact inventories and rejects missing, stale, and reclassified 
     }).some((violation) => violation.includes('control profile is incompatible')),
   )
 })
+
+test('classifies private-body public AI streaming as a bounded HTTP transport', () => {
+  const source = 'apps/web/app/api/chat-stream/route.ts'
+  const manifest = {
+    version: 1,
+    trpc: [],
+    http: [
+      {
+        source,
+        methods: ['POST'],
+        exposure: 'intentional-public',
+        controlProfile: 'bounded-public-ai-stream',
+        behavioralEvidence: ['apps/web/app/api/chat-stream/route.test.ts'],
+      },
+    ],
+    dashboardPublicApiPaths: [],
+  }
+
+  assert.deepEqual(
+    auditPublicSurfaceManifest({
+      discoveredTrpc: [],
+      discoveredHttp: [{ source, methods: ['POST'] }],
+      publicApiPaths: [],
+      manifest,
+    }),
+    [],
+  )
+})

@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +24,18 @@ const mocks = vi.hoisted(() => ({
       },
       session: { mutate: vi.fn() },
       send: { mutate: vi.fn() },
+      stream: undefined as
+        | {
+            subscribe: (
+              input: unknown,
+              handlers: {
+                onData: (event: unknown) => void
+                onError: (error: unknown) => void
+                onComplete: () => void
+              },
+            ) => { unsubscribe: () => void }
+          }
+        | undefined,
     },
     analytics: { trackEvent: { mutate: vi.fn() } },
   },
@@ -89,7 +101,7 @@ vi.mock('./ChatWindow', () => ({
   }: {
     emptyState: React.ReactNode
     errorMessage?: string | null
-    messages: Array<{ places?: Array<{ id: string }> }>
+    messages: Array<{ content: string; places?: Array<{ id: string }> }>
     onSend: (message: string) => void
     onRequestMore?: () => void
     requestMoreLabel?: string
@@ -103,6 +115,7 @@ vi.mock('./ChatWindow', () => ({
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
+      <span>Latest: {messages.at(-1)?.content ?? 'none'}</span>
       <span>Cards: {messages.flatMap((message) => message.places ?? []).length}</span>
       {messages
         .flatMap((message) => message.places ?? [])
@@ -234,6 +247,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.geolocationPermission = 'granted'
     mocks.connectionState = 'online'
     mocks.client.chat.session.mutate.mockResolvedValue({ sessionId: 'session-1' })
+    mocks.client.chat.stream = undefined
     mocks.client.chat.send.mutate.mockResolvedValue({
       response: 'Nearby.',
       sessionId: 'session-1',
@@ -257,6 +271,56 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('renders safe stream fragments and replaces them with the authoritative completed turn', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    const unsubscribe = vi.fn()
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    const subscribe = vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      return { unsubscribe }
+    })
+    mocks.client.chat.stream = { subscribe }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+
+    act(() => {
+      handlers?.onData({ type: 'delta', delta: 'Near', providerFirstTextMs: 240 })
+      handlers?.onData({ type: 'delta', delta: 'by draft', providerFirstTextMs: 240 })
+    })
+    expect(screen.getByText('Latest: Nearby draft')).toBeTruthy()
+
+    act(() => {
+      handlers?.onData({
+        type: 'complete',
+        result: {
+          response: 'Nearby, beside the east gallery.',
+          assistantMessageId: 'assistant-1',
+          sessionId: 'session-1',
+          places: [],
+          citations: [],
+          replayed: false,
+          providerFirstTextMs: 240,
+        },
+      })
+      handlers?.onComplete()
+    })
+
+    await screen.findByText('Latest: Nearby, beside the east gallery.')
+    expect(screen.getByText('Messages: 2')).toBeTruthy()
+    expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
   it('does not admit route catalog reads until the public session is confirmed', async () => {
@@ -498,8 +562,17 @@ describe('VenueChatExperience presentation boundary', () => {
       })
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
+      timeout: 5_000,
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    expect(await screen.findByText(/message was not sent because the guide is busy/i)).toBeTruthy()
+    expect(
+      await screen.findByText(
+        /message was not sent because the guide is busy/i,
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeTruthy()
     const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
     fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
@@ -520,8 +593,11 @@ describe('VenueChatExperience presentation boundary', () => {
       )
       render(<VenueChatExperience venueSlug="museum" />)
       await screen.findByRole('heading', { name: 'Museum Guide' })
+      await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
+        timeout: 5_000,
+      })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-      expect(await screen.findByText(message)).toBeTruthy()
+      expect(await screen.findByText(message, {}, { timeout: 5_000 })).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
     },
   )
@@ -762,6 +838,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -786,6 +863,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -806,6 +884,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))

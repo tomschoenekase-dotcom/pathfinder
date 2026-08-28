@@ -73,6 +73,64 @@ describe('routed text generation', () => {
     )
   })
 
+  it('streams an OpenAI route and settles from the terminal response usage', async () => {
+    const providerStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'response.output_text.delta', delta: 'Bien' }
+        yield { type: 'response.output_text.delta', delta: 'venido' }
+        yield {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            output_text: 'Bienvenido',
+            output: [],
+            usage: {
+              input_tokens: 12,
+              output_tokens: 3,
+              input_tokens_details: { cached_tokens: 4 },
+            },
+          },
+        }
+      },
+    }
+    const create = vi.fn().mockResolvedValue(providerStream)
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { primaryModelKey: 'guest-chat-openai', maxAttempts: 1 },
+          unsafeChangesEnabled: true,
+          reason: 'bounded OpenAI streaming canary',
+        },
+      ],
+    })
+    const onTextDelta = vi.fn()
+    const result = await generateTextForCapability({
+      route: routeAiCapability({ capability: 'STANDARD', workloadId: 'guest-chat', configuration }),
+      system: [{ type: 'text', text: 'Reply in the guest language.' }],
+      messages: [{ role: 'user', content: 'Hola' }],
+      maxAttempts: 1,
+      usageSink: vi.fn().mockResolvedValue(undefined),
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate: NOOP_AI_BUDGET_GATE,
+      onTextDelta,
+    })
+
+    expect(onTextDelta.mock.calls.flat()).toEqual(['Bien', 'venido'])
+    expect(result).toMatchObject({
+      text: 'Bienvenido',
+      usage: { inputTokens: 8, outputTokens: 3, cacheReadInputTokens: 4 },
+      route: { modelKey: 'guest-chat-openai', fallbackUsed: false },
+    })
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ stream: true }),
+      expect.any(Object),
+    )
+  })
+
   it('rejects an incomplete OpenAI response instead of returning partial guest text', async () => {
     const create = vi.fn().mockResolvedValue({
       status: 'incomplete',
@@ -189,6 +247,55 @@ describe('routed text generation', () => {
         fallbackUsed: true,
       }),
     )
+  })
+
+  it('does not switch route candidates after a streamed fragment reaches the guest', async () => {
+    const create = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Fallback must not run' }],
+      usage: { input_tokens: 2, output_tokens: 4 },
+    })
+    const stream = vi.fn().mockReturnValue({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Partial' } }
+        throw Object.assign(new Error('provider unavailable'), { status: 503 })
+      },
+      finalMessage: vi.fn(),
+    })
+    setAnthropicClientForTesting({ messages: { create, stream } })
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { fallback: { enabled: true, modelKeys: ['agent-run'] } },
+          unsafeChangesEnabled: true,
+          reason: 'test streamed fallback fence',
+        },
+      ],
+    })
+    const onTextDelta = vi.fn()
+
+    await expect(
+      generateTextForCapability({
+        route: routeAiCapability({
+          capability: 'STANDARD',
+          workloadId: 'guest-chat',
+          configuration,
+        }),
+        system: [{ type: 'text', text: 'Guide' }],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 1,
+        usageSink: vi.fn().mockResolvedValue(undefined),
+        admissionGuard: vi.fn().mockResolvedValue(undefined),
+        budgetGate: NOOP_AI_BUDGET_GATE,
+        onTextDelta,
+      }),
+    ).rejects.toMatchObject({ textEmitted: true, attempts: 1 })
+
+    expect(onTextDelta).toHaveBeenCalledWith('Partial')
+    expect(stream).toHaveBeenCalledOnce()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('does not use a fallback to bypass an admission failure', async () => {

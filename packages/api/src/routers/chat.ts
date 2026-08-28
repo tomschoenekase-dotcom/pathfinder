@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
 
@@ -39,7 +40,7 @@ import { logger } from '@pathfinder/config'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
-import { publicTRPCError, router } from '../core'
+import { mergeRouters, publicTRPCError, router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { resolveSystemCharacterProjection } from '../lib/character-registry'
@@ -123,6 +124,103 @@ const HISTORY_SESSION_LIMIT = 60
 const HISTORY_VENUE_LIMIT = 3000
 const CHAT_GLOBAL_INGRESS_LIMIT = 600
 const CHAT_INGRESS_VENUE_LIMIT = 120
+
+type ChatStreamSink = {
+  onTextDelta: (
+    delta: string,
+    timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+  ) => void | Promise<void>
+}
+
+const chatStreamSink = new AsyncLocalStorage<ChatStreamSink>()
+
+export function boundedStreamingPrefix(text: string, maxWords: number): string {
+  const words = [...text.matchAll(/\S+/g)]
+  if (words.length <= maxWords) return text
+  const lastWord = words[maxWords - 1]
+  return lastWord ? text.slice(0, (lastWord.index ?? 0) + lastWord[0].length) : ''
+}
+
+export function createGuestStreamingProjection(options: {
+  maxWords: number
+  onTextDelta: ChatStreamSink['onTextDelta']
+}) {
+  let providerText = ''
+  let emittedLength = 0
+  let providerFirstTextMs: number | null = null
+  let requestFirstTextMs: number | null = null
+  return {
+    async push(
+      delta: string,
+      timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+    ) {
+      if (!delta) return
+      providerText += delta
+      providerFirstTextMs ??= timings.providerFirstTextMs
+      requestFirstTextMs ??= timings.requestFirstTextMs
+      const markerIndex = providerText.indexOf(ENGAGEMENT_ASKED_MARKER)
+      const markerSafeLength =
+        markerIndex >= 0
+          ? markerIndex
+          : Math.max(0, providerText.length - ENGAGEMENT_ASKED_MARKER.length)
+      const safePrefix = boundedStreamingPrefix(
+        providerText.slice(0, markerSafeLength),
+        options.maxWords,
+      )
+      if (safePrefix.length <= emittedLength) return
+      const safeDelta = safePrefix.slice(emittedLength)
+      emittedLength = safePrefix.length
+      await options.onTextDelta(safeDelta, {
+        providerFirstTextMs,
+        requestFirstTextMs,
+      })
+    },
+    providerFirstTextMs() {
+      return providerFirstTextMs
+    },
+    requestFirstTextMs() {
+      return requestFirstTextMs
+    },
+  }
+}
+
+class AsyncPushQueue<T> {
+  private readonly values: T[] = []
+  private wake: (() => void) | null = null
+  private closed = false
+  private failure: unknown = null
+
+  push(value: T) {
+    if (this.closed) return
+    this.values.push(value)
+    this.wake?.()
+    this.wake = null
+  }
+
+  close() {
+    this.closed = true
+    this.wake?.()
+    this.wake = null
+  }
+
+  fail(error: unknown) {
+    this.failure = error
+    this.close()
+  }
+
+  async *iterate(): AsyncGenerator<T, void, void> {
+    while (!this.closed || this.values.length > 0) {
+      if (this.values.length > 0) {
+        yield this.values.shift() as T
+        continue
+      }
+      await new Promise<void>((resolve) => {
+        this.wake = resolve
+      })
+    }
+    if (this.failure) throw this.failure
+  }
+}
 
 type PublicChatVenue = {
   id: string
@@ -332,7 +430,7 @@ const NO_INFO_REPLY_PATTERN =
 // Router
 // ---------------------------------------------------------------------------
 
-export const chatRouter = router({
+const chatSessionRouter = router({
   /**
    * Idempotent session creation / update. Call this when the visitor first
    * opens the chat page so a session row exists before the first message.
@@ -429,7 +527,9 @@ export const chatRouter = router({
 
     return { sessionId: session.id }
   }),
+})
 
+const chatReadRouter = router({
   /**
    * Send a message and receive an AI response grounded in venue + location data.
    */
@@ -1021,6 +1121,13 @@ export const chatRouter = router({
     let fallbackWasRouteExhaustion = false
     let generationRouteConfigurationVersion: string | undefined
     const modelStartedAt = performance.now()
+    const activeStreamSink = chatStreamSink.getStore()
+    const streamProjection = activeStreamSink
+      ? createGuestStreamingProjection({
+          maxWords: guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
+          onTextDelta: activeStreamSink.onTextDelta,
+        })
+      : null
     const chatAccounting = createApiAiUsageRecorder({
       db: ctx.db,
       tenantId: venue.tenantId,
@@ -1073,6 +1180,15 @@ export const chatRouter = router({
         ],
         usageSink: chatAccounting.sink,
         invocationId: generationInvocationId,
+        ...(streamProjection
+          ? {
+              onTextDelta: (delta: string) =>
+                streamProjection.push(delta, {
+                  providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+                  requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+                }),
+            }
+          : {}),
         onBeforeFirstDispatch: async () => {
           try {
             await markGuestChatProviderDispatchedAction({
@@ -1283,6 +1399,14 @@ export const chatRouter = router({
       modelMs,
       persistenceMs,
       totalMs,
+      ...(streamProjection?.providerFirstTextMs() !== null &&
+      streamProjection?.providerFirstTextMs() !== undefined
+        ? { providerFirstTextMs: streamProjection.providerFirstTextMs() }
+        : {}),
+      ...(streamProjection?.requestFirstTextMs() !== null &&
+      streamProjection?.requestFirstTextMs() !== undefined
+        ? { requestFirstTextMs: streamProjection.requestFirstTextMs() }
+        : {}),
     }
 
     // Project only active, already tenant/venue-scoped retrieval results that the
@@ -1482,6 +1606,8 @@ export const chatRouter = router({
       places: finalized.places,
       citations: finalized.citations,
       replayed: finalized.replayed,
+      providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
+      requestFirstTextMs: streamProjection?.requestFirstTextMs() ?? null,
     }
   }),
 
@@ -1597,3 +1723,42 @@ export const chatRouter = router({
     }
   }),
 })
+
+export type ChatSendResult = Awaited<
+  ReturnType<ReturnType<typeof chatReadRouter.createCaller>['send']>
+>
+export type ChatStreamEvent =
+  | {
+      type: 'delta'
+      delta: string
+      providerFirstTextMs: number
+      requestFirstTextMs: number
+    }
+  | { type: 'complete'; result: ChatSendResult }
+
+export async function* streamChatTurn(
+  ctx: TRPCContext,
+  input: Parameters<ReturnType<typeof chatReadRouter.createCaller>['send']>[0],
+): AsyncGenerator<ChatStreamEvent, void, void> {
+  const queue = new AsyncPushQueue<ChatStreamEvent>()
+  void chatStreamSink
+    .run(
+      {
+        onTextDelta: (delta, timings) => {
+          queue.push({ type: 'delta', delta, ...timings })
+        },
+      },
+      () => chatReadRouter.createCaller(ctx).send(input),
+    )
+    .then(
+      (result) => {
+        queue.push({ type: 'complete', result })
+        queue.close()
+      },
+      (error: unknown) => queue.fail(error),
+    )
+
+  yield* queue.iterate()
+}
+
+export const chatRouter = mergeRouters(chatSessionRouter, chatReadRouter)

@@ -48,6 +48,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
   parseResponse?: (text: string) => TParsed
   invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
+  onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
   const budgetGate =
@@ -84,6 +85,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
         ...(params.invocationId ? { invocationId: params.invocationId } : {}),
         budgetAttemptNumberOffset,
         ...(params.signal ? { signal: params.signal } : {}),
+        ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
         ...(params.onBeforeFirstDispatch
           ? {
               onBeforeFirstDispatch: async () => {
@@ -109,7 +111,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
       // Route fallbacks are for provider/model failures. Admission, budget,
       // policy, accounting, and dispatch-fence failures must fail closed so a
       // second candidate cannot bypass the rejected control.
-      if (!(error instanceof AiGatewayError)) throw error
+      if (!(error instanceof AiGatewayError) || error.textEmitted) throw error
       budgetAttemptNumberOffset += error.attempts
     }
   }

@@ -143,6 +143,42 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByRole('status').textContent).toBe('Venue guide: A new answer.')
   })
 
+  it('keeps streamed fragments out of the live region and announces only the completed answer', () => {
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the café?' }]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'Near' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'Nearby, beside the east gallery.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading={false}
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toBe(
+      'Venue guide: Nearby, beside the east gallery.',
+    )
+  })
+
   it('restores focus to the composer after a request finishes', () => {
     const onSend = vi.fn()
     const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)

@@ -24,7 +24,7 @@ export const VISITOR_FIXTURE_STATES = [
 ] as const satisfies readonly CharacterState[]
 
 export type VisitorFixtureMode = 'classic' | 'character'
-export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual'
+export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'streaming'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
 export type VisitorFixtureRoute = 'none' | 'ready'
@@ -180,6 +180,14 @@ const MULTILINGUAL_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+const STREAMING_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'Where can we find the lake ecology gallery?' },
+  {
+    role: 'assistant',
+    content: 'The lake ecology gallery is on the upper floor beside the central',
+  },
+]
+
 function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
   const projection =
     asset === 'ok'
@@ -264,9 +272,11 @@ export function VenueChatFixture({
               ? LONG_CONVERSATION
               : conversation === 'multilingual'
                 ? MULTILINGUAL_CONVERSATION
-                : []
+                : conversation === 'streaming'
+                  ? STREAMING_CONVERSATION
+                  : []
           }
-          isSending={state === 'thinking'}
+          isSending={state === 'thinking' || state === 'speaking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
           language={language}

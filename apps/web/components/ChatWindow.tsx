@@ -91,6 +91,7 @@ export function ChatWindow({
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const wasLoadingRef = useRef(isLoading)
+  const announcementWasLoadingRef = useRef(isLoading)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
 
@@ -137,18 +138,25 @@ export function ChatWindow({
     const previousMessageCount = previousMessageCountRef.current
     const hasNewMessage = messages.length > previousMessageCount
     const latestMessage = messages.at(-1)
+    const responseCompleted = announcementWasLoadingRef.current && !isLoading
 
     previousMessageCountRef.current = messages.length
+    announcementWasLoadingRef.current = isLoading
 
     if (messages.length < previousMessageCount) {
       setLiveAnnouncement(null)
-    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+    } else if (responseCompleted && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
         kind: 'response',
         content: latestMessage.content,
       })
     } else if (isLoading) {
       setLiveAnnouncement({ kind: 'responding' })
+    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+      setLiveAnnouncement({
+        kind: 'response',
+        content: latestMessage.content,
+      })
     } else {
       setLiveAnnouncement((current) => (current?.kind === 'responding' ? null : current))
     }
@@ -179,7 +187,7 @@ export function ChatWindow({
         {messages.length === 0 && emptyState ? emptyState : null}
 
         {messages.map((message, index) => (
-          <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
+          <div key={message.id ?? `${message.role}-${index}`}>
             <MessageBubble
               role={message.role}
               content={message.content}
@@ -205,7 +213,7 @@ export function ChatWindow({
           </div>
         ))}
 
-        {onRequestMore && messages.at(-1)?.role === 'assistant' ? (
+        {onRequestMore && !isLoading && messages.at(-1)?.role === 'assistant' ? (
           <div className="flex justify-start pl-1">
             <button
               type="button"
@@ -218,7 +226,7 @@ export function ChatWindow({
           </div>
         ) : null}
 
-        {isLoading ? <TypingIndicator /> : null}
+        {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
       </div>
 
       <div className="sr-only" role="status" aria-atomic="true">

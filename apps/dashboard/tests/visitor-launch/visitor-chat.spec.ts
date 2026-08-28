@@ -140,6 +140,31 @@ test('delayed response remains bounded and motion-safe', async ({ page }, testIn
   expect(runtimeErrors).toEqual([])
 })
 
+test('streaming response remains readable, quiet to assistive tech, and composer-safe', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=speaking&conversation=streaming&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+
+  await expect(page.locator('[data-fixture-state="speaking"]')).toBeVisible()
+  await expect(page.getByText(/lake ecology gallery is on the upper floor/)).toBeVisible()
+  const liveStatus = page.getByRole('status').filter({ hasText: 'Museum Guide is responding' })
+  await expect(liveStatus).toHaveText('Museum Guide is responding')
+  await expect(liveStatus).toHaveClass(/sr-only/u)
+  await expect(page.getByRole('button', { name: 'Sending message' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Tell me more' })).toHaveCount(0)
+
+  await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
+  await expectTouchTargets(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'visitor-streaming-response')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('localized loading surface remains launch-safe', async ({ page }, testInfo) => {
   const runtimeErrors = captureRuntimeErrors(page)
   await page.goto('/dev-fixtures/visitor-chat?surface=loading&language=العربية')

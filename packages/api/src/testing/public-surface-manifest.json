@@ -138,6 +138,16 @@
   ],
   "http": [
     {
+      "source": "apps/web/app/api/chat-stream/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-public-ai-stream",
+      "behavioralEvidence": [
+        "apps/web/app/api/chat-stream/route.test.ts",
+        "packages/api/src/routers/chat-streaming.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/admin/impersonate/route.ts",
       "methods": ["POST"],
       "exposure": "handler-platform-admin",

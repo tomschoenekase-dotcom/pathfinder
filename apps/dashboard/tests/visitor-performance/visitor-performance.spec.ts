@@ -127,7 +127,7 @@ test('records visitor readiness distributions without sending chat', async ({
 
   const readinessValues = samples.map((sample) => sample.interactionReadyMs)
   const metrics = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     measuredAt: new Date().toISOString(),
     revision: process.env.PATHFINDER_RELEASE_SHA ?? null,
     networkProfile,
@@ -146,7 +146,7 @@ test('records visitor readiness distributions without sending chat', async ({
     streamingTtft: {
       measured: false,
       reason:
-        'Guest chat currently uses a completed request/response mutation, not token streaming.',
+        'Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests.',
     },
     samples,
   }

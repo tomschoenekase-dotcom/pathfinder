@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
-import type { inferRouterInputs } from '@trpc/server'
+import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import {
   GuestPublicErrorCode,
@@ -34,6 +34,29 @@ type VenueChatExperienceProps = {
 }
 
 type ChatSendInput = inferRouterInputs<AppRouter>['chat']['send']
+type ChatSendResult = inferRouterOutputs<AppRouter>['chat']['send']
+type ChatStreamEvent =
+  | {
+      type: 'delta'
+      delta: string
+      providerFirstTextMs: number
+      requestFirstTextMs: number
+    }
+  | { type: 'complete'; result: ChatSendResult }
+type ChatStreamClient = {
+  chat: {
+    stream?: {
+      subscribe: (
+        input: ChatSendInput,
+        handlers: {
+          onData: (event: ChatStreamEvent) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        },
+      ) => { unsubscribe: () => void }
+    }
+  }
+}
 type PendingTurn = {
   operationId: string
   input: ChatSendInput
@@ -76,6 +99,7 @@ export function VenueChatExperience({
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
+  const streamingClient = client as unknown as ChatStreamClient
   const connectionState = useNetworkStatus()
   const isOnline = connectionState !== 'offline'
   const [venueState, setVenueState] = useState<{ slug: string; venue: VenueSummary | null } | null>(
@@ -101,6 +125,7 @@ export function VenueChatExperience({
   const conversationEpochRef = useRef(0)
   const sendingEpochRef = useRef<number | null>(null)
   const activeOperationRef = useRef<string | null>(null)
+  const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
   const pendingTurnRef = useRef<PendingTurn | null>(null)
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
@@ -159,6 +184,13 @@ export function VenueChatExperience({
   )
 
   useEffect(() => () => clearCharacterReset(), [clearCharacterReset])
+  useEffect(
+    () => () => {
+      activeStreamRef.current?.unsubscribe()
+      activeStreamRef.current = null
+    },
+    [],
+  )
 
   useEffect(() => {
     if (venue && identityUnavailable)
@@ -178,6 +210,8 @@ export function VenueChatExperience({
       setRecoveryMode(null)
       reconciliationRequiredRef.current = false
       setIsSending(false)
+      activeStreamRef.current?.unsubscribe()
+      activeStreamRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
       sendingEpochRef.current = null
@@ -306,6 +340,58 @@ export function VenueChatExperience({
     setSendError(null)
   }
 
+  function applyStreamDelta(turn: PendingTurn, delta: string) {
+    if (!delta || !turnIsCurrent(turn)) return
+    setStableCharacterState('speaking')
+    setMessages((current) => {
+      const existingIndex = current.findIndex(
+        (message) =>
+          message.role === 'assistant' && message.pendingOperationId === turn.operationId,
+      )
+      if (existingIndex === -1) {
+        return [
+          ...current,
+          {
+            role: 'assistant',
+            content: delta,
+            pendingOperationId: turn.operationId,
+          },
+        ]
+      }
+      return current.map((message, index) =>
+        index === existingIndex ? { ...message, content: message.content + delta } : message,
+      )
+    })
+  }
+
+  async function sendTurnRequest(turn: PendingTurn): Promise<ChatSendResult> {
+    const stream = streamingClient.chat.stream
+    if (!stream?.subscribe) return client.chat.send.mutate(turn.input)
+    return new Promise<ChatSendResult>((resolve, reject) => {
+      let completed = false
+      const subscription = stream.subscribe(turn.input, {
+        onData(event) {
+          if (event.type === 'delta') {
+            applyStreamDelta(turn, event.delta)
+            return
+          }
+          completed = true
+          resolve(event.result)
+        },
+        onError(error) {
+          reject(error)
+        },
+        onComplete() {
+          if (!completed) reject(new Error('The guide stream ended before completion.'))
+        },
+      })
+      activeStreamRef.current = {
+        operationId: turn.operationId,
+        unsubscribe: () => subscription.unsubscribe(),
+      }
+    })
+  }
+
   async function reconcileTurn(turn: PendingTurn): Promise<boolean> {
     try {
       const history = await client.chat.history.query({
@@ -341,7 +427,7 @@ export function VenueChatExperience({
       ])
     sendingEpochRef.current = turn.epoch
     try {
-      const result = await client.chat.send.mutate(turn.input)
+      const result = await sendTurnRequest(turn)
       if (!turnIsCurrent(turn)) return
       const response = result.response
       const resultPlaces = result.places
@@ -350,11 +436,16 @@ export function VenueChatExperience({
         throw new Error('The completed chat turn response was incomplete.')
       }
       setMessages((current) => [
-        ...current.map((message) =>
-          message.pendingOperationId === turn.operationId
-            ? { role: message.role, content: message.content }
-            : message,
-        ),
+        ...current
+          .filter(
+            (message) =>
+              !(message.role === 'assistant' && message.pendingOperationId === turn.operationId),
+          )
+          .map((message) =>
+            message.pendingOperationId === turn.operationId
+              ? { role: message.role, content: message.content }
+              : message,
+          ),
         {
           ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}),
           role: 'assistant',
@@ -431,6 +522,10 @@ export function VenueChatExperience({
       }
       setTemporaryCharacterState('error', 1600)
     } finally {
+      if (activeStreamRef.current?.operationId === turn.operationId) {
+        activeStreamRef.current.unsubscribe()
+        activeStreamRef.current = null
+      }
       if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
       if (turnScopeIsCurrent(turn)) setIsSending(false)
       if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
