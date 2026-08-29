@@ -13,8 +13,8 @@ vi.mock('../../lib/trpc', () => ({
 vi.mock('./OperationalEventActions', () => ({
   OperationalEventActions: () => <span>Event actions</span>,
 }))
-vi.mock('./AgentQuestionAnswerForm', () => ({
-  AgentQuestionAnswerForm: () => <span>Inline question answer</span>,
+vi.mock('./FounderQuestionTriageBoard', () => ({
+  FounderQuestionTriageBoard: () => <span>Founder question triage board</span>,
 }))
 vi.mock('./ApprovalDecisionForm', () => ({
   ApprovalDecisionForm: () => <span>Inline approval decision</span>,
@@ -463,15 +463,9 @@ describe('operations attention console', () => {
       />,
     )
     expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy()
-    expect(screen.getAllByText('Which pricing assumption should I use?')).toHaveLength(2)
+    expect(screen.getByText('Which pricing assumption should I use?')).toBeTruthy()
     expect(screen.getByText('Required for this work to proceed')).toBeTruthy()
-    expect(screen.getByText('Reviewed agreement')).toBeTruthy()
-    expect(screen.getByText('Use the last signed agreement')).toBeTruthy()
-    expect(screen.getByText(/does not approve, apply, or publish/i)).toBeTruthy()
-    expect(screen.getByText('Inline question answer')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Open full agent context' }).getAttribute('href')).toBe(
-      '/admin/clients/tenant_1/venues/venue_1/agents#inbox',
-    )
+    expect(screen.getByText('Founder question triage board')).toBeTruthy()
   })
 
   it('surfaces a critical customer event ahead of routine decisions', () => {

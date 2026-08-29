@@ -2,8 +2,6 @@ import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
-import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
-import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
@@ -13,6 +11,7 @@ import { FounderAbsenceReadiness } from './FounderAbsenceReadiness'
 import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
+import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -810,61 +809,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             <Empty>No agents are waiting for human input.</Empty>
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            {data.questions.items.map((question) => (
-              <article
-                key={question.id}
-                className="rounded-xl border border-amber-200 bg-white p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
-                  <span>{question.agentIdentity.name}</span>
-                  <span>·</span>
-                  <span>{question.blocking ? 'Blocking' : 'Non-blocking'}</span>
-                  <span>·</span>
-                  <span>{question.urgency.toLowerCase()} priority</span>
-                  <span>·</span>
-                  <span>{question.questionType.replaceAll('_', ' ').toLowerCase()}</span>
-                  <span>·</span>
-                  <span>{date(question.createdAt)}</span>
-                </div>
-                <h3 className="mt-2 font-semibold text-slate-950">{question.question}</h3>
-                {question.context ? (
-                  <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
-                    {question.context}
-                  </p>
-                ) : null}
-                {question.dueAt ? (
-                  <p className="mt-2 text-xs font-semibold text-amber-800">
-                    Due {date(question.dueAt)}
-                  </p>
-                ) : null}
-                {question.choices.length ? (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Options: {question.choices.join(' · ')}
-                  </p>
-                ) : null}
-                <AgentQuestionEvidence
-                  evidence={question.evidence}
-                  proposedAnswer={question.proposedAnswer}
-                />
-                <AgentQuestionAnswerForm
-                  tenantId={question.tenantId}
-                  venueId={question.venueId}
-                  questionId={question.id}
-                  expectedUpdatedAt={question.updatedAt}
-                  choices={question.choices}
-                  recipients={[]}
-                  canRouteToClient={false}
-                />
-                <Link
-                  className="mt-3 inline-block text-sm font-semibold text-sky-700"
-                  href={`/admin/clients/${question.tenantId}/venues/${question.venueId}/agents#inbox`}
-                >
-                  Open full agent context
-                </Link>
-              </article>
-            ))}
-          </div>
+          <FounderQuestionTriageBoard questions={data.questions} generatedAt={data.generatedAt} />
         )}
         <More param="questionsCursor" cursor={data.questions.nextCursor} label="Older questions" />
       </section>
