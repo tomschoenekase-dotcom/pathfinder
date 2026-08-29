@@ -4,6 +4,11 @@ import {
   IntakeBuilderLifecycleView,
   type IntakeBuilderLifecycle,
 } from '../../../components/admin/IntakeBuilderLifecyclePanel'
+import {
+  OnboardingBootstrapReview,
+  type OnboardingBootstrapCandidate,
+} from '../../../components/admin/OnboardingBootstrapReview'
+import { TRPCProvider } from '../../../lib/trpc'
 
 const stages = [
   'INGEST',
@@ -142,6 +147,24 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
   ),
 }
 
+const reviewedCandidate = {
+  runId: 'fixture-file-review-run',
+  sourceKind: 'STRUCTURED_BOOTSTRAP',
+  status: 'AWAITING_REVIEW',
+  ready: true,
+  candidateHash: 'a'.repeat(64),
+  payload: {
+    schemaVersion: 3,
+    places: { create: [], update: [], delete: [] },
+    knowledgeEntries: { create: [], update: [], delete: [] },
+  },
+  issues: [],
+  summary: { candidateCount: 1, issueCount: 0 },
+  autoApprove: false,
+  autoApply: false,
+  published: false,
+} satisfies OnboardingBootstrapCandidate
+
 export default function IntakeBuilderFileSourceFixture() {
   return (
     <main
@@ -180,6 +203,37 @@ export default function IntakeBuilderFileSourceFixture() {
             onExtractionReviewRationaleChange={() => undefined}
             onReviewFileExtraction={() => undefined}
           />
+        </div>
+        <div className="mt-8 border-t border-pf-light pt-6">
+          <h2 className="text-sm font-medium text-pf-deep">
+            Accepted extraction review · package candidate
+          </h2>
+          <p className="mt-1 text-sm text-pf-deep/70">
+            Human-reviewed notes remain a proposal until a separate DRAFT review
+          </p>
+          <div className="mt-4">
+            <TRPCProvider scopeKey="fixture:file-extraction-package-candidate">
+              <OnboardingBootstrapReview
+                tenantId="fixture-tenant"
+                venueId="fixture-venue"
+                run={{
+                  id: 'fixture-file-review-run',
+                  displayName: 'Reviewed visitor information',
+                  status: 'AWAITING_REVIEW',
+                  structuredBootstrap: {
+                    kind: 'FILE_EXTRACTION_REVIEW',
+                    sourceRunId: 'fixture-file-run',
+                    receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
+                    sourceSha256: sha256,
+                    extractedTextHash: 'd'.repeat(64),
+                    reviewRationale:
+                      'The retained text is legible and unresolved claims were excluded.',
+                  },
+                }}
+                fixtureCandidate={reviewedCandidate}
+              />
+            </TRPCProvider>
+          </div>
         </div>
       </div>
     </main>

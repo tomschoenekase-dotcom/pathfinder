@@ -82,6 +82,33 @@ describe('OnboardingBootstrapReview', () => {
     expect(await screen.findByText('Candidate content is too long.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create and link DRAFT only' })).toBeNull()
   })
+
+  it('keeps an accepted extraction review distinct from its later package DRAFT review', async () => {
+    query.mockResolvedValue(candidate())
+    render(
+      <OnboardingBootstrapReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        run={{
+          id: 'run-1',
+          displayName: 'Reviewed visitor information',
+          status: 'AWAITING_REVIEW',
+          structuredBootstrap: {
+            kind: 'FILE_EXTRACTION_REVIEW',
+            receiptId: '975140d8-5af9-4c2d-9132-40b5cf6f5962',
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/exact accepted extraction review/i)).toBeTruthy()
+    expect(
+      screen.getByText('View private extraction-review lineage').closest('details')?.open,
+    ).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Review package candidate' }))
+    expect(await screen.findByText(/Candidate from reviewed file extraction proposal/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
 })
 
 function candidate() {

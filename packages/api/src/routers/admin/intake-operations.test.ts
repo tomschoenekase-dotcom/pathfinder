@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { onboardingBootstrapInputHash } from '@pathfinder/db'
@@ -80,6 +81,62 @@ const candidateEvidence = {
       confidence: 1,
     },
   ],
+}
+
+function extractionReviewCandidateRun() {
+  const reviewId = '4d8bb6f8-f1d7-42ee-944d-2a628fa50f77'
+  const receiptId = '975140d8-5af9-4c2d-9132-40b5cf6f5962'
+  const proposalNotes = 'The east entrance is step-free.'
+  const proposalNotesHash = createHash('sha256').update(proposalNotes).digest('hex')
+  const requestHash = 'c'.repeat(64)
+  const sourceSha256 = 'b'.repeat(64)
+  const extractedTextHash = 'a'.repeat(64)
+  return {
+    id: 'proposal-run-file',
+    sourceKind: 'STRUCTURED_BOOTSTRAP',
+    status: 'AWAITING_REVIEW',
+    displayName: 'Reviewed visitor information',
+    structuredBootstrap: {
+      kind: 'FILE_EXTRACTION_REVIEW',
+      sourceRunId: 'source-run-file',
+      receiptId,
+      sourceSha256,
+      sourceMimeType: 'text/plain',
+      extractedTextHash,
+      proposalNotes,
+      proposalNotesHash,
+      reviewRationale: 'The selected statement is clear and relevant.',
+    },
+    submissionRequestId: reviewId,
+    submissionInputHash: requestHash,
+    requestedBy: 'platform-admin',
+    requestedByType: 'HUMAN',
+    packageHandoff: null,
+    venue: candidateVenue,
+    evidence: [
+      {
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        locator: `intake-file-extraction-review:${reviewId}`,
+        normalizedHash: proposalNotesHash,
+        confidence: 1,
+      },
+    ],
+    fileExtractionProposalReview: {
+      id: reviewId,
+      sourceRunId: 'source-run-file',
+      receiptId,
+      requestId: reviewId,
+      requestHash,
+      decision: 'ACCEPTED_FOR_PROPOSAL',
+      expectedExtractedTextHash: extractedTextHash,
+      proposalTitle: 'Reviewed visitor information',
+      proposalNotes,
+      proposalNotesHash,
+      rationale: 'The selected statement is clear and relevant.',
+      createdBy: 'platform-admin',
+      receipt: { sourceSha256, sourceMimeType: 'text/plain' },
+    },
+  }
 }
 
 describe('platform admin intake operations', () => {
@@ -284,6 +341,48 @@ describe('platform admin intake operations', () => {
         finalizer: expect.any(Function),
       }),
     )
+  })
+
+  it('routes an exact extraction-review candidate only into the existing atomic DRAFT orchestrator', async () => {
+    const run = extractionReviewCandidateRun()
+    runFindFirst.mockResolvedValue(run)
+    const caller = testRouter.createCaller(context())
+    const candidate = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: run.id,
+    })
+    runFindFirst.mockClear().mockResolvedValue(run)
+    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package-file' }, attachment: {} })
+
+    await caller.operations.createAndLinkIntakeCandidateDraft({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: run.id,
+      expectedCandidateHash: candidate.candidateHash!,
+    })
+
+    expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: {
+          id: 'platform-admin',
+          role: 'PLATFORM_ADMIN',
+          type: 'HUMAN',
+        },
+        tenantId: 'tenant-a',
+        input: expect.objectContaining({
+          venueId: 'venue-a',
+          payload: candidate.payload,
+        }),
+        finalizer: expect.any(Function),
+      }),
+    )
+    expect(candidate).toMatchObject({
+      ready: true,
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
   })
 
   it('rejects a stale candidate hash without starting draft orchestration', async () => {

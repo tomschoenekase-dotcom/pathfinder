@@ -32,7 +32,14 @@ test('verified file source remains truthful, readable, and non-authoritative', a
   await expect(page.getByText(/No model, provider, package creation/)).toBeVisible()
   await expect(page.getByText('Extracted text · review required')).toBeVisible()
   await expect(page.getByText(/This text has not been reviewed/)).toBeVisible()
-  await expect(page.getByText('d'.repeat(64))).toBeVisible()
+  await expect(page.getByText('d'.repeat(64), { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Accepted extraction review · package candidate' }),
+  ).toBeVisible()
+  await expect(page.getByText(/exact accepted extraction review/)).toBeVisible()
+  await expect(page.getByText(/Candidate from reviewed file extraction proposal/)).toBeVisible()
+  await expect(page.getByText('View private extraction-review lineage')).toBeVisible()
+  await expect(page.getByLabel('VenuePackage payload JSON')).toHaveAttribute('readonly', '')
   await expect(page.getByRole('button', { name: /approve|apply|publish/i })).toHaveCount(0)
 
   await expect

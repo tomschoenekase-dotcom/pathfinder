@@ -46,6 +46,19 @@ const bootstrapContent = z.discriminatedUnion('kind', [
 ])
 
 const storedBootstrap = z.object({ version: z.literal(1), content: bootstrapContent }).strict()
+const storedFileExtractionReview = z
+  .object({
+    kind: z.literal('FILE_EXTRACTION_REVIEW'),
+    sourceRunId: z.string().trim().min(1).max(191),
+    receiptId: z.string().uuid(),
+    sourceSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceMimeType: z.string().trim().min(1).max(64),
+    extractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    proposalNotes: z.string().trim().min(1).max(20_000),
+    proposalNotesHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    reviewRationale: z.string().trim().min(1).max(500),
+  })
+  .strict()
 export const INTAKE_CANDIDATE_MAPPING_VERSION = 1 as const
 
 export type IntakeCandidateIssue = {
@@ -245,8 +258,12 @@ export async function buildIntakeVenuePackageCandidate(input: {
       id: true,
       sourceKind: true,
       status: true,
+      displayName: true,
       structuredBootstrap: true,
+      submissionRequestId: true,
       submissionInputHash: true,
+      requestedBy: true,
+      requestedByType: true,
       evidence: {
         orderBy: [{ capturedAt: 'asc' as const }, { id: 'asc' as const }],
         select: {
@@ -254,6 +271,28 @@ export async function buildIntakeVenuePackageCandidate(input: {
           locator: true,
           normalizedHash: true,
           confidence: true,
+        },
+      },
+      fileExtractionProposalReview: {
+        select: {
+          id: true,
+          sourceRunId: true,
+          receiptId: true,
+          requestId: true,
+          requestHash: true,
+          decision: true,
+          expectedExtractedTextHash: true,
+          proposalTitle: true,
+          proposalNotes: true,
+          proposalNotesHash: true,
+          rationale: true,
+          createdBy: true,
+          receipt: {
+            select: {
+              sourceSha256: true,
+              sourceMimeType: true,
+            },
+          },
         },
       },
       venue: {
@@ -291,6 +330,64 @@ export async function buildIntakeVenuePackageCandidate(input: {
   const candidate = emptyPayload()
 
   if (run.sourceKind === 'STRUCTURED_BOOTSTRAP') {
+    const fileReview = storedFileExtractionReview.safeParse(run.structuredBootstrap)
+    if (fileReview.success) {
+      const review = run.fileExtractionProposalReview
+      const notesHash = createHash('sha256').update(fileReview.data.proposalNotes).digest('hex')
+      const evidence = run.evidence[0]
+      if (
+        !review ||
+        review.decision !== 'ACCEPTED_FOR_PROPOSAL' ||
+        run.requestedByType !== 'HUMAN' ||
+        run.requestedBy !== review.createdBy ||
+        run.submissionRequestId !== review.requestId ||
+        run.submissionInputHash !== review.requestHash ||
+        run.displayName !== review.proposalTitle ||
+        fileReview.data.sourceRunId !== review.sourceRunId ||
+        fileReview.data.receiptId !== review.receiptId ||
+        fileReview.data.sourceSha256 !== review.receipt.sourceSha256 ||
+        fileReview.data.sourceMimeType !== review.receipt.sourceMimeType ||
+        fileReview.data.extractedTextHash !== review.expectedExtractedTextHash ||
+        fileReview.data.proposalNotes !== review.proposalNotes ||
+        fileReview.data.proposalNotesHash !== review.proposalNotesHash ||
+        fileReview.data.proposalNotesHash !== notesHash ||
+        fileReview.data.reviewRationale !== review.rationale ||
+        run.evidence.length !== 1 ||
+        evidence?.sourceKind !== 'STRUCTURED_BOOTSTRAP' ||
+        evidence.locator !== `intake-file-extraction-review:${review.id}` ||
+        evidence.normalizedHash !== review.proposalNotesHash ||
+        Number(evidence.confidence) !== 1
+      ) {
+        throw new IntakeVenuePackageCandidateError(
+          'INVALID_EVIDENCE',
+          'Stored file extraction review evidence is invalid',
+        )
+      }
+      const sourceHash = createHash('sha256')
+        .update(
+          JSON.stringify({
+            reviewId: review.id,
+            sourceRunId: review.sourceRunId,
+            receiptId: review.receiptId,
+            extractedTextHash: review.expectedExtractedTextHash,
+            proposalNotesHash: review.proposalNotesHash,
+          }),
+        )
+        .digest('hex')
+      candidate.knowledgeEntries.create.push({
+        itemKey: deterministicUuid(
+          `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:file-extraction-review:${sourceHash}`,
+        ),
+        provenance: { ...provenance(), sourceName: 'Reviewed file extraction proposal' },
+        value: {
+          title: run.displayName,
+          category: 'DOCUMENT_REVIEW',
+          content: fileReview.data.proposalNotes,
+          isEnabled: true,
+        },
+      })
+      return result(run, scope.venueId, candidate, issues)
+    }
     const bootstrapEvidence = run.evidence[0]
     if (
       !run.submissionInputHash ||

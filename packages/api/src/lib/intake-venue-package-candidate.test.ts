@@ -51,6 +51,70 @@ function bootstrapRun(content: unknown, overrides: Record<string, unknown> = {})
   }
 }
 
+function fileExtractionReviewRun(overrides: Record<string, unknown> = {}) {
+  const reviewId = '4d8bb6f8-f1d7-42ee-944d-2a628fa50f77'
+  const receiptId = '975140d8-5af9-4c2d-9132-40b5cf6f5962'
+  const proposalNotes = 'The east entrance is step-free.'
+  const proposalNotesHash = createHash('sha256').update(proposalNotes).digest('hex')
+  const requestHash = 'c'.repeat(64)
+  const sourceSha256 = 'b'.repeat(64)
+  const extractedTextHash = 'a'.repeat(64)
+  return {
+    id: 'proposal-run-a',
+    sourceKind: 'STRUCTURED_BOOTSTRAP',
+    status: 'AWAITING_REVIEW',
+    displayName: 'Reviewed visitor information',
+    structuredBootstrap: {
+      kind: 'FILE_EXTRACTION_REVIEW',
+      sourceRunId: 'source-run-a',
+      receiptId,
+      sourceSha256,
+      sourceMimeType: 'text/plain',
+      extractedTextHash,
+      proposalNotes,
+      proposalNotesHash,
+      reviewRationale: 'The selected statement is clear and relevant.',
+    },
+    submissionRequestId: reviewId,
+    submissionInputHash: requestHash,
+    requestedBy: 'admin-a',
+    requestedByType: 'HUMAN',
+    packageHandoff: null,
+    venue: {
+      name: 'Museum',
+      slug: 'museum',
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+    },
+    evidence: [
+      {
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        locator: `intake-file-extraction-review:${reviewId}`,
+        normalizedHash: proposalNotesHash,
+        confidence: 1,
+      },
+    ],
+    fileExtractionProposalReview: {
+      id: reviewId,
+      sourceRunId: 'source-run-a',
+      receiptId,
+      requestId: reviewId,
+      requestHash,
+      decision: 'ACCEPTED_FOR_PROPOSAL',
+      expectedExtractedTextHash: extractedTextHash,
+      proposalTitle: 'Reviewed visitor information',
+      proposalNotes,
+      proposalNotesHash,
+      rationale: 'The selected statement is clear and relevant.',
+      createdBy: 'admin-a',
+      receipt: { sourceSha256, sourceMimeType: 'text/plain' },
+    },
+    ...overrides,
+  }
+}
+
 function interviewRun(entries: ReadonlyArray<readonly [string, string]>, reverse = false) {
   const manifests = entries.map(([questionId, text]) => ({
     questionId,
@@ -115,6 +179,119 @@ function interviewRun(entries: ReadonlyArray<readonly [string, string]>, reverse
 }
 
 describe('deterministic intake VenuePackage candidate', () => {
+  it('maps an exact accepted extraction review into a stable human-authored knowledge candidate', async () => {
+    const first = await buildIntakeVenuePackageCandidate({
+      db: db(fileExtractionReviewRun()) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'proposal-run-a',
+    })
+    const second = await buildIntakeVenuePackageCandidate({
+      db: db(fileExtractionReviewRun()) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'proposal-run-a',
+    })
+
+    expect(first).toMatchObject({
+      ready: true,
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      summary: { candidateCount: 1, issueCount: 0 },
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+    expect(first.payload?.knowledgeEntries.create[0]).toMatchObject({
+      provenance: {
+        sourceType: 'PATHFINDER_INTAKE',
+        contentOrigin: 'HUMAN_AUTHORED',
+        sourceName: 'Reviewed file extraction proposal',
+      },
+      value: {
+        title: 'Reviewed visitor information',
+        category: 'DOCUMENT_REVIEW',
+        content: 'The east entrance is step-free.',
+        isEnabled: true,
+      },
+    })
+    expect(second.candidateHash).toBe(first.candidateHash)
+    expect(second.payload?.knowledgeEntries.create[0]?.itemKey).toBe(
+      first.payload?.knowledgeEntries.create[0]?.itemKey,
+    )
+  })
+
+  it('fails closed on extraction-review relation, hash, actor, or evidence drift', async () => {
+    const exact = fileExtractionReviewRun()
+    const variants = [
+      { ...exact, fileExtractionProposalReview: null },
+      { ...exact, requestedBy: 'different-admin' },
+      {
+        ...exact,
+        structuredBootstrap: {
+          ...(exact.structuredBootstrap as Record<string, unknown>),
+          proposalNotes: 'Changed after review.',
+        },
+      },
+      {
+        ...exact,
+        evidence: [
+          {
+            ...(exact.evidence as Array<Record<string, unknown>>)[0],
+            locator: 'intake-file-extraction-review:different',
+          },
+        ],
+      },
+    ]
+    for (const run of variants) {
+      await expect(
+        buildIntakeVenuePackageCandidate({
+          db: db(run) as never,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'proposal-run-a',
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_EVIDENCE',
+        message: 'Stored file extraction review evidence is invalid',
+      })
+    }
+  })
+
+  it('does not truncate reviewed extraction notes outside VenuePackage bounds', async () => {
+    const proposalNotes = 'x'.repeat(10_001)
+    const proposalNotesHash = createHash('sha256').update(proposalNotes).digest('hex')
+    const exact = fileExtractionReviewRun()
+    const result = await buildIntakeVenuePackageCandidate({
+      db: db({
+        ...exact,
+        structuredBootstrap: {
+          ...(exact.structuredBootstrap as Record<string, unknown>),
+          proposalNotes,
+          proposalNotesHash,
+        },
+        evidence: [
+          {
+            ...(exact.evidence as Array<Record<string, unknown>>)[0],
+            normalizedHash: proposalNotesHash,
+          },
+        ],
+        fileExtractionProposalReview: {
+          ...(exact.fileExtractionProposalReview as Record<string, unknown>),
+          proposalNotes,
+          proposalNotesHash,
+        },
+      }) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'proposal-run-a',
+    })
+    expect(result).toMatchObject({
+      ready: false,
+      payload: null,
+      issues: [expect.objectContaining({ code: 'PACKAGE_FIELD_INVALID' })],
+    })
+  })
+
   it('maps exact validated bootstrap knowledge and returns a stable strict V3 payload', async () => {
     const content = {
       kind: 'knowledge',
