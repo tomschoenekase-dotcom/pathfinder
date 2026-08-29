@@ -89,7 +89,7 @@ export function websiteResearchClarificationOperationId(input: {
   discrepancyId: string
 }) {
   return deterministicUuid(
-    `pathfinder:website-research-clarification:v1:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${input.researchHash}:${input.discrepancyId}`,
+    `pathfinder:website-research-clarification:v2:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${input.researchHash}:${input.discrepancyId}`,
   )
 }
 
@@ -148,6 +148,7 @@ export function buildWebsiteClarificationReview(input: {
       questionType: choices.length ? ('MULTIPLE_CHOICE' as const) : ('LONG_TEXT' as const),
       choices,
       evidence: exactCitations.slice(0, 20).map((citation) => ({
+        kind: 'SOURCE_LINK' as const,
         label: `${citation.fieldPath} (${Math.round(citation.confidence * 100)}% confidence)`,
         reference: citation.sourceUrl,
         summary: `${citation.value} · ${citation.locator}${citation.effectiveDate ? ` · effective ${citation.effectiveDate}` : ''}`,

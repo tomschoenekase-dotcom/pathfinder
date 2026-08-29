@@ -68,6 +68,7 @@ describe('file extraction clarification', () => {
         blocking: false,
         evidence: [
           expect.objectContaining({
+            kind: 'DOCUMENT_EXCERPT',
             reference: `intake-file-extraction:${receiptId}:sha256:${textHash}`,
             summary: 'Guests should use the east entrance.',
           }),

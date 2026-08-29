@@ -468,6 +468,7 @@ describe('getIntakeBuilderLifecycle', () => {
           choices: [],
           evidence: [
             {
+              kind: 'DOCUMENT_EXCERPT',
               label: 'What are the hours?',
               reference: 'intake-evidence:evidence-a',
               summary: 'Open nine to five. · 55% confidence',

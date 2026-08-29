@@ -97,7 +97,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   }
   const excerptHash = sha256(input.evidenceExcerpt)
   const operationId = deterministicUuid(
-    `pathfinder:file-extraction-clarification:v2:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`,
+    `pathfinder:file-extraction-clarification:v3:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`,
   )
 
   try {
@@ -117,6 +117,7 @@ export async function createFileExtractionClarificationQuestion(input: {
         urgency: input.reason === 'DATE_SENSITIVE' ? 'HIGH' : 'NORMAL',
         evidence: [
           {
+            kind: 'DOCUMENT_EXCERPT',
             label: `${input.fieldPath} (${input.reason.replaceAll('_', ' ').toLowerCase()})`,
             reference: `intake-file-extraction:${input.receiptId}:sha256:${receipt.extractedTextHash}`,
             summary: input.evidenceExcerpt,

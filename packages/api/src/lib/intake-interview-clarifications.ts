@@ -98,7 +98,7 @@ export function buildInterviewClarificationReview(input: {
       fieldPath: answer.fieldPath,
       reasons: answer.discrepancies,
       operationId: deterministicUuid(
-        `pathfinder:interview-clarification:v1:${input.tenantId}:${input.venueId}:${input.runId}:${reviewHash}:${clarificationId}`,
+        `pathfinder:interview-clarification:v2:${input.tenantId}:${input.venueId}:${input.runId}:${reviewHash}:${clarificationId}`,
       ),
       question: missing
         ? `What information should Builder use for ${answer.fieldPath}?`
@@ -109,6 +109,7 @@ export function buildInterviewClarificationReview(input: {
       choices: [],
       evidence: [
         {
+          kind: 'DOCUMENT_EXCERPT' as const,
           label: answer.prompt,
           reference: answer.evidenceId
             ? `intake-evidence:${answer.evidenceId}`

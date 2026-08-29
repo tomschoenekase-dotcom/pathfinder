@@ -73,6 +73,10 @@ describe('website research clarifications', () => {
       discrepancyId: 'discrepancy-a',
       questionType: 'MULTIPLE_CHOICE',
       choices: ['Example Hall', 'Example Ballroom'],
+      evidence: [
+        { kind: 'SOURCE_LINK', reference: 'https://example.org/' },
+        { kind: 'SOURCE_LINK', reference: 'https://example.org/about' },
+      ],
       proposedAnswer: { value: 'Example Hall', status: 'PROPOSED_ONLY' },
     })
     expect(first.clarifications[0]?.context).toContain('grants no approval')
@@ -157,6 +161,9 @@ describe('website research clarifications', () => {
         operationId: review.clarifications[0]?.operationId,
         category: 'builder-website-clarification',
         blocking: true,
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ kind: 'SOURCE_LINK', reference: 'https://example.org/' }),
+        ]),
         callbackMetadata: expect.objectContaining({
           workflow: 'intake-website-clarification',
           researchHash: review.researchHash,

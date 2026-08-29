@@ -104,6 +104,7 @@ describe('staff interview clarification projection', () => {
     expect(first.clarifications[1]).toMatchObject({
       fieldPath: 'venue.operations.hours',
       reasons: ['LOW_CONFIDENCE'],
+      evidence: [{ kind: 'DOCUMENT_EXCERPT' }],
       proposedAnswer: { value: 'Open nine to five.', status: 'PROPOSED_ONLY' },
     })
     expect(otherVenue.clarifications[0]?.operationId).not.toBe(first.clarifications[0]?.operationId)
@@ -168,6 +169,7 @@ describe('staff interview clarification projection', () => {
         agentIdentityId: 'identity-a',
         category: 'builder-interview-clarification',
         blocking: true,
+        evidence: [expect.objectContaining({ kind: 'DOCUMENT_EXCERPT' })],
         callbackMetadata: expect.objectContaining({
           workflow: 'intake-interview-clarification',
           runId: 'run-a',
