@@ -51,6 +51,7 @@ const expectedAdminProcedures = [
   'createCompanyDecision',
   'createCompanyPriority',
   'createDisabledAgentIdentity',
+  'createFileExtractionClarificationQuestion',
   'createIntakeProposal',
   'createInterviewClarificationQuestions',
   'createKnowledgeProposal',
