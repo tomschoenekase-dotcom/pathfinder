@@ -42,6 +42,16 @@ export type IntakeBuilderLifecycleInput = {
     errorCode: string | null
     errorMessage: string | null
   }
+  fileUpload?: null | {
+    uploadId: string
+    displayName: string
+    fileName: string
+    mimeType: string
+    category: string
+    byteSize: number
+    sha256: string
+    verifiedAt: Date
+  }
   candidate: null | {
     ready: boolean
     candidateHash: string | null
@@ -61,6 +71,7 @@ export type IntakeBuilderNextAction =
   | 'RUN_WEBSITE_RESEARCH'
   | 'RETRY_WEBSITE_RESEARCH'
   | 'REVIEW_WEBSITE_SOURCE'
+  | 'REVIEW_FILE_SOURCE'
   | 'RESOLVE_CLARIFICATION'
   | 'CREATE_PACKAGE_DRAFT'
   | 'REPAIR_PACKAGE_EVIDENCE'
@@ -87,6 +98,7 @@ const blocker = (code: string, path: string, message: string): IntakeBuilderBloc
 
 export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput) {
   const evidenceRefs = [`intake-run:${input.runId}`]
+  const fileUpload = input.fileUpload ?? null
   const stages = new Map<IntakeBuilderStage, IntakeBuilderLifecycleStage>()
   const set = (
     stage: IntakeBuilderStage,
@@ -97,6 +109,7 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
 
   set('INGEST', 'COMPLETE', evidenceRefs)
   const researchRequired = input.sourceKind === 'WEBSITE'
+  const fileUploadSource = input.sourceKind === 'FILE_UPLOAD'
   if (input.evidenceCount < 1 && !researchRequired) {
     set('NORMALIZE', 'BLOCKED', evidenceRefs, [
       blocker('MISSING_EVIDENCE', 'evidence', 'No normalized source evidence is available.'),
@@ -121,7 +134,24 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
         `website-latency-ms:${input.websiteResearch.latencyMs}`,
       ]
     : evidenceRefs
-  if (researchRequired && input.websiteResearch === null) {
+  if (fileUploadSource && !fileUpload) {
+    set('ANALYZE', 'BLOCKED', evidenceRefs, [
+      blocker(
+        'FILE_UPLOAD_EVIDENCE_INVALID',
+        'fileUpload',
+        'Stored upload evidence cannot be proven against one verified immutable file source.',
+      ),
+    ])
+    set('RESEARCH', 'SKIPPED', ['policy:file-upload-does-not-require-public-research'])
+  } else if (fileUploadSource && fileUpload) {
+    const fileRefs = [
+      ...evidenceRefs,
+      `intake-upload:${fileUpload.uploadId}`,
+      `intake-upload-sha256:${fileUpload.sha256}`,
+    ]
+    set('ANALYZE', 'COMPLETE', fileRefs)
+    set('RESEARCH', 'SKIPPED', ['policy:file-upload-does-not-require-public-research'])
+  } else if (researchRequired && input.websiteResearch === null) {
     set('ANALYZE', 'CURRENT', evidenceRefs)
     set('RESEARCH', 'BLOCKED', evidenceRefs, [
       blocker(
@@ -173,7 +203,21 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
     ({ stage, state }) =>
       ['NORMALIZE', 'ANALYZE', 'RESEARCH'].includes(stage) && state === 'BLOCKED',
   )
-  if (sourceBlocked || input.candidate === null) {
+  if (fileUploadSource && !sourceBlocked && fileUpload) {
+    const fileRefs = [
+      ...evidenceRefs,
+      `intake-upload:${fileUpload.uploadId}`,
+      `intake-upload-sha256:${fileUpload.sha256}`,
+    ]
+    set('EXTRACT', 'BLOCKED', fileRefs, [
+      blocker(
+        'FILE_EXTRACTION_REVIEW_REQUIRED',
+        'fileUpload',
+        'The verified file is retained, but no reviewed extraction is available for a package candidate.',
+      ),
+    ])
+    for (const stage of ['CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) set(stage, 'PENDING')
+  } else if (sourceBlocked || input.candidate === null) {
     for (const stage of ['EXTRACT', 'CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) {
       if (!stages.has(stage)) set(stage, 'PENDING')
     }
@@ -313,8 +357,9 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
 
   let nextAction: IntakeBuilderNextAction = 'NONE'
   if (current.stage === 'ANALYZE' || current.stage === 'RESEARCH') {
-    nextAction =
-      input.sourceKind !== 'WEBSITE'
+    nextAction = fileUploadSource
+      ? 'REVIEW_FILE_SOURCE'
+      : input.sourceKind !== 'WEBSITE'
         ? 'RESOLVE_CLARIFICATION'
         : input.websiteResearch === null
           ? 'RUN_WEBSITE_RESEARCH'
@@ -323,13 +368,15 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
               ? 'RETRY_WEBSITE_RESEARCH'
               : 'REVIEW_WEBSITE_SOURCE'
             : 'RESOLVE_CLARIFICATION'
+  } else if (current.stage === 'EXTRACT' && fileUploadSource) {
+    nextAction = 'REVIEW_FILE_SOURCE'
   } else if (
     current.stage === 'NORMALIZE' ||
     current.stage === 'EXTRACT' ||
     current.stage === 'RECONCILE' ||
     current.stage === 'CLARIFY'
   ) {
-    nextAction = 'RESOLVE_CLARIFICATION'
+    nextAction = fileUploadSource ? 'REVIEW_FILE_SOURCE' : 'RESOLVE_CLARIFICATION'
   } else if (current.stage === 'CONSTRUCT') {
     nextAction = 'CREATE_PACKAGE_DRAFT'
   } else if (current.stage === 'VALIDATE' || current.stage === 'SIMULATE') {

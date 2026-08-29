@@ -347,4 +347,61 @@ describe('IntakeBuilderLifecyclePanel', () => {
     )
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
+
+  it('shows verified file provenance while keeping extraction and authority fail closed', async () => {
+    query.mockResolvedValue({
+      schemaVersion: 1,
+      runId: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      fileUpload: {
+        uploadId: 'upload-a',
+        displayName: 'Visitor guide source',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
+        category: 'DOCUMENT',
+        byteSize: 4096,
+        sha256: 'c'.repeat(64),
+        verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+      },
+      websiteClarificationReview: null,
+      interviewClarificationReview: null,
+      currentStage: 'EXTRACT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_SOURCE',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        {
+          stage: 'EXTRACT',
+          state: 'BLOCKED',
+          evidenceRefs: ['intake-upload:upload-a'],
+          blockers: [
+            {
+              code: 'FILE_EXTRACTION_REVIEW_REQUIRED',
+              path: 'fileUpload',
+              message:
+                'The verified file is retained, but no reviewed extraction is available for a package candidate.',
+            },
+          ],
+        },
+      ],
+    })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+
+    expect(await screen.findByRole('heading', { name: 'Extract · blocked' })).toBeTruthy()
+    expect(screen.getByText('Verified file source')).toBeTruthy()
+    expect(screen.getByText('Visitor guide source')).toBeTruthy()
+    expect(screen.getByText('visitor-guide.pdf')).toBeTruthy()
+    expect(screen.getByText('application/pdf · 4 KB')).toBeTruthy()
+    expect(screen.getByText('c'.repeat(64))).toBeTruthy()
+    expect(screen.getByText(/No approval, apply, publication, or provider work/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
 })

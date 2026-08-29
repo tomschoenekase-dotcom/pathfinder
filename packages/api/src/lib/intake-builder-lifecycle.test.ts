@@ -148,6 +148,66 @@ describe('intake Builder lifecycle projection', () => {
     })
   })
 
+  it('retains verified file progress and stops at reviewed extraction without authority', () => {
+    const result = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload: {
+        uploadId: 'upload-a',
+        displayName: 'Visitor guide source',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
+        category: 'DOCUMENT',
+        byteSize: 4096,
+        sha256: 'c'.repeat(64),
+        verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+      },
+    })
+
+    expect(result).toMatchObject({
+      currentStage: 'EXTRACT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_SOURCE',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+    })
+    expect(result.stages.find(({ stage }) => stage === 'ANALYZE')).toMatchObject({
+      state: 'COMPLETE',
+      evidenceRefs: expect.arrayContaining([
+        'intake-upload:upload-a',
+        `intake-upload-sha256:${'c'.repeat(64)}`,
+      ]),
+    })
+    expect(result.stages.find(({ stage }) => stage === 'RESEARCH')).toMatchObject({
+      state: 'SKIPPED',
+    })
+    expect(result.stages.find(({ stage }) => stage === 'EXTRACT')).toMatchObject({
+      blockers: [expect.objectContaining({ code: 'FILE_EXTRACTION_REVIEW_REQUIRED' })],
+    })
+  })
+
+  it('fails a file source closed when immutable verification evidence is unavailable', () => {
+    const result = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload: null,
+    })
+    expect(result).toMatchObject({
+      currentStage: 'ANALYZE',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_SOURCE',
+    })
+    expect(result.stages.find(({ stage }) => stage === 'ANALYZE')?.blockers).toEqual([
+      expect.objectContaining({ code: 'FILE_UPLOAD_EVIDENCE_INVALID' }),
+    ])
+  })
+
   it('requires semantic QA before review and preserves human publication authority', () => {
     const running = projectIntakeBuilderLifecycle({
       ...base,

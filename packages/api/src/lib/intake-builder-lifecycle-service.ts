@@ -82,6 +82,29 @@ export async function getIntakeBuilderLifecycle(input: {
       sourceKind: true,
       status: true,
       _count: { select: { evidence: true } },
+      evidence: {
+        orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          sourceKind: true,
+          locator: true,
+          normalizedHash: true,
+          confidence: true,
+        },
+      },
+      upload: {
+        select: {
+          id: true,
+          displayName: true,
+          fileName: true,
+          mimeType: true,
+          category: true,
+          byteSize: true,
+          sha256: true,
+          status: true,
+          verifiedAt: true,
+        },
+      },
       websiteResearchReceipts: {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: MAX_WEBSITE_RESEARCH_ATTEMPTS,
@@ -301,11 +324,33 @@ export async function getIntakeBuilderLifecycle(input: {
   if (draft && run.sourceKind === 'WEBSITE' && candidate && websiteReview) {
     candidate = { ...candidate, ready: true, issues: [] }
   }
+  const uploadEvidence = run.evidence?.[0]
+  const fileUpload =
+    run.sourceKind === 'FILE_UPLOAD' &&
+    run._count.evidence === 1 &&
+    run.upload?.status === 'AWAITING_REVIEW' &&
+    run.upload.verifiedAt !== null &&
+    uploadEvidence?.sourceKind === 'FILE_UPLOAD' &&
+    uploadEvidence.locator === `intake-upload:${run.upload.id}` &&
+    uploadEvidence.normalizedHash === run.upload.sha256 &&
+    Number(uploadEvidence.confidence) === 1
+      ? {
+          uploadId: run.upload.id,
+          displayName: run.upload.displayName,
+          fileName: run.upload.fileName,
+          mimeType: run.upload.mimeType,
+          category: run.upload.category,
+          byteSize: run.upload.byteSize,
+          sha256: run.upload.sha256,
+          verifiedAt: run.upload.verifiedAt,
+        }
+      : null
   const lifecycle = projectIntakeBuilderLifecycle({
     runId: run.id,
     sourceKind: run.sourceKind,
     runStatus: run.status,
     evidenceCount: run._count.evidence,
+    fileUpload,
     websiteResearch: latestWebsiteResearch
       ? {
           receiptId: latestWebsiteResearch.id,
@@ -340,6 +385,7 @@ export async function getIntakeBuilderLifecycle(input: {
   })
   return {
     ...lifecycle,
+    fileUpload,
     websiteClarificationReview: websiteReview
       ? {
           receiptId: latestWebsiteResearch!.id,

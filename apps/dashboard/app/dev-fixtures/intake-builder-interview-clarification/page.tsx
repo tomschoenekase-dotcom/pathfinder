@@ -28,6 +28,7 @@ const lifecycle: IntakeBuilderLifecycle = {
   sourceKind: 'INTERVIEW',
   runStatus: 'AWAITING_REVIEW',
   websiteResearch: null,
+  fileUpload: null,
   websiteClarificationReview: null,
   interviewClarificationReview: {
     reviewHash: 'a'.repeat(64),

@@ -26,6 +26,12 @@ function stageLabel(stage: Stage['stage']) {
   return stage.charAt(0) + stage.slice(1).toLowerCase()
 }
 
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024).toLocaleString()} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export function IntakeBuilderLifecyclePanel({
   tenantId,
   venueId,
@@ -403,6 +409,50 @@ export function IntakeBuilderLifecycleView({
             </dd>
           </div>
         </dl>
+      ) : null}
+
+      {lifecycle.fileUpload ? (
+        <div className="mt-4 rounded-xl border border-sky-200 bg-white p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-sky-950">Verified file source</p>
+              <p className="mt-1 break-words text-sm text-pf-deep">
+                {lifecycle.fileUpload.displayName}
+              </p>
+              <p className="mt-1 break-all text-xs text-pf-deep/65">
+                {lifecycle.fileUpload.fileName}
+              </p>
+            </div>
+            <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-900">
+              {lifecycle.fileUpload.category.replaceAll('_', ' ').toLowerCase()}
+            </span>
+          </div>
+          <dl className="mt-3 grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-pf-deep/75">Type · size</dt>
+              <dd className="mt-0.5 break-all font-medium text-pf-deep">
+                {lifecycle.fileUpload.mimeType} · {formatBytes(lifecycle.fileUpload.byteSize)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/75">Verified</dt>
+              <dd className="mt-0.5 font-medium text-pf-deep">
+                {new Date(lifecycle.fileUpload.verifiedAt).toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/75">Immutable source hash</dt>
+              <dd className="mt-0.5 break-all font-mono text-xs text-pf-deep">
+                {lifecycle.fileUpload.sha256}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-pf-deep/75">
+            Verification admits this file as source evidence only. Builder still needs a reviewed
+            extraction before it can construct a package. No approval, apply, publication, or
+            provider work was triggered.
+          </p>
+        </div>
       ) : null}
 
       {onRunWebsiteResearch &&

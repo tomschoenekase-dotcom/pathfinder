@@ -17,6 +17,66 @@ const buildCandidate = vi.mocked(buildIntakeVenuePackageCandidate)
 const loadInterviewReview = vi.mocked(loadInterviewClarificationReview)
 
 describe('getIntakeBuilderLifecycle', () => {
+  it('proves one verified immutable file source and preserves the extraction boundary', async () => {
+    const verifiedAt = new Date('2026-08-29T02:00:00.000Z')
+    const sha256 = 'c'.repeat(64)
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      evidence: [
+        {
+          id: 'evidence-file',
+          sourceKind: 'FILE_UPLOAD',
+          locator: 'intake-upload:upload-a',
+          normalizedHash: sha256,
+          confidence: 1,
+        },
+      ],
+      upload: {
+        id: 'upload-a',
+        displayName: 'Visitor guide source',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
+        category: 'DOCUMENT',
+        byteSize: 4096,
+        sha256,
+        status: 'AWAITING_REVIEW',
+        verifiedAt,
+      },
+      websiteResearchReceipts: [],
+      packageHandoff: null,
+    })
+
+    const result = await getIntakeBuilderLifecycle({
+      db: { intakeRun: { findFirst } } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-file',
+    })
+
+    expect(buildCandidate).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      currentStage: 'EXTRACT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_SOURCE',
+      fileUpload: {
+        uploadId: 'upload-a',
+        displayName: 'Visitor guide source',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
+        category: 'DOCUMENT',
+        byteSize: 4096,
+        sha256,
+        verifiedAt,
+      },
+    })
+    expect(result.stages.find(({ stage }) => stage === 'EXTRACT')?.blockers).toEqual([
+      expect.objectContaining({ code: 'FILE_EXTRACTION_REVIEW_REQUIRED' }),
+    ])
+  })
+
   it('uses exact scope and exposes research for a newly recorded zero-evidence website source', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'run-a',
