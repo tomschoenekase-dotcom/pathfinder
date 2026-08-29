@@ -415,8 +415,14 @@ describe('operations attention console', () => {
                 urgency: 'HIGH',
                 choices: ['Current list price', 'Last signed agreement'],
                 dueAt: null,
-                evidence: [],
-                proposedAnswer: null,
+                evidence: [
+                  {
+                    label: 'Reviewed agreement',
+                    reference: 'contract:agreement_1:pricing',
+                    summary: 'The last signed agreement differs from the public list price.',
+                  },
+                ],
+                proposedAnswer: { draft: 'Use the last signed agreement' },
                 blocking: true,
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -459,6 +465,9 @@ describe('operations attention console', () => {
     expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy()
     expect(screen.getAllByText('Which pricing assumption should I use?')).toHaveLength(2)
     expect(screen.getByText('Required for this work to proceed')).toBeTruthy()
+    expect(screen.getByText('Reviewed agreement')).toBeTruthy()
+    expect(screen.getByText('Use the last signed agreement')).toBeTruthy()
+    expect(screen.getByText(/does not approve, apply, or publish/i)).toBeTruthy()
     expect(screen.getByText('Inline question answer')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open full agent context' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/agents#inbox',

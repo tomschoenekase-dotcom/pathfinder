@@ -9,6 +9,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
 import { AgentApprovalPolicyControl } from './AgentApprovalPolicyControl'
@@ -75,6 +76,8 @@ type Question = {
   question: string
   context: string | null
   choices: string[]
+  evidence: unknown
+  proposedAnswer: unknown
   blocking: boolean
   status: string
   createdAt: Date
@@ -293,6 +296,10 @@ export function AgentOperationsOverview({
                 {question.context ? (
                   <p className="mt-2 text-sm leading-6 text-pf-deep/65">{question.context}</p>
                 ) : null}
+                <AgentQuestionEvidence
+                  evidence={question.evidence}
+                  proposedAnswer={question.proposedAnswer}
+                />
                 <AgentQuestionAnswerForm
                   tenantId={tenantId}
                   venueId={venueId}

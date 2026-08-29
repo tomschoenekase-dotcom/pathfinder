@@ -3,6 +3,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
@@ -842,6 +843,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     Options: {question.choices.join(' · ')}
                   </p>
                 ) : null}
+                <AgentQuestionEvidence
+                  evidence={question.evidence}
+                  proposedAnswer={question.proposedAnswer}
+                />
                 <AgentQuestionAnswerForm
                   tenantId={question.tenantId}
                   venueId={question.venueId}
