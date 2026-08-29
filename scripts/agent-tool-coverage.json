@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 451,
-    "sha256": "991298e95607d4f4d9e820d73b5424ecc621f9a3c678e00f9d3e3a43b7f79bcb",
+    "count": 452,
+    "sha256": "b7b994335ced3075111f06e00f3cec4274b74908ef92422e726c11adaf2e661d",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "991298e95607d4f4d9e820d73b5424ecc621f9a3c678e00f9d3e3a43b7f79bcb",
-      "sha256": "38f88847bb08fcc631a52fb00a11e7a848b0ad42e3cba203506ae00eacfbf4e2"
+      "operationInventorySha256": "b7b994335ced3075111f06e00f3cec4274b74908ef92422e726c11adaf2e661d",
+      "sha256": "b935a63da9df3f3c3240f881298820791f602e65c38403e7eef8762edfaa5014"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [

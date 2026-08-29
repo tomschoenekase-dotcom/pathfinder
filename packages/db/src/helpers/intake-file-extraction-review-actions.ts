@@ -41,6 +41,7 @@ type ReviewClient = Pick<
   | 'intakeRunEvent'
   | 'intakeFileExtractionReceipt'
   | 'intakeFileExtractionReview'
+  | 'agentQuestion'
   | 'auditLog'
   | '$transaction'
 >
@@ -202,6 +203,24 @@ export async function reviewIntakeFileExtractionAction(
         'CONFLICT',
         'This extraction receipt already has a terminal human review.',
       )
+    }
+    if (input.decision === 'ACCEPTED_FOR_PROPOSAL') {
+      const unresolvedClarification = await tx.agentQuestion.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          category: 'builder-file-clarification',
+          status: { not: 'ANSWERED' },
+          callbackMetadata: { path: ['receiptId'], equals: input.receiptId },
+        },
+        select: { id: true },
+      })
+      if (unresolvedClarification) {
+        throw new IntakeFileExtractionReviewActionError(
+          'CONFLICT',
+          'Answer every retained file clarification before accepting this extraction into a proposal.',
+        )
+      }
     }
     const requestCollision = await tx.intakeRun.findFirst({
       where: { tenantId: input.tenantId, submissionRequestId: input.operationId },

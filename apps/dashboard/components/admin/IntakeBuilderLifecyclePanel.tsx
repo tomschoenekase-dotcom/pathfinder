@@ -60,6 +60,14 @@ export function IntakeBuilderLifecyclePanel({
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
+  const [fileClarificationBusy, setFileClarificationBusy] = useState(false)
+  const [fileClarificationError, setFileClarificationError] = useState<string | null>(null)
+  const [fileClarificationFieldPath, setFileClarificationFieldPath] = useState('')
+  const [fileClarificationReason, setFileClarificationReason] = useState<
+    'CONTRADICTION' | 'DATE_SENSITIVE' | 'LOW_CONFIDENCE' | 'MISSING_CONTEXT'
+  >('MISSING_CONTEXT')
+  const [fileClarificationQuestion, setFileClarificationQuestion] = useState('')
+  const [fileClarificationExcerpt, setFileClarificationExcerpt] = useState('')
   const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
   const [mappingPreview, setMappingPreview] = useState<WebsiteMappingPreview | null>(null)
   const [mappingReviewed, setMappingReviewed] = useState(false)
@@ -88,6 +96,12 @@ export function IntakeBuilderLifecyclePanel({
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
+    setFileClarificationBusy(false)
+    setFileClarificationError(null)
+    setFileClarificationFieldPath('')
+    setFileClarificationReason('MISSING_CONTEXT')
+    setFileClarificationQuestion('')
+    setFileClarificationExcerpt('')
     setMappingSelections({})
     setMappingPreview(null)
     setMappingReviewed(false)
@@ -115,6 +129,7 @@ export function IntakeBuilderLifecyclePanel({
             current ||
             result.websiteClarificationReview?.eligibleIdentities[0]?.id ||
             result.interviewClarificationReview?.eligibleIdentities[0]?.id ||
+            result.fileClarificationReview?.eligibleIdentities[0]?.id ||
             '',
         )
       }
@@ -170,6 +185,44 @@ export function IntakeBuilderLifecyclePanel({
       )
     } finally {
       setClarificationBusy(false)
+    }
+  }
+
+  async function createFileClarificationQuestion() {
+    const review = lifecycle?.fileClarificationReview
+    if (
+      !review?.canCreate ||
+      !clarificationIdentityId ||
+      !fileClarificationFieldPath.trim() ||
+      !fileClarificationQuestion.trim() ||
+      !fileClarificationExcerpt.trim() ||
+      fileClarificationBusy
+    )
+      return
+    setFileClarificationBusy(true)
+    setFileClarificationError(null)
+    try {
+      await client.admin.createFileExtractionClarificationQuestion.mutate({
+        tenantId,
+        venueId,
+        runId,
+        receiptId: review.receiptId,
+        expectedExtractedTextHash: review.extractedTextHash,
+        fieldPath: fileClarificationFieldPath.trim(),
+        reason: fileClarificationReason,
+        question: fileClarificationQuestion.trim(),
+        evidenceExcerpt: fileClarificationExcerpt.trim(),
+        agentIdentityId: clarificationIdentityId,
+      })
+      setFileClarificationQuestion('')
+      setFileClarificationExcerpt('')
+      await load()
+    } catch (cause) {
+      setFileClarificationError(
+        cause instanceof Error ? cause.message : 'The file clarification could not be retained.',
+      )
+    } finally {
+      setFileClarificationBusy(false)
     }
   }
 
@@ -366,6 +419,17 @@ export function IntakeBuilderLifecyclePanel({
       clarificationIdentityId={clarificationIdentityId}
       onClarificationIdentityChange={setClarificationIdentityId}
       onCreateClarificationQuestions={() => void createClarificationQuestions()}
+      fileClarificationBusy={fileClarificationBusy}
+      fileClarificationError={fileClarificationError}
+      fileClarificationFieldPath={fileClarificationFieldPath}
+      fileClarificationReason={fileClarificationReason}
+      fileClarificationQuestion={fileClarificationQuestion}
+      fileClarificationExcerpt={fileClarificationExcerpt}
+      onFileClarificationFieldPathChange={setFileClarificationFieldPath}
+      onFileClarificationReasonChange={setFileClarificationReason}
+      onFileClarificationQuestionChange={setFileClarificationQuestion}
+      onFileClarificationExcerptChange={setFileClarificationExcerpt}
+      onCreateFileClarificationQuestion={() => void createFileClarificationQuestion()}
       mappingSelections={mappingSelections}
       mappingPreview={mappingPreview}
       mappingReviewed={mappingReviewed}
@@ -409,6 +473,17 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId = '',
   onClarificationIdentityChange,
   onCreateClarificationQuestions,
+  fileClarificationBusy = false,
+  fileClarificationError = null,
+  fileClarificationFieldPath = '',
+  fileClarificationReason = 'MISSING_CONTEXT',
+  fileClarificationQuestion = '',
+  fileClarificationExcerpt = '',
+  onFileClarificationFieldPathChange,
+  onFileClarificationReasonChange,
+  onFileClarificationQuestionChange,
+  onFileClarificationExcerptChange,
+  onCreateFileClarificationQuestion,
   mappingSelections = {},
   mappingPreview = null,
   mappingReviewed = false,
@@ -443,6 +518,23 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId?: string
   onClarificationIdentityChange?: (identityId: string) => void
   onCreateClarificationQuestions?: () => void
+  fileClarificationBusy?: boolean
+  fileClarificationError?: string | null
+  fileClarificationFieldPath?: string
+  fileClarificationReason?:
+    | 'CONTRADICTION'
+    | 'DATE_SENSITIVE'
+    | 'LOW_CONFIDENCE'
+    | 'MISSING_CONTEXT'
+  fileClarificationQuestion?: string
+  fileClarificationExcerpt?: string
+  onFileClarificationFieldPathChange?: (fieldPath: string) => void
+  onFileClarificationReasonChange?: (
+    reason: 'CONTRADICTION' | 'DATE_SENSITIVE' | 'LOW_CONFIDENCE' | 'MISSING_CONTEXT',
+  ) => void
+  onFileClarificationQuestionChange?: (question: string) => void
+  onFileClarificationExcerptChange?: (excerpt: string) => void
+  onCreateFileClarificationQuestion?: () => void
   mappingSelections?: Record<string, string>
   mappingPreview?: WebsiteMappingPreview | null
   mappingReviewed?: boolean
@@ -468,6 +560,9 @@ export function IntakeBuilderLifecycleView({
   const clarificationReview =
     lifecycle.websiteClarificationReview ?? lifecycle.interviewClarificationReview
   const interviewClarifications = lifecycle.interviewClarificationReview !== null
+  const fileClarificationsResolved =
+    lifecycle.fileClarificationReview?.questions.every(({ status }) => status === 'ANSWERED') ??
+    true
   return (
     <section
       className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4"
@@ -641,6 +736,160 @@ export function IntakeBuilderLifecycleView({
               <p className="mt-2 text-xs text-pf-deep/60">Preview ends at 4,000 characters.</p>
             ) : null}
           </div>
+          {lifecycle.fileClarificationReview ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-amber-950">File clarification tickets</p>
+                  <p className="mt-1 max-w-2xl text-xs leading-5 text-amber-900/80">
+                    Questions remain tied to the exact extraction hash. Every ticket must be
+                    answered before acceptance; its answer must then be incorporated into the
+                    human-reviewed proposal notes. Answers grant no approval or execution authority.
+                  </p>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-900">
+                  {lifecycle.fileClarificationReview.questions.length} retained
+                </span>
+              </div>
+              {lifecycle.fileClarificationReview.questions.length ? (
+                <ul className="mt-3 space-y-2">
+                  {lifecycle.fileClarificationReview.questions.map((item) => (
+                    <li key={item.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="break-all text-sm font-semibold text-pf-deep">
+                          {item.fieldPath}
+                        </p>
+                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                          {item.status.toLowerCase()}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-pf-deep/75">
+                        {item.reason.replaceAll('_', ' ').toLowerCase()}
+                      </p>
+                      <p className="mt-2 text-sm text-pf-deep">{item.question}</p>
+                      {item.evidence.map((evidence) => (
+                        <blockquote
+                          key={`${evidence.reference}:${evidence.summary ?? ''}`}
+                          className="mt-2 border-l-2 border-amber-300 pl-3 text-xs leading-5 text-pf-deep/75"
+                        >
+                          {evidence.summary ?? evidence.label}
+                        </blockquote>
+                      ))}
+                      {item.status === 'ANSWERED' ? (
+                        <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
+                          Answer retained as guidance for the terminal review: {item.answer}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-xs font-semibold text-amber-900">
+                          Answer this ticket in the durable agent question inbox before accepting
+                          the extraction.
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {lifecycle.fileClarificationReview.canCreate && onCreateFileClarificationQuestion ? (
+                <fieldset
+                  disabled={fileClarificationBusy}
+                  className="mt-3 border-t border-amber-200 pt-3"
+                >
+                  <legend className="text-sm font-semibold text-amber-950">
+                    Retain an evidence-bound ambiguity
+                  </legend>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    <label className="text-xs font-medium text-pf-deep">
+                      Affected field or topic
+                      <input
+                        value={fileClarificationFieldPath}
+                        maxLength={500}
+                        placeholder="knowledge.arrival"
+                        onChange={(event) =>
+                          onFileClarificationFieldPathChange?.(event.target.value)
+                        }
+                        className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-pf-deep">
+                      Reason
+                      <select
+                        value={fileClarificationReason}
+                        onChange={(event) =>
+                          onFileClarificationReasonChange?.(
+                            event.target.value as typeof fileClarificationReason,
+                          )
+                        }
+                        className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                      >
+                        <option value="MISSING_CONTEXT">Missing context</option>
+                        <option value="CONTRADICTION">Contradiction</option>
+                        <option value="DATE_SENSITIVE">Date sensitive</option>
+                        <option value="LOW_CONFIDENCE">Low confidence</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="mt-3 block text-xs font-medium text-pf-deep">
+                    Exact evidence excerpt
+                    <textarea
+                      value={fileClarificationExcerpt}
+                      maxLength={1_000}
+                      rows={3}
+                      onChange={(event) => onFileClarificationExcerptChange?.(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-pf-light bg-white p-3 text-sm leading-5"
+                    />
+                    <span className="mt-1 block font-normal text-pf-deep/65">
+                      Paste a literal excerpt from the bounded preview or retained extraction. The
+                      server rejects invented or drifted evidence.
+                    </span>
+                  </label>
+                  <label className="mt-3 block text-xs font-medium text-pf-deep">
+                    Clarification question
+                    <textarea
+                      value={fileClarificationQuestion}
+                      maxLength={2_000}
+                      rows={3}
+                      onChange={(event) => onFileClarificationQuestionChange?.(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-pf-light bg-white p-3 text-sm leading-5"
+                    />
+                  </label>
+                  <label className="mt-3 block text-xs font-medium text-pf-deep">
+                    Content identity
+                    <select
+                      value={clarificationIdentityId}
+                      onChange={(event) => onClarificationIdentityChange?.(event.target.value)}
+                      className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                    >
+                      <option value="">Choose an in-scope identity</option>
+                      {lifecycle.fileClarificationReview.eligibleIdentities.map((identity) => (
+                        <option key={identity.id} value={identity.id}>
+                          {identity.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={
+                      fileClarificationBusy ||
+                      !clarificationIdentityId ||
+                      !fileClarificationFieldPath.trim() ||
+                      !fileClarificationExcerpt.trim() ||
+                      !fileClarificationQuestion.trim()
+                    }
+                    onClick={onCreateFileClarificationQuestion}
+                    className="mt-3 min-h-11 rounded-full bg-amber-800 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {fileClarificationBusy ? 'Retaining question…' : 'Create clarification ticket'}
+                  </button>
+                </fieldset>
+              ) : null}
+              {fileClarificationError ? (
+                <p className="mt-2 text-sm text-rose-700" role="alert">
+                  {fileClarificationError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <p className="mt-3 text-xs leading-5 text-violet-900/75">
             {lifecycle.fileExtractionReview.review
               ? 'This terminal review cannot be changed. An accepted result is only a separate awaiting-review structured proposal.'
@@ -745,7 +994,9 @@ export function IntakeBuilderLifecycleView({
                     extractionReviewBusy ||
                     !extractionReviewRationale.trim() ||
                     (extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' &&
-                      (!extractionProposalTitle.trim() || !extractionProposalNotes.trim()))
+                      (!extractionProposalTitle.trim() ||
+                        !extractionProposalNotes.trim() ||
+                        !fileClarificationsResolved))
                   }
                   onClick={onReviewFileExtraction}
                   className="mt-3 min-h-11 rounded-full bg-violet-800 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -756,6 +1007,12 @@ export function IntakeBuilderLifecycleView({
                       ? 'Create awaiting-review proposal'
                       : 'Reject extraction'}
                 </button>
+                {extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' &&
+                !fileClarificationsResolved ? (
+                  <p className="mt-2 text-xs font-medium text-amber-900">
+                    Acceptance stays disabled until every retained file clarification is answered.
+                  </p>
+                ) : null}
               </fieldset>
               {extractionReviewError ? (
                 <p className="mt-2 text-sm text-rose-700" role="alert">

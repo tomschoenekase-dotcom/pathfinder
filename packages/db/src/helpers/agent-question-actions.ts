@@ -143,6 +143,40 @@ export async function askAgentQuestionAction(
 ) {
   const input = questionFields.parse(rawInput)
   return client.$transaction(async (transaction) => {
+    if (input.callbackMetadata?.workflow === 'intake-file-extraction-clarification') {
+      const receiptId = input.callbackMetadata.receiptId
+      const runId = input.callbackMetadata.runId
+      const extractedTextHash = input.callbackMetadata.extractedTextHash
+      if (
+        typeof receiptId !== 'string' ||
+        typeof runId !== 'string' ||
+        typeof extractedTextHash !== 'string'
+      ) {
+        throw new AgentQuestionActionError(
+          'INVALID_INPUT',
+          'File clarification callback evidence is incomplete',
+        )
+      }
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${receiptId}`}, 0))`
+      const exactReceipt = await transaction.intakeFileExtractionReceipt.findFirst({
+        where: {
+          id: receiptId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId,
+          outcome: 'SUCCEEDED',
+          extractedTextHash,
+          review: { is: null },
+        },
+        select: { id: true },
+      })
+      if (!exactReceipt) {
+        throw new AgentQuestionActionError(
+          'CONFLICT',
+          'Exact unreviewed file extraction is no longer available for clarification',
+        )
+      }
+    }
     const existing = await transaction.agentQuestion.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
       select: {

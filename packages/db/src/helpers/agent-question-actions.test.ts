@@ -103,4 +103,43 @@ describe('agent question actions', () => {
     expect(result.replayed).toBe(true)
     expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
   })
+
+  it('serializes file clarifications with terminal review and revalidates the exact receipt', async () => {
+    const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      intakeFileExtractionReceipt: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentQuestion: { findFirst: vi.fn(), create: vi.fn() },
+    }
+
+    await expect(
+      askAgentQuestionAction(
+        {
+          operationId: '86d4ee39-a7c7-44ab-bf24-75c187cff002',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          question: 'Which entrance is authoritative?',
+          category: 'builder-file-clarification',
+          callbackMetadata: {
+            workflow: 'intake-file-extraction-clarification',
+            runId: 'run-file',
+            receiptId: '975140d8-5af9-4c2d-9132-40b5cf6f5962',
+            extractedTextHash: 'a'.repeat(64),
+          },
+        },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(transaction.$executeRaw).toHaveBeenCalledOnce()
+    expect(transaction.intakeFileExtractionReceipt.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        runId: 'run-file',
+        extractedTextHash: 'a'.repeat(64),
+        review: { is: null },
+      }),
+      select: { id: true },
+    })
+    expect(transaction.agentQuestion.findFirst).not.toHaveBeenCalled()
+  })
 })

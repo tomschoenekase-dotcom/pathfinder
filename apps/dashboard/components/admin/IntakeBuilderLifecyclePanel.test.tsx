@@ -9,6 +9,7 @@ const extractionMutate = vi.fn()
 const extractionReviewMutate = vi.fn()
 const clarificationMutate = vi.fn()
 const interviewClarificationMutate = vi.fn()
+const fileClarificationMutate = vi.fn()
 const mappingQuery = vi.fn()
 const mappingMutate = vi.fn()
 vi.mock('../../lib/trpc', () => ({
@@ -20,6 +21,7 @@ vi.mock('../../lib/trpc', () => ({
       reviewIntakeFileExtraction: { mutate: extractionReviewMutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
       createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
+      createFileExtractionClarificationQuestion: { mutate: fileClarificationMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
       createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
     },
@@ -577,6 +579,138 @@ describe('IntakeBuilderLifecyclePanel', () => {
     )
     expect(await screen.findByText('Awaiting-review proposal created')).toBeTruthy()
     expect(screen.getByText('awaiting review')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('retains an exact file ambiguity and disables acceptance while its ticket is pending', async () => {
+    const receiptId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      fileUpload: null,
+      fileExtraction: {
+        receiptId,
+        outcome: 'SUCCEEDED',
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 45,
+        extractedLineCount: 1,
+        errorCode: null,
+        errorMessage: null,
+        review: null,
+      },
+      fileExtractionReview: {
+        receiptId,
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 45,
+        extractedLineCount: 1,
+        preview: 'Guests should use the east entrance after 9.',
+        previewTruncated: false,
+        createdAt: new Date('2026-08-29T03:00:00.000Z'),
+        reviewRequired: true,
+        review: null,
+        grantsAuthority: false,
+      },
+      fileClarificationReview: {
+        receiptId,
+        extractedTextHash: 'd'.repeat(64),
+        canCreate: true,
+        questions: [
+          {
+            id: 'question-existing',
+            fieldPath: 'knowledge.arrival',
+            reason: 'MISSING_CONTEXT',
+            question: 'Which entrance should first-time visitors use?',
+            status: 'PENDING',
+            answer: null,
+            evidence: [
+              {
+                label: 'knowledge.arrival',
+                reference: `intake-file-extraction:${receiptId}`,
+                summary: 'Guests should use the east entrance after 9.',
+              },
+            ],
+            agentIdentityId: 'identity-a',
+            updatedAt: new Date('2026-08-29T03:01:00.000Z'),
+            answerGuidanceOnly: true,
+          },
+        ],
+        eligibleIdentities: [{ id: 'identity-a', name: 'Builder content' }],
+        answersGrantAuthority: false,
+        sourceAmendmentRequired: true,
+      },
+      websiteClarificationReview: null,
+      interviewClarificationReview: null,
+      currentStage: 'CONSTRUCT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_EXTRACTION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'EXTRACT', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'CONSTRUCT', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    query.mockResolvedValue(lifecycle)
+    fileClarificationMutate.mockResolvedValue({ questionId: 'question-new' })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+
+    expect(await screen.findByText('File clarification tickets')).toBeTruthy()
+    expect(screen.getByText(/Answer this ticket in the durable agent question inbox/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Affected field or topic'), {
+      target: { value: 'knowledge.accessibility' },
+    })
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'LOW_CONFIDENCE' } })
+    fireEvent.change(screen.getByLabelText(/^Exact evidence excerpt/u), {
+      target: { value: 'Guests should use the east entrance after 9.' },
+    })
+    fireEvent.change(screen.getByLabelText('Clarification question'), {
+      target: { value: 'Is this entrance step-free?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create clarification ticket' }))
+
+    await waitFor(() =>
+      expect(fileClarificationMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-file',
+        receiptId,
+        expectedExtractedTextHash: 'd'.repeat(64),
+        fieldPath: 'knowledge.accessibility',
+        reason: 'LOW_CONFIDENCE',
+        question: 'Is this entrance step-free?',
+        evidenceExcerpt: 'Guests should use the east entrance after 9.',
+        agentIdentityId: 'identity-a',
+      }),
+    )
+    fireEvent.change(screen.getByLabelText('Proposal title'), {
+      target: { value: 'Reviewed arrival details' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Reviewed proposal notes/u), {
+      target: { value: 'Reviewed arrival details.' },
+    })
+    fireEvent.change(screen.getByLabelText('Review rationale'), {
+      target: { value: 'Exact source reviewed.' },
+    })
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Create awaiting-review proposal',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+    expect(screen.getByText(/Acceptance stays disabled/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 })

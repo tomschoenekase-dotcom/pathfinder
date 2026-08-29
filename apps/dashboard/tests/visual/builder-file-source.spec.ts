@@ -33,6 +33,11 @@ test('verified file source remains truthful, readable, and non-authoritative', a
   await expect(page.getByText('Extracted text · review required')).toBeVisible()
   await expect(page.getByText(/This text has not been reviewed/)).toBeVisible()
   await expect(page.getByText('d'.repeat(64), { exact: true })).toBeVisible()
+  await expect(page.getByText('File clarification tickets')).toBeVisible()
+  await expect(
+    page.getByText(/Answer this ticket in the durable agent question inbox/),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create awaiting-review proposal' })).toBeDisabled()
   await expect(
     page.getByRole('heading', { name: 'Accepted extraction review · package candidate' }),
   ).toBeVisible()

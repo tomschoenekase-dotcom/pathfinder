@@ -15,12 +15,14 @@ const createEvent = vi.fn()
 const createEvents = vi.fn()
 const createAudit = vi.fn()
 const executeRaw = vi.fn()
+const findQuestion = vi.fn()
 const client = {
   intakeRun: { findFirst: findRun, create: createRun },
   intakeEvidenceRecord: { create: createEvidence },
   intakeRunEvent: { create: createEvent, createMany: createEvents },
   intakeFileExtractionReceipt: { findFirst: findReceipt },
   intakeFileExtractionReview: { findUnique: findReview, create: createReview },
+  agentQuestion: { findFirst: findQuestion },
   auditLog: { create: createAudit },
   $executeRaw: executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(client)),
@@ -72,6 +74,7 @@ describe('intake file extraction review action', () => {
     createEvents.mockResolvedValue({ count: 2 })
     createAudit.mockResolvedValue({ id: 'audit-a' })
     executeRaw.mockResolvedValue(1)
+    findQuestion.mockResolvedValue(null)
   })
 
   it('accepts exact reviewed notes into only a new awaiting-review proposal', async () => {
@@ -145,6 +148,28 @@ describe('intake file extraction review action', () => {
     expect(createEvidence).not.toHaveBeenCalled()
     expect(createEvents).not.toHaveBeenCalled()
     expect(result).toMatchObject({ proposalCreated: false, proposalRunId: null })
+    expect(findQuestion).not.toHaveBeenCalled()
+  })
+
+  it('blocks acceptance while an exact file clarification remains unresolved', async () => {
+    findQuestion.mockResolvedValueOnce({ id: 'question-a' })
+
+    await expect(
+      reviewIntakeFileExtractionAction(accepted() as never, client as never),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('Answer every retained file clarification'),
+    })
+    expect(createRun).not.toHaveBeenCalled()
+    expect(findQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          category: 'builder-file-clarification',
+          status: { not: 'ANSWERED' },
+          callbackMetadata: { path: ['receiptId'], equals: receiptId },
+        }),
+      }),
+    )
   })
 
   it('replays only the exact terminal human decision', async () => {

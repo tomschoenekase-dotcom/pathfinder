@@ -47,6 +47,7 @@ const lifecycle: IntakeBuilderLifecycle = {
   },
   fileExtraction: null,
   fileExtractionReview: null,
+  fileClarificationReview: null,
   websiteClarificationReview: null,
   interviewClarificationReview: null,
   currentStage: 'EXTRACT',
@@ -114,6 +115,34 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
     reviewRequired: true,
     review: null,
     grantsAuthority: false,
+  },
+  fileClarificationReview: {
+    receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
+    extractedTextHash: 'd'.repeat(64),
+    canCreate: true,
+    questions: [
+      {
+        id: 'fixture-file-question',
+        fieldPath: 'venue.operations.holidayHours',
+        reason: 'DATE_SENSITIVE',
+        question: 'Which holiday-hours schedule should Builder use?',
+        status: 'PENDING',
+        answer: null,
+        evidence: [
+          {
+            label: 'venue.operations.holidayHours',
+            reference: 'intake-file-extraction:568c2e1a-8ece-47ad-98dc-e4bde64872ca',
+            summary: 'Holiday hours vary and require manager confirmation.',
+          },
+        ],
+        agentIdentityId: 'fixture-content-identity',
+        updatedAt: new Date('2026-08-29T03:35:00.000Z'),
+        answerGuidanceOnly: true,
+      },
+    ],
+    eligibleIdentities: [{ id: 'fixture-content-identity', name: 'Builder content' }],
+    answersGrantAuthority: false,
+    sourceAmendmentRequired: true,
   },
   currentStage: 'CONSTRUCT',
   currentState: 'BLOCKED',
@@ -202,6 +231,17 @@ export default function IntakeBuilderFileSourceFixture() {
             onExtractionProposalNotesChange={() => undefined}
             onExtractionReviewRationaleChange={() => undefined}
             onReviewFileExtraction={() => undefined}
+            clarificationIdentityId="fixture-content-identity"
+            onClarificationIdentityChange={() => undefined}
+            fileClarificationFieldPath="venue.operations.holidayHours"
+            fileClarificationReason="DATE_SENSITIVE"
+            fileClarificationExcerpt="Holiday hours vary and require manager confirmation."
+            fileClarificationQuestion="Which holiday-hours schedule should Builder use?"
+            onFileClarificationFieldPathChange={() => undefined}
+            onFileClarificationReasonChange={() => undefined}
+            onFileClarificationExcerptChange={() => undefined}
+            onFileClarificationQuestionChange={() => undefined}
+            onCreateFileClarificationQuestion={() => undefined}
           />
         </div>
         <div className="mt-8 border-t border-pf-light pt-6">

@@ -248,37 +248,64 @@ export async function getIntakeBuilderLifecycle(input: {
     ...clarificationOperationIds,
     ...interviewClarificationOperationIds,
   ]
-  const [storedQuestions, clarificationIdentities] =
+  const latestFileExtraction = run.fileExtractionReceipts?.[0] ?? null
+  const fileClarificationEligible =
+    run.sourceKind === 'FILE_UPLOAD' &&
+    latestFileExtraction?.outcome === 'SUCCEEDED' &&
+    latestFileExtraction.review === null
+  const [storedQuestions, clarificationIdentities, fileClarificationQuestions] = await Promise.all([
     allClarificationOperationIds.length > 0
-      ? await Promise.all([
-          input.db.agentQuestion.findMany({
-            where: {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              operationId: { in: allClarificationOperationIds },
-            },
-            select: {
-              id: true,
-              operationId: true,
-              status: true,
-              answer: true,
-              agentIdentityId: true,
-              updatedAt: true,
-            },
-          }),
-          input.db.agentIdentity.findMany({
-            where: {
-              tenantId: input.tenantId,
-              enabled: true,
-              agentType: 'CONTENT',
-              accessCapabilities: { has: 'content.draft' },
-              OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
-            },
-            orderBy: [{ name: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true },
-          }),
-        ])
-      : [[], []]
+      ? input.db.agentQuestion.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            operationId: { in: allClarificationOperationIds },
+          },
+          select: {
+            id: true,
+            operationId: true,
+            status: true,
+            answer: true,
+            agentIdentityId: true,
+            updatedAt: true,
+          },
+        })
+      : Promise.resolve([]),
+    allClarificationOperationIds.length > 0 || fileClarificationEligible
+      ? input.db.agentIdentity.findMany({
+          where: {
+            tenantId: input.tenantId,
+            enabled: true,
+            agentType: 'CONTENT',
+            accessCapabilities: { has: 'content.draft' },
+            OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
+          },
+          orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          select: { id: true, name: true },
+        })
+      : Promise.resolve([]),
+    latestFileExtraction?.outcome === 'SUCCEEDED'
+      ? input.db.agentQuestion.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            category: 'builder-file-clarification',
+            callbackMetadata: { path: ['receiptId'], equals: latestFileExtraction.id },
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            question: true,
+            status: true,
+            answer: true,
+            evidence: true,
+            callbackMetadata: true,
+            agentIdentityId: true,
+            updatedAt: true,
+          },
+        })
+      : Promise.resolve([]),
+  ])
   const questionByOperationId = new Map(
     storedQuestions.map((question) => [question.operationId, question]),
   )
@@ -382,7 +409,6 @@ export async function getIntakeBuilderLifecycle(input: {
             run.upload.byteSize <= INTAKE_TEXT_EXTRACTION_MAX_BYTES,
         }
       : null
-  const latestFileExtraction = run.fileExtractionReceipts?.[0] ?? null
   const fileExtraction = latestFileExtraction
     ? {
         receiptId: latestFileExtraction.id,
@@ -472,6 +498,54 @@ export async function getIntakeBuilderLifecycle(input: {
                 }
               : null,
             grantsAuthority: false as const,
+          }
+        : null,
+    fileClarificationReview:
+      latestFileExtraction?.outcome === 'SUCCEEDED'
+        ? {
+            receiptId: latestFileExtraction.id,
+            extractedTextHash: latestFileExtraction.extractedTextHash!,
+            canCreate: latestFileExtraction.review === null,
+            questions: fileClarificationQuestions.map((question) => {
+              const metadata =
+                question.callbackMetadata &&
+                typeof question.callbackMetadata === 'object' &&
+                !Array.isArray(question.callbackMetadata)
+                  ? (question.callbackMetadata as Record<string, unknown>)
+                  : {}
+              const evidenceValues: unknown[] = Array.isArray(question.evidence)
+                ? question.evidence
+                : []
+              const evidence = evidenceValues.flatMap((item) => {
+                if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+                const record = item as Record<string, unknown>
+                return typeof record.label === 'string' && typeof record.reference === 'string'
+                  ? [
+                      {
+                        label: record.label,
+                        reference: record.reference,
+                        ...(typeof record.summary === 'string' ? { summary: record.summary } : {}),
+                      },
+                    ]
+                  : []
+              })
+              return {
+                id: question.id,
+                fieldPath:
+                  typeof metadata.fieldPath === 'string' ? metadata.fieldPath : 'file evidence',
+                reason: typeof metadata.reason === 'string' ? metadata.reason : 'MISSING_CONTEXT',
+                question: question.question,
+                status: question.status,
+                answer: question.answer,
+                evidence,
+                agentIdentityId: question.agentIdentityId,
+                updatedAt: question.updatedAt,
+                answerGuidanceOnly: true as const,
+              }
+            }),
+            eligibleIdentities: clarificationIdentities,
+            answersGrantAuthority: false as const,
+            sourceAmendmentRequired: true as const,
           }
         : null,
     websiteClarificationReview: websiteReview

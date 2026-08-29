@@ -51,7 +51,10 @@ describe('getIntakeBuilderLifecycle', () => {
     })
 
     const result = await getIntakeBuilderLifecycle({
-      db: { intakeRun: { findFirst } } as never,
+      db: {
+        intakeRun: { findFirst },
+        agentQuestion: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-file',
@@ -139,7 +142,10 @@ describe('getIntakeBuilderLifecycle', () => {
     })
 
     const result = await getIntakeBuilderLifecycle({
-      db: { intakeRun: { findFirst } } as never,
+      db: {
+        intakeRun: { findFirst },
+        agentQuestion: { findMany: vi.fn().mockResolvedValue([]) },
+      } as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-file',

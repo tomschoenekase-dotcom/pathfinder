@@ -31,6 +31,7 @@ const lifecycle: IntakeBuilderLifecycle = {
   fileUpload: null,
   fileExtraction: null,
   fileExtractionReview: null,
+  fileClarificationReview: null,
   websiteClarificationReview: null,
   interviewClarificationReview: {
     reviewHash: 'a'.repeat(64),

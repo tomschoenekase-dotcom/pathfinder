@@ -43,6 +43,7 @@ const lifecycle: IntakeBuilderLifecycle = {
   fileUpload: null,
   fileExtraction: null,
   fileExtractionReview: null,
+  fileClarificationReview: null,
   websiteClarificationReview: {
     receiptId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
     researchHash: 'a'.repeat(64),
