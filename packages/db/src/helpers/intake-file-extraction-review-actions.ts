@@ -210,15 +210,25 @@ export async function reviewIntakeFileExtractionAction(
           tenantId: input.tenantId,
           venueId: input.venueId,
           category: 'builder-file-clarification',
+          blocking: true,
           status: { not: 'ANSWERED' },
-          callbackMetadata: { path: ['receiptId'], equals: input.receiptId },
+          AND: [
+            { callbackMetadata: { path: ['receiptId'], equals: input.receiptId } },
+            { callbackMetadata: { path: ['runId'], equals: input.sourceRunId } },
+            {
+              callbackMetadata: {
+                path: ['extractedTextHash'],
+                equals: input.expectedExtractedTextHash,
+              },
+            },
+          ],
         },
         select: { id: true },
       })
       if (unresolvedClarification) {
         throw new IntakeFileExtractionReviewActionError(
           'CONFLICT',
-          'Answer every retained file clarification before accepting this extraction into a proposal.',
+          'Answer every foundational file clarification before accepting this extraction into a proposal.',
         )
       }
     }

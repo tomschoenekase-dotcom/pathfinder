@@ -139,6 +139,13 @@ export async function getIntakeBuilderLifecycle(input: {
           },
         },
       },
+      fileExtractionProposalReview: {
+        select: {
+          sourceRunId: true,
+          receiptId: true,
+          expectedExtractedTextHash: true,
+        },
+      },
       websiteResearchReceipts: {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: MAX_WEBSITE_RESEARCH_ATTEMPTS,
@@ -249,6 +256,16 @@ export async function getIntakeBuilderLifecycle(input: {
     ...interviewClarificationOperationIds,
   ]
   const latestFileExtraction = run.fileExtractionReceipts?.[0] ?? null
+  const inheritedFileReview = run.fileExtractionProposalReview ?? null
+  const fileClarificationReceiptId =
+    latestFileExtraction?.outcome === 'SUCCEEDED'
+      ? latestFileExtraction.id
+      : (inheritedFileReview?.receiptId ?? null)
+  const fileClarificationExtractedTextHash =
+    latestFileExtraction?.outcome === 'SUCCEEDED'
+      ? latestFileExtraction.extractedTextHash
+      : (inheritedFileReview?.expectedExtractedTextHash ?? null)
+  const fileClarificationSourceRunId = inheritedFileReview?.sourceRunId ?? run.id
   const fileClarificationEligible =
     run.sourceKind === 'FILE_UPLOAD' &&
     latestFileExtraction?.outcome === 'SUCCEEDED' &&
@@ -284,13 +301,22 @@ export async function getIntakeBuilderLifecycle(input: {
           select: { id: true, name: true },
         })
       : Promise.resolve([]),
-    latestFileExtraction?.outcome === 'SUCCEEDED'
+    fileClarificationReceiptId && fileClarificationExtractedTextHash
       ? input.db.agentQuestion.findMany({
           where: {
             tenantId: input.tenantId,
             venueId: input.venueId,
             category: 'builder-file-clarification',
-            callbackMetadata: { path: ['receiptId'], equals: latestFileExtraction.id },
+            AND: [
+              { callbackMetadata: { path: ['receiptId'], equals: fileClarificationReceiptId } },
+              { callbackMetadata: { path: ['runId'], equals: fileClarificationSourceRunId } },
+              {
+                callbackMetadata: {
+                  path: ['extractedTextHash'],
+                  equals: fileClarificationExtractedTextHash,
+                },
+              },
+            ],
           },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -300,6 +326,7 @@ export async function getIntakeBuilderLifecycle(input: {
             answer: true,
             evidence: true,
             callbackMetadata: true,
+            blocking: true,
             agentIdentityId: true,
             updatedAt: true,
           },
@@ -501,11 +528,13 @@ export async function getIntakeBuilderLifecycle(input: {
           }
         : null,
     fileClarificationReview:
-      latestFileExtraction?.outcome === 'SUCCEEDED'
+      fileClarificationReceiptId && fileClarificationExtractedTextHash
         ? {
-            receiptId: latestFileExtraction.id,
-            extractedTextHash: latestFileExtraction.extractedTextHash!,
-            canCreate: latestFileExtraction.review === null,
+            receiptId: fileClarificationReceiptId,
+            extractedTextHash: fileClarificationExtractedTextHash,
+            sourceRunId: fileClarificationSourceRunId,
+            carriedForward: inheritedFileReview !== null,
+            canCreate: fileClarificationEligible,
             questions: fileClarificationQuestions.map((question) => {
               const metadata =
                 question.callbackMetadata &&
@@ -534,6 +563,8 @@ export async function getIntakeBuilderLifecycle(input: {
                 fieldPath:
                   typeof metadata.fieldPath === 'string' ? metadata.fieldPath : 'file evidence',
                 reason: typeof metadata.reason === 'string' ? metadata.reason : 'MISSING_CONTEXT',
+                blockerScope: question.blocking ? ('FOUNDATIONAL' as const) : ('LOCAL' as const),
+                blocksTerminalReview: question.blocking,
                 question: question.question,
                 status: question.status,
                 answer: question.answer,
@@ -544,6 +575,12 @@ export async function getIntakeBuilderLifecycle(input: {
               }
             }),
             eligibleIdentities: clarificationIdentities,
+            foundationalPending: fileClarificationQuestions.filter(
+              ({ blocking, status }) => blocking && status !== 'ANSWERED',
+            ).length,
+            localPending: fileClarificationQuestions.filter(
+              ({ blocking, status }) => !blocking && status !== 'ANSWERED',
+            ).length,
             answersGrantAuthority: false as const,
             sourceAmendmentRequired: true as const,
           }

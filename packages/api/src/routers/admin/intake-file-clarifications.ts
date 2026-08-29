@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { router } from '../../core'
 import {
   createFileExtractionClarificationQuestion,
+  FILE_CLARIFICATION_BLOCKER_SCOPES,
   FILE_CLARIFICATION_REASONS,
   FileClarificationError,
 } from '../../lib/intake-file-clarifications'
@@ -21,6 +22,7 @@ export const adminIntakeFileClarificationsRouter = router({
           expectedExtractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
           fieldPath: z.string().trim().min(1).max(500),
           reason: z.enum(FILE_CLARIFICATION_REASONS),
+          blockerScope: z.enum(FILE_CLARIFICATION_BLOCKER_SCOPES),
           question: z.string().trim().min(1).max(2_000),
           evidenceExcerpt: z.string().trim().min(1).max(1_000),
           agentIdentityId: z.string().trim().min(1).max(191),

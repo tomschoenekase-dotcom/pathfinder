@@ -21,6 +21,8 @@ export const FILE_CLARIFICATION_REASONS = [
   'MISSING_CONTEXT',
 ] as const
 
+export const FILE_CLARIFICATION_BLOCKER_SCOPES = ['LOCAL', 'FOUNDATIONAL'] as const
+
 export class FileClarificationError extends Error {
   constructor(
     readonly code: 'INVALID_INPUT' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED',
@@ -40,6 +42,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   expectedExtractedTextHash: string
   fieldPath: string
   reason: (typeof FILE_CLARIFICATION_REASONS)[number]
+  blockerScope: (typeof FILE_CLARIFICATION_BLOCKER_SCOPES)[number]
   question: string
   evidenceExcerpt: string
   agentIdentityId: string
@@ -94,7 +97,7 @@ export async function createFileExtractionClarificationQuestion(input: {
   }
   const excerptHash = sha256(input.evidenceExcerpt)
   const operationId = deterministicUuid(
-    `pathfinder:file-extraction-clarification:v1:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${sha256(input.question)}:${excerptHash}`,
+    `pathfinder:file-extraction-clarification:v2:${input.tenantId}:${input.venueId}:${input.runId}:${input.receiptId}:${receipt.extractedTextHash}:${input.fieldPath}:${input.reason}:${input.blockerScope}:${sha256(input.question)}:${excerptHash}`,
   )
 
   try {
@@ -106,7 +109,9 @@ export async function createFileExtractionClarificationQuestion(input: {
         agentIdentityId: identity.id,
         question: input.question,
         context:
-          'Founder/admin clarification is required for exact retained file evidence. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.',
+          input.blockerScope === 'FOUNDATIONAL'
+            ? 'Founder/admin clarification is required for exact retained file evidence. This foundational uncertainty blocks terminal acceptance until answered. The answer must be incorporated during the later terminal human extraction review and grants no approval, apply, publication, provider, or venue-contact authority.'
+            : 'Founder/admin clarification is required for exact retained file evidence. This local uncertainty blocks only the affected field/topic; unrelated reviewed proposal work may continue while the ticket remains visible. Its evidence must be excluded until answered, and the answer grants no approval, apply, publication, provider, or venue-contact authority.',
         questionType: 'LONG_TEXT',
         category: 'builder-file-clarification',
         urgency: input.reason === 'DATE_SENSITIVE' ? 'HIGH' : 'NORMAL',
@@ -124,10 +129,11 @@ export async function createFileExtractionClarificationQuestion(input: {
           extractedTextHash: receipt.extractedTextHash,
           fieldPath: input.fieldPath,
           reason: input.reason,
+          blockerScope: input.blockerScope,
           excerptHash,
           sourceAmendmentRequired: true,
         },
-        blocking: true,
+        blocking: input.blockerScope === 'FOUNDATIONAL',
       },
       input.db,
     )
@@ -136,6 +142,8 @@ export async function createFileExtractionClarificationQuestion(input: {
       questionStatus: result.question.status,
       replayed: result.replayed,
       sourceAmendmentRequired: true as const,
+      blockerScope: input.blockerScope,
+      blocksTerminalReview: input.blockerScope === 'FOUNDATIONAL',
       executionTriggered: false as const,
       approvalGranted: false as const,
       canonicalVenueChanged: false as const,

@@ -151,25 +151,43 @@ describe('intake file extraction review action', () => {
     expect(findQuestion).not.toHaveBeenCalled()
   })
 
-  it('blocks acceptance while an exact file clarification remains unresolved', async () => {
+  it('blocks acceptance only while an exact foundational file clarification remains unresolved', async () => {
     findQuestion.mockResolvedValueOnce({ id: 'question-a' })
 
     await expect(
       reviewIntakeFileExtractionAction(accepted() as never, client as never),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
-      message: expect.stringContaining('Answer every retained file clarification'),
+      message: expect.stringContaining('Answer every foundational file clarification'),
     })
     expect(createRun).not.toHaveBeenCalled()
     expect(findQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           category: 'builder-file-clarification',
+          blocking: true,
           status: { not: 'ANSWERED' },
-          callbackMetadata: { path: ['receiptId'], equals: receiptId },
+          AND: [
+            { callbackMetadata: { path: ['receiptId'], equals: receiptId } },
+            { callbackMetadata: { path: ['runId'], equals: 'source-run-a' } },
+            { callbackMetadata: { path: ['extractedTextHash'], equals: textHash } },
+          ],
         }),
       }),
     )
+  })
+
+  it('continues unrelated proposal work while a local clarification remains unresolved', async () => {
+    findQuestion.mockResolvedValueOnce(null)
+
+    await expect(
+      reviewIntakeFileExtractionAction(accepted() as never, client as never),
+    ).resolves.toMatchObject({ proposalCreated: true, proposalRunId: 'proposal-run-a' })
+
+    expect(findQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ blocking: true }) }),
+    )
+    expect(createRun).toHaveBeenCalledOnce()
   })
 
   it('replays only the exact terminal human decision', async () => {

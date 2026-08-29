@@ -66,6 +66,9 @@ export function IntakeBuilderLifecyclePanel({
   const [fileClarificationReason, setFileClarificationReason] = useState<
     'CONTRADICTION' | 'DATE_SENSITIVE' | 'LOW_CONFIDENCE' | 'MISSING_CONTEXT'
   >('MISSING_CONTEXT')
+  const [fileClarificationBlockerScope, setFileClarificationBlockerScope] = useState<
+    'LOCAL' | 'FOUNDATIONAL'
+  >('LOCAL')
   const [fileClarificationQuestion, setFileClarificationQuestion] = useState('')
   const [fileClarificationExcerpt, setFileClarificationExcerpt] = useState('')
   const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
@@ -100,6 +103,7 @@ export function IntakeBuilderLifecyclePanel({
     setFileClarificationError(null)
     setFileClarificationFieldPath('')
     setFileClarificationReason('MISSING_CONTEXT')
+    setFileClarificationBlockerScope('LOCAL')
     setFileClarificationQuestion('')
     setFileClarificationExcerpt('')
     setMappingSelections({})
@@ -210,6 +214,7 @@ export function IntakeBuilderLifecyclePanel({
         expectedExtractedTextHash: review.extractedTextHash,
         fieldPath: fileClarificationFieldPath.trim(),
         reason: fileClarificationReason,
+        blockerScope: fileClarificationBlockerScope,
         question: fileClarificationQuestion.trim(),
         evidenceExcerpt: fileClarificationExcerpt.trim(),
         agentIdentityId: clarificationIdentityId,
@@ -423,10 +428,12 @@ export function IntakeBuilderLifecyclePanel({
       fileClarificationError={fileClarificationError}
       fileClarificationFieldPath={fileClarificationFieldPath}
       fileClarificationReason={fileClarificationReason}
+      fileClarificationBlockerScope={fileClarificationBlockerScope}
       fileClarificationQuestion={fileClarificationQuestion}
       fileClarificationExcerpt={fileClarificationExcerpt}
       onFileClarificationFieldPathChange={setFileClarificationFieldPath}
       onFileClarificationReasonChange={setFileClarificationReason}
+      onFileClarificationBlockerScopeChange={setFileClarificationBlockerScope}
       onFileClarificationQuestionChange={setFileClarificationQuestion}
       onFileClarificationExcerptChange={setFileClarificationExcerpt}
       onCreateFileClarificationQuestion={() => void createFileClarificationQuestion()}
@@ -477,10 +484,12 @@ export function IntakeBuilderLifecycleView({
   fileClarificationError = null,
   fileClarificationFieldPath = '',
   fileClarificationReason = 'MISSING_CONTEXT',
+  fileClarificationBlockerScope = 'LOCAL',
   fileClarificationQuestion = '',
   fileClarificationExcerpt = '',
   onFileClarificationFieldPathChange,
   onFileClarificationReasonChange,
+  onFileClarificationBlockerScopeChange,
   onFileClarificationQuestionChange,
   onFileClarificationExcerptChange,
   onCreateFileClarificationQuestion,
@@ -526,12 +535,14 @@ export function IntakeBuilderLifecycleView({
     | 'DATE_SENSITIVE'
     | 'LOW_CONFIDENCE'
     | 'MISSING_CONTEXT'
+  fileClarificationBlockerScope?: 'LOCAL' | 'FOUNDATIONAL'
   fileClarificationQuestion?: string
   fileClarificationExcerpt?: string
   onFileClarificationFieldPathChange?: (fieldPath: string) => void
   onFileClarificationReasonChange?: (
     reason: 'CONTRADICTION' | 'DATE_SENSITIVE' | 'LOW_CONFIDENCE' | 'MISSING_CONTEXT',
   ) => void
+  onFileClarificationBlockerScopeChange?: (scope: 'LOCAL' | 'FOUNDATIONAL') => void
   onFileClarificationQuestionChange?: (question: string) => void
   onFileClarificationExcerptChange?: (excerpt: string) => void
   onCreateFileClarificationQuestion?: () => void
@@ -560,9 +571,10 @@ export function IntakeBuilderLifecycleView({
   const clarificationReview =
     lifecycle.websiteClarificationReview ?? lifecycle.interviewClarificationReview
   const interviewClarifications = lifecycle.interviewClarificationReview !== null
-  const fileClarificationsResolved =
-    lifecycle.fileClarificationReview?.questions.every(({ status }) => status === 'ANSWERED') ??
-    true
+  const foundationalFileClarificationsResolved =
+    lifecycle.fileClarificationReview?.questions.every(
+      ({ blocksTerminalReview, status }) => !blocksTerminalReview || status === 'ANSWERED',
+    ) ?? true
   return (
     <section
       className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4"
@@ -742,10 +754,19 @@ export function IntakeBuilderLifecycleView({
                 <div>
                   <p className="text-sm font-semibold text-amber-950">File clarification tickets</p>
                   <p className="mt-1 max-w-2xl text-xs leading-5 text-amber-900/80">
-                    Questions remain tied to the exact extraction hash. Every ticket must be
-                    answered before acceptance; its answer must then be incorporated into the
-                    human-reviewed proposal notes. Answers grant no approval or execution authority.
+                    Questions remain tied to the exact extraction hash. Foundational tickets block
+                    terminal acceptance; local tickets block only their affected topic so unrelated
+                    reviewed work can continue. Answers grant no approval or execution authority.
                   </p>
+                  {lifecycle.fileClarificationReview.carriedForward ? (
+                    <p className="mt-1 max-w-2xl text-xs font-semibold leading-5 text-sky-900">
+                      Carried forward from source run{' '}
+                      <span className="break-all font-mono">
+                        {lifecycle.fileClarificationReview.sourceRunId}
+                      </span>{' '}
+                      into this proposal/package review.
+                    </p>
+                  ) : null}
                 </div>
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-900">
                   {lifecycle.fileClarificationReview.questions.length} retained
@@ -759,9 +780,14 @@ export function IntakeBuilderLifecycleView({
                         <p className="break-all text-sm font-semibold text-pf-deep">
                           {item.fieldPath}
                         </p>
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
-                          {item.status.toLowerCase()}
-                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800">
+                            {item.blockerScope.toLowerCase()}
+                          </span>
+                          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                            {item.status.toLowerCase()}
+                          </span>
+                        </div>
                       </div>
                       <p className="mt-1 text-xs text-pf-deep/75">
                         {item.reason.replaceAll('_', ' ').toLowerCase()}
@@ -781,8 +807,9 @@ export function IntakeBuilderLifecycleView({
                         </p>
                       ) : (
                         <p className="mt-2 text-xs font-semibold text-amber-900">
-                          Answer this ticket in the durable agent question inbox before accepting
-                          the extraction.
+                          {item.blocksTerminalReview
+                            ? 'Answer this foundational ticket in the durable agent question inbox before accepting the extraction.'
+                            : 'This local ticket remains unresolved and visible, but only its affected topic is blocked.'}
                         </p>
                       )}
                     </li>
@@ -797,7 +824,7 @@ export function IntakeBuilderLifecycleView({
                   <legend className="text-sm font-semibold text-amber-950">
                     Retain an evidence-bound ambiguity
                   </legend>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-2 grid gap-3 sm:grid-cols-3">
                     <label className="text-xs font-medium text-pf-deep">
                       Affected field or topic
                       <input
@@ -827,7 +854,26 @@ export function IntakeBuilderLifecycleView({
                         <option value="LOW_CONFIDENCE">Low confidence</option>
                       </select>
                     </label>
+                    <label className="text-xs font-medium text-pf-deep">
+                      Dependency scope
+                      <select
+                        value={fileClarificationBlockerScope}
+                        onChange={(event) =>
+                          onFileClarificationBlockerScopeChange?.(
+                            event.target.value as typeof fileClarificationBlockerScope,
+                          )
+                        }
+                        className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                      >
+                        <option value="LOCAL">Local · affected topic only</option>
+                        <option value="FOUNDATIONAL">Foundational · terminal review</option>
+                      </select>
+                    </label>
                   </div>
+                  <p className="mt-2 text-xs leading-5 text-pf-deep/65">
+                    Choose foundational only when the uncertainty makes the entire extraction unsafe
+                    to accept. Local is the default and preserves progress elsewhere.
+                  </p>
                   <label className="mt-3 block text-xs font-medium text-pf-deep">
                     Exact evidence excerpt
                     <textarea
@@ -996,7 +1042,7 @@ export function IntakeBuilderLifecycleView({
                     (extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' &&
                       (!extractionProposalTitle.trim() ||
                         !extractionProposalNotes.trim() ||
-                        !fileClarificationsResolved))
+                        !foundationalFileClarificationsResolved))
                   }
                   onClick={onReviewFileExtraction}
                   className="mt-3 min-h-11 rounded-full bg-violet-800 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -1008,9 +1054,10 @@ export function IntakeBuilderLifecycleView({
                       : 'Reject extraction'}
                 </button>
                 {extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' &&
-                !fileClarificationsResolved ? (
+                !foundationalFileClarificationsResolved ? (
                   <p className="mt-2 text-xs font-medium text-amber-900">
-                    Acceptance stays disabled until every retained file clarification is answered.
+                    Acceptance stays disabled until every foundational file clarification is
+                    answered. Local tickets remain visible without freezing unrelated work.
                   </p>
                 ) : null}
               </fieldset>

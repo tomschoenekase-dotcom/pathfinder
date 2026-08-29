@@ -119,12 +119,16 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
   fileClarificationReview: {
     receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
     extractedTextHash: 'd'.repeat(64),
+    sourceRunId: 'fixture-file-source-run',
+    carriedForward: false,
     canCreate: true,
     questions: [
       {
         id: 'fixture-file-question',
         fieldPath: 'venue.operations.holidayHours',
         reason: 'DATE_SENSITIVE',
+        blockerScope: 'LOCAL',
+        blocksTerminalReview: false,
         question: 'Which holiday-hours schedule should Builder use?',
         status: 'PENDING',
         answer: null,
@@ -141,6 +145,8 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
       },
     ],
     eligibleIdentities: [{ id: 'fixture-content-identity', name: 'Builder content' }],
+    foundationalPending: 0,
+    localPending: 1,
     answersGrantAuthority: false,
     sourceAmendmentRequired: true,
   },
@@ -224,7 +230,7 @@ export default function IntakeBuilderFileSourceFixture() {
             ariaLabel="Builder lifecycle extracted text review"
             extractionReviewDecision="ACCEPTED_FOR_PROPOSAL"
             extractionProposalTitle="Reviewed visitor services notes"
-            extractionProposalNotes="General admission begins at 9:00 a.m. Holiday hours remain unresolved and require a separate clarification."
+            extractionProposalNotes="General admission begins at 9:00 a.m. The unresolved holiday-hours claim is excluded pending clarification."
             extractionReviewRationale="The retained text is legible and the exact proposal notes exclude the unresolved holiday-hours claim."
             onExtractionReviewDecisionChange={() => undefined}
             onExtractionProposalTitleChange={() => undefined}
@@ -235,10 +241,12 @@ export default function IntakeBuilderFileSourceFixture() {
             onClarificationIdentityChange={() => undefined}
             fileClarificationFieldPath="venue.operations.holidayHours"
             fileClarificationReason="DATE_SENSITIVE"
+            fileClarificationBlockerScope="LOCAL"
             fileClarificationExcerpt="Holiday hours vary and require manager confirmation."
             fileClarificationQuestion="Which holiday-hours schedule should Builder use?"
             onFileClarificationFieldPathChange={() => undefined}
             onFileClarificationReasonChange={() => undefined}
+            onFileClarificationBlockerScopeChange={() => undefined}
             onFileClarificationExcerptChange={() => undefined}
             onFileClarificationQuestionChange={() => undefined}
             onCreateFileClarificationQuestion={() => undefined}

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getIntakeBuilderLifecycle } from './intake-builder-lifecycle-service'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
@@ -17,6 +17,10 @@ const buildCandidate = vi.mocked(buildIntakeVenuePackageCandidate)
 const loadInterviewReview = vi.mocked(loadInterviewClarificationReview)
 
 describe('getIntakeBuilderLifecycle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('proves one verified immutable file source and preserves the extraction boundary', async () => {
     const verifiedAt = new Date('2026-08-29T02:00:00.000Z')
     const sha256 = 'c'.repeat(64)
@@ -169,6 +173,106 @@ describe('getIntakeBuilderLifecycle', () => {
       autoApply: false,
       autoPublish: false,
     })
+  })
+
+  it('carries unresolved local file clarification evidence into proposal and package review', async () => {
+    const receiptId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    const textHash = 'd'.repeat(64)
+    buildCandidate.mockResolvedValueOnce({
+      runId: 'proposal-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      ready: true,
+      payload: {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      candidateHash: 'f'.repeat(64),
+      issues: [],
+      summary: { candidateCount: 1, issueCount: 0 },
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    } as never)
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'proposal-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      evidence: [
+        {
+          id: 'proposal-evidence',
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          locator: 'intake-file-extraction-review:review-a',
+          normalizedHash: 'e'.repeat(64),
+          confidence: 1,
+        },
+      ],
+      upload: null,
+      fileExtractionReceipts: [],
+      fileExtractionProposalReview: {
+        sourceRunId: 'source-run-a',
+        receiptId,
+        expectedExtractedTextHash: textHash,
+      },
+      websiteResearchReceipts: [],
+      packageHandoff: {
+        packageDraft: {
+          id: 'draft-a',
+          status: 'DRAFT',
+          validationReport: {},
+          previewPlan: {},
+          duplicateAnalysis: { status: 'COMPLETE' },
+        },
+      },
+    })
+    const questionFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'question-local',
+        question: 'Which holiday schedule applies?',
+        status: 'PENDING',
+        answer: null,
+        evidence: [],
+        callbackMetadata: {
+          receiptId,
+          fieldPath: 'venue.operations.holidayHours',
+          reason: 'DATE_SENSITIVE',
+          blockerScope: 'LOCAL',
+        },
+        blocking: false,
+        agentIdentityId: 'identity-a',
+        updatedAt: new Date('2026-08-29T03:35:00.000Z'),
+      },
+    ])
+
+    const result = await getIntakeBuilderLifecycle({
+      db: {
+        intakeRun: { findFirst },
+        agentQuestion: { findMany: questionFindMany },
+      } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'proposal-a',
+    })
+
+    expect(result.fileClarificationReview).toMatchObject({
+      receiptId,
+      sourceRunId: 'source-run-a',
+      carriedForward: true,
+      canCreate: false,
+      foundationalPending: 0,
+      localPending: 1,
+      questions: [
+        {
+          id: 'question-local',
+          blockerScope: 'LOCAL',
+          blocksTerminalReview: false,
+          status: 'PENDING',
+        },
+      ],
+    })
+    expect(result.nextAction).toBe('REPAIR_PACKAGE_EVIDENCE')
   })
 
   it('uses exact scope and exposes research for a newly recorded zero-evidence website source', async () => {

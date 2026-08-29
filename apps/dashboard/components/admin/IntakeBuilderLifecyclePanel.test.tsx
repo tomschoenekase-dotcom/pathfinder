@@ -582,7 +582,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 
-  it('retains an exact file ambiguity and disables acceptance while its ticket is pending', async () => {
+  it('retains an exact local file ambiguity without freezing unrelated proposal work', async () => {
     const receiptId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
     const lifecycle = {
       schemaVersion: 1,
@@ -620,12 +620,16 @@ describe('IntakeBuilderLifecyclePanel', () => {
       fileClarificationReview: {
         receiptId,
         extractedTextHash: 'd'.repeat(64),
+        sourceRunId: 'run-file',
+        carriedForward: false,
         canCreate: true,
         questions: [
           {
             id: 'question-existing',
             fieldPath: 'knowledge.arrival',
             reason: 'MISSING_CONTEXT',
+            blockerScope: 'LOCAL',
+            blocksTerminalReview: false,
             question: 'Which entrance should first-time visitors use?',
             status: 'PENDING',
             answer: null,
@@ -642,6 +646,8 @@ describe('IntakeBuilderLifecyclePanel', () => {
           },
         ],
         eligibleIdentities: [{ id: 'identity-a', name: 'Builder content' }],
+        foundationalPending: 0,
+        localPending: 1,
         answersGrantAuthority: false,
         sourceAmendmentRequired: true,
       },
@@ -667,7 +673,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
 
     expect(await screen.findByText('File clarification tickets')).toBeTruthy()
-    expect(screen.getByText(/Answer this ticket in the durable agent question inbox/)).toBeTruthy()
+    expect(screen.getByText(/only its affected topic is blocked/)).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Affected field or topic'), {
       target: { value: 'knowledge.accessibility' },
     })
@@ -689,6 +695,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         expectedExtractedTextHash: 'd'.repeat(64),
         fieldPath: 'knowledge.accessibility',
         reason: 'LOW_CONFIDENCE',
+        blockerScope: 'LOCAL',
         question: 'Is this entrance step-free?',
         evidenceExcerpt: 'Guests should use the east entrance after 9.',
         agentIdentityId: 'identity-a',
@@ -709,8 +716,8 @@ describe('IntakeBuilderLifecyclePanel', () => {
           name: 'Create awaiting-review proposal',
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true)
-    expect(screen.getByText(/Acceptance stays disabled/)).toBeTruthy()
+    ).toBe(false)
+    expect(screen.queryByText(/Acceptance stays disabled/)).toBeNull()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 })
