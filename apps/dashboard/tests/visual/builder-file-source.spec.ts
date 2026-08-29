@@ -22,11 +22,17 @@ test('verified file source remains truthful, readable, and non-authoritative', a
 
   await expect(page.locator('[data-fixture="intake-builder-file-source"]')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Extract · blocked' })).toBeVisible()
-  await expect(page.getByText('Verified file source')).toBeVisible()
-  await expect(
-    page.getByText(/reviewed extraction before it can construct a package/),
-  ).toBeVisible()
-  await expect(page.getByText('c'.repeat(64))).toBeVisible()
+  await expect(page.getByText('Verified file source').first()).toBeVisible()
+  await expect(page.getByText(/bounded local extractor/).first()).toBeVisible()
+  await expect(page.getByText('c'.repeat(64)).first()).toBeVisible()
+  const extract = page.getByRole('button', { name: 'Extract text for review' })
+  await expect(extract).toBeVisible()
+  await extract.focus()
+  await expect(extract).toBeFocused()
+  await expect(page.getByText(/No model, provider, package creation/)).toBeVisible()
+  await expect(page.getByText('Extracted text · review required')).toBeVisible()
+  await expect(page.getByText(/This text has not been reviewed/)).toBeVisible()
+  await expect(page.getByText('d'.repeat(64))).toBeVisible()
   await expect(page.getByRole('button', { name: /approve|apply|publish/i })).toHaveCount(0)
 
   await expect

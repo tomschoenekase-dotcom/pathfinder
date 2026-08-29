@@ -51,6 +51,18 @@ export type IntakeBuilderLifecycleInput = {
     byteSize: number
     sha256: string
     verifiedAt: Date
+    deterministicTextExtractionAvailable: boolean
+  }
+  fileExtraction?: null | {
+    receiptId: string
+    outcome: 'SUCCEEDED' | 'FAILED'
+    extractor: string
+    extractorVersion: string
+    extractedTextHash: string | null
+    extractedCharacterCount: number
+    extractedLineCount: number
+    errorCode: string | null
+    errorMessage: string | null
   }
   candidate: null | {
     ready: boolean
@@ -72,6 +84,8 @@ export type IntakeBuilderNextAction =
   | 'RETRY_WEBSITE_RESEARCH'
   | 'REVIEW_WEBSITE_SOURCE'
   | 'REVIEW_FILE_SOURCE'
+  | 'RUN_FILE_EXTRACTION'
+  | 'REVIEW_FILE_EXTRACTION'
   | 'RESOLVE_CLARIFICATION'
   | 'CREATE_PACKAGE_DRAFT'
   | 'REPAIR_PACKAGE_EVIDENCE'
@@ -99,6 +113,7 @@ const blocker = (code: string, path: string, message: string): IntakeBuilderBloc
 export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput) {
   const evidenceRefs = [`intake-run:${input.runId}`]
   const fileUpload = input.fileUpload ?? null
+  const fileExtraction = input.fileExtraction ?? null
   const stages = new Map<IntakeBuilderStage, IntakeBuilderLifecycleStage>()
   const set = (
     stage: IntakeBuilderStage,
@@ -209,14 +224,48 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
       `intake-upload:${fileUpload.uploadId}`,
       `intake-upload-sha256:${fileUpload.sha256}`,
     ]
-    set('EXTRACT', 'BLOCKED', fileRefs, [
-      blocker(
-        'FILE_EXTRACTION_REVIEW_REQUIRED',
-        'fileUpload',
-        'The verified file is retained, but no reviewed extraction is available for a package candidate.',
-      ),
-    ])
-    for (const stage of ['CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) set(stage, 'PENDING')
+    if (!fileExtraction) {
+      set('EXTRACT', 'BLOCKED', fileRefs, [
+        blocker(
+          fileUpload.deterministicTextExtractionAvailable
+            ? 'FILE_EXTRACTION_REQUIRED'
+            : 'FILE_EXTRACTION_ADAPTER_REQUIRED',
+          'fileUpload',
+          fileUpload.deterministicTextExtractionAvailable
+            ? 'The verified text-like document is ready for one bounded deterministic extraction.'
+            : 'The verified file needs a source-specific document, OCR, image, audio, or video extraction adapter.',
+        ),
+      ])
+      for (const stage of ['CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) set(stage, 'PENDING')
+    } else if (fileExtraction.outcome === 'FAILED') {
+      const extractionRefs = [...fileRefs, `file-extraction:${fileExtraction.receiptId}`]
+      set('EXTRACT', 'BLOCKED', extractionRefs, [
+        blocker(
+          fileExtraction.errorCode ?? 'FILE_EXTRACTION_FAILED',
+          'fileExtraction',
+          fileExtraction.errorMessage ?? 'The deterministic file extraction failed closed.',
+        ),
+      ])
+      for (const stage of ['CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) set(stage, 'PENDING')
+    } else {
+      const extractionRefs = [
+        ...fileRefs,
+        `file-extraction:${fileExtraction.receiptId}`,
+        ...(fileExtraction.extractedTextHash
+          ? [`file-extraction-sha256:${fileExtraction.extractedTextHash}`]
+          : []),
+      ]
+      set('EXTRACT', 'COMPLETE', extractionRefs)
+      set('CONSTRUCT', 'BLOCKED', extractionRefs, [
+        blocker(
+          'FILE_EXTRACTION_REVIEW_REQUIRED',
+          'fileExtraction',
+          'The deterministic extraction is retained for review but cannot become structured venue content without a separate exact review.',
+        ),
+      ])
+      set('RECONCILE', 'PENDING')
+      set('CLARIFY', 'PENDING')
+    }
   } else if (sourceBlocked || input.candidate === null) {
     for (const stage of ['EXTRACT', 'CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) {
       if (!stages.has(stage)) set(stage, 'PENDING')
@@ -369,7 +418,12 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
               : 'REVIEW_WEBSITE_SOURCE'
             : 'RESOLVE_CLARIFICATION'
   } else if (current.stage === 'EXTRACT' && fileUploadSource) {
-    nextAction = 'REVIEW_FILE_SOURCE'
+    nextAction =
+      !fileExtraction && fileUpload?.deterministicTextExtractionAvailable
+        ? 'RUN_FILE_EXTRACTION'
+        : fileExtraction?.outcome === 'SUCCEEDED'
+          ? 'REVIEW_FILE_EXTRACTION'
+          : 'REVIEW_FILE_SOURCE'
   } else if (
     current.stage === 'NORMALIZE' ||
     current.stage === 'EXTRACT' ||
@@ -378,7 +432,7 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
   ) {
     nextAction = fileUploadSource ? 'REVIEW_FILE_SOURCE' : 'RESOLVE_CLARIFICATION'
   } else if (current.stage === 'CONSTRUCT') {
-    nextAction = 'CREATE_PACKAGE_DRAFT'
+    nextAction = fileUploadSource ? 'REVIEW_FILE_EXTRACTION' : 'CREATE_PACKAGE_DRAFT'
   } else if (current.stage === 'VALIDATE' || current.stage === 'SIMULATE') {
     nextAction = 'REPAIR_PACKAGE_EVIDENCE'
   } else if (current.stage === 'QA') {
@@ -398,6 +452,8 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
     sourceKind: input.sourceKind,
     runStatus: input.runStatus,
     websiteResearch: input.websiteResearch,
+    fileUpload,
+    fileExtraction,
     currentStage: current.stage,
     currentState: current.state,
     nextAction,

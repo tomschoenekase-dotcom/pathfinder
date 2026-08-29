@@ -47,6 +47,8 @@ export function IntakeBuilderLifecyclePanel({
   const [busy, setBusy] = useState(false)
   const [researchBusy, setResearchBusy] = useState(false)
   const [researchError, setResearchError] = useState<string | null>(null)
+  const [extractionBusy, setExtractionBusy] = useState(false)
+  const [extractionError, setExtractionError] = useState<string | null>(null)
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
@@ -57,6 +59,7 @@ export function IntakeBuilderLifecyclePanel({
   const [mappingError, setMappingError] = useState<string | null>(null)
   const sequence = useRef(0)
   const researchOperationId = useRef<string | null>(null)
+  const extractionOperationId = useRef<string | null>(null)
 
   useEffect(() => {
     sequence.current += 1
@@ -65,6 +68,8 @@ export function IntakeBuilderLifecyclePanel({
     setBusy(false)
     setResearchBusy(false)
     setResearchError(null)
+    setExtractionBusy(false)
+    setExtractionError(null)
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
@@ -74,6 +79,7 @@ export function IntakeBuilderLifecyclePanel({
     setMappingBusy(false)
     setMappingError(null)
     researchOperationId.current = null
+    extractionOperationId.current = null
   }, [runId, tenantId, venueId])
 
   async function load() {
@@ -234,6 +240,30 @@ export function IntakeBuilderLifecyclePanel({
     }
   }
 
+  async function runFileExtraction() {
+    if (!lifecycle || extractionBusy || lifecycle.nextAction !== 'RUN_FILE_EXTRACTION') return
+    const operationId = extractionOperationId.current ?? crypto.randomUUID()
+    extractionOperationId.current = operationId
+    setExtractionBusy(true)
+    setExtractionError(null)
+    try {
+      await client.admin.executeIntakeFileExtraction.mutate({
+        tenantId,
+        venueId,
+        runId,
+        operationId,
+      })
+      extractionOperationId.current = null
+      await load()
+    } catch (cause) {
+      setExtractionError(
+        cause instanceof Error ? cause.message : 'Document extraction could not be retained.',
+      )
+    } finally {
+      setExtractionBusy(false)
+    }
+  }
+
   if (!lifecycle) {
     return (
       <div className="mt-3">
@@ -260,6 +290,9 @@ export function IntakeBuilderLifecyclePanel({
       onRunWebsiteResearch={() => void runWebsiteResearch()}
       researchBusy={researchBusy}
       researchError={researchError}
+      onRunFileExtraction={() => void runFileExtraction()}
+      extractionBusy={extractionBusy}
+      extractionError={extractionError}
       clarificationBusy={clarificationBusy}
       clarificationError={clarificationError}
       clarificationIdentityId={clarificationIdentityId}
@@ -285,9 +318,13 @@ export function IntakeBuilderLifecyclePanel({
 
 export function IntakeBuilderLifecycleView({
   lifecycle,
+  ariaLabel = 'Builder lifecycle',
   onRunWebsiteResearch,
   researchBusy = false,
   researchError = null,
+  onRunFileExtraction,
+  extractionBusy = false,
+  extractionError = null,
   clarificationBusy = false,
   clarificationError = null,
   clarificationIdentityId = '',
@@ -304,9 +341,13 @@ export function IntakeBuilderLifecycleView({
   onCreateWebsiteMappingDraft,
 }: {
   lifecycle: Lifecycle
+  ariaLabel?: string
   onRunWebsiteResearch?: () => void
   researchBusy?: boolean
   researchError?: string | null
+  onRunFileExtraction?: () => void
+  extractionBusy?: boolean
+  extractionError?: string | null
   clarificationBusy?: boolean
   clarificationError?: string | null
   clarificationIdentityId?: string
@@ -340,7 +381,7 @@ export function IntakeBuilderLifecycleView({
   return (
     <section
       className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4"
-      aria-label="Builder lifecycle"
+      aria-label={ariaLabel}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -448,11 +489,90 @@ export function IntakeBuilderLifecycleView({
             </div>
           </dl>
           <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-pf-deep/75">
-            Verification admits this file as source evidence only. Builder still needs a reviewed
-            extraction before it can construct a package. No approval, apply, publication, or
-            provider work was triggered.
+            Verification admits this file as source evidence only.{' '}
+            {lifecycle.fileUpload.deterministicTextExtractionAvailable
+              ? 'This text-like document can use the bounded local extractor.'
+              : 'This source still needs a format-specific extraction adapter.'}{' '}
+            No approval, apply, publication, or provider work was triggered.
           </p>
         </div>
+      ) : null}
+
+      {lifecycle.fileExtractionReview ? (
+        <div className="mt-4 rounded-xl border border-violet-200 bg-white p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-violet-950">
+                Extracted text · review required
+              </p>
+              <p className="mt-1 text-xs text-violet-900/75">
+                Local deterministic output from {lifecycle.fileExtractionReview.extractor} v
+                {lifecycle.fileExtractionReview.extractorVersion}. It is private evidence, not venue
+                truth.
+              </p>
+            </div>
+            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-900">
+              unreviewed
+            </span>
+          </div>
+          <dl className="mt-3 grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-pf-deep/75">Characters</dt>
+              <dd className="mt-0.5 font-medium text-pf-deep">
+                {lifecycle.fileExtractionReview.extractedCharacterCount.toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/75">Lines</dt>
+              <dd className="mt-0.5 font-medium text-pf-deep">
+                {lifecycle.fileExtractionReview.extractedLineCount.toLocaleString()}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/75">Text hash</dt>
+              <dd className="mt-0.5 break-all font-mono text-xs text-pf-deep">
+                {lifecycle.fileExtractionReview.extractedTextHash}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-pf-deep/65">
+              Bounded preview
+            </p>
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-5 text-pf-deep">
+              {lifecycle.fileExtractionReview.preview}
+            </pre>
+            {lifecycle.fileExtractionReview.previewTruncated ? (
+              <p className="mt-2 text-xs text-pf-deep/60">Preview ends at 4,000 characters.</p>
+            ) : null}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-violet-900/75">
+            A separate exact review must decide what, if anything, can become structured venue
+            content. This receipt cannot create, approve, apply, or publish a package.
+          </p>
+        </div>
+      ) : null}
+
+      {onRunFileExtraction && lifecycle.nextAction === 'RUN_FILE_EXTRACTION' ? (
+        <div className="mt-4">
+          <button
+            type="button"
+            disabled={extractionBusy}
+            onClick={onRunFileExtraction}
+            className="min-h-11 rounded-full bg-pf-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-pf-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none"
+          >
+            {extractionBusy ? 'Extracting text…' : 'Extract text for review'}
+          </button>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-pf-deep/75">
+            Reads the exact verified object version through a bounded local UTF-8 adapter. No model,
+            provider, package creation, approval, apply, or publication.
+          </p>
+        </div>
+      ) : null}
+      {extractionError ? (
+        <p className="mt-3 text-sm text-rose-700" role="alert">
+          {extractionError}
+        </p>
       ) : null}
 
       {onRunWebsiteResearch &&

@@ -186,6 +186,11 @@ export {
   type RecordWebsiteResearchReceiptInput,
 } from './helpers/intake-website-research-actions'
 export {
+  IntakeFileExtractionActionError,
+  recordIntakeFileExtractionReceiptAction,
+  type RecordIntakeFileExtractionReceiptInput,
+} from './helpers/intake-file-extraction-actions'
+export {
   OperatingCostEvidenceActionError,
   recordOperatingCostEvidenceAction,
 } from './helpers/operating-cost-evidence-actions'

@@ -163,6 +163,7 @@ describe('intake Builder lifecycle projection', () => {
         byteSize: 4096,
         sha256: 'c'.repeat(64),
         verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+        deterministicTextExtractionAvailable: false,
       },
     })
 
@@ -186,7 +187,64 @@ describe('intake Builder lifecycle projection', () => {
       state: 'SKIPPED',
     })
     expect(result.stages.find(({ stage }) => stage === 'EXTRACT')).toMatchObject({
-      blockers: [expect.objectContaining({ code: 'FILE_EXTRACTION_REVIEW_REQUIRED' })],
+      blockers: [expect.objectContaining({ code: 'FILE_EXTRACTION_ADAPTER_REQUIRED' })],
+    })
+  })
+
+  it('offers bounded text extraction and then stops successful output at exact review', () => {
+    const fileUpload = {
+      uploadId: 'upload-a',
+      displayName: 'Staff notes',
+      fileName: 'staff-notes.txt',
+      mimeType: 'text/plain',
+      category: 'DOCUMENT',
+      byteSize: 120,
+      sha256: 'c'.repeat(64),
+      verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+      deterministicTextExtractionAvailable: true,
+    } as const
+    const ready = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload,
+    })
+    expect(ready).toMatchObject({
+      currentStage: 'EXTRACT',
+      currentState: 'BLOCKED',
+      nextAction: 'RUN_FILE_EXTRACTION',
+    })
+
+    const extracted = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload,
+      fileExtraction: {
+        receiptId: 'receipt-a',
+        outcome: 'SUCCEEDED',
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 12,
+        extractedLineCount: 2,
+        errorCode: null,
+        errorMessage: null,
+      },
+    })
+    expect(extracted).toMatchObject({
+      currentStage: 'CONSTRUCT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_EXTRACTION',
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+    })
+    expect(extracted.stages.find(({ stage }) => stage === 'EXTRACT')).toMatchObject({
+      state: 'COMPLETE',
+      evidenceRefs: expect.arrayContaining(['file-extraction:receipt-a']),
     })
   })
 

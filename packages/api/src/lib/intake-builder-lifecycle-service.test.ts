@@ -45,6 +45,7 @@ describe('getIntakeBuilderLifecycle', () => {
         status: 'AWAITING_REVIEW',
         verifiedAt,
       },
+      fileExtractionReceipts: [],
       websiteResearchReceipts: [],
       packageHandoff: null,
     })
@@ -70,10 +71,11 @@ describe('getIntakeBuilderLifecycle', () => {
         byteSize: 4096,
         sha256,
         verifiedAt,
+        deterministicTextExtractionAvailable: false,
       },
     })
     expect(result.stages.find(({ stage }) => stage === 'EXTRACT')?.blockers).toEqual([
-      expect.objectContaining({ code: 'FILE_EXTRACTION_REVIEW_REQUIRED' }),
+      expect.objectContaining({ code: 'FILE_EXTRACTION_ADAPTER_REQUIRED' }),
     ])
   })
 

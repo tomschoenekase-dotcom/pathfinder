@@ -11,6 +11,10 @@ import {
 } from './intake-venue-package-candidate'
 import { loadInterviewClarificationReview } from './intake-interview-clarifications'
 import {
+  INTAKE_TEXT_EXTRACTION_MAX_BYTES,
+  INTAKE_TEXT_MIME_TYPES,
+} from './intake-file-extraction-service'
+import {
   buildWebsiteClarificationReview,
   WebsiteClarificationError,
 } from './intake-website-clarifications'
@@ -103,6 +107,23 @@ export async function getIntakeBuilderLifecycle(input: {
           sha256: true,
           status: true,
           verifiedAt: true,
+        },
+      },
+      fileExtractionReceipts: {
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 1,
+        select: {
+          id: true,
+          outcome: true,
+          extractor: true,
+          extractorVersion: true,
+          extractedText: true,
+          extractedTextHash: true,
+          extractedCharacterCount: true,
+          extractedLineCount: true,
+          errorCode: true,
+          errorMessage: true,
+          createdAt: true,
         },
       },
       websiteResearchReceipts: {
@@ -343,14 +364,32 @@ export async function getIntakeBuilderLifecycle(input: {
           byteSize: run.upload.byteSize,
           sha256: run.upload.sha256,
           verifiedAt: run.upload.verifiedAt,
+          deterministicTextExtractionAvailable:
+            (INTAKE_TEXT_MIME_TYPES as readonly string[]).includes(run.upload.mimeType) &&
+            run.upload.byteSize <= INTAKE_TEXT_EXTRACTION_MAX_BYTES,
         }
       : null
+  const latestFileExtraction = run.fileExtractionReceipts?.[0] ?? null
+  const fileExtraction = latestFileExtraction
+    ? {
+        receiptId: latestFileExtraction.id,
+        outcome: latestFileExtraction.outcome,
+        extractor: latestFileExtraction.extractor,
+        extractorVersion: latestFileExtraction.extractorVersion,
+        extractedTextHash: latestFileExtraction.extractedTextHash,
+        extractedCharacterCount: latestFileExtraction.extractedCharacterCount,
+        extractedLineCount: latestFileExtraction.extractedLineCount,
+        errorCode: latestFileExtraction.errorCode,
+        errorMessage: latestFileExtraction.errorMessage,
+      }
+    : null
   const lifecycle = projectIntakeBuilderLifecycle({
     runId: run.id,
     sourceKind: run.sourceKind,
     runStatus: run.status,
     evidenceCount: run._count.evidence,
     fileUpload,
+    fileExtraction,
     websiteResearch: latestWebsiteResearch
       ? {
           receiptId: latestWebsiteResearch.id,
@@ -385,7 +424,22 @@ export async function getIntakeBuilderLifecycle(input: {
   })
   return {
     ...lifecycle,
-    fileUpload,
+    fileExtractionReview:
+      latestFileExtraction?.outcome === 'SUCCEEDED' && latestFileExtraction.extractedText
+        ? {
+            receiptId: latestFileExtraction.id,
+            extractor: latestFileExtraction.extractor,
+            extractorVersion: latestFileExtraction.extractorVersion,
+            extractedTextHash: latestFileExtraction.extractedTextHash!,
+            extractedCharacterCount: latestFileExtraction.extractedCharacterCount,
+            extractedLineCount: latestFileExtraction.extractedLineCount,
+            preview: latestFileExtraction.extractedText.slice(0, 4_000),
+            previewTruncated: latestFileExtraction.extractedText.length > 4_000,
+            createdAt: latestFileExtraction.createdAt,
+            reviewRequired: true as const,
+            grantsAuthority: false as const,
+          }
+        : null,
     websiteClarificationReview: websiteReview
       ? {
           receiptId: latestWebsiteResearch!.id,

@@ -1008,7 +1008,7 @@ describe('support domain actions', () => {
 
   it.each([
     ['reserved upload', { status: 'RESERVED' }],
-    ['wrong upload MIME', { mimeType: 'text/plain' }],
+    ['wrong upload MIME', { mimeType: 'application/zip' }],
     ['empty upload', { byteSize: 0 }],
     ['missing verified timestamp', { verifiedAt: null }],
     ['missing storage version', { storageVersionId: null }],

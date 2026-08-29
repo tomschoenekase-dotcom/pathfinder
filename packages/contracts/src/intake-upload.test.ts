@@ -13,6 +13,10 @@ const sha256 = 'a'.repeat(64)
 describe('intake upload browser-safe contracts', () => {
   it.each([
     'application/pdf',
+    'application/json',
+    'text/plain',
+    'text/markdown',
+    'text/csv',
     'image/jpeg',
     'image/png',
     'image/webp',

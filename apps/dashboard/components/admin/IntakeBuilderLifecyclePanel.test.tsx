@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const query = vi.fn()
 const mutate = vi.fn()
+const extractionMutate = vi.fn()
 const clarificationMutate = vi.fn()
 const interviewClarificationMutate = vi.fn()
 const mappingQuery = vi.fn()
@@ -14,6 +15,7 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       getIntakeBuilderLifecycle: { query },
       executeWebsiteIntakeResearch: { mutate },
+      executeIntakeFileExtraction: { mutate: extractionMutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
       createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
@@ -364,6 +366,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         byteSize: 4096,
         sha256: 'c'.repeat(64),
         verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+        deterministicTextExtractionAvailable: false,
       },
       websiteClarificationReview: null,
       interviewClarificationReview: null,
@@ -402,6 +405,101 @@ describe('IntakeBuilderLifecyclePanel', () => {
     expect(screen.getByText('application/pdf · 4 KB')).toBeTruthy()
     expect(screen.getByText('c'.repeat(64))).toBeTruthy()
     expect(screen.getByText(/No approval, apply, publication, or provider work/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('runs deterministic text extraction with one replay identity and renders review-only output', async () => {
+    const operationId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(operationId)
+    const ready = {
+      schemaVersion: 1,
+      runId: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      fileUpload: {
+        uploadId: 'upload-a',
+        displayName: 'Staff notes',
+        fileName: 'staff-notes.txt',
+        mimeType: 'text/plain',
+        category: 'DOCUMENT',
+        byteSize: 18,
+        sha256: 'c'.repeat(64),
+        verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+        deterministicTextExtractionAvailable: true,
+      },
+      fileExtraction: null,
+      fileExtractionReview: null,
+      websiteClarificationReview: null,
+      interviewClarificationReview: null,
+      currentStage: 'EXTRACT',
+      currentState: 'BLOCKED',
+      nextAction: 'RUN_FILE_EXTRACTION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'EXTRACT', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    const extracted = {
+      ...ready,
+      fileExtraction: {
+        receiptId: operationId,
+        outcome: 'SUCCEEDED',
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 18,
+        extractedLineCount: 2,
+        errorCode: null,
+        errorMessage: null,
+      },
+      fileExtractionReview: {
+        receiptId: operationId,
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 18,
+        extractedLineCount: 2,
+        preview: 'Line one\nLine two',
+        previewTruncated: false,
+        createdAt: new Date('2026-08-29T03:00:00.000Z'),
+        reviewRequired: true,
+        grantsAuthority: false,
+      },
+      currentStage: 'CONSTRUCT',
+      nextAction: 'REVIEW_FILE_EXTRACTION',
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'EXTRACT', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'CONSTRUCT', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    query.mockResolvedValueOnce(ready).mockResolvedValueOnce(extracted)
+    extractionMutate.mockResolvedValue({ receiptId: operationId })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Extract text for review' }))
+
+    await waitFor(() =>
+      expect(extractionMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-file',
+        operationId,
+      }),
+    )
+    expect(await screen.findByText('Extracted text · review required')).toBeTruthy()
+    expect(
+      screen.getByText(
+        (_, element) => element?.tagName === 'PRE' && element.textContent === 'Line one\nLine two',
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText(/cannot create, approve, apply, or publish/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 })

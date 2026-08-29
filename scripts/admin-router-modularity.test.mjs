@@ -87,6 +87,7 @@ const expectedAdminProcedures = [
   'enableAgentIdentity',
   'executeApprovedBillingCommand',
   'executeApprovedCustomerInvitation',
+  'executeIntakeFileExtraction',
   'executeWebsiteIntakeResearch',
   'finalizeOffboardingExportArtifact',
   'founderOperatingView',

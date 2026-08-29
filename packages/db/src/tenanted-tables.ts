@@ -134,6 +134,7 @@ export const TENANTED_TABLES = [
   'IntakeEvidenceRecord',
   'IntakeRunEvent',
   'IntakeWebsiteResearchReceipt',
+  'IntakeFileExtractionReceipt',
   'IntakePackageHandoff',
   'IntakeUpload',
   'IntakeUploadVerificationReceipt',

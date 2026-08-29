@@ -48,7 +48,41 @@ function isStreamingMediaMime(mimeType: IntakeUploadMimeType): boolean {
   return mimeType.startsWith('video/') || mimeType.startsWith('audio/')
 }
 
+function isTextDocumentMime(mimeType: IntakeUploadMimeType): boolean {
+  return (
+    mimeType === 'application/json' ||
+    mimeType === 'text/plain' ||
+    mimeType === 'text/markdown' ||
+    mimeType === 'text/csv'
+  )
+}
+
+function decodeSafeUtf8(bytes: Uint8Array): string | null {
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    if (!text.trim()) return null
+    for (const character of text) {
+      const code = character.codePointAt(0) ?? 0
+      if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) return null
+    }
+    return text
+  } catch {
+    return null
+  }
+}
+
 function matchesMime(bytes: Uint8Array, mimeType: IntakeUploadMimeType): boolean {
+  if (isTextDocumentMime(mimeType)) {
+    const text = decodeSafeUtf8(bytes)
+    if (text === null) return false
+    if (mimeType !== 'application/json') return true
+    try {
+      JSON.parse(text)
+      return true
+    } catch {
+      return false
+    }
+  }
   if (mimeType === 'application/pdf') {
     const text = new TextDecoder('latin1').decode(bytes)
     return startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]) && /%%EOF\s*$/u.test(text)
@@ -88,6 +122,7 @@ function matchesMime(bytes: Uint8Array, mimeType: IntakeUploadMimeType): boolean
 }
 
 function conservativeStructurePrecheck(bytes: Buffer, mimeType: IntakeUploadMimeType): boolean {
+  if (isTextDocumentMime(mimeType)) return matchesMime(bytes, mimeType)
   if (mimeType === 'application/pdf') {
     const text = bytes.toString('latin1')
     return /\n(?:xref\s|\d+\s+\d+\s+obj\b)/u.test(text) && /startxref\s+\d+\s+%%EOF\s*$/u.test(text)

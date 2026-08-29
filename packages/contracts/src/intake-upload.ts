@@ -24,6 +24,10 @@ export type IntakeUploadCategory = z.infer<typeof IntakeUploadCategory>
 /** Deliberately excludes SVG and animated formats. */
 export const IntakeUploadMimeType = z.enum([
   'application/pdf',
+  'application/json',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
   'image/jpeg',
   'image/png',
   'image/webp',

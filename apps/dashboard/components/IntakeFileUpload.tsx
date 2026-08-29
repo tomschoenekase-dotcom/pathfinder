@@ -214,7 +214,12 @@ function phaseIcon(phase: QueueItem['phase']) {
 function inferredCategory(file: File): IntakeUploadCategory {
   if (file.type.startsWith('video/') || file.type.startsWith('audio/')) return 'VIDEO_AUDIO'
   if (file.type.startsWith('image/')) return 'PHOTO'
-  if (file.type === 'application/pdf') return 'DOCUMENT'
+  if (
+    file.type === 'application/pdf' ||
+    file.type === 'application/json' ||
+    file.type.startsWith('text/')
+  )
+    return 'DOCUMENT'
   return 'OTHER'
 }
 

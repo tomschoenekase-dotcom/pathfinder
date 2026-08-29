@@ -9,7 +9,14 @@ async function* chunks(...values: Uint8Array[]) {
 
 function request(
   bytes: Uint8Array,
-  mimeType: 'image/png' | 'application/pdf' | 'video/mp4' = 'image/png',
+  mimeType:
+    | 'image/png'
+    | 'application/pdf'
+    | 'application/json'
+    | 'text/plain'
+    | 'text/markdown'
+    | 'text/csv'
+    | 'video/mp4' = 'image/png',
 ) {
   return {
     bytes: chunks(bytes.subarray(0, 3), bytes.subarray(3)),
@@ -62,6 +69,28 @@ describe('bounded intake upload byte verification', () => {
     await expect(verifyIntakeUploadBytes(request(bytes, 'video/mp4'))).resolves.toMatchObject({
       passed: true,
       reason: 'PASSED',
+    })
+  })
+
+  it.each([
+    ['text/plain', 'Hours\nMonday: 9–5\n'],
+    ['text/markdown', '# Visitor guide\n\nUse the east entrance.\n'],
+    ['text/csv', 'place,hours\nGallery,9–5\n'],
+    ['application/json', '{"place":"Gallery","hours":"9–5"}'],
+  ] as const)('accepts bounded, valid UTF-8 %s documents', async (mimeType, value) => {
+    await expect(
+      verifyIntakeUploadBytes(request(new TextEncoder().encode(value), mimeType)),
+    ).resolves.toMatchObject({ passed: true, reason: 'PASSED' })
+  })
+
+  it.each([
+    ['text/plain', Uint8Array.from([0x66, 0x6f, 0x80])],
+    ['text/markdown', new TextEncoder().encode('# Guide\u0000hidden')],
+    ['application/json', new TextEncoder().encode('{"broken":}')],
+  ] as const)('rejects malformed or unsafe %s documents', async (mimeType, bytes) => {
+    await expect(verifyIntakeUploadBytes(request(bytes, mimeType))).resolves.toMatchObject({
+      passed: false,
+      reason: 'FORMAT_MISMATCH',
     })
   })
 })
