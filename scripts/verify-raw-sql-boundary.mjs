@@ -74,6 +74,12 @@ const approvedPolicies = new Set([
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
   {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$executeRaw',
+    hash: '9f523bcda2b4316a85a39f6165c597b1cf238f8d62f4496b8776867538f4c86b',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  {
     file: 'packages/db/src/helpers/intake-file-extraction-review-actions.ts',
     method: '$executeRaw',
     hash: 'ad270206ff0271c0cc33994929056409b9aabb3bd4cabceae9ec3cbb4f98caac',
