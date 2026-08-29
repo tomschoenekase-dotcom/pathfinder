@@ -104,6 +104,107 @@ describe('agent question actions', () => {
     expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
   })
 
+  it('persists bounded rich evidence and decision support in the canonical question', async () => {
+    const created = {
+      id: 'question-rich',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      agentRunId: null,
+      question: 'Which entrance should visitors use?',
+      context: null,
+      questionType: 'SHORT_TEXT',
+      category: 'general',
+      urgency: 'NORMAL',
+      dueAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      choices: [],
+      blocking: false,
+      status: 'PENDING',
+      answer: null,
+      updatedAt: new Date('2026-08-29T17:30:00Z'),
+    }
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(created),
+      },
+      agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'agent-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+    const evidence = [
+      {
+        label: 'Walkthrough entrance sequence',
+        reference: 'https://example.com/walkthrough.mp4',
+        summary: 'The guide points visitors to the north doors.',
+        kind: 'VIDEO_TIMESTAMP' as const,
+        timestampSeconds: 94,
+      },
+    ]
+    const proposedAnswer = {
+      interpretation: 'Use the north entrance',
+      confidence: 0.82,
+      candidateEntities: [
+        {
+          label: 'North entrance',
+          entityType: 'entrance',
+          reference: 'venue-entity:north-entrance',
+        },
+      ],
+      answerConsequences: [
+        {
+          answer: 'North entrance',
+          consequence: 'Visitor directions use the accessible north path.',
+        },
+        { answer: 'South entrance', consequence: 'The proposed north path remains excluded.' },
+      ],
+    }
+
+    await askAgentQuestionAction(
+      {
+        operationId: '3a4d1053-9239-42e1-a4cc-a3caeaf29c4c',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        question: created.question,
+        evidence,
+        proposedAnswer,
+        blocking: false,
+      },
+      client(transaction) as never,
+    )
+
+    expect(transaction.agentQuestion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ evidence, proposedAnswer }),
+      }),
+    )
+  })
+
+  it('rejects timestamps that are not attached to video evidence', async () => {
+    await expect(
+      askAgentQuestionAction(
+        {
+          operationId: '3a4d1053-9239-42e1-a4cc-a3caeaf29c4c',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          question: 'Which map is current?',
+          evidence: [
+            {
+              label: 'Campus map',
+              reference: 'https://example.com/map',
+              kind: 'MAP',
+              timestampSeconds: 45,
+            },
+          ],
+        },
+        client({}) as never,
+      ),
+    ).rejects.toThrow('Evidence timestamps require VIDEO_TIMESTAMP kind.')
+  })
+
   it('serializes file clarifications with terminal review and revalidates the exact receipt', async () => {
     const transaction = {
       $executeRaw: vi.fn().mockResolvedValue(1),

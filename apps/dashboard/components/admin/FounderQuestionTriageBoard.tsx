@@ -185,7 +185,7 @@ export function FounderQuestionTriageBoard({
           No loaded open questions match these filters.
         </p>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid items-start gap-3 xl:grid-cols-2">
           {visible.map((question) => (
             <details
               key={question.id}
