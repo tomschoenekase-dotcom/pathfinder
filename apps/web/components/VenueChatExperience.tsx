@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server'
@@ -155,7 +155,7 @@ export function VenueChatExperience({
     ...(!secondLayerKey && entrySource ? { entrySource } : {}),
   })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentVenueIdRef.current = venue?.id ?? null
     currentAnonymousTokenRef.current = anonymousToken
   }, [anonymousToken, venue?.id])
