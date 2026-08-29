@@ -110,7 +110,13 @@ function fileExtractionReviewRun(overrides: Record<string, unknown> = {}) {
       proposalNotesHash,
       rationale: 'The selected statement is clear and relevant.',
       createdBy: 'admin-a',
-      receipt: { sourceSha256, sourceMimeType: 'text/plain' },
+      clarificationResolutionCount: 0,
+      clarificationResolutionDigest: null,
+      receipt: {
+        sourceSha256,
+        sourceMimeType: 'text/plain',
+        clarificationResolutions: [],
+      },
     },
     ...overrides,
   }
@@ -219,6 +225,102 @@ describe('deterministic intake VenuePackage candidate', () => {
     expect(second.payload?.knowledgeEntries.create[0]?.itemKey).toBe(
       first.payload?.knowledgeEntries.create[0]?.itemKey,
     )
+  })
+
+  it('revalidates the exact file amendment snapshot before building a candidate', async () => {
+    const answer = 'Use the accessible east entrance.'
+    const answeredAt = new Date('2026-08-29T17:00:00.000Z')
+    const answerHash = createHash('sha256').update(answer).digest('hex')
+    const retainedReceipt = {
+      resolutionId: 'b79ca1f5-9c21-498e-890e-88ddb889f9b4',
+      questionId: 'question-a',
+      fieldPath: 'knowledge.arrival',
+      kind: 'REPLACE_EXCERPT' as const,
+      answerHash,
+      answeredAt: answeredAt.toISOString(),
+      amendedExcerptHash: 'd'.repeat(64),
+    }
+    const digest = createHash('sha256')
+      .update(JSON.stringify([retainedReceipt]))
+      .digest('hex')
+    const base = fileExtractionReviewRun()
+    const review = base.fileExtractionProposalReview
+    const resolution = {
+      id: retainedReceipt.resolutionId,
+      runId: review.sourceRunId,
+      expectedExtractedTextHash: review.expectedExtractedTextHash,
+      fieldPath: retainedReceipt.fieldPath,
+      reason: 'MISSING_CONTEXT',
+      blockerScope: 'FOUNDATIONAL',
+      excerptHash: 'e'.repeat(64),
+      answerHash,
+      answeredAt,
+      kind: retainedReceipt.kind,
+      amendedExcerptHash: retainedReceipt.amendedExcerptHash,
+      question: {
+        id: retainedReceipt.questionId,
+        status: 'ANSWERED',
+        answer,
+        answeredAt,
+        callbackMetadata: {
+          fieldPath: retainedReceipt.fieldPath,
+          reason: 'MISSING_CONTEXT',
+          blockerScope: 'FOUNDATIONAL',
+          excerptHash: 'e'.repeat(64),
+        },
+      },
+    }
+    const exact = {
+      ...base,
+      structuredBootstrap: {
+        ...base.structuredBootstrap,
+        clarificationResolutions: {
+          version: 1 as const,
+          count: 1,
+          digest,
+          receipts: [retainedReceipt],
+        },
+      },
+      fileExtractionProposalReview: {
+        ...review,
+        clarificationResolutionCount: 1,
+        clarificationResolutionDigest: digest,
+        receipt: { ...review.receipt, clarificationResolutions: [resolution] },
+      },
+    }
+
+    await expect(
+      buildIntakeVenuePackageCandidate({
+        db: db(exact) as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'proposal-run-a',
+      }),
+    ).resolves.toMatchObject({ ready: true })
+
+    const stale = {
+      ...exact,
+      fileExtractionProposalReview: {
+        ...exact.fileExtractionProposalReview,
+        receipt: {
+          ...exact.fileExtractionProposalReview.receipt,
+          clarificationResolutions: [
+            {
+              ...resolution,
+              question: { ...resolution.question, answer: 'A later, unreviewed answer.' },
+            },
+          ],
+        },
+      },
+    }
+    await expect(
+      buildIntakeVenuePackageCandidate({
+        db: db(stale) as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'proposal-run-a',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_EVIDENCE' })
   })
 
   it('fails closed on extraction-review relation, hash, actor, or evidence drift', async () => {

@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-203-20260829',
+  approval: 'torchiko-staging-lineage-to-204-20260829',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 203,
+  migrationCount: 204,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -55,10 +55,10 @@ const EXPECTED = Object.freeze({
   venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
   performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
   founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
-  finalMigration: '20260829220000_add_interview_clarification_resolutions',
-  manifestHash: '497d8023862cef2ad8cff7492844d8715c139d1abd6c338e5cd186c5be6ea757',
-  // The reviewed 62-migration suffix after B.5 adds 37 public tables.
-  finalPublicTableCount: 230,
+  finalMigration: '20260829223000_add_file_clarification_resolutions',
+  manifestHash: '76615b8c9b2476e11f3c7cdca262c7c40fe6d5343a2b947c0b165e78db725c36',
+  // The reviewed 63-migration suffix after B.5 adds 38 public tables.
+  finalPublicTableCount: 231,
 })
 
 // These are the exact checksums preserved by the verified 52-row production

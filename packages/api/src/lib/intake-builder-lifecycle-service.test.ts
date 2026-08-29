@@ -233,6 +233,7 @@ describe('getIntakeBuilderLifecycle', () => {
         question: 'Which holiday schedule applies?',
         status: 'PENDING',
         answer: null,
+        answeredAt: null,
         evidence: [],
         callbackMetadata: {
           receiptId,
@@ -243,6 +244,31 @@ describe('getIntakeBuilderLifecycle', () => {
         blocking: false,
         agentIdentityId: 'identity-a',
         updatedAt: new Date('2026-08-29T03:35:00.000Z'),
+        fileClarificationResolution: null,
+      },
+      {
+        id: 'question-resolved',
+        question: 'Is the east entrance accessible?',
+        status: 'ANSWERED',
+        answer: 'Yes, use the accessible east entrance.',
+        answeredAt: new Date('2026-08-29T03:36:00.000Z'),
+        evidence: [],
+        callbackMetadata: {
+          receiptId,
+          fieldPath: 'knowledge.accessibility',
+          reason: 'MISSING_CONTEXT',
+          blockerScope: 'FOUNDATIONAL',
+        },
+        blocking: true,
+        agentIdentityId: 'identity-a',
+        updatedAt: new Date('2026-08-29T03:37:00.000Z'),
+        fileClarificationResolution: {
+          id: 'resolution-a',
+          kind: 'REPLACE_EXCERPT',
+          amendedExcerpt: 'Use the accessible east entrance.',
+          rationale: 'Founder supplied the missing accessibility detail.',
+          createdAt: new Date('2026-08-29T03:38:00.000Z'),
+        },
       },
     ])
 
@@ -262,6 +288,7 @@ describe('getIntakeBuilderLifecycle', () => {
       carriedForward: true,
       canCreate: false,
       foundationalPending: 0,
+      foundationalAnsweredAwaitingAmendment: 0,
       localPending: 1,
       questions: [
         {
@@ -269,6 +296,15 @@ describe('getIntakeBuilderLifecycle', () => {
           blockerScope: 'LOCAL',
           blocksTerminalReview: false,
           status: 'PENDING',
+        },
+        {
+          id: 'question-resolved',
+          status: 'ANSWERED',
+          resolution: {
+            resolutionId: 'resolution-a',
+            kind: 'REPLACE_EXCERPT',
+            grantsAuthority: false,
+          },
         },
       ],
     })

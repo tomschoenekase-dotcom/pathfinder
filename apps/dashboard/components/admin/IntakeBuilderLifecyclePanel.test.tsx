@@ -11,6 +11,7 @@ const clarificationMutate = vi.fn()
 const interviewClarificationMutate = vi.fn()
 const interviewResolutionMutate = vi.fn()
 const fileClarificationMutate = vi.fn()
+const fileResolutionMutate = vi.fn()
 const mappingQuery = vi.fn()
 const mappingMutate = vi.fn()
 vi.mock('../../lib/trpc', () => ({
@@ -24,6 +25,7 @@ vi.mock('../../lib/trpc', () => ({
       createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
       resolveInterviewClarification: { mutate: interviewResolutionMutate },
       createFileExtractionClarificationQuestion: { mutate: fileClarificationMutate },
+      resolveFileExtractionClarification: { mutate: fileResolutionMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
       createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
     },
@@ -820,6 +822,139 @@ describe('IntakeBuilderLifecyclePanel', () => {
       ).disabled,
     ).toBe(false)
     expect(screen.queryByText(/Acceptance stays disabled/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('records an answered foundational file amendment before enabling terminal acceptance', async () => {
+    const receiptId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    const answeredAt = new Date('2026-08-29T22:00:00.000Z')
+    const requestId = '868c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(requestId)
+    const question = {
+      id: 'question-foundational',
+      fieldPath: 'knowledge.accessibility',
+      reason: 'MISSING_CONTEXT',
+      blockerScope: 'FOUNDATIONAL',
+      blocksTerminalReview: true,
+      question: 'Is the east entrance accessible?',
+      status: 'ANSWERED',
+      answer: 'Use the accessible east entrance.',
+      answeredAt,
+      evidence: [
+        {
+          label: 'knowledge.accessibility',
+          reference: `intake-file-extraction:${receiptId}`,
+          summary: 'Guests should use the east entrance.',
+        },
+      ],
+      agentIdentityId: 'identity-a',
+      updatedAt: answeredAt,
+      answerGuidanceOnly: true,
+      resolution: null,
+    }
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      fileUpload: null,
+      fileExtraction: null,
+      fileExtractionReview: {
+        receiptId,
+        extractor: 'pathfinder-utf8-document',
+        extractorVersion: '1',
+        extractedTextHash: 'd'.repeat(64),
+        extractedCharacterCount: 45,
+        extractedLineCount: 1,
+        preview: 'Guests should use the east entrance.',
+        previewTruncated: false,
+        createdAt: new Date('2026-08-29T21:00:00.000Z'),
+        reviewRequired: true,
+        review: null,
+        grantsAuthority: false,
+      },
+      fileClarificationReview: {
+        receiptId,
+        extractedTextHash: 'd'.repeat(64),
+        sourceRunId: 'run-file',
+        carriedForward: false,
+        canCreate: true,
+        questions: [question],
+        eligibleIdentities: [],
+        foundationalPending: 0,
+        foundationalAnsweredAwaitingAmendment: 1,
+        localPending: 0,
+        answersGrantAuthority: false,
+        sourceAmendmentRequired: true,
+      },
+      websiteClarificationReview: null,
+      interviewClarificationReview: null,
+      currentStage: 'CONSTRUCT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_EXTRACTION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'EXTRACT', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'CONSTRUCT', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    const resolvedLifecycle = {
+      ...lifecycle,
+      fileClarificationReview: {
+        ...lifecycle.fileClarificationReview,
+        foundationalAnsweredAwaitingAmendment: 0,
+        questions: [
+          {
+            ...question,
+            resolution: {
+              resolutionId: 'resolution-a',
+              kind: 'REPLACE_EXCERPT',
+              amendedExcerpt: 'Use the accessible east entrance.',
+              rationale: 'Founder supplied the missing accessibility detail.',
+              createdAt: new Date('2026-08-29T22:05:00.000Z'),
+              grantsAuthority: false,
+            },
+          },
+        ],
+      },
+    }
+    query.mockResolvedValueOnce(lifecycle).mockResolvedValueOnce(resolvedLifecycle)
+    fileResolutionMutate.mockResolvedValue({ resolutionId: 'resolution-a' })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    expect(
+      (await screen.findByRole('button', {
+        name: 'Create awaiting-review proposal',
+      })) as HTMLButtonElement,
+    ).toHaveProperty('disabled', true)
+    fireEvent.change(screen.getByLabelText('Amendment rationale'), {
+      target: { value: 'Founder supplied the missing accessibility detail.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Record file amendment' }))
+
+    await waitFor(() =>
+      expect(fileResolutionMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-file',
+        receiptId,
+        requestId,
+        expectedExtractedTextHash: 'd'.repeat(64),
+        questionId: 'question-foundational',
+        expectedAnsweredAt: answeredAt,
+        kind: 'REPLACE_EXCERPT',
+        amendedExcerpt: 'Use the accessible east entrance.',
+        rationale: 'Founder supplied the missing accessibility detail.',
+      }),
+    )
+    expect(await screen.findByText('Immutable file amendment recorded')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Record file amendment' })).toBeNull()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 })

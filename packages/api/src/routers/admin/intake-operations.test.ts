@@ -134,7 +134,13 @@ function extractionReviewCandidateRun() {
       proposalNotesHash,
       rationale: 'The selected statement is clear and relevant.',
       createdBy: 'platform-admin',
-      receipt: { sourceSha256, sourceMimeType: 'text/plain' },
+      clarificationResolutionCount: 0,
+      clarificationResolutionDigest: null,
+      receipt: {
+        sourceSha256,
+        sourceMimeType: 'text/plain',
+        clarificationResolutions: [],
+      },
     },
   }
 }

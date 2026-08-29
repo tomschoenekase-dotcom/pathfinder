@@ -132,6 +132,7 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
         question: 'Which holiday-hours schedule should Builder use?',
         status: 'PENDING',
         answer: null,
+        answeredAt: null,
         evidence: [
           {
             label: 'venue.operations.holidayHours',
@@ -141,11 +142,13 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
         ],
         agentIdentityId: 'fixture-content-identity',
         updatedAt: new Date('2026-08-29T03:35:00.000Z'),
+        resolution: null,
         answerGuidanceOnly: true,
       },
     ],
     eligibleIdentities: [{ id: 'fixture-content-identity', name: 'Builder content' }],
     foundationalPending: 0,
+    foundationalAnsweredAwaitingAmendment: 0,
     localPending: 1,
     answersGrantAuthority: false,
     sourceAmendmentRequired: true,

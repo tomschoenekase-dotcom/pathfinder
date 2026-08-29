@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -15,14 +17,14 @@ const createEvent = vi.fn()
 const createEvents = vi.fn()
 const createAudit = vi.fn()
 const executeRaw = vi.fn()
-const findQuestion = vi.fn()
+const findQuestions = vi.fn()
 const client = {
   intakeRun: { findFirst: findRun, create: createRun },
   intakeEvidenceRecord: { create: createEvidence },
   intakeRunEvent: { create: createEvent, createMany: createEvents },
   intakeFileExtractionReceipt: { findFirst: findReceipt },
   intakeFileExtractionReview: { findUnique: findReview, create: createReview },
-  agentQuestion: { findFirst: findQuestion },
+  agentQuestion: { findMany: findQuestions },
   auditLog: { create: createAudit },
   $executeRaw: executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(client)),
@@ -74,7 +76,7 @@ describe('intake file extraction review action', () => {
     createEvents.mockResolvedValue({ count: 2 })
     createAudit.mockResolvedValue({ id: 'audit-a' })
     executeRaw.mockResolvedValue(1)
-    findQuestion.mockResolvedValue(null)
+    findQuestions.mockResolvedValue([])
   })
 
   it('accepts exact reviewed notes into only a new awaiting-review proposal', async () => {
@@ -148,11 +150,21 @@ describe('intake file extraction review action', () => {
     expect(createEvidence).not.toHaveBeenCalled()
     expect(createEvents).not.toHaveBeenCalled()
     expect(result).toMatchObject({ proposalCreated: false, proposalRunId: null })
-    expect(findQuestion).not.toHaveBeenCalled()
+    expect(findQuestions).not.toHaveBeenCalled()
   })
 
   it('blocks acceptance only while an exact foundational file clarification remains unresolved', async () => {
-    findQuestion.mockResolvedValueOnce({ id: 'question-a' })
+    findQuestions.mockResolvedValueOnce([
+      {
+        id: 'question-a',
+        blocking: true,
+        status: 'PENDING',
+        answer: null,
+        answeredAt: null,
+        callbackMetadata: {},
+        fileClarificationResolution: null,
+      },
+    ])
 
     await expect(
       reviewIntakeFileExtractionAction(accepted() as never, client as never),
@@ -161,12 +173,10 @@ describe('intake file extraction review action', () => {
       message: expect.stringContaining('Answer every foundational file clarification'),
     })
     expect(createRun).not.toHaveBeenCalled()
-    expect(findQuestion).toHaveBeenCalledWith(
+    expect(findQuestions).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           category: 'builder-file-clarification',
-          blocking: true,
-          status: { not: 'ANSWERED' },
           AND: [
             { callbackMetadata: { path: ['receiptId'], equals: receiptId } },
             { callbackMetadata: { path: ['runId'], equals: 'source-run-a' } },
@@ -178,16 +188,113 @@ describe('intake file extraction review action', () => {
   })
 
   it('continues unrelated proposal work while a local clarification remains unresolved', async () => {
-    findQuestion.mockResolvedValueOnce(null)
+    findQuestions.mockResolvedValueOnce([
+      {
+        id: 'question-local',
+        blocking: false,
+        status: 'PENDING',
+        answer: null,
+        answeredAt: null,
+        callbackMetadata: {},
+        fileClarificationResolution: null,
+      },
+    ])
 
     await expect(
       reviewIntakeFileExtractionAction(accepted() as never, client as never),
     ).resolves.toMatchObject({ proposalCreated: true, proposalRunId: 'proposal-run-a' })
 
-    expect(findQuestion).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ blocking: true }) }),
-    )
+    expect(findQuestions).toHaveBeenCalledOnce()
     expect(createRun).toHaveBeenCalledOnce()
+  })
+
+  it('requires an immutable amendment after an answered foundational clarification', async () => {
+    findQuestions.mockResolvedValueOnce([
+      {
+        id: 'question-a',
+        blocking: true,
+        status: 'ANSWERED',
+        answer: 'Use the east entrance.',
+        answeredAt: new Date('2026-08-29T17:00:00.000Z'),
+        callbackMetadata: {},
+        fileClarificationResolution: null,
+      },
+    ])
+
+    await expect(
+      reviewIntakeFileExtractionAction(accepted() as never, client as never),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('exact source amendment'),
+    })
+    expect(createRun).not.toHaveBeenCalled()
+  })
+
+  it('snapshots an exact answered clarification amendment into the proposal', async () => {
+    const answer = 'Use the east entrance.'
+    const answeredAt = new Date('2026-08-29T17:00:00.000Z')
+    const answerHash = createHash('sha256').update(answer).digest('hex')
+    findQuestions.mockResolvedValueOnce([
+      {
+        id: 'question-a',
+        blocking: true,
+        status: 'ANSWERED',
+        answer,
+        answeredAt,
+        callbackMetadata: {
+          fieldPath: 'knowledge.arrival',
+          reason: 'MISSING_CONTEXT',
+          blockerScope: 'FOUNDATIONAL',
+          excerptHash: 'c'.repeat(64),
+        },
+        fileClarificationResolution: {
+          id: 'resolution-a',
+          receiptId,
+          runId: 'source-run-a',
+          expectedExtractedTextHash: textHash,
+          fieldPath: 'knowledge.arrival',
+          reason: 'MISSING_CONTEXT',
+          blockerScope: 'FOUNDATIONAL',
+          excerptHash: 'c'.repeat(64),
+          answerHash,
+          answeredAt,
+          kind: 'REPLACE_EXCERPT',
+          amendedExcerptHash: 'd'.repeat(64),
+        },
+      },
+    ])
+
+    await reviewIntakeFileExtractionAction(accepted() as never, client as never)
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          structuredBootstrap: expect.objectContaining({
+            clarificationResolutions: expect.objectContaining({
+              version: 1,
+              count: 1,
+              digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+              receipts: [
+                expect.objectContaining({
+                  resolutionId: 'resolution-a',
+                  questionId: 'question-a',
+                  answerHash,
+                  answeredAt: answeredAt.toISOString(),
+                }),
+              ],
+            }),
+          }),
+        }),
+      }),
+    )
+    expect(createReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          clarificationResolutionCount: 1,
+          clarificationResolutionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      }),
+    )
   })
 
   it('replays only the exact terminal human decision', async () => {

@@ -78,6 +78,7 @@ const APPEND_ONLY_MODELS = [
   'IntakeWebsiteResearchReceipt',
   'IntakeFileExtractionReceipt',
   'IntakeFileExtractionReview',
+  'IntakeFileClarificationResolution',
   'IntakeInterviewClarificationResolution',
   'IntakeUploadVerificationReceipt',
   'IntakeRunEvent',

@@ -70,6 +70,8 @@ const storedReviewSelect = {
   proposalTitle: true,
   proposalNotes: true,
   proposalNotesHash: true,
+  clarificationResolutionCount: true,
+  clarificationResolutionDigest: true,
   rationale: true,
   createdBy: true,
   createdAt: true,
@@ -204,14 +206,22 @@ export async function reviewIntakeFileExtractionAction(
         'This extraction receipt already has a terminal human review.',
       )
     }
+    const clarificationResolutionReceipts: Array<{
+      resolutionId: string
+      questionId: string
+      fieldPath: string
+      kind: 'REPLACE_EXCERPT' | 'EXCLUDE_EVIDENCE'
+      answerHash: string
+      answeredAt: string
+      amendedExcerptHash: string | null
+    }> = []
+    let clarificationResolutionDigest: string | null = null
     if (input.decision === 'ACCEPTED_FOR_PROPOSAL') {
-      const unresolvedClarification = await tx.agentQuestion.findFirst({
+      const fileClarifications = await tx.agentQuestion.findMany({
         where: {
           tenantId: input.tenantId,
           venueId: input.venueId,
           category: 'builder-file-clarification',
-          blocking: true,
-          status: { not: 'ANSWERED' },
           AND: [
             { callbackMetadata: { path: ['receiptId'], equals: input.receiptId } },
             { callbackMetadata: { path: ['runId'], equals: input.sourceRunId } },
@@ -223,14 +233,94 @@ export async function reviewIntakeFileExtractionAction(
             },
           ],
         },
-        select: { id: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 51,
+        select: {
+          id: true,
+          blocking: true,
+          status: true,
+          answer: true,
+          answeredAt: true,
+          callbackMetadata: true,
+          fileClarificationResolution: {
+            select: {
+              id: true,
+              receiptId: true,
+              runId: true,
+              expectedExtractedTextHash: true,
+              fieldPath: true,
+              reason: true,
+              blockerScope: true,
+              excerptHash: true,
+              answerHash: true,
+              answeredAt: true,
+              kind: true,
+              amendedExcerptHash: true,
+            },
+          },
+        },
       })
-      if (unresolvedClarification) {
+      if (fileClarifications.length > 50) {
+        throw new IntakeFileExtractionReviewActionError(
+          'CONFLICT',
+          'The exact extraction has more than 50 clarification tickets; review and consolidate them before acceptance.',
+        )
+      }
+      if (fileClarifications.some(({ blocking, status }) => blocking && status !== 'ANSWERED')) {
         throw new IntakeFileExtractionReviewActionError(
           'CONFLICT',
           'Answer every foundational file clarification before accepting this extraction into a proposal.',
         )
       }
+      for (const question of fileClarifications) {
+        if (question.status !== 'ANSWERED') continue
+        const resolution = question.fileClarificationResolution
+        if (!resolution) {
+          if (question.blocking) {
+            throw new IntakeFileExtractionReviewActionError(
+              'CONFLICT',
+              'Record an exact source amendment for every answered foundational file clarification before acceptance.',
+            )
+          }
+          continue
+        }
+        const metadata =
+          question.callbackMetadata &&
+          typeof question.callbackMetadata === 'object' &&
+          !Array.isArray(question.callbackMetadata)
+            ? (question.callbackMetadata as Record<string, unknown>)
+            : {}
+        if (
+          !question.answer ||
+          !question.answeredAt ||
+          resolution.receiptId !== input.receiptId ||
+          resolution.runId !== input.sourceRunId ||
+          resolution.expectedExtractedTextHash !== input.expectedExtractedTextHash ||
+          resolution.fieldPath !== metadata.fieldPath ||
+          resolution.reason !== metadata.reason ||
+          resolution.blockerScope !== metadata.blockerScope ||
+          resolution.excerptHash !== metadata.excerptHash ||
+          resolution.answerHash !== sha256(question.answer) ||
+          resolution.answeredAt.getTime() !== question.answeredAt.getTime()
+        ) {
+          throw new IntakeFileExtractionReviewActionError(
+            'CONFLICT',
+            'A retained file clarification amendment no longer matches its exact question evidence.',
+          )
+        }
+        clarificationResolutionReceipts.push({
+          resolutionId: resolution.id,
+          questionId: question.id,
+          fieldPath: resolution.fieldPath,
+          kind: resolution.kind,
+          answerHash: resolution.answerHash,
+          answeredAt: resolution.answeredAt.toISOString(),
+          amendedExcerptHash: resolution.amendedExcerptHash,
+        })
+      }
+      clarificationResolutionDigest = clarificationResolutionReceipts.length
+        ? sha256(JSON.stringify(clarificationResolutionReceipts))
+        : null
     }
     const requestCollision = await tx.intakeRun.findFirst({
       where: { tenantId: input.tenantId, submissionRequestId: input.operationId },
@@ -262,6 +352,12 @@ export async function reviewIntakeFileExtractionAction(
                 proposalNotes: input.proposalNotes!,
                 proposalNotesHash: proposalNotesHash!,
                 reviewRationale: input.rationale,
+                clarificationResolutions: {
+                  version: 1,
+                  count: clarificationResolutionReceipts.length,
+                  digest: clarificationResolutionDigest,
+                  receipts: clarificationResolutionReceipts,
+                },
               },
               submissionRequestId: input.operationId,
               submissionInputHash: hash,
@@ -287,6 +383,8 @@ export async function reviewIntakeFileExtractionAction(
         ...(input.proposalTitle ? { proposalTitle: input.proposalTitle } : {}),
         ...(input.proposalNotes ? { proposalNotes: input.proposalNotes } : {}),
         ...(proposalNotesHash ? { proposalNotesHash } : {}),
+        clarificationResolutionCount: clarificationResolutionReceipts.length,
+        ...(clarificationResolutionDigest ? { clarificationResolutionDigest } : {}),
         rationale: input.rationale,
         createdBy: input.createdBy,
       },
@@ -319,6 +417,8 @@ export async function reviewIntakeFileExtractionAction(
               extractionReceiptId: input.receiptId,
               extractionReviewId: review.id,
               proposalNotesHash,
+              clarificationResolutionCount: clarificationResolutionReceipts.length,
+              clarificationResolutionDigest,
               status: 'AWAITING_REVIEW',
               packageDraftCreated: false,
               autoApproved: false,
@@ -335,6 +435,8 @@ export async function reviewIntakeFileExtractionAction(
             metadata: {
               extractionReviewId: review.id,
               proposalNotesHash,
+              clarificationResolutionCount: clarificationResolutionReceipts.length,
+              clarificationResolutionDigest,
             },
           },
         ],
@@ -354,6 +456,8 @@ export async function reviewIntakeFileExtractionAction(
           expectedExtractedTextHash: input.expectedExtractedTextHash,
           proposalRunId: proposal?.id ?? null,
           proposalNotesHash,
+          clarificationResolutionCount: clarificationResolutionReceipts.length,
+          clarificationResolutionDigest,
           proposalCreated: Boolean(proposal),
           proposalStatus: proposal ? 'AWAITING_REVIEW' : null,
           packageDraftCreated: false,
@@ -380,6 +484,8 @@ export async function reviewIntakeFileExtractionAction(
           expectedExtractedTextHash: input.expectedExtractedTextHash,
           proposalRunId: proposal?.id ?? null,
           proposalNotesHash,
+          clarificationResolutionCount: clarificationResolutionReceipts.length,
+          clarificationResolutionDigest,
           proposalCreated: Boolean(proposal),
           proposalStatus: proposal ? 'AWAITING_REVIEW' : null,
           packageDraftCreated: false,

@@ -336,11 +336,21 @@ export async function getIntakeBuilderLifecycle(input: {
             question: true,
             status: true,
             answer: true,
+            answeredAt: true,
             evidence: true,
             callbackMetadata: true,
             blocking: true,
             agentIdentityId: true,
             updatedAt: true,
+            fileClarificationResolution: {
+              select: {
+                id: true,
+                kind: true,
+                amendedExcerpt: true,
+                rationale: true,
+                createdAt: true,
+              },
+            },
           },
         })
       : Promise.resolve([]),
@@ -599,15 +609,31 @@ export async function getIntakeBuilderLifecycle(input: {
                 question: question.question,
                 status: question.status,
                 answer: question.answer,
+                answeredAt: question.answeredAt,
                 evidence,
                 agentIdentityId: question.agentIdentityId,
                 updatedAt: question.updatedAt,
+                resolution: question.fileClarificationResolution
+                  ? {
+                      resolutionId: question.fileClarificationResolution.id,
+                      kind: question.fileClarificationResolution.kind,
+                      amendedExcerpt: question.fileClarificationResolution.amendedExcerpt,
+                      rationale: question.fileClarificationResolution.rationale,
+                      createdAt: question.fileClarificationResolution.createdAt,
+                      grantsAuthority: false as const,
+                    }
+                  : null,
                 answerGuidanceOnly: true as const,
               }
             }),
             eligibleIdentities: clarificationIdentities,
             foundationalPending: fileClarificationQuestions.filter(
-              ({ blocking, status }) => blocking && status !== 'ANSWERED',
+              ({ blocking, status, fileClarificationResolution }) =>
+                blocking && (status !== 'ANSWERED' || fileClarificationResolution === null),
+            ).length,
+            foundationalAnsweredAwaitingAmendment: fileClarificationQuestions.filter(
+              ({ blocking, status, fileClarificationResolution }) =>
+                blocking && status === 'ANSWERED' && fileClarificationResolution === null,
             ).length,
             localPending: fileClarificationQuestions.filter(
               ({ blocking, status }) => !blocking && status !== 'ANSWERED',

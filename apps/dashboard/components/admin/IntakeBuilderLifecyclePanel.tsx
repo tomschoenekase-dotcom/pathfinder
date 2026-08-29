@@ -20,6 +20,13 @@ type InterviewResolutionInput = {
   amendedPublicText?: string
   rationale: string
 }
+type FileResolutionInput = {
+  questionId: string
+  expectedAnsweredAt: Date
+  kind: 'REPLACE_EXCERPT' | 'EXCLUDE_EVIDENCE'
+  amendedExcerpt?: string
+  rationale: string
+}
 
 const stateStyles: Record<Stage['state'], string> = {
   COMPLETE: 'border-emerald-200 bg-emerald-50 text-emerald-900',
@@ -125,6 +132,90 @@ function InterviewResolutionEditor({
   )
 }
 
+function FileResolutionEditor({
+  questionId,
+  answer,
+  answeredAt,
+  busy,
+  onResolve,
+}: {
+  questionId: string
+  answer: string
+  answeredAt: Date
+  busy: boolean
+  onResolve: (input: FileResolutionInput) => void
+}) {
+  const [kind, setKind] = useState<'REPLACE_EXCERPT' | 'EXCLUDE_EVIDENCE'>('REPLACE_EXCERPT')
+  const [amendedExcerpt, setAmendedExcerpt] = useState(answer)
+  const [rationale, setRationale] = useState('')
+  const canSubmit =
+    rationale.trim().length > 0 &&
+    (kind === 'EXCLUDE_EVIDENCE' || amendedExcerpt.trim().length > 0) &&
+    !busy
+
+  return (
+    <div className="mt-3 border-t border-amber-100 pt-3">
+      <p className="text-xs font-semibold text-amber-950">Explicit file source amendment</p>
+      <p className="mt-1 text-xs text-amber-900/80">
+        Replace the affected excerpt with reviewed evidence or exclude it. The terminal extraction
+        review remains separate and no package authority is granted.
+      </p>
+      <label className="mt-3 block text-xs font-medium text-pf-deep">
+        Resolution
+        <select
+          value={kind}
+          onChange={(event) =>
+            setKind(event.target.value as 'REPLACE_EXCERPT' | 'EXCLUDE_EVIDENCE')
+          }
+          className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+        >
+          <option value="REPLACE_EXCERPT">Use reviewed replacement excerpt</option>
+          <option value="EXCLUDE_EVIDENCE">Exclude affected evidence</option>
+        </select>
+      </label>
+      {kind === 'REPLACE_EXCERPT' ? (
+        <label className="mt-3 block text-xs font-medium text-pf-deep">
+          Reviewed replacement excerpt
+          <textarea
+            value={amendedExcerpt}
+            onChange={(event) => setAmendedExcerpt(event.target.value)}
+            maxLength={2_000}
+            rows={3}
+            className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+          />
+        </label>
+      ) : null}
+      <label className="mt-3 block text-xs font-medium text-pf-deep">
+        Amendment rationale
+        <textarea
+          value={rationale}
+          onChange={(event) => setRationale(event.target.value)}
+          maxLength={500}
+          rows={2}
+          placeholder="Explain why this replacement or exclusion is safe for terminal review."
+          className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={() =>
+          onResolve({
+            questionId,
+            expectedAnsweredAt: answeredAt,
+            kind,
+            ...(kind === 'REPLACE_EXCERPT' ? { amendedExcerpt: amendedExcerpt.trim() } : {}),
+            rationale: rationale.trim(),
+          })
+        }
+        className="mt-3 min-h-11 rounded-full bg-amber-800 px-5 text-sm font-semibold text-white transition-colors hover:bg-amber-950 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+      >
+        {busy ? 'Recording amendment…' : 'Record file amendment'}
+      </button>
+    </div>
+  )
+}
+
 export function IntakeBuilderLifecyclePanel({
   tenantId,
   venueId,
@@ -166,6 +257,8 @@ export function IntakeBuilderLifecyclePanel({
   >('LOCAL')
   const [fileClarificationQuestion, setFileClarificationQuestion] = useState('')
   const [fileClarificationExcerpt, setFileClarificationExcerpt] = useState('')
+  const [fileResolutionBusyId, setFileResolutionBusyId] = useState<string | null>(null)
+  const [fileResolutionError, setFileResolutionError] = useState<string | null>(null)
   const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
   const [mappingPreview, setMappingPreview] = useState<WebsiteMappingPreview | null>(null)
   const [mappingReviewed, setMappingReviewed] = useState(false)
@@ -176,6 +269,7 @@ export function IntakeBuilderLifecyclePanel({
   const extractionOperationId = useRef<string | null>(null)
   const extractionReviewOperationId = useRef<string | null>(null)
   const interviewResolutionOperationIds = useRef<Record<string, string>>({})
+  const fileResolutionOperationIds = useRef<Record<string, string>>({})
 
   useEffect(() => {
     sequence.current += 1
@@ -204,6 +298,8 @@ export function IntakeBuilderLifecyclePanel({
     setFileClarificationBlockerScope('LOCAL')
     setFileClarificationQuestion('')
     setFileClarificationExcerpt('')
+    setFileResolutionBusyId(null)
+    setFileResolutionError(null)
     setMappingSelections({})
     setMappingPreview(null)
     setMappingReviewed(false)
@@ -213,6 +309,7 @@ export function IntakeBuilderLifecyclePanel({
     extractionOperationId.current = null
     extractionReviewOperationId.current = null
     interviewResolutionOperationIds.current = {}
+    fileResolutionOperationIds.current = {}
   }, [runId, tenantId, venueId])
 
   async function load() {
@@ -363,6 +460,38 @@ export function IntakeBuilderLifecyclePanel({
       )
     } finally {
       setInterviewResolutionBusyId(null)
+    }
+  }
+
+  async function resolveFileSource(input: FileResolutionInput) {
+    const review = lifecycle?.fileClarificationReview
+    if (!review || fileResolutionBusyId) return
+    const requestId = fileResolutionOperationIds.current[input.questionId] ?? crypto.randomUUID()
+    fileResolutionOperationIds.current[input.questionId] = requestId
+    setFileResolutionBusyId(input.questionId)
+    setFileResolutionError(null)
+    try {
+      await client.admin.resolveFileExtractionClarification.mutate({
+        tenantId,
+        venueId,
+        runId: review.sourceRunId,
+        receiptId: review.receiptId,
+        requestId,
+        expectedExtractedTextHash: review.extractedTextHash,
+        questionId: input.questionId,
+        expectedAnsweredAt: input.expectedAnsweredAt,
+        kind: input.kind,
+        ...(input.amendedExcerpt === undefined ? {} : { amendedExcerpt: input.amendedExcerpt }),
+        rationale: input.rationale,
+      })
+      delete fileResolutionOperationIds.current[input.questionId]
+      await load()
+    } catch (cause) {
+      setFileResolutionError(
+        cause instanceof Error ? cause.message : 'File source amendment could not be retained.',
+      )
+    } finally {
+      setFileResolutionBusyId(null)
     }
   }
 
@@ -562,6 +691,9 @@ export function IntakeBuilderLifecyclePanel({
       interviewResolutionBusyId={interviewResolutionBusyId}
       interviewResolutionError={interviewResolutionError}
       onResolveInterviewClarification={(input) => void resolveInterviewSource(input)}
+      fileResolutionBusyId={fileResolutionBusyId}
+      fileResolutionError={fileResolutionError}
+      onResolveFileClarification={(input) => void resolveFileSource(input)}
       fileClarificationBusy={fileClarificationBusy}
       fileClarificationError={fileClarificationError}
       fileClarificationFieldPath={fileClarificationFieldPath}
@@ -621,6 +753,9 @@ export function IntakeBuilderLifecycleView({
   interviewResolutionBusyId = null,
   interviewResolutionError = null,
   onResolveInterviewClarification,
+  fileResolutionBusyId = null,
+  fileResolutionError = null,
+  onResolveFileClarification,
   fileClarificationBusy = false,
   fileClarificationError = null,
   fileClarificationFieldPath = '',
@@ -671,6 +806,9 @@ export function IntakeBuilderLifecycleView({
   interviewResolutionBusyId?: string | null
   interviewResolutionError?: string | null
   onResolveInterviewClarification?: (input: InterviewResolutionInput) => void
+  fileResolutionBusyId?: string | null
+  fileResolutionError?: string | null
+  onResolveFileClarification?: (input: FileResolutionInput) => void
   fileClarificationBusy?: boolean
   fileClarificationError?: string | null
   fileClarificationFieldPath?: string
@@ -717,7 +855,8 @@ export function IntakeBuilderLifecycleView({
   const interviewClarifications = lifecycle.interviewClarificationReview !== null
   const foundationalFileClarificationsResolved =
     lifecycle.fileClarificationReview?.questions.every(
-      ({ blocksTerminalReview, status }) => !blocksTerminalReview || status === 'ANSWERED',
+      ({ blocksTerminalReview, status, resolution }) =>
+        !blocksTerminalReview || (status === 'ANSWERED' && resolution !== null),
     ) ?? true
   return (
     <section
@@ -946,9 +1085,33 @@ export function IntakeBuilderLifecycleView({
                         </blockquote>
                       ))}
                       {item.status === 'ANSWERED' ? (
-                        <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
-                          Answer retained as guidance for the terminal review: {item.answer}
-                        </p>
+                        <>
+                          <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
+                            Answer retained as guidance for the terminal review: {item.answer}
+                          </p>
+                          {item.resolution ? (
+                            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
+                              <p className="font-semibold">Immutable file amendment recorded</p>
+                              <p className="mt-1">
+                                {item.resolution.kind === 'REPLACE_EXCERPT'
+                                  ? `Reviewed replacement: ${item.resolution.amendedExcerpt}`
+                                  : 'The affected source evidence is excluded from terminal review.'}
+                              </p>
+                              <p className="mt-1 text-emerald-900/75">
+                                Terminal human review is still required. This receipt grants no
+                                approval, apply, publication, or contact authority.
+                              </p>
+                            </div>
+                          ) : item.answer && item.answeredAt && onResolveFileClarification ? (
+                            <FileResolutionEditor
+                              questionId={item.id}
+                              answer={item.answer}
+                              answeredAt={item.answeredAt}
+                              busy={fileResolutionBusyId === item.id}
+                              onResolve={onResolveFileClarification}
+                            />
+                          ) : null}
+                        </>
                       ) : (
                         <p className="mt-2 text-xs font-semibold text-amber-900">
                           {item.blocksTerminalReview
@@ -1076,6 +1239,11 @@ export function IntakeBuilderLifecycleView({
               {fileClarificationError ? (
                 <p className="mt-2 text-sm text-rose-700" role="alert">
                   {fileClarificationError}
+                </p>
+              ) : null}
+              {fileResolutionError ? (
+                <p className="mt-2 text-sm text-rose-700" role="alert">
+                  {fileResolutionError}
                 </p>
               ) : null}
             </div>

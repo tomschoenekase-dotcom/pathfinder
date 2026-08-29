@@ -257,6 +257,7 @@ model Tenant {
   intakeWebsiteResearchReceipts      IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts       IntakeFileExtractionReceipt[]
   intakeFileExtractionReviews        IntakeFileExtractionReview[]
+  intakeFileClarificationResolutions IntakeFileClarificationResolution[]
   intakeInterviewResolutions         IntakeInterviewClarificationResolution[]
   intakePackageHandoffs              IntakePackageHandoff[]
   intakeUploads                      IntakeUpload[]
@@ -1408,6 +1409,7 @@ model Venue {
   intakeWebsiteResearchReceipts       IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts        IntakeFileExtractionReceipt[]
   intakeFileExtractionReviews         IntakeFileExtractionReview[]
+  intakeFileClarificationResolutions  IntakeFileClarificationResolution[]
   intakeInterviewResolutions          IntakeInterviewClarificationResolution[]
   intakePackageHandoffs               IntakePackageHandoff[]
   intakeUploads                       IntakeUpload[]
@@ -1786,6 +1788,7 @@ model IntakeRun {
   fileExtractionReceipts            IntakeFileExtractionReceipt[]
   fileExtractionSourceReviews       IntakeFileExtractionReview[]             @relation("IntakeFileExtractionReviewSource")
   fileExtractionProposalReview      IntakeFileExtractionReview?              @relation("IntakeFileExtractionReviewProposal")
+  fileClarificationResolutions      IntakeFileClarificationResolution[]
   interviewClarificationResolutions IntakeInterviewClarificationResolution[]
   packageHandoff                    IntakePackageHandoff?
   upload                            IntakeUpload?
@@ -1873,34 +1876,35 @@ model IntakeWebsiteResearchReceipt {
 /// upload. Extracted text is private review material and never grants package, approval, apply, or
 /// publication authority.
 model IntakeFileExtractionReceipt {
-  id                      String                      @id @db.Uuid
-  tenantId                String                      @map("tenant_id")
-  venueId                 String                      @map("venue_id")
-  runId                   String                      @map("run_id")
-  uploadId                String                      @map("upload_id")
-  requestId               String                      @map("request_id") @db.Uuid
-  requestHash             String                      @map("request_hash") @db.Char(64)
-  outcome                 IntakeFileExtractionOutcome
-  sourceObjectGeneration  String                      @map("source_object_generation") @db.Uuid
-  sourceStorageVersionId  String                      @map("source_storage_version_id") @db.VarChar(1024)
-  sourceSha256            String                      @map("source_sha256") @db.Char(64)
-  sourceByteSize          Int                         @map("source_byte_size")
-  sourceMimeType          String                      @map("source_mime_type") @db.VarChar(64)
-  extractor               String                      @db.VarChar(64)
-  extractorVersion        String                      @map("extractor_version") @db.VarChar(64)
-  extractedText           String?                     @map("extracted_text")
-  extractedTextHash       String?                     @map("extracted_text_hash") @db.Char(64)
-  extractedCharacterCount Int                         @default(0) @map("extracted_character_count")
-  extractedLineCount      Int                         @default(0) @map("extracted_line_count")
-  errorCode               String?                     @map("error_code") @db.VarChar(64)
-  errorMessage            String?                     @map("error_message") @db.VarChar(500)
-  createdBy               String                      @map("created_by") @db.VarChar(191)
-  createdAt               DateTime                    @default(now()) @map("created_at")
-  tenant                  Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                   Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  run                     IntakeRun                   @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  upload                  IntakeUpload                @relation(fields: [uploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  review                  IntakeFileExtractionReview?
+  id                       String                              @id @db.Uuid
+  tenantId                 String                              @map("tenant_id")
+  venueId                  String                              @map("venue_id")
+  runId                    String                              @map("run_id")
+  uploadId                 String                              @map("upload_id")
+  requestId                String                              @map("request_id") @db.Uuid
+  requestHash              String                              @map("request_hash") @db.Char(64)
+  outcome                  IntakeFileExtractionOutcome
+  sourceObjectGeneration   String                              @map("source_object_generation") @db.Uuid
+  sourceStorageVersionId   String                              @map("source_storage_version_id") @db.VarChar(1024)
+  sourceSha256             String                              @map("source_sha256") @db.Char(64)
+  sourceByteSize           Int                                 @map("source_byte_size")
+  sourceMimeType           String                              @map("source_mime_type") @db.VarChar(64)
+  extractor                String                              @db.VarChar(64)
+  extractorVersion         String                              @map("extractor_version") @db.VarChar(64)
+  extractedText            String?                             @map("extracted_text")
+  extractedTextHash        String?                             @map("extracted_text_hash") @db.Char(64)
+  extractedCharacterCount  Int                                 @default(0) @map("extracted_character_count")
+  extractedLineCount       Int                                 @default(0) @map("extracted_line_count")
+  errorCode                String?                             @map("error_code") @db.VarChar(64)
+  errorMessage             String?                             @map("error_message") @db.VarChar(500)
+  createdBy                String                              @map("created_by") @db.VarChar(191)
+  createdAt                DateTime                            @default(now()) @map("created_at")
+  tenant                   Tenant                              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run                      IntakeRun                           @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  upload                   IntakeUpload                        @relation(fields: [uploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  review                   IntakeFileExtractionReview?
+  clarificationResolutions IntakeFileClarificationResolution[]
 
   @@unique([tenantId, requestId], map: "intake_file_extraction_receipts_request_key")
   @@unique([uploadId, extractor, extractorVersion], map: "intake_file_extraction_receipts_extractor_key")
@@ -1914,27 +1918,29 @@ model IntakeFileExtractionReceipt {
 /// a new AWAITING_REVIEW structured proposal; it never creates a package or grants approval,
 /// apply, publication, provider, or contact authority.
 model IntakeFileExtractionReview {
-  id                        String                             @id @db.Uuid
-  tenantId                  String                             @map("tenant_id")
-  venueId                   String                             @map("venue_id")
-  sourceRunId               String                             @map("source_run_id")
-  receiptId                 String                             @map("receipt_id") @db.Uuid
-  proposalRunId             String?                            @unique(map: "intake_file_extraction_reviews_proposal_key") @map("proposal_run_id")
-  requestId                 String                             @map("request_id") @db.Uuid
-  requestHash               String                             @map("request_hash") @db.Char(64)
-  decision                  IntakeFileExtractionReviewDecision
-  expectedExtractedTextHash String                             @map("expected_extracted_text_hash") @db.Char(64)
-  proposalTitle             String?                            @map("proposal_title") @db.VarChar(255)
-  proposalNotes             String?                            @map("proposal_notes") @db.VarChar(20000)
-  proposalNotesHash         String?                            @map("proposal_notes_hash") @db.Char(64)
-  rationale                 String                             @db.VarChar(500)
-  createdBy                 String                             @map("created_by") @db.VarChar(191)
-  createdAt                 DateTime                           @default(now()) @map("created_at")
-  tenant                    Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                     Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  sourceRun                 IntakeRun                          @relation("IntakeFileExtractionReviewSource", fields: [sourceRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  receipt                   IntakeFileExtractionReceipt        @relation(fields: [receiptId, tenantId, venueId, sourceRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
-  proposalRun               IntakeRun?                         @relation("IntakeFileExtractionReviewProposal", fields: [proposalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                            String                             @id @db.Uuid
+  tenantId                      String                             @map("tenant_id")
+  venueId                       String                             @map("venue_id")
+  sourceRunId                   String                             @map("source_run_id")
+  receiptId                     String                             @map("receipt_id") @db.Uuid
+  proposalRunId                 String?                            @unique(map: "intake_file_extraction_reviews_proposal_key") @map("proposal_run_id")
+  requestId                     String                             @map("request_id") @db.Uuid
+  requestHash                   String                             @map("request_hash") @db.Char(64)
+  decision                      IntakeFileExtractionReviewDecision
+  expectedExtractedTextHash     String                             @map("expected_extracted_text_hash") @db.Char(64)
+  proposalTitle                 String?                            @map("proposal_title") @db.VarChar(255)
+  proposalNotes                 String?                            @map("proposal_notes") @db.VarChar(20000)
+  proposalNotesHash             String?                            @map("proposal_notes_hash") @db.Char(64)
+  clarificationResolutionCount  Int                                @default(0) @map("clarification_resolution_count")
+  clarificationResolutionDigest String?                            @map("clarification_resolution_digest") @db.Char(64)
+  rationale                     String                             @db.VarChar(500)
+  createdBy                     String                             @map("created_by") @db.VarChar(191)
+  createdAt                     DateTime                           @default(now()) @map("created_at")
+  tenant                        Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                         Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  sourceRun                     IntakeRun                          @relation("IntakeFileExtractionReviewSource", fields: [sourceRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  receipt                       IntakeFileExtractionReceipt        @relation(fields: [receiptId, tenantId, venueId, sourceRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  proposalRun                   IntakeRun?                         @relation("IntakeFileExtractionReviewProposal", fields: [proposalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, requestId], map: "intake_file_extraction_reviews_request_key")
   @@unique([receiptId], map: "intake_file_extraction_reviews_receipt_key")
@@ -1943,6 +1949,49 @@ model IntakeFileExtractionReview {
   @@unique([id, tenantId, venueId], map: "intake_file_extraction_reviews_scope_key")
   @@index([tenantId, venueId, sourceRunId, createdAt], map: "intake_file_extraction_reviews_source_created_idx")
   @@map("intake_file_extraction_reviews")
+}
+
+enum IntakeFileClarificationResolutionKind {
+  REPLACE_EXCERPT
+  EXCLUDE_EVIDENCE
+}
+
+/// Immutable human source-amendment receipt for one answered file clarification. It is retained
+/// beside the exact extraction receipt and terminal human review; it never creates a package or
+/// grants approval, apply, publication, provider, or contact authority.
+model IntakeFileClarificationResolution {
+  id                        String                                @id @db.Uuid
+  tenantId                  String                                @map("tenant_id")
+  venueId                   String                                @map("venue_id")
+  runId                     String                                @map("run_id")
+  receiptId                 String                                @map("receipt_id") @db.Uuid
+  questionId                String                                @map("question_id")
+  requestId                 String                                @map("request_id") @db.Uuid
+  expectedExtractedTextHash String                                @map("expected_extracted_text_hash") @db.Char(64)
+  fieldPath                 String                                @map("field_path") @db.VarChar(500)
+  reason                    String                                @db.VarChar(64)
+  blockerScope              String                                @map("blocker_scope") @db.VarChar(32)
+  excerptHash               String                                @map("excerpt_hash") @db.Char(64)
+  answerHash                String                                @map("answer_hash") @db.Char(64)
+  answeredAt                DateTime                              @map("answered_at")
+  kind                      IntakeFileClarificationResolutionKind
+  amendedExcerpt            String?                               @map("amended_excerpt") @db.VarChar(2000)
+  amendedExcerptHash        String?                               @map("amended_excerpt_hash") @db.Char(64)
+  rationale                 String                                @db.VarChar(500)
+  createdBy                 String                                @map("created_by") @db.VarChar(191)
+  createdAt                 DateTime                              @default(now()) @map("created_at")
+  tenant                    Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run                       IntakeRun                             @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  receipt                   IntakeFileExtractionReceipt           @relation(fields: [receiptId, tenantId, venueId, runId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  question                  AgentQuestion                         @relation(fields: [questionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "intake_file_resolutions_request_key")
+  @@unique([questionId], map: "intake_file_resolutions_question_key")
+  @@unique([questionId, tenantId, venueId], map: "intake_file_resolutions_question_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_file_resolutions_scope_key")
+  @@index([tenantId, venueId, runId, receiptId, createdAt], map: "intake_file_resolutions_receipt_created_idx")
+  @@map("intake_file_clarification_resolutions")
 }
 
 model IntakePackageHandoff {
@@ -5131,6 +5180,7 @@ model AgentQuestion {
   agentIdentity                    AgentIdentity                           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   agentRun                         AgentRun?                               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   onboardingLink                   OnboardingQuestionLink?
+  fileClarificationResolution      IntakeFileClarificationResolution?
   interviewClarificationResolution IntakeInterviewClarificationResolution?
 
   @@unique([id, tenantId])
