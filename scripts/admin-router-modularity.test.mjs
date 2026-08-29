@@ -270,6 +270,7 @@ const expectedAdminProcedures = [
   'revertNativeVenueDeployment',
   'revertVenuePackage',
   'reviewDeploymentManifest',
+  'reviewIntakeFileExtraction',
   'reviewKnowledgeProposal',
   'reviewOffboardingPlanExports',
   'reviewProspectEmailAttachmentRetention',
