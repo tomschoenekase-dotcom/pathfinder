@@ -49,6 +49,14 @@ export function IntakeBuilderLifecyclePanel({
   const [researchError, setResearchError] = useState<string | null>(null)
   const [extractionBusy, setExtractionBusy] = useState(false)
   const [extractionError, setExtractionError] = useState<string | null>(null)
+  const [extractionReviewBusy, setExtractionReviewBusy] = useState(false)
+  const [extractionReviewError, setExtractionReviewError] = useState<string | null>(null)
+  const [extractionReviewDecision, setExtractionReviewDecision] = useState<
+    'ACCEPTED_FOR_PROPOSAL' | 'REJECTED'
+  >('ACCEPTED_FOR_PROPOSAL')
+  const [extractionProposalTitle, setExtractionProposalTitle] = useState('')
+  const [extractionProposalNotes, setExtractionProposalNotes] = useState('')
+  const [extractionReviewRationale, setExtractionReviewRationale] = useState('')
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
@@ -60,6 +68,7 @@ export function IntakeBuilderLifecyclePanel({
   const sequence = useRef(0)
   const researchOperationId = useRef<string | null>(null)
   const extractionOperationId = useRef<string | null>(null)
+  const extractionReviewOperationId = useRef<string | null>(null)
 
   useEffect(() => {
     sequence.current += 1
@@ -70,6 +79,12 @@ export function IntakeBuilderLifecyclePanel({
     setResearchError(null)
     setExtractionBusy(false)
     setExtractionError(null)
+    setExtractionReviewBusy(false)
+    setExtractionReviewError(null)
+    setExtractionReviewDecision('ACCEPTED_FOR_PROPOSAL')
+    setExtractionProposalTitle('')
+    setExtractionProposalNotes('')
+    setExtractionReviewRationale('')
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
@@ -80,6 +95,7 @@ export function IntakeBuilderLifecyclePanel({
     setMappingError(null)
     researchOperationId.current = null
     extractionOperationId.current = null
+    extractionReviewOperationId.current = null
   }, [runId, tenantId, venueId])
 
   async function load() {
@@ -264,6 +280,47 @@ export function IntakeBuilderLifecyclePanel({
     }
   }
 
+  async function reviewFileExtraction() {
+    const extraction = lifecycle?.fileExtractionReview
+    if (!extraction || extraction.review || extractionReviewBusy) return
+    const accepted = extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL'
+    if (
+      !extractionReviewRationale.trim() ||
+      (accepted && (!extractionProposalTitle.trim() || !extractionProposalNotes.trim()))
+    )
+      return
+    const operationId = extractionReviewOperationId.current ?? crypto.randomUUID()
+    extractionReviewOperationId.current = operationId
+    setExtractionReviewBusy(true)
+    setExtractionReviewError(null)
+    try {
+      await client.admin.reviewIntakeFileExtraction.mutate({
+        tenantId,
+        venueId,
+        sourceRunId: runId,
+        receiptId: extraction.receiptId,
+        operationId,
+        expectedExtractedTextHash: extraction.extractedTextHash,
+        decision: extractionReviewDecision,
+        rationale: extractionReviewRationale.trim(),
+        ...(accepted
+          ? {
+              proposalTitle: extractionProposalTitle.trim(),
+              proposalNotes: extractionProposalNotes.trim(),
+            }
+          : {}),
+      })
+      extractionReviewOperationId.current = null
+      await load()
+    } catch (cause) {
+      setExtractionReviewError(
+        cause instanceof Error ? cause.message : 'The extraction review could not be retained.',
+      )
+    } finally {
+      setExtractionReviewBusy(false)
+    }
+  }
+
   if (!lifecycle) {
     return (
       <div className="mt-3">
@@ -293,6 +350,17 @@ export function IntakeBuilderLifecyclePanel({
       onRunFileExtraction={() => void runFileExtraction()}
       extractionBusy={extractionBusy}
       extractionError={extractionError}
+      extractionReviewBusy={extractionReviewBusy}
+      extractionReviewError={extractionReviewError}
+      extractionReviewDecision={extractionReviewDecision}
+      extractionProposalTitle={extractionProposalTitle}
+      extractionProposalNotes={extractionProposalNotes}
+      extractionReviewRationale={extractionReviewRationale}
+      onExtractionReviewDecisionChange={setExtractionReviewDecision}
+      onExtractionProposalTitleChange={setExtractionProposalTitle}
+      onExtractionProposalNotesChange={setExtractionProposalNotes}
+      onExtractionReviewRationaleChange={setExtractionReviewRationale}
+      onReviewFileExtraction={() => void reviewFileExtraction()}
       clarificationBusy={clarificationBusy}
       clarificationError={clarificationError}
       clarificationIdentityId={clarificationIdentityId}
@@ -325,6 +393,17 @@ export function IntakeBuilderLifecycleView({
   onRunFileExtraction,
   extractionBusy = false,
   extractionError = null,
+  extractionReviewBusy = false,
+  extractionReviewError = null,
+  extractionReviewDecision = 'ACCEPTED_FOR_PROPOSAL',
+  extractionProposalTitle = '',
+  extractionProposalNotes = '',
+  extractionReviewRationale = '',
+  onExtractionReviewDecisionChange,
+  onExtractionProposalTitleChange,
+  onExtractionProposalNotesChange,
+  onExtractionReviewRationaleChange,
+  onReviewFileExtraction,
   clarificationBusy = false,
   clarificationError = null,
   clarificationIdentityId = '',
@@ -348,6 +427,17 @@ export function IntakeBuilderLifecycleView({
   onRunFileExtraction?: () => void
   extractionBusy?: boolean
   extractionError?: string | null
+  extractionReviewBusy?: boolean
+  extractionReviewError?: string | null
+  extractionReviewDecision?: 'ACCEPTED_FOR_PROPOSAL' | 'REJECTED'
+  extractionProposalTitle?: string
+  extractionProposalNotes?: string
+  extractionReviewRationale?: string
+  onExtractionReviewDecisionChange?: (decision: 'ACCEPTED_FOR_PROPOSAL' | 'REJECTED') => void
+  onExtractionProposalTitleChange?: (title: string) => void
+  onExtractionProposalNotesChange?: (notes: string) => void
+  onExtractionReviewRationaleChange?: (rationale: string) => void
+  onReviewFileExtraction?: () => void
   clarificationBusy?: boolean
   clarificationError?: string | null
   clarificationIdentityId?: string
@@ -503,7 +593,8 @@ export function IntakeBuilderLifecycleView({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-violet-950">
-                Extracted text · review required
+                Extracted text ·{' '}
+                {lifecycle.fileExtractionReview.review ? 'review recorded' : 'review required'}
               </p>
               <p className="mt-1 text-xs text-violet-900/75">
                 Local deterministic output from {lifecycle.fileExtractionReview.extractor} v
@@ -512,7 +603,11 @@ export function IntakeBuilderLifecycleView({
               </p>
             </div>
             <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-900">
-              unreviewed
+              {lifecycle.fileExtractionReview.review
+                ? lifecycle.fileExtractionReview.review.decision === 'ACCEPTED_FOR_PROPOSAL'
+                  ? 'accepted for proposal'
+                  : 'rejected'
+                : 'unreviewed'}
             </span>
           </div>
           <dl className="mt-3 grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 text-sm sm:grid-cols-3">
@@ -547,9 +642,128 @@ export function IntakeBuilderLifecycleView({
             ) : null}
           </div>
           <p className="mt-3 text-xs leading-5 text-violet-900/75">
-            A separate exact review must decide what, if anything, can become structured venue
-            content. This receipt cannot create, approve, apply, or publish a package.
+            {lifecycle.fileExtractionReview.review
+              ? 'This terminal review cannot be changed. An accepted result is only a separate awaiting-review structured proposal.'
+              : 'A separate exact review must decide what, if anything, can become a structured proposal.'}{' '}
+            This receipt and review cannot create, approve, apply, or publish a package.
           </p>
+          {lifecycle.fileExtractionReview.review ? (
+            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">
+              <p className="font-semibold">
+                {lifecycle.fileExtractionReview.review.decision === 'ACCEPTED_FOR_PROPOSAL'
+                  ? 'Awaiting-review proposal created'
+                  : 'Extraction rejected · no proposal created'}
+              </p>
+              <p className="mt-1 text-xs leading-5">
+                Rationale: {lifecycle.fileExtractionReview.review.rationale}
+              </p>
+              {lifecycle.fileExtractionReview.review.proposalRunId ? (
+                <dl className="mt-2 grid gap-2 border-t border-violet-200 pt-2 text-xs sm:grid-cols-2">
+                  <div>
+                    <dt className="text-violet-900/70">Proposal</dt>
+                    <dd className="break-all font-mono">
+                      {lifecycle.fileExtractionReview.review.proposalRunId}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-violet-900/70">Status</dt>
+                    <dd className="font-semibold">
+                      {lifecycle.fileExtractionReview.review.proposalStatus
+                        ?.replaceAll('_', ' ')
+                        .toLowerCase() ?? 'unavailable'}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+            </div>
+          ) : onReviewFileExtraction ? (
+            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
+              <fieldset disabled={extractionReviewBusy}>
+                <legend className="text-sm font-semibold text-violet-950">
+                  Human extraction decision
+                </legend>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:gap-5">
+                  <label className="flex min-h-11 items-center gap-2 text-sm text-pf-deep">
+                    <input
+                      type="radio"
+                      name="extraction-review-decision"
+                      checked={extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL'}
+                      onChange={() => onExtractionReviewDecisionChange?.('ACCEPTED_FOR_PROPOSAL')}
+                    />
+                    Accept into a proposal
+                  </label>
+                  <label className="flex min-h-11 items-center gap-2 text-sm text-pf-deep">
+                    <input
+                      type="radio"
+                      name="extraction-review-decision"
+                      checked={extractionReviewDecision === 'REJECTED'}
+                      onChange={() => onExtractionReviewDecisionChange?.('REJECTED')}
+                    />
+                    Reject this extraction
+                  </label>
+                </div>
+                {extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' ? (
+                  <div className="mt-2 grid gap-3">
+                    <label className="text-xs font-medium text-pf-deep">
+                      Proposal title
+                      <input
+                        value={extractionProposalTitle}
+                        maxLength={255}
+                        onChange={(event) => onExtractionProposalTitleChange?.(event.target.value)}
+                        className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-pf-deep">
+                      Reviewed proposal notes
+                      <textarea
+                        value={extractionProposalNotes}
+                        maxLength={20_000}
+                        rows={7}
+                        onChange={(event) => onExtractionProposalNotesChange?.(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-pf-light bg-white p-3 text-sm leading-5"
+                      />
+                      <span className="mt-1 block font-normal text-pf-deep/65">
+                        Enter the exact reviewed notes. The bounded preview is never copied
+                        automatically.
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
+                <label className="mt-3 block text-xs font-medium text-pf-deep">
+                  Review rationale
+                  <textarea
+                    value={extractionReviewRationale}
+                    maxLength={500}
+                    rows={3}
+                    onChange={(event) => onExtractionReviewRationaleChange?.(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-pf-light bg-white p-3 text-sm leading-5"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={
+                    extractionReviewBusy ||
+                    !extractionReviewRationale.trim() ||
+                    (extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL' &&
+                      (!extractionProposalTitle.trim() || !extractionProposalNotes.trim()))
+                  }
+                  onClick={onReviewFileExtraction}
+                  className="mt-3 min-h-11 rounded-full bg-violet-800 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {extractionReviewBusy
+                    ? 'Retaining exact review…'
+                    : extractionReviewDecision === 'ACCEPTED_FOR_PROPOSAL'
+                      ? 'Create awaiting-review proposal'
+                      : 'Reject extraction'}
+                </button>
+              </fieldset>
+              {extractionReviewError ? (
+                <p className="mt-2 text-sm text-rose-700" role="alert">
+                  {extractionReviewError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -79,6 +79,92 @@ describe('getIntakeBuilderLifecycle', () => {
     ])
   })
 
+  it('exposes a terminal accepted extraction review as an awaiting-review proposal only', async () => {
+    const verifiedAt = new Date('2026-08-29T02:00:00.000Z')
+    const sha256 = 'c'.repeat(64)
+    const textHash = 'd'.repeat(64)
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-file',
+      sourceKind: 'FILE_UPLOAD',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 1 },
+      evidence: [
+        {
+          id: 'evidence-file',
+          sourceKind: 'FILE_UPLOAD',
+          locator: 'intake-upload:upload-a',
+          normalizedHash: sha256,
+          confidence: 1,
+        },
+      ],
+      upload: {
+        id: 'upload-a',
+        displayName: 'Staff notes',
+        fileName: 'staff-notes.txt',
+        mimeType: 'text/plain',
+        category: 'DOCUMENT',
+        byteSize: 18,
+        sha256,
+        status: 'AWAITING_REVIEW',
+        verifiedAt,
+      },
+      fileExtractionReceipts: [
+        {
+          id: '968c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          outcome: 'SUCCEEDED',
+          extractor: 'pathfinder-utf8-document',
+          extractorVersion: '1',
+          extractedText: 'Line one\nLine two',
+          extractedTextHash: textHash,
+          extractedCharacterCount: 18,
+          extractedLineCount: 2,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date('2026-08-29T03:00:00.000Z'),
+          review: {
+            id: 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca',
+            decision: 'ACCEPTED_FOR_PROPOSAL',
+            proposalRunId: 'proposal-a',
+            proposalTitle: 'Reviewed staff notes',
+            proposalNotesHash: 'e'.repeat(64),
+            rationale: 'The notes are legible and relevant.',
+            createdBy: 'admin-a',
+            createdAt: new Date('2026-08-29T03:05:00.000Z'),
+            proposalRun: { status: 'AWAITING_REVIEW' },
+          },
+        },
+      ],
+      websiteResearchReceipts: [],
+      packageHandoff: null,
+    })
+
+    const result = await getIntakeBuilderLifecycle({
+      db: { intakeRun: { findFirst } } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-file',
+    })
+
+    expect(result).toMatchObject({
+      currentStage: 'RECONCILE',
+      nextAction: 'REVIEW_STRUCTURED_PROPOSAL',
+      fileExtractionReview: {
+        receiptId: '968c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        reviewRequired: false,
+        grantsAuthority: false,
+        review: {
+          decision: 'ACCEPTED_FOR_PROPOSAL',
+          proposalRunId: 'proposal-a',
+          proposalStatus: 'AWAITING_REVIEW',
+          rationale: 'The notes are legible and relevant.',
+        },
+      },
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+    })
+  })
+
   it('uses exact scope and exposes research for a newly recorded zero-evidence website source', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'run-a',

@@ -71,9 +71,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 201-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 202-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 228)
+  assert.equal(EXPECTED.finalPublicTableCount, 229)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -156,6 +156,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828155000_allow_fenced_agent_bridge_takeover',
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
     ],
   )
   assert.equal(
@@ -170,6 +171,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828155000_allow_fenced_agent_bridge_takeover',
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
     ],
   )
   assert.equal(
@@ -182,6 +184,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828155000_allow_fenced_agent_bridge_takeover',
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
     ],
   )
   assert.equal(
@@ -193,6 +196,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     [
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -352,6 +356,7 @@ test('exact previous staging release advances only through the reviewed sixty-se
       '20260828155000_allow_fenced_agent_bridge_takeover',
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -415,6 +420,7 @@ test('exact previous staging release advances only through the reviewed sixty-se
     '20260828155000_allow_fenced_agent_bridge_takeover',
     '20260828174000_add_founder_absence_observations',
     '20260829032000_add_intake_file_extraction_receipts',
+    '20260829165000_add_intake_file_extraction_reviews',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

@@ -93,6 +93,7 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
     extractedLineCount: 5,
     errorCode: null,
     errorMessage: null,
+    review: null,
   },
   fileExtractionReview: {
     receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
@@ -106,6 +107,7 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
     previewTruncated: false,
     createdAt: new Date('2026-08-29T03:30:00.000Z'),
     reviewRequired: true,
+    review: null,
     grantsAuthority: false,
   },
   currentStage: 'CONSTRUCT',
@@ -146,8 +148,10 @@ export default function IntakeBuilderFileSourceFixture() {
       data-fixture="intake-builder-file-source"
       className="min-h-screen bg-pf-surface p-4 sm:p-8"
     >
+      <title>Torchiko Builder file extraction fixture</title>
       <div className="mx-auto max-w-5xl rounded-2xl border border-pf-light bg-white p-4 sm:p-6">
-        <p className="text-sm font-medium text-pf-deep">Document upload · verified source</p>
+        <h1 className="text-sm font-medium text-pf-deep">Document upload · verified source</h1>
+        <h2 className="sr-only">Verified source lifecycle</h2>
         <p className="mt-1 text-sm text-pf-deep/70">
           Immutable evidence retained · extraction review still required
         </p>
@@ -157,13 +161,24 @@ export default function IntakeBuilderFileSourceFixture() {
           onRunFileExtraction={() => undefined}
         />
         <div className="mt-8 border-t border-pf-light pt-6">
-          <p className="text-sm font-medium text-pf-deep">Document extraction · retained preview</p>
+          <h2 className="text-sm font-medium text-pf-deep">
+            Document extraction · retained preview
+          </h2>
           <p className="mt-1 text-sm text-pf-deep/70">
             Deterministic text remains private and unreviewed
           </p>
           <IntakeBuilderLifecycleView
             lifecycle={extractedLifecycle}
             ariaLabel="Builder lifecycle extracted text review"
+            extractionReviewDecision="ACCEPTED_FOR_PROPOSAL"
+            extractionProposalTitle="Reviewed visitor services notes"
+            extractionProposalNotes="General admission begins at 9:00 a.m. Holiday hours remain unresolved and require a separate clarification."
+            extractionReviewRationale="The retained text is legible and the exact proposal notes exclude the unresolved holiday-hours claim."
+            onExtractionReviewDecisionChange={() => undefined}
+            onExtractionProposalTitleChange={() => undefined}
+            onExtractionProposalNotesChange={() => undefined}
+            onExtractionReviewRationaleChange={() => undefined}
+            onReviewFileExtraction={() => undefined}
           />
         </div>
       </div>

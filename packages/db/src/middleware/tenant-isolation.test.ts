@@ -216,6 +216,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeRunEvent',
       'IntakeWebsiteResearchReceipt',
       'IntakeFileExtractionReceipt',
+      'IntakeFileExtractionReview',
       'IntakePackageHandoff',
       'IntakeUpload',
       'IntakeUploadVerificationReceipt',

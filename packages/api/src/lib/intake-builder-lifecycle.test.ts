@@ -232,6 +232,7 @@ describe('intake Builder lifecycle projection', () => {
         extractedLineCount: 2,
         errorCode: null,
         errorMessage: null,
+        review: null,
       },
     })
     expect(extracted).toMatchObject({
@@ -246,6 +247,85 @@ describe('intake Builder lifecycle projection', () => {
       state: 'COMPLETE',
       evidenceRefs: expect.arrayContaining(['file-extraction:receipt-a']),
     })
+  })
+
+  it('projects accepted and rejected extraction reviews without package authority', () => {
+    const fileUpload = {
+      uploadId: 'upload-a',
+      displayName: 'Staff notes',
+      fileName: 'staff-notes.txt',
+      mimeType: 'text/plain',
+      category: 'DOCUMENT',
+      byteSize: 120,
+      sha256: 'c'.repeat(64),
+      verifiedAt: new Date('2026-08-29T02:00:00.000Z'),
+      deterministicTextExtractionAvailable: true,
+    } as const
+    const fileExtraction = {
+      receiptId: 'receipt-a',
+      outcome: 'SUCCEEDED' as const,
+      extractor: 'pathfinder-utf8-document',
+      extractorVersion: '1',
+      extractedTextHash: 'd'.repeat(64),
+      extractedCharacterCount: 12,
+      extractedLineCount: 2,
+      errorCode: null,
+      errorMessage: null,
+    }
+    const accepted = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload,
+      fileExtraction: {
+        ...fileExtraction,
+        review: {
+          reviewId: 'review-a',
+          decision: 'ACCEPTED_FOR_PROPOSAL',
+          proposalRunId: 'proposal-a',
+          proposalNotesHash: 'e'.repeat(64),
+        },
+      },
+    })
+    expect(accepted).toMatchObject({
+      currentStage: 'RECONCILE',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_STRUCTURED_PROPOSAL',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+    })
+    expect(accepted.stages.find(({ stage }) => stage === 'CONSTRUCT')).toMatchObject({
+      state: 'COMPLETE',
+      evidenceRefs: expect.arrayContaining(['structured-proposal:proposal-a']),
+    })
+
+    const rejected = projectIntakeBuilderLifecycle({
+      ...base,
+      sourceKind: 'FILE_UPLOAD',
+      evidenceCount: 1,
+      candidate: null,
+      fileUpload,
+      fileExtraction: {
+        ...fileExtraction,
+        review: {
+          reviewId: 'review-b',
+          decision: 'REJECTED',
+          proposalRunId: null,
+          proposalNotesHash: null,
+        },
+      },
+    })
+    expect(rejected).toMatchObject({
+      currentStage: 'CONSTRUCT',
+      currentState: 'BLOCKED',
+      nextAction: 'REVIEW_FILE_SOURCE',
+    })
+    expect(rejected.stages.find(({ stage }) => stage === 'CONSTRUCT')?.blockers).toEqual([
+      expect.objectContaining({ code: 'FILE_EXTRACTION_REJECTED' }),
+    ])
   })
 
   it('fails a file source closed when immutable verification evidence is unavailable', () => {

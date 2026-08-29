@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const mutate = vi.fn()
 const extractionMutate = vi.fn()
+const extractionReviewMutate = vi.fn()
 const clarificationMutate = vi.fn()
 const interviewClarificationMutate = vi.fn()
 const mappingQuery = vi.fn()
@@ -16,6 +17,7 @@ vi.mock('../../lib/trpc', () => ({
       getIntakeBuilderLifecycle: { query },
       executeWebsiteIntakeResearch: { mutate },
       executeIntakeFileExtraction: { mutate: extractionMutate },
+      reviewIntakeFileExtraction: { mutate: extractionReviewMutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
       createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
@@ -408,9 +410,12 @@ describe('IntakeBuilderLifecyclePanel', () => {
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 
-  it('runs deterministic text extraction with one replay identity and renders review-only output', async () => {
+  it('extracts text and creates only an awaiting-review proposal from an exact human review', async () => {
     const operationId = '968c2e1a-8ece-47ad-98dc-e4bde64872ca'
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(operationId)
+    const reviewOperationId = 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(operationId)
+      .mockReturnValueOnce(reviewOperationId)
     const ready = {
       schemaVersion: 1,
       runId: 'run-file',
@@ -456,6 +461,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         extractedLineCount: 2,
         errorCode: null,
         errorMessage: null,
+        review: null,
       },
       fileExtractionReview: {
         receiptId: operationId,
@@ -468,6 +474,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         previewTruncated: false,
         createdAt: new Date('2026-08-29T03:00:00.000Z'),
         reviewRequired: true,
+        review: null,
         grantsAuthority: false,
       },
       currentStage: 'CONSTRUCT',
@@ -478,8 +485,51 @@ describe('IntakeBuilderLifecyclePanel', () => {
         { stage: 'CONSTRUCT', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
       ],
     }
-    query.mockResolvedValueOnce(ready).mockResolvedValueOnce(extracted)
+    const reviewed = {
+      ...extracted,
+      fileExtraction: {
+        ...extracted.fileExtraction,
+        review: {
+          reviewId: 'review-a',
+          decision: 'ACCEPTED_FOR_PROPOSAL',
+          proposalRunId: 'proposal-a',
+          proposalNotesHash: 'e'.repeat(64),
+        },
+      },
+      fileExtractionReview: {
+        ...extracted.fileExtractionReview,
+        reviewRequired: false,
+        review: {
+          reviewId: 'review-a',
+          decision: 'ACCEPTED_FOR_PROPOSAL',
+          proposalRunId: 'proposal-a',
+          proposalStatus: 'AWAITING_REVIEW',
+          proposalTitle: 'Reviewed staff notes',
+          proposalNotesHash: 'e'.repeat(64),
+          rationale: 'The notes are legible and relevant.',
+          createdBy: 'admin-a',
+          createdAt: new Date('2026-08-29T03:05:00.000Z'),
+        },
+      },
+      currentStage: 'RECONCILE',
+      nextAction: 'REVIEW_STRUCTURED_PROPOSAL',
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'EXTRACT', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'CONSTRUCT', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'RECONCILE', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    query
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValueOnce(extracted)
+      .mockResolvedValueOnce(reviewed)
     extractionMutate.mockResolvedValue({ receiptId: operationId })
+    extractionReviewMutate.mockResolvedValue({
+      reviewId: reviewOperationId,
+      proposalRunId: 'proposal-a',
+      proposalStatus: 'AWAITING_REVIEW',
+    })
 
     render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
     fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
@@ -500,6 +550,33 @@ describe('IntakeBuilderLifecyclePanel', () => {
       ),
     ).toBeTruthy()
     expect(screen.getByText(/cannot create, approve, apply, or publish/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Proposal title'), {
+      target: { value: 'Reviewed staff notes' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Reviewed proposal notes/u), {
+      target: { value: 'Reviewed hours and accessibility notes.' },
+    })
+    fireEvent.change(screen.getByLabelText('Review rationale'), {
+      target: { value: 'The notes are legible and relevant.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create awaiting-review proposal' }))
+
+    await waitFor(() =>
+      expect(extractionReviewMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        sourceRunId: 'run-file',
+        receiptId: operationId,
+        operationId: reviewOperationId,
+        expectedExtractedTextHash: 'd'.repeat(64),
+        decision: 'ACCEPTED_FOR_PROPOSAL',
+        proposalTitle: 'Reviewed staff notes',
+        proposalNotes: 'Reviewed hours and accessibility notes.',
+        rationale: 'The notes are legible and relevant.',
+      }),
+    )
+    expect(await screen.findByText('Awaiting-review proposal created')).toBeTruthy()
+    expect(screen.getByText('awaiting review')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 })

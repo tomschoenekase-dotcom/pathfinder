@@ -191,6 +191,11 @@ export {
   type RecordIntakeFileExtractionReceiptInput,
 } from './helpers/intake-file-extraction-actions'
 export {
+  IntakeFileExtractionReviewActionError,
+  reviewIntakeFileExtractionAction,
+  type ReviewIntakeFileExtractionInput,
+} from './helpers/intake-file-extraction-review-actions'
+export {
   OperatingCostEvidenceActionError,
   recordOperatingCostEvidenceAction,
 } from './helpers/operating-cost-evidence-actions'

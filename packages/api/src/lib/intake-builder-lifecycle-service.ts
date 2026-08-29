@@ -124,6 +124,19 @@ export async function getIntakeBuilderLifecycle(input: {
           errorCode: true,
           errorMessage: true,
           createdAt: true,
+          review: {
+            select: {
+              id: true,
+              decision: true,
+              proposalRunId: true,
+              proposalTitle: true,
+              proposalNotesHash: true,
+              rationale: true,
+              createdBy: true,
+              createdAt: true,
+              proposalRun: { select: { status: true } },
+            },
+          },
         },
       },
       websiteResearchReceipts: {
@@ -381,6 +394,14 @@ export async function getIntakeBuilderLifecycle(input: {
         extractedLineCount: latestFileExtraction.extractedLineCount,
         errorCode: latestFileExtraction.errorCode,
         errorMessage: latestFileExtraction.errorMessage,
+        review: latestFileExtraction.review
+          ? {
+              reviewId: latestFileExtraction.review.id,
+              decision: latestFileExtraction.review.decision,
+              proposalRunId: latestFileExtraction.review.proposalRunId,
+              proposalNotesHash: latestFileExtraction.review.proposalNotesHash,
+            }
+          : null,
       }
     : null
   const lifecycle = projectIntakeBuilderLifecycle({
@@ -436,7 +457,20 @@ export async function getIntakeBuilderLifecycle(input: {
             preview: latestFileExtraction.extractedText.slice(0, 4_000),
             previewTruncated: latestFileExtraction.extractedText.length > 4_000,
             createdAt: latestFileExtraction.createdAt,
-            reviewRequired: true as const,
+            reviewRequired: latestFileExtraction.review === null,
+            review: latestFileExtraction.review
+              ? {
+                  reviewId: latestFileExtraction.review.id,
+                  decision: latestFileExtraction.review.decision,
+                  proposalRunId: latestFileExtraction.review.proposalRunId,
+                  proposalStatus: latestFileExtraction.review.proposalRun?.status ?? null,
+                  proposalTitle: latestFileExtraction.review.proposalTitle,
+                  proposalNotesHash: latestFileExtraction.review.proposalNotesHash,
+                  rationale: latestFileExtraction.review.rationale,
+                  createdBy: latestFileExtraction.review.createdBy,
+                  createdAt: latestFileExtraction.review.createdAt,
+                }
+              : null,
             grantsAuthority: false as const,
           }
         : null,

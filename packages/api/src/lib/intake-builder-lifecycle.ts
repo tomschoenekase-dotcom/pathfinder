@@ -63,6 +63,12 @@ export type IntakeBuilderLifecycleInput = {
     extractedLineCount: number
     errorCode: string | null
     errorMessage: string | null
+    review: null | {
+      reviewId: string
+      decision: 'ACCEPTED_FOR_PROPOSAL' | 'REJECTED'
+      proposalRunId: string | null
+      proposalNotesHash: string | null
+    }
   }
   candidate: null | {
     ready: boolean
@@ -86,6 +92,7 @@ export type IntakeBuilderNextAction =
   | 'REVIEW_FILE_SOURCE'
   | 'RUN_FILE_EXTRACTION'
   | 'REVIEW_FILE_EXTRACTION'
+  | 'REVIEW_STRUCTURED_PROPOSAL'
   | 'RESOLVE_CLARIFICATION'
   | 'CREATE_PACKAGE_DRAFT'
   | 'REPAIR_PACKAGE_EVIDENCE'
@@ -256,15 +263,49 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
           : []),
       ]
       set('EXTRACT', 'COMPLETE', extractionRefs)
-      set('CONSTRUCT', 'BLOCKED', extractionRefs, [
-        blocker(
-          'FILE_EXTRACTION_REVIEW_REQUIRED',
-          'fileExtraction',
-          'The deterministic extraction is retained for review but cannot become structured venue content without a separate exact review.',
-        ),
-      ])
-      set('RECONCILE', 'PENDING')
-      set('CLARIFY', 'PENDING')
+      if (!fileExtraction.review) {
+        set('CONSTRUCT', 'BLOCKED', extractionRefs, [
+          blocker(
+            'FILE_EXTRACTION_REVIEW_REQUIRED',
+            'fileExtraction',
+            'The deterministic extraction is retained for review but cannot become structured venue content without a separate exact review.',
+          ),
+        ])
+        set('RECONCILE', 'PENDING')
+        set('CLARIFY', 'PENDING')
+      } else if (fileExtraction.review.decision === 'REJECTED') {
+        const reviewRefs = [
+          ...extractionRefs,
+          `file-extraction-review:${fileExtraction.review.reviewId}`,
+        ]
+        set('CONSTRUCT', 'BLOCKED', reviewRefs, [
+          blocker(
+            'FILE_EXTRACTION_REJECTED',
+            'fileExtraction.review',
+            'A human reviewer rejected this extraction for proposal use. No structured proposal was created.',
+          ),
+        ])
+        set('RECONCILE', 'PENDING')
+        set('CLARIFY', 'PENDING')
+      } else {
+        const reviewRefs = [
+          ...extractionRefs,
+          `file-extraction-review:${fileExtraction.review.reviewId}`,
+          `structured-proposal:${fileExtraction.review.proposalRunId}`,
+          ...(fileExtraction.review.proposalNotesHash
+            ? [`structured-proposal-sha256:${fileExtraction.review.proposalNotesHash}`]
+            : []),
+        ]
+        set('CONSTRUCT', 'COMPLETE', reviewRefs)
+        set('RECONCILE', 'BLOCKED', reviewRefs, [
+          blocker(
+            'STRUCTURED_PROPOSAL_REVIEW_REQUIRED',
+            'fileExtraction.review.proposalRunId',
+            'Reviewed notes created a separate awaiting-review structured proposal. It still requires canonical proposal review before any package mapping.',
+          ),
+        ])
+        set('CLARIFY', 'PENDING')
+      }
     }
   } else if (sourceBlocked || input.candidate === null) {
     for (const stage of ['EXTRACT', 'CONSTRUCT', 'RECONCILE', 'CLARIFY'] as const) {
@@ -430,9 +471,17 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
     current.stage === 'RECONCILE' ||
     current.stage === 'CLARIFY'
   ) {
-    nextAction = fileUploadSource ? 'REVIEW_FILE_SOURCE' : 'RESOLVE_CLARIFICATION'
+    nextAction = fileUploadSource
+      ? fileExtraction?.review?.decision === 'ACCEPTED_FOR_PROPOSAL'
+        ? 'REVIEW_STRUCTURED_PROPOSAL'
+        : 'REVIEW_FILE_SOURCE'
+      : 'RESOLVE_CLARIFICATION'
   } else if (current.stage === 'CONSTRUCT') {
-    nextAction = fileUploadSource ? 'REVIEW_FILE_EXTRACTION' : 'CREATE_PACKAGE_DRAFT'
+    nextAction = fileUploadSource
+      ? fileExtraction?.review?.decision === 'REJECTED'
+        ? 'REVIEW_FILE_SOURCE'
+        : 'REVIEW_FILE_EXTRACTION'
+      : 'CREATE_PACKAGE_DRAFT'
   } else if (current.stage === 'VALIDATE' || current.stage === 'SIMULATE') {
     nextAction = 'REPAIR_PACKAGE_EVIDENCE'
   } else if (current.stage === 'QA') {

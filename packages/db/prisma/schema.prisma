@@ -256,6 +256,7 @@ model Tenant {
   intakeEvents                       IntakeRunEvent[]
   intakeWebsiteResearchReceipts      IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts       IntakeFileExtractionReceipt[]
+  intakeFileExtractionReviews        IntakeFileExtractionReview[]
   intakePackageHandoffs              IntakePackageHandoff[]
   intakeUploads                      IntakeUpload[]
   externalCredentials                ExternalAccessCredential[]
@@ -1405,6 +1406,7 @@ model Venue {
   intakeEvents                        IntakeRunEvent[]
   intakeWebsiteResearchReceipts       IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts        IntakeFileExtractionReceipt[]
+  intakeFileExtractionReviews         IntakeFileExtractionReview[]
   intakePackageHandoffs               IntakePackageHandoff[]
   intakeUploads                       IntakeUpload[]
   externalCredentials                 ExternalAccessCredential[]
@@ -1747,41 +1749,43 @@ enum ContentModulePublicationAction {
 
 /// Draft-only intake proposal. Extraction and publishing are external to this record.
 model IntakeRun {
-  id                       String                         @id @default(cuid())
-  tenantId                 String                         @map("tenant_id")
-  venueId                  String                         @map("venue_id")
-  sourceKind               IntakeSourceKind               @map("source_kind")
-  status                   IntakeRunStatus                @default(AWAITING_REVIEW)
-  displayName              String                         @map("display_name") @db.VarChar(255)
-  websiteUri               String?                        @map("website_uri") @db.VarChar(2000)
-  interviewRole            String?                        @map("interview_role") @db.VarChar(32)
+  id                           String                         @id @default(cuid())
+  tenantId                     String                         @map("tenant_id")
+  venueId                      String                         @map("venue_id")
+  sourceKind                   IntakeSourceKind               @map("source_kind")
+  status                       IntakeRunStatus                @default(AWAITING_REVIEW)
+  displayName                  String                         @map("display_name") @db.VarChar(255)
+  websiteUri                   String?                        @map("website_uri") @db.VarChar(2000)
+  interviewRole                String?                        @map("interview_role") @db.VarChar(32)
   /// Only PUBLIC_CANDIDATE answer text is retained. Withheld answers are represented by hashes and metadata.
-  interviewPublicAnswers   Json?                          @map("interview_public_answers")
-  interviewAnswerManifest  Json?                          @map("interview_answer_manifest")
-  interviewConsentTextHash String?                        @map("interview_consent_text_hash") @db.Char(64)
+  interviewPublicAnswers       Json?                          @map("interview_public_answers")
+  interviewAnswerManifest      Json?                          @map("interview_answer_manifest")
+  interviewConsentTextHash     String?                        @map("interview_consent_text_hash") @db.Char(64)
   /// Raw, private candidate content submitted during managed onboarding. It is never applied or published directly.
-  structuredBootstrap      Json?                          @map("structured_bootstrap")
-  submissionRequestId      String?                        @map("submission_request_id") @db.Uuid
-  submissionInputHash      String?                        @map("submission_input_hash") @db.Char(64)
-  requestedBy              String                         @map("requested_by") @db.VarChar(191)
-  requestedByType          ActorType                      @default(HUMAN) @map("requested_by_type")
-  agentIdentityId          String?                        @map("agent_identity_id") @db.VarChar(191)
-  agentRunId               String?                        @map("agent_run_id") @db.VarChar(191)
-  workerId                 String?                        @map("worker_id") @db.VarChar(191)
-  credentialId             String?                        @map("credential_id") @db.VarChar(191)
-  approvalGrantId          String?                        @map("approval_grant_id") @db.VarChar(191)
-  capability               String?                        @db.VarChar(191)
-  modelProvider            String?                        @map("model_provider") @db.VarChar(100)
-  modelName                String?                        @map("model_name") @db.VarChar(191)
-  createdAt                DateTime                       @default(now()) @map("created_at")
-  tenant                   Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  evidence                 IntakeEvidenceRecord[]
-  events                   IntakeRunEvent[]
-  websiteResearchReceipts  IntakeWebsiteResearchReceipt[]
-  fileExtractionReceipts   IntakeFileExtractionReceipt[]
-  packageHandoff           IntakePackageHandoff?
-  upload                   IntakeUpload?
+  structuredBootstrap          Json?                          @map("structured_bootstrap")
+  submissionRequestId          String?                        @map("submission_request_id") @db.Uuid
+  submissionInputHash          String?                        @map("submission_input_hash") @db.Char(64)
+  requestedBy                  String                         @map("requested_by") @db.VarChar(191)
+  requestedByType              ActorType                      @default(HUMAN) @map("requested_by_type")
+  agentIdentityId              String?                        @map("agent_identity_id") @db.VarChar(191)
+  agentRunId                   String?                        @map("agent_run_id") @db.VarChar(191)
+  workerId                     String?                        @map("worker_id") @db.VarChar(191)
+  credentialId                 String?                        @map("credential_id") @db.VarChar(191)
+  approvalGrantId              String?                        @map("approval_grant_id") @db.VarChar(191)
+  capability                   String?                        @db.VarChar(191)
+  modelProvider                String?                        @map("model_provider") @db.VarChar(100)
+  modelName                    String?                        @map("model_name") @db.VarChar(191)
+  createdAt                    DateTime                       @default(now()) @map("created_at")
+  tenant                       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  evidence                     IntakeEvidenceRecord[]
+  events                       IntakeRunEvent[]
+  websiteResearchReceipts      IntakeWebsiteResearchReceipt[]
+  fileExtractionReceipts       IntakeFileExtractionReceipt[]
+  fileExtractionSourceReviews  IntakeFileExtractionReview[]   @relation("IntakeFileExtractionReviewSource")
+  fileExtractionProposalReview IntakeFileExtractionReview?    @relation("IntakeFileExtractionReviewProposal")
+  packageHandoff               IntakePackageHandoff?
+  upload                       IntakeUpload?
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
@@ -1893,12 +1897,49 @@ model IntakeFileExtractionReceipt {
   venue                   Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   run                     IntakeRun                   @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   upload                  IntakeUpload                @relation(fields: [uploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  review                  IntakeFileExtractionReview?
 
   @@unique([tenantId, requestId], map: "intake_file_extraction_receipts_request_key")
   @@unique([uploadId, extractor, extractorVersion], map: "intake_file_extraction_receipts_extractor_key")
   @@unique([id, tenantId, venueId], map: "intake_file_extraction_receipts_scope_key")
+  @@unique([id, tenantId, venueId, runId], map: "intake_file_extraction_receipts_scope_run_key")
   @@index([tenantId, venueId, runId, createdAt], map: "intake_file_extraction_receipts_run_created_idx")
   @@map("intake_file_extraction_receipts")
+}
+
+/// Append-only human review of one exact successful extraction receipt. Acceptance creates only
+/// a new AWAITING_REVIEW structured proposal; it never creates a package or grants approval,
+/// apply, publication, provider, or contact authority.
+model IntakeFileExtractionReview {
+  id                        String                             @id @db.Uuid
+  tenantId                  String                             @map("tenant_id")
+  venueId                   String                             @map("venue_id")
+  sourceRunId               String                             @map("source_run_id")
+  receiptId                 String                             @map("receipt_id") @db.Uuid
+  proposalRunId             String?                            @unique(map: "intake_file_extraction_reviews_proposal_key") @map("proposal_run_id")
+  requestId                 String                             @map("request_id") @db.Uuid
+  requestHash               String                             @map("request_hash") @db.Char(64)
+  decision                  IntakeFileExtractionReviewDecision
+  expectedExtractedTextHash String                             @map("expected_extracted_text_hash") @db.Char(64)
+  proposalTitle             String?                            @map("proposal_title") @db.VarChar(255)
+  proposalNotes             String?                            @map("proposal_notes") @db.VarChar(20000)
+  proposalNotesHash         String?                            @map("proposal_notes_hash") @db.Char(64)
+  rationale                 String                             @db.VarChar(500)
+  createdBy                 String                             @map("created_by") @db.VarChar(191)
+  createdAt                 DateTime                           @default(now()) @map("created_at")
+  tenant                    Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  sourceRun                 IntakeRun                          @relation("IntakeFileExtractionReviewSource", fields: [sourceRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  receipt                   IntakeFileExtractionReceipt        @relation(fields: [receiptId, tenantId, venueId, sourceRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  proposalRun               IntakeRun?                         @relation("IntakeFileExtractionReviewProposal", fields: [proposalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "intake_file_extraction_reviews_request_key")
+  @@unique([receiptId], map: "intake_file_extraction_reviews_receipt_key")
+  @@unique([receiptId, tenantId, venueId, sourceRunId], map: "intake_file_extraction_reviews_receipt_scope_run_key")
+  @@unique([proposalRunId, tenantId, venueId], map: "intake_file_extraction_reviews_proposal_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_file_extraction_reviews_scope_key")
+  @@index([tenantId, venueId, sourceRunId, createdAt], map: "intake_file_extraction_reviews_source_created_idx")
+  @@map("intake_file_extraction_reviews")
 }
 
 model IntakePackageHandoff {
@@ -1936,6 +1977,7 @@ enum IntakeEventKind {
   EVIDENCE_RECORDED
   WEBSITE_RESEARCH_RECORDED
   FILE_EXTRACTION_RECORDED
+  FILE_EXTRACTION_REVIEW_RECORDED
   PACKAGE_DRAFT_LINKED
 }
 
@@ -1948,6 +1990,11 @@ enum IntakeWebsiteResearchOutcome {
 enum IntakeFileExtractionOutcome {
   SUCCEEDED
   FAILED
+}
+
+enum IntakeFileExtractionReviewDecision {
+  ACCEPTED_FOR_PROPOSAL
+  REJECTED
 }
 
 enum IntakeUploadStatus {
