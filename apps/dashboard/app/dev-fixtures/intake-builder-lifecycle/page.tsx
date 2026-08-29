@@ -82,11 +82,13 @@ const lifecycle: IntakeBuilderLifecycle = {
         reason: 'CONTRADICTION',
         evidence: [
           {
+            kind: 'SOURCE_LINK',
             label: 'venue.name (92% confidence)',
             reference: 'https://example.org/',
             summary: 'Torchiko Hall · title',
           },
           {
+            kind: 'SOURCE_LINK',
             label: 'venue.name (76% confidence)',
             reference: 'https://example.org/about',
             summary: 'Torchiko Ballroom · meta[property="og:title"]',

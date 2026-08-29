@@ -46,6 +46,7 @@ const lifecycle: IntakeBuilderLifecycle = {
         reasons: ['LOW_CONFIDENCE'],
         evidence: [
           {
+            kind: 'DOCUMENT_EXCERPT',
             label: 'What are the public operating hours?',
             reference: 'intake-evidence:fixture-hours',
             summary: 'Open nine to five, except event nights · 55% confidence',
@@ -66,6 +67,7 @@ const lifecycle: IntakeBuilderLifecycle = {
         reasons: ['MISSING_CONTEXT'],
         evidence: [
           {
+            kind: 'DOCUMENT_EXCERPT',
             label: 'When is the venue closed?',
             reference: 'intake-run:fixture-interview-run:question:operations.closures',
             summary: 'No public answer text retained · missing context',
