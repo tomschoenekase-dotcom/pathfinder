@@ -29,6 +29,7 @@ vi.mock('@pathfinder/db', () => ({
 import {
   buildInterviewClarificationReview,
   createInterviewClarificationQuestions,
+  resolveInterviewClarification,
 } from './intake-interview-clarifications'
 
 function review() {
@@ -178,5 +179,123 @@ describe('staff interview clarification projection', () => {
       }),
       db,
     )
+  })
+
+  it('records an exact answered-question source amendment without creating a package or authority', async () => {
+    const exactReview = review()
+    mocks.getReview.mockResolvedValue(exactReview)
+    const projected = buildInterviewClarificationReview({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      review: exactReview,
+    })
+    const clarification = projected.clarifications.find(
+      ({ fieldPath }) => fieldPath === 'venue.operations.hours',
+    )!
+    const answeredAt = new Date('2026-08-29T22:00:00.000Z')
+    const create = vi.fn().mockImplementation(async ({ data }) => ({
+      ...data,
+      createdAt: new Date('2026-08-29T22:01:00.000Z'),
+    }))
+    const transaction = {
+      $executeRaw: vi.fn(),
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'question-a',
+          answer: 'Use nine to five, except event nights.',
+          answeredAt,
+        }),
+      },
+      intakeInterviewClarificationResolution: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create,
+      },
+    }
+    const db = {
+      $transaction: vi.fn().mockImplementation(async (callback) => callback(transaction)),
+    } as never
+
+    const result = await resolveInterviewClarification({
+      db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      requestId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+      expectedReviewHash: projected.reviewHash,
+      clarificationId: clarification.clarificationId,
+      expectedAnsweredAt: answeredAt,
+      kind: 'REPLACE_PUBLIC_TEXT',
+      amendedPublicText: 'Open nine to five, except event nights.',
+      rationale: 'Founder clarified the public exception wording.',
+      actorId: 'founder-a',
+    })
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        questionId: 'question-a',
+        reviewHash: projected.reviewHash,
+        clarificationId: clarification.clarificationId,
+        fieldPath: 'venue.operations.hours',
+        kind: 'REPLACE_PUBLIC_TEXT',
+        amendedPublicText: 'Open nine to five, except event nights.',
+        answerHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        amendedTextHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        createdBy: 'founder-a',
+      }),
+    })
+    expect(result).toMatchObject({
+      questionId: 'question-a',
+      candidateRecomputationRequired: true,
+      packageDraftCreated: false,
+      approvalGranted: false,
+      canonicalVenueChanged: false,
+      publicationTriggered: false,
+      venueContactTriggered: false,
+    })
+  })
+
+  it('fails closed when the answered question timestamp does not match', async () => {
+    const exactReview = review()
+    mocks.getReview.mockResolvedValue(exactReview)
+    const projected = buildInterviewClarificationReview({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      review: exactReview,
+    })
+    const clarification = projected.clarifications[0]!
+    const create = vi.fn()
+    const transaction = {
+      $executeRaw: vi.fn(),
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'question-a',
+          answer: 'Use the clarified value.',
+          answeredAt: new Date('2026-08-29T22:00:00.000Z'),
+        }),
+      },
+      intakeInterviewClarificationResolution: { findUnique: vi.fn(), create },
+    }
+    const db = {
+      $transaction: vi.fn().mockImplementation(async (callback) => callback(transaction)),
+    } as never
+
+    await expect(
+      resolveInterviewClarification({
+        db,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        expectedReviewHash: projected.reviewHash,
+        clarificationId: clarification.clarificationId,
+        expectedAnsweredAt: new Date('2026-08-29T22:00:01.000Z'),
+        kind: 'EXCLUDE_FIELD',
+        rationale: 'Exclude this unresolved field from the draft.',
+        actorId: 'founder-a',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(create).not.toHaveBeenCalled()
   })
 })

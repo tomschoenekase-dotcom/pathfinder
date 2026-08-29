@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
-import { onboardingBootstrapInputHash } from '@pathfinder/db'
+import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfinder/db'
 
+import { buildInterviewClarificationReview } from './intake-interview-clarifications'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
 
 const consentHash = createHash('sha256')
@@ -601,6 +602,7 @@ describe('deterministic intake VenuePackage candidate', () => {
         status: 'AWAITING_REVIEW',
         structuredBootstrap: null,
         packageHandoff: null,
+        interviewClarificationResolutions: [],
       },
       reviewRun,
     )
@@ -683,6 +685,7 @@ describe('deterministic intake VenuePackage candidate', () => {
         status: 'AWAITING_REVIEW',
         structuredBootstrap: null,
         packageHandoff: null,
+        interviewClarificationResolutions: [],
       },
       reviewRun,
     )
@@ -730,6 +733,7 @@ describe('deterministic intake VenuePackage candidate', () => {
       structuredBootstrap: null,
       packageHandoff: null,
       evidence: [],
+      interviewClarificationResolutions: [],
     }
     const first = await buildIntakeVenuePackageCandidate({
       db: db(scopeRun, interviewRun(entries)) as never,
@@ -759,6 +763,7 @@ describe('deterministic intake VenuePackage candidate', () => {
       structuredBootstrap: null,
       packageHandoff: null,
       evidence: [],
+      interviewClarificationResolutions: [],
     }
     const first = await buildIntakeVenuePackageCandidate({
       db: db(
@@ -788,6 +793,120 @@ describe('deterministic intake VenuePackage candidate', () => {
       first.payload?.knowledgeEntries.create[0]?.itemKey,
     )
     expect(changed.candidateHash).not.toBe(first.candidateHash)
+  })
+
+  it('uses an exact answered-question amendment to resolve one interview discrepancy', async () => {
+    const rawReview = interviewRun([['operations.hours', 'Open nine to five.']])
+    const projectedReview = await getIntakeProposalReview({
+      db: db(rawReview) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    const clarificationReview = buildInterviewClarificationReview({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      review: projectedReview,
+    })
+    const clarification = clarificationReview.clarifications.find(
+      ({ fieldPath }) => fieldPath === 'venue.operations.closures',
+    )!
+    const answer = "Closed on New Year's Day."
+    const amendedPublicText = 'Closed on New Year’s Day.'
+    const answeredAt = new Date('2026-08-29T22:00:00.000Z')
+    const scopeRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      structuredBootstrap: null,
+      packageHandoff: null,
+      evidence: [],
+      interviewClarificationResolutions: [
+        {
+          id: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          reviewHash: clarificationReview.reviewHash,
+          clarificationId: clarification.clarificationId,
+          fieldPath: clarification.fieldPath,
+          answerHash: createHash('sha256').update(answer).digest('hex'),
+          answeredAt,
+          kind: 'REPLACE_PUBLIC_TEXT',
+          amendedPublicText,
+          amendedTextHash: createHash('sha256').update(amendedPublicText).digest('hex'),
+          question: {
+            operationId: clarification.operationId,
+            status: 'ANSWERED',
+            answer,
+            answeredAt,
+          },
+        },
+      ],
+    }
+
+    const result = await buildIntakeVenuePackageCandidate({
+      db: db(scopeRun, rawReview) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+
+    expect(result).toMatchObject({
+      ready: true,
+      summary: { candidateCount: 2, issueCount: 0 },
+    })
+    expect(result.payload?.knowledgeEntries.create[1]).toMatchObject({
+      provenance: { sourceName: 'Reviewed interview amendment: venue.operations.closures' },
+      value: { category: 'CLOSURES', content: amendedPublicText },
+    })
+  })
+
+  it('fails closed instead of applying stale interview resolution evidence', async () => {
+    const rawReview = interviewRun([['operations.hours', 'Open nine to five.']])
+    const answeredAt = new Date('2026-08-29T22:00:00.000Z')
+    const scopeRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      structuredBootstrap: null,
+      packageHandoff: null,
+      evidence: [],
+      interviewClarificationResolutions: [
+        {
+          id: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+          reviewHash: 'f'.repeat(64),
+          clarificationId: 'stale-clarification',
+          fieldPath: 'venue.operations.closures',
+          answerHash: 'e'.repeat(64),
+          answeredAt,
+          kind: 'EXCLUDE_FIELD',
+          amendedPublicText: null,
+          amendedTextHash: null,
+          question: {
+            operationId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
+            status: 'ANSWERED',
+            answer: 'Exclude it.',
+            answeredAt,
+          },
+        },
+      ],
+    }
+
+    const result = await buildIntakeVenuePackageCandidate({
+      db: db(scopeRun, rawReview) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+
+    expect(result.ready).toBe(false)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'INTERVIEW_RESOLUTION_INVALID',
+          path: 'venue.operations.closures',
+        }),
+      ]),
+    )
   })
 
   it('exact-binds tenant, venue, run and rejects unsupported source as not found', async () => {

@@ -489,6 +489,16 @@ describe('getIntakeBuilderLifecycle', () => {
       status: 'AWAITING_REVIEW',
       _count: { evidence: 1 },
       websiteResearchReceipts: [],
+      interviewClarificationResolutions: [
+        {
+          id: 'resolution-a',
+          clarificationId: 'interview-clarification-a',
+          kind: 'REPLACE_PUBLIC_TEXT',
+          amendedPublicText: 'Open daily from 9 AM to 5 PM.',
+          rationale: 'Normalized the answered hours for public display.',
+          createdAt: new Date('2026-08-29T22:05:00.000Z'),
+        },
+      ],
       packageHandoff: null,
     })
     const questionFindMany = vi.fn().mockResolvedValue([
@@ -497,6 +507,7 @@ describe('getIntakeBuilderLifecycle', () => {
         operationId: '768c2e1a-8ece-47ad-98dc-e4bde64872ca',
         status: 'ANSWERED',
         answer: 'Use nine to five.',
+        answeredAt: new Date('2026-08-28T22:58:00.000Z'),
         agentIdentityId: 'identity-a',
         updatedAt: new Date('2026-08-28T23:00:00.000Z'),
       },
@@ -525,6 +536,12 @@ describe('getIntakeBuilderLifecycle', () => {
         clarifications: [
           {
             clarificationId: 'interview-clarification-a',
+            resolution: {
+              resolutionId: 'resolution-a',
+              kind: 'REPLACE_PUBLIC_TEXT',
+              amendedPublicText: 'Open daily from 9 AM to 5 PM.',
+              grantsAuthority: false,
+            },
             question: {
               id: 'question-a',
               status: 'ANSWERED',

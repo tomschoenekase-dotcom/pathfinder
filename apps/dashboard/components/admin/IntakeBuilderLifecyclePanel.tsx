@@ -13,6 +13,13 @@ type Lifecycle = IntakeBuilderLifecycle
 type Stage = Lifecycle['stages'][number]
 type WebsiteMappingPreview =
   inferRouterOutputs<AppRouter>['admin']['previewWebsiteVenuePackageMapping']
+type InterviewResolutionInput = {
+  clarificationId: string
+  expectedAnsweredAt: Date
+  kind: 'REPLACE_PUBLIC_TEXT' | 'EXCLUDE_FIELD'
+  amendedPublicText?: string
+  rationale: string
+}
 
 const stateStyles: Record<Stage['state'], string> = {
   COMPLETE: 'border-emerald-200 bg-emerald-50 text-emerald-900',
@@ -30,6 +37,92 @@ function formatBytes(value: number) {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024).toLocaleString()} KB`
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function InterviewResolutionEditor({
+  clarificationId,
+  answer,
+  answeredAt,
+  busy,
+  onResolve,
+}: {
+  clarificationId: string
+  answer: string
+  answeredAt: Date
+  busy: boolean
+  onResolve: (input: InterviewResolutionInput) => void
+}) {
+  const [kind, setKind] = useState<'REPLACE_PUBLIC_TEXT' | 'EXCLUDE_FIELD'>('REPLACE_PUBLIC_TEXT')
+  const [amendedPublicText, setAmendedPublicText] = useState(answer)
+  const [rationale, setRationale] = useState('')
+  const canSubmit =
+    rationale.trim().length > 0 &&
+    (kind === 'EXCLUDE_FIELD' || amendedPublicText.trim().length > 0) &&
+    !busy
+
+  return (
+    <div className="mt-3 border-t border-sky-100 pt-3">
+      <p className="text-xs font-semibold text-sky-950">Explicit source amendment</p>
+      <p className="mt-1 text-xs text-sky-900/75">
+        Review the answer as public source text or exclude this field from the DRAFT. This records
+        evidence only; it does not create, approve, apply, or publish a package.
+      </p>
+      <label className="mt-3 block text-xs font-medium text-pf-deep">
+        Resolution
+        <select
+          value={kind}
+          onChange={(event) =>
+            setKind(event.target.value as 'REPLACE_PUBLIC_TEXT' | 'EXCLUDE_FIELD')
+          }
+          className="mt-1 min-h-11 w-full rounded-lg border border-pf-light bg-white px-3 text-sm"
+        >
+          <option value="REPLACE_PUBLIC_TEXT">Use reviewed public text</option>
+          <option value="EXCLUDE_FIELD">Exclude field from this DRAFT</option>
+        </select>
+      </label>
+      {kind === 'REPLACE_PUBLIC_TEXT' ? (
+        <label className="mt-3 block text-xs font-medium text-pf-deep">
+          Reviewed public text
+          <textarea
+            value={amendedPublicText}
+            onChange={(event) => setAmendedPublicText(event.target.value)}
+            maxLength={2_000}
+            rows={3}
+            className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+          />
+        </label>
+      ) : null}
+      <label className="mt-3 block text-xs font-medium text-pf-deep">
+        Amendment rationale
+        <textarea
+          value={rationale}
+          onChange={(event) => setRationale(event.target.value)}
+          maxLength={500}
+          rows={2}
+          placeholder="Explain why this answer is safe to use or why the field should be excluded."
+          className="mt-1 w-full rounded-lg border border-pf-light bg-white px-3 py-2 text-sm"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={() =>
+          onResolve({
+            clarificationId,
+            expectedAnsweredAt: answeredAt,
+            kind,
+            ...(kind === 'REPLACE_PUBLIC_TEXT'
+              ? { amendedPublicText: amendedPublicText.trim() }
+              : {}),
+            rationale: rationale.trim(),
+          })
+        }
+        className="mt-3 min-h-11 rounded-full bg-sky-800 px-5 text-sm font-semibold text-white transition-colors hover:bg-sky-950 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+      >
+        {busy ? 'Recording amendment…' : 'Record source amendment'}
+      </button>
+    </div>
+  )
 }
 
 export function IntakeBuilderLifecyclePanel({
@@ -60,6 +153,8 @@ export function IntakeBuilderLifecyclePanel({
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
+  const [interviewResolutionBusyId, setInterviewResolutionBusyId] = useState<string | null>(null)
+  const [interviewResolutionError, setInterviewResolutionError] = useState<string | null>(null)
   const [fileClarificationBusy, setFileClarificationBusy] = useState(false)
   const [fileClarificationError, setFileClarificationError] = useState<string | null>(null)
   const [fileClarificationFieldPath, setFileClarificationFieldPath] = useState('')
@@ -80,6 +175,7 @@ export function IntakeBuilderLifecyclePanel({
   const researchOperationId = useRef<string | null>(null)
   const extractionOperationId = useRef<string | null>(null)
   const extractionReviewOperationId = useRef<string | null>(null)
+  const interviewResolutionOperationIds = useRef<Record<string, string>>({})
 
   useEffect(() => {
     sequence.current += 1
@@ -99,6 +195,8 @@ export function IntakeBuilderLifecyclePanel({
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
+    setInterviewResolutionBusyId(null)
+    setInterviewResolutionError(null)
     setFileClarificationBusy(false)
     setFileClarificationError(null)
     setFileClarificationFieldPath('')
@@ -114,6 +212,7 @@ export function IntakeBuilderLifecyclePanel({
     researchOperationId.current = null
     extractionOperationId.current = null
     extractionReviewOperationId.current = null
+    interviewResolutionOperationIds.current = {}
   }, [runId, tenantId, venueId])
 
   async function load() {
@@ -228,6 +327,42 @@ export function IntakeBuilderLifecyclePanel({
       )
     } finally {
       setFileClarificationBusy(false)
+    }
+  }
+
+  async function resolveInterviewSource(input: InterviewResolutionInput) {
+    const review = lifecycle?.interviewClarificationReview
+    if (!review || interviewResolutionBusyId) return
+    const requestId =
+      interviewResolutionOperationIds.current[input.clarificationId] ?? crypto.randomUUID()
+    interviewResolutionOperationIds.current[input.clarificationId] = requestId
+    setInterviewResolutionBusyId(input.clarificationId)
+    setInterviewResolutionError(null)
+    try {
+      await client.admin.resolveInterviewClarification.mutate({
+        tenantId,
+        venueId,
+        runId,
+        requestId,
+        expectedReviewHash: review.reviewHash,
+        clarificationId: input.clarificationId,
+        expectedAnsweredAt: input.expectedAnsweredAt,
+        kind: input.kind,
+        ...(input.amendedPublicText === undefined
+          ? {}
+          : { amendedPublicText: input.amendedPublicText }),
+        rationale: input.rationale,
+      })
+      delete interviewResolutionOperationIds.current[input.clarificationId]
+      await load()
+    } catch (cause) {
+      setInterviewResolutionError(
+        cause instanceof Error
+          ? cause.message
+          : 'Interview source amendment could not be retained.',
+      )
+    } finally {
+      setInterviewResolutionBusyId(null)
     }
   }
 
@@ -424,6 +559,9 @@ export function IntakeBuilderLifecyclePanel({
       clarificationIdentityId={clarificationIdentityId}
       onClarificationIdentityChange={setClarificationIdentityId}
       onCreateClarificationQuestions={() => void createClarificationQuestions()}
+      interviewResolutionBusyId={interviewResolutionBusyId}
+      interviewResolutionError={interviewResolutionError}
+      onResolveInterviewClarification={(input) => void resolveInterviewSource(input)}
       fileClarificationBusy={fileClarificationBusy}
       fileClarificationError={fileClarificationError}
       fileClarificationFieldPath={fileClarificationFieldPath}
@@ -480,6 +618,9 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId = '',
   onClarificationIdentityChange,
   onCreateClarificationQuestions,
+  interviewResolutionBusyId = null,
+  interviewResolutionError = null,
+  onResolveInterviewClarification,
   fileClarificationBusy = false,
   fileClarificationError = null,
   fileClarificationFieldPath = '',
@@ -527,6 +668,9 @@ export function IntakeBuilderLifecycleView({
   clarificationIdentityId?: string
   onClarificationIdentityChange?: (identityId: string) => void
   onCreateClarificationQuestions?: () => void
+  interviewResolutionBusyId?: string | null
+  interviewResolutionError?: string | null
+  onResolveInterviewClarification?: (input: InterviewResolutionInput) => void
   fileClarificationBusy?: boolean
   fileClarificationError?: string | null
   fileClarificationFieldPath?: string
@@ -1152,7 +1296,9 @@ export function IntakeBuilderLifecycleView({
                     {clarification.fieldPath}
                   </p>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-pf-deep/70">
-                    {clarification.question?.status.toLowerCase() ?? 'not queued'}
+                    {'resolution' in clarification && clarification.resolution
+                      ? 'amended'
+                      : (clarification.question?.status.toLowerCase() ?? 'not queued')}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-pf-deep/75">
@@ -1183,9 +1329,38 @@ export function IntakeBuilderLifecycleView({
                   ))}
                 </ul>
                 {clarification.question?.status === 'ANSWERED' ? (
-                  <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
-                    Answer retained as guidance only: {clarification.question.answer}
-                  </p>
+                  <>
+                    <p className="mt-2 rounded-md bg-sky-50 p-2 text-xs text-sky-950">
+                      Answer retained as guidance only: {clarification.question.answer}
+                    </p>
+                    {interviewClarifications &&
+                    'clarificationId' in clarification &&
+                    clarification.resolution ? (
+                      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
+                        <p className="font-semibold">Immutable source amendment recorded</p>
+                        <p className="mt-1">
+                          {clarification.resolution.kind === 'REPLACE_PUBLIC_TEXT'
+                            ? `Reviewed public text: ${clarification.resolution.amendedPublicText}`
+                            : 'This field is excluded from the candidate DRAFT.'}
+                        </p>
+                        <p className="mt-1 text-emerald-900/75">
+                          This receipt grants no approval, apply, publication, or contact authority.
+                        </p>
+                      </div>
+                    ) : interviewClarifications &&
+                      'clarificationId' in clarification &&
+                      clarification.question.answer &&
+                      clarification.question.answeredAt &&
+                      onResolveInterviewClarification ? (
+                      <InterviewResolutionEditor
+                        clarificationId={clarification.clarificationId}
+                        answer={clarification.question.answer}
+                        answeredAt={clarification.question.answeredAt}
+                        busy={interviewResolutionBusyId === clarification.clarificationId}
+                        onResolve={onResolveInterviewClarification}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
               </li>
             ))}
@@ -1222,6 +1397,11 @@ export function IntakeBuilderLifecycleView({
           {clarificationError ? (
             <p className="mt-2 text-sm text-rose-700" role="alert">
               {clarificationError}
+            </p>
+          ) : null}
+          {interviewResolutionError ? (
+            <p className="mt-2 text-sm text-rose-700" role="alert">
+              {interviewResolutionError}
             </p>
           ) : null}
         </div>

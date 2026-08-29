@@ -58,6 +58,7 @@ const lifecycle: IntakeBuilderLifecycle = {
           confidence: 0.55,
           status: 'PROPOSED_ONLY',
         },
+        resolution: null,
         question: null,
       },
       {
@@ -74,10 +75,12 @@ const lifecycle: IntakeBuilderLifecycle = {
           },
         ],
         proposedAnswer: null,
+        resolution: null,
         question: {
           id: 'fixture-question-closures',
           status: 'ANSWERED',
           answer: 'Closed on New Year’s Day and Thanksgiving.',
+          answeredAt: new Date('2026-08-28T22:58:00.000Z'),
           agentIdentityId: 'fixture-content',
           updatedAt: new Date('2026-08-28T23:00:00.000Z'),
           answerGuidanceOnly: true,

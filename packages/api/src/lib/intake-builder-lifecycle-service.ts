@@ -163,6 +163,17 @@ export async function getIntakeBuilderLifecycle(input: {
           errorMessage: true,
         },
       },
+      interviewClarificationResolutions: {
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          clarificationId: true,
+          kind: true,
+          amendedPublicText: true,
+          rationale: true,
+          createdAt: true,
+        },
+      },
       packageHandoff: {
         select: {
           packageDraft: {
@@ -283,6 +294,7 @@ export async function getIntakeBuilderLifecycle(input: {
             operationId: true,
             status: true,
             answer: true,
+            answeredAt: true,
             agentIdentityId: true,
             updatedAt: true,
           },
@@ -336,6 +348,12 @@ export async function getIntakeBuilderLifecycle(input: {
   const questionByOperationId = new Map(
     storedQuestions.map((question) => [question.operationId, question]),
   )
+  const interviewResolutionByClarificationId = new Map(
+    (run.interviewClarificationResolutions ?? []).map((resolution) => [
+      resolution.clarificationId,
+      resolution,
+    ]),
+  )
   const websiteClarifications =
     websiteReview?.clarifications.map((clarification) => {
       const question = questionByOperationId.get(clarification.operationId)
@@ -350,6 +368,7 @@ export async function getIntakeBuilderLifecycle(input: {
               id: question.id,
               status: question.status,
               answer: question.answer,
+              answeredAt: question.answeredAt,
               agentIdentityId: question.agentIdentityId,
               updatedAt: question.updatedAt,
               answerGuidanceOnly: true as const,
@@ -360,6 +379,7 @@ export async function getIntakeBuilderLifecycle(input: {
   const interviewClarifications =
     interviewReview?.clarifications.map((clarification) => {
       const question = questionByOperationId.get(clarification.operationId)
+      const resolution = interviewResolutionByClarificationId.get(clarification.clarificationId)
       return {
         clarificationId: clarification.clarificationId,
         questionId: clarification.questionId,
@@ -367,11 +387,22 @@ export async function getIntakeBuilderLifecycle(input: {
         reasons: clarification.reasons,
         evidence: clarification.evidence,
         proposedAnswer: 'proposedAnswer' in clarification ? clarification.proposedAnswer : null,
+        resolution: resolution
+          ? {
+              resolutionId: resolution.id,
+              kind: resolution.kind,
+              amendedPublicText: resolution.amendedPublicText,
+              rationale: resolution.rationale,
+              createdAt: resolution.createdAt,
+              grantsAuthority: false as const,
+            }
+          : null,
         question: question
           ? {
               id: question.id,
               status: question.status,
               answer: question.answer,
+              answeredAt: question.answeredAt,
               agentIdentityId: question.agentIdentityId,
               updatedAt: question.updatedAt,
               answerGuidanceOnly: true as const,

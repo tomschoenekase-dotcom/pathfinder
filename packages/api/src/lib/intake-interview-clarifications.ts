@@ -263,3 +263,175 @@ export async function createInterviewClarificationQuestions(input: {
     throw error
   }
 }
+
+export async function resolveInterviewClarification(input: {
+  db: TRPCContext['db']
+  tenantId: string
+  venueId: string
+  runId: string
+  requestId: string
+  expectedReviewHash: string
+  clarificationId: string
+  expectedAnsweredAt: Date
+  kind: 'REPLACE_PUBLIC_TEXT' | 'EXCLUDE_FIELD'
+  amendedPublicText?: string
+  rationale: string
+  actorId: string
+}) {
+  const amendedPublicText = input.amendedPublicText?.trim()
+  if (
+    (input.kind === 'REPLACE_PUBLIC_TEXT' && !amendedPublicText) ||
+    (input.kind === 'EXCLUDE_FIELD' && amendedPublicText !== undefined)
+  ) {
+    throw new InterviewClarificationError(
+      'INVALID_INPUT',
+      input.kind === 'REPLACE_PUBLIC_TEXT'
+        ? 'Replacement resolution requires amended public text.'
+        : 'Field exclusion cannot carry replacement text.',
+    )
+  }
+
+  return input.db.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-interview-clarification-resolution:${input.tenantId}:${input.venueId}:${input.runId}:${input.clarificationId}`}, 0))`
+
+    let sourceReview: InterviewReview
+    try {
+      sourceReview = await getIntakeProposalReview({
+        db: transaction as TRPCContext['db'],
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: input.runId,
+      })
+    } catch (error) {
+      if (error instanceof IntakeActionError) {
+        throw new InterviewClarificationError(
+          error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'CONFLICT',
+          error.message,
+        )
+      }
+      throw error
+    }
+    const review = buildInterviewClarificationReview({
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      runId: input.runId,
+      review: sourceReview,
+    })
+    if (review.reviewHash !== input.expectedReviewHash) {
+      throw new InterviewClarificationError(
+        'CONFLICT',
+        'The retained interview review changed before this source amendment.',
+      )
+    }
+    const clarification = review.clarifications.find(
+      ({ clarificationId }) => clarificationId === input.clarificationId,
+    )
+    if (!clarification) {
+      throw new InterviewClarificationError(
+        'NOT_FOUND',
+        'The selected clarification is not present in the exact interview review.',
+      )
+    }
+    const question = await transaction.agentQuestion.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        operationId: clarification.operationId,
+        status: 'ANSWERED',
+      },
+      select: { id: true, answer: true, answeredAt: true },
+    })
+    if (
+      !question?.answer ||
+      !question.answeredAt ||
+      question.answeredAt.getTime() !== input.expectedAnsweredAt.getTime()
+    ) {
+      throw new InterviewClarificationError(
+        'PRECONDITION_FAILED',
+        'An exact retained founder answer is required before source amendment.',
+      )
+    }
+    const answerHash = sha256(question.answer)
+    const amendedTextHash = amendedPublicText ? sha256(amendedPublicText) : null
+    const exactRecord = {
+      id: input.requestId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      runId: input.runId,
+      questionId: question.id,
+      requestId: input.requestId,
+      reviewHash: review.reviewHash,
+      clarificationId: clarification.clarificationId,
+      fieldPath: clarification.fieldPath,
+      answerHash,
+      answeredAt: question.answeredAt,
+      kind: input.kind,
+      amendedPublicText: amendedPublicText ?? null,
+      amendedTextHash,
+      rationale: input.rationale.trim(),
+      createdBy: input.actorId,
+    } as const
+    const priorRequest = await transaction.intakeInterviewClarificationResolution.findUnique({
+      where: {
+        tenantId_requestId: { tenantId: input.tenantId, requestId: input.requestId },
+      },
+    })
+    if (priorRequest) {
+      const replayed = Object.entries(exactRecord).every(([key, value]) => {
+        const priorValue = priorRequest[key as keyof typeof priorRequest]
+        return value instanceof Date && priorValue instanceof Date
+          ? value.getTime() === priorValue.getTime()
+          : value === priorValue
+      })
+      if (!replayed) {
+        throw new InterviewClarificationError(
+          'CONFLICT',
+          'The request ID is already bound to a different interview amendment.',
+        )
+      }
+      return resolutionResult(priorRequest, true)
+    }
+    const existingQuestionResolution =
+      await transaction.intakeInterviewClarificationResolution.findUnique({
+        where: { questionId: question.id },
+      })
+    if (existingQuestionResolution) {
+      throw new InterviewClarificationError(
+        'CONFLICT',
+        'This answered clarification already has an immutable source amendment.',
+      )
+    }
+    const resolution = await transaction.intakeInterviewClarificationResolution.create({
+      data: exactRecord,
+    })
+    return resolutionResult(resolution, false)
+  })
+}
+
+function resolutionResult(
+  resolution: {
+    id: string
+    questionId: string
+    clarificationId: string
+    fieldPath: string
+    kind: 'REPLACE_PUBLIC_TEXT' | 'EXCLUDE_FIELD'
+    createdAt: Date
+  },
+  replayed: boolean,
+) {
+  return {
+    resolutionId: resolution.id,
+    questionId: resolution.questionId,
+    clarificationId: resolution.clarificationId,
+    fieldPath: resolution.fieldPath,
+    kind: resolution.kind,
+    createdAt: resolution.createdAt,
+    replayed,
+    candidateRecomputationRequired: true as const,
+    packageDraftCreated: false as const,
+    approvalGranted: false as const,
+    canonicalVenueChanged: false as const,
+    publicationTriggered: false as const,
+    venueContactTriggered: false as const,
+  }
+}

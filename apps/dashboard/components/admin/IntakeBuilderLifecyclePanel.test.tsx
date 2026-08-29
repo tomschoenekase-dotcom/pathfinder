@@ -9,6 +9,7 @@ const extractionMutate = vi.fn()
 const extractionReviewMutate = vi.fn()
 const clarificationMutate = vi.fn()
 const interviewClarificationMutate = vi.fn()
+const interviewResolutionMutate = vi.fn()
 const fileClarificationMutate = vi.fn()
 const mappingQuery = vi.fn()
 const mappingMutate = vi.fn()
@@ -21,6 +22,7 @@ vi.mock('../../lib/trpc', () => ({
       reviewIntakeFileExtraction: { mutate: extractionReviewMutate },
       createWebsiteResearchClarificationQuestions: { mutate: clarificationMutate },
       createInterviewClarificationQuestions: { mutate: interviewClarificationMutate },
+      resolveInterviewClarification: { mutate: interviewResolutionMutate },
       createFileExtractionClarificationQuestion: { mutate: fileClarificationMutate },
       previewWebsiteVenuePackageMapping: { query: mappingQuery },
       createAndLinkWebsiteMappingDraft: { mutate: mappingMutate },
@@ -351,6 +353,106 @@ describe('IntakeBuilderLifecyclePanel', () => {
         agentIdentityId: 'identity-a',
       }),
     )
+    expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('records an answered interview amendment with exact answer time and no package authority', async () => {
+    const answeredAt = new Date('2026-08-29T22:00:00.000Z')
+    const requestId = '868c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(requestId)
+    const lifecycle = {
+      schemaVersion: 1,
+      runId: 'run-a',
+      sourceKind: 'INTERVIEW',
+      runStatus: 'AWAITING_REVIEW',
+      websiteResearch: null,
+      websiteClarificationReview: null,
+      interviewClarificationReview: {
+        reviewHash: 'a'.repeat(64),
+        answersGrantAuthority: false,
+        sourceAmendmentRequired: true,
+        eligibleIdentities: [],
+        clarifications: [
+          {
+            clarificationId: 'interview-clarification-a',
+            questionId: 'operations.hours',
+            fieldPath: 'venue.operations.hours',
+            reasons: ['LOW_CONFIDENCE'],
+            evidence: [],
+            proposedAnswer: null,
+            question: {
+              id: 'question-a',
+              status: 'ANSWERED',
+              answer: 'Open nine to five.',
+              answeredAt,
+              agentIdentityId: 'identity-a',
+              updatedAt: answeredAt,
+              answerGuidanceOnly: true,
+            },
+          },
+        ],
+      },
+      currentStage: 'RECONCILE',
+      currentState: 'BLOCKED',
+      nextAction: 'RESOLVE_CLARIFICATION',
+      requiresHumanApproval: false,
+      autoApprove: false,
+      autoApply: false,
+      autoPublish: false,
+      stages: [
+        { stage: 'INGEST', state: 'COMPLETE', evidenceRefs: [], blockers: [] },
+        { stage: 'RECONCILE', state: 'BLOCKED', evidenceRefs: [], blockers: [] },
+      ],
+    }
+    const resolvedLifecycle = {
+      ...lifecycle,
+      interviewClarificationReview: {
+        ...lifecycle.interviewClarificationReview,
+        clarifications: lifecycle.interviewClarificationReview.clarifications.map(
+          (clarification) => ({
+            ...clarification,
+            resolution: {
+              resolutionId: 'resolution-a',
+              kind: 'REPLACE_PUBLIC_TEXT',
+              amendedPublicText: 'Open daily from 9 AM to 5 PM.',
+              rationale: 'Normalized the answered hours for public display.',
+              createdAt: new Date('2026-08-29T22:05:00.000Z'),
+              grantsAuthority: false,
+            },
+          }),
+        ),
+      },
+    }
+    query.mockResolvedValueOnce(lifecycle).mockResolvedValueOnce(resolvedLifecycle)
+    interviewResolutionMutate.mockResolvedValue({ resolutionId: 'resolution-a' })
+
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-a" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    fireEvent.change(await screen.findByLabelText('Reviewed public text'), {
+      target: { value: 'Open daily from 9 AM to 5 PM.' },
+    })
+    fireEvent.change(screen.getByLabelText('Amendment rationale'), {
+      target: { value: 'Normalized the answered hours for public display.' },
+    })
+    expect(screen.getByText(/does not create, approve, apply, or publish/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Record source amendment' }))
+
+    await waitFor(() =>
+      expect(interviewResolutionMutate).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestId,
+        expectedReviewHash: lifecycle.interviewClarificationReview.reviewHash,
+        clarificationId: 'interview-clarification-a',
+        expectedAnsweredAt: answeredAt,
+        kind: 'REPLACE_PUBLIC_TEXT',
+        amendedPublicText: 'Open daily from 9 AM to 5 PM.',
+        rationale: 'Normalized the answered hours for public display.',
+      }),
+    )
+    expect(await screen.findByText('Immutable source amendment recorded')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Record source amendment' })).toBeNull()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
   })
 

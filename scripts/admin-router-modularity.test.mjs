@@ -261,6 +261,7 @@ const expectedAdminProcedures = [
   'reserveProspectImportUpload',
   'resetAiCostBudgetWindow',
   'resetAiWorkloadConfigurationOverride',
+  'resolveInterviewClarification',
   'resolveOperationalEvent',
   'resolveProspectDuplicate',
   'resolveProspectImportRow',

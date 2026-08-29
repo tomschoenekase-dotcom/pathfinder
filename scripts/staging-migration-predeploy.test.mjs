@@ -71,9 +71,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 202-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 203-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 229)
+  assert.equal(EXPECTED.finalPublicTableCount, 230)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -157,6 +157,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
     ],
   )
   assert.equal(
@@ -172,6 +173,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
     ],
   )
   assert.equal(
@@ -185,6 +187,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
     ],
   )
   assert.equal(
@@ -197,6 +200,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -276,7 +280,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
 })
 
-test('exact previous staging release advances only through the reviewed sixty-seven-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed sixty-eight-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -357,6 +361,7 @@ test('exact previous staging release advances only through the reviewed sixty-se
       '20260828174000_add_founder_absence_observations',
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -421,6 +426,7 @@ test('exact previous staging release advances only through the reviewed sixty-se
     '20260828174000_add_founder_absence_observations',
     '20260829032000_add_intake_file_extraction_receipts',
     '20260829165000_add_intake_file_extraction_reviews',
+    '20260829220000_add_interview_clarification_resolutions',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

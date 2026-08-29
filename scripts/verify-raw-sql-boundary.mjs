@@ -51,6 +51,7 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-multipart-lock',
   'tenant-intake-file-extraction-lock',
   'tenant-intake-file-extraction-review-lock',
+  'tenant-intake-interview-clarification-resolution-lock',
   'tenant-intake-proposal-request-lock',
   'tenant-intake-website-research-lock',
   'tenant-client-assistant-preference-lock',
@@ -73,6 +74,12 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/api/src/lib/intake-interview-clarifications.ts',
+    method: '$executeRaw',
+    hash: 'c28bc4427cf5a42191d2e901c3a0e4ce6e36c3bce09c8f3a108751db7bdb019b',
+    policy: 'tenant-intake-interview-clarification-resolution-lock',
+  },
   {
     file: 'packages/db/src/helpers/agent-question-actions.ts',
     method: '$executeRaw',

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
+import { buildInterviewClarificationReview } from './intake-interview-clarifications'
 import {
   canonicalVenuePackagePayload,
   VenuePackagePayloadV3,
@@ -68,6 +69,7 @@ export type IntakeCandidateIssue = {
     | 'INVALID_STORED_SOURCE'
     | 'PACKAGE_FIELD_INVALID'
     | 'INTERVIEW_DISCREPANCY'
+    | 'INTERVIEW_RESOLUTION_INVALID'
     | 'UNKNOWN_FIELD_PATH'
     | 'NO_CANDIDATES'
   path: string
@@ -306,6 +308,28 @@ export async function buildIntakeVenuePackageCandidate(input: {
         },
       },
       packageHandoff: { select: { packageDraftId: true } },
+      interviewClarificationResolutions: {
+        orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+        select: {
+          id: true,
+          reviewHash: true,
+          clarificationId: true,
+          fieldPath: true,
+          answerHash: true,
+          answeredAt: true,
+          kind: true,
+          amendedPublicText: true,
+          amendedTextHash: true,
+          question: {
+            select: {
+              operationId: true,
+              status: true,
+              answer: true,
+              answeredAt: true,
+            },
+          },
+        },
+      },
     },
   })
   if (!run) {
@@ -461,12 +485,47 @@ export async function buildIntakeVenuePackageCandidate(input: {
   }
 
   const review = await getIntakeProposalReview({ db: input.db, ...scope })
-  if (!review.structuredSummary.handoffReady) {
-    issues.push({
-      code: 'INTERVIEW_DISCREPANCY',
-      path: 'review',
-      message: 'The verified interview review is not ready for a package handoff.',
-    })
+  const clarificationReview = buildInterviewClarificationReview({ ...scope, review })
+  const clarificationById = new Map(
+    clarificationReview.clarifications.map((clarification) => [
+      clarification.clarificationId,
+      clarification,
+    ]),
+  )
+  const validResolutionByField = new Map<
+    string,
+    (typeof run.interviewClarificationResolutions)[number]
+  >()
+  for (const resolution of run.interviewClarificationResolutions) {
+    const clarification = clarificationById.get(resolution.clarificationId)
+    const question = resolution.question
+    const valid =
+      resolution.reviewHash === clarificationReview.reviewHash &&
+      clarification?.fieldPath === resolution.fieldPath &&
+      question.operationId === clarification?.operationId &&
+      question.status === 'ANSWERED' &&
+      question.answer !== null &&
+      question.answeredAt !== null &&
+      question.answeredAt.getTime() === resolution.answeredAt.getTime() &&
+      createHash('sha256').update(question.answer).digest('hex') === resolution.answerHash &&
+      ((resolution.kind === 'REPLACE_PUBLIC_TEXT' &&
+        resolution.amendedPublicText !== null &&
+        resolution.amendedTextHash !== null &&
+        createHash('sha256').update(resolution.amendedPublicText).digest('hex') ===
+          resolution.amendedTextHash) ||
+        (resolution.kind === 'EXCLUDE_FIELD' &&
+          resolution.amendedPublicText === null &&
+          resolution.amendedTextHash === null))
+    if (!valid || validResolutionByField.has(resolution.fieldPath)) {
+      issues.push({
+        code: 'INTERVIEW_RESOLUTION_INVALID',
+        path: resolution.fieldPath,
+        message:
+          'Stored interview clarification resolution does not match exact retained evidence.',
+      })
+      continue
+    }
+    validResolutionByField.set(resolution.fieldPath, resolution)
   }
   const orderedAnswers = [...review.answers].sort(
     (left, right) =>
@@ -475,14 +534,20 @@ export async function buildIntakeVenuePackageCandidate(input: {
       left.fieldPath.localeCompare(right.fieldPath),
   )
   for (const answer of orderedAnswers) {
+    const resolution = validResolutionByField.get(answer.fieldPath)
     if (answer.discrepancies.length > 0) {
-      issues.push({
-        code: 'INTERVIEW_DISCREPANCY',
-        path: answer.fieldPath,
-        message: `Resolve ${answer.discrepancies.join(', ')} before creating a package candidate.`,
-      })
+      if (!resolution) {
+        issues.push({
+          code: 'INTERVIEW_DISCREPANCY',
+          path: answer.fieldPath,
+          message: `Resolve ${answer.discrepancies.join(', ')} before creating a package candidate.`,
+        })
+      } else if (resolution.kind === 'EXCLUDE_FIELD') {
+        continue
+      }
     }
-    if (!answer.publicText) continue
+    const publicText = resolution?.amendedPublicText ?? answer.publicText
+    if (!publicText) continue
     const mapping = interviewMappings[answer.fieldPath]
     if (!mapping) {
       issues.push({
@@ -494,13 +559,16 @@ export async function buildIntakeVenuePackageCandidate(input: {
     }
     candidate.knowledgeEntries.create.push({
       itemKey: deterministicUuid(
-        `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:interview:${answer.fieldPath}:${createHash('sha256').update(answer.publicText).digest('hex')}`,
+        `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:interview:${answer.fieldPath}:${createHash('sha256').update(publicText).digest('hex')}`,
       ),
-      provenance: { ...provenance(), sourceName: `Staff interview: ${answer.fieldPath}` },
+      provenance: {
+        ...provenance(),
+        sourceName: `${resolution ? 'Reviewed interview amendment' : 'Staff interview'}: ${answer.fieldPath}`,
+      },
       value: {
         title: mapping.title,
         category: mapping.category,
-        content: answer.publicText,
+        content: publicText,
         isEnabled: true,
       },
     })

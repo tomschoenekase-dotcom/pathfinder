@@ -257,6 +257,7 @@ model Tenant {
   intakeWebsiteResearchReceipts      IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts       IntakeFileExtractionReceipt[]
   intakeFileExtractionReviews        IntakeFileExtractionReview[]
+  intakeInterviewResolutions         IntakeInterviewClarificationResolution[]
   intakePackageHandoffs              IntakePackageHandoff[]
   intakeUploads                      IntakeUpload[]
   externalCredentials                ExternalAccessCredential[]
@@ -1407,6 +1408,7 @@ model Venue {
   intakeWebsiteResearchReceipts       IntakeWebsiteResearchReceipt[]
   intakeFileExtractionReceipts        IntakeFileExtractionReceipt[]
   intakeFileExtractionReviews         IntakeFileExtractionReview[]
+  intakeInterviewResolutions          IntakeInterviewClarificationResolution[]
   intakePackageHandoffs               IntakePackageHandoff[]
   intakeUploads                       IntakeUpload[]
   externalCredentials                 ExternalAccessCredential[]
@@ -1749,43 +1751,44 @@ enum ContentModulePublicationAction {
 
 /// Draft-only intake proposal. Extraction and publishing are external to this record.
 model IntakeRun {
-  id                           String                         @id @default(cuid())
-  tenantId                     String                         @map("tenant_id")
-  venueId                      String                         @map("venue_id")
-  sourceKind                   IntakeSourceKind               @map("source_kind")
-  status                       IntakeRunStatus                @default(AWAITING_REVIEW)
-  displayName                  String                         @map("display_name") @db.VarChar(255)
-  websiteUri                   String?                        @map("website_uri") @db.VarChar(2000)
-  interviewRole                String?                        @map("interview_role") @db.VarChar(32)
+  id                                String                                   @id @default(cuid())
+  tenantId                          String                                   @map("tenant_id")
+  venueId                           String                                   @map("venue_id")
+  sourceKind                        IntakeSourceKind                         @map("source_kind")
+  status                            IntakeRunStatus                          @default(AWAITING_REVIEW)
+  displayName                       String                                   @map("display_name") @db.VarChar(255)
+  websiteUri                        String?                                  @map("website_uri") @db.VarChar(2000)
+  interviewRole                     String?                                  @map("interview_role") @db.VarChar(32)
   /// Only PUBLIC_CANDIDATE answer text is retained. Withheld answers are represented by hashes and metadata.
-  interviewPublicAnswers       Json?                          @map("interview_public_answers")
-  interviewAnswerManifest      Json?                          @map("interview_answer_manifest")
-  interviewConsentTextHash     String?                        @map("interview_consent_text_hash") @db.Char(64)
+  interviewPublicAnswers            Json?                                    @map("interview_public_answers")
+  interviewAnswerManifest           Json?                                    @map("interview_answer_manifest")
+  interviewConsentTextHash          String?                                  @map("interview_consent_text_hash") @db.Char(64)
   /// Raw, private candidate content submitted during managed onboarding. It is never applied or published directly.
-  structuredBootstrap          Json?                          @map("structured_bootstrap")
-  submissionRequestId          String?                        @map("submission_request_id") @db.Uuid
-  submissionInputHash          String?                        @map("submission_input_hash") @db.Char(64)
-  requestedBy                  String                         @map("requested_by") @db.VarChar(191)
-  requestedByType              ActorType                      @default(HUMAN) @map("requested_by_type")
-  agentIdentityId              String?                        @map("agent_identity_id") @db.VarChar(191)
-  agentRunId                   String?                        @map("agent_run_id") @db.VarChar(191)
-  workerId                     String?                        @map("worker_id") @db.VarChar(191)
-  credentialId                 String?                        @map("credential_id") @db.VarChar(191)
-  approvalGrantId              String?                        @map("approval_grant_id") @db.VarChar(191)
-  capability                   String?                        @db.VarChar(191)
-  modelProvider                String?                        @map("model_provider") @db.VarChar(100)
-  modelName                    String?                        @map("model_name") @db.VarChar(191)
-  createdAt                    DateTime                       @default(now()) @map("created_at")
-  tenant                       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                        Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  evidence                     IntakeEvidenceRecord[]
-  events                       IntakeRunEvent[]
-  websiteResearchReceipts      IntakeWebsiteResearchReceipt[]
-  fileExtractionReceipts       IntakeFileExtractionReceipt[]
-  fileExtractionSourceReviews  IntakeFileExtractionReview[]   @relation("IntakeFileExtractionReviewSource")
-  fileExtractionProposalReview IntakeFileExtractionReview?    @relation("IntakeFileExtractionReviewProposal")
-  packageHandoff               IntakePackageHandoff?
-  upload                       IntakeUpload?
+  structuredBootstrap               Json?                                    @map("structured_bootstrap")
+  submissionRequestId               String?                                  @map("submission_request_id") @db.Uuid
+  submissionInputHash               String?                                  @map("submission_input_hash") @db.Char(64)
+  requestedBy                       String                                   @map("requested_by") @db.VarChar(191)
+  requestedByType                   ActorType                                @default(HUMAN) @map("requested_by_type")
+  agentIdentityId                   String?                                  @map("agent_identity_id") @db.VarChar(191)
+  agentRunId                        String?                                  @map("agent_run_id") @db.VarChar(191)
+  workerId                          String?                                  @map("worker_id") @db.VarChar(191)
+  credentialId                      String?                                  @map("credential_id") @db.VarChar(191)
+  approvalGrantId                   String?                                  @map("approval_grant_id") @db.VarChar(191)
+  capability                        String?                                  @db.VarChar(191)
+  modelProvider                     String?                                  @map("model_provider") @db.VarChar(100)
+  modelName                         String?                                  @map("model_name") @db.VarChar(191)
+  createdAt                         DateTime                                 @default(now()) @map("created_at")
+  tenant                            Tenant                                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                             Venue                                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  evidence                          IntakeEvidenceRecord[]
+  events                            IntakeRunEvent[]
+  websiteResearchReceipts           IntakeWebsiteResearchReceipt[]
+  fileExtractionReceipts            IntakeFileExtractionReceipt[]
+  fileExtractionSourceReviews       IntakeFileExtractionReview[]             @relation("IntakeFileExtractionReviewSource")
+  fileExtractionProposalReview      IntakeFileExtractionReview?              @relation("IntakeFileExtractionReviewProposal")
+  interviewClarificationResolutions IntakeInterviewClarificationResolution[]
+  packageHandoff                    IntakePackageHandoff?
+  upload                            IntakeUpload?
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
@@ -1959,6 +1962,45 @@ model IntakePackageHandoff {
   @@unique([runId, tenantId, venueId], map: "intake_package_handoffs_run_scope_key")
   @@index([tenantId, venueId, createdAt], map: "intake_package_handoffs_scope_created_idx")
   @@map("intake_package_handoffs")
+}
+
+enum IntakeInterviewClarificationResolutionKind {
+  REPLACE_PUBLIC_TEXT
+  EXCLUDE_FIELD
+}
+
+/// Immutable human source-amendment receipt for one answered interview clarification. It can
+/// unblock candidate recomputation but never creates a package or grants approval, apply,
+/// publication, provider, or contact authority.
+model IntakeInterviewClarificationResolution {
+  id                String                                     @id @db.Uuid
+  tenantId          String                                     @map("tenant_id")
+  venueId           String                                     @map("venue_id")
+  runId             String                                     @map("run_id")
+  questionId        String                                     @map("question_id")
+  requestId         String                                     @map("request_id") @db.Uuid
+  reviewHash        String                                     @map("review_hash") @db.Char(64)
+  clarificationId   String                                     @map("clarification_id") @db.VarChar(191)
+  fieldPath         String                                     @map("field_path") @db.VarChar(191)
+  answerHash        String                                     @map("answer_hash") @db.Char(64)
+  answeredAt        DateTime                                   @map("answered_at")
+  kind              IntakeInterviewClarificationResolutionKind
+  amendedPublicText String?                                    @map("amended_public_text") @db.VarChar(2000)
+  amendedTextHash   String?                                    @map("amended_text_hash") @db.Char(64)
+  rationale         String                                     @db.VarChar(500)
+  createdBy         String                                     @map("created_by") @db.VarChar(191)
+  createdAt         DateTime                                   @default(now()) @map("created_at")
+  tenant            Tenant                                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run               IntakeRun                                  @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  question          AgentQuestion                              @relation(fields: [questionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "intake_interview_resolutions_request_key")
+  @@unique([questionId], map: "intake_interview_resolutions_question_key")
+  @@unique([questionId, tenantId, venueId], map: "intake_interview_resolutions_question_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_interview_resolutions_scope_key")
+  @@index([tenantId, venueId, runId, createdAt], map: "intake_interview_resolutions_run_created_idx")
+  @@map("intake_interview_clarification_resolutions")
 }
 
 enum IntakeSourceKind {
@@ -5061,34 +5103,35 @@ model ApprovalRequest {
 /// A durable clarification raised by an agent and answered by a human operator.
 /// Questions are coordination state, not approvals and never grant execution authority.
 model AgentQuestion {
-  id               String                  @id @default(cuid())
-  operationId      String                  @map("operation_id") @db.Uuid
-  tenantId         String                  @map("tenant_id")
-  venueId          String                  @map("venue_id")
-  agentIdentityId  String                  @map("agent_identity_id")
-  agentRunId       String?                 @map("agent_run_id")
-  question         String                  @db.VarChar(2000)
-  context          String?                 @db.VarChar(2000)
-  questionType     AgentQuestionType       @default(SHORT_TEXT) @map("question_type")
-  category         String                  @default("general") @db.VarChar(100)
-  urgency          AgentQuestionUrgency    @default(NORMAL)
-  choices          String[]                @default([])
-  dueAt            DateTime?               @map("due_at")
-  evidence         Json                    @default("[]")
-  proposedAnswer   Json?                   @map("proposed_answer")
-  callbackMetadata Json?                   @map("callback_metadata")
-  blocking         Boolean                 @default(true)
-  status           AgentQuestionStatus     @default(PENDING)
-  answer           String?                 @db.VarChar(5000)
-  answeredById     String?                 @map("answered_by_id") @db.VarChar(191)
-  answeredAt       DateTime?               @map("answered_at")
-  createdAt        DateTime                @default(now()) @map("created_at")
-  updatedAt        DateTime                @updatedAt @map("updated_at")
-  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue            Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity    AgentIdentity           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun         AgentRun?               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  onboardingLink   OnboardingQuestionLink?
+  id                               String                                  @id @default(cuid())
+  operationId                      String                                  @map("operation_id") @db.Uuid
+  tenantId                         String                                  @map("tenant_id")
+  venueId                          String                                  @map("venue_id")
+  agentIdentityId                  String                                  @map("agent_identity_id")
+  agentRunId                       String?                                 @map("agent_run_id")
+  question                         String                                  @db.VarChar(2000)
+  context                          String?                                 @db.VarChar(2000)
+  questionType                     AgentQuestionType                       @default(SHORT_TEXT) @map("question_type")
+  category                         String                                  @default("general") @db.VarChar(100)
+  urgency                          AgentQuestionUrgency                    @default(NORMAL)
+  choices                          String[]                                @default([])
+  dueAt                            DateTime?                               @map("due_at")
+  evidence                         Json                                    @default("[]")
+  proposedAnswer                   Json?                                   @map("proposed_answer")
+  callbackMetadata                 Json?                                   @map("callback_metadata")
+  blocking                         Boolean                                 @default(true)
+  status                           AgentQuestionStatus                     @default(PENDING)
+  answer                           String?                                 @db.VarChar(5000)
+  answeredById                     String?                                 @map("answered_by_id") @db.VarChar(191)
+  answeredAt                       DateTime?                               @map("answered_at")
+  createdAt                        DateTime                                @default(now()) @map("created_at")
+  updatedAt                        DateTime                                @updatedAt @map("updated_at")
+  tenant                           Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                            Venue                                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity                    AgentIdentity                           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun                         AgentRun?                               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  onboardingLink                   OnboardingQuestionLink?
+  interviewClarificationResolution IntakeInterviewClarificationResolution?
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId], map: "agent_questions_id_tenant_venue_key")
