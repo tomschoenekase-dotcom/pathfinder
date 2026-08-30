@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   assessSyntheticAnswer,
+  fingerprintHostedBrowserError,
   parseHostedGoldenVenueArgs,
   resolveHostedGoldenVenueReportPath,
   validateHostedHealth,
@@ -36,6 +37,18 @@ test('hosted Golden Venue smoke requires one exact immutable revision', () => {
   assert.throws(
     () => parseHostedGoldenVenueArgs(['--revision', revision, '--origin', 'https://example.com']),
     /unknown-option/u,
+  )
+})
+
+test('browser errors retain only content-addressed diagnostic evidence', () => {
+  assert.deepEqual(fingerprintHostedBrowserError('console-error', 'private detail'), {
+    kind: 'console-error',
+    utf8Bytes: 14,
+    sha256: 'be8d2494763c19813a8b090455633b013301a15472a56a23627b5bad6cbf0dea',
+  })
+  assert.throws(
+    () => fingerprintHostedBrowserError('warning', 'detail'),
+    /unknown-browser-error-kind/u,
   )
 })
 

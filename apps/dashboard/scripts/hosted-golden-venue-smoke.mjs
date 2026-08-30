@@ -62,6 +62,15 @@ export function assessSyntheticAnswer(answer, expectedFacts) {
   }
 }
 
+export function fingerprintHostedBrowserError(kind, message) {
+  if (kind !== 'console-error' && kind !== 'page-error') fail('unknown-browser-error-kind')
+  return {
+    kind,
+    utf8Bytes: Buffer.byteLength(message, 'utf8'),
+    sha256: createHash('sha256').update(message).digest('hex'),
+  }
+}
+
 export function resolveHostedGoldenVenueReportPath(value, revision, questionKey = null) {
   if (questionKey !== null && !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(questionKey))
     fail('unsafe-question-key')
@@ -106,9 +115,12 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push('console-error')
+    if (message.type() === 'error')
+      consoleErrors.push(fingerprintHostedBrowserError('console-error', message.text()))
   })
-  page.on('pageerror', () => consoleErrors.push('page-error'))
+  page.on('pageerror', (error) =>
+    consoleErrors.push(fingerprintHostedBrowserError('page-error', error.message)),
+  )
 
   const report = {
     schemaVersion: 1,
@@ -150,6 +162,7 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
       composerEnabled: await composer.isEnabled(),
       horizontalOverflow: widths.scroll > widths.client,
       consoleErrorCount: consoleErrors.length,
+      browserErrorEvidence: [...consoleErrors],
     }
     if (!report.chat.composerEnabled) fail('golden-venue-composer-disabled')
     if (report.chat.horizontalOverflow) fail('golden-venue-horizontal-overflow')
@@ -172,6 +185,7 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
       if (!answerEvidence.passed) fail('hosted-provider-answer-failed-corpus-check')
     }
     report.chat.consoleErrorCount = consoleErrors.length
+    report.chat.browserErrorEvidence = [...consoleErrors]
     if (report.chat.consoleErrorCount !== 0) fail('golden-venue-browser-errors')
   } catch (error) {
     failure = error
