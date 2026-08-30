@@ -92,6 +92,7 @@ describe('EngagementQuestionsManager', () => {
       }),
     )
     expect(curious.className).toContain('border-pf-accent')
+    await waitFor(() => expect(curious.closest('section')?.getAttribute('aria-busy')).toBe('false'))
 
     fireEvent.click(screen.getByRole('button', { name: /^Stoic\b/ }))
     expect(await screen.findByText('Mode conflict')).toBeTruthy()
