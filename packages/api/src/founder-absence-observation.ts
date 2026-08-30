@@ -95,15 +95,6 @@ function hashSnapshot(snapshot: FounderAbsenceObservationSnapshot) {
     .digest('hex')
 }
 
-function isUniqueConstraintError(error: unknown): error is { code: 'P2002' } {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'P2002'
-  )
-}
-
 export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness>(
   current: T,
   rows: ObservationRow[],
@@ -342,10 +333,10 @@ export async function captureFounderAbsenceObservation(input: {
     },
   })
   const observedOn = utcDay(now)
-  try {
-    return await withTenantIsolationBypass(() =>
-      db.founderAbsenceObservation.create({
-        data: {
+  await withTenantIsolationBypass(() =>
+    db.founderAbsenceObservation.createMany({
+      data: [
+        {
           observedOn,
           capturedAt: now,
           releaseSha,
@@ -354,14 +345,13 @@ export async function captureFounderAbsenceObservation(input: {
           snapshot,
           evidenceComplete: snapshot.evidenceWindow.complete,
         },
-      }),
-    )
-  } catch (error: unknown) {
-    if (!isUniqueConstraintError(error)) throw error
-    const existing = await withTenantIsolationBypass(() =>
-      db.founderAbsenceObservation.findUnique({ where: { observedOn } }),
-    )
-    if (!existing) throw error
-    return existing
-  }
+      ],
+      skipDuplicates: true,
+    }),
+  )
+  const retained = await withTenantIsolationBypass(() =>
+    db.founderAbsenceObservation.findUnique({ where: { observedOn } }),
+  )
+  if (!retained) throw new Error('Founder absence observation was not retained')
+  return retained
 }
