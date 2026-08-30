@@ -1,6 +1,6 @@
 # Torchiko Audit Backlog
 
-**Current-truth overlay:** 2026-08-28 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
+**Current-truth overlay:** 2026-08-30 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
 This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 206 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
@@ -33,18 +33,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **No**; credentials, cost, and production backup authority are required. Codex can prepare and verify the runbook.
 
-### P0.3 — Prove the integrated migration lineage in disposable and staging databases — LOCAL BOUNDARY RESOLVED
+### P0.3 — Prove the integrated migration lineage in disposable and staging databases — RESOLVED FOR THE EXACT 2026-08-30 STAGING RELEASE
 
-- **Status:** **CLEAN LOCAL/RELEASE BOUNDARY PROVEN 2026-08-25; HOSTED INTEGRATION REMAINS OWNER GATED.** The formerly uncommitted tranche is part of a clean integrated 189-migration lineage. Exact candidate release checks freeze the migration manifest, prove full disposable application, retain the lineage hash in a staging handoff, and fail closed on dirty or divergent candidates.
-- **Remaining problem:** Current hosted staging migration parity, preserved-data backup evidence, exact deployed revision, and live runtime health still require the authorized owner integration workflow. Local evidence must not be promoted into a hosted-state claim.
-- **Evidence:** `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact release candidate and staging handoff artifacts.
+- **Status:** **EXACT HOSTED STAGING LINEAGE PROVEN 2026-08-30.** The active web, dashboard, and worker services run exact revision `402de1e02f968b5196caa0a4996b2a762652c186`. Guarded pre-deploy admitted the exact 205-row predecessor and frozen 206-file manifest, applied only migration 206, then passed the complete 206/206 ledger and integrity checks against 232 public tables. The exact hosted profile passed 19/19 and migration admissions returned to `0`.
+- **Remaining boundary:** This snapshot does not prove current production parity, backup/PITR recovery, or future release parity. Every later migration release must repeat the exact admission, pre-deploy, health, and hosted-profile workflow. Preserved-data recovery evidence remains P0.2.
+- **Evidence:** `docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md`; `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact candidate and staging runtime artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
-- **Recommended change:** Review and integrate only the exact admitted candidate into the owner staging branch, preserve difficult-to-recreate data with fresh backup/restore evidence, apply the checked-in predeploy, then run exact-revision hosted health and staging-profile verification.
-- **Why it matters:** The local schema boundary is trustworthy; the remaining risk is confusing it with current hosted database and runtime state.
+- **Recommended change:** Repeat the fail-closed workflow for each later staging migration release and complete the separately authorized backup/PITR rehearsal in P0.2.
+- **Why it matters:** The exact staging schema boundary is now trustworthy; the remaining risk is treating a dated release snapshot as proof of production or a future release.
 - **Effort:** M
-- **Dependencies:** Owner staging integration, current preserved-data backup/restore evidence, and exact hosted target confirmation.
-- **Before more venue acquisition:** **Yes**.
-- **Codex autonomous:** **Local proof complete**; hosted staging deployment/migration remains owner gated under the checked-in workflow.
+- **Dependencies:** None for this exact staging release; P0.2 retains separate owner/credential/cost dependencies.
+- **Before more venue acquisition:** **Resolved for the exact staging release; backup/PITR evidence remains required separately.**
+- **Codex autonomous:** **Exact authorized staging proof complete**; future releases require the same explicit staging scope and production remains unauthorized.
 
 ## P1 — High-Value Near-Term
 
@@ -263,16 +263,16 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.6 — Pin local infrastructure images and clarify Railway ownership
 
-- **Status:** **LOCAL IMAGE REPRODUCIBILITY RESOLVED 2026-08-25; HOSTED CONFIGURATION OWNERSHIP REMAINS.** Every PostgreSQL/pgvector, Redis, MinIO, MinIO client, and ClamAV image in the provider-dark local-staging stack is bound to an exact repository digest. A static test rejects any unpinned dependency, and the upgrade runbook requires compatibility review plus local/disposable proof.
-- **Remaining problem:** Root Railway/Nixpacks and per-service Docker configurations coexist. Their hosted ownership cannot be inferred from local compose behavior.
+- **Status:** **LOCAL IMAGE REPRODUCIBILITY RESOLVED 2026-08-25; EXACT STAGING SERVICE TOPOLOGY PROVEN 2026-08-30.** Every PostgreSQL/pgvector, Redis, MinIO, MinIO client, and ClamAV image in the provider-dark local-staging stack is bound to an exact repository digest. The exact Railway release used the service-specific dashboard, web, and worker configuration, including a distinct web pre-deploy runtime whose service-variable boundary is now enforced by the verifier and runbook.
+- **Remaining problem:** Root Railway/Nixpacks configuration still coexists with the proven service-specific path. One dated deployment does not by itself authorize deletion of compatibility configuration or establish future/production topology.
 - **Evidence:** `compose.local-staging.yml`; `scripts/local-staging-worker.test.mjs`; `docs/local-staging-infrastructure.md`; Railway configs and staging verifier.
 - **Affected system:** Developer experience, deployment reproducibility.
-- **Recommended change:** During an authorized hosted staging integration, prove which service configuration Railway actually consumes, designate those files canonical, and retire or explicitly mark only genuinely superseded configuration.
+- **Recommended change:** Mark the root path historical/compatibility-only after confirming no remaining Railway service or recovery workflow consumes it; remove it only in a separately reviewed cleanup.
 - **Why it matters:** Builds and local behavior should not change because an upstream tag moved.
 - **Effort:** S
 - **Dependencies:** Tested compatible versions and deployment confirmation.
 - **Before more venue acquisition:** **No**.
-- **Codex autonomous:** **Local pinning implemented**; hosted configuration removal requires confirmation.
+- **Codex autonomous:** **Local pinning and exact staging topology proof complete**; compatibility configuration removal still requires exact consumer confirmation.
 
 ### P2.7 — Improve repository onboarding and doc discoverability
 

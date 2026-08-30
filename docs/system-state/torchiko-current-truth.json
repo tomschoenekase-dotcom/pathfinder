@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-08-28",
+  "asOf": "2026-08-30",
   "authority": {
     "purpose": "Machine-readable overlay for current repository capability truth",
     "supersedesHistoricalClaimsIn": [
@@ -9,7 +9,7 @@
       "docs/system-state/TORCHIKO_AUDIT_BACKLOG.md"
     ],
     "doesNotProve": [
-      "hosted staging deployment",
+      "hosted staging behavior beyond the bounded 2026-08-30 snapshot",
       "production deployment",
       "provider credentials or provider-backed quality",
       "customer contact",
@@ -17,6 +17,28 @@
       "legal or pricing policy",
       "valuable-data destruction authority"
     ]
+  },
+  "hostedStagingSnapshot": {
+    "evidence": "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md",
+    "releaseSha": "402de1e02f968b5196caa0a4996b2a762652c186",
+    "services": {
+      "webDeploymentId": "167f664f-a319-4f4f-b348-b5ddb159aa01",
+      "dashboardDeploymentId": "17dc09d0-dd7b-4556-96e0-918a30cbea42",
+      "workerDeploymentId": "96688ea2-f1ec-4a25-bdc3-a0017ed6286b"
+    },
+    "migrationLedger": {
+      "applied": 206,
+      "expected": 206,
+      "publicTables": 232,
+      "admissionsOpen": 0
+    },
+    "stagingProfile": {
+      "passed": 19,
+      "expected": 19,
+      "failed": 0,
+      "blocked": 0
+    },
+    "productionTouched": false
   },
   "dynamicFacts": {
     "migrationDirectory": "packages/db/prisma/migrations",

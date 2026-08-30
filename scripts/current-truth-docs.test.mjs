@@ -42,6 +42,16 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.ok(truth.authority.doesNotProve.includes('production deployment'))
   assert.ok(truth.authority.doesNotProve.includes('live billing'))
 
+  const staging = truth.hostedStagingSnapshot
+  assert.match(staging.releaseSha, /^[a-f0-9]{40}$/)
+  assert.equal(staging.migrationLedger.applied, staging.migrationLedger.expected)
+  assert.equal(staging.migrationLedger.admissionsOpen, 0)
+  assert.equal(staging.stagingProfile.passed, staging.stagingProfile.expected)
+  assert.equal(staging.stagingProfile.failed, 0)
+  assert.equal(staging.stagingProfile.blocked, 0)
+  assert.equal(staging.productionTouched, false)
+  assert.ok((await stat(path.resolve(repositoryRoot, staging.evidence))).isFile())
+
   const ids = truth.capabilities.map((capability) => capability.id)
   assert.equal(new Set(ids).size, ids.length)
   assert.deepEqual(ids, [
