@@ -8,12 +8,12 @@ live billing, destructive data work, or deferred marketing/brand/Tochi work.
 
 ## Active release
 
-- Git revision: `402de1e02f968b5196caa0a4996b2a762652c186` on
+- Git revision: `a82328e5402d3150d43147b25abf0df54e0930b0` on
   `codex/pathfinder-v2-staging`.
-- Web deployment: `167f664f-a319-4f4f-b348-b5ddb159aa01`.
-- Dashboard deployment: `17dc09d0-dd7b-4556-96e0-918a30cbea42`.
-- Worker deployment: `96688ea2-f1ec-4a25-bdc3-a0017ed6286b`.
-- Exact-revision GitHub Actions run `33324117732` completed successfully.
+- Web deployment: `d0c31034-923b-4dfa-9a45-b6daeb854b9a`.
+- Dashboard deployment: `dae224ea-e816-494b-8cf9-b1ef13bc24c0`.
+- Worker deployment: `0365952e-4c0b-48a9-9955-59e26a9972d0`.
+- Exact-revision GitHub Actions run `33330401052` completed successfully.
 
 All three services were active on the exact revision when this snapshot was retained. The public
 health projection reported the reviewed database, Redis, and storage identities with database and
@@ -23,11 +23,13 @@ blocked gates.
 ## Database boundary
 
 - The guarded web pre-deploy accepted the exact Railway target, frozen 206-file migration manifest,
-  and exact 205-row predecessor.
-- It applied only `20260830165000_add_prospect_inbound_reply_reviews`.
-- The final ledger and integrity verification passed 206/206 against 232 public tables.
-- The one-run migration flag was returned to `0`. A redundant deployment created while closing the
-  flag was aborted before pre-deploy; the active web deployment above remained online.
+  and exact complete 206-row ledger.
+- It applied no migrations. The already-complete path rechecked 206/206 ledger integrity, exactly
+  232 public tables, valid public indexes, and validated public constraints.
+- The one-run migration flag was returned to `0` without triggering another deployment.
+- Railway's branch-triggered web and worker records remained in `WAITING` without associated builds;
+  bounded source redeploys created the successful exact-revision deployments recorded above. The
+  stale waiting records remain Railway audit history and never replaced the healthy services.
 - The service-level approval token is pinned to this exact 206-file release and fails closed on
   release or manifest drift.
 
@@ -48,8 +50,8 @@ authenticated pixel review, backup/PITR recovery, production state, or any exter
 - `docs/staging-release-workflow.md`
 - `docs/inbound-reply-continuity.md`
 - Candidate report:
-  `artifacts/release-verification/402de1e02f968b5196caa0a4996b2a762652c186-candidate.{json,md}`
+  `artifacts/release-verification/a82328e5402d3150d43147b25abf0df54e0930b0-candidate.{json,md}`
   (runtime artifact; intentionally gitignored)
 - Staging report:
-  `artifacts/release-verification/402de1e02f968b5196caa0a4996b2a762652c186-staging.{json,md}`
+  `artifacts/release-verification/a82328e5402d3150d43147b25abf0df54e0930b0-staging.{json,md}`
   (runtime artifact; intentionally gitignored)

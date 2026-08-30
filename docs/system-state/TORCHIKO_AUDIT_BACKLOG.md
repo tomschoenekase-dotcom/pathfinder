@@ -35,7 +35,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P0.3 — Prove the integrated migration lineage in disposable and staging databases — RESOLVED FOR THE EXACT 2026-08-30 STAGING RELEASE
 
-- **Status:** **EXACT HOSTED STAGING LINEAGE PROVEN 2026-08-30.** The active web, dashboard, and worker services run exact revision `402de1e02f968b5196caa0a4996b2a762652c186`. Guarded pre-deploy admitted the exact 205-row predecessor and frozen 206-file manifest, applied only migration 206, then passed the complete 206/206 ledger and integrity checks against 232 public tables. The exact hosted profile passed 19/19 and migration admissions returned to `0`.
+- **Status:** **EXACT HOSTED STAGING LINEAGE PROVEN 2026-08-30.** The active web, dashboard, and worker services run exact revision `a82328e5402d3150d43147b25abf0df54e0930b0`. Guarded pre-deploy admitted the frozen 206-file manifest and exact complete 206-row ledger, applied no migrations, then rechecked 206/206 ledger integrity against exactly 232 public tables. The exact hosted profile passed 19/19 and migration admissions returned to `0`.
 - **Remaining boundary:** This snapshot does not prove current production parity, backup/PITR recovery, or future release parity. Every later migration release must repeat the exact admission, pre-deploy, health, and hosted-profile workflow. Preserved-data recovery evidence remains P0.2.
 - **Evidence:** `docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md`; `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact candidate and staging runtime artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
