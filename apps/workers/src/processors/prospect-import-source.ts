@@ -151,6 +151,18 @@ export async function inspectProspectWorkbookBytes(buffer: Buffer, fileType: 'cs
   return { expanded, workbook, sheets, totalRows }
 }
 
+export function quarantinedSourceRowFailure(sheetName: string, originalRowNumber: number) {
+  const errorCode = 'UNSAFE_SOURCE_ROW'
+  return {
+    rowFingerprint: createHash('sha256')
+      .update(`${sheetName}:${originalRowNumber}:${errorCode}`)
+      .digest('hex'),
+    errors: ['server-quarantine:unsafe-source-row'],
+    errorCode,
+    errorMessage: 'Source row failed bounded server validation.',
+  }
+}
+
 function normalizedRow(
   source: Record<string, string | number | boolean | null>,
   mappingValue: unknown,
@@ -276,11 +288,8 @@ export async function stageProspectImportSource(
               selectedSheet.sheetName,
             ) as { venueName: string },
           })
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : 'unsafe workbook row'
-          const fingerprint = createHash('sha256')
-            .update(`${selectedSheet.sheetName}:${originalRowNumber}:${reason}`)
-            .digest('hex')
+        } catch {
+          const failure = quarantinedSourceRowFailure(selectedSheet.sheetName, originalRowNumber)
           await db.prospectImportRow.upsert({
             where: {
               importId_sheetName_originalRowNumber: {
@@ -293,23 +302,23 @@ export async function stageProspectImportSource(
               importId,
               sheetName: selectedSheet.sheetName,
               originalRowNumber,
-              rowFingerprint: fingerprint,
+              rowFingerprint: failure.rowFingerprint,
               sourceValues: {},
               normalizedValues: {},
               status: 'QUARANTINED',
-              errors: [`server-quarantine:${reason}`],
-              errorCode: 'UNSAFE_SOURCE_ROW',
-              errorMessage: reason.slice(0, 500),
+              errors: failure.errors,
+              errorCode: failure.errorCode,
+              errorMessage: failure.errorMessage,
               processedAt: new Date(),
             },
             update: {
-              rowFingerprint: fingerprint,
+              rowFingerprint: failure.rowFingerprint,
               sourceValues: {},
               normalizedValues: {},
               status: 'QUARANTINED',
-              errors: [`server-quarantine:${reason}`],
-              errorCode: 'UNSAFE_SOURCE_ROW',
-              errorMessage: reason.slice(0, 500),
+              errors: failure.errors,
+              errorCode: failure.errorCode,
+              errorMessage: failure.errorMessage,
               processedAt: new Date(),
             },
           })

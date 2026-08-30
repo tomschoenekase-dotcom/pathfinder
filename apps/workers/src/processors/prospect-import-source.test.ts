@@ -3,9 +3,22 @@ import { describe, expect, it } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import XLSX = require('xlsx')
 
-import { inspectProspectWorkbookBytes } from './prospect-import-source'
+import { inspectProspectWorkbookBytes, quarantinedSourceRowFailure } from './prospect-import-source'
 
 describe('server-owned prospect workbook inspection', () => {
+  it('builds code-only quarantine evidence without exception or row content', () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
+    const failure = quarantinedSourceRowFailure(secret, 42)
+
+    expect(failure).toEqual({
+      rowFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      errors: ['server-quarantine:unsafe-source-row'],
+      errorCode: 'UNSAFE_SOURCE_ROW',
+      errorMessage: 'Source row failed bounded server validation.',
+    })
+    expect(JSON.stringify(failure)).not.toContain(secret)
+  })
+
   it('inspects a deterministic 20,000-row XLSX within bounded metadata', async () => {
     const rows = Array.from({ length: 20_000 }, (_, index) => ({
       venue_name: `Venue ${index}`,
