@@ -75,7 +75,7 @@ The highest immediate value is no longer creating the first provider-dark golden
 | Kind        | Bottleneck                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Operational | Provider-dark lifecycle evidence exists; the equivalent hosted/provider-backed lifecycle and current deployment parity remain unproven.           |
-| Technical   | Two content/deployment generations coexist, and 193 approved tenant-isolation bypass calls plus 94 raw-SQL operations increase review burden.     |
+| Technical   | Two content/deployment generations coexist, and 377 approved tenant-isolation bypass calls plus 111 raw-SQL operations increase review burden.    |
 | Product     | Clients intentionally have narrow configuration; CRM, billing, and communication foundations exist but external operation remains tightly gated.  |
 | UX          | Provider-backed chat/voice quality, authenticated hosted mobile workflows, and the final owner/legal privacy text remain unproven.                |
 | Scale       | Human review, onboarding, package approval, support, and exception handling still concentrate in a sophisticated but operator-heavy admin system. |
@@ -260,7 +260,7 @@ CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migratio
 
 Clerk supplies user and organization identity. `publicProcedure`, authenticated/tenant procedures, and platform-admin procedures provide backend boundaries; non-admin users cannot access internal routes merely by knowing URLs. Platform impersonation/tenant override is accepted only for platform admins and is cookie-scoped. Public guest routes revalidate venue, experience, visibility, and anonymous-session scope rather than trusting the browser.
 
-Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The audit found 193 approved bypass calls in 65 production files and 94 raw-SQL operations (34 reads, 60 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap.
+Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The current executable inventories contain 377 approved bypass calls in 129 production files and 111 raw-SQL operations (41 reads, 70 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap. Current-truth tests derive these counts from the same boundary verifiers so future drift fails the script suite.
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
 

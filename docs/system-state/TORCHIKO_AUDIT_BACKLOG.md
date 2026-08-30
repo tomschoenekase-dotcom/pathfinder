@@ -318,7 +318,7 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 ### P3.1 — Add database-level tenant defense for the highest-risk tables
 
 - **Problem:** Isolation is application-only. The bypass registry is disciplined but large.
-- **Evidence:** no RLS policies found; 193 approved bypasses across 65 production files; 94 raw-SQL operations.
+- **Evidence:** no RLS policies found; 377 approved bypasses across 129 production files; 111 raw-SQL operations. Current-truth tests derive these counts from the executable boundary verifiers so inventory drift cannot silently leave the audit understated.
 - **Affected system:** Security, database, all tenant data.
 - **Recommended change:** Threat-model service roles and connection pooling, then pilot RLS or equivalent guarded views on a small high-risk set; retain application checks and measure operational cost.
 - **Why it matters:** One missed predicate should not become a cross-tenant disclosure at scale.

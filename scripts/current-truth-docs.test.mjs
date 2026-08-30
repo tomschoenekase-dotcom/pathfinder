@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import test from 'node:test'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -20,6 +22,7 @@ const matrixPath = path.join(
 )
 const backlogPath = path.join(repositoryRoot, 'docs', 'system-state', 'TORCHIKO_AUDIT_BACKLOG.md')
 const founderControlRoomPath = path.join(repositoryRoot, 'docs', 'founder-control-room.md')
+const execFileAsync = promisify(execFile)
 
 const allowedStatuses = new Set([
   'implemented-external-gated',
@@ -116,6 +119,46 @@ test('dynamic repository facts agree with all current-state documents', async ()
       assert.match(document, new RegExp(`\\b${capability.id}\\b`))
     }
   }
+})
+
+test('security inventory counts agree with the executable source boundaries', async () => {
+  const [{ stdout: bypassOutput }, { stdout: rawSqlOutput }, stateDocument, auditBacklog] =
+    await Promise.all([
+      execFileAsync(process.execPath, ['scripts/verify-tenant-bypass-boundary.mjs'], {
+        cwd: repositoryRoot,
+        maxBuffer: 1024 * 1024,
+      }),
+      execFileAsync(process.execPath, ['scripts/verify-raw-sql-boundary.mjs'], {
+        cwd: repositoryRoot,
+        maxBuffer: 1024 * 1024,
+      }),
+      readFile(statePath, 'utf8'),
+      readFile(backlogPath, 'utf8'),
+    ])
+
+  const bypass = bypassOutput.match(
+    /Verified (\d+) tenant-isolation bypass calls across (\d+) approved production files\./,
+  )
+  const rawSql = rawSqlOutput.match(
+    /Verified (\d+) raw SQL operations: (\d+) reads, (\d+) writes\./,
+  )
+  assert.ok(bypass, 'tenant bypass verifier emits a count summary')
+  assert.ok(rawSql, 'raw SQL verifier emits a count summary')
+
+  const [, bypassCalls, bypassFiles] = bypass
+  const [, rawSqlOperations, rawSqlReads, rawSqlWrites] = rawSql
+  assert.match(
+    stateDocument,
+    new RegExp(
+      `${bypassCalls} approved bypass calls in ${bypassFiles} production files and ${rawSqlOperations} raw-SQL operations \\(${rawSqlReads} reads, ${rawSqlWrites} writes\\)`,
+    ),
+  )
+  assert.match(
+    auditBacklog,
+    new RegExp(
+      `${bypassCalls} approved bypasses across ${bypassFiles} production files; ${rawSqlOperations} raw-SQL operations`,
+    ),
+  )
 })
 
 test('local staging image truth is content-addressed and stale blockers stay retired', async () => {
