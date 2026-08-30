@@ -300,6 +300,19 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **No**.
 - **Codex autonomous:** **Yes** for the image; partly for telemetry dependency changes.
 
+### P2.9 — Bound structured logging privacy — LOCALLY RESOLVED 2026-08-30
+
+- **Status:** **CENTRAL FAIL-CLOSED REDACTION IMPLEMENTED.** The shared stdout logger now retains only bounded operational metadata, recursively redacts credential/content/free-form fields and raw errors before every local or monitoring sink, bounds depth and collection size, handles circular values, and falls back to a minimal synthetic action if hostile metadata cannot be inspected.
+- **Historical problem:** The errors-only Sentry path had a positive allow-list, but the authoritative stdout logger serialized arbitrary caller-provided nested fields verbatim. Architecture guidance claimed sanitized structured logs without a central enforcement boundary.
+- **Evidence:** `packages/config/src/logger.ts`; `packages/config/src/logger.test.ts`; `docs/MONITORING_RUNBOOK.md`; complete repository test, lint, typecheck, and production-build proof.
+- **Affected system:** Every API, database, worker, webhook, scheduler, and monitoring path using the shared logger.
+- **Remaining proof:** Run one synthetic hosted staging canary only after Sentry project retention/access and alert ownership are approved; calibrate any newly redacted operational fields by adding explicit bounded codes rather than relaxing the free-form boundary.
+- **Why it matters:** Provider errors and operational objects can echo prompts, customer data, URLs, paths, or credentials. One shared last-line boundary prevents a missed caller-side sanitizer from becoming retained log exposure.
+- **Effort:** S
+- **Dependencies:** None for local enforcement; external monitoring policy and project configuration for hosted proof.
+- **Before more venue acquisition:** **Recommended before representative traffic.**
+- **Codex autonomous:** **Local boundary complete**; external monitoring activation and retention policy remain gated.
+
 ## P3 — Scaling / Future Architecture
 
 ### P3.1 — Add database-level tenant defense for the highest-risk tables

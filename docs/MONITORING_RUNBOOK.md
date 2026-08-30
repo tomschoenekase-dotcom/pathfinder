@@ -16,7 +16,12 @@ frame locations remain.
 
 Do not add tenant, venue, user, session, job, storage, prompt, response, or
 provider content to monitoring tags or scope. Application JSON logs remain the
-authoritative detailed local record.
+authoritative bounded local record: the shared logger retains safe operational
+identifiers, codes, counts, and states, but centrally redacts credentials,
+content fields, free-form strings, stacks, and nested error objects before
+writing stdout or forwarding a handled error to monitoring. Callers must still
+avoid logging content; the central boundary is last-line containment, not
+permission to collect it.
 
 ## Runtime enablement
 
