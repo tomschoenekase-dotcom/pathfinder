@@ -55,6 +55,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Reject high-severity production dependency advisories
+        run: pnpm audit:prod
       - run: pnpm verify:staging
       - name: Verify exact-revision staging health admission contract
         run: node --test scripts/staging-health-admission.test.mjs
