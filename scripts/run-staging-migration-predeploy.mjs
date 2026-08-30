@@ -41,6 +41,8 @@ const EXPECTED = Object.freeze({
   performancePredecessorPublicTableCount: 226,
   founderAbsencePredecessorCount: 199,
   founderAbsencePredecessorPublicTableCount: 226,
+  founderAbsenceCompleteCount: 200,
+  founderAbsenceCompletePublicTableCount: 227,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -55,6 +57,7 @@ const EXPECTED = Object.freeze({
   venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
   performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
   founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
+  founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   finalMigration: '20260829231500_enable_pdf_file_extraction',
   manifestHash: '427e59d494447c92398577fb6a28afea34a48c1ffa423fac3f1216c1113af7e0',
   // The reviewed 64-migration suffix after B.5 adds 38 public tables.
@@ -210,6 +213,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('founder absence predecessor boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.founderAbsenceCompleteCount - 1] !==
+    EXPECTED.founderAbsenceCompleteFinalMigration
+  ) {
+    fail('founder absence complete boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -228,6 +237,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.venueMediaPredecessorCount &&
     rows.length !== EXPECTED.performancePredecessorCount &&
     rows.length !== EXPECTED.founderAbsencePredecessorCount &&
+    rows.length !== EXPECTED.founderAbsenceCompleteCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -269,6 +279,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.venueMediaPredecessorCount) return 'venue-media-predecessor'
   if (rows.length === EXPECTED.performancePredecessorCount) return 'performance-predecessor'
   if (rows.length === EXPECTED.founderAbsencePredecessorCount) return 'founder-absence-predecessor'
+  if (rows.length === EXPECTED.founderAbsenceCompleteCount) return 'founder-absence-complete'
   return 'complete'
 }
 
@@ -432,7 +443,9 @@ async function main() {
                             ? EXPECTED.performancePredecessorPublicTableCount
                             : initialState === 'founder-absence-predecessor'
                               ? EXPECTED.founderAbsencePredecessorPublicTableCount
-                              : EXPECTED.stagingBaselinePublicTableCount
+                              : initialState === 'founder-absence-complete'
+                                ? EXPECTED.founderAbsenceCompletePublicTableCount
+                                : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

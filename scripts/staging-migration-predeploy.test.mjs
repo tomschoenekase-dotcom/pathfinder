@@ -80,6 +80,8 @@ test('repository migration manifest remains frozen at the reviewed 205-file chai
   assert.equal(EXPECTED.venueMediaPredecessorPublicTableCount, 225)
   assert.equal(EXPECTED.founderAbsencePredecessorCount, 199)
   assert.equal(EXPECTED.founderAbsencePredecessorPublicTableCount, 226)
+  assert.equal(EXPECTED.founderAbsenceCompleteCount, 200)
+  assert.equal(EXPECTED.founderAbsenceCompletePublicTableCount, 227)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
@@ -204,6 +206,20 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     remainingMigrationNames(rows.slice(0, EXPECTED.founderAbsencePredecessorCount), manifest),
     [
       '20260828174000_add_founder_absence_observations',
+      '20260829032000_add_intake_file_extraction_receipts',
+      '20260829165000_add_intake_file_extraction_reviews',
+      '20260829220000_add_interview_clarification_resolutions',
+      '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.founderAbsenceCompleteCount), manifest),
+    'founder-absence-complete',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.founderAbsenceCompleteCount), manifest),
+    [
       '20260829032000_add_intake_file_extraction_receipts',
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
