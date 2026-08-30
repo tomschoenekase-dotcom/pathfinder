@@ -1,6 +1,10 @@
-# PathFinder — Current Architecture (as of 2026-08-05)
+# PathFinder — Architecture Snapshot (as of 2026-08-05)
 
 > **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+
+> **Current-truth status: HISTORICAL SNAPSHOT.** This file no longer supersedes the maintained
+> sources under `docs/system-state/`. Use `torchiko-current-truth.json`,
+> `TORCHIKO_CAPABILITY_MATRIX.md`, and `TORCHIKO_AUDIT_BACKLOG.md` for current release decisions.
 
 > Read-only analysis for planning a one-month scaling effort. No code was changed to produce this
 > document. Every claim below is either **Confirmed** (I read the exact file/line) or **Inferred**
@@ -9,7 +13,7 @@
 > significantly from the shipped product; where the two disagree, this document follows the real code.
 > `docs/codebase-overview.md` (generated earlier, 2026-07-02-ish) is a good companion but is missing
 > several tables/features added since (knowledge base, engagement questions, weekly reports, answer
-> analysis, media ingestion lab) — this document supersedes it as the current source of truth.
+> analysis, media ingestion lab) — at the time, this document superseded that older overview only.
 
 ---
 
@@ -554,6 +558,13 @@ assigned anywhere** — dead cost-tracking scaffolding, the only such scaffold i
 ---
 
 ## 7. Deployment and infrastructure
+
+> **2026-08-30 correction:** the table below is the historical 2026-08-05 inventory, not current
+> staging truth. Current staging uses the three service-specific Docker configs
+> `railway.staging.web.json`, `railway.staging.dashboard.json`, and
+> `railway.staging.workers.json`; the exact active release and resource identities are maintained in
+> `docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md`. Root/app-scoped Nixpacks and
+> non-staging configs are compatibility inputs and are not accepted by the staging verifier.
 
 **Hosting: Railway.** Three services, two deployment strategies:
 

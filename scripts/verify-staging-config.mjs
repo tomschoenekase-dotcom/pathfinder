@@ -31,6 +31,28 @@ const services = [
   },
 ]
 
+const compatibilityConfigs = [
+  'railway.json',
+  'apps/dashboard/railway.json',
+  'nixpacks.toml',
+  'railway.web.json',
+  'railway.workers.json',
+]
+
+for (const config of compatibilityConfigs) {
+  await access(resolve(root, config))
+  if (!runbook.includes(`\`${config}\``)) {
+    throw new Error(`docs/railway-staging.md: missing compatibility ownership for ${config}`)
+  }
+}
+
+if (
+  !runbook.includes('are **not staging configuration**') ||
+  !runbook.includes('Production remains untouched.')
+) {
+  throw new Error('docs/railway-staging.md: compatibility boundary is incomplete')
+}
+
 for (const service of services) {
   const configPath = resolve(root, service.config)
   const config = JSON.parse(await readFile(configPath, 'utf8'))
@@ -98,5 +120,5 @@ for (const service of services) {
 }
 
 console.log(
-  `Verified ${services.length} staging service configurations and the ${predeployServiceContract.service} pre-deploy service-variable contract.`,
+  `Verified ${services.length} staging service configurations, ${compatibilityConfigs.length} non-staging compatibility inputs, and the ${predeployServiceContract.service} pre-deploy service-variable contract.`,
 )

@@ -261,18 +261,18 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **No**.
 - **Codex autonomous:** **Partly**; promotion policy requires approval.
 
-### P2.6 — Pin local infrastructure images and clarify Railway ownership
+### P2.6 — Pin local infrastructure images and clarify Railway ownership — LOCALLY RESOLVED 2026-08-30
 
-- **Status:** **LOCAL IMAGE REPRODUCIBILITY RESOLVED 2026-08-25; EXACT STAGING SERVICE TOPOLOGY PROVEN 2026-08-30.** Every PostgreSQL/pgvector, Redis, MinIO, MinIO client, and ClamAV image in the provider-dark local-staging stack is bound to an exact repository digest. The exact Railway release used the service-specific dashboard, web, and worker configuration, including a distinct web pre-deploy runtime whose service-variable boundary is now enforced by the verifier and runbook.
-- **Remaining problem:** Root Railway/Nixpacks configuration still coexists with the proven service-specific path. One dated deployment does not by itself authorize deletion of compatibility configuration or establish future/production topology.
-- **Evidence:** `compose.local-staging.yml`; `scripts/local-staging-worker.test.mjs`; `docs/local-staging-infrastructure.md`; Railway configs and staging verifier.
+- **Status:** **LOCAL IMAGE REPRODUCIBILITY RESOLVED 2026-08-25; EXACT STAGING SERVICE TOPOLOGY PROVEN AND CONFIGURATION OWNERSHIP CLARIFIED 2026-08-30.** Every PostgreSQL/pgvector, Redis, MinIO, MinIO client, and ClamAV image in the provider-dark local-staging stack is bound to an exact repository digest. The exact Railway release used only `railway.staging.web.json`, `railway.staging.dashboard.json`, and `railway.staging.workers.json`, including a distinct web pre-deploy runtime whose service-variable boundary is enforced by the verifier and runbook. Root/app-scoped Nixpacks and non-staging Docker configs are now explicitly compatibility-only from the staging workflow's perspective.
+- **Remaining boundary:** A dated staging deployment cannot prove future or production topology. Compatibility files remain preserved until a separately authorized live production inventory confirms no service or recovery workflow consumes them; this local clarification does not authorize deletion or a production change.
+- **Evidence:** `compose.local-staging.yml`; `scripts/local-staging-worker.test.mjs`; `docs/local-staging-infrastructure.md`; `docs/railway-staging.md`; `scripts/verify-staging-config.mjs`; exact Railway configs and hosted staging evidence.
 - **Affected system:** Developer experience, deployment reproducibility.
-- **Recommended change:** Mark the root path historical/compatibility-only after confirming no remaining Railway service or recovery workflow consumes it; remove it only in a separately reviewed cleanup.
+- **Recommended change:** Keep the explicit compatibility boundary enforced. Remove a compatibility input only after a separately reviewed production inventory proves it has no live or recovery consumer.
 - **Why it matters:** Builds and local behavior should not change because an upstream tag moved.
 - **Effort:** S
 - **Dependencies:** Tested compatible versions and deployment confirmation.
 - **Before more venue acquisition:** **No**.
-- **Codex autonomous:** **Local pinning and exact staging topology proof complete**; compatibility configuration removal still requires exact consumer confirmation.
+- **Codex autonomous:** **Local pinning, staging ownership, and exact staging topology proof complete**; compatibility configuration removal still requires exact production-consumer confirmation.
 
 ### P2.7 — Improve repository onboarding and doc discoverability
 

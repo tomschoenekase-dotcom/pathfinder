@@ -27,6 +27,24 @@ Create three services from the repository root:
 | Dashboard  | `railway.staging.dashboard.json` | root `Dockerfile`; standalone dashboard server       |
 | Workers    | `railway.staging.workers.json`   | `Dockerfile.workers`; no HTTP listener               |
 
+### Configuration ownership
+
+The three `railway.staging.*.json` files above are the only checked-in configuration-as-code
+inputs for the proven staging application services. The staging verifier does not accept a root or
+app-scoped fallback.
+
+The following files remain compatibility inputs for the separately managed production/legacy
+topology and are **not staging configuration**:
+
+- `railway.json`, `apps/dashboard/railway.json`, and `nixpacks.toml` for dashboard compatibility;
+- `railway.web.json` for the non-staging public-web service; and
+- `railway.workers.json` for the non-staging worker service.
+
+Exact staging proof does not prove whether a production service or recovery workflow still consumes
+one of those compatibility files. Do not delete, repoint, or silently reuse them for staging until
+the owner records the live service config path through a separately authorized production inventory.
+Production remains untouched.
+
 All three services must deploy the exact same Git commit SHA. Set
 `RAILWAY_ENVIRONMENT=staging` on every service. Do not use a branch name or a
 successful build time as proof that the revisions match; record the full SHA
