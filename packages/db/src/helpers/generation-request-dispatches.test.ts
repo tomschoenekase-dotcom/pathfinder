@@ -32,12 +32,12 @@ describe('generation request dispatches', () => {
     expect(mocks.queryRaw).not.toHaveBeenCalled()
   })
 
-  it('bounds persisted failure diagnostics', async () => {
+  it('persists only the stable generation-dispatch failure code', async () => {
     mocks.executeRaw.mockResolvedValue(1)
-    await expect(
-      failGenerationRequestDispatch({ ...exact, error: 'x'.repeat(1_500) }),
-    ).resolves.toBe(true)
-    expect(mocks.executeRaw.mock.calls[0]?.slice(1)).toContain('x'.repeat(1_000))
+    await expect(failGenerationRequestDispatch(exact)).resolves.toBe(true)
+    const durableValues = JSON.stringify(mocks.executeRaw.mock.calls[0]?.slice(1))
+    expect(durableValues).toContain('GENERATION_DISPATCH_FAILED')
+    expect(durableValues).not.toContain('postgres://operator:secret@example.test/torchiko')
   })
 
   it.each([

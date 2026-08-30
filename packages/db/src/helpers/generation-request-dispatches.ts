@@ -7,7 +7,7 @@ export type GenerationRequestKind = 'ANSWER_ANALYSIS' | 'WEEKLY_REPORT'
 export const GENERATION_DISPATCH_BATCH_SIZE = 50
 export const GENERATION_DISPATCH_LEASE_MS = 60_000
 export const GENERATION_DISPATCH_DEFER_MS = 5 * 60_000
-export const GENERATION_DISPATCH_MAX_ERROR_LENGTH = 1_000
+export const GENERATION_DISPATCH_FAILURE_CODE = 'GENERATION_DISPATCH_FAILED'
 
 export type LeasedGenerationRequestDispatch = {
   id: string
@@ -84,12 +84,11 @@ export async function deferGenerationRequestDispatch(
 }
 
 export async function failGenerationRequestDispatch(
-  params: ExactGenerationRequestDispatch & { error: string },
+  params: ExactGenerationRequestDispatch,
 ): Promise<boolean> {
   validLeaseToken(params.leaseToken)
-  const error = params.error.slice(0, GENERATION_DISPATCH_MAX_ERROR_LENGTH)
   return (
-    (await db.$executeRaw`UPDATE generation_request_dispatches SET lease_token=NULL, lease_expires_at=NULL, next_attempt_at=clock_timestamp()+LEAST(300,5*POWER(2,LEAST(GREATEST(attempts-1,0),6)))*INTERVAL '1 second', last_error=${error}, updated_at=clock_timestamp() WHERE id=${params.id} AND tenant_id=${params.tenantId} AND venue_id=${params.venueId} AND kind=${params.kind}::"GenerationRequestKind" AND record_id=${params.recordId} AND status='PENDING' AND lease_token=${params.leaseToken}::uuid`) ===
+    (await db.$executeRaw`UPDATE generation_request_dispatches SET lease_token=NULL, lease_expires_at=NULL, next_attempt_at=clock_timestamp()+LEAST(300,5*POWER(2,LEAST(GREATEST(attempts-1,0),6)))*INTERVAL '1 second', last_error=${GENERATION_DISPATCH_FAILURE_CODE}, updated_at=clock_timestamp() WHERE id=${params.id} AND tenant_id=${params.tenantId} AND venue_id=${params.venueId} AND kind=${params.kind}::"GenerationRequestKind" AND record_id=${params.recordId} AND status='PENDING' AND lease_token=${params.leaseToken}::uuid`) ===
     1
   )
 }

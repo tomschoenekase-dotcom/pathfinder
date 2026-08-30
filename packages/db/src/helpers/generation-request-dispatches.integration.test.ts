@@ -149,7 +149,7 @@ integrationDescribe('generation request dispatches (disposable PostgreSQL integr
     }
 
     await expect(
-      failGenerationRequestDispatch({ ...exact, leaseToken: randomUUID(), error: 'wrong owner' }),
+      failGenerationRequestDispatch({ ...exact, leaseToken: randomUUID() }),
     ).resolves.toBe(false)
 
     await db.generationRequestDispatch.updateMany({
@@ -161,7 +161,6 @@ integrationDescribe('generation request dispatches (disposable PostgreSQL integr
       failGenerationRequestDispatch({
         ...exact,
         leaseToken: leased.leaseToken,
-        error: 'x'.repeat(1_500),
       }),
     ).resolves.toBe(true)
 
@@ -171,7 +170,7 @@ integrationDescribe('generation request dispatches (disposable PostgreSQL integr
     expect(failed.status).toBe('PENDING')
     expect(failed.leaseToken).toBeNull()
     expect(failed.leaseExpiresAt).toBeNull()
-    expect(failed.lastError).toBe('x'.repeat(1_000))
+    expect(failed.lastError).toBe('GENERATION_DISPATCH_FAILED')
     expect(failed.nextAttemptAt.getTime()).toBeGreaterThan(beforeFailure.getTime())
     expect(failed.nextAttemptAt.getTime()).toBeLessThanOrEqual(beforeFailure.getTime() + 301_000)
   })

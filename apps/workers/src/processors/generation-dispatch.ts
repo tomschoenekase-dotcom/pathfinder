@@ -106,10 +106,7 @@ export async function processGenerationDispatches(): Promise<GenerationDispatchR
     } catch {
       result.failed += 1
       try {
-        const retained = await failGenerationRequestDispatch({
-          ...exact,
-          error: SAFE_DISPATCH_ERROR,
-        })
+        const retained = await failGenerationRequestDispatch(exact)
         if (!retained) result.superseded += 1
       } catch {
         failurePersistenceErrors += 1

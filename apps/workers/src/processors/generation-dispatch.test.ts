@@ -165,7 +165,6 @@ describe('processGenerationDispatches', () => {
       kind: 'ANSWER_ANALYSIS',
       recordId: 'snapshot_1',
       leaseToken: 'lease_1',
-      error: 'Generation dispatch attempt failed.',
     })
     expect(mocks.enqueueReport).toHaveBeenCalledOnce()
     const persistedAndLogged = JSON.stringify([mocks.fail.mock.calls, mocks.loggerError.mock.calls])
@@ -183,9 +182,7 @@ describe('processGenerationDispatches', () => {
       expect.objectContaining({ failed: 1, enqueueRequestsAccepted: 0 }),
     )
     expect(mocks.enqueueAnswer).not.toHaveBeenCalled()
-    expect(mocks.fail).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'Generation dispatch attempt failed.' }),
-    )
+    expect(mocks.fail).toHaveBeenCalledWith(expect.objectContaining({ id: 'dispatch_answer_1' }))
   })
 
   it('fails the Bull delivery safely when dispatch failure state cannot be persisted', async () => {
