@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const createMock = vi.fn()
-const warnMock = vi.fn()
+import { writeAuditLog, writeAuditLogStrict } from './audit'
+
+const { createMock, warnMock } = vi.hoisted(() => ({
+  createMock: vi.fn(),
+  warnMock: vi.fn(),
+}))
 
 vi.mock('../client', () => ({
   db: {
@@ -26,8 +30,6 @@ describe('writeAuditLog', () => {
   it('creates a platform-level audit log when tenantId is omitted', async () => {
     createMock.mockResolvedValueOnce({ id: 'audit_1' })
 
-    const { writeAuditLog } = await import('./audit')
-
     await writeAuditLog({
       actorId: 'user_1',
       actorRole: 'PLATFORM_ADMIN',
@@ -51,8 +53,6 @@ describe('writeAuditLog', () => {
 
   it('writes honest machine lineage without a human-shaped actor', async () => {
     createMock.mockResolvedValueOnce({ id: 'audit_machine_1' })
-
-    const { writeAuditLogStrict } = await import('./audit')
 
     await writeAuditLogStrict({
       tenantId: 'tenant_1',
@@ -98,8 +98,6 @@ describe('writeAuditLog', () => {
   it('logs and swallows database errors', async () => {
     createMock.mockRejectedValueOnce(new Error('db unavailable'))
 
-    const { writeAuditLog } = await import('./audit')
-
     await expect(
       writeAuditLog({
         tenantId: 'tenant_1',
@@ -123,8 +121,6 @@ describe('writeAuditLog', () => {
 
   it('exposes database errors through the strict writer', async () => {
     createMock.mockRejectedValueOnce(new Error('db unavailable'))
-
-    const { writeAuditLogStrict } = await import('./audit')
 
     await expect(
       writeAuditLogStrict({
