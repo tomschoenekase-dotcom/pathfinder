@@ -510,7 +510,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',
     method: '$executeRaw',
-    hash: '1b2d60ffbbfc05eeb54b73f5d5f3a29bf030f7b9b1786f1861f9fd66749c7660',
+    hash: '34a9f3a5858c7cdddfcf5741a8eb74e56bd42611ba5ec0750b464baca2d1ae71',
     policy: 'tenant-venue-revision-lease',
   },
   {
@@ -630,7 +630,7 @@ const approvedOperations = [
   ...[
     '6bb900882644e8bf41e1cc7f23ca66f52c2846caa7b820013bc76aee22d59bad',
     '73c658b1642ca6816f76e7d96ce26710da19709e7357faec1e301044905a9d2d',
-    '71af5dd181a87025efa2d1f47a96afd053926d5cfd798317c56a1c678220aac2',
+    '959b0f199065e8791a348a79973d260ac0a058c970986fc085445e0fcd905f08',
     'a10b854673a1e54550ab850c8890963a38ad1b3949e0c72d2641946546650ff8',
     'e41a8be47a563338f25f7030cab02bae22ecf6b5e70bc86b498b1a149698a603',
     'e9750a92b9237076ced2fb1732875f9da4ba80c84f301804114b5ac16d705e24',

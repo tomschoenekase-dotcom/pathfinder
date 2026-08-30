@@ -7,6 +7,7 @@ import {
   parseReleaseVerificationArgs,
   runReleaseVerification,
 } from './lib/release-verification.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const execFileAsync = promisify(execFile)
 const root = path.resolve(import.meta.dirname, '..')
@@ -37,9 +38,9 @@ try {
     })}\n`,
   )
   if (result.report.readiness === 'not-ready') process.exitCode = 1
-} catch (error) {
-  process.stderr.write(
-    `Release verification failed: ${error instanceof Error ? error.message : 'unexpected-failure'}\n`,
-  )
-  process.exitCode = 1
+} catch {
+  process.exitCode = reportOperatorCliFailure({
+    action: 'release-verification.failed',
+    errorCode: 'release-verification-failed',
+  })
 }

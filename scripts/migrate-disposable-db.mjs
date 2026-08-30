@@ -2,6 +2,7 @@ import {
   DisposableMigrationRefusal,
   runDisposableMigration,
 } from './lib/disposable-prisma-migration.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 try {
   process.exitCode = runDisposableMigration({
@@ -10,10 +11,15 @@ try {
   })
 } catch (error) {
   if (error instanceof DisposableMigrationRefusal) {
-    console.error(`Disposable migration refused: ${error.message}`)
-    process.exitCode = 2
+    process.exitCode = reportOperatorCliFailure({
+      action: 'disposable-migration.failed',
+      errorCode: 'disposable-migration-refused',
+      exitCode: 2,
+    })
   } else {
-    console.error('Disposable migration refused because validation failed unexpectedly.')
-    process.exitCode = 1
+    process.exitCode = reportOperatorCliFailure({
+      action: 'disposable-migration.failed',
+      errorCode: 'disposable-migration-failed',
+    })
   }
 }

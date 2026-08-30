@@ -8,6 +8,7 @@ import {
   verifyDockerIgnoreInventory,
   verifyDockerfileContextGuard,
 } from './lib/docker-context-boundary.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const dockerIgnorePath = fileURLToPath(new URL('../.dockerignore', import.meta.url))
 const workerDockerfilePath = fileURLToPath(new URL('../Dockerfile.workers', import.meta.url))
@@ -36,10 +37,11 @@ try {
     `Verified Docker context boundary with ${result.protectedRuleCount} protected-path rules and a pre-install image guard.`,
   )
 } catch (error) {
-  if (error instanceof DockerContextBoundaryError) {
-    console.error(`Docker context boundary verification failed: ${error.message}`)
-    process.exitCode = 1
-  } else {
-    throw error
-  }
+  process.exitCode = reportOperatorCliFailure({
+    action: 'docker-context-boundary.failed',
+    errorCode:
+      error instanceof DockerContextBoundaryError
+        ? 'docker-context-boundary-invalid'
+        : 'docker-context-boundary-failed',
+  })
 }

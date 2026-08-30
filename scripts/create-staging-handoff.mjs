@@ -4,6 +4,7 @@ import {
   createStagingHandoffManifest,
   parseStagingHandoffArgs,
 } from './lib/staging-handoff-manifest.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -17,9 +18,9 @@ try {
       sha256: result.sha256,
     })}\n`,
   )
-} catch (error) {
-  process.stderr.write(
-    `Staging handoff failed: ${error instanceof Error ? error.message : 'unexpected-failure'}\n`,
-  )
-  process.exitCode = 1
+} catch {
+  process.exitCode = reportOperatorCliFailure({
+    action: 'staging-handoff.failed',
+    errorCode: 'staging-handoff-failed',
+  })
 }
