@@ -152,7 +152,6 @@ describe('website research receipt action', () => {
           researchSnapshot: undefined,
           candidateSnapshot: undefined,
           errorCode: 'RUNTIME_FAILURE',
-          errorMessage: 'Failed.',
           evidence: [
             {
               id: 'evidence-a',
@@ -170,6 +169,48 @@ describe('website research receipt action', () => {
       expect.objectContaining<Partial<IntakeWebsiteResearchActionError>>({ code: 'INVALID_INPUT' }),
     )
     expect(executeRaw).not.toHaveBeenCalled()
+  })
+
+  it('derives failure detail from the bounded code and rejects unknown codes', async () => {
+    const crypto = await import('node:crypto')
+    const sourceUriHash = crypto.createHash('sha256').update('https://example.org/').digest('hex')
+    receiptCreate.mockResolvedValueOnce({ id: operationId, outcome: 'FAILED', createdAt })
+    await recordWebsiteResearchReceiptAction(
+      input({
+        sourceUriHash,
+        outcome: 'FAILED',
+        researchSnapshot: undefined,
+        candidateSnapshot: undefined,
+        errorCode: 'RUNTIME_FAILURE',
+        fetchedPages: 0,
+      }) as never,
+      client as never,
+    )
+
+    expect(receiptCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          errorCode: 'RUNTIME_FAILURE',
+          errorMessage: 'Website research failed before a reviewable result was retained.',
+        }),
+      }),
+    )
+
+    vi.clearAllMocks()
+    await expect(
+      recordWebsiteResearchReceiptAction(
+        input({
+          sourceUriHash,
+          outcome: 'FAILED',
+          researchSnapshot: undefined,
+          candidateSnapshot: undefined,
+          errorCode: 'SECRET_PROVIDER_FAILURE',
+          fetchedPages: 0,
+        }) as never,
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
   })
 
   it('rejects a retry after terminal success under the run advisory lock', async () => {

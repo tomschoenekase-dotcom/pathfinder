@@ -14,6 +14,28 @@ import { writeAuditLogStrict } from './audit'
 
 export const MAX_WEBSITE_RESEARCH_RECEIPTS_PER_RUN = 4
 
+const websiteResearchFailureMessages = {
+  CANCELLED: 'Website research was cancelled before completion.',
+  TIME_LIMIT: 'Website research exceeded its approved time limit.',
+  COST_LIMIT: 'Website research exceeded its approved cost-unit limit.',
+  EXTRACTION_FAILED: 'Website research could not extract reviewable page evidence.',
+  SOURCE_INACCESSIBLE: 'The website source was inaccessible under the approved crawl policy.',
+  POLICY_FAILURE: 'Website research stopped at an approved policy boundary.',
+  RUNTIME_FAILURE: 'Website research failed before a reviewable result was retained.',
+  NO_ACCESSIBLE_PAGES: 'No website page was accessible within the approved crawl policy.',
+} as const
+
+const websiteResearchFailureCode = z.enum([
+  'CANCELLED',
+  'TIME_LIMIT',
+  'COST_LIMIT',
+  'EXTRACTION_FAILED',
+  'SOURCE_INACCESSIBLE',
+  'POLICY_FAILURE',
+  'RUNTIME_FAILURE',
+  'NO_ACCESSIBLE_PAGES',
+])
+
 const terminalInput = z
   .object({
     operationId: z.string().uuid(),
@@ -34,18 +56,13 @@ const terminalInput = z
     fetchedBytes: z.number().int().min(0).max(1_000_000_000),
     estimatedCostUnits: z.number().int().min(0).max(1_000_000),
     latencyMs: z.number().int().min(0).max(300_000),
-    errorCode: z.string().trim().min(1).max(64).optional(),
-    errorMessage: z.string().trim().min(1).max(500).optional(),
+    errorCode: websiteResearchFailureCode.optional(),
     createdBy: z.string().trim().min(1).max(191),
   })
   .strict()
   .superRefine((value, context) => {
     const successful = value.outcome === 'SUCCEEDED'
-    if (
-      successful !== Boolean(value.researchSnapshot) ||
-      successful === Boolean(value.errorCode) ||
-      successful === Boolean(value.errorMessage)
-    ) {
+    if (successful !== Boolean(value.researchSnapshot) || successful === Boolean(value.errorCode)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['outcome'],
@@ -153,7 +170,8 @@ function exactReplay(
     receipt.estimatedCostUnits === input.estimatedCostUnits &&
     receipt.latencyMs === input.latencyMs &&
     receipt.errorCode === (input.errorCode ?? null) &&
-    receipt.errorMessage === (input.errorMessage ?? null) &&
+    receipt.errorMessage ===
+      (input.errorCode ? websiteResearchFailureMessages[input.errorCode] : null) &&
     receipt.createdBy === input.createdBy,
   )
 }
@@ -340,8 +358,12 @@ export async function recordWebsiteResearchReceiptAction(
         fetchedBytes: input.fetchedBytes,
         estimatedCostUnits: input.estimatedCostUnits,
         latencyMs: input.latencyMs,
-        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
-        ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+        ...(input.errorCode
+          ? {
+              errorCode: input.errorCode,
+              errorMessage: websiteResearchFailureMessages[input.errorCode],
+            }
+          : {}),
         createdBy: input.createdBy,
       },
       select: { id: true, outcome: true, createdAt: true },

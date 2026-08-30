@@ -53,10 +53,18 @@ function hash(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+type WebsiteResearchFailureCode =
+  | 'CANCELLED'
+  | 'TIME_LIMIT'
+  | 'COST_LIMIT'
+  | 'EXTRACTION_FAILED'
+  | 'SOURCE_INACCESSIBLE'
+  | 'POLICY_FAILURE'
+  | 'RUNTIME_FAILURE'
+
 function safeFailure(error: unknown): {
   outcome: 'INACCESSIBLE' | 'FAILED'
-  errorCode: string
-  errorMessage: string
+  errorCode: WebsiteResearchFailureCode
 } {
   if (error instanceof WebsiteIntakePolicyError) {
     const message = error.message
@@ -64,28 +72,24 @@ function safeFailure(error: unknown): {
       return {
         outcome: 'FAILED',
         errorCode: 'CANCELLED',
-        errorMessage: 'Website research was cancelled before completion.',
       }
     }
     if (/time limit/iu.test(message)) {
       return {
         outcome: 'FAILED',
         errorCode: 'TIME_LIMIT',
-        errorMessage: 'Website research exceeded its approved time limit.',
       }
     }
     if (/cost-unit/iu.test(message)) {
       return {
         outcome: 'FAILED',
         errorCode: 'COST_LIMIT',
-        errorMessage: 'Website research exceeded its approved cost-unit limit.',
       }
     }
     if (/extractor/iu.test(message)) {
       return {
         outcome: 'FAILED',
         errorCode: 'EXTRACTION_FAILED',
-        errorMessage: 'Website research could not extract reviewable page evidence.',
       }
     }
     if (
@@ -96,19 +100,16 @@ function safeFailure(error: unknown): {
       return {
         outcome: 'INACCESSIBLE',
         errorCode: 'SOURCE_INACCESSIBLE',
-        errorMessage: 'The website source was inaccessible under the approved crawl policy.',
       }
     }
     return {
       outcome: 'FAILED',
       errorCode: 'POLICY_FAILURE',
-      errorMessage: 'Website research stopped at an approved policy boundary.',
     }
   }
   return {
     outcome: 'FAILED',
     errorCode: 'RUNTIME_FAILURE',
-    errorMessage: 'Website research failed before a reviewable result was retained.',
   }
 }
 
@@ -312,7 +313,6 @@ export async function executeWebsiteIntakeResearch(input: {
           estimatedCostUnits: Math.ceil(fetchedBytes / 100_000),
           latencyMs: Math.max(0, clock().getTime() - startedAt.getTime()),
           errorCode: 'NO_ACCESSIBLE_PAGES',
-          errorMessage: 'No website page was accessible within the approved crawl policy.',
           createdBy: input.request.createdBy,
         },
         input.db,
@@ -370,7 +370,6 @@ export async function executeWebsiteIntakeResearch(input: {
           estimatedCostUnits: fetchedPages + Math.ceil(fetchedBytes / 100_000),
           latencyMs: Math.max(0, clock().getTime() - startedAt.getTime()),
           errorCode: failure.errorCode,
-          errorMessage: failure.errorMessage,
           createdBy: input.request.createdBy,
         },
         input.db,

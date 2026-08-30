@@ -64,8 +64,7 @@ describe.skipIf(!enabled)('website research receipt disposable lifecycle', () =>
         fetchedBytes: 0,
         estimatedCostUnits: 0,
         latencyMs: 10,
-        errorCode: 'TIME_LIMIT',
-        errorMessage: 'Disposable bounded timeout.',
+        errorCode: 'TIME_LIMIT' as const,
         createdBy: 'disposable-admin',
       }
       expect(await recordWebsiteResearchReceiptAction(failureInput)).toMatchObject({
@@ -110,7 +109,6 @@ describe.skipIf(!enabled)('website research receipt disposable lifecycle', () =>
         estimatedCostUnits: 2,
         latencyMs: 20,
         errorCode: undefined,
-        errorMessage: undefined,
       })
       expect(succeeded).toMatchObject({
         outcome: 'SUCCEEDED',

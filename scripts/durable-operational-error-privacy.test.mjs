@@ -118,3 +118,19 @@ test('job-record persistence derives terminal error from failure disposition', a
   assert.match(jobRecords, /error:\s*`JOB_\$\{data\.failureDisposition\}`/u)
   assert.doesNotMatch(jobExecution, /updateJobRecord\([\s\S]{0,300}\berror:/u)
 })
+
+test('website research receipt persistence derives failure detail from a bounded code', async () => {
+  const root = new URL('../', import.meta.url)
+  const receiptActions = await readFile(
+    new URL('packages/db/src/helpers/intake-website-research-actions.ts', root),
+    'utf8',
+  )
+  const researchService = await readFile(
+    new URL('packages/api/src/lib/website-intake-research-service.ts', root),
+    'utf8',
+  )
+
+  assert.doesNotMatch(receiptActions, /errorMessage:\s*z\.string/u)
+  assert.match(receiptActions, /errorMessage:\s*websiteResearchFailureMessages\[input\.errorCode\]/u)
+  assert.doesNotMatch(researchService, /errorMessage:/u)
+})

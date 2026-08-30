@@ -196,11 +196,11 @@ describe('website intake research execution', () => {
       expect.objectContaining({
         outcome: 'FAILED',
         errorCode: 'EXTRACTION_FAILED',
-        errorMessage: 'Website research could not extract reviewable page evidence.',
       }),
       expect.anything(),
     )
     expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('top-secret')
     expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('user:secret')
+    expect(recordReceipt.mock.calls[0]?.[0]).not.toHaveProperty('errorMessage')
   })
 })
