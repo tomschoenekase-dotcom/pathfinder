@@ -1,12 +1,12 @@
 # Torchiko State of System
 
-| Snapshot field             | Value                                                                                                                                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current-truth overlay      | 2026-08-28, America/Chicago                                                                                                                                                                         |
-| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                                   |
-| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                                 |
-| Current local evidence     | Clean integrated release candidates; provider-dark golden lifecycle; digest-pinned PostgreSQL/pgvector, Redis, MinIO and ClamAV; worker health mode                                                 |
-| Confidence                 | High for integrated code-supported and provider-dark local behavior; medium/unknown for current hosted staging/production state, live providers, customer contact, real billing, and customer usage |
+| Snapshot field             | Value                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current-truth overlay      | 2026-08-30, America/Chicago                                                                                                                                                                     |
+| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                               |
+| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                             |
+| Current release evidence   | Exact active Railway staging release `402de1e0...`; three coordinated services; 206/206 migrations; 232 public tables; hosted profile 19/19; admissions closed; production untouched            |
+| Confidence                 | High for integrated code-supported behavior and the bounded exact staging snapshot; medium/unknown for production, provider-backed quality, customer contact, real billing, recovery, and usage |
 
 ## Current Truth Overlay
 
@@ -250,11 +250,11 @@ For a future place/city/territory graph, the structured content identities, prov
 
 Local staging is a well-supported Docker-based environment. During the audit, PostgreSQL/pgvector, Redis, MinIO, and ClamAV were healthy; the web health route returned HTTP 200 with database and queue `up`. The health endpoint does not check object storage, malware scanning, AI providers, email, worker liveness/freshness, scheduler activity, or migration parity.
 
-Railway has separate dashboard, web, and worker configurations plus Dockerfiles and executable staging-config gates. The public web config uses `/api/health`; equivalent deployed dashboard/worker health behavior was not established. A root Railway/Nixpacks configuration coexists with newer service-specific Docker configs and should be declared legacy or removed. No live Railway environment, domains, secrets, metrics, or deployment revision was inspected.
+Railway has separate dashboard, web, and worker configurations plus Dockerfiles and executable staging-config gates. The bounded 2026-08-30 snapshot proves that all three staging services were active on exact revision `402de1e02f968b5196caa0a4996b2a762652c186`; web pre-deploy advanced only the reviewed migration suffix, verified 206/206 migrations and 232 public tables, and the exact hosted profile passed 19/19. The migration admission flag returned to `0`, and production was not selected or mutated. Railway's separate web pre-deploy runtime requires the exact non-secret approval as a service variable rather than relying on image-only `ENV`; the verifier and runbook now enforce that topology. A root Railway/Nixpacks configuration still coexists with the proven service-specific path and must not be removed until every remaining consumer or recovery use is ruled out. See [`TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md`](./TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md).
 
 Supabase provides the PostgreSQL target. A password-prompted logical backup script pins PostgreSQL/pgvector client versions, requires SSL, refuses overwrite, uses a consistent snapshot, verifies `pg_restore --list`, and emits a hash/manifest. Older retained documentation records a successful archive and local restore rehearsal. It also records that the Supabase Free plan had no scheduled backups or PITR at that time. Current provider backup settings and a recent restore drill remain unknown.
 
-CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates run a 26-gate assessment and can be projected as immutable platform evidence. Current remote CI status remains separate. Local compose now pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
+CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates now run a 27-gate assessment and can be projected as immutable platform evidence. GitHub Actions completed successfully for the exact active staging release and for dependency-security revision `aaa5d1c623e25d64efc38861fe46fbbe7c0a1810`; later branch revisions retain separate run status. Local compose pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
 
 ## Security / Tenant Isolation
 
@@ -263,6 +263,11 @@ Clerk supplies user and organization identity. `publicProcedure`, authenticated/
 Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The audit found 193 approved bypass calls in 65 production files and 94 raw-SQL operations (34 reads, 60 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap.
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
+
+The exact production dependency audit is CI-enforced and currently reports no known production
+vulnerabilities. One low Windows-only esbuild development-server advisory remains in supported
+build/test-tool ranges and is retained without an out-of-range override; see
+[`DEPENDENCY_SECURITY_2026-08-30.md`](./DEPENDENCY_SECURITY_2026-08-30.md).
 
 Privacy is not complete. Guest messages and identifiers are persisted, but policy-to-execution retention/deletion is not. The retention readiness function intentionally refuses readiness until all required decisions are recorded; no general erasure scheduler/executor exists. Offboarding export/revocation is stronger than deletion. The marketing footer now reaches an honest `/privacy` policy-status surface, but owner/legal policy text is still unresolved. Guest-chat prompt v7 explicitly separates and delimiter-escapes venue/retrieved data from instructions, adds one shared response-depth contract, and onboarding evaluation suite v3 includes prompt-disclosure and cross-tenant canaries. This provider-dark proof does not establish model-specific resistance; provider-backed adversarial evaluation remains necessary.
 
@@ -331,8 +336,8 @@ destructive-data authority. Hosted staging proof remains separate.
 5. **Schema-ahead behavior:** outcome learning, parts of billing and some structured response blocks imply capabilities their runtimes do not yet deliver; citations now have a bounded runtime but remain short of claim-level attribution. Operational event email has a real dark-by-default runtime, while its external activation and the other advertised channels remain gated or unimplemented.
 6. **External readiness gaps:** authenticated core service readiness exists, but green web health still proves only DB/Redis connectivity and external provider/storage/email execution remains unproven.
 7. **Documentation fragmentation:** the README is thin on setup, while numerous packet/status documents contain historically useful but stale conclusions.
-8. **Deployment configuration overlap:** root Railway/Nixpacks and service Docker configurations coexist.
-9. **Hosted dependency ownership:** local service identities are digest-pinned, but hosted Railway dependency versions and health still require explicit observation.
+8. **Deployment configuration overlap:** root Railway/Nixpacks and service Docker configurations coexist; the exact staging release proves the service-specific path but does not yet prove that the root path has no remaining consumer.
+9. **Hosted dependency ownership:** exact staging database, Redis, storage, service revisions, and service-specific topology are observed for the bounded snapshot; other provider versions/health and every future or production release remain separate evidence.
 10. **Client/operator imbalance:** safety is achieved partly by making the operator do nearly everything, which becomes operational debt as customers grow.
 
 Systems that should not be casually rewritten include chat turn idempotency, tenant verification gates, immutable revision/manifest evidence, upload quarantine, evaluation run identity, AI budget admission, and worker lease/recovery primitives. Their complexity protects real failure boundaries.
@@ -353,17 +358,17 @@ The current operator-centric model will not scale. Torchiko would need automated
 
 ## Current Blockers
 
-- The exact integrated candidate has strong local evidence but still needs owner-authorized hosted staging integration and observation; local proof is not deployment proof.
+- The active exact staging release is proven; every later candidate still requires its own CI, admission, deployment identity, health, and hosted-profile evidence before becoming staging truth.
 - Provider-backed chat, agents, media analysis, evaluation, report generation, and voice quality remain unproven for the current candidate.
 - The `/privacy` status surface exists, but owner/legal policy text and executable destructive retention policy remain unresolved and must not be invented.
 - CRM, Gmail, bounded outbound, and Stripe test-mode foundations exist; credentials, delivery, customer contact, pricing, live billing, and consequential lifecycle execution remain gated.
 - Operator email has a dark-by-default delivery foundation; SMS, push, Slack/webhook, urgent external founder escalation policy, and platform-event external delivery remain incomplete.
 - Claim-level semantic citation validation and provider-enabled citation QA remain unproven; bounded retrieved-record provenance is implemented.
-- Current hosted migration parity, provider secrets/health, backups/PITR, monitoring, remote CI, and production state have not been established by this local reconciliation.
+- Current staging migration parity and bounded service health are established for the exact 2026-08-30 snapshot. Provider-backed quality, backups/PITR, external monitoring/delivery, and production state remain unproven or gated.
 
 ## Top 10 Things Torchiko Should Do Next
 
-1. **Integrate the exact candidate into authorized staging and retain its evidence** — verify code SHA, migration lineage, runtime health, and rollback without broadening production authority. _Effort M; impact very high._
+1. **Preserve exact-release discipline for every later staging candidate** — require green exact-SHA CI, reviewed migration admission, coordinated service identity, runtime health, and hosted-profile evidence without broadening production authority. _Effort M; impact very high._
 2. **Repeat the golden lifecycle in hosted staging** — retain onboarding, intake, release/rollback, guest, report, support, update, export, and failure evidence against hosted dependencies. _Effort L; impact very high._
 3. **Prove provider quality and fallback deliberately** — run spend-bounded chat/evaluation/voice cases with strong models, then measure any downgrade rather than assuming equivalence. _Effort M; impact very high._
 4. **Complete launch-grade visitor and onboarding QA** — authenticated mobile, real devices, accessibility, outage states, and visual regression coverage. _Effort M–L; impact very high._
