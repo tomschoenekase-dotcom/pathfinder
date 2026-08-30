@@ -27,6 +27,17 @@ export const INTAKE_TEXT_MIME_TYPES = [
 type SupportedTextMime = (typeof INTAKE_TEXT_MIME_TYPES)[number]
 type SupportedDocumentMime = SupportedTextMime | 'application/pdf'
 
+type FileExtractionFailureCode =
+  | 'UNSAFE_TEXT_CONTROL'
+  | 'TEXT_TOO_LARGE'
+  | 'INVALID_UTF8'
+  | 'EMPTY_TEXT'
+  | 'PDF_TOO_MANY_PAGES'
+  | 'PDF_NO_EXTRACTABLE_TEXT'
+  | 'PDF_EXTRACTION_TIMEOUT'
+  | 'PDF_PASSWORD_REQUIRED'
+  | 'PDF_PARSE_FAILED'
+
 type ExtractionResult =
   | {
       outcome: 'SUCCEEDED'
@@ -35,7 +46,7 @@ type ExtractionResult =
       characterCount: number
       lineCount: number
     }
-  | { outcome: 'FAILED'; errorCode: string; errorMessage: string }
+  | { outcome: 'FAILED'; errorCode: FileExtractionFailureCode }
 
 type ExtractionProfile = {
   domain: string
@@ -166,7 +177,7 @@ async function readBoundedBytes(input: {
 
 function normalizeExtractedText(
   value: string,
-  emptyFailure: { errorCode: string; errorMessage: string },
+  emptyFailure: { errorCode: FileExtractionFailureCode },
 ): ExtractionResult {
   const text = value.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n')
   if (!text.trim()) return { outcome: 'FAILED', ...emptyFailure }
@@ -176,7 +187,6 @@ function normalizeExtractedText(
       return {
         outcome: 'FAILED',
         errorCode: 'UNSAFE_TEXT_CONTROL',
-        errorMessage: 'The verified document contains unsupported control characters.',
       }
     }
   }
@@ -185,7 +195,6 @@ function normalizeExtractedText(
     return {
       outcome: 'FAILED',
       errorCode: 'TEXT_TOO_LARGE',
-      errorMessage: 'The verified document exceeds the bounded review-text limit.',
     }
   }
   return {
@@ -205,12 +214,10 @@ function normalizeText(bytes: Uint8Array): ExtractionResult {
     return {
       outcome: 'FAILED',
       errorCode: 'INVALID_UTF8',
-      errorMessage: 'The verified document is not valid UTF-8 text.',
     }
   }
   return normalizeExtractedText(decoded, {
     errorCode: 'EMPTY_TEXT',
-    errorMessage: 'The verified document contains no reviewable text.',
   })
 }
 
@@ -241,7 +248,6 @@ async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
       return {
         outcome: 'FAILED',
         errorCode: 'PDF_TOO_MANY_PAGES',
-        errorMessage: 'The verified PDF exceeds the 200-page extraction boundary.',
       }
     }
     const pages: string[] = []
@@ -267,7 +273,6 @@ async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
     }
     return normalizeExtractedText(pages.filter(Boolean).join('\n\n'), {
       errorCode: 'PDF_NO_EXTRACTABLE_TEXT',
-      errorMessage: 'The verified PDF contains no extractable text and requires OCR review.',
     })
   } catch (error) {
     return {
@@ -277,11 +282,6 @@ async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
         : error instanceof Error && error.name === 'PasswordException'
           ? 'PDF_PASSWORD_REQUIRED'
           : 'PDF_PARSE_FAILED',
-      errorMessage: timedOut
-        ? 'The verified PDF exceeded the bounded extraction time.'
-        : error instanceof Error && error.name === 'PasswordException'
-          ? 'The verified PDF is password protected and cannot be extracted.'
-          : 'The verified PDF could not be parsed safely.',
     }
   } finally {
     clearTimeout(timeout)
@@ -393,7 +393,6 @@ export async function executeIntakeFileExtraction(input: {
             extractedCharacterCount: 0,
             extractedLineCount: 0,
             errorCode: extraction.errorCode,
-            errorMessage: extraction.errorMessage,
           }),
       createdBy: input.createdBy,
     })

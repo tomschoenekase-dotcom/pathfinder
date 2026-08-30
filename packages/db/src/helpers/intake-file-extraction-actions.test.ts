@@ -174,6 +174,46 @@ describe('intake file extraction receipt action', () => {
     expect(client.$transaction).not.toHaveBeenCalled()
   })
 
+  it('derives failure detail from the bounded code and rejects unknown codes', async () => {
+    createReceipt.mockResolvedValueOnce({ id: operationId, outcome: 'FAILED', createdAt })
+    await recordIntakeFileExtractionReceiptAction(
+      input({
+        outcome: 'FAILED',
+        extractedText: undefined,
+        extractedTextHash: undefined,
+        extractedCharacterCount: 0,
+        extractedLineCount: 0,
+        errorCode: 'INVALID_UTF8',
+      }) as never,
+      client as never,
+    )
+
+    expect(createReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          errorCode: 'INVALID_UTF8',
+          errorMessage: 'The verified document is not valid UTF-8 text.',
+        }),
+      }),
+    )
+
+    vi.clearAllMocks()
+    await expect(
+      recordIntakeFileExtractionReceiptAction(
+        input({
+          outcome: 'FAILED',
+          extractedText: undefined,
+          extractedTextHash: undefined,
+          extractedCharacterCount: 0,
+          extractedLineCount: 0,
+          errorCode: 'SECRET_PROVIDER_FAILURE',
+        }) as never,
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('replays only the exact operation identity and rejects conflicting reuse', async () => {
     findUnique.mockResolvedValue({
       id: operationId,

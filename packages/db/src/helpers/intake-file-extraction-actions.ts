@@ -3,6 +3,30 @@ import { z } from 'zod'
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 
+const fileExtractionFailureMessages = {
+  UNSAFE_TEXT_CONTROL: 'The verified document contains unsupported control characters.',
+  TEXT_TOO_LARGE: 'The verified document exceeds the bounded review-text limit.',
+  INVALID_UTF8: 'The verified document is not valid UTF-8 text.',
+  EMPTY_TEXT: 'The verified document contains no reviewable text.',
+  PDF_TOO_MANY_PAGES: 'The verified PDF exceeds the 200-page extraction boundary.',
+  PDF_NO_EXTRACTABLE_TEXT: 'The verified PDF contains no extractable text and requires OCR review.',
+  PDF_EXTRACTION_TIMEOUT: 'The verified PDF exceeded the bounded extraction time.',
+  PDF_PASSWORD_REQUIRED: 'The verified PDF is password protected and cannot be extracted.',
+  PDF_PARSE_FAILED: 'The verified PDF could not be parsed safely.',
+} as const
+
+const fileExtractionFailureCode = z.enum([
+  'UNSAFE_TEXT_CONTROL',
+  'TEXT_TOO_LARGE',
+  'INVALID_UTF8',
+  'EMPTY_TEXT',
+  'PDF_TOO_MANY_PAGES',
+  'PDF_NO_EXTRACTABLE_TEXT',
+  'PDF_EXTRACTION_TIMEOUT',
+  'PDF_PASSWORD_REQUIRED',
+  'PDF_PARSE_FAILED',
+])
+
 const terminalInput = z
   .object({
     operationId: z.string().uuid(),
@@ -32,8 +56,7 @@ const terminalInput = z
       .optional(),
     extractedCharacterCount: z.number().int().min(0).max(500_000),
     extractedLineCount: z.number().int().min(0).max(500_000),
-    errorCode: z.string().trim().min(1).max(64).optional(),
-    errorMessage: z.string().trim().min(1).max(500).optional(),
+    errorCode: fileExtractionFailureCode.optional(),
     createdBy: z.string().trim().min(1).max(191),
   })
   .strict()
@@ -55,15 +78,13 @@ const terminalInput = z
       Boolean(value.extractedTextHash) &&
       value.extractedCharacterCount > 0 &&
       value.extractedLineCount > 0 &&
-      !value.errorCode &&
-      !value.errorMessage
+      !value.errorCode
     const failureShape =
       !value.extractedText &&
       !value.extractedTextHash &&
       value.extractedCharacterCount === 0 &&
       value.extractedLineCount === 0 &&
-      Boolean(value.errorCode) &&
-      Boolean(value.errorMessage)
+      Boolean(value.errorCode)
     if ((successful && !successShape) || (!successful && !failureShape)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -163,7 +184,8 @@ function exactReplay(
     receipt.extractedCharacterCount === input.extractedCharacterCount &&
     receipt.extractedLineCount === input.extractedLineCount &&
     receipt.errorCode === (input.errorCode ?? null) &&
-    receipt.errorMessage === (input.errorMessage ?? null) &&
+    receipt.errorMessage ===
+      (input.errorCode ? fileExtractionFailureMessages[input.errorCode] : null) &&
     receipt.createdBy === input.createdBy,
   )
 }
@@ -328,8 +350,12 @@ export async function recordIntakeFileExtractionReceiptAction(
         ...(input.extractedTextHash ? { extractedTextHash: input.extractedTextHash } : {}),
         extractedCharacterCount: input.extractedCharacterCount,
         extractedLineCount: input.extractedLineCount,
-        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
-        ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+        ...(input.errorCode
+          ? {
+              errorCode: input.errorCode,
+              errorMessage: fileExtractionFailureMessages[input.errorCode],
+            }
+          : {}),
         createdBy: input.createdBy,
       },
       select: { id: true, outcome: true, createdAt: true },

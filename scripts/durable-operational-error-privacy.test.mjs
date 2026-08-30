@@ -134,3 +134,19 @@ test('website research receipt persistence derives failure detail from a bounded
   assert.match(receiptActions, /errorMessage:\s*websiteResearchFailureMessages\[input\.errorCode\]/u)
   assert.doesNotMatch(researchService, /errorMessage:/u)
 })
+
+test('file extraction receipt persistence derives failure detail from a bounded code', async () => {
+  const root = new URL('../', import.meta.url)
+  const receiptActions = await readFile(
+    new URL('packages/db/src/helpers/intake-file-extraction-actions.ts', root),
+    'utf8',
+  )
+  const extractionService = await readFile(
+    new URL('packages/api/src/lib/intake-file-extraction-service.ts', root),
+    'utf8',
+  )
+
+  assert.doesNotMatch(receiptActions, /errorMessage:\s*z\.string/u)
+  assert.match(receiptActions, /errorMessage:\s*fileExtractionFailureMessages\[input\.errorCode\]/u)
+  assert.doesNotMatch(extractionService, /errorMessage:/u)
+})

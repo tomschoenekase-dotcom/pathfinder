@@ -222,9 +222,9 @@ describe('deterministic intake file extraction', () => {
       expect.objectContaining({
         outcome: 'FAILED',
         errorCode: 'PDF_PARSE_FAILED',
-        errorMessage: 'The verified PDF could not be parsed safely.',
       }),
     )
+    expect(recordReceipt.mock.calls[0]?.[0]).not.toHaveProperty('errorMessage')
   })
 
   it('does not record anything when the immutable object version is unavailable', async () => {
