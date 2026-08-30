@@ -98,6 +98,12 @@ async function boundedJson(request: Request) {
   }
 }
 
+function requestErrorCode(error: unknown): 'BODY_TOO_LARGE' | 'INVALID_JSON' | 'INVALID_REQUEST' {
+  if (error instanceof Error && error.message === 'BODY_TOO_LARGE') return 'BODY_TOO_LARGE'
+  if (error instanceof Error && error.message === 'INVALID_JSON') return 'INVALID_JSON'
+  return 'INVALID_REQUEST'
+}
+
 /** Transport-only bridge boundary. Callers must supply credential verification
  * and a registry; this keeps authentication before body parsing testable without
  * importing product routers or provider-capable composition. */
@@ -139,11 +145,7 @@ export async function handleAgentBridgeHttpRequestCore(
   try {
     envelope = Envelope.parse(await boundedJson(request))
   } catch (error) {
-    return json(
-      400,
-      { ok: false, error: { code: error instanceof Error ? error.message : 'INVALID_REQUEST' } },
-      requestId,
-    )
+    return json(400, { ok: false, error: { code: requestErrorCode(error) } }, requestId)
   }
   try {
     const context = { credential }

@@ -94,7 +94,18 @@ describe('agent bridge HTTP composition', () => {
       registry: {} as never,
     })
     expect(bounded.status).toBe(400)
-    expect(JSON.stringify(await bounded.json())).not.toContain(secret)
+    expect(await bounded.json()).toEqual({ ok: false, error: { code: 'BODY_TOO_LARGE' } })
+
+    const invalidMethod = `SECRET_SENTINEL_${secret}`
+    const invalidEnvelope = await handleAgentBridgeHttpRequest(
+      request({ method: invalidMethod, params: {} }),
+      scope,
+      { verify, registry: {} as never },
+    )
+    expect(invalidEnvelope.status).toBe(400)
+    const invalidSerialized = JSON.stringify(await invalidEnvelope.json())
+    expect(invalidSerialized).toBe('{"ok":false,"error":{"code":"INVALID_REQUEST"}}')
+    expect(invalidSerialized).not.toContain(invalidMethod)
 
     const failTask = vi.fn().mockRejectedValue(new Error(`SECRET_SENTINEL ${secret}`))
     const failed = await handleAgentBridgeHttpRequest(
