@@ -116,7 +116,7 @@ describe('AiControlsForm Venue Bot configuration', () => {
         tonePreset: 'concise',
       }),
     )
-    expect(screen.getByRole('status').textContent).toContain('Venue Bot settings saved')
+    expect((await screen.findByRole('status')).textContent).toContain('Venue Bot settings saved')
   })
 
   it('saves a bounded venue response-depth override independently', async () => {
@@ -235,6 +235,6 @@ describe('AiControlsForm Venue Bot configuration', () => {
       (screen.getByRole('button', { name: 'Saving settings…' }) as HTMLButtonElement).disabled,
     ).toBe(true)
     await act(async () => reject(new Error('Could not save this configuration')))
-    expect(screen.getByRole('alert').textContent).toContain('Could not save')
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not save')
   })
 })
