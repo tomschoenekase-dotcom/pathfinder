@@ -24,8 +24,8 @@ const child = spawn(executable, ['--filter', '@pathfinder/db', 'db:migrate:prod'
   shell: false,
 })
 
-child.once('error', (error) => {
-  console.error(`Staging migration process could not start: ${error.message}`)
+child.once('error', () => {
+  console.error('Staging migration process could not start: SPAWN_FAILED')
   process.exitCode = 1
 })
 child.once('exit', (code, signal) => {

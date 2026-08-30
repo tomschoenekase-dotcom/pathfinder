@@ -401,8 +401,8 @@ async function main() {
 }
 
 main()
-  .catch((error) => {
-    console.error('Seed failed.', error)
+  .catch(() => {
+    console.error('Seed failed.')
     process.exitCode = 1
   })
   .finally(async () => {
