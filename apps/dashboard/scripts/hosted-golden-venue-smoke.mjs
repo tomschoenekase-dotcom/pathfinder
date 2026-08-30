@@ -62,8 +62,11 @@ export function assessSyntheticAnswer(answer, expectedFacts) {
   }
 }
 
-export function resolveHostedGoldenVenueReportPath(value, revision) {
-  const fallback = `artifacts/hosted-golden-venue/${revision}.json`
+export function resolveHostedGoldenVenueReportPath(value, revision, questionKey = null) {
+  if (questionKey !== null && !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(questionKey))
+    fail('unsafe-question-key')
+  const mode = questionKey ?? 'read-only'
+  const fallback = `artifacts/hosted-golden-venue/${revision}-${mode}.json`
   const resolved = path.resolve(repositoryRoot, value ?? fallback)
   const relative = path.relative(repositoryRoot, resolved)
   if (relative.startsWith('..') || path.isAbsolute(relative)) fail('unsafe-report-path')
@@ -79,7 +82,11 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
   const policy = (await loadJson('scripts/release-verification-policy.json')).staging
   const fixture = await loadJson('scripts/golden-venue/fixture.json')
   if (fixture.synthetic !== true) fail('golden-venue-must-be-synthetic')
-  const outputPath = resolveHostedGoldenVenueReportPath(options.report, options.revision)
+  const outputPath = resolveHostedGoldenVenueReportPath(
+    options.report,
+    options.revision,
+    options.questionKey,
+  )
   const question = options.questionKey
     ? fixture.expectedQuestions.find((item) => item.key === options.questionKey)
     : null

@@ -43,7 +43,8 @@ pnpm golden-venue:hosted-smoke -- --revision <exact-40-character-staging-sha>
 
 The command refuses caller-supplied origins, verifies exact deployment/resource health first, and
 then checks the synthetic venue arrival-to-chat journey at 390 × 844. It performs no provider call
-by default. Retain its revision-keyed JSON report from `artifacts/hosted-golden-venue/`.
+by default. Retain its revision-and-mode-keyed JSON report from
+`artifacts/hosted-golden-venue/`; read-only and named provider runs never share a default filename.
 
 One named checked-in corpus question may be sent only with the separate one-run opt-in:
 

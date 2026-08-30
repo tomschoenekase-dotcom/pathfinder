@@ -81,7 +81,11 @@ test('provider evidence is content-addressed and checks every synthetic expected
 test('hosted reports remain JSON files inside the repository', () => {
   assert.match(
     resolveHostedGoldenVenueReportPath(null, revision),
-    /artifacts[\\/]hosted-golden-venue[\\/][a-f0-9]{40}\.json$/u,
+    /artifacts[\\/]hosted-golden-venue[\\/][a-f0-9]{40}-read-only\.json$/u,
+  )
+  assert.match(
+    resolveHostedGoldenVenueReportPath(null, revision, 'shark-feeding'),
+    /[a-f0-9]{40}-shark-feeding\.json$/u,
   )
   assert.throws(
     () => resolveHostedGoldenVenueReportPath('../outside.json', revision),
@@ -90,5 +94,9 @@ test('hosted reports remain JSON files inside the repository', () => {
   assert.throws(
     () => resolveHostedGoldenVenueReportPath('artifacts/report.txt', revision),
     /report-must-be-json/u,
+  )
+  assert.throws(
+    () => resolveHostedGoldenVenueReportPath(null, revision, '../outside'),
+    /unsafe-question-key/u,
   )
 })
