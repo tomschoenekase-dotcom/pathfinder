@@ -639,7 +639,7 @@ describe('support operations UI', () => {
         body: 'We have answered your question.',
       }),
     )
-    expect(screen.getByRole('status').textContent).toMatch(
+    expect((await screen.findByRole('status')).textContent).toMatch(
       /No package was approved, applied, or published/i,
     )
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
