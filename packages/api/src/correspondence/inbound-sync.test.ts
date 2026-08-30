@@ -267,7 +267,7 @@ describe('inbound correspondence synchronization', () => {
     let call = 0
     vi.spyOn(provider, 'reconcile').mockImplementation(async () => {
       call += 1
-      if (call === 2) throw new Error('transient page failure')
+      if (call === 2) throw new Error('redis://user:secret@private-host/transient-page')
       return {
         messages: [message()],
         cursor: 'cursor-not-yet-safe',
@@ -279,9 +279,35 @@ describe('inbound correspondence synchronization', () => {
     const fixture = createStore({ cursor: null })
     const service = createInboundCorrespondenceService({ provider, store: fixture.store })
 
-    await expect(service.synchronize(mailbox)).rejects.toThrow('transient page failure')
+    await expect(service.synchronize(mailbox)).rejects.toThrow('secret@private-host')
     expect(fixture.calls.cursors).toHaveLength(0)
-    expect(fixture.calls.health).toContainEqual(expect.objectContaining({ state: 'FAILED' }))
+    expect(fixture.calls.health).toContainEqual(
+      expect.objectContaining({
+        state: 'FAILED',
+        detail: 'Correspondence synchronization failed before cursor commit.',
+      }),
+    )
+    expect(JSON.stringify(fixture.calls.health)).not.toContain('secret')
+  })
+
+  it('records code-derived watch health without provider exception text', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'renewWatch').mockRejectedValue(
+      new Error('https://user:secret@provider.test/watch'),
+    )
+    const fixture = createStore()
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(service.renewWatch(mailbox, 'projects/test/topics/gmail')).rejects.toThrow(
+      'secret@provider.test',
+    )
+    expect(fixture.calls.health).toContainEqual(
+      expect.objectContaining({
+        state: 'FAILED',
+        detail: 'Correspondence watch renewal failed.',
+      }),
+    )
+    expect(JSON.stringify(fixture.calls.health)).not.toContain('secret')
   })
 
   it('commits a cursor after all pages and records watch renewal health', async () => {

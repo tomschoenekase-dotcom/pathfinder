@@ -351,7 +351,7 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: mode === 'INCREMENTAL' ? 'INCREMENTAL_SYNC' : 'RECONCILIATION',
           state: 'FAILED',
-          detail: error instanceof Error ? error.message : 'Unknown sync failure',
+          detail: 'Correspondence synchronization failed before cursor commit.',
           occurredAt: now(),
         })
         throw error
@@ -375,7 +375,7 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: 'WATCH_RENEWAL',
           state: 'FAILED',
-          detail: error instanceof Error ? error.message : 'Unknown watch renewal failure',
+          detail: 'Correspondence watch renewal failed.',
           occurredAt: now(),
         })
         throw error
