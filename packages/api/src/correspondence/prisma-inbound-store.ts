@@ -8,7 +8,12 @@ import {
 } from '@pathfinder/db'
 import { ProspectCampaignMemberStatus } from '@prisma/client'
 
-import type { InboundCorrespondenceStore, ReceiptState, ThreadMatchCandidate } from './inbound-sync'
+import type {
+  InboundCorrespondenceStore,
+  InboundQuarantineReason,
+  ReceiptState,
+  ThreadMatchCandidate,
+} from './inbound-sync'
 import { projectGmailBodyForPersistence, type GmailBodyPersistencePolicy } from './body-retention'
 
 const receiptStatus: Record<
@@ -41,6 +46,20 @@ function healthFailureSummary(operation: 'INCREMENTAL_SYNC' | 'RECONCILIATION' |
   if (operation === 'INCREMENTAL_SYNC') return 'Correspondence incremental synchronization failed.'
   if (operation === 'RECONCILIATION') return 'Correspondence reconciliation failed.'
   return 'Correspondence watch renewal failed.'
+}
+
+function quarantineDetail(reason: InboundQuarantineReason) {
+  if (reason === 'UNKNOWN_THREAD') return 'No canonical thread matched the inbound message.'
+  if (reason === 'AMBIGUOUS_THREAD') {
+    return 'Multiple canonical threads matched the inbound message.'
+  }
+  if (reason === 'PROVIDER_MESSAGE_NOT_FOUND') {
+    return 'Provider message was not available for retrieval.'
+  }
+  if (reason === 'INVALID_MESSAGE_SCOPE') {
+    return 'Inbound correspondence failed mailbox scope validation.'
+  }
+  return 'Inbound correspondence exceeded its safe persistence boundary.'
 }
 
 function json(value: unknown): object | unknown[] {
@@ -313,7 +332,7 @@ export function createPrismaInboundCorrespondenceStore(
             receiptId: input.receiptId,
             providerAccountId: accountId,
             reason: input.reason,
-            detail: input.detail.slice(0, 2_000),
+            detail: quarantineDetail(input.reason),
             ...(input.message
               ? {
                   messageSnapshot: json({

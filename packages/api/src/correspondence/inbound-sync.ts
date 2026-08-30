@@ -82,7 +82,6 @@ export type InboundCorrespondenceStore = Readonly<{
   quarantine(input: {
     receiptId: string | null
     reason: InboundQuarantineReason
-    detail: string
     message: NormalizedProviderMessage | null
     candidateThreadIds?: readonly string[]
     occurredAt: Date
@@ -199,7 +198,6 @@ export function createInboundCorrespondenceService(input: {
       await store.quarantine({
         receiptId,
         reason: match.state === 'UNKNOWN' ? 'UNKNOWN_THREAD' : 'AMBIGUOUS_THREAD',
-        detail: match.reason,
         message,
         ...(match.state === 'AMBIGUOUS' ? { candidateThreadIds: match.candidateThreadIds } : {}),
         occurredAt: now(),
@@ -240,7 +238,6 @@ export function createInboundCorrespondenceService(input: {
       await store.quarantine({
         receiptId: receipt.id,
         reason: 'INVALID_MESSAGE_SCOPE',
-        detail: 'Notification message reference is outside the receipt mailbox scope',
         message: null,
         occurredAt: now(),
       })
@@ -258,11 +255,9 @@ export function createInboundCorrespondenceService(input: {
       return result
     } catch (error) {
       if (error instanceof CorrespondenceProviderError && error.code === 'NOT_FOUND') {
-        const detail = 'Provider message was not available for retrieval.'
         await store.quarantine({
           receiptId: receipt.id,
           reason: 'PROVIDER_MESSAGE_NOT_FOUND',
-          detail,
           message: null,
           occurredAt: now(),
         })
@@ -322,7 +317,6 @@ export function createInboundCorrespondenceService(input: {
               await store.quarantine({
                 receiptId: null,
                 reason: 'INVALID_MESSAGE_SCOPE',
-                detail: 'Sync returned a message outside the requested mailbox scope',
                 message,
                 occurredAt: now(),
               })

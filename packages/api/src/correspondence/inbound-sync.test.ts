@@ -238,9 +238,9 @@ describe('inbound correspondence synchronization', () => {
     expect(fixture.calls.quarantines).toEqual([
       expect.objectContaining({
         reason: 'PROVIDER_MESSAGE_NOT_FOUND',
-        detail: 'Provider message was not available for retrieval.',
       }),
     ])
+    expect(fixture.calls.quarantines[0]).not.toHaveProperty('detail')
     expect(fixture.calls.receiptStates).toContainEqual(
       expect.objectContaining({
         state: 'QUARANTINED',
