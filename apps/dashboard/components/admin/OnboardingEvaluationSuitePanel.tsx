@@ -5,32 +5,36 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-type ApprovedPackage = {
+type ReviewablePackage = {
   id: string
+  status: 'DRAFT' | 'APPROVED'
   payloadHash: string
+  baseDigest: string
+  createdAt: Date
   approvedAt: Date | null
+  supportHandoffs: { supportRequestId: string; requestVersion: number }[]
 }
 
 export function OnboardingEvaluationSuitePanel(props: {
   tenantId: string
   venueId: string
-  approvedPackages: ApprovedPackage[]
+  reviewablePackages: ReviewablePackage[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
-  const [packageId, setPackageId] = useState(props.approvedPackages[0]?.id ?? '')
+  const [packageId, setPackageId] = useState(props.reviewablePackages[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const submitting = useRef(false)
 
   useEffect(() => {
-    setPackageId(props.approvedPackages[0]?.id ?? '')
+    setPackageId(props.reviewablePackages[0]?.id ?? '')
     setBusy(false)
     setMessage(null)
     submitting.current = false
-  }, [props.tenantId, props.venueId, props.approvedPackages])
+  }, [props.tenantId, props.venueId, props.reviewablePackages])
 
-  async function prepare() {
+  async function prepare(suite: 'CORE' | 'LAUNCH_LANGUAGES') {
     if (!packageId || busy || submitting.current) return
     submitting.current = true
     setBusy(true)
@@ -40,15 +44,17 @@ export function OnboardingEvaluationSuitePanel(props: {
         tenantId: props.tenantId,
         venueId: props.venueId,
         packageId,
+        suite,
       })
       const created = result.cases.filter((item) => !item.replayed).length
+      const total = result.cases.length
       setMessage(
-        `Seven-dimension suite ready for this exact package: ${created} new revision${created === 1 ? '' : 's'}, ${7 - created} exact replay${7 - created === 1 ? '' : 's'}.`,
+        `${suite === 'CORE' ? 'Seven-dimension review suite' : 'Ten-language grounded and fallback suite'} ready for this exact package: ${created} new revision${created === 1 ? '' : 's'}, ${total - created} exact replay${total - created === 1 ? '' : 's'}.`,
       )
       router.refresh()
     } catch {
       setMessage(
-        'The suite could not be prepared. The package may no longer be approved or its review evidence may have changed. No partial suite was committed.',
+        'The suite could not be prepared. The package may no longer be reviewable or its exact validation evidence may have changed. No partial suite was committed.',
       )
     } finally {
       submitting.current = false
@@ -65,45 +71,56 @@ export function OnboardingEvaluationSuitePanel(props: {
         Remote onboarding gate
       </p>
       <h3 id="onboarding-suite-heading" className="mt-1 text-xl font-semibold text-pf-deep">
-        Prepare the approved-package QA suite
+        Prepare the pre-approval package QA suite
       </h3>
       <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/70">
         Creates immutable fact, navigation, accessibility, safety, multilingual, adversarial, and
-        unanswerable cases from one exact approved package. Missing facts become honest-unknown
-        tests; they are never invented.
+        unanswerable cases from one exact DRAFT or APPROVED package. Missing facts become
+        honest-unknown tests; they are never invented.
       </p>
-      {props.approvedPackages.length === 0 ? (
+      {props.reviewablePackages.length === 0 ? (
         <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          No approved package is available. Approve a reviewed package before preparing onboarding
-          QA evidence.
+          No error-free DRAFT or APPROVED package is available for QA preparation.
         </p>
       ) : (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="block flex-1 text-sm font-semibold text-pf-deep">
-            Exact approved package
+            Exact reviewable package
             <select
-              aria-label="Exact approved package"
+              aria-label="Exact reviewable package"
               value={packageId}
               onChange={(event) => setPackageId(event.target.value)}
               disabled={busy}
               className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3"
             >
-              {props.approvedPackages.map((pkg) => (
+              {props.reviewablePackages.map((pkg) => (
                 <option key={pkg.id} value={pkg.id}>
-                  {pkg.approvedAt ? pkg.approvedAt.toLocaleString() : 'Approval time unavailable'} ·{' '}
-                  {pkg.payloadHash.slice(0, 12)}
+                  {pkg.status} · {pkg.payloadHash.slice(0, 12)}
+                  {pkg.supportHandoffs[0]
+                    ? ` · support ${pkg.supportHandoffs[0].supportRequestId}`
+                    : ''}
                 </option>
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            onClick={prepare}
-            disabled={busy || !packageId}
-            className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {busy ? 'Preparing…' : 'Prepare seven cases'}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => prepare('CORE')}
+              disabled={busy || !packageId}
+              className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? 'Preparing…' : 'Prepare seven cases'}
+            </button>
+            <button
+              type="button"
+              onClick={() => prepare('LAUNCH_LANGUAGES')}
+              disabled={busy || !packageId}
+              className="min-h-11 rounded-xl border border-pf-primary bg-white px-5 text-sm font-semibold text-pf-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? 'Preparing…' : 'Prepare 20 language cases'}
+            </button>
+          </div>
         </div>
       )}
       {message ? (
@@ -111,9 +128,10 @@ export function OnboardingEvaluationSuitePanel(props: {
           {message}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-pf-deep/55">
+      <p className="mt-3 text-xs text-pf-deep/70">
         Preparing cases does not run AI, spend a budget, publish content, or change the client
-        package.
+        package. The language suite pairs one grounded answer and one honest fallback in each of the
+        ten supported launch languages.
       </p>
     </section>
   )

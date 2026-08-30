@@ -69,6 +69,53 @@ describe('DashboardOverview client portal', () => {
     expect(screen.queryByText(/1 venue/i)).toBeNull()
   })
 
+  it('shows a privacy-bounded visitor pulse and routes changes into a service request', () => {
+    render(
+      <DashboardOverview
+        venue={{ id: 'venue / one', name: 'Riverside', lifecycle: lifecycle() }}
+        venues={[{ id: 'venue / one', name: 'Riverside' }]}
+        activeUpdates={0}
+        visitorPulse={{
+          windowDays: 30,
+          conversationCount: 18,
+          feedback: { helpful: 9, notHelpful: 2 },
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /useful view, without visitor profiles/i }),
+    ).toBeTruthy()
+    expect(screen.getByText('18')).toBeTruthy()
+    expect(screen.getByText('9')).toBeTruthy()
+    expect(
+      screen.getByText(
+        /does not expose visitor identities, locations, or conversation transcripts/i,
+      ),
+    ).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Ask for a review' }).getAttribute('href')).toBe(
+      '/support?venue=venue%20%2F%20one&new=visitor-insight',
+    )
+  })
+
+  it('renders an honest visitor pulse empty state without inventing activity', () => {
+    render(
+      <DashboardOverview
+        venue={{ id: 'riverside', name: 'Riverside', lifecycle: lifecycle() }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        visitorPulse={{
+          windowDays: 30,
+          conversationCount: 0,
+          feedback: { helpful: 0, notHelpful: 0 },
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/summary will appear here as visitors use Torchiko/i)).toBeTruthy()
+    expect(screen.queryByText('0')).toBeNull()
+  })
+
   it('withholds stale preview and distinguishes a ready public visitor link', () => {
     const previewLifecycle = lifecycleFrom({
       packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },

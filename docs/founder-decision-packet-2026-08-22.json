@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "founder-decision-packet.v1",
+  "packetId": "torchiko-founder-direction-2026-08-22",
+  "title": "Torchiko founder decisions and implementation authority",
+  "effectiveAt": "2026-08-22T05:00:00.000Z",
+  "sourceRef": "vault://07 Decisions/Torchiko Founder Engineering Direction 2026-08-22.md",
+  "decisions": [
+    {
+      "key": "ai-operating-model",
+      "title": "AI-operated company",
+      "summary": "Torchiko should be operable overwhelmingly by AI workers with founder judgment reserved for high-value exceptions.",
+      "decision": "Engineer Torchiko so AI workers continuously operate and improve the company while the founder focuses on strategy, selected human conversations, compact judgment questions, important lifecycle decisions, and unusual incidents.",
+      "rationale": "The product should automate the operating model rather than preserve routine founder administration.",
+      "affectedSystems": ["company-brain", "founder-control-room", "operations"],
+      "scope": { "founderRoutineAdministration": false }
+    },
+    {
+      "key": "codex-engineering-authority",
+      "title": "Broad Codex engineering authority",
+      "summary": "Codex owns ordinary reversible local engineering decisions.",
+      "decision": "Codex may make reasonable local engineering choices, refactor, add dependencies and tooling, create and run local migrations, reconcile implementations, remove proven-obsolete code, document decisions, test them, and keep moving.",
+      "rationale": "Ordinary implementation tradeoffs generally do not benefit from repeated founder adjudication.",
+      "affectedSystems": ["engineering", "repository", "testing"],
+      "scope": { "localAuthorized": true, "productionAuthorized": false }
+    },
+    {
+      "key": "staging-proving-ground",
+      "title": "Staging is an engineering proving ground",
+      "summary": "Staging is permissive for integrated validation while valuable data remains recoverable.",
+      "decision": "Codex may deploy, migrate, configure, test, break temporarily, recover, and use synthetic data in staging without repeated permission, but must preserve or back up difficult-to-recreate founder or customer data.",
+      "rationale": "Meaningful work should reach an integrated proving environment early without treating valuable data as disposable.",
+      "affectedSystems": ["staging", "migrations", "release-verification"],
+      "scope": { "stagingAuthorized": true, "valuableDataDestructionAuthorized": false }
+    },
+    {
+      "key": "production-release-boundary",
+      "title": "Consequential production rollout remains founder-gated",
+      "summary": "Broad engineering autonomy does not authorize arbitrary major production changes.",
+      "decision": "Significant new features and substantial production changes require founder awareness or approval. Established bounded low-risk incident restoration may restore customer-facing service first and investigate deeply second.",
+      "rationale": "Production customer impact is materially different from reversible local and staging engineering.",
+      "affectedSystems": ["production", "incident-response", "release-management"],
+      "scope": { "majorProductionReleaseAuthorized": false, "boundedRestorationAuthorized": true }
+    },
+    {
+      "key": "release-verification-quality",
+      "title": "Founder is not the primary QA system",
+      "summary": "Release confidence must come from broad automated and staging validation.",
+      "decision": "Build unit, integration, migration, authorization, isolation, lifecycle, responsive, AI-tool, fallback, recovery, smoke, and meaningful end-to-end tests, then issue a truthful release assessment with risks and rollback guidance.",
+      "rationale": "Product quality cannot depend on the founder manually clicking through every workflow.",
+      "affectedSystems": ["testing", "release-verification", "staging"],
+      "scope": { "manualFounderQaRequiredForEveryRelease": false }
+    },
+    {
+      "key": "launch-readiness-standard",
+      "title": "Launch readiness is a six-month durability standard",
+      "summary": "The core product must remain sellable and operable without a material rebuild for six months.",
+      "decision": "Launch readiness requires a fundamentally sound core product, identity, customer experience, onboarding system, operating model, mobile quality, Bot Mode, Voice Mode, Company Brain and CRM, not merely compiling code.",
+      "rationale": "Early customers must not require manual migration when core architecture or identity changes.",
+      "affectedSystems": ["customer-product", "onboarding", "brand", "company-brain"],
+      "scope": { "functionalOnlySufficient": false }
+    },
+    {
+      "key": "remote-delivery-default",
+      "title": "Remote customer delivery is the default",
+      "summary": "The full customer lifecycle should be operable remotely.",
+      "decision": "Design prospecting, outreach, agreement, account creation, onboarding, content intake, venue setup, review, activation, support, billing, updates, and offboarding for remote operation by default.",
+      "rationale": "In-person setup may inform early learning but must not become the normal dependency.",
+      "affectedSystems": ["crm", "onboarding", "support", "billing"],
+      "scope": { "remoteFirst": true }
+    },
+    {
+      "key": "billing-launch-policy",
+      "title": "Custom founder-visible billing policy",
+      "summary": "Launch pricing is custom and material monetary decisions remain founder-visible.",
+      "decision": "Use custom monthly pricing by customer, no default free trial, no normal small or mid-customer setup fee, and no default minimum commitment unless negotiated. Keep lifecycle truth in Torchiko. Do not create prices, discounts, fees, credits, contract terms, or live billing effects without established authority.",
+      "rationale": "Stripe is an execution provider rather than the sole business authority, and illustrative examples are not commitments.",
+      "affectedSystems": ["billing", "crm", "customer-lifecycle"],
+      "scope": { "customPricing": true, "defaultFreeTrial": false, "liveBillingAuthorized": false }
+    },
+    {
+      "key": "operational-ai-capability-policy",
+      "title": "Separate operational capability from execution policy",
+      "summary": "Build eventual operational capabilities now while gating consequential execution by current trust.",
+      "decision": "Agents may understand, prepare, and validate routine customer-account actions even when current policy requires compact founder approval before execution.",
+      "rationale": "A policy gate should not be mistaken for a permanent technical inability.",
+      "affectedSystems": ["agent-tools", "approvals", "customer-operations"],
+      "scope": { "capabilityCanPrecedeAuthority": true }
+    },
+    {
+      "key": "progressive-agent-authority",
+      "title": "Agent authority increases through evidence",
+      "summary": "Approval requirements should be adjustable by action class as competence is demonstrated.",
+      "decision": "Track task outcomes, failures, rollbacks, approval acceptance, correctness, policy violations, customer impact, tool failures, and confidence calibration so trusted workflows can earn reduced human approval.",
+      "rationale": "Autonomy should be earned through demonstrated reliability rather than permanently hard-coded or granted blindly.",
+      "affectedSystems": ["agent-runtime", "approvals", "evaluation"],
+      "scope": { "progressiveTrust": true }
+    },
+    {
+      "key": "founder-control-room-role",
+      "title": "Founder Control Room is the mobile operating interface",
+      "summary": "The founder should operate Torchiko through an AI-first mobile surface, not a coding IDE.",
+      "decision": "Prioritize compact decisions, approvals, context, incidents, costs, changes, learning, agent waits, and high-value next actions in a mobile-first conversational Founder Control Room. Keep major software engineering in Codex.",
+      "rationale": "Normal company operation should not require opening a development PC or navigating routine admin tables.",
+      "affectedSystems": ["founder-control-room", "mobile", "notifications"],
+      "scope": { "codingIde": false, "mobileFirst": true }
+    },
+    {
+      "key": "company-brain-current-history",
+      "title": "Company Brain distinguishes current and historical truth",
+      "summary": "Operational events should maintain durable current truth with provenance and retained history.",
+      "decision": "Continuously convert relevant communications and lifecycle events into durable Company Brain and CRM state. Retrieve current truth quickly, retain superseded history, preserve provenance, and ask the founder only when important ambiguity cannot be reconciled.",
+      "rationale": "Agents should not reconstruct the company from raw communications or ask the founder to repeat settled decisions.",
+      "affectedSystems": ["company-brain", "crm", "retrieval"],
+      "scope": { "preserveHistory": true, "preferCurrentTruth": true }
+    },
+    {
+      "key": "google-workspace-integration",
+      "title": "Google Workspace is deeply integrated with source-of-truth boundaries",
+      "summary": "Workspace communications should feed durable operations without unnecessary raw duplication.",
+      "decision": "Keep Gmail canonical for full email bodies while Torchiko stores metadata, references, extracted knowledge, and durable business state. Make source retrieval easy. Analyze meeting transcripts into durable knowledge; do not duplicate meeting video by default.",
+      "rationale": "Agents need usable correspondence and meeting context without creating an unnecessary second raw-artifact universe.",
+      "affectedSystems": ["gmail", "calendar", "meet", "company-brain"],
+      "scope": { "gmailCanonicalForBodies": true, "duplicateMeetingVideoByDefault": false }
+    },
+    {
+      "key": "multi-venue-customer-model",
+      "title": "Multi-venue and multi-contact organizations are first-class",
+      "summary": "The data model must support multiple venues, scoped knowledge, price components, and authorized contacts while keeping one-venue UX simple.",
+      "decision": "Model organization, venue-subset, venue, area, and exhibit knowledge scopes; multiple authorized contacts; and venue-level price components that reconcile to an organization total. Reveal multi-venue UX only when relevant.",
+      "rationale": "Growth must not require customer-by-customer architectural migration or leak one venue's facts into another.",
+      "affectedSystems": ["crm", "company-brain", "billing", "customer-accounts"],
+      "scope": { "singleVenueUxSimple": true, "multipleContacts": true }
+    },
+    {
+      "key": "payment-failure-posture",
+      "title": "Payment failure handling preserves relationships",
+      "summary": "Routine payment failure should not trigger one universal aggressive shutdown timer.",
+      "decision": "Consider payment state, account value, variable cost, loss exposure, delinquency duration, prior communication, and relationship context. Surface high-cost exposure sooner while keeping exact grace periods and cutoffs unresolved.",
+      "rationale": "A failed card may be routine, while high ongoing cost can create material risk.",
+      "affectedSystems": ["billing", "support", "founder-control-room"],
+      "scope": { "fixedGlobalShutdownTimer": false }
+    },
+    {
+      "key": "customer-facing-incident-recovery",
+      "title": "Customer-facing failures receive highest recovery priority",
+      "summary": "Detect, contain, restore, record, investigate, and prevent recurrence.",
+      "decision": "Prefer safe graceful degradation, rollback, failover, retry, queue recovery, circuit breaking, or bounded feature disablement to restore customer-facing service before deep root-cause investigation.",
+      "rationale": "Customer availability matters more than internal agent inconvenience during an incident.",
+      "affectedSystems": ["incident-response", "availability", "observability"],
+      "scope": { "restoreFirstWhenSafe": true }
+    },
+    {
+      "key": "provider-resilience-quality",
+      "title": "Use centrally managed multi-provider AI with quality-first evaluation",
+      "summary": "Avoid unnecessary provider lock-in and prove workflows with capable models before optimizing cost.",
+      "decision": "Support central model routing and fallback for outages, quality changes, price changes, and new models. Downgrade only when evidence shows required quality is preserved, and detect abnormal cost behavior without inventing unresolved thresholds.",
+      "rationale": "Weak models must not masquerade as proof that the operating architecture is unworkable.",
+      "affectedSystems": ["ai-routing", "provider-health", "cost-controls"],
+      "scope": { "qualityFirst": true, "singleProviderRequired": false }
+    },
+    {
+      "key": "dependency-leverage-prioritization",
+      "title": "Prioritize by dependency and leverage",
+      "summary": "Sequence trustworthy execution, launch-grade product, AI operations, and growth work by what unlocks the most downstream value.",
+      "decision": "Use available capacity aggressively, reconcile overlapping packets, integrate completed work, and choose implementations that make several subsequent implementations easier, safer, or higher quality.",
+      "rationale": "Artificial percentages and stale packet order should not leave independent valuable work idle.",
+      "affectedSystems": ["engineering-planning", "release-management"],
+      "scope": { "strictSequentialPackets": false }
+    },
+    {
+      "key": "deferred-product-scope",
+      "title": "Consumer, Territories, native mobile, smart glasses, and decorative animation are deferred",
+      "summary": "Current engineering should focus on launch-grade venue operations and the AI company operating system.",
+      "decision": "Do not spend substantial current implementation time on consumer Torchiko, Territories as a full product, native mobile, smart-glasses integration, or elaborate decorative client-side Tochi animation.",
+      "rationale": "These directions do not currently outrank the customer product, AI operating system, and repeatable acquisition foundation.",
+      "affectedSystems": ["product-planning"],
+      "scope": { "deferred": true }
+    },
+    {
+      "key": "service-led-customer-experience",
+      "title": "Customer experience should feel service-led",
+      "summary": "AI automation should feel like a capable responsive team, not abandonment to self-service.",
+      "decision": "Prefer simple requests and high-quality AI-assisted execution behind the scenes over exposing dozens of complex customer configuration controls. Do not misrepresent specific humans.",
+      "rationale": "Service, responsiveness, competence, and continuity are product advantages.",
+      "affectedSystems": ["client-portal", "support", "customer-operations"],
+      "scope": { "maximumSelfService": false }
+    },
+    {
+      "key": "hermes-trust-boundary",
+      "title": "Hermes has lower current engineering trust than Codex",
+      "summary": "Hermes may grow into operational work but repository changes currently need more Codex supervision.",
+      "decision": "Use Hermes for appropriately governed operational work over time, especially email, CRM, and customer operations, while supervising Hermes coding more closely and increasing trust only through demonstrated reliability.",
+      "rationale": "Recent runtime reliability has not earned identical engineering autonomy.",
+      "affectedSystems": ["hermes", "agent-governance", "engineering"],
+      "scope": { "unrestrictedHermesCodeAuthority": false }
+    },
+    {
+      "key": "founder-question-boundary",
+      "title": "Ask the founder only for genuine founder judgment",
+      "summary": "Retrieve settled decisions before escalating compact questions.",
+      "decision": "Escalate new prices, discounts, fees, credits, contracts, legal or company-formation commitments, consequential production releases, irreversible valuable-data loss, major product direction, customer cancellation, founder-only ambiguity, material external promises, and unapproved real-money effects. Do not re-ask settled questions.",
+      "rationale": "Founder attention should be spent where founder context creates real value.",
+      "affectedSystems": ["approvals", "company-brain", "founder-control-room"],
+      "scope": { "retrieveBeforeAsking": true }
+    }
+  ]
+}

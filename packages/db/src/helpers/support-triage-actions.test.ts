@@ -143,6 +143,53 @@ describe('structured support triage action', () => {
     }
   })
 
+  it('accepts only complete approval-bound machine lineage and attributes the visible triage change', async () => {
+    const agentActor = {
+      actorType: 'AGENT',
+      participantKind: 'AGENT',
+      actorId: 'agent_1',
+      auditRole: 'AGENT',
+      agentIdentityId: 'agent_1',
+      agentRunId: 'run_1',
+      workerId: 'worker_1',
+      credentialId: 'credential_1',
+      approvalGrantId: 'grant_1',
+      capability: 'support:triage',
+      modelProvider: 'openai',
+      modelName: 'gpt-test',
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+    } as const
+    const { tx, actionClient } = harness()
+    await triageSupportRequestAction({ ...input, actor: agentActor }, actionClient)
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ updatedByKind: 'AGENT' }) }),
+    )
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ actorKind: 'AGENT' }) }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:triage',
+        }),
+      }),
+    )
+    const incomplete = harness()
+    await expect(
+      triageSupportRequestAction(
+        { ...input, actor: { ...agentActor, approvalGrantId: '' } },
+        incomplete.actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(incomplete.client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('fails closed for wrong scope, stale CAS, closed state, or audit failure', async () => {
     const missing = harness()
     missing.tx.supportRequest.findFirst.mockResolvedValueOnce(null)

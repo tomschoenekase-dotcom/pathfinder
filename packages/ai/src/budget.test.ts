@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   AI_EMBEDDING_MODEL_KEYS,
@@ -10,6 +10,9 @@ import {
   embeddingAttemptCostCeilingUnits,
   observedAiCostUnits,
   textAttemptCostCeilingUnits,
+  withAiRequestBudgetCeiling,
+  AiRequestBudgetCeilingExceededError,
+  type AiBudgetGate,
 } from './budget'
 
 describe('AI cost budget ceilings', () => {
@@ -71,5 +74,40 @@ describe('AI cost budget ceilings', () => {
       expect(ceiling).toBeGreaterThan(0n)
       expect(ceiling).toBeLessThan(BigInt(Number.MAX_SAFE_INTEGER))
     }
+  })
+
+  it('enforces one cumulative ceiling across exact, ambiguous, and released reservations', async () => {
+    const underlying: AiBudgetGate = {
+      reserve: vi.fn().mockResolvedValue(null),
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact: vi.fn().mockResolvedValue(undefined),
+      settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
+    const gate = withAiRequestBudgetCeiling(underlying, 100n)
+    const attempt = {
+      invocationId: '11111111-1111-4111-8111-111111111111',
+      attemptNumber: 1,
+      provider: 'anthropic' as const,
+      model: 'model',
+      pricingVersion: 'test',
+      reservedUnits: 60n,
+    }
+
+    const exact = await gate.reserve(attempt)
+    expect(exact).not.toBeNull()
+    await gate.settleExact(exact!, 20n)
+    const released = await gate.reserve({ ...attempt, attemptNumber: 2, reservedUnits: 80n })
+    await gate.releaseUndispatched(released!)
+    const ambiguous = await gate.reserve({ ...attempt, attemptNumber: 3, reservedUnits: 80n })
+    await gate.settleAmbiguous(ambiguous!)
+
+    await expect(
+      gate.reserve({ ...attempt, attemptNumber: 4, reservedUnits: 1n }),
+    ).rejects.toMatchObject({
+      code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+      ceilingUnits: 100n,
+      attemptedUnits: 101n,
+    } satisfies Partial<AiRequestBudgetCeilingExceededError>)
   })
 })

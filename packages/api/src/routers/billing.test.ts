@@ -51,6 +51,12 @@ describe('billing tenant API boundary', () => {
     await expect(testRouter.createCaller(context()).billing.overview()).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
+    expect(mocks.flag).toHaveBeenCalledWith({
+      where: {
+        tenantId_flagKey: { tenantId: 'tenant-a', flagKey: 'billing-ui-v1' },
+      },
+      select: { enabled: true },
+    })
     expect(mocks.overview).not.toHaveBeenCalled()
   })
 

@@ -57,12 +57,12 @@ describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v5')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v9')
     expect(GUEST_CHAT_PROMPT_CONTRACT_HASH).toBe(
-      'e73d7b24488cc0b06e1156f7110e12cbfd301e64cc72c0bd41610d37060536b0',
+      '9243a01c585a472c98134cc99b585cb95de64a683f77348468d6391a8081d183',
     )
     expect(evaluationRunIdentityHash(identity())).toBe(
-      '886354365ca417821c7b24d122519e32c1067d04feb4949f33d9fe8bdb9b8afc',
+      'e223ec6b02d538e998c03f08187279e3c01626a7305a790d0d24e3489ea87b4d',
     )
     const client = mockClient()
     client.evalRun.findFirst.mockResolvedValueOnce(null)
@@ -128,6 +128,34 @@ describe('evaluation run identity', () => {
       contentSnapshotKind: 'APPROVED_VENUE_PACKAGE_V1',
       contentSnapshotRef: 'package_approved_1',
     })
+  })
+
+  it('persists a distinct v5 identity for an exact reviewable package snapshot', async () => {
+    const reviewable = identity({
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+      contentSnapshotVersion: 1n,
+      packageSnapshotRef: 'venue-package-review-v1:package_draft_1',
+    } as Partial<EvaluationRunIdentity>)
+    expect(evaluationRunIdentityHash(reviewable)).not.toBe(evaluationRunIdentityHash(identity()))
+    const client = mockClient()
+    client.evalRun.findFirst.mockResolvedValueOnce(null)
+    client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))
+    const { run } = await createOrReplayEvaluationRun({
+      db: client as never,
+      runId: RUN_ID,
+      identity: reviewable,
+    })
+    expect(run.identitySnapshot).toMatchObject({
+      version: 'pathfinder-eval-run-identity-v5',
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+    })
+    expect(run).toMatchObject({
+      contentSnapshotKind: 'REVIEWABLE_VENUE_PACKAGE_V1',
+      contentSnapshotRef: 'package_draft_1',
+    })
+    expect(isVerifiedEvaluationRunIdentity(run)).toBe(true)
   })
 
   it('is canonical across JSON key order and Unicode NFC', () => {

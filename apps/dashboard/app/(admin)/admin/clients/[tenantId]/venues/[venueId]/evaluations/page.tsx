@@ -19,7 +19,15 @@ export default async function EvaluationOperationsPage({
   try {
     const metricsTo = new Date()
     const metricsFrom = new Date(metricsTo.getTime() - 90 * 24 * 60 * 60 * 1000)
-    const [data, cases, approvedPackages, onboardingMetrics] = await Promise.all([
+    const [
+      data,
+      cases,
+      reviewablePackages,
+      onboardingMetrics,
+      sourceInsights,
+      attributionAgreement,
+      answerEvaluations,
+    ] = await Promise.all([
       caller.admin.listEvaluationRuns({
         tenantId,
         venueId,
@@ -35,6 +43,15 @@ export default async function EvaluationOperationsPage({
         from: metricsFrom.toISOString(),
         to: metricsTo.toISOString(),
       }),
+      caller.admin.listEvaluationSourceInsights({ tenantId, venueId, limit: 10 }),
+      caller.admin
+        .previewGuestAnswerAttributionAgreement({ tenantId, venueId, limit: 100 })
+        .catch(() => null),
+      caller.admin.listGuestAnswerAttributionEvaluationRequests({
+        tenantId,
+        venueId,
+        limit: 25,
+      }),
     ])
     return (
       <EvaluationOperationsView
@@ -47,10 +64,19 @@ export default async function EvaluationOperationsPage({
         cases={cases.items}
         caseNextCursor={cases.nextCursor}
         runnerEnabled={cases.runnerEnabled}
+        runnerReadiness={cases.readiness}
+        regressionAlerts={cases.regressionAlerts}
         maximumCases={cases.maximumCases}
+        maximumBudgetE8Usd={cases.maximumBudgetE8Usd}
+        evaluationModelBudgetCeilingsE8Usd={cases.evaluationModelBudgetCeilingsE8Usd}
         requestPanelEnabled
-        approvedPackages={approvedPackages}
+        reviewablePackages={reviewablePackages}
         onboardingMetrics={onboardingMetrics}
+        sourceInsights={sourceInsights}
+        attributionAgreement={attributionAgreement}
+        answerEvaluationRequests={answerEvaluations.items}
+        answerEvaluationReadiness={answerEvaluations.readiness}
+        answerEvaluationExecutionEnabled={answerEvaluations.executionEnabled}
       />
     )
   } catch {

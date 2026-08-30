@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const SupportRequestStatus = z.enum([
+  'DRAFT',
   'OPEN',
   'WAITING_FOR_CLIENT',
   'IN_REVIEW',
@@ -116,6 +117,7 @@ export type SupportRequestSnapshot = z.infer<typeof SupportRequestSnapshot>
 export const supportRequestTransitionGraph: Readonly<
   Record<SupportRequestStatus, readonly SupportRequestStatus[]>
 > = {
+  DRAFT: ['OPEN', 'CANCELLED'],
   OPEN: ['WAITING_FOR_CLIENT', 'IN_REVIEW', 'CANCELLED'],
   WAITING_FOR_CLIENT: ['IN_REVIEW', 'CANCELLED'],
   IN_REVIEW: ['WAITING_FOR_CLIENT', 'PATCH_DRAFTED', 'CANCELLED'],

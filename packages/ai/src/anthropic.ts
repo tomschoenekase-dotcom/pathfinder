@@ -6,6 +6,11 @@ import Anthropic, {
 import { z } from 'zod'
 
 import type { AiAdmissionGuard } from './admission'
+import {
+  createOpenAiTextResponse,
+  createOpenAiTextStream,
+  OpenAiIncompleteResponseError,
+} from './openai-text'
 
 import {
   createAiInvocationId,
@@ -40,6 +45,10 @@ export type AnthropicMessagesClient = {
       params: AnthropicCreateParams,
       options?: { timeout?: number; signal?: AbortSignal },
     ) => Promise<unknown>
+    stream?: (
+      params: AnthropicCreateParams,
+      options?: { timeout?: number; signal?: AbortSignal },
+    ) => AsyncIterable<unknown> & { finalMessage: () => Promise<unknown> }
   }
 }
 
@@ -53,7 +62,7 @@ export type AiTokenUsage = {
 export type AiTextResult<TParsed = string> = {
   text: string
   parsed: TParsed
-  provider: 'anthropic'
+  provider: 'anthropic' | 'openai'
   model: string
   pricingVersion: string
   usage: AiTokenUsage
@@ -84,16 +93,24 @@ export class AiGatewayError extends Error {
   readonly attempts: number
   readonly code: string
   readonly usageRecorded: boolean
+  readonly textEmitted: boolean
 
   constructor(
     message: string,
-    options: { attempts: number; code: string; cause?: unknown; usageRecorded?: boolean },
+    options: {
+      attempts: number
+      code: string
+      cause?: unknown
+      usageRecorded?: boolean
+      textEmitted?: boolean
+    },
   ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'AiGatewayError'
     this.attempts = options.attempts
     this.code = options.code
     this.usageRecorded = options.usageRecorded ?? false
+    this.textEmitted = options.textEmitted ?? false
   }
 }
 
@@ -134,6 +151,98 @@ export function setAnthropicClientForTesting(client: AnthropicMessagesClient | n
   anthropicClient = client
 }
 
+async function createProviderResponse(params: {
+  spec: ReturnType<typeof getAiModelSpec>
+  system: AiSystemBlock[]
+  messages: AiMessage[]
+  maxOutputTokens: number
+  timeoutMs: number
+  onTextDelta?: (delta: string) => void | Promise<void>
+  signal?: AbortSignal
+}): Promise<{ text: string; usage: AiTokenUsage }> {
+  const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
+  if (params.spec.provider === 'openai') {
+    return params.onTextDelta
+      ? createOpenAiTextStream({ ...params, onTextDelta: params.onTextDelta })
+      : createOpenAiTextResponse(params)
+  }
+
+  if (params.onTextDelta) {
+    const client = getAnthropicClient()
+    if (!client.messages.stream) throw new Error('Anthropic streaming is unavailable')
+    const stream = client.messages.stream(
+      {
+        model: params.spec.model,
+        max_tokens: params.maxOutputTokens,
+        system: params.system,
+        messages: params.messages,
+      },
+      options,
+    )
+    for await (const rawEvent of stream) {
+      const event = z
+        .object({
+          type: z.string(),
+          delta: z.object({ type: z.string(), text: z.string().optional() }).optional(),
+        })
+        .passthrough()
+        .safeParse(rawEvent)
+      if (
+        event.success &&
+        event.data.type === 'content_block_delta' &&
+        event.data.delta?.type === 'text_delta' &&
+        event.data.delta.text
+      ) {
+        await params.onTextDelta(event.data.delta.text)
+      }
+    }
+    const response = responseSchema.parse(await stream.finalMessage())
+    return {
+      text: response.content
+        .filter(
+          (block): block is typeof block & { text: string } =>
+            block.type === 'text' && typeof block.text === 'string',
+        )
+        .map((block) => block.text)
+        .join('\n')
+        .trim(),
+      usage: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    }
+  }
+
+  const raw = await getAnthropicClient().messages.create(
+    {
+      model: params.spec.model,
+      max_tokens: params.maxOutputTokens,
+      system: params.system,
+      messages: params.messages,
+    },
+    options,
+  )
+  const response = responseSchema.parse(raw)
+  return {
+    text: response.content
+      .filter(
+        (block): block is typeof block & { text: string } =>
+          block.type === 'text' && typeof block.text === 'string',
+      )
+      .map((block) => block.text)
+      .join('\n')
+      .trim(),
+    usage: {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+    },
+  }
+}
+
 function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage): number {
   const pricing = getAiModelSpec(modelKey).pricingUsdPerMillionTokens
   return (
@@ -162,6 +271,7 @@ function isRetryable(error: unknown): boolean {
 
 function errorCode(error: unknown): string {
   if (error instanceof z.ZodError) return 'invalid-provider-response'
+  if (error instanceof OpenAiIncompleteResponseError) return 'provider-incomplete-response'
   if (error instanceof APIConnectionTimeoutError) return 'provider-connection-timeout'
   if (error instanceof APIConnectionError) return 'provider-connection-error'
   if (error instanceof APIUserAbortError) return 'provider-user-abort'
@@ -199,7 +309,10 @@ export async function generateText<TParsed = string>(params: {
   budgetGate: AiBudgetGate
   parseResponse?: (text: string) => TParsed
   invocationId?: string
+  /** Internal routed-execution offset so one invocation has unique budget attempt identities. */
+  budgetAttemptNumberOffset?: number
   onBeforeFirstDispatch?: () => Promise<void>
+  onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
@@ -210,9 +323,14 @@ export async function generateText<TParsed = string>(params: {
   const budgetGate = params.budgetGate
   let lastError: unknown
   let dispatchRecorded = false
+  let textEmitted = false
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
+  }
+  const budgetAttemptNumberOffset = params.budgetAttemptNumberOffset ?? 0
+  if (!Number.isInteger(budgetAttemptNumberOffset) || budgetAttemptNumberOffset < 0) {
+    throw new Error('budgetAttemptNumberOffset must be a nonnegative integer')
   }
   const maxOutputTokens = params.maxOutputTokens ?? spec.maxOutputTokens
   const reservedUnits = textAttemptCostCeilingUnits({
@@ -246,10 +364,9 @@ export async function generateText<TParsed = string>(params: {
       }
       throw admissionError
     }
-    const client = getAnthropicClient()
     const reservation = await budgetGate.reserve({
       invocationId,
-      attemptNumber: attempt,
+      attemptNumber: budgetAttemptNumberOffset + attempt,
       provider: spec.provider,
       model: spec.model,
       pricingVersion: spec.pricingVersion,
@@ -284,23 +401,25 @@ export async function generateText<TParsed = string>(params: {
     }
     let observedReservation: AiBudgetReservationRef | null = null
     try {
-      const raw = await client.messages.create(
-        {
-          model: spec.model,
-          max_tokens: maxOutputTokens,
-          system: params.system,
-          messages: params.messages,
-        },
-        { timeout: timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
-      )
+      const response = await createProviderResponse({
+        spec,
+        system: params.system,
+        messages: params.messages,
+        maxOutputTokens,
+        timeoutMs,
+        ...(params.onTextDelta
+          ? {
+              onTextDelta: async (delta: string) => {
+                if (!delta) return
+                textEmitted = true
+                await params.onTextDelta?.(delta)
+              },
+            }
+          : {}),
+        ...(params.signal ? { signal: params.signal } : {}),
+      })
       if (params.signal?.aborted) throw abortReason(params.signal)
-      const response = responseSchema.parse(raw)
-      const usage: AiTokenUsage = {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
-        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
-      }
+      const usage = response.usage
       observedReservation = reservation
       if (reservation) {
         try {
@@ -313,14 +432,7 @@ export async function generateText<TParsed = string>(params: {
           // must not turn one provider response into another provider attempt.
         }
       }
-      const text = response.content
-        .filter(
-          (block): block is typeof block & { text: string } =>
-            block.type === 'text' && typeof block.text === 'string',
-        )
-        .map((block) => block.text)
-        .join('\n')
-        .trim()
+      const text = response.text
       if (!text) {
         const gatewayError = new AiGatewayError('Provider response contained no text block', {
           attempts: attempt,
@@ -407,6 +519,37 @@ export async function generateText<TParsed = string>(params: {
             attempts: attempt,
             code: error instanceof AiGatewayError ? error.code : errorCode(error),
             cause: error,
+            textEmitted,
+          },
+        )
+        if (!(error instanceof AiGatewayError && error.usageRecorded)) {
+          await recordUsageBestEffort(params.usageSink, {
+            provider: spec.provider,
+            model: spec.model,
+            pricingVersion: spec.pricingVersion,
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreationInputTokens: 0,
+              cacheReadInputTokens: 0,
+            },
+            estimatedCostUsd: 0,
+            latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            attempts: attempt,
+            success: false,
+            errorCode: gatewayError.code,
+          })
+        }
+        throw gatewayError
+      }
+      if (textEmitted) {
+        const gatewayError = new AiGatewayError(
+          error instanceof Error ? error.message : 'AI provider stream failed',
+          {
+            attempts: attempt,
+            code: error instanceof AiGatewayError ? error.code : errorCode(error),
+            cause: error,
+            textEmitted: true,
           },
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {

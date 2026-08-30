@@ -10,13 +10,35 @@ const sql = readFileSync(
   ),
   'utf8',
 )
-const capabilitySql = `${sql}\n${readFileSync(
-  new URL(
-    '../../prisma/migrations/20260821201000_add_meeting_processing_capability/migration.sql',
-    import.meta.url,
+const capabilityMigrationPaths = [
+  '20260821201000_add_meeting_processing_capability',
+  '20260822223000_add_conversation_review_knowledge_draft_capabilities',
+  '20260823030000_add_customer_access_requests',
+  '20260823210000_add_location_proposal_capability',
+  '20260823233000_add_agent_improvement_proposals',
+  '20260824010000_add_agent_improvement_validation_evidence',
+  '20260824160000_add_intake_machine_lineage',
+  '20260824170000_add_weekly_report_draft_capability',
+  '20260824180000_add_support_open_capability',
+  '20260824190000_add_support_note_capability',
+  '20260824200000_add_support_triage_capability',
+  '20260824210000_add_support_information_request_capability',
+  '20260824220000_add_support_completion_capability',
+  '20260824231000_add_support_package_approval_capability',
+  '20260824233000_add_support_package_application_capability',
+  '20260824234000_add_support_package_reversion_capability',
+  '20260824235000_add_support_package_handoff_supersession',
+  '20260825003000_add_retention_read_capability',
+]
+const capabilitySql = [
+  sql,
+  ...capabilityMigrationPaths.map((migration) =>
+    readFileSync(
+      new URL(`../../prisma/migrations/${migration}/migration.sql`, import.meta.url),
+      'utf8',
+    ),
   ),
-  'utf8',
-)}`
+].join('\n')
 
 describe('MCP credential database capability parity', () => {
   it('admits every typed MCP capability while preserving the fail-closed evidence trigger', () => {

@@ -9,6 +9,13 @@ type IntakeUploadReviewItem = {
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
+  verificationOperation:
+    | 'QUEUED'
+    | 'RUNNING'
+    | 'RECOVERY_QUEUED'
+    | 'CLIENT_RESUME_REQUIRED'
+    | 'NOT_APPLICABLE'
+  operatorActionRequired: boolean
   createdAt: Date
 }
 
@@ -46,6 +53,21 @@ function rejectionReason(code: string): string {
       return 'The file did not pass the required checks.'
     default:
       return 'The file could not be accepted.'
+  }
+}
+
+function verificationOperationLabel(operation: IntakeUploadReviewItem['verificationOperation']) {
+  switch (operation) {
+    case 'QUEUED':
+      return 'Authoritative security verification is queued.'
+    case 'RUNNING':
+      return 'Authoritative security verification is running.'
+    case 'RECOVERY_QUEUED':
+      return 'A stale verification lease is queued for automatic recovery.'
+    case 'CLIENT_RESUME_REQUIRED':
+      return 'The initial saved-file check stopped and can be resumed by the customer.'
+    default:
+      return null
   }
 }
 
@@ -94,6 +116,16 @@ export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadRevie
                   <dd className="mt-0.5 text-pf-deep">{upload.createdAt.toLocaleString()}</dd>
                 </div>
               </dl>
+              {verificationOperationLabel(upload.verificationOperation) ? (
+                <p
+                  className={`mt-3 text-sm ${
+                    upload.operatorActionRequired ? 'text-amber-800' : 'text-pf-deep/70'
+                  }`}
+                  role={upload.operatorActionRequired ? 'alert' : 'status'}
+                >
+                  {verificationOperationLabel(upload.verificationOperation)}
+                </p>
+              ) : null}
               {upload.rejectionCode ? (
                 <p className="mt-3 text-sm text-rose-700" role="status">
                   {rejectionReason(upload.rejectionCode)}

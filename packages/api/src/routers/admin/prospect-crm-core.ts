@@ -60,6 +60,16 @@ export const adminProspectCrmCoreRouter = router({
                   take: 30,
                   select: { id: true, type: true, content: true, promotionStatus: true },
                 },
+                transcriptArtifacts: {
+                  orderBy: { acquiredAt: 'desc' },
+                  take: 1,
+                  select: {
+                    id: true,
+                    sourceReference: true,
+                    acquiredAt: true,
+                    expiresAt: true,
+                  },
+                },
               },
             },
             companyKnowledgeItems: {
@@ -79,7 +89,45 @@ export const adminProspectCrmCoreRouter = router({
             emailThreads: {
               orderBy: { lastMessageAt: 'desc' },
               take: 50,
-              include: { messages: { orderBy: { occurredAt: 'desc' }, take: 100 } },
+              include: {
+                messages: {
+                  orderBy: { occurredAt: 'desc' },
+                  take: 100,
+                  select: {
+                    id: true,
+                    direction: true,
+                    status: true,
+                    fromAddress: true,
+                    toAddresses: true,
+                    subject: true,
+                    bodyPreview: true,
+                    bodyRetentionState: true,
+                    sourceReference: true,
+                    attachmentMetadata: true,
+                    attachmentRetentionRequests: {
+                      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                      take: 50,
+                      select: {
+                        id: true,
+                        providerAttachmentId: true,
+                        filename: true,
+                        mimeType: true,
+                        sizeBytes: true,
+                        category: true,
+                        purpose: true,
+                        sourceReference: true,
+                        status: true,
+                        requestedById: true,
+                        reviewedById: true,
+                        reviewReason: true,
+                        reviewedAt: true,
+                        createdAt: true,
+                      },
+                    },
+                    occurredAt: true,
+                  },
+                },
+              },
             },
             followups: { orderBy: { dueAt: 'asc' }, take: 100 },
             campaignMembers: {

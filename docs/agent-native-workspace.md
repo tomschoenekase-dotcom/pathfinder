@@ -40,12 +40,18 @@ authority. Approval grants one reviewed action; it never supplies broad autonomy
 - Primary-agent to specialist child runs with parent/child lineage and timelines on both runs.
 - Operator-visible prompts, text result artifacts, retry/heartbeat state, and specialist lineage on
   run detail. Raw action payloads, scope snapshots, and lease tokens remain hidden.
+- One mobile-friendly, read-only run trace merges bounded action summaries, lifecycle events,
+  approval history, and outcome evidence in exact reverse chronology with a heterogeneous cursor.
+- The same safe chronology is available to an exact venue-scoped MCP credential holding
+  `resources:read` and `agent-runs:read`; it requires the exact run id and grants no execution or
+  approval authority.
 - An append-only run conversation combining operator prompts, agent questions, operator answers,
   and agent results. Answering a blocking question dispatches a new resume job when the runtime is
   enabled.
 - A transport-neutral authenticated bridge registry for registration, presence heartbeat, exact
-  provider/model task claims, run heartbeats, bounded artifacts, completion, and failure. Sessions
-  are backed by revocable venue-scoped MCP machine credentials and expire after missed heartbeats.
+  provider/model/role/capability task claims, run heartbeats, bounded artifacts, completion, and
+  failure. Sessions are backed by revocable venue-scoped MCP machine credentials and expire after
+  missed heartbeats.
 - A default-dark authenticated HTTP bridge composition root with bounded request/response bodies,
   pre-hash rate limiting, exact tenant/venue scoping, and non-secret errors.
 - A desktop bridge runner for read-only Codex subscription work, plan-only Claude subscription
@@ -76,8 +82,10 @@ These are intentionally not represented as complete:
 - Staging adversarial tests and deployment evidence. The HTTP route already applies bounded
   in-process authentication-attempt limiting; distributed edge limits remain a deployment concern.
 
-The disposable-database end-to-end smoke now proves credential issuance, activation, session
-registration, task claim, heartbeat, completion, and artifact readback across all 98 migrations. The
-next safe vertical slice is staging rollout with deployment-specific edge rate limits and explicit
-permission mappings for any Hermes tool beyond the current deny-all ACP adapter. It must continue to
-use scoped, revocable machine credentials and never browser-profile or subscription-token scraping.
+The disposable-database end-to-end smoke now proves credential issuance, activation, concurrent
+heterogeneous claims, multiple instances of one role, exact role/capability routing, heartbeat,
+fenced stale-lease takeover, stale and duplicate settlement rejection, exact costs, completion, and
+artifact readback across the complete reviewed migration lineage. The next safe vertical slice is
+staging rollout with deployment-specific edge rate limits and explicit permission mappings for any
+Hermes tool beyond the current deny-all ACP adapter. It must continue to use scoped, revocable
+machine credentials and never browser-profile or subscription-token scraping.

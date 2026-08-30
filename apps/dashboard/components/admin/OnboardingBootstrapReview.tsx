@@ -9,12 +9,23 @@ import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 import { useTRPCClient } from '../../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
 
-type Candidate = inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']
+export type OnboardingBootstrapCandidate =
+  inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']
+
+function isFileExtractionReview(value: unknown): boolean {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (value as { kind?: unknown }).kind === 'FILE_EXTRACTION_REVIEW',
+  )
+}
 
 export function OnboardingBootstrapReview({
   tenantId,
   venueId,
   run,
+  fixtureCandidate,
 }: {
   tenantId: string
   venueId: string
@@ -24,30 +35,37 @@ export function OnboardingBootstrapReview({
     status: string
     structuredBootstrap: unknown
   }
+  /** Development fixtures and component tests only; production callers intentionally omit this. */
+  fixtureCandidate?: OnboardingBootstrapCandidate
 }) {
   const client = useTRPCClient()
-  const [candidate, setCandidate] = useState<Candidate | null>(null)
+  const fromFileReview = isFileExtractionReview(run.structuredBootstrap)
+  const [candidate, setCandidate] = useState<OnboardingBootstrapCandidate | null>(
+    fixtureCandidate ?? null,
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
 
   useEffect(() => {
     requestSequence.current += 1
-    setCandidate(null)
+    setCandidate(fixtureCandidate ?? null)
     setBusy(false)
     setError(null)
-  }, [run.id, tenantId, venueId])
+  }, [fixtureCandidate, run.id, tenantId, venueId])
 
   async function loadCandidate() {
     const sequence = ++requestSequence.current
     setBusy(true)
     setError(null)
     try {
-      const next = await client.admin.getIntakeVenuePackageCandidate.query({
-        tenantId,
-        venueId,
-        runId: run.id,
-      })
+      const next =
+        fixtureCandidate ??
+        (await client.admin.getIntakeVenuePackageCandidate.query({
+          tenantId,
+          venueId,
+          runId: run.id,
+        }))
       if (sequence === requestSequence.current) setCandidate(next)
     } catch (cause) {
       if (sequence === requestSequence.current) {
@@ -61,12 +79,13 @@ export function OnboardingBootstrapReview({
   return (
     <article className="rounded-xl border border-pf-light p-4">
       <p className="font-medium text-pf-deep">{normalizeTorchikoBrandText(run.displayName)}</p>
-      <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
+      <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/70">
         {run.status.replaceAll('_', ' ')}
       </p>
       <p className="mt-2 text-sm text-pf-deep/70">
-        Build a deterministic VenuePackage candidate from the stored reviewed proposal. The server
-        rebuilds and hash-checks it again before creating and linking a DRAFT.
+        {fromFileReview
+          ? 'Build a deterministic VenuePackage candidate from the exact accepted extraction review. The server revalidates its source, receipt, reviewer, notes, and evidence hashes before creating and linking a DRAFT.'
+          : 'Build a deterministic VenuePackage candidate from the stored reviewed proposal. The server rebuilds and hash-checks it again before creating and linking a DRAFT.'}
       </p>
       <button
         type="button"
@@ -107,7 +126,9 @@ export function OnboardingBootstrapReview({
               payload: candidate.payload,
               source: {
                 kind: candidate.sourceKind,
-                label: 'structured onboarding proposal',
+                label: fromFileReview
+                  ? 'reviewed file extraction proposal'
+                  : 'structured onboarding proposal',
                 evidenceCount: candidate.summary.candidateCount,
                 discrepancyCount: candidate.summary.issueCount,
                 confidence: null,
@@ -119,7 +140,9 @@ export function OnboardingBootstrapReview({
       ) : null}
       <details className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
         <summary className="cursor-pointer font-semibold text-pf-deep">
-          View original private proposal
+          {fromFileReview
+            ? 'View private extraction-review lineage'
+            : 'View original private proposal'}
         </summary>
         <pre className="mt-3 overflow-auto whitespace-pre-wrap">
           {JSON.stringify(run.structuredBootstrap, null, 2)}

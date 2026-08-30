@@ -15,13 +15,21 @@ const nextConfig: NextConfig = {
   },
   output: 'standalone',
   outputFileTracingRoot: workspaceRoot,
+  serverExternalPackages: [
+    '@opentelemetry/instrumentation',
+    '@sentry/nextjs',
+    'require-in-the-middle',
+  ],
   transpilePackages: ['@pathfinder/config'],
   images: {
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   outputFileTracingIncludes: {
-    '/**': ['../../node_modules/.pnpm/@prisma+client*/**/*.node'],
+    '/**': [
+      '../../node_modules/.pnpm/@prisma+client*/**/*.node',
+      '../../node_modules/.pnpm/meriyah@*/node_modules/meriyah/**/*',
+    ],
   },
 }
 

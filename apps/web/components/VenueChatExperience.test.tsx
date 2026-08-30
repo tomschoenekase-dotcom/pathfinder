@@ -1,10 +1,11 @@
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getBySlug: vi.fn(),
   anonymousToken: null as string | null,
+  sessionId: null as string | null,
   identityUnavailable: false,
   sessionTokens: {} as Record<string, string>,
   startNewConversation: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   geolocation: { lat: null as number | null, lng: null as number | null },
   geolocationPermission: 'granted' as 'granted' | 'denied' | 'prompt' | 'loading',
   geolocationEnabled: vi.fn(),
+  connectionState: 'online' as 'online' | 'offline' | 'reconnected',
   client: {
     venue: { getBySlug: { query: vi.fn() } },
     chat: {
@@ -22,6 +24,18 @@ const mocks = vi.hoisted(() => ({
       },
       session: { mutate: vi.fn() },
       send: { mutate: vi.fn() },
+      stream: undefined as
+        | {
+            subscribe: (
+              input: unknown,
+              handlers: {
+                onData: (event: unknown) => void
+                onError: (error: unknown) => void
+                onComplete: () => void
+              },
+            ) => { unsubscribe: () => void }
+          }
+        | undefined,
     },
     analytics: { trackEvent: { mutate: vi.fn() } },
   },
@@ -40,9 +54,13 @@ vi.mock('../hooks/useGeolocation', () => ({
     }
   },
 }))
+vi.mock('../hooks/useNetworkStatus', () => ({
+  useNetworkStatus: () => mocks.connectionState,
+}))
 vi.mock('../hooks/useSession', () => ({
   useSession: (venueId: string) => ({
     anonymousToken: mocks.sessionTokens[venueId] ?? mocks.anonymousToken,
+    sessionId: mocks.sessionId,
     identityUnavailable: mocks.identityUnavailable,
     setSessionId: mocks.setSessionId,
     startNewConversation: mocks.startNewConversation,
@@ -73,6 +91,8 @@ vi.mock('./ChatWindow', () => ({
     errorMessage,
     messages,
     onSend,
+    onRequestMore,
+    requestMoreLabel,
     onDraftChange,
     onRetry,
     retryLabel,
@@ -81,8 +101,10 @@ vi.mock('./ChatWindow', () => ({
   }: {
     emptyState: React.ReactNode
     errorMessage?: string | null
-    messages: Array<{ places?: Array<{ id: string }> }>
+    messages: Array<{ content: string; places?: Array<{ id: string }> }>
     onSend: (message: string) => void
+    onRequestMore?: () => void
+    requestMoreLabel?: string
     onDraftChange?: (draft: string) => void
     onRetry?: () => void
     retryLabel?: string
@@ -93,6 +115,7 @@ vi.mock('./ChatWindow', () => ({
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
+      <span>Latest: {messages.at(-1)?.content ?? 'none'}</span>
       <span>Cards: {messages.flatMap((message) => message.places ?? []).length}</span>
       {messages
         .flatMap((message) => message.places ?? [])
@@ -104,6 +127,7 @@ vi.mock('./ChatWindow', () => ({
         ))}
       <button onClick={() => onSend('Where is the café?')}>Send test message</button>
       <button onClick={() => onSend('Where is parking?')}>Send different message</button>
+      {onRequestMore ? <button onClick={onRequestMore}>{requestMoreLabel}</button> : null}
       <button onClick={() => onDraftChange?.('Edited draft')}>Edit draft</button>
       {onRetry ? <button onClick={onRetry}>{retryLabel ?? 'Retry same message'}</button> : null}
     </div>
@@ -134,6 +158,19 @@ vi.mock('./LanguagePicker', () => ({
   ],
 }))
 vi.mock('./LocationBanner', () => ({ LocationBanner: () => null }))
+vi.mock('./LocationRoutePlanner', () => ({
+  LocationRoutePlanner: ({
+    venueId,
+    anonymousToken,
+  }: {
+    venueId: string
+    anonymousToken: string | null
+  }) => (
+    <div>
+      Route planner for {venueId}: {anonymousToken ?? 'waiting for session'}
+    </div>
+  ),
+}))
 vi.mock('./QuickPromptChips', () => ({ QuickPromptChips: () => null }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
@@ -201,13 +238,16 @@ describe('VenueChatExperience presentation boundary', () => {
     vi.clearAllMocks()
     window.sessionStorage.clear()
     mocks.anonymousToken = null
+    mocks.sessionId = null
     mocks.identityUnavailable = false
     mocks.sessionTokens = {}
     mocks.startNewConversation.mockReturnValue(true)
     mocks.geolocation.lat = null
     mocks.geolocation.lng = null
     mocks.geolocationPermission = 'granted'
+    mocks.connectionState = 'online'
     mocks.client.chat.session.mutate.mockResolvedValue({ sessionId: 'session-1' })
+    mocks.client.chat.stream = undefined
     mocks.client.chat.send.mutate.mockResolvedValue({
       response: 'Nearby.',
       sessionId: 'session-1',
@@ -231,6 +271,90 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('renders safe stream fragments and replaces them with the authoritative completed turn', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    const unsubscribe = vi.fn()
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    const subscribe = vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      return { unsubscribe }
+    })
+    mocks.client.chat.stream = { subscribe }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+
+    act(() => {
+      handlers?.onData({ type: 'delta', delta: 'Near', providerFirstTextMs: 240 })
+      handlers?.onData({ type: 'delta', delta: 'by draft', providerFirstTextMs: 240 })
+    })
+    expect(screen.getByText('Latest: Nearby draft')).toBeTruthy()
+
+    act(() => {
+      handlers?.onData({
+        type: 'complete',
+        result: {
+          response: 'Nearby, beside the east gallery.',
+          assistantMessageId: 'assistant-1',
+          sessionId: 'session-1',
+          places: [],
+          citations: [],
+          replayed: false,
+          providerFirstTextMs: 240,
+        },
+      })
+      handlers?.onComplete()
+    })
+
+    await screen.findByText('Latest: Nearby, beside the east gallery.')
+    expect(screen.getByText('Messages: 2')).toBeTruthy()
+    expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not admit route catalog reads until the public session is confirmed', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValue(activeVenue)
+    const view = render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    expect(screen.getByText(/Route planner for venue-1: waiting for session/)).toBeTruthy()
+
+    mocks.sessionId = 'session-1'
+    view.rerender(<VenueChatExperience venueSlug="museum" />)
+    expect(screen.getByText(`Route planner for venue-1: ${mocks.anonymousToken}`)).toBeTruthy()
+  })
+
+  it('blocks network mutations offline and prepares the session after reconnection', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174199'
+    mocks.connectionState = 'offline'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    const view = render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    mocks.connectionState = 'reconnected'
+    view.rerender(<VenueChatExperience venueSlug="museum" />)
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce())
   })
 
   it('creates one UUID operation and fences same-tick duplicate submission', async () => {
@@ -267,11 +391,14 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    const retry = await screen.findByRole('button', { name: 'Retry same message' })
+    await screen.findByRole('button', { name: 'إعادة محاولة الرسالة نفسها' })
+    expect(
+      screen.getByText('نتيجة هذه الرسالة غير مؤكدة. أعد محاولة الرسالة نفسها بأمان.'),
+    ).toBeTruthy()
     const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
     expect(screen.getByText('Messages: 1')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Choose English' }))
-    fireEvent.click(retry)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
     expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0]).toEqual(frozen)
     expect(await screen.findByText('Messages: 2')).toBeTruthy()
@@ -320,7 +447,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    expect(await screen.findByText('Messages: 2')).toBeTruthy()
+    expect(await screen.findByText('Messages: 2', {}, { timeout: 5_000 })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     await screen.findByRole('button', { name: 'Retry same message' })
     expect(screen.getByText('Messages: 3')).toBeTruthy()
@@ -348,9 +475,9 @@ describe('VenueChatExperience presentation boundary', () => {
     'reconciles history after %s and does not offer ambiguous retry',
     async (code) => {
       mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174103'
-      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
-      mocks.client.chat.send.mutate.mockRejectedValueOnce(codedError(code))
-      mocks.client.chat.history.query.mockResolvedValueOnce({
+      mocks.getBySlug.mockReset().mockResolvedValueOnce(activeVenue)
+      mocks.client.chat.send.mutate.mockReset().mockRejectedValueOnce(codedError(code))
+      mocks.client.chat.history.query.mockReset().mockResolvedValue({
         messages: [
           { role: 'user', content: 'Where is the café?' },
           { role: 'assistant', content: 'The café is downstairs.' },
@@ -422,6 +549,36 @@ describe('VenueChatExperience presentation boundary', () => {
     },
   )
 
+  it('states that a rate-limited turn was not sent and retries the exact frozen message', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174105'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.send.mutate
+      .mockRejectedValueOnce(codedError('TOO_MANY_REQUESTS', 'RATE_LIMITED'))
+      .mockResolvedValueOnce({
+        response: 'The café is downstairs.',
+        sessionId: 'session-1',
+        places: [],
+        replayed: false,
+      })
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
+      timeout: 5_000,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    expect(
+      await screen.findByText(
+        /message was not sent because the guide is busy/i,
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeTruthy()
+    const frozen = mocks.client.chat.send.mutate.mock.calls[0]?.[0]
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
+    expect(mocks.client.chat.send.mutate.mock.calls[1]?.[0]).toEqual(frozen)
+  })
+
   it.each([
     ['PROVIDER_UNAVAILABLE', /guide service is temporarily unavailable/i],
     ['CONTENT_UNAVAILABLE', /venue content is not available/i],
@@ -436,8 +593,11 @@ describe('VenueChatExperience presentation boundary', () => {
       )
       render(<VenueChatExperience venueSlug="museum" />)
       await screen.findByRole('heading', { name: 'Museum Guide' })
+      await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1), {
+        timeout: 5_000,
+      })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-      expect(await screen.findByText(message)).toBeTruthy()
+      expect(await screen.findByText(message, {}, { timeout: 5_000 })).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
     },
   )
@@ -480,6 +640,23 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(brandLink?.className).toContain('min-h-11')
     expect(brandLink?.className).toContain('min-w-11')
     expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain('min-h-11')
+  })
+
+  it('localizes the persistent Arabic chat shell and accessibility labels', async () => {
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+
+    expect(screen.getByRole('link', { name: /رجوع/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'محادثة جديدة' })).toBeTruthy()
+    const guidance = screen.getByRole('note', { name: 'إرشادات الذكاء الاصطناعي' })
+    expect(guidance.getAttribute('lang')).toBe('ar')
+    expect(guidance.getAttribute('dir')).toBe('rtl')
+    expect(guidance.textContent).toContain('قد تكون الإجابات')
+    expect(guidance.closest('div[lang="ar"][dir="rtl"]')).toBeTruthy()
+    expect(screen.getByText('بدعم من')).toBeTruthy()
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
@@ -579,6 +756,28 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(await screen.findByText('Messages: 2')).toBeTruthy()
   })
 
+  it('sends the explicit localized expansion intent through the same durable turn path', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174012'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'أخبرني المزيد عن ذلك' }))
+
+    await waitFor(() =>
+      expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+        operationId: expect.any(String),
+        venueId: activeVenue.id,
+        anonymousToken: mocks.anonymousToken,
+        message: 'أخبرني المزيد عن ذلك.',
+        language: 'العربية',
+        responseIntent: 'EXPAND',
+      }),
+    )
+  })
+
   it.each(['standalone', 'embed', 'webview'] as const)(
     'keeps returned no-location cards in the %s presentation and tracks real actions',
     async (presentation) => {
@@ -639,6 +838,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -663,6 +863,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -683,6 +884,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByRole('heading', { name: 'Museum Guide' })
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
 
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
@@ -788,6 +990,50 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
+  it('attributes only the first session opened from a QR route', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174031'
+    const nextToken = '123e4567-e89b-42d3-a456-426614174032'
+    mocks.anonymousToken = token
+    mocks.startNewConversation.mockImplementationOnce(() => {
+      mocks.anonymousToken = nextToken
+      return true
+    })
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const view = render(
+      <VenueChatExperience venueSlug="museum" presentation="standalone" entrySource="qr" />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith({
+        venueId: activeVenue.id,
+        sessionId: token,
+        eventType: 'session.started',
+        metadata: { entrySource: 'qr' },
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    view.rerender(
+      <VenueChatExperience venueSlug="museum" presentation="standalone" entrySource="qr" />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith({
+        venueId: activeVenue.id,
+        sessionId: nextToken,
+        eventType: 'session.started',
+      }),
+    )
+    expect(mocks.client.analytics.trackEvent.mutate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: nextToken,
+        metadata: { entrySource: 'qr' },
+      }),
+    )
+  })
+
   it('disables New conversation while a message is in flight', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174002'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
@@ -842,15 +1088,19 @@ describe('VenueChatExperience presentation boundary', () => {
       messages: [{ role: 'assistant', content: 'Keep this chat.' }],
     })
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
     await screen.findByText('Messages: 1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }))
 
     expect(mocks.startNewConversation).not.toHaveBeenCalled()
     expect(screen.getByText('Messages: 1')).toBeTruthy()
+    expect(confirm).toHaveBeenCalledWith(
+      'هل تريد بدء محادثة جديدة؟ ستغادر المحادثة الحالية هذه الشاشة، لكنها لن تُحذف من سجلات Torchiko.',
+    )
   })
 
   it('preserves the current chat and reports a controlled reset failure', async () => {

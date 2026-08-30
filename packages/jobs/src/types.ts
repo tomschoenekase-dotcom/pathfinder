@@ -98,6 +98,21 @@ export type GmailSyncJobPayload = {
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 
+/** Carries only durable upload identity. The worker reloads all object and policy evidence. */
+export type IntakeUploadVerificationJobPayload = {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  observedUpdatedAt: string
+}
+
+/** Carries only exact durable identity. Source, rights, variant, and output policy are reloaded. */
+export type VenueMediaDerivativeJobPayload = {
+  tenantId: string
+  venueId: string
+  derivativeId: string
+}
+
 export type BillingReconciliationJobPayload = { tenantId?: string }
 
 export type MediaIngestionJobPayload = {
@@ -114,6 +129,15 @@ export type EvaluationRunJobPayload = {
   venueId: string
   runId: string
   runIdentityHash: string
+}
+
+/** Carries only exact durable identity. The worker reloads answer and evidence from Postgres. */
+export type GuestAnswerAttributionEvaluationJobPayload = {
+  tenantId: string
+  venueId: string
+  requestId: string
+  answerHash: string
+  evidenceSetHash: string
 }
 
 /** Carries only durable identity. Prompts, scopes, and model policy are always

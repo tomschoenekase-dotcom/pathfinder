@@ -4,12 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ venueSlug: 'museum' }),
-  useSearchParams: () => new URLSearchParams('prompt=Tell+me+about+the+Tide+Clock.'),
+  useSearchParams: () => new URLSearchParams('source=qr&prompt=Tell+me+about+the+Tide+Clock.'),
 }))
 
 vi.mock('../../../components/VenueChatExperience', () => ({
-  VenueChatExperience: ({ venueSlug, presentation, initialDraft }: Record<string, string>) => (
-    <div>{`${presentation}:${venueSlug}:${initialDraft}`}</div>
+  VenueChatExperience: ({
+    venueSlug,
+    presentation,
+    initialDraft,
+    entrySource,
+  }: Record<string, string>) => (
+    <div>{`${presentation}:${venueSlug}:${entrySource}:${initialDraft}`}</div>
   ),
 }))
 
@@ -24,6 +29,6 @@ describe('standalone venue chat route', () => {
   it('renders the shared experience in standalone presentation', () => {
     render(<VenueChatPage />)
 
-    expect(screen.getByText('standalone:museum:Tell me about the Tide Clock.')).toBeTruthy()
+    expect(screen.getByText('standalone:museum:qr:Tell me about the Tide Clock.')).toBeTruthy()
   })
 })

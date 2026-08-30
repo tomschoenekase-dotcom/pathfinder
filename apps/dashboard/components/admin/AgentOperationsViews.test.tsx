@@ -3,7 +3,7 @@ import React from 'react'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AgentOperationsOverview, formatE8Usd } from './AgentOperationsOverview'
+import { AgentOperationsOverview, formatAgentRunCost, formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunOperationsView } from './AgentRunOperationsView'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 vi.mock('next/link', () => ({
@@ -25,6 +25,9 @@ describe('agent operations views', () => {
     expect(formatE8Usd(0n)).toBe('$0.00')
     expect(formatE8Usd(123_450_000n)).toBe('$1.2345')
     expect(formatE8Usd(10_000_000_000_000_001n)).toBe('$100000000.00000001')
+    expect(formatAgentRunCost(0n, 'UNREPORTED')).toBe('Not reported')
+    expect(formatAgentRunCost(25_000_000n, 'ESTIMATED')).toBe('$0.25 estimated')
+    expect(formatAgentRunCost(25_000_000n, 'EXACT')).toBe('$0.25')
   })
 
   it('keeps access and autonomy separate and offers staged configuration without execution controls', () => {
@@ -41,7 +44,7 @@ describe('agent operations views', () => {
               description: null,
               agentType: 'SUPPORT',
               accessScope: 'VENUE',
-              accessCapabilities: ['READ_CONTENT'],
+              accessCapabilities: ['updates:draft'],
               autonomyLevel: 'DRAFT',
               autonomousActions: [],
               defaultProvider: null,
@@ -60,10 +63,16 @@ describe('agent operations views', () => {
     )
     expect(screen.getByText('Access scope')).toBeTruthy()
     expect(screen.getByText('Autonomy')).toBeTruthy()
-    expect(screen.getByText('READ_CONTENT')).toBeTruthy()
+    expect(screen.getAllByText(/updates:draft/).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
     expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add action policy' })).toBeTruthy()
+    expect(
+      screen.getByText(
+        /cannot apply or publish content, contact a customer, or widen venue access/,
+      ),
+    ).toBeTruthy()
   })
 
   it('shows a provider as connected only while its exact bridge session is online and unexpired', () => {
@@ -107,6 +116,7 @@ describe('agent operations views', () => {
           modelProvider: 'provider',
           modelName: 'model',
           costE8Usd: 25_000_000n,
+          costStatus: 'EXACT',
           errorCode: null,
           errorMessage: null,
           initiatedByType: 'HUMAN',
@@ -165,17 +175,48 @@ describe('agent operations views', () => {
               expiresAt: null,
               createdAt: new Date('2026-08-11T12:01:00Z'),
               decision: null,
+              customerAccessRequest: {
+                id: 'access_1',
+                targetEmail: 'new.member@example.com',
+                requestedRole: 'MEMBER',
+                status: 'AWAITING_APPROVAL',
+                supportRequestId: 'support_1',
+                sourceSupportMessageId: 'message_1',
+                providerInvitationId: null,
+                updatedAt: new Date('2026-08-11T12:01:00Z'),
+              },
             },
           ],
           nextCursor: null,
         }}
+        trace={{
+          items: [
+            {
+              id: 'trace_event_1',
+              kind: 'EVENT',
+              actorType: 'SYSTEM',
+              actorId: 'scheduler',
+              eventType: 'RUN_COMPLETED',
+              message: 'Unified evidence recorded.',
+              agentActionId: null,
+              createdAt: new Date('2026-08-11T12:02:00Z'),
+            },
+          ],
+          nextCursor: null,
+          bounded: true,
+          excludes: ['RAW_ACTION_OUTPUT'],
+        }}
       />,
     )
     expect(screen.getByText('Lifecycle')).toBeTruthy()
+    expect(screen.getByText('Unified run trace')).toBeTruthy()
+    expect(screen.getByText('Unified evidence recorded.')).toBeTruthy()
     expect(within(screen.getByLabelText('Run summary')).getByText('$0.25')).toBeTruthy()
     expect(screen.getByText('Prepared a bounded draft.')).toBeTruthy()
     expect(screen.getByText('Approval requested.')).toBeTruthy()
     expect(screen.getByText('PENDING')).toBeTruthy()
+    expect(screen.getByText('new.member@example.com')).toBeTruthy()
+    expect(screen.getByText('No invitation sent')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Request cancellation' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent|retry|approve/i })).toBeNull()
   })

@@ -42,8 +42,8 @@ export default async function BillingFixturePage({ searchParams }: Props) {
     nextBillingLabel: 'September 20, 2026',
     paidThroughLabel: 'August 27, 2026',
     coveredVenues: [
-      { id: 'venue-1', name: 'Museum of Tiny Fixtures' },
-      { id: 'venue-2', name: 'Fixture Sculpture Garden' },
+      { id: 'venue-1', name: 'Museum of Tiny Fixtures', amountLabel: '$30.00' },
+      { id: 'venue-2', name: 'Fixture Sculpture Garden', amountLabel: '$20.00' },
     ],
     invoices: [
       {
@@ -89,8 +89,18 @@ export default async function BillingFixturePage({ searchParams }: Props) {
     renewalOrCancellationLabel: state === 'canceled' ? 'Ends Sep 20, 2026' : 'Renews Sep 20, 2026',
     minimumCommitmentLabel: 'Through Nov 20, 2026',
     coveredVenues: [
-      { id: 'venue-1', name: 'Museum of Tiny Fixtures', coverageLabel: 'Base arrangement' },
-      { id: 'venue-2', name: 'Fixture Sculpture Garden', coverageLabel: 'Base arrangement' },
+      {
+        id: 'venue-1',
+        name: 'Museum of Tiny Fixtures',
+        coverageLabel: 'Verified component',
+        amountLabel: '$30.00',
+      },
+      {
+        id: 'venue-2',
+        name: 'Fixture Sculpture Garden',
+        coverageLabel: 'Verified component',
+        amountLabel: '$20.00',
+      },
     ],
     provider: {
       customerId: 'cus_TEST_FIXTURE',

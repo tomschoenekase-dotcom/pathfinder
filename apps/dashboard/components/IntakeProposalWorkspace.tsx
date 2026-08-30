@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { StaffInterviewSubmission } from '@pathfinder/contracts/staff-interview'
 import { normalizeTorchikoBrandText } from '@pathfinder/ui'
@@ -9,6 +9,7 @@ import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { IntakeProposalReview } from './IntakeProposalReview'
+import { IntakeBuilderLifecyclePanel } from './admin/IntakeBuilderLifecyclePanel'
 import { StaffInterviewCapture } from './StaffInterviewCapture'
 
 export type IntakeProposalSummary = {
@@ -47,15 +48,21 @@ function WebsiteProposalCapture({
   disabled,
   clientFacing,
   onSubmit,
+  onDirtyChange,
 }: {
   disabled: boolean
   clientFacing: boolean
   onSubmit: (input: { displayName: string; websiteUri: string; requestId: string }) => Promise<void>
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [displayName, setDisplayName] = useState('')
   const [websiteUri, setWebsiteUri] = useState('')
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
+  const dirty = Boolean(displayName || websiteUri)
+
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+
   return (
     <form
       className="space-y-4"
@@ -68,6 +75,7 @@ function WebsiteProposalCapture({
             setDisplayName('')
             setWebsiteUri('')
             setRequestId(browserUuid())
+            onDirtyChange?.(false)
           })
           .catch(() => undefined)
           .finally(() => {
@@ -133,14 +141,20 @@ function OptionalNotesCapture({
   disabled,
   clientFacing,
   onSubmit,
+  onDirtyChange,
 }: {
   disabled: boolean
   clientFacing: boolean
   onSubmit: (input: { notes: string; requestId: string }) => Promise<void>
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [notes, setNotes] = useState('')
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
+  const dirty = Boolean(notes)
+
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+
   return (
     <form
       className="space-y-4"
@@ -152,6 +166,7 @@ function OptionalNotesCapture({
           .then(() => {
             setNotes('')
             setRequestId(browserUuid())
+            onDirtyChange?.(false)
           })
           .catch(() => undefined)
           .finally(() => {
@@ -208,7 +223,41 @@ export function IntakeProposalWorkspace({
   const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW' | 'NOTES'>('WEBSITE')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [dirtySources, setDirtySources] = useState({
+    WEBSITE: false,
+    INTERVIEW: false,
+    NOTES: false,
+  })
   const creatingRef = useRef(false)
+  const hasUnfinishedDraft = Object.values(dirtySources).some(Boolean)
+
+  const setDraftDirty = useCallback((draftSource: keyof typeof dirtySources, dirty: boolean) => {
+    setDirtySources((current) =>
+      current[draftSource] === dirty ? current : { ...current, [draftSource]: dirty },
+    )
+  }, [])
+  const setWebsiteDirty = useCallback(
+    (dirty: boolean) => setDraftDirty('WEBSITE', dirty),
+    [setDraftDirty],
+  )
+  const setInterviewDirty = useCallback(
+    (dirty: boolean) => setDraftDirty('INTERVIEW', dirty),
+    [setDraftDirty],
+  )
+  const setNotesDirty = useCallback(
+    (dirty: boolean) => setDraftDirty('NOTES', dirty),
+    [setDraftDirty],
+  )
+
+  useEffect(() => {
+    if (!hasUnfinishedDraft) return
+    function warnBeforeLeaving(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeLeaving)
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
+  }, [hasUnfinishedDraft])
 
   async function create(
     proposal:
@@ -307,26 +356,35 @@ export function IntakeProposalWorkspace({
             </label>
           </div>
         </fieldset>
+        <p className="mt-3 text-sm text-pf-deep/70" role="note">
+          Unfinished entries stay on this page while you switch options. They are not saved until
+          you share them, and your browser will warn before leaving this page.
+        </p>
         <div className="mt-4">
-          {source === 'WEBSITE' ? (
+          <div hidden={source !== 'WEBSITE'}>
             <WebsiteProposalCapture
               disabled={busy}
               clientFacing={clientFacing}
+              onDirtyChange={setWebsiteDirty}
               onSubmit={(input) => create({ kind: 'WEBSITE', ...input })}
             />
-          ) : source === 'INTERVIEW' ? (
+          </div>
+          <div hidden={source !== 'INTERVIEW'}>
             <StaffInterviewCapture
               disabled={busy}
               clientFacing={clientFacing}
+              onDirtyChange={setInterviewDirty}
               onSubmit={(input) => create({ kind: 'INTERVIEW', ...input })}
             />
-          ) : (
+          </div>
+          <div hidden={source !== 'NOTES'}>
             <OptionalNotesCapture
               disabled={busy}
               clientFacing={clientFacing}
+              onDirtyChange={setNotesDirty}
               onSubmit={(input) => create({ kind: 'NOTES', ...input })}
             />
-          )}
+          </div>
         </div>
         <p aria-live="polite" aria-atomic="true" className="mt-3 text-sm text-pf-deep/75">
           {message}
@@ -369,6 +427,13 @@ export function IntakeProposalWorkspace({
                     </>
                   )}
                 </p>
+                {adminTenantId ? (
+                  <IntakeBuilderLifecyclePanel
+                    tenantId={adminTenantId}
+                    venueId={venueId}
+                    runId={proposal.id}
+                  />
+                ) : null}
                 {proposal.sourceKind === 'INTERVIEW' ? (
                   <IntakeProposalReview
                     venueId={venueId}

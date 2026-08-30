@@ -2,6 +2,7 @@
 
 import { useId } from 'react'
 import { AlertTriangle, CalendarDays, CheckCircle2, ExternalLink, Info, MapPin } from 'lucide-react'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import {
   legacyGuestResponseToBlocks,
   type GuestResponseBlock,
@@ -20,6 +21,7 @@ type ResponseRendererProps = {
   onDirectionsClick?: (placeId: string) => void
   onChoiceSelect?: (value: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
+  language?: SupportedChatLanguage
 }
 
 function safeHttpsHref(href: string): string | null {
@@ -64,9 +66,10 @@ function PlaceGrid({
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
+  language,
 }: Pick<
   ResponseRendererProps,
-  'places' | 'onPlaceCardClick' | 'onPlaceCardView' | 'onDirectionsClick'
+  'places' | 'onPlaceCardClick' | 'onPlaceCardView' | 'onDirectionsClick' | 'language'
 >) {
   if (!places?.length) return null
 
@@ -85,6 +88,7 @@ function PlaceGrid({
           distanceMeters={place.distanceMeters}
           lat={place.lat}
           lng={place.lng}
+          {...(language ? { language } : {})}
           {...(onPlaceCardClick ? { onCardClick: onPlaceCardClick } : {})}
           {...(onPlaceCardView ? { onView: onPlaceCardView } : {})}
           {...(onDirectionsClick ? { onDirectionsClick } : {})}
@@ -103,11 +107,16 @@ export function ResponseRenderer({
   onDirectionsClick,
   onChoiceSelect,
   onVisitorAction,
+  language = 'English',
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
   const sectionHeadingId = useId()
+  const supplementalCitationsOnly =
+    blocks?.length && blocks.every((block) => block.type === 'citations')
   const renderedBlocks: GuestResponseBlock[] = blocks?.length
-    ? blocks
+    ? supplementalCitationsOnly
+      ? [...legacyGuestResponseToBlocks({ content, ...(places ? { places } : {}) }), ...blocks]
+      : blocks
     : legacyGuestResponseToBlocks({ content, ...(places ? { places } : {}) })
 
   return (
@@ -277,6 +286,7 @@ export function ResponseRenderer({
               <PlaceGrid
                 key={index}
                 places={block.places}
+                language={language}
                 {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
                 {...(onPlaceCardView ? { onPlaceCardView } : {})}
                 {...(onDirectionsClick ? { onDirectionsClick } : {})}

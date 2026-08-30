@@ -19,37 +19,47 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
   const query = await searchParams
   const caller = await createAdminCaller()
   try {
-    const [identities, runs, approvals, questions, bridgeSessions, questionRecipients] =
-      await Promise.all([
-        caller.admin.listAgentIdentities({
-          tenantId,
-          venueId,
-          limit: 20,
-          ...(cursor(query, 'identityCursor') ? { cursor: cursor(query, 'identityCursor') } : {}),
-        }),
-        caller.admin.listAgentRuns({
-          tenantId,
-          venueId,
-          limit: 20,
-          ...(cursor(query, 'runCursor') ? { cursor: cursor(query, 'runCursor') } : {}),
-        }),
-        caller.admin.listApprovalRequests({
-          tenantId,
-          venueId,
-          state: 'ALL',
-          limit: 20,
-          ...(cursor(query, 'approvalCursor') ? { cursor: cursor(query, 'approvalCursor') } : {}),
-        }),
-        caller.admin.listAgentQuestions({
-          tenantId,
-          venueId,
-          status: 'PENDING',
-          limit: 20,
-          ...(cursor(query, 'questionCursor') ? { cursor: cursor(query, 'questionCursor') } : {}),
-        }),
-        caller.admin.listAgentBridgeSessions({ tenantId, venueId }),
-        caller.admin.listOnboardingQuestionRecipients({ tenantId, venueId }),
-      ])
+    const [
+      identities,
+      runs,
+      approvals,
+      questions,
+      approvalPolicies,
+      outcomeObservations,
+      bridgeSessions,
+      questionRecipients,
+    ] = await Promise.all([
+      caller.admin.listAgentIdentities({
+        tenantId,
+        venueId,
+        limit: 20,
+        ...(cursor(query, 'identityCursor') ? { cursor: cursor(query, 'identityCursor') } : {}),
+      }),
+      caller.admin.listAgentRuns({
+        tenantId,
+        venueId,
+        limit: 20,
+        ...(cursor(query, 'runCursor') ? { cursor: cursor(query, 'runCursor') } : {}),
+      }),
+      caller.admin.listApprovalRequests({
+        tenantId,
+        venueId,
+        state: 'ALL',
+        limit: 20,
+        ...(cursor(query, 'approvalCursor') ? { cursor: cursor(query, 'approvalCursor') } : {}),
+      }),
+      caller.admin.listAgentQuestions({
+        tenantId,
+        venueId,
+        status: 'PENDING',
+        limit: 20,
+        ...(cursor(query, 'questionCursor') ? { cursor: cursor(query, 'questionCursor') } : {}),
+      }),
+      caller.admin.listAgentApprovalPolicies({ tenantId, venueId, limit: 100 }),
+      caller.admin.listAgentOutcomeObservations({ tenantId, venueId, limit: 100 }),
+      caller.admin.listAgentBridgeSessions({ tenantId, venueId }),
+      caller.admin.listOnboardingQuestionRecipients({ tenantId, venueId }),
+    ])
     return (
       <AgentOperationsOverview
         tenantId={tenantId}
@@ -58,6 +68,8 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
         runs={runs}
         approvals={approvals}
         questions={questions}
+        approvalPolicies={approvalPolicies}
+        outcomeObservations={outcomeObservations.items}
         questionRecipients={questionRecipients}
         runtime={{ agentRunnerEnabled: env.AGENT_RUNNER_ENABLED }}
         bridgeSessions={bridgeSessions}

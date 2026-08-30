@@ -1,4 +1,10 @@
-import { AI_MODEL_KEYS, AiGatewayError, generateText } from '@pathfinder/ai'
+import {
+  AiGatewayError,
+  AiRequestBudgetCeilingExceededError,
+  AiRoutingError,
+  generateTextForCapability,
+  routeAiCapability,
+} from '@pathfinder/ai'
 import {
   AgentRunExecutionError,
   assertVenueAiAvailable,
@@ -7,6 +13,8 @@ import {
   db,
   failAgentRunExecution,
   heartbeatAgentRunExecution,
+  readActiveUnhealthyAiProviders,
+  resolveRuntimeAiWorkloadConfiguration,
 } from '@pathfinder/db'
 import type { AgentRunJobPayload } from '@pathfinder/jobs'
 
@@ -73,12 +81,29 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       error.name = 'AgentProviderConfigurationError'
       throw error
     }
-    const result = await generateText({
-      modelKey: AI_MODEL_KEYS.AGENT_RUN,
+    const [configuration, unhealthyProviders] = await Promise.all([
+      resolveRuntimeAiWorkloadConfiguration(
+        { workloadId: 'agent-run', tenantId: run.tenantId, venueId: run.venueId },
+        db,
+      ),
+      readActiveUnhealthyAiProviders(db),
+    ])
+    const route = routeAiCapability({
+      capability: 'REASONING',
+      workloadId: 'agent-run',
+      configuration,
+      unhealthyProviders,
+    })
+    const result = await generateTextForCapability({
+      route,
       system: [{ type: 'text', text: systemPrompt(run) }],
       messages: [{ role: 'user', content: run.requestPrompt ?? run.requestedOperation }],
-      maxOutputTokens: 1_800,
-      maxAttempts: 1,
+      ...(configuration.maxOutputTokens === null
+        ? {}
+        : { maxOutputTokens: configuration.maxOutputTokens }),
+      timeoutMs: configuration.timeoutMs,
+      maxAttempts: configuration.maxAttempts,
+      requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
       signal: controller.signal,
       admissionGuard: () =>
         assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId! }),
@@ -99,29 +124,46 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       runId: run.id,
       leaseToken: run.leaseToken,
       summary: result.text.slice(0, 5_000),
-      artifacts: [{ type: 'markdown', title: 'Agent result', content: result.text }],
+      artifacts: [
+        { type: 'markdown', title: 'Agent result', content: result.text },
+        {
+          type: 'ai-route',
+          title: 'Governed AI route',
+          capability: result.route.capability,
+          workloadId: result.route.workloadId,
+          configurationVersion: route.configurationVersion,
+          modelKey: result.route.modelKey,
+          fallbackUsed: result.route.fallbackUsed,
+        },
+      ],
       modelProvider: result.provider,
       modelName: result.model,
       costE8Usd,
+      costStatus: 'ESTIMATED',
     })
   } catch (error) {
     const configurationError =
       error instanceof Error && error.name === 'AgentProviderConfigurationError'
+    const budgetPolicyError = error instanceof AiRequestBudgetCeilingExceededError
     const cancellation = controller.signal.aborted
     const errorCode = cancellation
       ? 'CANCELLED_OR_LEASE_LOST'
       : configurationError
         ? 'PROVIDER_CONFIGURATION_REQUIRED'
-        : error instanceof AiGatewayError
+        : budgetPolicyError
           ? error.code
-          : 'AGENT_EXECUTION_FAILED'
+          : error instanceof AiRoutingError
+            ? error.code
+            : error instanceof AiGatewayError
+              ? error.code
+              : 'AGENT_EXECUTION_FAILED'
     const failureState = await failAgentRunExecution({
       tenantId: run.tenantId,
       runId: run.id,
       leaseToken: run.leaseToken,
       errorCode,
       errorMessage: error instanceof Error ? error.message : 'Unknown agent execution failure',
-      retryable: !configurationError && !cancellation,
+      retryable: !configurationError && !budgetPolicyError && !cancellation,
     }).catch((failure) => {
       if (failure instanceof AgentRunExecutionError && failure.code === 'LEASE_LOST') return null
       throw failure

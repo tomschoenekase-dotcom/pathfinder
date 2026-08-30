@@ -13,6 +13,13 @@ const reexportPath = 'packages/db/src/index.ts'
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
   ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
+  // Platform recovery scans only bounded authoritative upload identities; each
+  // job then re-enters one exact tenant+venue+upload scope before mutation.
+  ['apps/workers/src/processors/intake-upload-verification.ts', 1],
+  // Durable derivative jobs carry one exact tenant+venue+derivative identity. The
+  // worker re-enters that scope for lookup, fail-closed terminalization, and the
+  // transactional READY transition; no bypass broadens discovery or delivery.
+  ['apps/workers/src/processors/venue-media-derivative.ts', 3],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],
@@ -26,6 +33,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/weekly-digest.ts', 3],
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['apps/workers/src/processors/evaluation-dispatch.ts', 2],
+  // Default-off evaluator re-enters exact tenant+venue scope for policy, lease, dispatch,
+  // completion, and bounded recovery. No bypass broadens result or release authority.
+  ['apps/workers/src/processors/guest-answer-attribution-evaluation.ts', 8],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
   ['apps/workers/src/processors/gmail-sync.ts', 4],
@@ -37,24 +47,71 @@ const approvedCallCounts = new Map([
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
   ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
-  ['packages/api/src/routers/admin/attention-console.ts', 3],
+  // Platform-admin-only attribution recording, listing, and calibration retain exact tenant,
+  // venue, and (for raw records) turn scope. Calibration returns derived reviewer-free evidence.
+  ['packages/api/src/routers/admin/guest-answer-attributions.ts', 7],
+  ['packages/api/src/routers/admin/attention-console.ts', 1],
+  // Platform-admin unit economics aggregates cross-tenant AI usage plus append-only
+  // cost and measured-quantity evidence; the write binds the authenticated human actor
+  // and cannot alter invoices, customer pricing, anomaly policy, or service state.
+  ['packages/api/src/routers/admin/unit-economics.ts', 2],
+  // Platform-admin-only exact incident correlation reads one event, its latest scoped guest turn,
+  // and explicitly referenced sanitized usage rows; successful access is strictly audited.
+  ['packages/api/src/routers/admin/guest-chat-incident-evidence.ts', 3],
+  ['packages/api/src/routers/admin/attention-event-actions.ts', 2],
   // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],
+  // Platform-wide founder-absence observations retain one immutable UTC-day snapshot. Reads are
+  // bounded by an explicit limit/date window; writes are append-only and cannot certify launch.
+  ['packages/api/src/founder-absence-observation.ts', 4],
+  // Separately authenticated platform worker reads the same bounded readiness projection.
+  ['packages/api/src/platform-worker-policy/operations-readiness-http.ts', 1],
+  // Separately credentialed platform workers read/propose/materialize one exact founder
+  // directive task; every tenanted query retains explicit tenant+venue predicates.
+  ['packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts', 3],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
+  // Human-admin-only execution re-enters one exact tenant+venue approved invitation,
+  // fences provider I/O, and never writes membership directly.
+  ['packages/api/src/routers/admin/customer-access-execution.ts', 1],
+  // Platform-admin run trace merges bounded summaries for one exact tenant+venue+run.
+  ['packages/api/src/routers/admin/agent-run-trace.ts', 1],
   ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],
+  // Platform-admin reads policy-backed draft authority only within one exact tenant+venue scope.
+  ['packages/api/src/routers/admin/agent-approval-policy-reads.ts', 1],
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
-  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
+  // Identity configuration includes human-only policy issuance/revocation for one exact venue.
+  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 9],
+  // Human-only issuance of one-use support-opening and exact-triage authority is exact-tenant and
+  // exact-venue scoped; approval and grant issuance remain atomic and do not execute the action.
+  ['packages/api/src/routers/admin/support-open-policy.ts', 4],
+  ['packages/api/src/routers/admin/support-completion-approval.ts', 1],
+  // Founder decision records and derives one exact DRAFT-only package grant atomically;
+  // the route cannot itself create, approve, apply, publish, or deliver a package.
+  ['packages/api/src/routers/admin/support-package-draft-approval.ts', 2],
+  // Founder decision records and derives one exact current-content package application grant;
+  // the route never executes the mutation, completes support, contacts customers, or reverts.
+  ['packages/api/src/routers/admin/support-package-application-approval.ts', 1],
+  // Founder decision records and derives one exact APPLIED-package reversion grant;
+  // the route never executes the reversion, changes support state, or contacts customers.
+  ['packages/api/src/routers/admin/support-package-reversion-approval.ts', 1],
+  ['packages/api/src/routers/admin/support-package-handoff-supersession-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
-  ['packages/api/src/routers/admin/agent-questions.ts', 5],
-  ['packages/api/src/routers/admin/agent-outcomes.ts', 2],
+  ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
+  ['packages/api/src/routers/admin/agent-questions.ts', 4],
+  // The reviewed improvement loop appends exact-scope outcome and validation evidence;
+  // neither route can promote behavior or change worker authority.
+  ['packages/api/src/routers/admin/agent-outcomes.ts', 5],
+  ['packages/api/src/routers/admin/agent-trust-signals.ts', 1],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
   ['packages/api/src/routers/admin/client-analytics.ts', 2],
   // Platform-admin client lifecycle includes an exact-tenant payment-due mutation.
   ['packages/api/src/routers/admin/client-management.ts', 8],
+  // A retry-fenced platform-admin client creation binds exact prospect/customer continuity.
+  ['packages/api/src/routers/admin/client-prospect-conversion.ts', 1],
   ['packages/api/src/routers/admin/client-search.ts', 1],
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
@@ -63,7 +120,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
   // Platform-admin Company Brain browse/create operations are bounded, audited,
   // and use canonical knowledge actions rather than direct agent-side writes.
-  ['packages/api/src/routers/admin/company-brain.ts', 4],
+  ['packages/api/src/routers/admin/company-brain.ts', 6],
   // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
   // the mutation records the platform-admin actor and before/after state in the same transaction.
   ['packages/api/src/routers/admin/billing-rollout.ts', 2],
@@ -71,16 +128,28 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
   ['packages/api/src/routers/admin/deployment-manifest-review.ts', 3],
-  // Platform-admin-only exact tenant+venue native projection and lifecycle adapters.
-  ['packages/api/src/routers/admin/native-venue-deployments.ts', 7],
-  // Native advisory evidence resolves an exact scoped run and pages an exact scoped release.
-  ['packages/api/src/routers/admin/native-deployment-evaluations.ts', 2],
+  // Platform-admin-only exact tenant+venue native projection, convergence read, and lifecycle adapters.
+  ['packages/api/src/routers/admin/native-venue-deployments.ts', 9],
+  // Native advisory evidence plus read-only shadow run discovery/comparison re-enter one exact
+  // tenant+venue+release scope; none of these bypasses changes release or guest read-path state.
+  ['packages/api/src/routers/admin/native-deployment-evaluations.ts', 4],
   // Native advisory requests freeze one exact tenant+venue release and case set transactionally.
   ['packages/api/src/routers/admin/native-deployment-evaluation-request.ts', 1],
-  // Review append uses one exact tenant-scoped bypass for durable conclusion evidence.
-  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
+  // Evaluation run creation freezes one exact tenant+venue target and case set transactionally.
+  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 1],
+  // Evaluation runtime control changes one exact tenant gate and shared durable intent atomically.
+  ['packages/api/src/routers/admin/evaluation-runtime-gates.ts', 1],
+  // Onboarding suite preparation revalidates one exact DRAFT/APPROVED package and writes only
+  // immutable tenant+venue evaluation cases; it does not approve, apply, publish, or dispatch.
+  ['packages/api/src/routers/admin/evaluation-onboarding-actions.ts', 1],
+  // Platform-admin-only source reads and preparation revalidate one exact public insight,
+  // tenant, venue, and turn before persisting sanitized immutable evaluation evidence.
+  ['packages/api/src/routers/admin/evaluation-conversation-cases.ts', 2],
   // Evaluation comparison uses one additional exact tenant-scoped read.
   ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
+  // Platform-admin source-coverage preflight freezes exact scoped public venue content
+  // and verifies exact scoped immutable cases; it returns marker evidence only.
+  ['packages/api/src/routers/admin/evaluation-source-coverage.ts', 1],
   // Platform-admin onboarding evidence is bounded to the requested tenant+venue and time range.
   ['packages/api/src/routers/admin/evaluation-onboarding-reads.ts', 2],
   // Platform-admin review appends one exact tenant+venue evaluation conclusion.
@@ -89,8 +158,17 @@ const approvedCallCounts = new Map([
   // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
   ['packages/api/src/routers/admin/guest-design.ts', 2],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
-  // Platform-admin proposal review is always constrained to the requested tenant and venue.
-  ['packages/api/src/routers/admin/knowledge-proposals.ts', 3],
+  // Platform-admin location authoring reads and mutates only one exact tenant+venue workspace;
+  // draft edits and availability transitions are CAS-bound, strictly audited, and content-locked.
+  ['packages/api/src/routers/admin/location-authoring.ts', 3],
+  ['packages/api/src/routers/admin/location-availability.ts', 1],
+  ['packages/api/src/routers/admin/location-connection-authoring.ts', 3],
+  ['packages/api/src/routers/admin/location-floor-authoring.ts', 3],
+  ['packages/api/src/routers/admin/location-proposal-application.ts', 1],
+  // Platform-admin proposal review and exact support-source handoff are always constrained to the
+  // requested tenant and venue; the support action revalidates the frozen request version/messages.
+  ['packages/api/src/routers/admin/knowledge-proposal-review.ts', 3],
+  ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],
   // Human platform-admin-only prospect CRM reads/writes. Platform-owned prospect
@@ -99,15 +177,21 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
-  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 5],
+  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 7],
   ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
   ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 9],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 16],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
+  // Public-interest records are platform-owned ingress evidence rather than tenant data.
+  // The human-only inbox performs one bounded list and one append-only review transaction;
+  // neither path creates CRM truth, sends communication, sets pricing, or creates an account.
+  // Provider-dark intake has bounded list/review plus an explicit human-admin-only
+  // conversion through the canonical CRM action. None sends, prices, or creates customer state.
+  ['packages/api/src/routers/admin/public-interest.ts', 3],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
@@ -116,6 +200,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
   ['packages/api/src/routers/admin/weekly-report-lifecycle.ts', 1],
+  // Exact tenant+venue+report read for a capability-checked machine credential. Raw report
+  // content, provider errors, source artifacts, and actor identity remain excluded upstream.
+  ['packages/api/src/lib/weekly-report-lifecycle.ts', 1],
   ['packages/db/src/helpers/evaluation-run-lifecycle.ts', 7],
   ['packages/api/src/routers/admin/media-ingestion-begin-upload.ts', 6],
   ['packages/api/src/routers/admin/media-ingestion-abort.ts', 1],
@@ -129,15 +216,30 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/report-configuration.ts', 2],
   // Platform-admin-only bounded lineage read rechecks exact tenant, venue, and Support request.
   ['packages/api/src/routers/admin/support-agent-run-lineage.ts', 1],
-  ['packages/api/src/routers/admin/weekly-reports.ts', 5],
+  ['packages/api/src/routers/admin/weekly-reports.ts', 4],
+  ['packages/api/src/lib/weekly-report-generation.ts', 1],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
   ['packages/api/src/routers/admin/second-layer.ts', 2],
   // Founder-only rollout reads and changes exact-tenant, allowlisted Tochi flags.
   ['packages/api/src/routers/admin/tochi-rollout.ts', 2],
-  ['packages/db/src/helpers/job-records.ts', 4],
+  // Job evidence helpers use bounded platform reads for queue/id CLI recovery and the audited
+  // admin staging preview; writers and lifecycle updates retain their existing bypasses.
+  ['packages/db/src/helpers/job-records.ts', 5],
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Platform maintenance atomically selects a bounded set of abandoned voice
+  // sessions and terminalizes only their exact identities. Returned rows contain
+  // lifecycle metadata for analytics; no transcript or customer content is read.
+  ['packages/db/src/helpers/voice-session-recovery.ts', 1],
+  // Platform maintenance performs one bounded, read-only Gmail retention inventory across
+  // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
+  // never returns body content or mutates retention state.
+  ['packages/db/src/helpers/email-body-retention.ts', 1],
+  // System-only daily measurement reads bounded database-declared intake/media byte
+  // metadata across tenants. It returns aggregate exact scopes, never object contents,
+  // assigns no dollar value, and performs no customer, billing, or service mutation.
+  ['packages/db/src/helpers/declared-operational-usage.ts', 1],
   // Signature-verified Stripe ingress resolves an unknown provider object to one
   // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
   ['packages/billing/src/service.ts', 4],

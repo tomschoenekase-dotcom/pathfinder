@@ -1,9 +1,20 @@
 import type { PrismaClient } from '@prisma/client'
 
+import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
+import { buildPaymentRecoveryContext } from '@pathfinder/billing'
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
+import {
+  OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+  WORKER_HEARTBEAT_KEY,
+  assessNativeGuestReadActivationAction,
+  measureNativeContentConvergenceAction,
+  previewRetentionDispositionAction,
+  projectWorkerHeartbeat,
+} from '@pathfinder/db'
 
 import type { PathfinderMcpDomainActions, VerifiedMcpInvocationContext } from './registry'
+import { loadCustomerStatePreservation } from '../lib/customer-state-preservation'
 
 const CURSOR_VERSION = 1 as const
 const MAX_PAGE_SIZE = 100
@@ -29,20 +40,34 @@ type ReadDb = Pick<
   | 'supportRequest'
   | 'operationalUpdate'
   | 'aiUsageDailyRollup'
+  | 'aiCostBudget'
   | 'jobRecord'
+  | 'platformConfig'
   | 'evalRun'
   | 'weeklyReport'
   | 'visitorSession'
   | 'externalAccessCredential'
   | 'agentRun'
+  | 'agentAction'
+  | 'agentTimelineEvent'
+  | 'approvalRequest'
   | 'operationalEvent'
   | 'nativeVenueDeploymentRelease'
+  | 'nativeVenueDeploymentHead'
+  | 'nativeVenueDeploymentEvaluationEvidence'
   | 'tenantFeatureFlag'
   | 'venueReportConfiguration'
   | 'agentQuestion'
   | 'agentOutcomeObservation'
+  | 'agentImprovementProposal'
   | 'onboardingMilestoneEvent'
+  | 'offboardingPlan'
 >
+type McpReadServices = {
+  assessNativeGuestReadActivation?: typeof assessNativeGuestReadActivationAction
+  measureNativeContentConvergence?: typeof measureNativeContentConvergenceAction
+  previewRetentionDisposition?: typeof previewRetentionDispositionAction
+}
 
 type CursorPayload = Readonly<{
   v: typeof CURSOR_VERSION
@@ -115,6 +140,7 @@ export async function readMcpResource(
   db: ReadDb,
   input: McpReadInput,
   context: VerifiedMcpInvocationContext,
+  services: McpReadServices = {},
 ): Promise<McpToolResult> {
   assertExactScope(input, context)
   const limit = Math.min(input.limit, MAX_PAGE_SIZE)
@@ -126,7 +152,7 @@ export async function readMcpResource(
       return readClient(db, context.credential.tenantId)
     case 'billing':
       rejectCursor(cursor, input.resource)
-      return readBilling(db, context.credential.tenantId)
+      return readBilling(db, context.credential.tenantId, context.credential.venueIds)
     case 'venues':
       return readVenues(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'configuration':
@@ -156,6 +182,15 @@ export async function readMcpResource(
       return readIntegrations(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'agent-runs':
       return readAgentRuns(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'agent-run-trace':
+      return readAgentRunTrace(
+        db,
+        context.credential.tenantId,
+        input.venueId!,
+        input.agentRunId!,
+        limit,
+        cursor,
+      )
     case 'events':
       return readEvents(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'deployments':
@@ -164,14 +199,19 @@ export async function readMcpResource(
       return readFeatureFlags(db, context.credential.tenantId, limit, cursor)
     case 'onboarding-summary':
       rejectCursor(cursor, input.resource)
-      return readOnboardingSummary(db, context.credential.tenantId, input.venueId!)
+      return readOnboardingSummary(db, context.credential.tenantId, input.venueId!, services)
     case 'readiness':
       rejectCursor(cursor, input.resource)
-      return readReadiness(db, context.credential.tenantId, input.venueId!)
+      return readReadiness(db, context.credential.tenantId, input.venueId!, services)
+    case 'retention-preview':
+      rejectCursor(cursor, input.resource)
+      return readRetentionPreview(db, context.credential.tenantId, services)
     case 'questions':
       return readQuestions(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'outcomes':
       return readOutcomes(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'agent-improvements':
+      return readAgentImprovements(db, context.credential.tenantId, input.venueId!, limit, cursor)
     default:
       throw new McpReadBindingError(
         'RESOURCE_UNAVAILABLE',
@@ -188,7 +228,10 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
       'Verified tenant and client scope do not match.',
     )
   }
-  if (!['clients', 'billing', 'feature-flags'].includes(input.resource) && !input.venueId) {
+  if (
+    !['clients', 'billing', 'feature-flags', 'retention-preview'].includes(input.resource) &&
+    !input.venueId
+  ) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'This resource requires exact venue scope.')
   }
   if (input.venueId && !credential.venueIds.includes(input.venueId)) {
@@ -196,57 +239,117 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
   }
 }
 
-async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult> {
-  const account = await db.billingAccount.findFirst({
-    where: { tenantId },
-    select: {
-      billingMode: true,
-      currency: true,
-      status: true,
-      paidThroughAt: true,
-      gracePeriodEndsAt: true,
-      reconciliationHealth: true,
-      lastReconciledAt: true,
-      commercialAgreements: {
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          isBase: true,
-          internalPlanKey: true,
-          status: true,
-          billingMode: true,
-          billingInterval: true,
-          billingIntervalCount: true,
-          agreedAmountMinor: true,
-          currency: true,
-          coveredVenueCount: true,
-          currentPeriodEndsAt: true,
-          cancelAtPeriodEnd: true,
-          cancellationEffectiveAt: true,
-          accessEndsAt: true,
+async function readRetentionPreview(
+  db: ReadDb,
+  tenantId: string,
+  services: McpReadServices,
+): Promise<McpToolResult> {
+  const previewRetentionDisposition =
+    services.previewRetentionDisposition ?? previewRetentionDispositionAction
+  const preview = await previewRetentionDisposition({ tenantId }, db as never)
+  return result('retention-preview', preview)
+}
+
+async function readBilling(
+  db: ReadDb,
+  tenantId: string,
+  venueIds: readonly string[],
+): Promise<McpToolResult> {
+  const [account, customerStatePreservation] = await Promise.all([
+    db.billingAccount.findFirst({
+      where: { tenantId },
+      select: {
+        billingMode: true,
+        currency: true,
+        status: true,
+        paidThroughAt: true,
+        gracePeriodEndsAt: true,
+        reconciliationHealth: true,
+        lastReconciledAt: true,
+        tenant: {
+          select: {
+            prospectCustomerRelationships: {
+              where: { status: 'ACTIVE' },
+              orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: {
+                startedAt: true,
+                organization: {
+                  select: { id: true, canonicalName: true, relationshipTier: true },
+                },
+              },
+            },
+          },
+        },
+        commercialAgreements: {
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            isBase: true,
+            internalPlanKey: true,
+            status: true,
+            billingMode: true,
+            billingInterval: true,
+            billingIntervalCount: true,
+            agreedAmountMinor: true,
+            currency: true,
+            coveredVenueCount: true,
+            currentPeriodEndsAt: true,
+            cancelAtPeriodEnd: true,
+            cancellationEffectiveAt: true,
+            accessEndsAt: true,
+          },
+        },
+        invoiceProjections: {
+          // Use the complete durable invoice set for recovery evidence, then bound
+          // the historical invoice payload returned to the agent below.
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            amountDueMinor: true,
+            amountPaidMinor: true,
+            amountRemainingMinor: true,
+            currency: true,
+            dueAt: true,
+            paidAt: true,
+            failedAt: true,
+            nextRetryAt: true,
+            failureSummary: true,
+          },
         },
       },
-      invoiceProjections: {
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 25,
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          amountDueMinor: true,
-          amountPaidMinor: true,
-          amountRemainingMinor: true,
-          currency: true,
-          dueAt: true,
-          paidAt: true,
-          failedAt: true,
-          nextRetryAt: true,
-          failureSummary: true,
-        },
-      },
-    },
-  })
+    }),
+    loadCustomerStatePreservation(db, tenantId, venueIds),
+  ])
   if (!account) return result('billing', null)
+  const agreement =
+    account.commercialAgreements.find((candidate) => candidate.isBase) ??
+    account.commercialAgreements[0] ??
+    null
+  const relationship = account.tenant.prospectCustomerRelationships[0] ?? null
+  const paymentRecovery = buildPaymentRecoveryContext({
+    accountStatus: account.status,
+    gracePeriodEndsAt: account.gracePeriodEndsAt,
+    agreement: agreement
+      ? {
+          agreedAmountMinor: agreement.agreedAmountMinor,
+          currency: agreement.currency,
+          billingInterval: agreement.billingInterval,
+          billingIntervalCount: agreement.billingIntervalCount,
+        }
+      : null,
+    invoices: account.invoiceProjections,
+    relationship: relationship
+      ? {
+          organizationId: relationship.organization.id,
+          organizationName: relationship.organization.canonicalName,
+          relationshipTier: relationship.organization.relationshipTier,
+          relationshipStartedAt: relationship.startedAt,
+        }
+      : null,
+  })
   return result('billing', {
     billingMode: account.billingMode,
     currency: account.currency,
@@ -255,6 +358,66 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
     gracePeriodEndsAt: account.gracePeriodEndsAt?.toISOString() ?? null,
     reconciliationHealth: account.reconciliationHealth,
     lastReconciledAt: account.lastReconciledAt?.toISOString() ?? null,
+    paymentRecovery: {
+      ...paymentRecovery,
+      generatedAt: paymentRecovery.generatedAt.toISOString(),
+      timing: {
+        ...paymentRecovery.timing,
+        delinquentSince: paymentRecovery.timing.delinquentSince?.toISOString() ?? null,
+        nextRetryAt: paymentRecovery.timing.nextRetryAt?.toISOString() ?? null,
+        gracePeriodEndsAt: paymentRecovery.timing.gracePeriodEndsAt?.toISOString() ?? null,
+      },
+      accountValue: paymentRecovery.accountValue
+        ? {
+            ...paymentRecovery.accountValue,
+            amountMinor: paymentRecovery.accountValue.amountMinor?.toString() ?? null,
+          }
+        : null,
+      financialExposure: {
+        ...paymentRecovery.financialExposure,
+        receivableAtRiskByCurrency:
+          paymentRecovery.financialExposure.receivableAtRiskByCurrency.map((entry) => ({
+            ...entry,
+            amountMinor: entry.amountMinor.toString(),
+          })),
+        ongoingVariableCost: paymentRecovery.financialExposure.ongoingVariableCost
+          ? {
+              ...paymentRecovery.financialExposure.ongoingVariableCost,
+              amountMinor:
+                paymentRecovery.financialExposure.ongoingVariableCost.amountMinor.toString(),
+              asOf:
+                paymentRecovery.financialExposure.ongoingVariableCost.asOf?.toISOString() ?? null,
+            }
+          : null,
+      },
+      relationship: paymentRecovery.relationship
+        ? {
+            ...paymentRecovery.relationship,
+            relationshipStartedAt: paymentRecovery.relationship.relationshipStartedAt.toISOString(),
+          }
+        : null,
+      priorCommunication: paymentRecovery.priorCommunication
+        ? {
+            ...paymentRecovery.priorCommunication,
+            occurredAt: paymentRecovery.priorCommunication.occurredAt.toISOString(),
+          }
+        : null,
+    },
+    customerStatePreservation: customerStatePreservation
+      ? {
+          ...customerStatePreservation,
+          generatedAt: customerStatePreservation.generatedAt.toISOString(),
+          venues: customerStatePreservation.venues.map((venue) => ({
+            ...venue,
+            latestOffboardingPlan: venue.latestOffboardingPlan
+              ? {
+                  ...venue.latestOffboardingPlan,
+                  updatedAt: venue.latestOffboardingPlan.updatedAt.toISOString(),
+                }
+              : null,
+          })),
+        }
+      : null,
     agreements: account.commercialAgreements.map((agreement) => ({
       ...agreement,
       agreedAmountMinor: agreement.agreedAmountMinor?.toString() ?? null,
@@ -262,7 +425,7 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
       cancellationEffectiveAt: agreement.cancellationEffectiveAt?.toISOString() ?? null,
       accessEndsAt: agreement.accessEndsAt?.toISOString() ?? null,
     })),
-    invoices: account.invoiceProjections.map((invoice) => ({
+    invoices: account.invoiceProjections.slice(0, 25).map((invoice) => ({
       ...invoice,
       amountDueMinor: invoice.amountDueMinor.toString(),
       amountPaidMinor: invoice.amountPaidMinor.toString(),
@@ -556,35 +719,101 @@ async function readAiUsage(
   limit: number,
   cursor?: CursorPayload,
 ): Promise<McpToolResult> {
-  const rows = await db.aiUsageDailyRollup.findMany({
-    where: { tenantId, venueId, ...cursorWhere(cursor, 'date') },
-    orderBy: [{ date: 'desc' }, { id: 'desc' }],
-    take: limit + 1,
-    select: {
-      id: true,
-      date: true,
-      feature: true,
-      requestCount: true,
-      successfulRequestCount: true,
-      failedRequestCount: true,
-      inputTokens: true,
-      outputTokens: true,
-      cacheCreationInputTokens: true,
-      cacheReadInputTokens: true,
-      audioInputTokens: true,
-      audioOutputTokens: true,
-      cachedAudioInputTokens: true,
-      totalTokens: true,
-      estimatedCostUsd: true,
-    },
-  })
+  const [rows, budget] = await Promise.all([
+    db.aiUsageDailyRollup.findMany({
+      where: { tenantId, venueId, ...cursorWhere(cursor, 'date') },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true,
+        date: true,
+        feature: true,
+        requestCount: true,
+        successfulRequestCount: true,
+        failedRequestCount: true,
+        inputTokens: true,
+        outputTokens: true,
+        cacheCreationInputTokens: true,
+        cacheReadInputTokens: true,
+        audioInputTokens: true,
+        audioOutputTokens: true,
+        cachedAudioInputTokens: true,
+        totalTokens: true,
+        estimatedCostUsd: true,
+      },
+    }),
+    db.aiCostBudget.findFirst({
+      where: { tenantId, coverageVersion: 'gateway-v1' },
+      select: {
+        coverageVersion: true,
+        enabled: true,
+        startsAt: true,
+        endsAt: true,
+        limitUnits: true,
+        remainingUnits: true,
+        reservedUnits: true,
+        committedUnits: true,
+        epoch: true,
+        revision: true,
+        breachedAt: true,
+        updatedAt: true,
+      },
+    }),
+  ])
   const paged = page('ai-usage', rows, limit, (row) => row.date)
+  const now = new Date()
+  const budgetState = !budget
+    ? 'NOT_CONFIGURED'
+    : !budget.enabled
+      ? 'DISABLED'
+      : budget.breachedAt
+        ? 'BREACHED'
+        : now < budget.startsAt
+          ? 'SCHEDULED'
+          : now >= budget.endsAt
+            ? 'EXPIRED'
+            : budget.remainingUnits === 0n
+              ? 'EXHAUSTED'
+              : 'ACTIVE'
   return result('ai-usage', {
+    schemaVersion: 'pathfinder.ai-usage.v2',
+    scope: { clientId: tenantId, venueId },
+    costProtection: budget
+      ? {
+          configured: true,
+          coverageVersion: budget.coverageVersion,
+          state: budgetState,
+          enabled: budget.enabled,
+          startsAt: budget.startsAt.toISOString(),
+          endsAt: budget.endsAt.toISOString(),
+          hardLimitUsd: aiCostUnitsToDecimal(budget.limitUnits),
+          remainingUsd: aiCostUnitsToDecimal(budget.remainingUnits),
+          reservedUsd: aiCostUnitsToDecimal(budget.reservedUnits),
+          committedUsd: aiCostUnitsToDecimal(budget.committedUnits),
+          epoch: budget.epoch,
+          revision: budget.revision,
+          breachedAt: budget.breachedAt?.toISOString() ?? null,
+          updatedAt: budget.updatedAt.toISOString(),
+        }
+      : {
+          configured: false,
+          coverageVersion: 'gateway-v1',
+          state: budgetState,
+        },
+    boundaries: {
+      estimatedCostsAreInvoices: false,
+      anomalyThresholdPolicy: 'UNRESOLVED',
+      automaticBudgetMutationAuthorized: false,
+      automaticServiceSuspensionAuthorized: false,
+      customerPricingImpact: 'NONE',
+      operatorReasonIncluded: false,
+      operatorIdentityIncluded: false,
+    },
     ...paged,
     items: paged.items.map((row) => ({
       ...row,
       date: row.date.toISOString(),
-      estimatedCostUsd: row.estimatedCostUsd.toString(),
+      estimatedCostUsd: aiCostUnitsToDecimal(aiCostDecimalToUnits(row.estimatedCostUsd)),
     })),
   })
 }
@@ -596,29 +825,92 @@ async function readJobs(
   limit: number,
   cursor?: CursorPayload,
 ): Promise<McpToolResult> {
-  const rows = await db.jobRecord.findMany({
-    where: {
-      tenantId,
-      payload: { path: ['venueId'], equals: venueId },
-      ...cursorWhere(cursor, 'createdAt'),
+  const now = new Date()
+  const exactScope = {
+    tenantId,
+    venueId,
+  } as const
+  const [rows, byStatus, byFailureDisposition, longRunningCount, heartbeat] = await Promise.all([
+    db.jobRecord.findMany({
+      where: { ...exactScope, ...cursorWhere(cursor, 'createdAt') },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
+    }),
+    db.jobRecord.groupBy({
+      by: ['status'],
+      where: exactScope,
+      _count: { _all: true },
+      _min: { startedAt: true },
+      _max: { completedAt: true },
+    }),
+    db.jobRecord.groupBy({
+      by: ['failureDisposition'],
+      where: { ...exactScope, status: 'FAILED' },
+      _count: { _all: true },
+    }),
+    db.jobRecord.count({
+      where: {
+        ...exactScope,
+        status: 'RUNNING',
+        startedAt: { lt: new Date(now.getTime() - OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS) },
+      },
+    }),
+    db.platformConfig.findUnique({
+      where: { key: WORKER_HEARTBEAT_KEY },
+      select: { value: true, updatedAt: true },
+    }),
+  ])
+  const paged = mapPage(page('jobs', rows, limit, (row) => row.createdAt))
+  return result('jobs', {
+    schemaVersion: 'pathfinder.jobs.v2',
+    observedAt: now.toISOString(),
+    scope: { clientId: tenantId, venueId },
+    persisted: {
+      source: 'job-records',
+      byStatus: byStatus.map((entry) => ({
+        status: entry.status,
+        count: entry._count._all,
+        oldestStartedAt: entry._min.startedAt?.toISOString() ?? null,
+        latestCompletedAt: entry._max.completedAt?.toISOString() ?? null,
+      })),
+      failedByDisposition: byFailureDisposition.map((entry) => ({
+        disposition: entry.failureDisposition ?? 'UNCLASSIFIED',
+        count: entry._count._all,
+      })),
+      longRunning: {
+        count: longRunningCount,
+        observedAfterMs: OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+        classification: 'DIAGNOSTIC_ONLY',
+      },
     },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: limit + 1,
-    select: {
-      id: true,
-      queue: true,
-      jobName: true,
-      status: true,
-      attemptNumber: true,
-      maxAttempts: true,
-      failureDisposition: true,
-      terminalAt: true,
-      startedAt: true,
-      completedAt: true,
-      createdAt: true,
+    workerRuntime: normalizeRecord(projectWorkerHeartbeat(heartbeat, now)),
+    boundaries: {
+      persistedRecordsAreLiveQueue: false,
+      liveRedisQueueInspected: false,
+      liveQueueDepthKnown: false,
+      absenceOfRecordsMeansHealthy: false,
+      automaticRetryAuthorized: false,
+      cancellationAuthorized: false,
+      redriveAuthorized: false,
+      incidentControlAuthorized: false,
+      providerExecutionProven: false,
+      serviceLevelObjectivePolicy: 'UNRESOLVED',
     },
+    ...paged,
   })
-  return result('jobs', mapPage(page('jobs', rows, limit, (row) => row.createdAt)))
 }
 
 async function readEvaluations(
@@ -763,6 +1055,7 @@ async function readAgentRuns(
       modelProvider: true,
       modelName: true,
       costE8Usd: true,
+      costStatus: true,
       errorCode: true,
       attemptNumber: true,
       maxAttempts: true,
@@ -774,6 +1067,185 @@ async function readAgentRuns(
     },
   })
   return result('agent-runs', mapPage(page('agent-runs', rows, limit, (row) => row.createdAt)))
+}
+
+type AgentRunTraceKind = 'ACTION' | 'EVENT' | 'APPROVAL' | 'OUTCOME'
+
+function decodeAgentRunTraceCursor(cursor?: CursorPayload) {
+  if (!cursor) return undefined
+  const match = /^(ACTION|EVENT|APPROVAL|OUTCOME):(.+)$/u.exec(cursor.id)
+  if (!match) {
+    throw new McpReadBindingError('INVALID_CURSOR', 'The agent run trace cursor is invalid.')
+  }
+  return {
+    createdAt: new Date(cursor.sortAt),
+    kind: match[1] as AgentRunTraceKind,
+    id: match[2]!,
+  }
+}
+
+function agentRunTraceWhere(
+  kind: AgentRunTraceKind,
+  cursor?: ReturnType<typeof decodeAgentRunTraceCursor>,
+) {
+  if (!cursor) return {}
+  const kindOrder = kind.localeCompare(cursor.kind)
+  return {
+    OR: [
+      { createdAt: { lt: cursor.createdAt } },
+      ...(kindOrder < 0
+        ? [{ createdAt: cursor.createdAt }]
+        : kindOrder === 0
+          ? [{ createdAt: cursor.createdAt, id: { lt: cursor.id } }]
+          : []),
+    ],
+  }
+}
+
+function agentRunTraceState(
+  approval: { decision: { decision: string } | null; expiresAt: Date | null },
+  now: Date,
+) {
+  if (approval.decision) return approval.decision.decision
+  if (approval.expiresAt && approval.expiresAt.getTime() <= now.getTime()) return 'EXPIRED'
+  return 'PENDING'
+}
+
+async function readAgentRunTrace(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  agentRunId: string,
+  limit: number,
+  opaqueCursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const cursor = decodeAgentRunTraceCursor(opaqueCursor)
+  const where = { tenantId, venueId, agentRunId }
+  const take = limit + 1
+  const [run, actions, events, approvals, outcomes] = await Promise.all([
+    db.agentRun.findFirst({ where: { id: agentRunId, tenantId, venueId }, select: { id: true } }),
+    db.agentAction.findMany({
+      where: { ...where, ...agentRunTraceWhere('ACTION', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        requestedOperation: true,
+        actionName: true,
+        inputSummary: true,
+        modelProvider: true,
+        modelName: true,
+        costE8Usd: true,
+        status: true,
+        errorCode: true,
+        beforeVersionRef: true,
+        afterVersionRef: true,
+        approvalDecisionId: true,
+      },
+    }),
+    db.agentTimelineEvent.findMany({
+      where: { ...where, ...agentRunTraceWhere('EVENT', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        agentActionId: true,
+        eventType: true,
+        message: true,
+      },
+    }),
+    db.approvalRequest.findMany({
+      where: { ...where, ...agentRunTraceWhere('APPROVAL', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        requestedByType: true,
+        requestedById: true,
+        proposedAction: true,
+        reason: true,
+        riskCategory: true,
+        expiresAt: true,
+        decision: { select: { decision: true, reason: true, createdAt: true } },
+      },
+    }),
+    db.agentOutcomeObservation.findMany({
+      where: { ...where, ...agentRunTraceWhere('OUTCOME', cursor) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        signalKind: true,
+        verdict: true,
+        summary: true,
+        evidenceRef: true,
+        taskClass: true,
+        modelProvider: true,
+        modelName: true,
+      },
+    }),
+  ])
+  if (!run) {
+    throw new McpReadBindingError('RESOURCE_UNAVAILABLE', 'The requested agent run is unavailable.')
+  }
+
+  const now = new Date()
+  const items = [
+    ...actions.map((item) => ({ ...item, kind: 'ACTION' as const })),
+    ...events.map((item) => ({ ...item, kind: 'EVENT' as const })),
+    ...approvals.map((item) => ({
+      ...item,
+      kind: 'APPROVAL' as const,
+      state: agentRunTraceState(item, now),
+    })),
+    ...outcomes.map((item) => ({ ...item, kind: 'OUTCOME' as const })),
+  ].sort(
+    (left, right) =>
+      right.createdAt.getTime() - left.createdAt.getTime() ||
+      right.kind.localeCompare(left.kind) ||
+      right.id.localeCompare(left.id),
+  )
+  const visible = items.slice(0, limit)
+  const last = visible.at(-1)
+  return result('agent-run-trace', {
+    items: visible.map((item) => ({
+      ...normalizeRecord(item),
+      ...(item.kind === 'APPROVAL' && item.decision
+        ? {
+            decision: {
+              ...item.decision,
+              createdAt: item.decision.createdAt.toISOString(),
+            },
+          }
+        : {}),
+    })),
+    nextCursor:
+      items.length > limit && last
+        ? encodeMcpReadCursor({
+            resource: 'agent-run-trace',
+            sortAt: last.createdAt.toISOString(),
+            id: `${last.kind}:${last.id}`,
+          })
+        : null,
+    bounded: true,
+    excludes: [
+      'RAW_ACTION_OUTPUT',
+      'RAW_ACTION_INPUT_REFERENCE',
+      'SCOPE_SNAPSHOT',
+      'EVENT_DATA',
+      'EXECUTION_LEASE',
+    ],
+  })
 }
 
 async function readEvents(
@@ -855,19 +1327,94 @@ async function readReadiness(
   db: ReadDb,
   tenantId: string,
   venueId: string,
+  services: McpReadServices,
 ): Promise<McpToolResult> {
-  const [venue, activePlaces, enabledKnowledge, reporting] = await Promise.all([
-    db.venue.findFirst({
-      where: { id: venueId, tenantId },
-      select: { id: true, isActive: true, name: true, slug: true, updatedAt: true },
-    }),
-    db.place.count({ where: { tenantId, venueId, isActive: true } }),
-    db.venueKnowledgeEntry.count({ where: { tenantId, venueId, isEnabled: true } }),
-    db.venueReportConfiguration.findFirst({
-      where: { tenantId, venueId },
-      select: { enabled: true, updatedAt: true },
-    }),
-  ])
+  const measureNativeContentConvergence =
+    services.measureNativeContentConvergence ?? measureNativeContentConvergenceAction
+  const assessNativeGuestReadActivation =
+    services.assessNativeGuestReadActivation ?? assessNativeGuestReadActivationAction
+  const [venue, activePlaces, enabledKnowledge, reporting, contentConvergence, nativeGuestRead] =
+    await Promise.all([
+      db.venue.findFirst({
+        where: { id: venueId, tenantId },
+        select: { id: true, isActive: true, name: true, slug: true, updatedAt: true },
+      }),
+      db.place.count({ where: { tenantId, venueId, isActive: true } }),
+      db.venueKnowledgeEntry.count({ where: { tenantId, venueId, isEnabled: true } }),
+      db.venueReportConfiguration.findFirst({
+        where: { tenantId, venueId },
+        select: { enabled: true, updatedAt: true },
+      }),
+      measureNativeContentConvergence(db as never, { tenantId, venueId })
+        .then((measurement) => ({
+          available: true as const,
+          contractVersion: measurement.contractVersion,
+          phase: measurement.phase,
+          guestReadPath: measurement.guestReadPath,
+          headValid: measurement.headValid,
+          stateMatchesHead: measurement.stateMatchesHead,
+          readyForShadowEvaluation: measurement.readyForShadowEvaluation,
+          readyForLegacyRetirement: measurement.readyForLegacyRetirement,
+          needsOperatorAttention: measurement.needsOperatorAttention,
+          blockers: measurement.blockers,
+          counts: measurement.counts,
+          head: measurement.head
+            ? {
+                revision: measurement.head.revision,
+                updatedAt: measurement.head.updatedAt.toISOString(),
+                releaseStatus: measurement.head.releaseStatus,
+              }
+            : null,
+        }))
+        .catch(() => ({
+          available: false as const,
+          phase: 'UNAVAILABLE' as const,
+          readyForShadowEvaluation: false as const,
+          readyForLegacyRetirement: false as const,
+          needsOperatorAttention: true as const,
+          blockers: ['MEASUREMENT_UNAVAILABLE'] as const,
+        })),
+      assessNativeGuestReadActivation({ client: db as never, tenantId, venueId })
+        .then((assessment) => ({
+          available: true as const,
+          contractVersion: assessment.contractVersion,
+          runtime: { serverGateEnabled: assessment.runtime.serverGateEnabled },
+          policy: {
+            present: assessment.policy.present,
+            enabled: assessment.policy.enabled,
+            valid: assessment.policy.valid,
+            mode: assessment.policy.mode,
+            qualityPolicyReferencePresent: assessment.policy.qualityPolicyReferencePresent,
+            rollbackRehearsalReferencePresent: assessment.policy.rollbackRehearsalReferencePresent,
+            productionApprovalReferencePresent:
+              assessment.policy.productionApprovalReferencePresent,
+          },
+          head: {
+            present: assessment.head.present,
+            valid: assessment.head.valid,
+            targetMatches: assessment.head.targetMatches,
+          },
+          evaluation: { valid: assessment.evaluation.valid },
+          path: assessment.path,
+          reason: assessment.reason,
+          readyForConfiguredMode: assessment.readyForConfiguredMode,
+          nativeExecutionReady: assessment.nativeExecutionReady,
+          blockers: assessment.blockers,
+          compatibilityDataRetentionRequired: assessment.compatibilityDataRetentionRequired,
+        }))
+        .catch(() => ({
+          available: false as const,
+          path: 'LEGACY' as const,
+          reason: 'ASSESSMENT_UNAVAILABLE' as const,
+          readyForConfiguredMode: false as const,
+          nativeExecutionReady: false as const,
+          blockers: ['ASSESSMENT_UNAVAILABLE'] as const,
+          compatibilityDataRetentionRequired: true as const,
+        })),
+    ])
+  const runtimeReadGateOpen = nativeGuestRead.readyForConfiguredMode
+  const materializedStateInSync =
+    contentConvergence.available && contentConvergence.phase === 'NATIVE_HEAD_IN_SYNC'
   return result(
     'readiness',
     venue
@@ -878,6 +1425,22 @@ async function readReadiness(
           enabledKnowledgeCount: enabledKnowledge,
           reportingEnabled: reporting?.enabled ?? false,
           readyForPreview: venue.isActive && activePlaces + enabledKnowledge > 0,
+          contentConvergence,
+          nativeGuestRead: {
+            ...nativeGuestRead,
+            alignment: {
+              runtimeReadGateOpen,
+              materializedStateInSync,
+              allObservedTechnicalEvidenceAligned: runtimeReadGateOpen && materializedStateInSync,
+            },
+            boundaries: {
+              readOnly: true as const,
+              activationAuthorized: false as const,
+              qualityThresholdInferred: false as const,
+              policyReferencesExposed: false as const,
+              compatibilityDataRetentionRequired: true as const,
+            },
+          },
           updatedAt: venue.updatedAt.toISOString(),
         }
       : null,
@@ -892,11 +1455,12 @@ async function readOnboardingSummary(
   db: ReadDb,
   tenantId: string,
   venueId: string,
+  services: McpReadServices,
 ): Promise<McpToolResult> {
   const to = new Date()
   const from = new Date(to.getTime() - ONBOARDING_SUMMARY_WINDOW_DAYS * 24 * 60 * 60 * 1000)
   const [readiness, rows] = await Promise.all([
-    readReadiness(db, tenantId, venueId),
+    readReadiness(db, tenantId, venueId, services),
     db.onboardingMilestoneEvent.findMany({
       where: { tenantId, venueId, occurredAt: { gte: from, lt: to } },
       orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
@@ -996,6 +1560,69 @@ async function readOutcomes(
     },
   })
   return result('outcomes', mapPage(page('outcomes', rows, limit, (row) => row.createdAt)))
+}
+
+async function readAgentImprovements(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.agentImprovementProposal.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      agentIdentityId: true,
+      approvalRequestId: true,
+      proposalKey: true,
+      revision: true,
+      supersedesProposalId: true,
+      taskClass: true,
+      targetKind: true,
+      title: true,
+      hypothesis: true,
+      proposedChange: true,
+      validationPlan: true,
+      baselineSnapshot: true,
+      createdByType: true,
+      createdAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+      approvalRequest: {
+        select: {
+          riskCategory: true,
+          decision: { select: { decision: true, createdAt: true } },
+        },
+      },
+      evidence: {
+        orderBy: { outcomeObservationId: 'asc' },
+        select: { outcomeObservationId: true },
+      },
+      validationEvidence: {
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          baselineEvalRunId: true,
+          candidateEvalRunId: true,
+          implementationKind: true,
+          implementationRef: true,
+          implementationVersion: true,
+          implementationHash: true,
+          changeDimensions: true,
+          comparisonSnapshot: true,
+          comparisonHash: true,
+          recordedByType: true,
+          createdAt: true,
+        },
+      },
+    },
+  })
+  return result(
+    'agent-improvements',
+    mapPage(page('agent-improvements', rows, limit, (row) => row.createdAt)),
+  )
 }
 
 function mapPage<T extends Record<string, unknown>>(value: {

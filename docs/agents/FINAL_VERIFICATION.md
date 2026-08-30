@@ -2,6 +2,11 @@
 
 Date: 2026-08-21
 
+Historical status: This report records Packet A at its exact branch state. Its statements that
+standard MCP transport and first-class machine write attribution were absent were superseded by
+Packet C / Company Brain. Current truth lives in `GAP_REPORT.md`, `CAPABILITY_MATRIX.md`, and
+`company-brain-architecture.md`.
+
 Branch: `codex/torchiko-agent-tooling-20260821`
 
 Base: reconciled CRM and billing commit `2306051`
@@ -57,15 +62,21 @@ No live providers, production databases, external credentials, outreach delivery
 
 ## Known limitations
 
-- Package, operational-update, support, and evaluation write contracts are discoverable but their bridge bindings remain disabled. Existing domain actions attribute audited writes to human users; enabling them with a credential ID would falsely impersonate a human. A first-class machine-actor audit model and approval-grant verifier are required first.
-- The bridge exposes the operational catalog and structured results, but a standards-compliant MCP JSON-RPC dispatcher is not implemented.
+- Historical limitation, partially superseded: Packet A's write contracts were disabled because it
+  lacked machine attribution and approval grants. Those foundations and the first governed
+  operational-update draft write now exist; package, support, evaluation, and other consequential
+  bindings remain deliberately gated.
+- Historical limitation, now superseded: Packet A did not include a standards-compliant MCP
+  JSON-RPC dispatcher. Packet C added the authenticated default-dark JSON-RPC/HTTP transport.
 - Prospect tools have normalized core metadata but not formal input/output JSON Schema parity with MCP.
 - Provider-wide integration health, resettable database scenario worlds, provider-backed replay/explanation, report mutations, and operation-level API parity metrics remain documented in `GAP_REPORT.md`.
 - External staging and live-provider proof require separately authorized environments and credentials.
 
 ## Recommended next work
 
-1. Add a canonical machine-actor audit identity and verified approval-grant service, then bind one low-risk draft operation end to end.
-2. Add a standards MCP dispatcher over the existing safe composition rather than another tool registry.
+1. Completed after Packet A: add canonical machine-actor audit identity and approval grants, then
+   bind one low-risk operational-update draft end to end.
+2. Completed after Packet A: add a standards MCP dispatcher over the existing safe composition
+   rather than another tool registry.
 3. Add resettable disposable-database scenario adapters behind the existing environment safety gates.
 4. Extend coverage from router classification to operation-level interface parity.

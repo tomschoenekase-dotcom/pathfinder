@@ -2,12 +2,21 @@ import { z } from 'zod'
 
 import {
   askAgentQuestionAction,
+  claimNextProspectResearchJobAction,
   db,
+  finishProspectResearchJobAction,
   saveProspectOutreachDraftAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-const prospectCapability = z.enum(['prospects.read', 'prospects.draft', 'prospects.question'])
+import prospectToolContracts from './tool-contracts.json'
+
+const prospectCapability = z.enum([
+  'prospects.read',
+  'prospects.research',
+  'prospects.draft',
+  'prospects.question',
+])
 const prospectScope = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('ALL') }).strict(),
   z
@@ -107,9 +116,25 @@ const questionInput = z
     evidence: z.array(evidenceReference).max(20).default([]),
   })
   .strict()
+const claimResearchInput = z
+  .object({ leaseSeconds: z.number().int().min(60).max(1_800).default(900) })
+  .strict()
+const finishResearchInput = z
+  .object({
+    claimToken: z.string().uuid(),
+    outcome: z.enum(['RESEARCHED', 'NEEDS_REVIEW', 'BLOCKED', 'CAP_REACHED', 'SKIPPED']),
+    reason: z.string().trim().min(1).max(2_000),
+    usage: z.record(z.unknown()).default({}),
+    costUsd: z.number().min(0).max(10_000).optional(),
+  })
+  .strict()
+const releaseResearchInput = z
+  .object({ claimToken: z.string().uuid(), reason: z.string().trim().min(1).max(2_000) })
+  .strict()
 
 export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
   {
+    ...prospectToolContracts.tools['torchiko.prospects.search'],
     name: 'torchiko.prospects.search',
     title: 'Search prospects',
     description: 'Search bounded prospect organizations inside the frozen run scope.',
@@ -120,6 +145,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.get_intelligence'],
     name: 'torchiko.prospects.get_intelligence',
     title: 'Get prospect intelligence',
     description: 'Read grounded CRM and linked live-venue intelligence for one prospect.',
@@ -130,6 +156,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.list_campaign_members'],
     name: 'torchiko.prospects.list_campaign_members',
     title: 'List campaign members',
     description: 'List bounded campaign membership inside the frozen prospect scope.',
@@ -140,6 +167,40 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: false,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.claim_research_job'],
+    name: 'torchiko.prospects.claim_research_job',
+    title: 'Claim next prospect research job',
+    description: 'Claim one unfinished in-scope prospect under a bounded durable lease.',
+    capability: 'prospects.research',
+    effect: 'execute',
+    mutates: true,
+    idempotent: false,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.complete_research_job'],
+    name: 'torchiko.prospects.complete_research_job',
+    title: 'Complete prospect research job',
+    description: 'Record a bounded research outcome, usage, cost, and exact attempt lineage.',
+    capability: 'prospects.research',
+    effect: 'execute',
+    mutates: true,
+    idempotent: false,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.release_research_job'],
+    name: 'torchiko.prospects.release_research_job',
+    title: 'Release prospect research job',
+    description: 'Release an unfinished claim back to the queue without changing prospect facts.',
+    capability: 'prospects.research',
+    effect: 'execute',
+    mutates: true,
+    idempotent: false,
+    humanReviewRequired: false,
+  },
+  {
+    ...prospectToolContracts.tools['torchiko.prospects.save_outreach_draft'],
     name: 'torchiko.prospects.save_outreach_draft',
     title: 'Save outreach draft',
     description: 'Save a grounded, versioned outreach draft that cannot be sent or approved.',
@@ -150,6 +211,7 @@ export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
     humanReviewRequired: true,
   },
   {
+    ...prospectToolContracts.tools['torchiko.prospects.ask_operator'],
     name: 'torchiko.prospects.ask_operator',
     title: 'Ask prospect operator',
     description: 'Create or replay a durable scoped question without granting approval.',
@@ -432,6 +494,53 @@ export function createProspectAgentRegistry(
                 venue: true,
                 contact: true,
                 drafts: { orderBy: { version: 'desc' }, take: 1 },
+              },
+            })
+          }
+          case 'torchiko.prospects.claim_research_job': {
+            const input = claimResearchInput.parse(rawInput)
+            return claimNextProspectResearchJobAction({
+              leaseSeconds: input.leaseSeconds,
+              context: {
+                agentRunId: context.agentRunId,
+                agentIdentityId: context.actorId,
+                ...(context.scope.mode === 'TERRITORIES'
+                  ? { territoryIds: context.scope.territoryIds }
+                  : {}),
+                modelProvider: context.modelProvider,
+                modelName: context.modelName,
+                promptIdentity: context.promptIdentity,
+              },
+            })
+          }
+          case 'torchiko.prospects.complete_research_job': {
+            const input = finishResearchInput.parse(rawInput)
+            return finishProspectResearchJobAction({
+              claimToken: input.claimToken,
+              outcome: input.outcome,
+              reason: input.reason,
+              usage: input.usage,
+              ...(input.costUsd !== undefined ? { costUsd: input.costUsd } : {}),
+              context: {
+                agentRunId: context.agentRunId,
+                agentIdentityId: context.actorId,
+                modelProvider: context.modelProvider,
+                modelName: context.modelName,
+                promptIdentity: context.promptIdentity,
+              },
+            })
+          }
+          case 'torchiko.prospects.release_research_job': {
+            const input = releaseResearchInput.parse(rawInput)
+            return finishProspectResearchJobAction({
+              ...input,
+              outcome: 'RELEASED',
+              context: {
+                agentRunId: context.agentRunId,
+                agentIdentityId: context.actorId,
+                modelProvider: context.modelProvider,
+                modelName: context.modelName,
+                promptIdentity: context.promptIdentity,
               },
             })
           }

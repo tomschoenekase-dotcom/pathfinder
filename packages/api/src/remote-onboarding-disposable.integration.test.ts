@@ -1,41 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
+import {
+  CreateBucketCommand,
+  HeadObjectCommand,
+  PutBucketVersioningCommand,
+  S3Client,
+} from '@aws-sdk/client-s3'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/ai', () => ({
-  AI_EMBEDDING_MODEL_KEYS: {
-    PLACE_CONTENT: 'place-content',
-    KNOWLEDGE_CONTENT: 'knowledge-content',
-  },
-  AiGatewayError: class AiGatewayError extends Error {
-    code = 'provider-error'
-  },
-  getAiEmbeddingProfile: (key: string) => `integration-profile:${key}`,
-  generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
-    await usageSink({
-      provider: 'integration-test',
-      model: 'deterministic-embedding',
-      pricingVersion: 'test-v1',
-      usage: {
-        inputTokens: texts.length,
-        outputTokens: 0,
-        cacheCreationInputTokens: 0,
-        cacheReadInputTokens: 0,
-      },
-      estimatedCostUsd: 0,
-      latencyMs: 1,
-      attempts: 1,
-      success: true,
-    })
-    return {
-      embeddings: texts.map((text: string, index: number) => {
-        const vector = Array(1_536).fill(0)
-        vector[(text.length + index) % vector.length] = 1
-        return vector
-      }),
-    }
-  }),
-}))
+import {
+  setOpenAiEmbeddingsClientForTesting,
+  type AnthropicMessagesClient,
+  type OpenAiEmbeddingsClient,
+  type RealtimeVoiceProviderAdapter,
+} from '@pathfinder/ai'
 
 import {
   buildOnboardingEvaluationSuite,
@@ -50,6 +29,8 @@ import {
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
 import {
   askAgentQuestionAction,
+  acquireEmbeddingWork,
+  claimGuestChatTurnAction,
   claimEvaluationRunAttempt,
   claimIntakeUploadVerificationAction,
   createClientOnboardingQuestionAction,
@@ -60,26 +41,70 @@ import {
   db,
   evaluationSnapshotHash,
   finishEvaluationRunAttempt,
+  GUEST_CHAT_TURN_LEASE_MS,
   getIntakeProposalReview,
   hashEvalObservation,
+  listConversationKnowledgeGaps,
   markEvaluationRunQueued,
+  markGuestChatProviderDispatchedAction,
   recordApprovedPackageEvaluationMilestones,
   recordIntakeUploadPrecheckAction,
   recordOrReplayOnboardingMilestoneEvent,
+  reserveGuestChatTurnAction,
   reserveIntakeUploadAction,
   respondToSupportInformationAction,
   resumeOnboardingQuestionFromSupportAction,
   settleIntakeUploadAuthoritativeVerificationAction,
+  setAiProviderHealthOverrideAction,
+  storeKnowledgeEntryEmbeddingForScope,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-import { router } from './core'
+import { mergeRouters, router } from './core'
 import type { TRPCContext } from './context'
 import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-service'
+import { adminSupportAgentRunLineageRouter } from './routers/admin/support-agent-run-lineage'
+import { adminSupportManualLoopRouter } from './routers/admin/support-manual-loop'
+import { adminSupportOperationsRouter } from './routers/admin/support-operations'
+import { adminEvaluationConversationCasesRouter } from './routers/admin/evaluation-conversation-cases'
+import { adminOffboardingExportFinalizationRouter } from './routers/admin/offboarding-export-finalization'
+import { adminOffboardingExportPreviewRouter } from './routers/admin/offboarding-export-preview'
+import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
+import { adminReportConfigurationRouter } from './routers/admin/report-configuration'
+import { adminWeeklyReportsRouter } from './routers/admin/weekly-reports'
+import { analyticsRouter } from './routers/analytics'
+import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
+import { feedbackRouter } from './routers/feedback'
+import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
+import { supportRouter } from './routers/support'
 import { venuePackageRouter } from './routers/venue-package'
+import { _setVoiceProviderAdapterForTesting, voiceRouter } from './routers/voice'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
+let disposableStorage: S3Client | null = null
+
+interface GoldenVenueExpectedQuestion {
+  key: string
+  question: string
+  expectedFacts: string[]
+  answer: string
+  knowledgeTitle: string
+  knowledgeBody: string
+  topics: string[]
+}
+
+interface GoldenVenueFixture {
+  fixtureId: string
+  synthetic: true
+  venueName: string
+  venueSlug: string
+  expectedQuestions: GoldenVenueExpectedQuestion[]
+}
+
+const goldenVenueFixture = JSON.parse(
+  readFileSync(new URL('../../../scripts/golden-venue/fixture.json', import.meta.url), 'utf8'),
+) as GoldenVenueFixture
 
 function assertDisposableDatabase(): void {
   const raw = process.env.DATABASE_URL
@@ -94,14 +119,73 @@ function assertDisposableDatabase(): void {
     throw new Error('Disposable lifecycle proof requires an exact-loopback disposable database')
 }
 
-const testRouter = router({ portal: portalRouter, venuePackage: venuePackageRouter })
+const testRouter = router({
+  admin: mergeRouters(
+    adminOffboardingExportPreviewRouter,
+    adminOffboardingExportFinalizationRouter,
+    adminOffboardingPlansRouter,
+    adminReportConfigurationRouter,
+    adminSupportAgentRunLineageRouter,
+    adminSupportManualLoopRouter,
+    adminSupportOperationsRouter,
+    adminWeeklyReportsRouter,
+    adminEvaluationConversationCasesRouter,
+  ),
+  analytics: analyticsRouter,
+  chat: chatRouter,
+  feedback: feedbackRouter,
+  operationalUpdate: operationalUpdateRouter,
+  portal: portalRouter,
+  support: supportRouter,
+  venuePackage: venuePackageRouter,
+  voice: voiceRouter,
+})
 
-describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle', () => {
-  afterAll(async () => db.$disconnect())
+describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure matrix', () => {
+  afterAll(async () => {
+    disposableStorage?.destroy()
+    _setAnthropicClientForTesting(null)
+    _setVoiceProviderAdapterForTesting(null)
+    setOpenAiEmbeddingsClientForTesting(null)
+    await db.$disconnect()
+  })
 
   it('proves invitation through exact rollback in one sanitized venue run', async () => {
     assertDisposableDatabase()
     await withTenantIsolationBypass(async () => {
+      const storageEndpoint = new URL(process.env.STORAGE_ENDPOINT ?? '')
+      const storageBucket = process.env.STORAGE_BUCKET ?? ''
+      const storageRegion = process.env.STORAGE_REGION ?? ''
+      const storageAccessKeyId = process.env.STORAGE_ACCESS_KEY_ID ?? ''
+      const storageSecretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY ?? ''
+      if (
+        storageEndpoint.protocol !== 'http:' ||
+        !['127.0.0.1', 'localhost', '::1'].includes(storageEndpoint.hostname) ||
+        !/^pathfinder-disposable-intake-[a-f0-9]{12}$/u.test(storageBucket) ||
+        !storageRegion ||
+        !storageAccessKeyId ||
+        !storageSecretAccessKey
+      ) {
+        throw new Error('Golden Venue proof requires exact-loopback disposable object storage')
+      }
+      const storageClient = new S3Client({
+        endpoint: storageEndpoint.toString(),
+        region: storageRegion,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: storageAccessKeyId,
+          secretAccessKey: storageSecretAccessKey,
+        },
+      })
+      disposableStorage = storageClient
+      await storageClient.send(new CreateBucketCommand({ Bucket: storageBucket }))
+      await storageClient.send(
+        new PutBucketVersioningCommand({
+          Bucket: storageBucket,
+          VersioningConfiguration: { Status: 'Enabled' },
+        }),
+      )
+
       const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
       const tenantId = `remote-proof-tenant-${suffix}`
       const ownerId = `remote-proof-owner-${suffix}`
@@ -118,6 +202,32 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
         },
       }
       const caller = testRouter.createCaller(context)
+      const admin = testRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: {
+          userId: operatorId,
+          activeTenantId: null,
+          role: null,
+          isPlatformAdmin: true,
+        },
+      }).admin
+      const publicCaller = testRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+      const openAiCreate = vi.fn(async (params: { input: string[]; dimensions: number }) => ({
+        data: params.input.map((_text, index) => {
+          const embedding = Array(params.dimensions).fill(0)
+          embedding[0] = 1
+          return { index, embedding }
+        }),
+        usage: { prompt_tokens: params.input.length, total_tokens: params.input.length },
+      }))
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: { create: openAiCreate },
+      } as OpenAiEmbeddingsClient)
 
       await db.tenant.create({
         data: { id: tenantId, name: 'Sanitized Remote Proof', slug: tenantId },
@@ -131,8 +241,8 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       const venue = await db.venue.create({
         data: {
           tenantId,
-          name: 'Synthetic River Museum',
-          slug: `remote-proof-venue-${suffix}`,
+          name: goldenVenueFixture.venueName,
+          slug: `${goldenVenueFixture.venueSlug}-${suffix}`,
           guideMode: 'non_location',
           isActive: true,
         },
@@ -401,7 +511,179 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       expect(resumeReplay).toMatchObject({ replayed: true, agentRunId: agentRun.id })
       expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(0)
 
-      // 9. Generate an immutable manifest artifact, materialize its exact linked package,
+      // 9. Service-led support requests preserve private operational context while giving
+      // the client a concise, replay-safe resolution. Terminal AI work is evidence only:
+      // it does not grant execution authority or create a package/approval side effect.
+      const supportCreated = await caller.support.createRequest({
+        operationId: randomUUID(),
+        venueId,
+        category: 'GENERAL',
+        subject: 'Confirm the visitor welcome-desk handoff',
+        body: 'Please confirm how visitors should ask staff for the accessibility map.',
+        attachments: [],
+      })
+      const supportRequestId = supportCreated.request.id
+      const informationRequested = await admin.requestSupportInformation({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: 1,
+        body: 'We are taking care of this. Which desk keeps the current accessibility map?',
+        missingInformation: ['Name the desk that keeps the current accessibility map.'],
+      })
+      expect(informationRequested).toMatchObject({
+        status: 'WAITING_FOR_CLIENT',
+        requestVersion: 2,
+        clientVersion: 2,
+        replayed: false,
+      })
+      const waitingForClient = await caller.support.getRequest({
+        venueId,
+        requestId: supportRequestId,
+        messageLimit: 20,
+      })
+      expect(waitingForClient).toMatchObject({
+        status: 'WAITING_FOR_CLIENT',
+        clientVersion: informationRequested.clientVersion,
+        missingInformation: ['Name the desk that keeps the current accessibility map.'],
+        canReply: true,
+      })
+      expect(waitingForClient.messages.map((message) => message.body)).toContain(
+        'We are taking care of this. Which desk keeps the current accessibility map?',
+      )
+
+      const informationResponse = await caller.support.respondToInformation({
+        operationId: randomUUID(),
+        venueId,
+        requestId: supportRequestId,
+        expectedClientVersion: waitingForClient.clientVersion,
+        body: 'The welcome desk beside the Oak Street entrance keeps the current map.',
+        attachments: [],
+      })
+      expect(informationResponse).toMatchObject({
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 3,
+        clientVersion: 3,
+        replayed: false,
+      })
+
+      const supportAgentIdentity = await db.agentIdentity.create({
+        data: {
+          tenantId,
+          venueId,
+          identityKey: `proof.support.${suffix}`,
+          name: 'Synthetic support analyst',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['support.read'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const supportAgentCompletedAt = new Date()
+      const supportAgentRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: supportAgentIdentity.id,
+          runType: 'SUPPORT',
+          requestedOperation: 'review_accessibility_map_handoff',
+          requestPrompt: 'Review the synthetic client response without changing venue state.',
+          scopeSnapshot: { accessCapabilities: ['support.read'], executionAuthority: false },
+          status: 'COMPLETED',
+          modelProvider: 'fixture',
+          modelName: 'deterministic',
+          artifacts: [{ kind: 'NOTE', summary: 'Welcome desk response is internally consistent.' }],
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: supportAgentCompletedAt,
+          completedAt: supportAgentCompletedAt,
+        },
+      })
+      const lineage = await admin.linkSupportAgentRun({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        agentRunId: supportAgentRun.id,
+        expectedVersion: informationResponse.requestVersion,
+      })
+      expect(lineage).toMatchObject({
+        requestVersion: informationResponse.requestVersion,
+        replayed: false,
+        lineage: {
+          agentRunId: supportAgentRun.id,
+          linkedRunStatus: 'COMPLETED',
+        },
+      })
+
+      const internalMessageBody =
+        'Internal fixture note: AI review is evidence only; an operator owns the response.'
+      const internalMessage = await admin.addSupportMessage({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: informationResponse.requestVersion,
+        visibility: 'INTERNAL_ONLY',
+        body: internalMessageBody,
+        attachments: [],
+      })
+      expect(internalMessage).toMatchObject({ requestVersion: 4, replayed: false })
+
+      const completionOperationId = randomUUID()
+      const completionInput = {
+        operationId: completionOperationId,
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: internalMessage.requestVersion,
+        body: 'Confirmed: visitors can request the current accessibility map at the welcome desk beside the Oak Street entrance.',
+      }
+      const completedSupport = await admin.completeSupportRequest(completionInput)
+      const completedSupportReplay = await admin.completeSupportRequest(completionInput)
+      expect(completedSupport).toMatchObject({
+        status: 'COMPLETED',
+        requestVersion: 5,
+        clientVersion: 4,
+        replayed: false,
+      })
+      expect(completedSupportReplay).toMatchObject({
+        status: 'COMPLETED',
+        requestVersion: completedSupport.requestVersion,
+        clientVersion: completedSupport.clientVersion,
+        replayed: true,
+      })
+
+      const clientResolution = await caller.support.getRequest({
+        venueId,
+        requestId: supportRequestId,
+        messageLimit: 20,
+      })
+      expect(clientResolution).toMatchObject({
+        status: 'COMPLETED',
+        canReply: false,
+        missingInformation: [],
+      })
+      expect(clientResolution.messages.map((message) => message.body)).not.toContain(
+        internalMessageBody,
+      )
+      expect(clientResolution.messages.map((message) => message.body)).toContain(
+        completionInput.body,
+      )
+      expect(
+        await db.supportRequestAuditEvent.count({
+          where: { tenantId, venueId, supportRequestId },
+        }),
+      ).toBeGreaterThanOrEqual(4)
+      expect(await db.supportAgentRunLineage.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(0)
+
+      // 10. Generate an immutable manifest artifact, materialize its exact linked package,
       // and explicitly approve the candidate. A FULL artifact establishes the scoped base;
       // the materializable PATCH retains the client-reviewable content delta.
       const artifactCreatedAt = new Date().toISOString()
@@ -413,8 +695,8 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
         idempotencyKey: randomUUID(),
         identity: {
           venueStableId: venueId,
-          name: 'Synthetic River Museum',
-          slug: `remote-proof-venue-${suffix}`,
+          name: goldenVenueFixture.venueName,
+          slug: `${goldenVenueFixture.venueSlug}-${suffix}`,
           archetype: 'museum' as const,
         },
         branding: { themeId: 'default' as const, fontId: 'jakarta' as const },
@@ -480,21 +762,21 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
               accessibility: ['Step-free route from Oak Street'],
             },
           },
-          {
+          ...goldenVenueFixture.expectedQuestions.map((expected) => ({
             operationId: randomUUID(),
             op: 'UPSERT_CONTENT_MODULE' as const,
             value: {
-              id: `accessible-arrival-${suffix}`,
+              id: `${expected.key}-${suffix}`,
               version: 1,
               audience: 'PUBLIC' as const,
               evidence: [],
               assetIds: [],
               kind: 'KNOWLEDGE' as const,
-              title: 'Accessible arrival',
-              body: 'Use the Oak Street entrance for the step-free route.',
-              topics: ['Accessibility'],
+              title: expected.knowledgeTitle,
+              body: expected.knowledgeBody,
+              topics: expected.topics,
             },
-          },
+          })),
         ],
       }
       const materialized = await reviewVenuePackageManifestService({
@@ -530,7 +812,7 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       const preview = await caller.portal.getClientPreview({ venueId, packageId: approved.id })
       expect(preview).toMatchObject({ package: { id: approved.id, status: 'APPROVED' } })
 
-      // 10. Durable, exact-package preview feedback creates work but cannot publish.
+      // 11. Durable, exact-package preview feedback creates work but cannot publish.
       const feedback = await caller.portal.createPreviewFeedbackRequest({
         operationId: randomUUID(),
         venueId,
@@ -546,7 +828,7 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       })
       expect(feedback).toMatchObject({ replayed: false })
 
-      // 11. Freeze the exact seven-dimension suite, score it, and close the run.
+      // 12. Freeze the exact seven-dimension suite, score it, and close the run.
       const suite = buildOnboardingEvaluationSuite(preview)
       expect(suite.map((item) => item.dimension)).toEqual([
         'fact',
@@ -680,7 +962,7 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       ).toBe(true)
       await recordApprovedPackageEvaluationMilestones(runScope)
 
-      // 12–13. Multidimensional readiness is exact-package based; publication stays separate.
+      // 13–14. Multidimensional readiness is exact-package based; publication stays separate.
       const journey = await caller.portal.getOnboardingJourney({ venueId })
       expect(journey.qa).toMatchObject({
         state: 'COMPLETED',
@@ -707,7 +989,7 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
         }).readiness.find((item) => item.id === 'AUTOMATED_QA'),
       ).toMatchObject({ status: 'READY' })
 
-      // 14–15. Explicit release command creates exact content, then rollback restores the base.
+      // 15. Explicit release creates the exact public content used by the guest proof.
       const applied = await caller.venuePackage.applyPackage({
         id: approved.id,
         expectedUpdatedAt: approved.updatedAt,
@@ -717,19 +999,477 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
       expect(
         await db.place.findFirst({ where: { tenantId, venueId, name: 'River Gallery' } }),
       ).toMatchObject({ name: 'River Gallery' })
-      expect(
-        await db.venueKnowledgeEntry.findFirst({
-          where: { tenantId, venueId, title: 'Accessible arrival' },
-        }),
-      ).toMatchObject({
-        title: 'Accessible arrival',
-        content: 'Use the Oak Street entrance for the step-free route.',
+      const publicKnowledge = await db.venueKnowledgeEntry.findMany({
+        where: {
+          tenantId,
+          venueId,
+          title: {
+            in: goldenVenueFixture.expectedQuestions.map((expected) => expected.knowledgeTitle),
+          },
+        },
+        orderBy: { title: 'asc' },
       })
+      expect(publicKnowledge).toHaveLength(goldenVenueFixture.expectedQuestions.length)
+      for (const expected of goldenVenueFixture.expectedQuestions) {
+        expect(publicKnowledge).toContainEqual(
+          expect.objectContaining({
+            title: expected.knowledgeTitle,
+            content: expected.knowledgeBody,
+          }),
+        )
+      }
       expect(
         await db.contentVersion.count({
           where: { tenantId, venueId, venuePackageId: approved.id, venuePackageAction: 'APPLY' },
         }),
       ).toBeGreaterThan(0)
+
+      for (const entry of publicKnowledge) {
+        const knowledgeEmbedding = Array(1_536).fill(0)
+        knowledgeEmbedding[0] = 1
+        const embeddingLeaseToken = randomUUID()
+        const embeddingClaim = await acquireEmbeddingWork({
+          tenantId,
+          venueId,
+          entityType: 'KNOWLEDGE_ENTRY',
+          entityId: entry.id,
+          contentUpdatedAt: entry.updatedAt,
+          sourceHash: createHash('sha256')
+            .update([entry.title, entry.category, entry.content].join('. '))
+            .digest('hex'),
+          embeddingProfile: 'openai:text-embedding-3-small:1536',
+          leaseToken: embeddingLeaseToken,
+        })
+        if (embeddingClaim.state !== 'acquired') {
+          throw new Error(`Knowledge embedding claim was not acquired: ${embeddingClaim.state}`)
+        }
+        await expect(
+          storeKnowledgeEntryEmbeddingForScope({
+            entryId: entry.id,
+            tenantId,
+            venueId,
+            contentUpdatedAt: entry.updatedAt,
+            source: {
+              title: entry.title,
+              category: entry.category,
+              content: entry.content,
+              isEnabled: entry.isEnabled,
+            },
+            embedding: knowledgeEmbedding,
+            claimId: embeddingClaim.claimId,
+            leaseToken: embeddingLeaseToken,
+          }),
+        ).resolves.toEqual({ claimCompleted: true, stored: true })
+      }
+
+      // 16. The real public chat router asks every retained fixture question against applied
+      // venue knowledge, routes through the production AI gateway, and commits complete
+      // provider-dark guest turns. Only the Anthropic transport is replaced in process.
+      const anthropicCreate = vi.fn()
+      for (const expected of goldenVenueFixture.expectedQuestions) {
+        anthropicCreate.mockResolvedValueOnce({
+          content: [{ type: 'text', text: expected.answer }],
+          usage: {
+            input_tokens: 24,
+            output_tokens: 11,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        })
+      }
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate },
+      } as AnthropicMessagesClient)
+      const guestProofs = []
+      for (const [index, expected] of goldenVenueFixture.expectedQuestions.entries()) {
+        const expectedAnonymousToken = randomUUID()
+        const expectedOperationId = randomUUID()
+        const turn = await publicCaller.chat.send({
+          operationId: expectedOperationId,
+          venueId,
+          anonymousToken: expectedAnonymousToken,
+          message: expected.question,
+        })
+        expect(turn).toMatchObject({
+          response: expected.answer,
+          assistantMessageId: expect.any(String),
+          sessionId: expect.any(String),
+          replayed: false,
+        })
+        if (!turn.assistantMessageId) throw new Error('Guest turn did not persist an assistant')
+        const guestPrompt = (
+          anthropicCreate.mock.calls[index]![0].system as Array<{ text: string }>
+        )
+          .map((block) => block.text)
+          .join('')
+        expect(guestPrompt).toContain(expected.knowledgeTitle)
+        expect(guestPrompt).toContain(expected.knowledgeBody)
+        for (const fact of expected.expectedFacts) expect(turn.response).toContain(fact)
+        guestProofs.push({
+          expected,
+          anonymousToken: expectedAnonymousToken,
+          operationId: expectedOperationId,
+          turn,
+        })
+      }
+      const primaryGuestProof = guestProofs[0]
+      if (!primaryGuestProof) throw new Error('Golden Venue fixture has no primary guest question')
+      const {
+        anonymousToken,
+        operationId,
+        turn: guestTurn,
+        expected: primaryExpected,
+      } = primaryGuestProof
+      const assistantMessageId = guestTurn.assistantMessageId!
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: [
+          expect.objectContaining({ role: 'user', content: primaryExpected.question }),
+          expect.objectContaining({
+            id: assistantMessageId,
+            role: 'assistant',
+            content: primaryExpected.answer,
+          }),
+        ],
+      })
+      await expect(
+        db.visitorSession.findFirstOrThrow({
+          where: { id: guestTurn.sessionId, tenantId, venueId, anonymousToken },
+          select: { experienceScope: true, messageCount: true },
+        }),
+      ).resolves.toEqual({ experienceScope: 'PUBLIC', messageCount: 2 })
+      await expect(
+        db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: operationId },
+          select: { status: true, assistantMessageId: true },
+        }),
+      ).resolves.toEqual({ status: 'COMPLETE', assistantMessageId })
+
+      // 16a. Voice Mode uses the same owned public identity and real entitlement resolver.
+      // Only provider authorization is replaced: the migrated database still proves the
+      // complete session, transcript, usage, replay, fallback, and incident contracts.
+      await db.productEntitlementOverride.create({
+        data: {
+          tenantId,
+          venueId,
+          capability: 'voice',
+          effect: 'GRANT',
+          kind: 'ADMIN',
+          settings: {},
+          setBy: operatorId,
+          reason: 'Golden Venue provider-dark Voice Mode lifecycle proof',
+        },
+      })
+      const voiceAuthorize = vi.fn().mockResolvedValue({
+        provider: 'openai' as const,
+        model: 'gpt-realtime-2.1-mini',
+        clientSecret: 'provider-dark-ephemeral-secret',
+        expiresAt: Math.floor(Date.now() / 1_000) + 300,
+        providerSessionId: 'provider-dark-voice-session',
+      })
+      _setVoiceProviderAdapterForTesting({
+        provider: 'openai',
+        authorizeSession: voiceAuthorize,
+      } as RealtimeVoiceProviderAdapter)
+
+      await expect(
+        publicCaller.voice.availability({ venueId, anonymousToken }),
+      ).resolves.toMatchObject({ enabled: true, premiumAvailable: false })
+      const voiceSession = await publicCaller.voice.start({
+        venueId,
+        anonymousToken,
+        locale: 'en-US',
+        tier: 'ECONOMY',
+      })
+      expect(voiceSession).toMatchObject({
+        clientSecret: 'provider-dark-ephemeral-secret',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+      })
+      expect(voiceAuthorize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: 'provider-dark-not-a-credential',
+          instructions: expect.stringContaining(goldenVenueFixture.venueName),
+          safetyIdentifier: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        }),
+      )
+      const persistedReadyVoice = await db.voiceSession.findFirstOrThrow({
+        where: { id: voiceSession.voiceSessionId, tenantId, venueId },
+      })
+      expect(persistedReadyVoice).toMatchObject({
+        visitorSessionId: guestTurn.sessionId,
+        status: 'READY',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+        providerSessionId: 'provider-dark-voice-session',
+      })
+      expect(JSON.stringify(persistedReadyVoice)).not.toContain('provider-dark-ephemeral-secret')
+      await expect(
+        publicCaller.voice.connected({
+          venueId,
+          anonymousToken,
+          voiceSessionId: voiceSession.voiceSessionId,
+        }),
+      ).resolves.toEqual({ connected: true })
+      const transcriptInput = {
+        venueId,
+        anonymousToken,
+        voiceSessionId: voiceSession.voiceSessionId,
+        providerEventId: 'provider-dark-transcript-1',
+        sequence: 1,
+        speaker: 'VISITOR' as const,
+        text: primaryExpected.question,
+        language: 'en-US',
+      }
+      await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
+        accepted: true,
+      })
+      await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
+        accepted: false,
+      })
+      const usageInput = {
+        venueId,
+        anonymousToken,
+        voiceSessionId: voiceSession.voiceSessionId,
+        providerEventId: 'provider-dark-response-1',
+        inputTokens: 1_100,
+        outputTokens: 2_100,
+        cachedInputTokens: 100,
+        cachedAudioInputTokens: 0,
+        audioInputTokens: 1_000,
+        audioOutputTokens: 2_000,
+      }
+      await expect(publicCaller.voice.usage(usageInput)).resolves.toMatchObject({
+        accepted: true,
+        estimatedCostUsd: 0.050246,
+      })
+      await expect(publicCaller.voice.usage(usageInput)).resolves.toMatchObject({
+        accepted: false,
+        estimatedCostUsd: 0.050246,
+      })
+      const storedVoiceUsage = await db.aiUsageEvent.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          sessionId: guestTurn.sessionId,
+          feature: 'realtime-voice',
+          providerRequestId: usageInput.providerEventId,
+        },
+      })
+      expect(storedVoiceUsage).toMatchObject({
+        capability: 'REALTIME_VOICE_ECONOMY',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+        pricingVersion: 'openai-model-pages-2026-08-19',
+        audioInputTokens: 1_000,
+        audioOutputTokens: 2_000,
+      })
+      expect(Number(storedVoiceUsage.estimatedCostUsd)).toBe(0.050246)
+      await expect(
+        publicCaller.voice.end({
+          venueId,
+          anonymousToken,
+          voiceSessionId: voiceSession.voiceSessionId,
+          fallbackToText: true,
+        }),
+      ).resolves.toMatchObject({ ended: true, durationSeconds: expect.any(Number) })
+      await expect(
+        db.voiceSession.findFirstOrThrow({
+          where: { id: voiceSession.voiceSessionId, tenantId, venueId },
+          select: { status: true, fallbackToText: true, errorCode: true },
+        }),
+      ).resolves.toEqual({ status: 'ENDED', fallbackToText: true, errorCode: null })
+
+      // A provider route mismatch is rejected, persisted as failed, and surfaced as an
+      // actionable operational incident. The existing text history remains available.
+      voiceAuthorize.mockResolvedValueOnce({
+        provider: 'openai',
+        model: 'unexpected-provider-route',
+        clientSecret: 'discarded-provider-dark-secret',
+        expiresAt: Math.floor(Date.now() / 1_000) + 300,
+        providerSessionId: 'mismatched-provider-session',
+      })
+      await expect(
+        publicCaller.voice.start({
+          venueId,
+          anonymousToken,
+          locale: 'en-US',
+          tier: 'ECONOMY',
+        }),
+      ).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice could not connect. Continue in text or try again.',
+      })
+      const failedVoice = await db.voiceSession.findFirstOrThrow({
+        where: { tenantId, venueId, visitorSessionId: guestTurn.sessionId, status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+      })
+      expect(failedVoice).toMatchObject({
+        errorCode: 'AUTHORIZATION_FAILED',
+        provider: 'openai',
+        model: 'gpt-realtime-2.1-mini',
+      })
+      await vi.waitFor(async () => {
+        await expect(
+          db.operationalEvent.findUnique({
+            where: {
+              tenantId_deduplicationKey: {
+                tenantId,
+                deduplicationKey: `voice-authorization-failure:${failedVoice.id}`,
+              },
+            },
+          }),
+        ).resolves.toMatchObject({
+          venueId,
+          eventType: 'voice.session.failed',
+          sourceSubsystem: 'realtime-voice',
+          severity: 'ERROR',
+          linkedObjectType: 'voice-session',
+          linkedObjectId: failedVoice.id,
+        })
+      })
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: expect.arrayContaining([
+          expect.objectContaining({ id: assistantMessageId, content: primaryExpected.answer }),
+        ]),
+      })
+
+      // 17. Visitor feedback is ownership-bound to the public session and assistant message,
+      // then retained as both durable feedback and a machine-readable analytics event.
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'The route was specific and easy to follow.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      await expect(
+        db.messageFeedback.findFirstOrThrow({
+          where: { tenantId, venueId, sessionId: guestTurn.sessionId },
+          select: { messageId: true, rating: true, reason: true },
+        }),
+      ).resolves.toEqual({
+        messageId: assistantMessageId,
+        rating: 'HELPFUL',
+        reason: 'The route was specific and easy to follow.',
+      })
+      await expect(
+        db.analyticsEvent.count({
+          where: {
+            tenantId,
+            venueId,
+            sessionId: guestTurn.sessionId,
+            eventType: 'chat.response.feedback',
+          },
+        }),
+      ).resolves.toBe(1)
+
+      // Explicit negative feedback enters the existing governed answer-quality queue without
+      // a model call or inferred severity. The durable insight remains historical evidence,
+      // while the queue follows the visitor's current rating.
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'NOT_HELPFUL',
+          reason: 'The visitor corrected the rating for review.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      const negativeFeedbackGaps = await listConversationKnowledgeGaps({
+        tenantId,
+        venueId,
+        limit: 25,
+      })
+      expect(negativeFeedbackGaps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: 'VISITOR_NEGATIVE_FEEDBACK',
+            guestChatTurnId: expect.any(String),
+            visitorQuestion: 'Which entrance has the step-free route?',
+            assistantAnswer: 'Use the Oak Street entrance for the step-free route.',
+            evidenceMessageIds: expect.arrayContaining([assistantMessageId]),
+          }),
+        ]),
+      )
+      const negativeFeedbackInsight = negativeFeedbackGaps.find(
+        (insight) => insight.category === 'VISITOR_NEGATIVE_FEEDBACK',
+      )!
+      const preparedConversationCase = await admin.prepareConversationEvaluationCase({
+        tenantId,
+        venueId,
+        insightId: negativeFeedbackInsight.id,
+        sanitizedQuestion: 'Which entrance has the step-free route?',
+        expectation: 'KNOWN_ANSWER',
+        acceptablePhrases: ['Oak Street entrance'],
+        forbiddenPhrases: ['staff-only entrance'],
+        maxWords: 80,
+        sanitizationConfirmed: true,
+      })
+      expect(preparedConversationCase).toMatchObject({
+        revision: 1,
+        category: 'known-answer',
+        sourceInsightId: negativeFeedbackInsight.id,
+        replayed: false,
+      })
+      const storedConversationCase = await db.evalCase.findUniqueOrThrow({
+        where: { id: preparedConversationCase.id },
+        select: { caseSnapshot: true, sourceType: true, sourceRef: true },
+      })
+      expect(storedConversationCase).toMatchObject({
+        sourceType: 'REVIEWED_CONVERSATION_INSIGHT',
+        sourceRef: expect.stringContaining(`conversation-insight:${negativeFeedbackInsight.id}`),
+        caseSnapshot: expect.objectContaining({
+          turns: [{ role: 'user', content: 'Which entrance has the step-free route?' }],
+        }),
+      })
+      expect(JSON.stringify(storedConversationCase.caseSnapshot)).not.toContain(
+        'Use the Oak Street entrance for the step-free route.',
+      )
+      await expect(
+        db.conversationInsight.findUniqueOrThrow({
+          where: { id: negativeFeedbackInsight.id },
+          select: { reviewStatus: true, reviewedBy: true },
+        }),
+      ).resolves.toEqual({ reviewStatus: 'ACKNOWLEDGED', reviewedBy: operatorId })
+      await expect(
+        db.auditLog.count({
+          where: {
+            tenantId,
+            action: 'evaluation-case.prepared-from-conversation',
+            targetId: preparedConversationCase.id,
+          },
+        }),
+      ).resolves.toBe(1)
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'The visitor restored the helpful rating.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      expect(
+        (await listConversationKnowledgeGaps({ tenantId, venueId, limit: 25 })).some(
+          (insight) => insight.category === 'VISITOR_NEGATIVE_FEEDBACK',
+        ),
+      ).toBe(false)
+      await expect(
+        db.conversationInsight.count({
+          where: {
+            tenantId,
+            venueId,
+            guestChatTurnId: { not: null },
+            category: 'VISITOR_NEGATIVE_FEEDBACK',
+          },
+        }),
+      ).resolves.toBe(1)
+      _setAnthropicClientForTesting(null)
+
+      // 18. Exact rollback restores the content base after the public interaction evidence.
       const reverted = await caller.venuePackage.revertPackage({
         id: approved.id,
         expectedUpdatedAt: applied.updatedAt,
@@ -753,6 +1493,581 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
           { eventType: 'HUMAN_INTERVENTION' },
         ]),
       )
+
+      // 19. A routine venue update is published through the tenant action surface and
+      // remains machine-readable through the same bounded tenant API.
+      const updateStart = new Date(Date.now() - 60_000)
+      const updateEnd = new Date(Date.now() + 60 * 60 * 1_000)
+      const operationalUpdate = await caller.operationalUpdate.create({
+        venueId,
+        updateType: 'CHANGED_HOURS',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: 'Synthetic late opening',
+        body: 'The museum opens at 10:30 AM during this disposable proof.',
+        startsAt: updateStart,
+        expiresAt: updateEnd,
+        publish: true,
+      })
+      expect(operationalUpdate).toMatchObject({
+        tenantId,
+        venueId,
+        status: 'PUBLISHED',
+        isActive: true,
+      })
+      await expect(
+        caller.operationalUpdate.getById({ id: operationalUpdate.id }),
+      ).resolves.toMatchObject({
+        id: operationalUpdate.id,
+        title: 'Synthetic late opening',
+        status: 'PUBLISHED',
+      })
+
+      // 20. Reports fail closed until explicitly enabled. A populated draft is then
+      // published by the platform-admin action and read through the client tenant API.
+      await expect(caller.analytics.listPublishedWeeklyReports({ venueId })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      })
+      await admin.updateVenueReportConfiguration({
+        tenantId,
+        venueId,
+        enabled: true,
+        expectedUpdatedAt: null,
+      })
+      const report = await db.weeklyReport.create({
+        data: {
+          tenantId,
+          venueId,
+          weekStart: new Date('2026-08-10T00:00:00.000Z'),
+          weekEnd: new Date('2026-08-16T23:59:59.999Z'),
+          status: 'DRAFT',
+          title: 'Synthetic Golden Venue report',
+          content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+          createdBy: operatorId,
+        },
+      })
+      await expect(
+        admin.publishWeeklyReport({
+          tenantId,
+          venueId,
+          reportId: report.id,
+          expectedUpdatedAt: report.updatedAt.toISOString(),
+        }),
+      ).resolves.toEqual({ ok: true })
+      await expect(
+        caller.analytics.getPublishedWeeklyReport({ venueId, reportId: report.id }),
+      ).resolves.toMatchObject({
+        id: report.id,
+        title: 'Synthetic Golden Venue report',
+        content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+      })
+
+      // 21. Offboarding remains non-destructive and human-gated: create a scoped REQUESTED
+      // draft and metadata-reference preview, explicitly review its export matrix, finalize every
+      // bounded reference-only artifact into versioned disposable storage, and reconcile an exact
+      // retry without revocation, deletion, venue deactivation, or customer cancellation.
+      const activeBeforeOffboarding = await db.venue.findFirstOrThrow({
+        where: { id: venueId, tenantId },
+        select: { isActive: true },
+      })
+      const draftPlan = await admin.createOffboardingDraft({
+        tenantId,
+        requestId: randomUUID(),
+        venueIds: [venueId],
+        revocationTargets: ['GUEST_LINKS', 'BACKGROUND_JOBS', 'CLIENT_ACCESS'],
+        exportKinds: ['APPROVED_CONTENT', 'CONTENT_HISTORY', 'VENUE_PACKAGES', 'CONFIGURATION'],
+      })
+      expect(draftPlan).toMatchObject({ status: 'REQUESTED' })
+      const exportPreview = await admin.previewOffboardingExportManifest({
+        tenantId,
+        venueIds: [venueId],
+      })
+      expect(exportPreview).toMatchObject({
+        schemaVersion: 1,
+        tenantId,
+        selectedVenueIds: [venueId],
+        privacyBoundary: 'METADATA_REFERENCES_ONLY',
+      })
+      expect(exportPreview.packages).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: approved.id, venueId })]),
+      )
+      await expect(
+        db.venue.findFirstOrThrow({
+          where: { id: venueId, tenantId },
+          select: { isActive: true },
+        }),
+      ).resolves.toEqual(activeBeforeOffboarding)
+      await expect(
+        db.offboardingRevocationEvidence.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
+      await expect(
+        db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
+      const exportControl = await admin.getOffboardingExportFinalization({
+        tenantId,
+        planId: draftPlan.id,
+      })
+      expect(exportControl).toMatchObject({
+        status: 'REQUESTED',
+        remainingArtifacts: 4,
+        exportActions: { review: { allowed: true }, finalize: { allowed: false } },
+      })
+      const reviewed = await admin.reviewOffboardingPlanExports({
+        tenantId,
+        planId: draftPlan.id,
+        operationId: randomUUID(),
+        expectedUpdatedAt: exportControl.expectedUpdatedAt,
+      })
+      expect(reviewed).toMatchObject({ status: 'REVIEWED', replayed: false })
+      const exportKinds = [
+        'APPROVED_CONTENT',
+        'CONTENT_HISTORY',
+        'VENUE_PACKAGES',
+        'CONFIGURATION',
+      ] as const
+      let lastExportOperationId = ''
+      for (const [index, kind] of exportKinds.entries()) {
+        const exportOperationId = randomUUID()
+        lastExportOperationId = exportOperationId
+        await expect(
+          admin.finalizeOffboardingExportArtifact({
+            tenantId,
+            planId: draftPlan.id,
+            venueId,
+            kind,
+            operationId: exportOperationId,
+            expectedPlanUpdatedAt: reviewed.expectedUpdatedAt,
+          }),
+        ).resolves.toMatchObject({
+          status: 'SETTLED',
+          artifactRecorded: true,
+          replayed: false,
+          planStatus: index === exportKinds.length - 1 ? 'EXPORT_READY' : 'REVIEWED',
+          remainingArtifacts: exportKinds.length - index - 1,
+        })
+      }
+      const replayedFinalExport = await admin.finalizeOffboardingExportArtifact({
+        tenantId,
+        planId: draftPlan.id,
+        venueId,
+        kind: 'CONFIGURATION',
+        operationId: lastExportOperationId,
+        expectedPlanUpdatedAt: reviewed.expectedUpdatedAt,
+      })
+      expect(replayedFinalExport).toMatchObject({
+        status: 'SETTLED',
+        artifactRecorded: true,
+        replayed: true,
+        planStatus: 'EXPORT_READY',
+        remainingArtifacts: 0,
+      })
+      const storedExports = await db.offboardingExportOperation.findMany({
+        where: { tenantId, planId: draftPlan.id },
+        orderBy: { kind: 'asc' },
+        select: {
+          kind: true,
+          status: true,
+          objectKey: true,
+          storedVersionId: true,
+          contentHash: true,
+          byteLength: true,
+        },
+      })
+      expect(storedExports).toHaveLength(exportKinds.length)
+      for (const storedExport of storedExports) {
+        expect(storedExport).toMatchObject({ status: 'SETTLED' })
+        expect(storedExport.storedVersionId).toEqual(expect.any(String))
+        const object = await storageClient.send(
+          new HeadObjectCommand({ Bucket: storageBucket, Key: storedExport.objectKey }),
+        )
+        expect(object).toMatchObject({
+          VersionId: storedExport.storedVersionId,
+          ContentLength: storedExport.byteLength,
+          Metadata: { 'pathfinder-sha256': storedExport.contentHash },
+        })
+      }
+      await expect(
+        db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(exportKinds.length)
+      await expect(
+        db.offboardingRevocationEvidence.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
+      await expect(
+        db.venue.findFirstOrThrow({
+          where: { id: venueId, tenantId },
+          select: { isActive: true },
+        }),
+      ).resolves.toEqual(activeBeforeOffboarding)
+
+      // Failure matrix A — duplicate request: the exact committed operation replays from
+      // durable evidence without another embedding or generation dispatch.
+      const embeddingCallsBeforeReplay = openAiCreate.mock.calls.length
+      await expect(
+        publicCaller.chat.send({
+          operationId,
+          venueId,
+          anonymousToken,
+          message: primaryExpected.question,
+        }),
+      ).resolves.toMatchObject({
+        response: primaryExpected.answer,
+        assistantMessageId,
+        sessionId: guestTurn.sessionId,
+        replayed: true,
+      })
+      expect(openAiCreate).toHaveBeenCalledTimes(embeddingCallsBeforeReplay)
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
+
+      // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
+      // requests in the fixed window and rejects the next request without another write.
+      // Three feedback submissions above established helpful -> not helpful -> helpful.
+      for (let attempt = 1; attempt < 28; attempt += 1) {
+        await publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: `Synthetic bounded replay ${attempt}`,
+        })
+      }
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'This request must be rate limited.',
+        }),
+      ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+      await expect(
+        db.analyticsEvent.count({
+          where: {
+            tenantId,
+            venueId,
+            sessionId: guestTurn.sessionId,
+            eventType: 'chat.response.feedback',
+          },
+        }),
+      ).resolves.toBe(30)
+
+      // Failure matrix C — bad upload: an infected disposable object remains rejected and
+      // produces no reviewable intake run.
+      const rejectedBytes = Buffer.from('synthetic infected upload evidence', 'utf8')
+      const rejectedSha256 = createHash('sha256').update(rejectedBytes).digest('hex')
+      const rejectedGeneration = randomUUID()
+      const rejectedReservation = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'Synthetic rejected upload',
+          fileName: 'synthetic-rejected.png',
+          mimeType: 'image/png',
+          category: 'OTHER',
+          byteSize: rejectedBytes.byteLength,
+          sha256: rejectedSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: `intake-quarantine/${randomUUID()}`,
+          objectGeneration: rejectedGeneration,
+        },
+      })
+      const rejectedPrecheckClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedPrecheckClaim,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedPrecheckClaim,
+        verified: {
+          objectGeneration: rejectedGeneration,
+          storageVersionId: `rejected-version-${suffix}`,
+          mimeType: 'image/png',
+          byteSize: rejectedBytes.byteLength,
+          sha256: rejectedSha256,
+        },
+        evidence: {
+          engine: 'synthetic-magic-bytes',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update('rejected-precheck').digest('hex'),
+          computedByteSize: rejectedBytes.byteLength,
+          computedSha256: rejectedSha256,
+        },
+      })
+      const rejectedAuthoritativeClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedAuthoritativeClaim,
+      })
+      await expect(
+        settleIntakeUploadAuthoritativeVerificationAction({
+          tenantId,
+          venueId,
+          uploadId: rejectedReservation.upload.id,
+          actor,
+          claimId: rejectedAuthoritativeClaim,
+          malware: {
+            verdict: 'INFECTED',
+            engine: 'synthetic-clamav',
+            engineVersion: '1',
+            verdictHash: createHash('sha256').update('synthetic-infected').digest('hex'),
+            computedByteSize: rejectedBytes.byteLength,
+            computedSha256: rejectedSha256,
+          },
+        }),
+      ).resolves.toMatchObject({ nextAction: 'RESELECT_FILE', replayed: false })
+      await expect(
+        db.intakeUpload.findFirstOrThrow({
+          where: { id: rejectedReservation.upload.id, tenantId, venueId },
+          select: { status: true, intakeRunId: true },
+        }),
+      ).resolves.toEqual({ status: 'REJECTED', intakeRunId: null })
+
+      // Failure matrix D — provider outage: a founder-governed unhealthy Anthropic route
+      // fails as provider unavailable before generation dispatch and is then explicitly restored.
+      const providerControl = await setAiProviderHealthOverrideAction({
+        provider: 'anthropic',
+        unhealthy: true,
+        reason: 'Synthetic Golden Venue provider outage',
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+        expectedUpdatedAt: null,
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const outageToken = randomUUID()
+      const outageOperationId = randomUUID()
+      const generationCallsBeforeOutage = anthropicCreate.mock.calls.length
+      await expect(
+        publicCaller.chat.send({
+          operationId: outageOperationId,
+          venueId,
+          anonymousToken: outageToken,
+          message: 'Is the guide available?',
+        }),
+      ).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
+      })
+      expect(anthropicCreate).toHaveBeenCalledTimes(generationCallsBeforeOutage)
+      await expect(
+        db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: outageOperationId },
+          select: { status: true, failureCode: true },
+        }),
+      ).resolves.toEqual({ status: 'FAILED', failureCode: 'AI_UNAVAILABLE' })
+      await setAiProviderHealthOverrideAction({
+        provider: 'anthropic',
+        unhealthy: false,
+        reason: 'Synthetic Golden Venue provider restored',
+        expiresAt: null,
+        expectedUpdatedAt: providerControl.updatedAt,
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+
+      const reserveFailureTurn = async (label: string) => {
+        const token = randomUUID()
+        const requestId = randomUUID()
+        await publicCaller.chat.session({ venueId, anonymousToken: token })
+        const request = {
+          tenantId,
+          venueId,
+          anonymousToken: token,
+          requestId,
+          visitorId: null,
+          message: label,
+          language: null,
+          lat: null,
+          lng: null,
+          retainLocation: false,
+          experienceScope: 'PUBLIC' as const,
+        }
+        const reservation = await reserveGuestChatTurnAction({ client: db, request })
+        if (reservation.state !== 'RESERVED') {
+          throw new Error(`Failure turn was not reserved: ${reservation.state}`)
+        }
+        const claimId = randomUUID()
+        const claimed = await claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: token,
+            requestId,
+            turnId: reservation.turnId,
+            claimId,
+          },
+        })
+        if (claimed.state !== 'GENERATING') {
+          throw new Error(`Failure turn was not claimed: ${claimed.state}`)
+        }
+        return { token, requestId, request, reservation, claimId, claimed }
+      }
+
+      // Failure matrix E — failed worker: an undispatched expired owner is fenced out and a new
+      // worker takes over the exact turn without creating a duplicate operation.
+      const failedWorker = await reserveFailureTurn('Synthetic failed worker turn')
+      const recoveredClaimId = randomUUID()
+      const recoveredAt = new Date(Date.now() + GUEST_CHAT_TURN_LEASE_MS + 1_000)
+      await expect(
+        claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: failedWorker.token,
+            requestId: failedWorker.requestId,
+            turnId: failedWorker.reservation.turnId,
+            claimId: recoveredClaimId,
+          },
+          now: recoveredAt,
+        }),
+      ).resolves.toMatchObject({
+        state: 'GENERATING',
+        turnId: failedWorker.reservation.turnId,
+        claimId: recoveredClaimId,
+        replayed: false,
+      })
+      await expect(
+        db.guestChatTurn.count({
+          where: { tenantId, venueId, requestId: failedWorker.requestId },
+        }),
+      ).resolves.toBe(1)
+
+      // Failure matrix F — ambiguous provider outcome: an expired unobserved generation dispatch
+      // becomes terminal ambiguity and cannot be claimed or dispatched again.
+      const ambiguous = await reserveFailureTurn('Synthetic ambiguous provider turn')
+      const generationOperation = ambiguous.claimed.providerOperations.find(
+        (operation) => operation.kind === 'RESPONSE_GENERATION',
+      )
+      if (!generationOperation) throw new Error('Ambiguous turn lacks generation reservation')
+      await markGuestChatProviderDispatchedAction({
+        client: db,
+        operation: {
+          tenantId,
+          venueId,
+          anonymousToken: ambiguous.token,
+          requestId: ambiguous.requestId,
+          turnId: ambiguous.reservation.turnId,
+          claimId: ambiguous.claimId,
+          kind: 'RESPONSE_GENERATION',
+        },
+      })
+      const ambiguousAt = new Date(Date.now() + GUEST_CHAT_TURN_LEASE_MS + 1_000)
+      await expect(
+        reserveGuestChatTurnAction({ client: db, request: ambiguous.request, now: ambiguousAt }),
+      ).resolves.toMatchObject({
+        state: 'AMBIGUOUS',
+        turnId: ambiguous.reservation.turnId,
+        replayed: true,
+      })
+      await expect(
+        claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: ambiguous.token,
+            requestId: ambiguous.requestId,
+            turnId: ambiguous.reservation.turnId,
+            claimId: randomUUID(),
+          },
+          now: ambiguousAt,
+        }),
+      ).rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
+      await expect(
+        db.guestChatProviderOperation.findFirstOrThrow({
+          where: {
+            tenantId,
+            venueId,
+            turnId: ambiguous.reservation.turnId,
+            kind: 'RESPONSE_GENERATION',
+          },
+          select: { status: true, outcomeCode: true },
+        }),
+      ).resolves.toEqual({
+        status: 'TERMINAL_AMBIGUOUS',
+        outcomeCode: 'LEASE_EXPIRED_AFTER_DISPATCH',
+      })
+
+      // Failure matrix G — report failure: the real worker consumes a durable request, records
+      // a failed job, and leaves the report visibly FAILED when deterministic generation rejects.
+      const failedReportRequest = await admin.generateWeeklyReportDraft({
+        tenantId,
+        venueId,
+        weekStart: '2026-08-17T00:00:00.000Z',
+        weekEnd: '2026-08-22T23:59:59.999Z',
+        title: 'Synthetic failing Golden Venue report',
+        requestId: randomUUID(),
+      })
+      // Keep the worker package outside the API TypeScript root while exercising its runtime
+      // module in this repository-level disposable proof.
+      const weeklyReportWorkerPath = '../../../apps/workers/src/processors/weekly-report'
+      const weeklyReportWorker = (await import(/* @vite-ignore */ weeklyReportWorkerPath)) as {
+        _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void
+        processWeeklyReportJob(
+          payload: {
+            reportId: string
+            tenantId: string
+            venueId: string
+            weekStart: string
+            weekEnd: string
+          },
+          execution: { bullJobId: string; attemptNumber: number; maxAttempts: number },
+        ): Promise<void>
+      }
+      weeklyReportWorker._setAnthropicClientForTesting({
+        messages: {
+          create: vi.fn().mockRejectedValue(new Error('Synthetic report provider failure')),
+        },
+      } as AnthropicMessagesClient)
+      try {
+        await expect(
+          weeklyReportWorker.processWeeklyReportJob(
+            {
+              reportId: failedReportRequest.reportId,
+              tenantId,
+              venueId,
+              weekStart: '2026-08-17T00:00:00.000Z',
+              weekEnd: '2026-08-22T23:59:59.999Z',
+            },
+            {
+              bullJobId: `golden-venue-report-failure-${suffix}`,
+              attemptNumber: 1,
+              maxAttempts: 1,
+            },
+          ),
+        ).rejects.toThrow('Synthetic report provider failure')
+      } finally {
+        weeklyReportWorker._setAnthropicClientForTesting(null)
+      }
+      await expect(
+        db.weeklyReport.findFirstOrThrow({
+          where: { id: failedReportRequest.reportId, tenantId, venueId },
+          select: { status: true, error: true },
+        }),
+      ).resolves.toMatchObject({
+        status: 'FAILED',
+        error: expect.stringContaining('Synthetic report provider failure'),
+      })
+      await expect(
+        db.jobRecord.count({
+          where: {
+            tenantId,
+            status: 'FAILED',
+            bullJobId: `golden-venue-report-failure-${suffix}`,
+          },
+        }),
+      ).resolves.toBe(1)
     })
   }, 120_000)
 })

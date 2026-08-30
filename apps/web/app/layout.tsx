@@ -68,22 +68,22 @@ const publicWebUrl = new URL(process.env.NEXT_PUBLIC_WEB_URL ?? 'https://torchik
 
 export const metadata: Metadata = {
   metadataBase: publicWebUrl,
-  title: 'Torchiko — The AI guide built for your venue',
+  title: 'Torchiko — A custom guide for your venue',
   description:
-    'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+    'Torchiko builds venue-specific conversational guides that help visitors get answers and discover more while reducing repetitive staff questions. Setup is included.',
   openGraph: {
-    title: 'Torchiko — The AI guide built for your venue',
+    title: 'Torchiko — A custom guide for your venue',
     description:
-      'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+      'A conversational visitor guide built around your venue, available by QR code or link with no app download.',
     url: publicWebUrl,
     siteName: 'Torchiko',
     type: 'website',
   },
   twitter: {
     card: 'summary',
-    title: 'Torchiko — The AI guide built for your venue',
+    title: 'Torchiko — A custom guide for your venue',
     description:
-      'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+      'A conversational visitor guide built around your venue, available by QR code or link with no app download.',
   },
 }
 

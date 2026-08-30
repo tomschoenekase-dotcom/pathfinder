@@ -8,11 +8,22 @@ import {
   requestSupportInformationAction,
   respondToSupportInformationAction,
 } from './support-actions'
+import { supportPackageFulfillmentDigest } from './support-package-fulfillment'
 
 const operationId = '11111111-1111-4111-8111-111111111111'
 const tenantId = 'tenant_1'
 const venueId = 'venue_1'
 const requestId = 'request_1'
+const packageFreeFulfillment = {
+  contractVersion: 1 as const,
+  linkedPackageCount: 0,
+  packages: [],
+  digest: supportPackageFulfillmentDigest({
+    contractVersion: 1,
+    linkedPackageCount: 0,
+    packages: [],
+  }),
+}
 
 function harness(overrides: Record<string, unknown> = {}) {
   const request = {
@@ -51,6 +62,7 @@ function harness(overrides: Record<string, unknown> = {}) {
       create: vi.fn().mockResolvedValue(message),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
+    supportPackageHandoff: { findMany: vi.fn().mockResolvedValue([]) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
   }
   const client = { $transaction: vi.fn(async (callback) => callback(tx)) }
@@ -126,6 +138,84 @@ describe('manual Support loop actions', () => {
       }),
       h.tx,
     )
+  })
+
+  it('accepts only fully attributed approved agent execution for the client-visible prompt', async () => {
+    const h = harness({ missingInformation: ['Current photo'] })
+    await requestSupportInformationAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Please provide a current photo.',
+        missingInformation: ['Current photo'],
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:request-information',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+          idempotencyKey: operationId,
+        },
+      },
+      h.client as never,
+    )
+    expect(h.tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ authorKind: 'AGENT', visibility: 'CLIENT_VISIBLE' }),
+      }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          approvalGrantId: 'grant_1',
+          capability: 'support:request-information',
+        }),
+        afterState: expect.objectContaining({
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          participantChanged: false,
+        }),
+      }),
+      h.tx,
+    )
+
+    await expect(
+      requestSupportInformationAction(
+        {
+          operationId,
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 4,
+          body: 'Please provide a current photo.',
+          missingInformation: ['Current photo'],
+          actor: {
+            actorType: 'AGENT',
+            participantKind: 'AGENT',
+            actorId: 'agent_1',
+            auditRole: 'AGENT',
+            agentIdentityId: 'agent_1',
+            agentRunId: 'run_1',
+            workerId: 'worker_1',
+            credentialId: 'credential_1',
+            capability: 'support:request-information',
+            idempotencyKey: operationId,
+          } as never,
+        },
+        harness().client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
   })
 
   it('accepts an authorized client response and clears the checklist', async () => {
@@ -275,6 +365,55 @@ describe('manual Support loop actions', () => {
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(blocked.tx.supportRequest.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('attributes approved agent completion and records customer contact truthfully', async () => {
+    const h = harness()
+    h.message.authorKind = 'AGENT'
+    h.message.authorId = 'agent_1'
+    const result = await completeSupportRequestAction(
+      {
+        operationId,
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 4,
+        body: 'Your requested update is complete.',
+        packageFulfillment: packageFreeFulfillment,
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:complete',
+          idempotencyKey: operationId,
+        },
+      },
+      h.client as never,
+    )
+    expect(result.status).toBe('COMPLETED')
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          capability: 'support:complete',
+          approvalGrantId: 'grant_1',
+        }),
+        afterState: expect.objectContaining({
+          clientVisibleMessageCreated: true,
+          customerContacted: true,
+          externalDeliveryTriggered: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        }),
+      }),
+      h.tx,
+    )
   })
 
   it('rolls back the action when strict audit fails', async () => {

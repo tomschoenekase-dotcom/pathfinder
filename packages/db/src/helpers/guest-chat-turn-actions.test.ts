@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { GUEST_ANSWER_EVIDENCE_VERSION } from '@pathfinder/contracts'
+import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract'
+
 import {
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
@@ -8,6 +11,7 @@ import {
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
+  skipGuestChatProviderOperationAction,
 } from './guest-chat-turn-actions'
 
 const request = {
@@ -98,6 +102,51 @@ describe('guest chat turn actions', () => {
     )
   })
 
+  it('settles an excluded provider reservation without recording a dispatch', async () => {
+    const now = new Date('2026-01-01T00:01:00Z')
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({
+          sessionId: 'session-1',
+          leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+        }),
+      },
+      guestChatProviderOperation: { updateMany },
+    }
+
+    await expect(
+      skipGuestChatProviderOperationAction({
+        client: transactionClient(tx),
+        operation: {
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          anonymousToken: request.anonymousToken,
+          requestId: request.requestId,
+          turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          kind: 'QUERY_EMBEDDING',
+        },
+        now,
+      }),
+    ).resolves.toEqual({ skipped: true })
+    expect(updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        status: 'RESERVED',
+        dispatchedAt: null,
+        leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+      data: {
+        status: 'OBSERVED',
+        observedAt: now,
+        outcomeCode: 'PROVIDER_EXCLUDED',
+        usageReference: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
+    })
+  })
+
   it('hashes only the reserved request fields while validating finalization', async () => {
     const tx = {
       $executeRaw: vi.fn(),
@@ -179,6 +228,119 @@ describe('guest chat turn actions', () => {
               }),
             ],
           },
+        }),
+      }),
+    )
+  })
+
+  it('preserves the production chat incident invariant when finalizing durable messages', async () => {
+    const claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const turnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const citations = [
+      {
+        label: 'Official visitor guide',
+        href: 'https://museum.example/visit',
+        detail: 'Place: Cafe',
+      },
+    ]
+    const answerEvidence = {
+      schemaVersion: GUEST_ANSWER_EVIDENCE_VERSION,
+      promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
+      answerHash: 'a'.repeat(64),
+      systemPromptHash: 'b'.repeat(64),
+      evidenceSetHash: 'c'.repeat(64),
+      routeConfigurationVersion: 'route-v1',
+      system: { staticPart: 'Static prompt', dynamicPart: 'Dynamic prompt' },
+      sources: [
+        {
+          sourceId: 'venue:venue-1',
+          kind: 'VENUE_PROFILE' as const,
+          label: 'Museum',
+          rank: null,
+          snapshot: '{"name":"Museum"}',
+          snapshotHash: 'd'.repeat(64),
+        },
+      ],
+    }
+    const createMany = vi.fn().mockResolvedValue({ count: 2 })
+    const tx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: turnId,
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          sessionId: 'session-1',
+          requestId: request.requestId,
+          requestHash: guestChatRequestHash(request),
+          status: 'GENERATING',
+          leaseToken: claimId,
+          userMessageSequence: 21,
+          assistantMessageSequence: 22,
+          pendingQuestionId: null,
+          pendingIsInvented: false,
+          pendingAskedMessageId: null,
+          pendingAskedAt: null,
+          providerOperations: [
+            { kind: 'QUERY_EMBEDDING', status: 'OBSERVED' },
+            { kind: 'RESPONSE_GENERATION', status: 'OBSERVED' },
+          ],
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      message: { createMany },
+      visitorSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      engagementQuestion: { findFirst: vi.fn() },
+      engagementQuestionResponse: { create: vi.fn() },
+    }
+
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: transactionClient(tx),
+        input: {
+          ...request,
+          turnId,
+          claimId,
+          assistantResponse: 'The cafe is downstairs.',
+          replayMetadata: { places: [], citations, answerEvidence },
+          fallbackCode: null,
+          nextPending: { kind: 'NONE' },
+        },
+        now: new Date('2026-08-22T12:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      state: 'COMPLETE',
+      sessionId: 'session-1',
+      citations,
+      replayed: false,
+    })
+
+    const rows = createMany.mock.calls[0]![0].data
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        sessionId: 'session-1',
+        guestChatTurnId: turnId,
+        sessionSequence: 21,
+        turnMessageSequence: 0,
+        role: 'user',
+      }),
+      expect.objectContaining({
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        sessionId: 'session-1',
+        guestChatTurnId: turnId,
+        sessionSequence: 22,
+        turnMessageSequence: 1,
+        role: 'assistant',
+      }),
+    ])
+    expect(tx.guestChatTurn.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          replayMetadata: { places: [], citations, answerEvidence },
+          responseHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
         }),
       }),
     )

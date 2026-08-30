@@ -3,11 +3,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
 import { TypingIndicator } from './TypingIndicator'
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
 
 type Message = {
   id?: string
@@ -20,6 +23,8 @@ type Message = {
 type ChatWindowProps = {
   messages: Message[]
   onSend: (message: string) => void
+  onRequestMore?: () => void
+  requestMoreLabel?: string
   onDraftChange?: (draft: string) => void
   onRetry?: () => void
   retryLabel?: string
@@ -36,11 +41,15 @@ type ChatWindowProps = {
   onDirectionsClick?: (placeId: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
+  isOnline?: boolean
+  language?: SupportedChatLanguage
 }
 
 export function ChatWindow({
   messages,
   onSend,
+  onRequestMore,
+  requestMoreLabel = 'Tell me more',
   onDraftChange,
   onRetry,
   retryLabel = 'Retry same message',
@@ -57,7 +66,23 @@ export function ChatWindow({
   onDirectionsClick,
   onVisitorAction,
   onMessageFeedback,
+  isOnline = true,
+  language = 'English',
 }: ChatWindowProps) {
+  const presentation = getChatLanguagePresentation(language)
+  const [
+    ,
+    ,
+    ,
+    conversationLabel,
+    ,
+    askQuestionLabel,
+    reconnectLabel,
+    sendingLabel,
+    sendMessageLabel,
+    sendLabel,
+    respondingLabel,
+  ] = getVisitorUiCopy(language).shell
   const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
@@ -66,6 +91,7 @@ export function ChatWindow({
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const wasLoadingRef = useRef(isLoading)
+  const announcementWasLoadingRef = useRef(isLoading)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
 
@@ -112,18 +138,25 @@ export function ChatWindow({
     const previousMessageCount = previousMessageCountRef.current
     const hasNewMessage = messages.length > previousMessageCount
     const latestMessage = messages.at(-1)
+    const responseCompleted = announcementWasLoadingRef.current && !isLoading
 
     previousMessageCountRef.current = messages.length
+    announcementWasLoadingRef.current = isLoading
 
     if (messages.length < previousMessageCount) {
       setLiveAnnouncement(null)
-    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+    } else if (responseCompleted && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
         kind: 'response',
         content: latestMessage.content,
       })
     } else if (isLoading) {
       setLiveAnnouncement({ kind: 'responding' })
+    } else if (hasNewMessage && latestMessage?.role === 'assistant') {
+      setLiveAnnouncement({
+        kind: 'response',
+        content: latestMessage.content,
+      })
     } else {
       setLiveAnnouncement((current) => (current?.kind === 'responding' ? null : current))
     }
@@ -132,7 +165,7 @@ export function ChatWindow({
   function submit() {
     const nextMessage = draft.trim()
 
-    if (!nextMessage || isLoading) {
+    if (!nextMessage || isLoading || !isOnline) {
       return
     }
 
@@ -145,19 +178,21 @@ export function ChatWindow({
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)] sm:px-5"
         role="log"
-        aria-label="Conversation"
+        aria-label={conversationLabel}
         aria-live="off"
+        tabIndex={0}
       >
         {messages.length === 0 && emptyState ? emptyState : null}
 
         {messages.map((message, index) => (
-          <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
+          <div key={message.id ?? `${message.role}-${index}`}>
             <MessageBubble
               role={message.role}
               content={message.content}
               assistantLabel={assistantLabel}
+              language={language}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
@@ -167,7 +202,9 @@ export function ChatWindow({
               {...(message.id && onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
-              {...(message.role === 'assistant' && !isLoading ? { onChoiceSelect: onSend } : {})}
+              {...(message.role === 'assistant' && !isLoading && isOnline
+                ? { onChoiceSelect: onSend }
+                : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
               {...(message.role === 'user' && accentContrastColor
                 ? { bubbleTextColor: accentContrastColor }
@@ -176,13 +213,26 @@ export function ChatWindow({
           </div>
         ))}
 
-        {isLoading ? <TypingIndicator /> : null}
+        {onRequestMore && !isLoading && messages.at(-1)?.role === 'assistant' ? (
+          <div className="flex justify-start pl-1">
+            <button
+              type="button"
+              onClick={onRequestMore}
+              disabled={isLoading || !isOnline}
+              className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+            >
+              {requestMoreLabel}
+            </button>
+          </div>
+        ) : null}
+
+        {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
       </div>
 
       <div className="sr-only" role="status" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
-          <span lang="en" dir="ltr">
-            {assistantLabel} is responding
+          <span lang={presentation.code} dir={presentation.direction}>
+            {assistantLabel} {respondingLabel}
           </span>
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
@@ -206,7 +256,7 @@ export function ChatWindow({
             {onRetry ? (
               <button
                 type="button"
-                disabled={isLoading}
+                disabled={isLoading || !isOnline}
                 onClick={onRetry}
                 className="ml-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
               >
@@ -217,8 +267,13 @@ export function ChatWindow({
         ) : null}
 
         <div className="flex items-end gap-3">
-          <label className="sr-only" htmlFor="chat-input">
-            Ask a question
+          <label
+            className="sr-only"
+            htmlFor="chat-input"
+            lang={presentation.code}
+            dir={presentation.direction}
+          >
+            {askQuestionLabel}
           </label>
           <textarea
             ref={composerRef}
@@ -245,13 +300,15 @@ export function ChatWindow({
           <button
             ref={sendButtonRef}
             style={{
-              backgroundColor: !isLoading && draft.trim().length > 0 ? accentColor : undefined,
-              color: !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
+              backgroundColor:
+                isOnline && !isLoading && draft.trim().length > 0 ? accentColor : undefined,
+              color:
+                isOnline && !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
-            disabled={isLoading || draft.trim().length === 0}
+            disabled={!isOnline || isLoading || draft.trim().length === 0}
             type="button"
-            aria-label={isLoading ? 'Sending message' : 'Send message'}
+            aria-label={!isOnline ? reconnectLabel : isLoading ? sendingLabel : sendMessageLabel}
             onClick={submit}
           >
             {isLoading ? (
@@ -277,7 +334,7 @@ export function ChatWindow({
                 />
               </svg>
             ) : (
-              'Send'
+              sendLabel
             )}
           </button>
         </div>

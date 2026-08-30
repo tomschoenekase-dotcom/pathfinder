@@ -14,6 +14,88 @@ const readiness = {
   limits: { cohort: 5000, batch: 500 },
   policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
   accounts: [],
+  followupReview: {
+    generatedAt: now,
+    evidenceBounded: false,
+    policy: {
+      automaticSchedulingAuthorized: false,
+      automaticSendingAuthorized: false,
+      alternateContactAuthorized: false,
+      cadencePolicy: 'UNRESOLVED',
+    },
+    counts: { due: 1, scheduled: 0, readyForDraft: 0, held: 0 },
+    items: [
+      {
+        id: 'followup-fixture',
+        organizationId: 'org-2',
+        dueAt: new Date('2026-08-19T12:00:00Z'),
+        sequenceNumber: 1,
+        status: 'PENDING',
+        reason: 'Founder-approved first follow-up schedule',
+        policyApprovedAt: new Date('2026-08-18T12:00:00Z'),
+        readinessCheckedAt: null,
+        organization: { canonicalName: 'Lakeside Art Center', relationshipTier: 'HIGH_VALUE' },
+        opportunity: { stage: 'CONTACTED', priority: 'NORMAL', lastActivityAt: now },
+        campaignMember: { status: 'CONTACTED' },
+        triggerSendItem: { sentAt: new Date('2026-08-12T12:00:00Z') },
+        due: true,
+        policyApproved: true,
+      },
+    ],
+  },
+}
+
+const rehearsal = {
+  campaignId: 'campaign-fixture',
+  generatedAt: now,
+  mode: 'NO_SEND_REHEARSAL',
+  outcome: 'READY_FOR_HUMAN_REVIEW',
+  readyForHumanReview: true,
+  readyToSend: false,
+  blockers: [],
+  safety: {
+    deliveryDark: true,
+    processDeliveryEnabled: false,
+    globalDeliveryEnabled: false,
+    internalOnly: true,
+    emergencyStopAvailable: true,
+    emergencyStopDirection: 'DISABLE_ONLY',
+    providerRequired: false,
+    providerCallsMade: 0,
+    estimatedProviderCostUsd: 0,
+  },
+  cohort: {
+    memberCount: 2,
+    maxCohort: 5000,
+    maxBatch: 500,
+    bounded: true,
+    unsafeMemberCount: 0,
+    missingProvenanceCount: 0,
+    duplicateMemberEmailCount: 0,
+    openOrganizationDuplicateCount: 0,
+  },
+  review: {
+    missingDraftCount: 0,
+    draftsNeedingReviewCount: 1,
+    approvedDraftCount: 1,
+    approvalEvidenceMissingCount: 0,
+  },
+  frozenSnapshots: {
+    activeBatchCount: 1,
+    recipientCount: 1,
+    invalidBatchCount: 0,
+    duplicateEmailCount: 0,
+    duplicateIdentityCount: 0,
+    identities: [
+      {
+        batchId: 'batch-1',
+        status: 'APPROVED',
+        recipientCount: 1,
+        snapshotHash: 'c'.repeat(64),
+      },
+    ],
+  },
+  campaign: { status: 'DRAFT', paused: false },
 }
 
 const campaign = {
@@ -294,7 +376,11 @@ export default async function ProspectCrmFixture({
           ) : (
             <ProspectCampaignWorkbench
               campaignId="campaign-fixture"
-              fixture={{ campaign: campaign as never, readiness: readiness as never }}
+              fixture={{
+                campaign: campaign as never,
+                readiness: readiness as never,
+                rehearsal: rehearsal as never,
+              }}
             />
           )}
         </div>

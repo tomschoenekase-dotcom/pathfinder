@@ -5,17 +5,42 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
 ## Setup and reset
 
 1. Run `pnpm golden-venue:validate`.
-2. Start disposable/local staging and run the disposable migration gate.
-3. For an authorized synthetic staging seed, satisfy every host/database confirmation required by `assertStagingSeedTarget`, then run the fixture's `seedCommand`. This is an environment-changing action and is not authorized by this packet alone.
-4. Reset by recreating the disposable database. Never broad-delete a shared staging or production database.
+2. Run `pnpm golden-venue:disposable` for the provider-dark core lifecycle. The command creates fresh,
+   digest-pinned PostgreSQL, Redis, MinIO, and ClamAV containers on exact loopback ports, applies the
+   complete migration lineage, executes exactly one non-skipped integration, and removes every exact
+   container even after failure. It refuses remote Docker endpoints and strips inherited credentials.
+3. Treat its `proofScope` output as authoritative. It proves client/venue creation, remote intake,
+   authoritative upload evidence, review, a support-question handoff, and a complete service-led
+   support resolution with private operator context and immutable terminal AI-run lineage. It also
+   proves immutable package/evaluation evidence, explicit release and exact rollback, grounded
+   provider-dark public chat through the
+   production gateway for every expected fixture question, visitor-owned feedback, tenant-published routine updates, admin-published
+   and client-read reports, plus a human-reviewed non-deleting export matrix finalized into
+   versioned disposable storage with exact replay recovery. The chat proof uses deterministic
+   in-process OpenAI/Anthropic client seams with outbound credentials and provider workers disabled;
+   it proves routing, retrieval, persistence, ownership, and analytics, **not** live-provider answer
+   quality. The support proof performs no external send, package mutation, or approval creation;
+   its AI lineage is evidence rather than execution authority. `EXPORT_READY` proves bounded
+   artifact evidence only; it does not prove customer
+   cancellation, revocation, deletion, delivery, or retention policy.
+4. Treat its `failureScope` output as the retained seven-class matrix. It proves founder-governed
+   provider exclusion before generation dispatch, a shared-Redis rate limit, infected upload
+   rejection, exact duplicate replay, fenced expired-worker takeover, durable report-worker failure,
+   and terminal ambiguity with no provider redispatch.
+5. For an authorized synthetic staging seed, satisfy every host/database confirmation required by
+   `assertStagingSeedTarget`, then run the fixture's `seedCommand`.
+6. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a
+   shared staging or production database.
 
 ## Lifecycle evidence checklist
 
 For each required phase, record timestamp, actor/surface, stable record ID, URL or artifact hash, expected result, observed result, and status. Cover client, venue, onboarding, upload/intake, review, content/package/evaluation, release, guest retrieval/chat, feedback, report, support, operational update, and export/offboarding.
 
 Ask every expected fixture question. Record the assistant answer and source records. A text match alone is not grounding evidence.
+The disposable runner enforces this contract against the exact checked-in fixture; `golden-venue:validate`
+is also a static release gate so question/proof metadata cannot silently drift.
 
-## Failure injection
+## Failure injection contract
 
 - Provider outage: disable provider access before dispatch; expect `PROVIDER_UNAVAILABLE` and no ambiguous retry.
 - Rate limit: exhaust a disposable rate bucket; expect `RATE_LIMITED` and a bounded retry.
@@ -25,4 +50,6 @@ Ask every expected fixture question. Record the assistant answer and source reco
 - Report failure: inject a deterministic provider failure and verify failed/stuck visibility.
 - Ambiguous provider outcome: fail persistence after dispatch; expect history reconciliation and no automatic provider retry.
 
-Provider-backed phases must be marked `UNVERIFIED_PROVIDER_DISABLED` unless a spend-bounded authorized provider smoke actually succeeds. Never fake success.
+These seven failure classes run provider-dark inside the retained disposable flow. Provider-backed
+quality must still be marked `UNVERIFIED_PROVIDER_DISABLED` unless a spend-bounded authorized
+provider smoke actually succeeds. Never fake success.

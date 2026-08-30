@@ -116,6 +116,8 @@ jobs:
       - name: Remove disposable S3-compatible storage
         if: always()
         run: docker rm --force pathfinder-disposable-media-ci
+      - name: Prove authoritative upload worker against fresh disposable infrastructure
+        run: pnpm test:intake-upload-verification:disposable
       - name: Verify embedding database concurrency and recovery
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:
@@ -158,6 +160,11 @@ jobs:
         env:
           PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
           PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
+      - name: Verify complete live queue observability
+        run: pnpm test:redis:queue-observability
+        env:
+          PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
+          PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify embedding freshness audit isolation
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:
@@ -195,6 +202,22 @@ jobs:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
       - name: Synchronize reviewed character assets
         run: pnpm characters:sync
+      - name: Install the pinned Chromium runtime for visual smoke tests
+        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
+      - name: Verify phone, tablet, and desktop core-product rendering
+        run: |
+          set -o pipefail
+          visual_log="$(mktemp)"
+          if ! pnpm test:visual-browser 2>&1 | tee "$visual_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Responsive browser gate failed::$safe_line"
+            done < <(tail -n 80 "$visual_log")
+            exit 1
+          fi
       - name: Build and verify browser bundles contain no server secrets
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts

@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { recordConversationInsightSignals } from '@pathfinder/db'
+
 import { router } from '../core'
 import { checkRateLimit } from '../lib/rate-limit'
 import { publicProcedure } from '../trpc'
@@ -29,17 +31,32 @@ export const feedbackRouter = router({
     // Resolve authoritative tenant scope from the opaque session token. A public
     // caller can never submit a tenant identity or rate a private-scope message.
     const [target] = await ctx.db.$queryRaw<
-      { tenantId: string; venueId: string; sessionId: string; messageId: string }[]
+      {
+        tenantId: string
+        venueId: string
+        sessionId: string
+        messageId: string
+        guestChatTurnId: string | null
+        userMessageId: string | null
+      }[]
     >`
       SELECT sessions.tenant_id AS "tenantId",
              sessions.venue_id AS "venueId",
              sessions.id AS "sessionId",
-             messages.id AS "messageId"
+             messages.id AS "messageId",
+             turns.id AS "guestChatTurnId",
+             turns.user_message_id AS "userMessageId"
         FROM visitor_sessions sessions
         JOIN messages
           ON messages.session_id = sessions.id
          AND messages.tenant_id = sessions.tenant_id
          AND messages.venue_id = sessions.venue_id
+        LEFT JOIN guest_chat_turns turns
+          ON turns.id = messages.guest_chat_turn_id
+         AND turns.assistant_message_id = messages.id
+         AND turns.session_id = sessions.id
+         AND turns.tenant_id = sessions.tenant_id
+         AND turns.venue_id = sessions.venue_id
        WHERE sessions.venue_id = ${rating.venueId}
          AND sessions.anonymous_token = ${rating.anonymousToken}
          AND sessions.experience_scope = 'PUBLIC'
@@ -59,9 +76,40 @@ export const feedbackRouter = router({
             messageId: target.messageId,
           },
         },
-        create: { ...target, rating: rating.rating, reason: rating.reason ?? null },
+        create: {
+          tenantId: target.tenantId,
+          venueId: target.venueId,
+          sessionId: target.sessionId,
+          messageId: target.messageId,
+          rating: rating.rating,
+          reason: rating.reason ?? null,
+        },
         update: { rating: rating.rating, reason: rating.reason ?? null },
       })
+      if (rating.rating === 'NOT_HELPFUL' && target.guestChatTurnId && target.userMessageId) {
+        await recordConversationInsightSignals({
+          client: tx,
+          signals: [
+            {
+              tenantId: target.tenantId,
+              venueId: target.venueId,
+              sessionId: target.sessionId,
+              guestChatTurnId: target.guestChatTurnId,
+              category: 'VISITOR_NEGATIVE_FEEDBACK',
+              confidence: 1,
+              severity: 'INFO',
+              summary: 'A visitor explicitly rated this public answer as not helpful.',
+              suggestedAction:
+                'Review the question, answer, and current venue knowledge before proposing a correction.',
+              evidenceMessageIds: [target.userMessageId, target.messageId],
+              capability: 'VISITOR_FEEDBACK',
+              provider: 'pathfinder',
+              model: 'explicit-visitor-feedback',
+              analyzerVersion: 'visitor-feedback-signals-v1',
+            },
+          ],
+        })
+      }
       await tx.analyticsEvent.create({
         data: {
           tenantId: target.tenantId,

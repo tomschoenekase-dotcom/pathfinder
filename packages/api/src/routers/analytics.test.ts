@@ -315,6 +315,30 @@ describe('analytics router', () => {
     )
   })
 
+  it('analytics.trackEvent accepts stable synthetic staging entity IDs', async () => {
+    dbQueryRaw.mockResolvedValueOnce([
+      { id: 'demo-venue-riverside-aquarium', tenantId: 'demo-tenant' },
+    ])
+    analyticsEventCreate.mockResolvedValueOnce({})
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'demo-venue-riverside-aquarium',
+        eventType: 'session.started',
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tenantId: 'demo-tenant',
+          venueId: 'demo-venue-riverside-aquarium',
+        }),
+      }),
+    )
+  })
+
   it.each([
     'message.sent',
     'message.received',
@@ -489,6 +513,26 @@ describe('analytics router', () => {
     const data = analyticsEventCreate.mock.calls[0]?.[0]?.data
     expect(data).toEqual(expect.objectContaining({ occurredAt: expect.any(Date) }))
     expect(data).not.toHaveProperty('metadata')
+  })
+
+  it('analytics.trackEvent persists only the bounded QR entry source on session start', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
+
+    await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      metadata: { entrySource: 'qr', timestamp: '2026-08-09T07:00:00.000Z' },
+    })
+
+    expect(analyticsEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: 'session.started',
+        metadata: { entrySource: 'qr' },
+      }),
+    })
   })
 
   it.each([

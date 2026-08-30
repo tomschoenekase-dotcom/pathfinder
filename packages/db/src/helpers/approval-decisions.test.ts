@@ -15,6 +15,7 @@ function harness() {
         riskCategory: 'HIGH',
         expiresAt: new Date('2030-01-02T00:00:00.000Z'),
         decision: null,
+        customerAccessRequest: null,
       }),
     },
     approvalDecision: {
@@ -30,6 +31,7 @@ function harness() {
         createdAt: decidedAt,
       }),
     },
+    customerAccessRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
   }
   const client = {
@@ -90,6 +92,7 @@ describe('approval decision domain action', () => {
       riskCategory: 'LOW',
       expiresAt: decidedAt,
       decision: null,
+      customerAccessRequest: null,
     })
     await expect(recordApprovalDecisionAction(input(), actionClient)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -97,6 +100,35 @@ describe('approval decision domain action', () => {
     })
     expect(tx.approvalDecision.create).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['APPROVED', 'APPROVED'],
+    ['REJECTED', 'REJECTED'],
+    ['CANCELLED', 'CANCELLED'],
+  ] as const)(
+    'mirrors a %s review into linked customer-access state without executing the invitation',
+    async (decision, expectedStatus) => {
+      const { tx, actionClient } = harness()
+      tx.approvalRequest.findFirst.mockResolvedValueOnce({
+        id: 'approval_1',
+        venueId: 'venue_1',
+        proposedAction: 'torchiko.customer_access.invite_member',
+        riskCategory: 'HIGH',
+        expiresAt: null,
+        decision: null,
+        customerAccessRequest: { id: 'access_1', status: 'AWAITING_APPROVAL' },
+      })
+
+      await recordApprovalDecisionAction(input({ decision }), actionClient)
+
+      expect(tx.customerAccessRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'access_1', tenantId: 'tenant_1', status: 'AWAITING_APPROVAL' },
+        data: { status: expectedStatus },
+      })
+      expect(tx).not.toHaveProperty('clerk')
+      expect(tx).not.toHaveProperty('email')
+    },
+  )
 
   it('requires exact venue scope and returns not found for cross-venue lookup', async () => {
     const { tx, actionClient } = harness()

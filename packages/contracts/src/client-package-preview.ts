@@ -106,3 +106,21 @@ export const ClientVenuePackagePreview = z
   })
   .strict()
 export type ClientVenuePackagePreview = z.infer<typeof ClientVenuePackagePreview>
+
+/**
+ * Internal-only effective-content projection used to evaluate an exact reviewable package before
+ * publication. Unlike the client preview contract, this represents DRAFT truth honestly and does
+ * not imply client approval or guest availability.
+ */
+export const ReviewableVenuePackageEvaluationPreview = ClientVenuePackagePreview.extend({
+  package: z
+    .object({
+      id: z.string().min(1),
+      status: z.enum(['DRAFT', 'APPROVED']),
+      evidenceAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+}).strict()
+export type ReviewableVenuePackageEvaluationPreview = z.infer<
+  typeof ReviewableVenuePackageEvaluationPreview
+>

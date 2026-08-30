@@ -11,12 +11,16 @@ const mocks = vi.hoisted(() => ({
   approve: vi.fn(),
   apply: vi.fn(),
   revert: vi.fn(),
+  evaluationRuns: vi.fn(),
+  evaluationOutcomes: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
   db: {
     venue: { findFirst: mocks.venue },
     venuePackage: { findMany: mocks.list, findFirst: mocks.detail },
+    evalRun: { findMany: mocks.evaluationRuns },
+    evalResult: { groupBy: mocks.evaluationOutcomes },
   },
   setContentVersionContext: vi.fn(async () => undefined),
   withTenantIsolationBypass: mocks.bypass,
@@ -81,11 +85,18 @@ const summary = {
   approvedAt: null,
   appliedAt: null,
   revertedAt: null,
+  supportHandoffs: [],
   createdAt: new Date('2026-08-11T10:00:00.000Z'),
   updatedAt: new Date('2026-08-11T10:00:00.000Z'),
 }
 
 describe('admin venue-package operations reads', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.evaluationRuns.mockResolvedValue([])
+    mocks.evaluationOutcomes.mockResolvedValue([])
+  })
+
   it('keeps lifecycle services stateless and free of fabricated resolver contexts', () => {
     const source = readFileSync(new URL('../../lib/venue-package-core.ts', import.meta.url), 'utf8')
     expect(source).not.toMatch(/let\s+(apply|revert)VenuePackageResolver/)
@@ -267,7 +278,7 @@ describe('admin venue-package operations reads', () => {
       ],
     })
     const payloadHash = createHash('sha256')
-      .update(canonicalVenuePackagePayload('venue-1', payload))
+      .update(JSON.stringify(canonicalVenuePackagePayload('venue-1', payload)))
       .digest('hex')
     const warningDigest = createHash('sha256').update(JSON.stringify(report.warnings)).digest('hex')
     mocks.detail.mockResolvedValue({
@@ -319,7 +330,7 @@ describe('admin venue-package operations reads', () => {
       ],
     })
     const payloadHash = createHash('sha256')
-      .update(canonicalVenuePackagePayload('venue-1', payload))
+      .update(JSON.stringify(canonicalVenuePackagePayload('venue-1', payload)))
       .digest('hex')
     const warningDigest = createHash('sha256').update(JSON.stringify(report.warnings)).digest('hex')
     mocks.detail.mockResolvedValue({

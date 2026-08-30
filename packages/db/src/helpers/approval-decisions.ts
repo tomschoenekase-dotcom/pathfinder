@@ -37,6 +37,8 @@ function isUniqueConflict(error: unknown) {
 /**
  * Records one terminal human decision. It deliberately does not create an
  * AgentAction, change an AgentRun, enqueue work, or execute the proposed action.
+ * Domain requests linked directly to the approval may mirror the decision as
+ * review state only; that transition must never perform the external effect.
  */
 export async function recordApprovalDecisionAction(
   input: {
@@ -66,6 +68,8 @@ export async function recordApprovalDecisionAction(
           riskCategory: true,
           expiresAt: true,
           decision: { select: { id: true } },
+          customerAccessRequest: { select: { id: true, status: true } },
+          founderDirectiveTask: { select: { id: true, status: true } },
         },
       })
       if (!request) {
@@ -102,6 +106,59 @@ export async function recordApprovalDecisionAction(
         },
       })
 
+      if (request.customerAccessRequest) {
+        const nextStatus =
+          input.decision === 'APPROVED'
+            ? 'APPROVED'
+            : input.decision === 'REJECTED'
+              ? 'REJECTED'
+              : 'CANCELLED'
+        const updated = await tx.customerAccessRequest.updateMany({
+          where: {
+            id: request.customerAccessRequest.id,
+            tenantId: input.tenantId,
+            status: 'AWAITING_APPROVAL',
+          },
+          data: { status: nextStatus },
+        })
+        if (updated.count !== 1) {
+          throw new ApprovalDecisionActionError(
+            'CONFLICT',
+            'Linked customer access request is no longer awaiting approval',
+          )
+        }
+      }
+
+      if (request.founderDirectiveTask) {
+        if (input.venueId === null) {
+          throw new ApprovalDecisionActionError(
+            'CONFLICT',
+            'Linked founder directive task is missing its required venue scope',
+          )
+        }
+        const nextStatus =
+          input.decision === 'APPROVED'
+            ? 'APPROVED'
+            : input.decision === 'REJECTED'
+              ? 'REJECTED'
+              : 'CANCELLED'
+        const updated = await tx.founderDirectiveTaskRequest.updateMany({
+          where: {
+            id: request.founderDirectiveTask.id,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'AWAITING_APPROVAL',
+          },
+          data: { status: nextStatus },
+        })
+        if (updated.count !== 1) {
+          throw new ApprovalDecisionActionError(
+            'CONFLICT',
+            'Linked founder directive task is no longer awaiting approval',
+          )
+        }
+      }
+
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -117,6 +174,8 @@ export async function recordApprovalDecisionAction(
             proposedAction: request.proposedAction,
             riskCategory: request.riskCategory,
             executionTriggered: false,
+            linkedCustomerAccessRequestId: request.customerAccessRequest?.id ?? null,
+            linkedFounderDirectiveTaskId: request.founderDirectiveTask?.id ?? null,
           },
         },
         tx,

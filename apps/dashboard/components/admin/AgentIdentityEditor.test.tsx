@@ -71,7 +71,7 @@ describe('AgentIdentityEditor', () => {
         autonomousActions: [],
       },
     })
-    expect(container.textContent).toMatch(/execution provider|model or bridge target/i)
+    expect(container.textContent).toMatch(/execution route|bridge model target/i)
     expect(container.textContent).not.toMatch(/credential|api key/i)
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
   })
@@ -95,7 +95,7 @@ describe('AgentIdentityEditor', () => {
           {
             ...identity,
             defaultProvider: 'anthropic',
-            defaultModel: 'claude-sonnet-4-6',
+            defaultModel: 'central:agent-run',
           } as never
         }
       />,
@@ -109,6 +109,23 @@ describe('AgentIdentityEditor', () => {
         expectedUpdatedAt: identity.updatedAt,
       }),
     )
+  })
+
+  it('makes direct model selection truthful and links to governed workload controls', async () => {
+    render(<AgentIdentityCreateEditor tenantId="tenant_1" venueId="venue_1" />)
+    fireEvent.click(screen.getAllByText('Create disabled identity')[0]!)
+    fireEvent.change(screen.getByLabelText('Execution route'), {
+      target: { value: 'anthropic' },
+    })
+    const workload = (await screen.findByLabelText(/Managed workload/)) as HTMLInputElement
+    expect(workload.value).toBe('central:agent-run')
+    expect(workload.disabled).toBe(true)
+    expect(
+      screen.getByRole('link', { name: 'AI workload configuration' }).getAttribute('href'),
+    ).toBe('/admin/clients/tenant_1/venues/venue_1/ai-configuration')
+    expect(
+      screen.getByText(/Saving or enabling this identity does not call a provider/i),
+    ).toBeTruthy()
   })
 
   it('edits a disabled identity with its immutable scope and expected revision', async () => {

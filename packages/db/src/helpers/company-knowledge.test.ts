@@ -129,6 +129,73 @@ describe('company knowledge retrieval', () => {
     expect(result.results[0]?.id).toBe('allowed_2')
   })
 
+  it('inherits only applicable shared knowledge after verifying the requested venue', async () => {
+    const findMany = vi.fn().mockResolvedValue([item()])
+    const venueFindFirst = vi.fn().mockResolvedValue({ id: 'venue_2' })
+    await searchCompanyKnowledge(
+      {
+        query: 'custom character pricing',
+        clientId: 'tenant_1',
+        venueId: 'venue_2',
+        organizationId: 'org_1',
+      },
+      { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+      { venue: { findFirst: venueFindFirst }, companyKnowledgeItem: { findMany } } as never,
+    )
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_2', tenantId: 'tenant_1' },
+      select: { id: true },
+    })
+    const where = JSON.stringify(findMany.mock.calls[0]?.[0].where)
+    expect(where).toContain('APPLIES_TO')
+    expect(where).toContain('venue_2')
+    expect(where).toContain('"venueId":null')
+    expect(where).toContain('"accessScope":"TENANT"')
+    expect(where).toContain('"accessScope":"ORGANIZATION"')
+    expect(where).toContain('"accessScope":"VENUE"')
+  })
+
+  it('rejects a foreign venue before selecting any knowledge candidates', async () => {
+    const findMany = vi.fn()
+    await expect(
+      searchCompanyKnowledge(
+        { query: 'pricing', clientId: 'tenant_1', venueId: 'venue_foreign' },
+        { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+        {
+          venue: { findFirst: vi.fn().mockResolvedValue(null) },
+          companyKnowledgeItem: { findMany },
+        } as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it('retrieves inherited detail in venue context only after venue ownership validation', async () => {
+    const findFirst = vi.fn().mockResolvedValue(item({ venueId: null }))
+    const venueFindFirst = vi.fn().mockResolvedValue({ id: 'venue_2' })
+    const result = await getCompanyKnowledgeItem(
+      { knowledgeItemId: 'knowledge_1', clientId: 'tenant_1', venueId: 'venue_2' },
+      { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+      { venue: { findFirst: venueFindFirst }, companyKnowledgeItem: { findFirst } } as never,
+    )
+    expect(result.item.id).toBe('knowledge_1')
+    const where = JSON.stringify(findFirst.mock.calls[0]?.[0].where)
+    expect(where).toContain('APPLIES_TO')
+    expect(where).toContain('PROMOTED')
+  })
+
+  it('requires promoted status before client-scoped exact detail selection', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null)
+    await expect(
+      getCompanyKnowledgeItem(
+        { knowledgeItemId: 'candidate_hidden', clientId: 'tenant_1' },
+        { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+        { companyKnowledgeItem: { findFirst } } as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(JSON.stringify(findFirst.mock.calls[0]?.[0].where)).toContain('PROMOTED')
+  })
+
   it('returns exact detail with provenance and supersession, but not when scoped lookup misses', async () => {
     const findFirst = vi.fn().mockResolvedValueOnce(item()).mockResolvedValueOnce(null)
     const client = { companyKnowledgeItem: { findFirst } } as never

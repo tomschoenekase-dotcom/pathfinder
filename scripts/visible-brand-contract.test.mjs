@@ -10,11 +10,81 @@ const roots = ['apps/dashboard', 'apps/web', 'apps/workers', 'packages/ui', 'pac
 
 const explicitFiles = [
   'packages/api/src/lib/generation-request-identity.ts',
+  'packages/api/src/routers/chat.ts',
   'packages/api/src/mcp/registry.ts',
   'packages/db/prisma/schema.prisma',
 ]
 
 const technicalAllowlist = new Map([
+  [
+    'apps/dashboard/components/admin/ApprovalDecisionForm.tsx',
+    new Set([
+      "proposedAction === 'pathfinder.apply_support_information_request'",
+      "const isSupportCompletion = proposedAction === 'pathfinder.apply_support_completion'",
+      "const isSupportPackageDraft = proposedAction === 'pathfinder.apply_support_package_draft'",
+      "const isSupportPackageApproval = proposedAction === 'pathfinder.apply_support_package_approval'",
+      "proposedAction === 'pathfinder.apply_support_package_application'",
+      "const isSupportPackageReversion = proposedAction === 'pathfinder.apply_support_package_reversion'",
+      "proposedAction === 'pathfinder.apply_support_package_handoff_supersession'",
+      ": proposedAction === 'pathfinder.apply_support_triage'",
+      ": proposedAction === 'pathfinder.apply_support_triage' &&",
+    ]),
+  ],
+  [
+    'packages/contracts/src/agent-approval-policy.ts',
+    new Set([
+      "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
+      "'pathfinder.apply_support_information_request' as const",
+      "export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const",
+      "export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const",
+      "'pathfinder.apply_support_package_approval' as const",
+      "'pathfinder.apply_support_package_application' as const",
+      "'pathfinder.apply_support_package_reversion' as const",
+      "'pathfinder.apply_support_package_handoff_supersession' as const",
+    ]),
+  ],
+  [
+    'packages/contracts/src/mcp-v0.ts',
+    new Set([
+      "| 'pathfinder.apply_support_triage'",
+      "| 'pathfinder.apply_support_information_request'",
+      "name: 'pathfinder.apply_support_triage',",
+      "name: 'pathfinder.apply_support_information_request',",
+      "| 'pathfinder.apply_support_completion'",
+      "name: 'pathfinder.apply_support_completion',",
+      "| 'pathfinder.apply_support_package_draft'",
+      "name: 'pathfinder.apply_support_package_draft',",
+      "| 'pathfinder.apply_support_package_approval'",
+      "name: 'pathfinder.apply_support_package_approval',",
+      "| 'pathfinder.apply_support_package_application'",
+      "name: 'pathfinder.apply_support_package_application',",
+      "| 'pathfinder.apply_support_package_reversion'",
+      "name: 'pathfinder.apply_support_package_reversion',",
+      "| 'pathfinder.apply_support_package_handoff_supersession'",
+      "name: 'pathfinder.apply_support_package_handoff_supersession',",
+    ]),
+  ],
+  [
+    'packages/api/src/mcp/registry.ts',
+    new Set([
+      "case 'pathfinder.apply_support_triage': {",
+      "'pathfinder.apply_support_triage',",
+      "case 'pathfinder.apply_support_information_request': {",
+      "'pathfinder.apply_support_information_request',",
+      "case 'pathfinder.apply_support_completion': {",
+      "'pathfinder.apply_support_completion',",
+      "case 'pathfinder.apply_support_package_draft': {",
+      "'pathfinder.apply_support_package_draft',",
+      "case 'pathfinder.apply_support_package_approval': {",
+      "'pathfinder.apply_support_package_approval',",
+      "case 'pathfinder.apply_support_package_application': {",
+      "'pathfinder.apply_support_package_application',",
+      "case 'pathfinder.apply_support_package_reversion': {",
+      "'pathfinder.apply_support_package_reversion',",
+      "case 'pathfinder.apply_support_package_handoff_supersession': {",
+      "'pathfinder.apply_support_package_handoff_supersession',",
+    ]),
+  ],
   [
     'packages/ui/src/brand.test.ts',
     new Set([
@@ -36,7 +106,13 @@ const technicalAllowlist = new Map([
       "const DOMAIN = new TextEncoder().encode('PathFinder media source fingerprint v1\\0')",
     ]),
   ],
-  ['apps/web/middleware.ts', new Set(["'X-PathFinder-Revision':"])],
+  [
+    'apps/web/middleware.ts',
+    new Set([
+      "'X-PathFinder-Revision':",
+      "'X-PathFinder-Revision': resolveReleaseRevision(environment),",
+    ]),
+  ],
   [
     'apps/web/middleware.test.ts',
     new Set([
@@ -50,6 +126,7 @@ const technicalAllowlist = new Map([
     new Set([
       "'Access-Control-Expose-Headers': 'X-PathFinder-Revision, X-PathFinder-Widget-Ready',",
       "'X-PathFinder-Revision':",
+      "'X-PathFinder-Revision': resolveReleaseRevision(process.env),",
       "'X-PathFinder-Widget-Ready': '1',",
     ]),
   ],
@@ -116,4 +193,38 @@ test('visible product copy uses Torchiko while legacy technical contracts remain
     [],
     `Old visible brand or domain remains outside the technical allowlist:\n${violations.join('\n')}`,
   )
+})
+
+test('the durable identity vocabulary matches customer communication and operating ownership', async () => {
+  const [vocabulary, welcomeEmail, state, matrix, backlog] = await Promise.all([
+    readFile(path.join(repositoryRoot, 'docs/identity-vocabulary.md'), 'utf8'),
+    readFile(
+      path.join(repositoryRoot, 'apps/workers/src/processors/send-welcome-email.ts'),
+      'utf8',
+    ),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md'), 'utf8'),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md'), 'utf8'),
+    readFile(path.join(repositoryRoot, 'docs/system-state/TORCHIKO_AUDIT_BACKLOG.md'), 'utf8'),
+  ])
+
+  for (const required of [
+    'Torchiko is the customer-facing product and service identity.',
+    'PathFinder is a retained internal technical namespace',
+    'The Founder Control Room is Torchiko',
+    'Tochi is the character and assistant identity',
+    'Hermes is an optional operational worker and bridge runtime',
+    'Codex is the engineering worker',
+  ]) {
+    assert.ok(vocabulary.includes(required), `identity vocabulary retains: ${required}`)
+  }
+
+  assert.match(welcomeEmail, /subject: 'Welcome to Torchiko'/u)
+  assert.match(welcomeEmail, /https:\/\/app\.torchiko\.com/u)
+  assert.doesNotMatch(welcomeEmail, /pathfinder\.ai|Welcome to PathFinder/iu)
+
+  for (const document of [state, matrix, backlog]) {
+    assert.match(document, /identity-vocabulary\.md/u)
+    assert.doesNotMatch(document, /welcome email still says PathFinder/iu)
+    assert.doesNotMatch(document, /still uses PathFinder branding\/link/iu)
+  }
 })

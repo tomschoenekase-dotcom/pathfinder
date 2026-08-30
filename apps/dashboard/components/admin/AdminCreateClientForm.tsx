@@ -44,6 +44,14 @@ export function AdminCreateClientForm() {
       const { tenant, venue } = await client.admin.createClientAndVenue.mutate({
         requestId: requestIdRef.current,
         clientName: clientName.trim(),
+        ...(prospectId
+          ? {
+              prospectConversion: {
+                organizationId: prospectId,
+                ...(prospectVenueId ? { prospectVenueId } : {}),
+              },
+            }
+          : {}),
         primaryContact: {
           emailAddress: primaryContactEmail.trim(),
           role: 'org:admin',
@@ -53,16 +61,6 @@ export function AdminCreateClientForm() {
           ...(venueCategory.trim() ? { category: venueCategory.trim() } : {}),
         },
       })
-
-      if (prospectId) {
-        await client.admin.linkProspectConversion.mutate({
-          organizationId: prospectId,
-          ...(prospectVenueId ? { prospectVenueId } : {}),
-          tenantId: tenant.id,
-          venueId: venue.id,
-          evidence: { clientCreateRequestId: requestIdRef.current },
-        })
-      }
 
       // Drop the admin straight into the new client's dashboard (impersonated)
       // so they can keep configuring it right away.
@@ -83,6 +81,7 @@ export function AdminCreateClientForm() {
   return (
     <form
       onSubmit={handleSubmit}
+      aria-busy={saving}
       className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm"
     >
       {prospectId ? (
@@ -145,7 +144,7 @@ export function AdminCreateClientForm() {
 
       <div className="space-y-2">
         <label htmlFor="venue-category" className="text-sm font-medium text-pf-deep">
-          Venue category <span className="text-pf-deep/40">(optional)</span>
+          Venue category <span className="text-pf-deep/65">(optional)</span>
         </label>
         <input
           id="venue-category"
@@ -158,7 +157,11 @@ export function AdminCreateClientForm() {
       </div>
 
       {errorMessage ? (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <p
+          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          role="alert"
+          aria-atomic="true"
+        >
           {errorMessage}
         </p>
       ) : null}

@@ -32,6 +32,36 @@ const row = {
   tenant: { id: 'tenant-1', name: 'Harbor Museum', status: 'ACTIVE' },
   crmOrganization: { id: 'prospect-1', canonicalName: 'Harbor Museum Foundation' },
   needsAttention: false,
+  paymentRecovery: {
+    state: 'NOT_REQUIRED',
+    reviewRequired: false,
+    policy: {
+      relationshipPreserving: true as const,
+      automaticRestrictionAuthorized: false as const,
+      automaticCustomerContactAuthorized: false as const,
+      graceAndCutoffPolicy: 'UNRESOLVED' as const,
+    },
+    timing: {
+      delinquentSince: null,
+      daysDelinquent: null,
+      nextRetryAt: null,
+      gracePeriodEndsAt: null,
+      graceState: 'NOT_APPLICABLE',
+    },
+    financialExposure: {
+      receivableAtRiskByCurrency: [],
+      ongoingVariableCost: null,
+      complete: false,
+    },
+    relationship: {
+      organizationId: 'prospect-1',
+      organizationName: 'Harbor Museum Foundation',
+      relationshipTier: 'HIGH_TOUCH',
+      relationshipStartedAt: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    missingEvidence: ['ONGOING_VARIABLE_COST', 'PRIOR_COMMUNICATION'],
+    recommendedNextStep: 'No payment-recovery action is indicated by the current billing state.',
+  },
   agreement: {
     id: 'agreement-1',
     internalPlanKey: 'negotiated',
@@ -77,13 +107,17 @@ describe('AdminBillingPortfolio', () => {
         }}
       />,
     )
-    expect(screen.getAllByText('$85.00')).toHaveLength(2)
-    expect(screen.getByRole('link', { name: 'Harbor Museum' }).getAttribute('href')).toBe(
-      '/admin/clients/tenant-1/billing',
-    )
+    expect(screen.getAllByText('$85.00')).toHaveLength(4)
     expect(
-      screen.getByRole('link', { name: 'CRM: Harbor Museum Foundation' }).getAttribute('href'),
-    ).toBe('/admin/prospects/prospect-1')
+      screen
+        .getAllByRole('link', { name: 'Harbor Museum' })
+        .every((link) => link.getAttribute('href') === '/admin/clients/tenant-1/billing'),
+    ).toBe(true)
+    expect(
+      screen
+        .getAllByRole('link', { name: 'CRM: Harbor Museum Foundation' })
+        .every((link) => link.getAttribute('href') === '/admin/prospects/prospect-1'),
+    ).toBe(true)
     expect(document.body.textContent).not.toContain('cus_')
     expect(document.body.textContent).not.toContain('sk_')
   })
@@ -120,5 +154,45 @@ describe('AdminBillingPortfolio', () => {
     document.documentElement.lang = 'en'
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
     expect(result.violations).toEqual([])
+  })
+
+  it('shows relationship-preserving recovery evidence without claiming an automatic cutoff', () => {
+    render(
+      <AdminBillingPortfolio
+        data={{
+          rows: [
+            {
+              ...row,
+              status: 'PAST_DUE',
+              needsAttention: true,
+              paymentRecovery: {
+                ...row.paymentRecovery,
+                state: 'PAYMENT_RECOVERY',
+                reviewRequired: true,
+                timing: {
+                  ...row.paymentRecovery.timing,
+                  daysDelinquent: 3,
+                  nextRetryAt: new Date('2026-08-24T00:00:00.000Z'),
+                  gracePeriodEndsAt: new Date('2026-08-27T00:00:00.000Z'),
+                  graceState: 'ACTIVE',
+                },
+                financialExposure: {
+                  ...row.paymentRecovery.financialExposure,
+                  receivableAtRiskByCurrency: [{ currency: 'usd', amountMinor: 8500n }],
+                },
+              },
+            },
+          ],
+          bounded: false,
+          summary: { customers: 1, attention: 1, pastDue: 1, unhealthy: 0 },
+        }}
+      />,
+    )
+    expect(screen.getAllByText('Relationship-preserving review').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('3 days').length).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText('No automatic cutoff or customer contact is authorized.').length,
+    ).toBeGreaterThan(0)
+    expect(document.body.textContent).not.toContain('risk score')
   })
 })

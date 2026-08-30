@@ -6,11 +6,13 @@ const mocks = vi.hoisted(() => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   entitlement: vi.fn(),
   emitEvent: vi.fn().mockResolvedValue(undefined),
+  publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   rateLimit: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  publishOperationalEvent: mocks.publishOperationalEvent,
   resolveProductEntitlement: mocks.entitlement,
 }))
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: mocks.emitEvent }))
@@ -231,6 +233,77 @@ describe('voice router', () => {
         pricingVersion: 'openai-model-pages-2026-08-19',
       }),
     })
+  })
+
+  it('fails closed and publishes an actionable incident when authorization changes route identity', async () => {
+    provider.authorizeSession = vi.fn().mockResolvedValue({
+      provider: 'openai',
+      model: 'unexpected-provider-route',
+      clientSecret: 'discarded-ephemeral-secret',
+      expiresAt: 1_787_000_000,
+      providerSessionId: 'unexpected-provider-session',
+    })
+
+    await expect(
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en-US',
+        tier: 'ECONOMY',
+      }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+    expect(dbMocks.voiceUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: VOICE_ID,
+        tenantId: 'tenant-1',
+        venueId: VENUE_ID,
+        status: 'AUTHORIZING',
+      },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        errorCode: 'AUTHORIZATION_FAILED',
+        endedAt: expect.any(Date),
+      }),
+    })
+    await vi.waitFor(() =>
+      expect(mocks.publishOperationalEvent).toHaveBeenCalledWith({
+        client: db,
+        event: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: VENUE_ID,
+          eventType: 'voice.session.failed',
+          sourceSubsystem: 'realtime-voice',
+          severity: 'ERROR',
+          linkedObjectType: 'voice-session',
+          linkedObjectId: VOICE_ID,
+          deduplicationKey: `voice-authorization-failure:${VOICE_ID}`,
+        }),
+      }),
+    )
+  })
+
+  it('does not resurrect or overwrite a session whose authorization lease was recovered', async () => {
+    dbMocks.voiceUpdateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en-US',
+        tier: 'ECONOMY',
+      }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+
+    expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+    )
+    expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+    )
+    expect(mocks.emitEvent).not.toHaveBeenCalled()
+    expect(mocks.publishOperationalEvent).not.toHaveBeenCalled()
   })
 
   it('keeps the endpoint dark when the server kill switch is off', async () => {

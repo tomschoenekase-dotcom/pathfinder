@@ -1,29 +1,45 @@
 import { z } from 'zod'
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
+import {
+  AGENT_BRIDGE_MODEL_PROVIDER,
+  AgentBridgeClaimResult,
+  AgentBridgeProvider,
+} from '@pathfinder/contracts/agent-bridge'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import {
+  AgentRunExecutionError,
   claimAgentRunExecution,
   completeAgentRunExecution,
   failAgentRunExecution,
   heartbeatAgentRunExecution,
 } from './agent-run-execution-actions'
 
-const providerSchema = z.enum([
-  'HERMES',
-  'CLAUDE_SUBSCRIPTION',
-  'CODEX_SUBSCRIPTION',
-  'OPENAI_COMPATIBLE',
-])
-const providerTarget = {
-  HERMES: 'hermes-bridge',
-  CLAUDE_SUBSCRIPTION: 'claude-bridge',
-  CODEX_SUBSCRIPTION: 'codex-bridge',
-  OPENAI_COMPATIBLE: 'openai-compatible-bridge',
-} as const
 const SESSION_TTL_MS = 2 * 60_000
+const MAX_CLAIM_CANDIDATES = 25
+
+function readStringList(value: unknown, key: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const candidate = (value as Record<string, unknown>)[key]
+  if (!Array.isArray(candidate)) return []
+  return candidate.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+}
+
+function workerMatchesRun(
+  scopeSnapshot: unknown,
+  worker: { capabilities: string[]; agentRoles: string[] } | null,
+) {
+  const requiredRoles = readStringList(scopeSnapshot, 'requiredWorkerRoles')
+  const requiredCapabilities = readStringList(scopeSnapshot, 'requiredWorkerCapabilities')
+  if (requiredRoles.length === 0 && requiredCapabilities.length === 0) return true
+  if (!worker) return false
+  return (
+    requiredRoles.every((role) => worker.agentRoles.includes(role)) &&
+    requiredCapabilities.every((capability) => worker.capabilities.includes(capability))
+  )
+}
 
 export class AgentBridgeActionError extends Error {
   constructor(
@@ -60,7 +76,7 @@ export async function registerAgentBridgeSession(rawInput: {
     .object({
       sessionId: z.string().uuid(),
       venueId: z.string().min(1).max(191),
-      provider: providerSchema,
+      provider: AgentBridgeProvider,
       label: z.string().trim().min(1).max(200),
       runnerVersion: z.string().trim().min(1).max(100),
       supportedModels: z.array(z.string().trim().min(1).max(191)).max(50),
@@ -205,45 +221,64 @@ export async function claimAgentBridgeTask(input: {
           leaseExpiresAt: { gt: new Date() },
           capabilities: { has: 'agent-runs:execute' },
         },
-        select: { id: true },
+        select: { id: true, capabilities: true, agentRoles: true },
       })
     : null
   if (input.workerKey && !worker) {
     throw new AgentBridgeActionError('FORBIDDEN', 'Portable worker is offline or unauthorized')
   }
-  const run = await db.agentRun.findFirst({
+  const now = new Date()
+  const runs = await db.agentRun.findMany({
     where: {
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
-      status: 'QUEUED',
-      modelProvider: providerTarget[session.provider],
-      ...(session.supportedModels.length
-        ? {
-            OR: [
-              { modelName: { in: session.supportedModels } },
-              { modelName: 'subscription-default' },
-            ],
-          }
-        : {}),
+      modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
+      AND: [
+        {
+          OR: [{ status: 'QUEUED' }, { status: 'RUNNING', executionLeaseExpiresAt: { lt: now } }],
+        },
+        ...(session.supportedModels.length
+          ? [
+              {
+                OR: [
+                  { modelName: { in: session.supportedModels } },
+                  { modelName: 'subscription-default' },
+                ],
+              },
+            ]
+          : []),
+      ],
     },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: { id: true },
+    take: MAX_CLAIM_CANDIDATES,
+    select: { id: true, scopeSnapshot: true },
   })
-  if (!run) return { task: null }
-  const claimed = await claimAgentRunExecution({
-    tenantId: input.credential.tenantId,
-    runId: run.id,
-    bridgeSessionId: session.id,
-  })
+  let claimed: Awaited<ReturnType<typeof claimAgentRunExecution>> | null = null
+  for (const run of runs) {
+    if (!workerMatchesRun(run.scopeSnapshot, worker)) continue
+    try {
+      claimed = await claimAgentRunExecution({
+        tenantId: input.credential.tenantId,
+        runId: run.id,
+        bridgeSessionId: session.id,
+      })
+      break
+    } catch (error) {
+      if (error instanceof AgentRunExecutionError && error.code === 'NOT_CLAIMABLE') continue
+      throw error
+    }
+  }
+  if (!claimed) return { task: null }
   if (worker) {
     await db.agentRun.update({
       where: { id: claimed.id },
       data: { executionWorkerId: worker.id },
     })
   }
-  return {
+  return AgentBridgeClaimResult.parse({
     task: {
       id: claimed.id,
+      operationId: claimed.operationId,
       venueId: claimed.venueId,
       runType: claimed.runType,
       requestedOperation: claimed.requestedOperation,
@@ -251,12 +286,20 @@ export async function claimAgentBridgeTask(input: {
       modelProvider: claimed.modelProvider,
       modelName: claimed.modelName,
       leaseToken: claimed.leaseToken,
-      leaseExpiresAt: claimed.leaseExpiresAt,
+      leaseExpiresAt: claimed.leaseExpiresAt.toISOString(),
       attemptNumber: claimed.attemptNumber,
       scope: claimed.scopeSnapshot,
-      agent: claimed.agentIdentity,
+      agent: {
+        identityKey: claimed.agentIdentity.identityKey,
+        name: claimed.agentIdentity.name,
+        description: claimed.agentIdentity.description,
+        accessCapabilities: claimed.agentIdentity.accessCapabilities,
+        autonomyLevel: claimed.agentIdentity.autonomyLevel,
+        autonomousActions: claimed.agentIdentity.autonomousActions,
+      },
+      initiator: { type: claimed.initiatedByType, id: claimed.initiatedById },
     },
-  }
+  })
 }
 
 async function assertSessionOwnsRun(input: {
@@ -284,9 +327,10 @@ async function assertSessionOwnsRun(input: {
         },
       },
     },
-    select: { id: true },
+    select: { id: true, modelProvider: true },
   })
   if (!run) throw new AgentBridgeActionError('FORBIDDEN', 'Bridge session does not own this run')
+  return run
 }
 
 export async function heartbeatAgentBridgeTask(input: {
@@ -314,9 +358,10 @@ export async function completeAgentBridgeTask(input: {
   artifacts: unknown[]
   modelName: string
   costE8Usd: bigint
+  costStatus: 'UNREPORTED' | 'ESTIMATED' | 'EXACT'
   credential: VerifiedMcpCredentialScope
 }) {
-  await assertSessionOwnsRun(input)
+  const run = await assertSessionOwnsRun(input)
   return completeAgentRunExecution({
     tenantId: input.credential.tenantId,
     runId: input.runId,
@@ -324,7 +369,9 @@ export async function completeAgentBridgeTask(input: {
     summary: input.summary,
     artifacts: input.artifacts as never[],
     modelName: input.modelName,
+    ...(run.modelProvider ? { modelProvider: run.modelProvider } : {}),
     costE8Usd: input.costE8Usd,
+    costStatus: input.costStatus,
   })
 }
 

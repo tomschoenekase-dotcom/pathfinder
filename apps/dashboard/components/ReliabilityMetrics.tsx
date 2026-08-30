@@ -126,15 +126,21 @@ export function ReliabilityMetrics({
                     </caption>
                     <thead className="text-left text-xs uppercase tracking-wider text-pf-deep/50">
                       <tr>
-                        <th className="px-5 py-3 font-medium">Stage</th>
-                        <th className="px-5 py-3 text-right font-medium">p50</th>
-                        <th className="px-5 py-3 text-right font-medium">p95</th>
+                        <th scope="col" className="px-5 py-3 font-medium">
+                          Stage
+                        </th>
+                        <th scope="col" className="px-5 py-3 text-right font-medium">
+                          p50
+                        </th>
+                        <th scope="col" className="px-5 py-3 text-right font-medium">
+                          p95
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {RELIABILITY_STAGES.map((stage) => (
                         <tr key={stage.key} className="border-t border-pf-light">
-                          <th className="px-5 py-3 text-left font-medium text-pf-deep">
+                          <th scope="row" className="px-5 py-3 text-left font-medium text-pf-deep">
                             {stage.label}
                           </th>
                           <td className="px-5 py-3 text-right text-pf-deep/70">

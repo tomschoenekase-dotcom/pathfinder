@@ -220,6 +220,69 @@ describe('OUTBOUND_PROVIDER_WORKERS_ENABLED', () => {
   })
 })
 
+describe('operational alert delivery environment', () => {
+  it('defaults both delivery routes off', () => {
+    expect(envSchema.parse(requiredEnvironment)).toMatchObject({
+      OPERATIONAL_ALERT_DELIVERY_ENABLED: false,
+      OPERATIONAL_ALERT_DEV_SINK_ENABLED: false,
+    })
+  })
+
+  it('requires an explicit complete provider route before external delivery can activate', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        OPERATIONAL_ALERT_DELIVERY_ENABLED: 'true',
+      }),
+    ).toThrow('RESEND_API_KEY is required when operational alert delivery is enabled')
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        OPERATIONAL_ALERT_DELIVERY_ENABLED: 'true',
+        OPERATIONAL_ALERT_EMAIL_TO: 'operator@example.test',
+        RESEND_API_KEY: 'test-provider-key',
+        RESEND_FROM_EMAIL: 'alerts@example.test',
+      }),
+    ).not.toThrow()
+  })
+
+  it('rejects invalid, ambiguous, or production development-sink activation', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        OPERATIONAL_ALERT_DELIVERY_ENABLED: 'true',
+        OPERATIONAL_ALERT_EMAIL_TO: 'operator@example.test',
+        RESEND_API_KEY: 'test-provider-key',
+        RESEND_FROM_EMAIL: 'not-an-email',
+      }),
+    ).toThrow()
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        OPERATIONAL_ALERT_DELIVERY_ENABLED: 'true',
+        OPERATIONAL_ALERT_DEV_SINK_ENABLED: 'true',
+        OPERATIONAL_ALERT_EMAIL_TO: 'operator@example.test',
+        RESEND_API_KEY: 'test-provider-key',
+        RESEND_FROM_EMAIL: 'alerts@example.test',
+      }),
+    ).toThrow('Choose either external operational alert delivery or the development sink')
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        OPERATIONAL_ALERT_DEV_SINK_ENABLED: 'true',
+      }),
+    ).toThrow('forbidden in production')
+  })
+})
+
 describe('Stripe Billing environment', () => {
   it('defaults every billing gate off in test mode', () => {
     const parsed = envSchema.parse(requiredEnvironment)

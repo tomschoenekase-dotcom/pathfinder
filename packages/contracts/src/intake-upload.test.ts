@@ -4,6 +4,8 @@ import {
   INTAKE_UPLOAD_MAX_BYTES,
   IntakeUploadReserveRequest,
   IntakeUploadVerifiedTransport,
+  resolveIntakeUploadClientRecovery,
+  resolveIntakeUploadClientVerification,
 } from './intake-upload'
 
 const sha256 = 'a'.repeat(64)
@@ -11,6 +13,10 @@ const sha256 = 'a'.repeat(64)
 describe('intake upload browser-safe contracts', () => {
   it.each([
     'application/pdf',
+    'application/json',
+    'text/plain',
+    'text/markdown',
+    'text/csv',
     'image/jpeg',
     'image/png',
     'image/webp',
@@ -65,5 +71,77 @@ describe('intake upload browser-safe contracts', () => {
       IntakeUploadVerifiedTransport.safeParse({ ...base, sha256: 'A'.repeat(64) }).success,
     ).toBe(false)
     expect(IntakeUploadVerifiedTransport.safeParse({ ...base, extra: true }).success).toBe(false)
+  })
+
+  it.each([
+    ['OBJECT_MISSING', 'could not finish receiving'],
+    ['GENERATION_MISMATCH', 'did not match'],
+    ['MIME_MISMATCH', 'did not match'],
+    ['SIZE_MISMATCH', 'did not match'],
+    ['HASH_MISMATCH', 'did not match'],
+    ['UNSAFE_FILE', 'did not pass the required safety checks'],
+  ])('maps rejected code %s to one non-retry replacement action', (rejectionCode, reason) => {
+    expect(resolveIntakeUploadClientRecovery({ status: 'REJECTED', rejectionCode })).toMatchObject({
+      kind: 'CHOOSE_REPLACEMENT',
+      required: true,
+      actionLabel: 'Choose a replacement',
+      reason: expect.stringContaining(reason),
+      retrySameSubmission: false,
+    })
+  })
+
+  it('keeps a client-cancelled upload out of the required recovery queue', () => {
+    expect(
+      resolveIntakeUploadClientRecovery({
+        status: 'REJECTED',
+        rejectionCode: 'CLIENT_CANCELLED',
+      }),
+    ).toEqual({
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: 'You cancelled this upload. It does not block onboarding.',
+      retrySameSubmission: false,
+    })
+  })
+
+  it('keeps a live verification lease non-actionable', () => {
+    expect(
+      resolveIntakeUploadClientVerification({
+        status: 'VERIFYING',
+        verificationLeaseActive: true,
+      }),
+    ).toMatchObject({ kind: 'IN_PROGRESS', required: false, retrySameSubmission: false })
+  })
+
+  it('makes an expired verification safely resumable', () => {
+    expect(resolveIntakeUploadClientVerification({ status: 'VERIFYING' })).toEqual({
+      kind: 'RESUME_CHECK',
+      required: true,
+      actionLabel: 'Resume file check',
+      reason: 'The saved file check stopped before it finished.',
+      retrySameSubmission: true,
+    })
+  })
+
+  it('keeps Torchiko-managed security checks non-actionable for the customer', () => {
+    expect(
+      resolveIntakeUploadClientVerification({
+        status: 'VERIFYING',
+        managedByTorchiko: true,
+      }),
+    ).toMatchObject({ kind: 'WAIT_FOR_TORCHIKO', required: false, retrySameSubmission: false })
+    expect(resolveIntakeUploadClientVerification({ status: 'PRECHECK_PASSED' })).toMatchObject({
+      kind: 'WAIT_FOR_TORCHIKO',
+      required: false,
+      retrySameSubmission: false,
+    })
+  })
+
+  it('does not invent verification work for terminal states', () => {
+    expect(resolveIntakeUploadClientVerification({ status: 'AWAITING_REVIEW' })).toMatchObject({
+      kind: 'NONE',
+      required: false,
+    })
   })
 })

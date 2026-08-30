@@ -27,6 +27,7 @@ const approvedPolicies = new Set([
   'platform-generation-dispatch-lease',
   'tenant-venue-record-generation-dispatch-lease',
   'platform-expired-generation-discovery',
+  'platform-expired-voice-session-recovery',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -48,23 +49,79 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-quota-lock',
   'tenant-intake-upload-record-lock',
   'tenant-intake-upload-multipart-lock',
+  'tenant-intake-file-extraction-lock',
+  'tenant-intake-file-extraction-review-lock',
+  'tenant-intake-interview-clarification-resolution-lock',
   'tenant-intake-proposal-request-lock',
+  'tenant-intake-website-research-lock',
   'tenant-client-assistant-preference-lock',
   'tenant-client-assistant-turn-operation-lock',
   'tenant-client-assistant-thread-lock',
   'tenant-client-assistant-generation-lock',
   'tenant-client-assistant-completion-lock',
   'tenant-client-assistant-handoff-lock',
+  'tenant-customer-access-request-lock',
+  'tenant-first-week-review-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
   'tenant-guest-chat-turn-lock',
   'tenant-venue-voice-quota-lock',
+  'platform-prospect-mailbox-send-reservation-lock',
+  'platform-prospect-campaign-send-reservation-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/api/src/lib/intake-file-clarifications.ts',
+    method: '$executeRaw',
+    hash: 'ad270206ff0271c0cc33994929056409b9aabb3bd4cabceae9ec3cbb4f98caac',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  {
+    file: 'packages/api/src/lib/intake-interview-clarifications.ts',
+    method: '$executeRaw',
+    hash: 'c28bc4427cf5a42191d2e901c3a0e4ce6e36c3bce09c8f3a108751db7bdb019b',
+    policy: 'tenant-intake-interview-clarification-resolution-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$executeRaw',
+    hash: '9f523bcda2b4316a85a39f6165c597b1cf238f8d62f4496b8776867538f4c86b',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-file-extraction-review-actions.ts',
+    method: '$executeRaw',
+    hash: 'ad270206ff0271c0cc33994929056409b9aabb3bd4cabceae9ec3cbb4f98caac',
+    policy: 'tenant-intake-file-extraction-review-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-file-extraction-actions.ts',
+    method: '$executeRaw',
+    hash: '1b537add52a7e067453bc3d075c4bd9caf9a6a6702e146f6493231b40dc64a10',
+    policy: 'tenant-intake-file-extraction-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-website-research-actions.ts',
+    method: '$executeRaw',
+    hash: '0fd09329fbefc35b5e37e2277ea7e3f4b4bcba971e6d3e3ecd16bc133b8dcbe8',
+    policy: 'tenant-intake-website-research-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/prospect-send-outbox-actions.ts',
+    method: '$queryRaw',
+    hash: '9908635032ded233ca16520ef8d6a5e2d0237d8cddea0c1a0d540a7d36659560',
+    policy: 'platform-prospect-mailbox-send-reservation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/prospect-send-outbox-actions.ts',
+    method: '$queryRaw',
+    hash: 'b5099aba3a4cc0141790ce821a68b7a40f61c0fd705282b380427480301eb6fc',
+    policy: 'platform-prospect-campaign-send-reservation-lock',
+  },
   {
     file: 'packages/db/src/helpers/universal-content-publication-actions.ts',
     method: '$queryRaw',
@@ -242,7 +299,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '9f381badfcf7e8208cd17102526b7f6a28c8302c609a9a60429dc8cb97dac26e',
+    hash: 'faa1ef0aa5d4570ff4b33d05ac666ef03b8229afe03e94dec0e1980049012e36',
     policy: 'public-venue-id',
   },
   {
@@ -261,6 +318,18 @@ const approvedOperations = [
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
     hash: '08e5613e8e664eff6ce54816cb84b07d58e875a62eb9efc57ba62e35decb3a36',
+    policy: 'public-venue-slug',
+  },
+  {
+    file: 'packages/api/src/routers/venue.ts',
+    method: '$queryRaw',
+    hash: 'da288dfe334d78f79e062fec93723952542dce7973344f6956cd2eaef5eecc74',
+    policy: 'public-venue-slug',
+  },
+  {
+    file: 'packages/api/src/lib/venue-media-delivery.ts',
+    method: '$queryRaw',
+    hash: 'cf59d6bd3dcfc1cdbfe9c89d11cfd2a3153ee394dec67acfb9cbda1cda8e6abf',
     policy: 'public-venue-slug',
   },
   {
@@ -316,6 +385,18 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'da919fd2aa26f6f73b82c4cfcce5a7d6db8ba51998196aca48ff5aa40cb675ad',
     policy: 'tenant-client-assistant-handoff-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/customer-access-execution-actions.ts',
+    method: '$executeRaw',
+    hash: 'cac8f03557d08d95fc8b2642544c804de72cbeab1e60dddc5ac4fe81a56015bd',
+    policy: 'tenant-customer-access-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/first-week-account-reviews.ts',
+    method: '$executeRaw',
+    hash: '0188079f60cc9ec225e98669674c3812e1c034006b1f85cbf00f1a1f6eae9e2f',
+    policy: 'tenant-first-week-review-lock',
   },
   {
     file: 'packages/db/src/helpers/offboarding-plan-actions.ts',
@@ -468,6 +549,12 @@ const approvedOperations = [
     policy: 'platform-expired-generation-discovery',
   },
   {
+    file: 'packages/db/src/helpers/voice-session-recovery.ts',
+    method: '$queryRaw',
+    hash: 'd1b6e1f4a302ba10b883dd5495008ee10ff02e6eb8b4c62c401e1a5ea8f45975',
+    policy: 'platform-expired-voice-session-recovery',
+  },
+  {
     file: 'packages/db/src/helpers/generation-recovery.ts',
     method: '$queryRaw',
     hash: '1d2474f8b0dc709ce3b1f040861aeeaf734d61955bb842dbb9a4098389167d41',
@@ -550,7 +637,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '80267ca4cc54cc7a3c2c57c621a999d7dd87ec119af9398c3a6bf6425518b7fd',
+    hash: '432e3793aad3435f27b780e999a8548b1d34e3c42ea130ef26a2af7a4b0f3993',
     policy: 'tenant-and-venue',
   },
   {
@@ -574,7 +661,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '531d881c910f52622ce1d8df88593e09077817bba661d80e0eebe7b994692954',
+    hash: 'afa1d9a5c2b9bf70adf8eb6569e9ad01c918266aaf82efe861dbbed52c4d5ab8',
     policy: 'tenant-and-venue',
   },
   {
@@ -592,13 +679,13 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/feedback.ts',
     method: '$queryRaw',
-    hash: '4657c2e7c6c7b9e21b8f7779c5f8590315a4efb1062480e571404334a3a24db3',
+    hash: '25b4134eb0bafbff40ded71be120dd4926af3c53a70857dd5a7698defdd35026',
     policy: 'public-venue-session-token',
   },
   {
-    file: 'packages/api/src/routers/location.ts',
+    file: 'packages/api/src/routers/location-public-scope.ts',
     method: '$queryRaw',
-    hash: '852d4a3607edeed3a0c82e091c86aa619f54c046c39a05b52181c56a0b9ce7ca',
+    hash: '0b6d3752a65471da430efad03bc0c607efbca8e5717da33575f662f71472d0b3',
     policy: 'public-venue-session-token',
   },
   {

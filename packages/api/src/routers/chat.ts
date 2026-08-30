@@ -1,22 +1,25 @@
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
 
 import {
   AiGatewayError,
-  generateText,
+  AiRoutingError,
+  generateTextForCapability,
   routeAiCapability,
   setAnthropicClientForTesting,
-  type AiModelKey,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
 import { CustomPersonalityBoundsSchema } from '@pathfinder/contracts'
 import {
   assertVenueAiAvailable,
+  applyNativeGuestContentRead,
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
   finalizeGuestChatTurnAction,
+  GuestChatReplayMetadata,
   GuestChatTurnActionError,
   isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
@@ -24,17 +27,20 @@ import {
   resolveEffectivePublishedUniversalContent,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
+  skipGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
   recordConversationInsightSignals,
   publishOperationalEvent,
+  readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
+  resolveNativeGuestReadSnapshotAction,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
-import { publicTRPCError, router } from '../core'
+import { mergeRouters, publicTRPCError, router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { resolveSystemCharacterProjection } from '../lib/character-registry'
@@ -43,7 +49,9 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
-import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { buildVenueSystemPromptParts, guestResponseWordLimit } from '../lib/venue-context'
+import { buildGuestCitations } from '../lib/guest-citations'
+import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -108,10 +116,6 @@ const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
-// Backstop for the word-count rules in venue-context.ts. Prompt instructions
-// are honored loosely by the model, not exactly — this guarantees the cap
-// guests actually see, regardless of how closely the model followed the prompt.
-const MAX_RESPONSE_WORDS = 60
 const SESSION_SYNC_GLOBAL_LIMIT = 3000
 const SESSION_SYNC_SESSION_LIMIT = 120
 const SESSION_SYNC_VENUE_LIMIT = 3000
@@ -120,6 +124,103 @@ const HISTORY_SESSION_LIMIT = 60
 const HISTORY_VENUE_LIMIT = 3000
 const CHAT_GLOBAL_INGRESS_LIMIT = 600
 const CHAT_INGRESS_VENUE_LIMIT = 120
+
+type ChatStreamSink = {
+  onTextDelta: (
+    delta: string,
+    timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+  ) => void | Promise<void>
+}
+
+const chatStreamSink = new AsyncLocalStorage<ChatStreamSink>()
+
+export function boundedStreamingPrefix(text: string, maxWords: number): string {
+  const words = [...text.matchAll(/\S+/g)]
+  if (words.length <= maxWords) return text
+  const lastWord = words[maxWords - 1]
+  return lastWord ? text.slice(0, (lastWord.index ?? 0) + lastWord[0].length) : ''
+}
+
+export function createGuestStreamingProjection(options: {
+  maxWords: number
+  onTextDelta: ChatStreamSink['onTextDelta']
+}) {
+  let providerText = ''
+  let emittedLength = 0
+  let providerFirstTextMs: number | null = null
+  let requestFirstTextMs: number | null = null
+  return {
+    async push(
+      delta: string,
+      timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+    ) {
+      if (!delta) return
+      providerText += delta
+      providerFirstTextMs ??= timings.providerFirstTextMs
+      requestFirstTextMs ??= timings.requestFirstTextMs
+      const markerIndex = providerText.indexOf(ENGAGEMENT_ASKED_MARKER)
+      const markerSafeLength =
+        markerIndex >= 0
+          ? markerIndex
+          : Math.max(0, providerText.length - ENGAGEMENT_ASKED_MARKER.length)
+      const safePrefix = boundedStreamingPrefix(
+        providerText.slice(0, markerSafeLength),
+        options.maxWords,
+      )
+      if (safePrefix.length <= emittedLength) return
+      const safeDelta = safePrefix.slice(emittedLength)
+      emittedLength = safePrefix.length
+      await options.onTextDelta(safeDelta, {
+        providerFirstTextMs,
+        requestFirstTextMs,
+      })
+    },
+    providerFirstTextMs() {
+      return providerFirstTextMs
+    },
+    requestFirstTextMs() {
+      return requestFirstTextMs
+    },
+  }
+}
+
+class AsyncPushQueue<T> {
+  private readonly values: T[] = []
+  private wake: (() => void) | null = null
+  private closed = false
+  private failure: unknown = null
+
+  push(value: T) {
+    if (this.closed) return
+    this.values.push(value)
+    this.wake?.()
+    this.wake = null
+  }
+
+  close() {
+    this.closed = true
+    this.wake?.()
+    this.wake = null
+  }
+
+  fail(error: unknown) {
+    this.failure = error
+    this.close()
+  }
+
+  async *iterate(): AsyncGenerator<T, void, void> {
+    while (!this.closed || this.values.length > 0) {
+      if (this.values.length > 0) {
+        yield this.values.shift() as T
+        continue
+      }
+      await new Promise<void>((resolve) => {
+        this.wake = resolve
+      })
+    }
+    if (this.failure) throw this.failure
+  }
+}
 
 type PublicChatVenue = {
   id: string
@@ -132,6 +233,7 @@ type PublicChatVenue = {
   aiTone: string | null
   tonePreset: string | null
   tonePresetVersion: number | null
+  responseDepth?: 'BRIEF' | 'BALANCED' | 'DETAILED' | null
   aiGuideName: string | null
   category: string | null
   guideMode: string | null
@@ -227,7 +329,8 @@ const admittedChatSendProcedure = publicProcedure
              CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.formality END AS "customFormality",
              CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.custom_instruction END AS "customInstruction",
              vbc.presentation_mode AS "venueBotPresentationMode",
-             vbc.character_key AS "venueBotCharacterKey"
+             vbc.character_key AS "venueBotCharacterKey",
+             vbc.response_depth AS "responseDepth"
       FROM venues v
       LEFT JOIN venue_bot_configurations vbc
         ON vbc.venue_id = v.id AND vbc.tenant_id = v.tenant_id
@@ -327,7 +430,7 @@ const NO_INFO_REPLY_PATTERN =
 // Router
 // ---------------------------------------------------------------------------
 
-export const chatRouter = router({
+const chatSessionRouter = router({
   /**
    * Idempotent session creation / update. Call this when the visitor first
    * opens the chat page so a session row exists before the first message.
@@ -424,7 +527,9 @@ export const chatRouter = router({
 
     return { sessionId: session.id }
   }),
+})
 
+const chatReadRouter = router({
   /**
    * Send a message and receive an AI response grounded in venue + location data.
    */
@@ -478,8 +583,10 @@ export const chatRouter = router({
     if (reservation.state === 'COMPLETE') {
       return {
         response: reservation.response,
+        assistantMessageId: reservation.assistantMessageId,
         sessionId: reservation.sessionId,
         places: reservation.places,
+        citations: reservation.citations,
         replayed: true,
       }
     }
@@ -511,8 +618,10 @@ export const chatRouter = router({
     if (claimed.state === 'COMPLETE') {
       return {
         response: claimed.response,
+        assistantMessageId: claimed.assistantMessageId,
         sessionId: claimed.sessionId,
         places: claimed.places,
+        citations: claimed.citations,
         replayed: true,
       }
     }
@@ -550,107 +659,142 @@ export const chatRouter = router({
       claimId,
     }
     const recordGuestAiFailure = async (
-      category: 'provider-unavailable' | 'pre-dispatch-failure' | 'provider-failure',
+      category:
+        | 'provider-unavailable'
+        | 'pre-dispatch-failure'
+        | 'provider-failure'
+        | 'route-exhausted',
+      routeConfigurationVersion?: string,
     ) => {
+      const routeExhausted = category === 'route-exhausted'
       await publishOperationalEvent({
         client: ctx.db,
         event: {
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          eventType: `guest-chat.${category}`,
+          eventType: routeExhausted ? 'guest-chat.route-degraded' : `guest-chat.${category}`,
           sourceSubsystem: 'guest-chat',
-          severity: category === 'provider-failure' ? 'ERROR' : 'WARNING',
-          title: 'Guest guide AI failure',
-          summary: 'A guest chat turn encountered a sanitized AI service failure.',
-          actionRequired: category === 'provider-failure',
+          severity: routeExhausted || category === 'provider-failure' ? 'ERROR' : 'WARNING',
+          title: routeExhausted ? 'Visitor chat used its safe fallback' : 'Guest guide AI failure',
+          summary: routeExhausted
+            ? 'Every configured guest-chat route candidate failed for this venue; the guest received the safe fallback response.'
+            : 'A guest chat turn encountered a sanitized AI service failure.',
+          actionRequired: routeExhausted || category === 'provider-failure',
           linkedObjectType: 'guest-chat-turn',
           linkedObjectId: reservation.turnId,
-          recommendedAction: 'Inspect the turn and recent provider outcomes in PathFinder OS.',
-          deduplicationKey: `guest-chat-failure:${reservation.turnId}:${category}`,
+          recommendedAction: routeExhausted
+            ? 'Review sanitized usage failures and recent chat reliability evidence before changing routing or incident controls.'
+            : 'Inspect the turn and recent provider outcomes in Torchiko operations.',
+          deduplicationKey: routeExhausted
+            ? `guest-chat-route-degraded:${input.venueId}:${routeConfigurationVersion ?? 'unknown'}`
+            : `guest-chat-failure:${reservation.turnId}:${category}`,
         },
       }).catch(() => undefined)
     }
+    let unhealthyProviders: Awaited<ReturnType<typeof readActiveUnhealthyAiProviders>>
+    try {
+      unhealthyProviders = await readActiveUnhealthyAiProviders(ctx.db)
+    } catch {
+      await failGuestChatTurnAction({
+        client: ctx.db,
+        claim: { ...turnOperationBase, failureCode: 'PRE_DISPATCH_FAILURE' },
+      })
+      await recordGuestAiFailure('pre-dispatch-failure')
+      throw publicTRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The guide could not start this message. Please send it again in a moment.',
+        publicCode: 'TRANSIENT_FAILURE',
+      })
+    }
     let embeddingDispatched = false
-    const queryEmbeddingPromise = generateGuestQueryEmbedding(
-      trimmedInput,
-      embeddingAccounting.sink,
-      () =>
-        assertVenueAiAvailable(ctx.db, {
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-        }),
-      embeddingAccounting.budgetGate,
-      embeddingInvocationId,
-      async () => {
-        try {
-          await markGuestChatProviderDispatchedAction({
-            client: ctx.db,
-            operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
-          })
-          embeddingDispatched = true
-        } catch (error) {
-          guestChatTurnError(error)
-        }
-      },
-    )
-      .then(async (embedding) => {
-        await observeGuestChatProviderOperationAction({
+    const queryEmbeddingPromise = unhealthyProviders.includes('openai')
+      ? skipGuestChatProviderOperationAction({
           client: ctx.db,
-          operation: {
-            ...turnOperationBase,
-            kind: 'QUERY_EMBEDDING',
-            outcomeCode: 'SUCCEEDED',
-            usageReference: embeddingAccounting.usageEventIds().at(-1) ?? null,
-          },
+          operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
         })
-        return embedding
-      })
-      .catch(async (error: unknown) => {
-        if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
-        if (!embeddingDispatched) {
-          await failGuestChatTurnAction({
-            client: ctx.db,
-            claim: {
-              ...turnOperationBase,
-              failureCode: isAiAdmissionControlError(error)
-                ? 'AI_UNAVAILABLE'
-                : 'PRE_DISPATCH_FAILURE',
-            },
-          })
-          if (isAiAdmissionControlError(error)) {
-            await recordGuestAiFailure('provider-unavailable')
-            throw aiUnavailable()
-          }
-          await recordGuestAiFailure('pre-dispatch-failure')
-          throw publicTRPCError({
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'The guide could not start this message. Please send it again in a moment.',
-            publicCode: 'TRANSIENT_FAILURE',
-          })
-        }
-        await observeGuestChatProviderOperationAction({
-          client: ctx.db,
-          operation: {
-            ...turnOperationBase,
-            kind: 'QUERY_EMBEDDING',
-            outcomeCode: isAiAdmissionControlError(error)
-              ? 'ADMISSION_REJECTED'
-              : 'FAILED_FALLBACK',
+          .then(() => null)
+          .catch((error: unknown) => guestChatTurnError(error))
+      : generateGuestQueryEmbedding(
+          trimmedInput,
+          embeddingAccounting.sink,
+          () =>
+            assertVenueAiAvailable(ctx.db, {
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+            }),
+          embeddingAccounting.budgetGate,
+          embeddingInvocationId,
+          async () => {
+            try {
+              await markGuestChatProviderDispatchedAction({
+                client: ctx.db,
+                operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
+              })
+              embeddingDispatched = true
+            } catch (error) {
+              guestChatTurnError(error)
+            }
           },
-        })
-        if (isAiAdmissionControlError(error)) {
-          await failGuestChatTurnAction({
-            client: ctx.db,
-            claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+        )
+          .then(async (embedding) => {
+            await observeGuestChatProviderOperationAction({
+              client: ctx.db,
+              operation: {
+                ...turnOperationBase,
+                kind: 'QUERY_EMBEDDING',
+                outcomeCode: 'SUCCEEDED',
+                usageReference: embeddingAccounting.usageEventIds().at(-1) ?? null,
+              },
+            })
+            return embedding
           })
-          await recordGuestAiFailure('provider-unavailable')
-          throw aiUnavailable()
-        }
-        return null
-      })
-      .finally(() => {
-        embeddingMs = elapsedMilliseconds(embeddingStartedAt)
-      })
+          .catch(async (error: unknown) => {
+            if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
+            if (!embeddingDispatched) {
+              await failGuestChatTurnAction({
+                client: ctx.db,
+                claim: {
+                  ...turnOperationBase,
+                  failureCode: isAiAdmissionControlError(error)
+                    ? 'AI_UNAVAILABLE'
+                    : 'PRE_DISPATCH_FAILURE',
+                },
+              })
+              if (isAiAdmissionControlError(error)) {
+                await recordGuestAiFailure('provider-unavailable')
+                throw aiUnavailable()
+              }
+              await recordGuestAiFailure('pre-dispatch-failure')
+              throw publicTRPCError({
+                code: 'SERVICE_UNAVAILABLE',
+                message:
+                  'The guide could not start this message. Please send it again in a moment.',
+                publicCode: 'TRANSIENT_FAILURE',
+              })
+            }
+            await observeGuestChatProviderOperationAction({
+              client: ctx.db,
+              operation: {
+                ...turnOperationBase,
+                kind: 'QUERY_EMBEDDING',
+                outcomeCode: isAiAdmissionControlError(error)
+                  ? 'ADMISSION_REJECTED'
+                  : 'FAILED_FALLBACK',
+              },
+            })
+            if (isAiAdmissionControlError(error)) {
+              await failGuestChatTurnAction({
+                client: ctx.db,
+                claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+              })
+              await recordGuestAiFailure('provider-unavailable')
+              throw aiUnavailable()
+            }
+            return null
+          })
+          .finally(() => {
+            embeddingMs = elapsedMilliseconds(embeddingStartedAt)
+          })
 
     const operationalNow = new Date()
     const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
@@ -677,6 +821,7 @@ export const chatRouter = router({
                 }),
           },
           select: {
+            id: true,
             updateType: true,
             severity: true,
             priority: true,
@@ -748,6 +893,11 @@ export const chatRouter = router({
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
     //    knowledge entries fall back to empty (no non-semantic fallback needed).
     const retrievalStartedAt = performance.now()
+    const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
+      client: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+    })
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
     if (queryEmbedding) {
@@ -798,6 +948,9 @@ export const chatRouter = router({
           areaName: true,
           hours: true,
           photoUrl: true,
+          sourceType: true,
+          sourceName: true,
+          sourceUrl: true,
           importanceScore: true,
         },
         orderBy: { importanceScore: 'desc' },
@@ -824,6 +977,23 @@ export const chatRouter = router({
         relevantPlaces = importanceRankedPlaces
       }
     }
+    const nativeReadSnapshot = await nativeReadSnapshotPromise
+    const nativeRead = applyNativeGuestContentRead({
+      snapshot: nativeReadSnapshot,
+      legacyPlaces: relevantPlaces,
+      legacyKnowledgeEntries: relevantKnowledgeEntries,
+    })
+    relevantPlaces = nativeRead.places
+    relevantKnowledgeEntries = nativeRead.knowledgeEntries
+    if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
+      logger.info({
+        action: 'guest-chat.native-content-read',
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        readPath: nativeRead.path,
+        gateReason: nativeReadSnapshot.reason,
+        releaseId: nativeReadSnapshot.releaseId,
+      })
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
@@ -833,7 +1003,7 @@ export const chatRouter = router({
 
     if (venue.aiFeaturedPlaceId) {
       const matchingPlace = relevantPlaces.find((place) => place.id === venue.aiFeaturedPlaceId)
-      const featuredPlaceSource =
+      const compatibilityFeaturedPlace =
         matchingPlace ??
         (await ctx.db.place.findFirst({
           where: {
@@ -844,11 +1014,23 @@ export const chatRouter = router({
             ...(includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
           },
           select: {
+            id: true,
             name: true,
             shortDescription: true,
             longDescription: true,
           },
         }))
+      const nativeFeaturedPlace =
+        nativeRead.path === 'NATIVE' && compatibilityFeaturedPlace
+          ? (nativeReadSnapshot.state?.places.find(
+              (place) => place.id === compatibilityFeaturedPlace.id,
+            ) ?? null)
+          : null
+      // A compatibility row is still required to authorize visibility. If the
+      // exact native snapshot lacks that authorized ID, omit the optional card
+      // instead of mixing read sources.
+      const featuredPlaceSource =
+        nativeRead.path === 'NATIVE' ? nativeFeaturedPlace : compatibilityFeaturedPlace
 
       if (featuredPlaceSource) {
         featuredPlace = {
@@ -912,6 +1094,7 @@ export const chatRouter = router({
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
       guideMode,
+      responseIntent: input.responseIntent ?? 'DEFAULT',
       ...(selectedEngagementQuestion || allowAiInventedQuestion
         ? {
             engagementQuestion: {
@@ -935,7 +1118,16 @@ export const chatRouter = router({
     let assistantResponse: string
     let engagementAskedThisTurn = false
     let fallbackFailureCode: string | null = null
+    let fallbackWasRouteExhaustion = false
+    let generationRouteConfigurationVersion: string | undefined
     const modelStartedAt = performance.now()
+    const activeStreamSink = chatStreamSink.getStore()
+    const streamProjection = activeStreamSink
+      ? createGuestStreamingProjection({
+          maxWords: guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
+          onTextDelta: activeStreamSink.onTextDelta,
+        })
+      : null
     const chatAccounting = createApiAiUsageRecorder({
       db: ctx.db,
       tenantId: venue.tenantId,
@@ -958,10 +1150,11 @@ export const chatRouter = router({
         capability: 'STANDARD',
         workloadId: 'guest-chat',
         configuration,
+        unhealthyProviders,
       })
-      const selectedRoute = route.candidates[0]!
-      const result = await generateText({
-        modelKey: selectedRoute.modelKey as AiModelKey,
+      generationRouteConfigurationVersion = route.configurationVersion
+      const result = await generateTextForCapability({
+        route,
         timeoutMs: configuration.timeoutMs,
         maxAttempts: configuration.maxAttempts,
         ...(configuration.maxOutputTokens !== null
@@ -973,6 +1166,7 @@ export const chatRouter = router({
             venueId: input.venueId,
           }),
         budgetGate: chatAccounting.budgetGate,
+        requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
@@ -984,15 +1178,17 @@ export const chatRouter = router({
           })),
           { role: 'user', content: trimmedInput },
         ],
-        usageSink: (usage) =>
-          chatAccounting.sink({
-            ...usage,
-            capability: route.capability,
-            requestType: route.workloadId,
-            routeModelKey: selectedRoute.modelKey,
-            fallbackUsed: selectedRoute.fallback,
-          }),
+        usageSink: chatAccounting.sink,
         invocationId: generationInvocationId,
+        ...(streamProjection
+          ? {
+              onTextDelta: (delta: string) =>
+                streamProjection.push(delta, {
+                  providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+                  requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+                }),
+            }
+          : {}),
         onBeforeFirstDispatch: async () => {
           try {
             await markGuestChatProviderDispatchedAction({
@@ -1007,7 +1203,10 @@ export const chatRouter = router({
       })
 
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
-      assistantResponse = enforceResponseWordCap(strippedResponse, MAX_RESPONSE_WORDS)
+      assistantResponse = enforceResponseWordCap(
+        strippedResponse,
+        guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
+      )
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
@@ -1026,10 +1225,13 @@ export const chatRouter = router({
           client: ctx.db,
           claim: {
             ...turnOperationBase,
-            failureCode: isAiAdmissionControlError(err) ? 'AI_UNAVAILABLE' : 'PRE_DISPATCH_FAILURE',
+            failureCode:
+              isAiAdmissionControlError(err) || err instanceof AiRoutingError
+                ? 'AI_UNAVAILABLE'
+                : 'PRE_DISPATCH_FAILURE',
           },
         })
-        if (isAiAdmissionControlError(err)) {
+        if (isAiAdmissionControlError(err) || err instanceof AiRoutingError) {
           await recordGuestAiFailure('provider-unavailable')
           throw aiUnavailable()
         }
@@ -1057,6 +1259,7 @@ export const chatRouter = router({
         throw aiUnavailable()
       }
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
+      fallbackWasRouteExhaustion = err instanceof AiGatewayError
       logger.error({
         action: 'chat.send.ai_failed',
         venueId: input.venueId,
@@ -1064,7 +1267,6 @@ export const chatRouter = router({
         failureCode: fallbackFailureCode,
         errorName: err instanceof AiGatewayError ? 'AiGatewayError' : 'UnexpectedError',
       })
-      await recordGuestAiFailure('provider-failure')
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     } finally {
       modelMs = elapsedMilliseconds(modelStartedAt)
@@ -1077,6 +1279,79 @@ export const chatRouter = router({
       hasLiveLocation,
       places: relevantPlaces,
     })
+    const citations = buildGuestCitations({
+      assistantResponse,
+      candidates: [
+        ...relevantPlaces.map((place) => ({
+          entityId: place.id,
+          entityLabel: place.name,
+          entityKind: 'place' as const,
+          sourceType: place.sourceType,
+          sourceName: place.sourceName,
+          sourceUrl: place.sourceUrl,
+        })),
+        ...relevantKnowledgeEntries.map((entry) => ({
+          entityId: entry.id,
+          entityLabel: entry.title,
+          entityKind: 'knowledge' as const,
+          sourceType: entry.sourceType,
+          sourceName: entry.sourceName,
+          sourceUrl: entry.sourceUrl,
+        })),
+      ],
+    })
+    const answerEvidence = buildGuestAnswerEvidenceBundle({
+      assistantResponse,
+      staticSystemPrompt: staticPart,
+      dynamicSystemPrompt: dynamicPart,
+      ...(generationRouteConfigurationVersion
+        ? { routeConfigurationVersion: generationRouteConfigurationVersion }
+        : {}),
+      sources: [
+        {
+          sourceId: `venue:${venue.id}`,
+          kind: 'VENUE_PROFILE',
+          label: venue.name,
+          snapshot: {
+            id: venue.id,
+            name: venue.name,
+            description: venue.description,
+            category: venue.category,
+            guideNotes: venue.guideNotes,
+            aiGuideNotes: venue.aiGuideNotes,
+            guideMode,
+          },
+        },
+        ...relevantPlaces.map((place, rank) => ({
+          sourceId: `place:${place.id}`,
+          kind: 'PLACE' as const,
+          label: place.name,
+          rank,
+          snapshot: place,
+        })),
+        ...relevantKnowledgeEntries.map((entry, rank) => ({
+          sourceId: `knowledge:${entry.id}`,
+          kind: 'KNOWLEDGE' as const,
+          label: entry.title,
+          rank,
+          snapshot: entry,
+        })),
+        ...activeUpdates.map((update, rank) => ({
+          sourceId: `operational-update:${update.id}`,
+          kind: 'OPERATIONAL_UPDATE' as const,
+          label: update.title,
+          rank,
+          snapshot: update,
+        })),
+        ...publishedUniversalContent.map((content, rank) => ({
+          sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+          kind: 'PUBLISHED_CONTENT' as const,
+          label: `${content.kind} ${content.moduleId}`,
+          rank,
+          snapshot: content,
+        })),
+      ],
+    })
     let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
     try {
       finalized = await finalizeGuestChatTurnAction({
@@ -1086,7 +1361,7 @@ export const chatRouter = router({
           turnId: reservation.turnId,
           claimId,
           assistantResponse,
-          replayMetadata: { places: mentionedPlaces },
+          replayMetadata: { places: mentionedPlaces, citations, answerEvidence },
           fallbackCode: fallbackFailureCode,
           nextPending: engagementAskedThisTurn
             ? selectedEngagementQuestion
@@ -1109,6 +1384,13 @@ export const chatRouter = router({
     }
     persistenceMs = elapsedMilliseconds(persistenceStartedAt)
 
+    if (fallbackFailureCode) {
+      await recordGuestAiFailure(
+        fallbackWasRouteExhaustion ? 'route-exhausted' : 'provider-failure',
+        generationRouteConfigurationVersion,
+      )
+    }
+
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {
       embeddingMs,
@@ -1117,6 +1399,14 @@ export const chatRouter = router({
       modelMs,
       persistenceMs,
       totalMs,
+      ...(streamProjection?.providerFirstTextMs() !== null &&
+      streamProjection?.providerFirstTextMs() !== undefined
+        ? { providerFirstTextMs: streamProjection.providerFirstTextMs() }
+        : {}),
+      ...(streamProjection?.requestFirstTextMs() !== null &&
+      streamProjection?.requestFirstTextMs() !== undefined
+        ? { requestFirstTextMs: streamProjection.requestFirstTextMs() }
+        : {}),
     }
 
     // Project only active, already tenant/venue-scoped retrieval results that the
@@ -1314,7 +1604,10 @@ export const chatRouter = router({
       assistantMessageId: finalized.assistantMessageId,
       sessionId: finalized.sessionId,
       places: finalized.places,
+      citations: finalized.citations,
       replayed: finalized.replayed,
+      providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
+      requestFirstTextMs: streamProjection?.requestFirstTextMs() ?? null,
     }
   }),
 
@@ -1396,15 +1689,76 @@ export const chatRouter = router({
       where: { sessionId: session.id, tenantId: session.tenantId },
       orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
       take: HISTORY_LOAD_LIMIT,
-      select: { id: true, role: true, content: true },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        guestChatTurn: { select: { replayMetadata: true } },
+      },
     })
 
     return {
-      messages: rows.reverse().map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
+      messages: rows.reverse().map((m) => {
+        const replay =
+          m.role === 'assistant'
+            ? GuestChatReplayMetadata.safeParse(m.guestChatTurn?.replayMetadata)
+            : null
+        return {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
+          ...(replay?.success && replay.data.citations.length
+            ? {
+                blocks: [
+                  {
+                    type: 'citations' as const,
+                    citations: replay.data.citations,
+                  },
+                ],
+              }
+            : {}),
+        }
+      }),
     }
   }),
 })
+
+export type ChatSendResult = Awaited<
+  ReturnType<ReturnType<typeof chatReadRouter.createCaller>['send']>
+>
+export type ChatStreamEvent =
+  | {
+      type: 'delta'
+      delta: string
+      providerFirstTextMs: number
+      requestFirstTextMs: number
+    }
+  | { type: 'complete'; result: ChatSendResult }
+
+export async function* streamChatTurn(
+  ctx: TRPCContext,
+  input: Parameters<ReturnType<typeof chatReadRouter.createCaller>['send']>[0],
+): AsyncGenerator<ChatStreamEvent, void, void> {
+  const queue = new AsyncPushQueue<ChatStreamEvent>()
+  void chatStreamSink
+    .run(
+      {
+        onTextDelta: (delta, timings) => {
+          queue.push({ type: 'delta', delta, ...timings })
+        },
+      },
+      () => chatReadRouter.createCaller(ctx).send(input),
+    )
+    .then(
+      (result) => {
+        queue.push({ type: 'complete', result })
+        queue.close()
+      },
+      (error: unknown) => queue.fail(error),
+    )
+
+  yield* queue.iterate()
+}
+
+export const chatRouter = mergeRouters(chatSessionRouter, chatReadRouter)

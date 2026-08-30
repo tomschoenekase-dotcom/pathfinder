@@ -57,6 +57,7 @@ export async function claimAgentRunExecution(
       where: { id: input.runId, tenantId: input.tenantId },
       select: {
         id: true,
+        operationId: true,
         tenantId: true,
         venueId: true,
         agentIdentityId: true,
@@ -67,6 +68,8 @@ export async function claimAgentRunExecution(
         status: true,
         modelProvider: true,
         modelName: true,
+        initiatedByType: true,
+        initiatedById: true,
         cancelRequestedAt: true,
         executionLeaseExpiresAt: true,
         attemptNumber: true,
@@ -186,6 +189,7 @@ export async function completeAgentRunExecution(
     modelProvider?: string
     modelName?: string
     costE8Usd?: bigint
+    costStatus?: 'UNREPORTED' | 'ESTIMATED' | 'EXACT'
   },
   client: AgentRunExecutionClient = db,
 ) {
@@ -197,6 +201,7 @@ export async function completeAgentRunExecution(
       modelProvider: z.string().trim().min(1).max(100).optional(),
       modelName: z.string().trim().min(1).max(191).optional(),
       costE8Usd: z.bigint().nonnegative().default(0n),
+      costStatus: z.enum(['UNREPORTED', 'ESTIMATED', 'EXACT']).default('UNREPORTED'),
     })
     .parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
@@ -219,6 +224,7 @@ export async function completeAgentRunExecution(
         ...(input.modelProvider ? { modelProvider: input.modelProvider } : {}),
         ...(input.modelName ? { modelName: input.modelName } : {}),
         costE8Usd: input.costE8Usd,
+        costStatus: input.costStatus,
       },
     })
     if (changed.count !== 1)
@@ -236,7 +242,13 @@ export async function completeAgentRunExecution(
         actorId: run.agentIdentityId,
         eventType: 'EXECUTION_COMPLETED',
         message: input.summary,
-        data: { artifactCount: input.artifacts.length },
+        data: {
+          artifactCount: input.artifacts.length,
+          modelProvider: input.modelProvider ?? null,
+          modelName: input.modelName ?? null,
+          costE8Usd: input.costE8Usd.toString(),
+          costStatus: input.costStatus,
+        },
       },
     })
     await transaction.agentMessage.create({

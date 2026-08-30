@@ -68,6 +68,14 @@ export const EVALUATION_RUN_PROCESS_JOB = 'evaluation-run-process'
 export const EVALUATION_RUN_DISPATCH_JOB = 'evaluation-run-dispatch'
 export const EVALUATION_RUN_RETRY_BACKOFF = 'evaluation-run-retry'
 
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE = queueName(
+  'guest-answer-attribution-evaluation',
+)
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB =
+  'guest-answer-attribution-evaluation-process'
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB =
+  'guest-answer-attribution-evaluation-recovery'
+
 export const AGENT_RUN_QUEUE = queueName('agent-run')
 export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
 export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
@@ -88,3 +96,46 @@ export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-sche
 
 export const ACCOUNT_SUMMARY_REFRESH_QUEUE = queueName('account-summary-refresh')
 export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-scheduler'
+
+export const VOICE_SESSION_RECOVERY_QUEUE = queueName('voice-session-recovery')
+export const VOICE_SESSION_RECOVERY_SCHEDULER_JOB = 'voice-session-recovery-scheduler'
+
+export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verification')
+export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'
+export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
+  'intake-upload-verification-reconciliation'
+
+export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
+export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
+export const VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF = 'venue-media-derivative-retry'
+
+/**
+ * Complete BullMQ inventory used for platform-wide operational observation.
+ * Every exported queue belongs here even when its worker is policy-disabled, so a
+ * disabled runtime cannot also disappear from queue-health evidence.
+ */
+export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
+  WEEKLY_DIGEST_QUEUE,
+  ANSWER_ANALYSIS_QUEUE,
+  WEEKLY_REPORT_QUEUE,
+  GENERATION_RECOVERY_QUEUE,
+  GENERATION_DISPATCH_QUEUE,
+  DAILY_ROLLUP_QUEUE,
+  EMBED_PLACE_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBEDDING_DISPATCH_QUEUE,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  SEND_EMAIL_QUEUE,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  MEDIA_INGESTION_QUEUE,
+  EVALUATION_RUN_QUEUE,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+  AGENT_RUN_QUEUE,
+  PROSPECT_IMPORT_QUEUE,
+  GMAIL_SYNC_QUEUE,
+  BILLING_RECONCILIATION_QUEUE,
+  ACCOUNT_SUMMARY_REFRESH_QUEUE,
+  VOICE_SESSION_RECOVERY_QUEUE,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
+] as const)

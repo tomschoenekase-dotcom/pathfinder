@@ -71,40 +71,54 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
           handoffs={[]}
           eligibleAttachments={eligibleAttachments.items}
           eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
+          knowledgeProposals={[]}
         />
       )
-    const [selectedRaw, messagePage, audit, draftPackages, handoffs, runLineages] =
-      await Promise.all([
-        caller.admin.getSupportRequest({ tenantId, venueId, requestId: selectedId }),
-        caller.admin.listSupportMessages({
-          tenantId,
-          venueId,
-          requestId: selectedId,
-          limit: 20,
-          ...(messageCursor(query) ? { cursor: messageCursor(query) } : {}),
-        }),
-        caller.admin.listSupportAuditEvents({
-          tenantId,
-          venueId,
-          requestId: selectedId,
-          limit: 20,
-          ...(auditCursor(query) ? { cursor: auditCursor(query) } : {}),
-        }),
-        caller.admin.listSupportDraftPackages({
-          tenantId,
-          venueId,
-          requestId: selectedId,
-          limit: 50,
-        }),
-        caller.admin.listSupportPackageHandoffs({ tenantId, venueId, requestId: selectedId }),
-        caller.admin.listSupportAgentRunLineages({
-          tenantId,
-          venueId,
-          requestId: selectedId,
-          limit: 20,
-          ...(lineageCursor(query) ? { cursor: lineageCursor(query) } : {}),
-        }),
-      ])
+    const [
+      selectedRaw,
+      messagePage,
+      audit,
+      draftPackages,
+      handoffs,
+      runLineages,
+      knowledgeProposals,
+    ] = await Promise.all([
+      caller.admin.getSupportRequest({ tenantId, venueId, requestId: selectedId }),
+      caller.admin.listSupportMessages({
+        tenantId,
+        venueId,
+        requestId: selectedId,
+        limit: 20,
+        ...(messageCursor(query) ? { cursor: messageCursor(query) } : {}),
+      }),
+      caller.admin.listSupportAuditEvents({
+        tenantId,
+        venueId,
+        requestId: selectedId,
+        limit: 20,
+        ...(auditCursor(query) ? { cursor: auditCursor(query) } : {}),
+      }),
+      caller.admin.listSupportDraftPackages({
+        tenantId,
+        venueId,
+        requestId: selectedId,
+        limit: 50,
+      }),
+      caller.admin.listSupportPackageHandoffs({ tenantId, venueId, requestId: selectedId }),
+      caller.admin.listSupportAgentRunLineages({
+        tenantId,
+        venueId,
+        requestId: selectedId,
+        limit: 20,
+        ...(lineageCursor(query) ? { cursor: lineageCursor(query) } : {}),
+      }),
+      caller.admin.listSupportKnowledgeProposals({
+        tenantId,
+        venueId,
+        supportRequestId: selectedId,
+        limit: 50,
+      }),
+    ])
     const selected = normalizeRequest(selectedRaw)
     const messages = {
       ...messagePage,
@@ -113,6 +127,7 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         authorKind: message.authorKind,
         visibility: message.visibility,
         body: message.body,
+        requestVersion: message.requestVersion,
         createdAt: message.createdAt,
         attachments: message.attachments.map((attachment) => ({
           id: attachment.id,
@@ -136,6 +151,7 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
         runLineages={runLineages.items}
         runLineagesNextCursor={runLineages.nextCursor}
+        knowledgeProposals={knowledgeProposals}
       />
     )
   } catch {

@@ -186,6 +186,9 @@
     frame.title = 'Torchiko venue guide'
     frame.loading = 'eager'
     frame.referrerPolicy = 'no-referrer'
+    // Delegate only microphone access to the exact-origin guide frame. The
+    // browser still prompts only after the visitor explicitly starts Voice Mode.
+    frame.setAttribute('allow', 'microphone')
     frame.setAttribute('data-pathfinder-widget-frame', '')
     frame.setAttribute(
       'sandbox',

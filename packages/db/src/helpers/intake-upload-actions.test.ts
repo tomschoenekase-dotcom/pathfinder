@@ -546,7 +546,7 @@ describe('quarantined intake upload actions', () => {
       $executeRaw: vi.fn(),
       intakeUpload: {
         findFirst: vi.fn().mockResolvedValue(current),
-        update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       intakeUploadVerificationReceipt: {
         findFirst: vi.fn().mockResolvedValue({
@@ -580,8 +580,17 @@ describe('quarantined intake upload actions', () => {
       },
       client: transactionClient(tx) as never,
     })
-    expect(tx.intakeUpload.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }),
+    expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          id: scope.uploadId,
+          status: 'VERIFYING',
+          verificationClaimId: claimId,
+        }),
+        data: expect.objectContaining({ status: 'REJECTED' }),
+      }),
     )
     expect(tx.intakeRun.create).not.toHaveBeenCalled()
     expect(result.nextAction).toBe('RESELECT_FILE')
@@ -662,6 +671,60 @@ describe('quarantined intake upload actions', () => {
     expect(result).toMatchObject({ state: 'VERIFYING', replayed: false })
     const audit = tx.auditLog.create.mock.calls[0]?.[0]
     expect(JSON.stringify(audit)).not.toContain(claimId)
+  })
+
+  it('limits system verification authority to prechecked work and records system lineage', async () => {
+    const systemJobId = 'intake-upload-verification:job-1'
+    const systemActor = {
+      type: 'SYSTEM' as const,
+      actorId: systemJobId,
+      role: 'SYSTEM' as const,
+      systemJobId,
+      capability: 'intake-upload.authoritative-verify',
+    }
+    const reservedTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(upload()),
+        updateMany: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      claimIntakeUploadVerificationAction({
+        ...scope,
+        actor: systemActor,
+        claimId,
+        client: transactionClient(reservedTx) as never,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(reservedTx.intakeUpload.updateMany).not.toHaveBeenCalled()
+
+    const prechecked = upload({ status: 'PRECHECK_PASSED', storageVersionId: 'version-1' })
+    const precheckedTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(prechecked),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue(undefined) },
+    }
+    await expect(
+      claimIntakeUploadVerificationAction({
+        ...scope,
+        actor: systemActor,
+        claimId,
+        client: transactionClient(precheckedTx) as never,
+      }),
+    ).resolves.toMatchObject({ state: 'PRECHECK_PASSED', replayed: false })
+    expect(precheckedTx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'SYSTEM',
+        actorId: systemJobId,
+        actorRole: 'SYSTEM',
+        systemJobId,
+        capability: 'intake-upload.authoritative-verify',
+        action: 'intake-upload.authoritative-verification-claimed',
+      }),
+    })
   })
 
   it('replays the terminal review state without exposing transport identity or creating work', async () => {

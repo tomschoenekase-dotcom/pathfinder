@@ -207,6 +207,110 @@
   width: 1rem;
 }
 
+.recoveryPanel {
+  scroll-margin-top: 5rem;
+  margin-top: 1.5rem;
+  border: 1px solid rgba(155, 37, 49, 0.3);
+  border-radius: 0.9rem;
+  background: linear-gradient(120deg, rgba(155, 37, 49, 0.07), transparent 55%), #fff;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.recoveryHeading {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.recoveryHeading h3 {
+  margin: 0.2rem 0 0;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+}
+
+.recoveryIcon {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: #9b2531;
+  color: #fff;
+}
+
+.recoveryIcon svg {
+  width: 1.2rem;
+}
+
+.recoveryIntro {
+  max-width: 48rem;
+  margin: 0.85rem 0 0;
+  color: rgba(16, 45, 72, 0.78);
+  line-height: 1.55;
+}
+
+.recoveryList {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.recoveryList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border-top: 1px solid rgba(155, 37, 49, 0.18);
+  padding: 1rem 0 0;
+}
+
+.recoveryList strong {
+  overflow-wrap: anywhere;
+}
+
+.recoveryList p,
+.olderAttention p {
+  margin: 0.3rem 0 0;
+  color: rgba(16, 45, 72, 0.74);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.replacementAction {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: var(--ink);
+  color: #fff;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.replacementAction svg {
+  width: 1rem;
+}
+
+.replacementAction:focus-visible {
+  outline: 3px solid rgba(34, 91, 145, 0.35);
+  outline-offset: 3px;
+}
+
+.olderAttention {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid rgba(155, 37, 49, 0.18);
+  padding-top: 1rem;
+}
+
 .queueSection,
 .librarySection {
   margin-top: clamp(2rem, 5vw, 3.5rem);
@@ -670,6 +774,18 @@
   .savedFiles > li > :last-child:not(.fileError) {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .recoveryList li,
+  .olderAttention {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .replacementAction,
+  .olderAttention .quietButton {
+    width: 100%;
   }
 }
 

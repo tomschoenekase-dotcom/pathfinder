@@ -4,9 +4,13 @@ import type {
   CharacterState,
   PublicCharacterProjection,
 } from '@pathfinder/contracts/character-system'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { TRPCProvider } from '../lib/trpc'
+import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { LocationRoutePlanner, type LocationRoutePlannerDataSource } from './LocationRoutePlanner'
 import { VenueChatShell } from './VenueChatShell'
+import { VoiceControlPanel } from './VoiceControl'
 import type { ChatMessage, VenueSummary } from './venue-chat-types'
 
 export const VISITOR_FIXTURE_STATES = [
@@ -20,8 +24,98 @@ export const VISITOR_FIXTURE_STATES = [
 ] as const satisfies readonly CharacterState[]
 
 export type VisitorFixtureMode = 'classic' | 'character'
-export type VisitorFixtureConversation = 'empty' | 'long'
+export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'streaming'
 export type VisitorFixtureAsset = 'ok' | 'missing'
+export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
+export type VisitorFixtureRoute = 'none' | 'ready'
+
+const FIXTURE_ROUTE_SOURCE = {
+  catalog: async () => ({
+    locations: [
+      {
+        id: 'fixture-main-entrance',
+        stableKey: 'main-entrance',
+        kind: 'ENTRANCE' as const,
+        displayName: 'Main entrance',
+        floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+      },
+      {
+        id: 'fixture-lake-gallery',
+        stableKey: 'lake-gallery',
+        kind: 'EXHIBIT' as const,
+        displayName: 'Lake gallery',
+        floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+      },
+    ],
+  }),
+  route: async (input) => ({
+    from: {
+      id: 'fixture-main-entrance',
+      stableKey: 'main-entrance',
+      kind: 'ENTRANCE' as const,
+      displayName: 'Main entrance',
+      floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+    },
+    to: {
+      id: 'fixture-lake-gallery',
+      stableKey: 'lake-gallery',
+      kind: 'EXHIBIT' as const,
+      displayName: 'Lake gallery',
+      floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+    },
+    accessibleOnly: input.accessibleOnly,
+    segmentCount: 2,
+    describedSegmentCount: 2,
+    guidanceConfidence: 'HIGH' as const,
+    hasEquivalentRoute: true,
+    review: {
+      status: 'VENUE_REVIEWED' as const,
+      reviewedAt: new Date('2026-08-19T12:00:00Z'),
+    },
+    segments: [
+      {
+        connectionId: 'fixture-lobby-walkway',
+        kind: 'WALKWAY' as const,
+        accessible: true,
+        directions: 'Follow the lobby signs to the central lift.',
+        from: {
+          id: 'fixture-main-entrance',
+          stableKey: 'main-entrance',
+          kind: 'ENTRANCE' as const,
+          displayName: 'Main entrance',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+        to: {
+          id: 'fixture-central-lift',
+          stableKey: 'central-lift',
+          kind: 'SERVICE_DESK' as const,
+          displayName: 'Central lift',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+      },
+      {
+        connectionId: 'fixture-upper-lift',
+        kind: 'ELEVATOR' as const,
+        accessible: true,
+        directions: 'Take the lift to the upper floor and turn left.',
+        from: {
+          id: 'fixture-central-lift',
+          stableKey: 'central-lift',
+          kind: 'SERVICE_DESK' as const,
+          displayName: 'Central lift',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+        to: {
+          id: 'fixture-lake-gallery',
+          stableKey: 'lake-gallery',
+          kind: 'EXHIBIT' as const,
+          displayName: 'Lake gallery',
+          floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+        },
+      },
+    ],
+  }),
+} satisfies LocationRoutePlannerDataSource
 
 export const VISITOR_FIXTURE_PROJECTION: PublicCharacterProjection = {
   characterId: 'tochi',
@@ -62,6 +156,35 @@ const LONG_CONVERSATION: ChatMessage[] = [
     role: 'assistant',
     content:
       "The reading room beside the north stair is the quietest public space. Venue staff can confirm today's availability.",
+  },
+]
+
+const MULTILINGUAL_CONVERSATION: ChatMessage[] = [
+  {
+    role: 'user',
+    content: 'هل يمكنك اقتراح مسار هادئ ومناسب للكراسي المتحركة من المدخل إلى معرض البحيرة؟',
+  },
+  {
+    role: 'assistant',
+    content:
+      'نعم. ابدأ من المدخل الرئيسي، واتبع علامات الردهة إلى المصعد المركزي، ثم انعطف يسارًا في الطابق العلوي. يمكن لموظفي المكان تأكيد حالة المصعد اليوم.',
+  },
+  {
+    role: 'user',
+    content: '子どもと一緒に休憩できる場所も近くにありますか？',
+  },
+  {
+    role: 'assistant',
+    content:
+      '北階段の横に読書ルームがあります。本日利用できるかどうかは、会場スタッフにご確認ください。',
+  },
+]
+
+const STREAMING_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'Where can we find the lake ecology gallery?' },
+  {
+    role: 'assistant',
+    content: 'The lake ecology gallery is on the upper floor beside the central',
   },
 ]
 
@@ -113,12 +236,20 @@ export function VenueChatFixture({
   conversation,
   asset,
   motion,
+  voice = 'none',
+  network = 'online',
+  route = 'none',
+  language = 'English',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
   conversation: VisitorFixtureConversation
   asset: VisitorFixtureAsset
   motion: 'system' | 'reduced' | 'full'
+  voice?: VisitorFixtureVoice
+  network?: NetworkConnectionState
+  route?: VisitorFixtureRoute
+  language?: SupportedChatLanguage
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -128,27 +259,71 @@ export function VenueChatFixture({
         data-fixture-state={state}
         data-fixture-conversation={conversation}
         data-fixture-asset={asset}
+        data-fixture-voice={voice}
+        data-fixture-network={network}
+        data-fixture-route={route}
       >
         <VenueChatShell
           venue={fixtureVenue(mode, asset)}
           venueSlug="fixture-great-lakes-museum"
           presentation="standalone"
-          messages={conversation === 'long' ? LONG_CONVERSATION : []}
-          isSending={state === 'thinking'}
+          messages={
+            conversation === 'long'
+              ? LONG_CONVERSATION
+              : conversation === 'multilingual'
+                ? MULTILINGUAL_CONVERSATION
+                : conversation === 'streaming'
+                  ? STREAMING_CONVERSATION
+                  : []
+          }
+          isSending={state === 'thinking' || state === 'speaking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}
           anonymousToken="fixture-anonymous-token"
-          language="English"
+          language={language}
           setLanguage={() => undefined}
           initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
           characterState={state}
           characterMotion={motion}
+          connectionState={network}
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
+          onRequestMore={() => undefined}
+          requestMoreLabel="Tell me more"
           onDraftChange={() => undefined}
           onNewConversation={() => undefined}
           onPlaceView={() => undefined}
           onPlaceClick={() => undefined}
           onDirections={() => undefined}
+          voiceControl={
+            voice === 'none' ? null : (
+              <VoiceControlPanel
+                state={voice}
+                disabled={false}
+                error={
+                  voice === 'error'
+                    ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'
+                    : null
+                }
+                transcript={
+                  voice === 'listening'
+                    ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
+                    : []
+                }
+                onStart={() => undefined}
+                onEnd={() => undefined}
+              />
+            )
+          }
+          routePlanner={
+            route === 'ready' ? (
+              <LocationRoutePlanner
+                venueId="fixture-great-lakes-museum"
+                anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+                dataSource={FIXTURE_ROUTE_SOURCE}
+                language={language}
+              />
+            ) : null
+          }
         />
       </div>
     </TRPCProvider>

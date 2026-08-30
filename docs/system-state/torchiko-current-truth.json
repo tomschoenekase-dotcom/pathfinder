@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-28",
+  "authority": {
+    "purpose": "Machine-readable overlay for current repository capability truth",
+    "supersedesHistoricalClaimsIn": [
+      "docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md",
+      "docs/system-state/TORCHIKO_CAPABILITY_MATRIX.md",
+      "docs/system-state/TORCHIKO_AUDIT_BACKLOG.md"
+    ],
+    "doesNotProve": [
+      "hosted staging deployment",
+      "production deployment",
+      "provider credentials or provider-backed quality",
+      "customer contact",
+      "live billing",
+      "legal or pricing policy",
+      "valuable-data destruction authority"
+    ]
+  },
+  "dynamicFacts": {
+    "migrationDirectory": "packages/db/prisma/migrations",
+    "composeFile": "compose.local-staging.yml",
+    "expectedLocalServiceImages": 5
+  },
+  "capabilities": [
+    {
+      "id": "founder-operating-conversation",
+      "status": "proven-provider-dark-locally",
+      "summary": "The mobile Founder Control Room answers seven operating intents from canonical bounded state and retains unmatched direction as append-only triage evidence without execution authority.",
+      "evidence": [
+        "docs/founder-operating-conversation.md",
+        "packages/api/src/routers/admin/founder-operating-conversation.ts",
+        "packages/db/src/helpers/founder-operating-exchanges.ts",
+        "apps/dashboard/components/admin/FounderOperatingConversation.tsx",
+        "scripts/run-disposable-founder-conversation.mjs"
+      ],
+      "remaining": "Open-ended synthesis, automatic directive classification, hosted staging integration, proactive escalation, and production rollout remain separately gated; exact scoped proposal and approved task materialization are a separate implemented capability."
+    },
+    {
+      "id": "founder-directive-task-handoff",
+      "status": "proven-provider-dark-locally",
+      "summary": "A separately credentialed platform worker can propose one exact tenant/venue/identity task from a retained founder directive; human approval and a second materialization capability are required before one canonical agent run is queued.",
+      "evidence": [
+        "docs/founder-directive-task-handoff.md",
+        "packages/db/src/helpers/founder-directive-task-actions.ts",
+        "packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts",
+        "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.ts",
+        "scripts/run-disposable-founder-directive-task.mjs"
+      ],
+      "remaining": "Hosted worker continuity, automatic broad-directive classification, representative task-result quality, and every downstream customer, pricing, billing, deployment, policy, provider-spend, production, or destructive effect remain unproven or separately gated."
+    },
+    {
+      "id": "guest-prompt-integrity",
+      "status": "proven-provider-dark-locally",
+      "summary": "Guest prompt v7 separates trusted rules/operator guidance from delimiter-escaped venue and retrieved data, rejects guest authority over hidden context, and applies the venue response-depth contract with explicit visitor expansion intent.",
+      "evidence": [
+        "docs/TOCHI-PROMPT-BEHAVIOR.md",
+        "packages/api/src/lib/venue-context.ts",
+        "packages/api/src/lib/venue-context.test.ts",
+        "packages/contracts/src/onboarding-evaluation-suite.ts"
+      ],
+      "remaining": "Run provider-backed adversarial evaluations for each candidate model before claiming model-specific resistance; hosted staging integration and production rollout remain separately gated."
+    },
+    {
+      "id": "release-evidence",
+      "status": "proven-locally",
+      "summary": "Exact candidate assessments and staging handoffs can be projected into immutable platform evidence without granting deployment authority.",
+      "evidence": [
+        "docs/platform-release-evidence.md",
+        "scripts/prepare-release-evidence.mjs",
+        "packages/db/src/helpers/platform-release-evidence.ts",
+        "apps/dashboard/app/api/platform-worker/release-evidence/route.ts"
+      ],
+      "remaining": "Persist and inspect the exact candidate in authorized hosted staging; deployment approval remains separate."
+    },
+    {
+      "id": "golden-venue-lifecycle",
+      "status": "proven-provider-dark-locally",
+      "summary": "A disposable end-to-end venue lifecycle and eight failure classes are retained and replayable through production domain paths.",
+      "evidence": [
+        "docs/golden-venue-runbook.md",
+        "scripts/run-disposable-golden-venue.mjs",
+        "scripts/golden-venue/fixture.json"
+      ],
+      "remaining": "Run the synthetic flow in authorized hosted staging and separately prove provider-backed answer and voice quality."
+    },
+    {
+      "id": "native-guest-read",
+      "status": "proven-provider-dark-locally",
+      "summary": "Guest retrieval has a default-dark, exact-venue native-content executor with immutable head/evaluation gates, whole-request fallback, diagnostic preflight, and immediate compatibility rollback.",
+      "evidence": [
+        "docs/native-guest-content-read.md",
+        "packages/db/src/helpers/native-guest-content-read.ts",
+        "packages/api/src/native-guest-read.disposable.integration.test.ts",
+        "scripts/run-disposable-native-guest-read.mjs"
+      ],
+      "remaining": "Activation requires genuine reviewed quality and rollback references; hosted staging rehearsal and production approval remain separate, and compatibility data cannot yet be retired."
+    },
+    {
+      "id": "crm-pipeline",
+      "status": "implemented-external-gated",
+      "summary": "Prospect organizations, venues, contacts, opportunities, provenance, research/import, history, follow-up, and reviewed conversion are implemented.",
+      "evidence": [
+        "packages/api/src/routers/admin/prospect-crm.ts",
+        "packages/db/src/helpers/prospect-crm-disposable.integration.test.ts",
+        "apps/dashboard/app/(admin)/admin/prospects"
+      ],
+      "remaining": "Hosted continuity and authorized provider configuration; pricing, promises, and customer contact stay gated."
+    },
+    {
+      "id": "outreach-operations",
+      "status": "implemented-external-gated",
+      "summary": "Campaign, cohort, draft, approval, suppression, outbox, rate-policy, worker, and analytics foundations are implemented dark by default.",
+      "evidence": [
+        "packages/api/src/routers/admin/prospect-crm-outreach.ts",
+        "packages/db/src/helpers/prospect-outreach-actions.ts",
+        "apps/workers/src/processors/send-prospect-outreach.ts"
+      ],
+      "remaining": "Sending requires separate owner/provider authorization and a bounded staging canary."
+    },
+    {
+      "id": "stripe-billing",
+      "status": "implemented-sandbox-proven-live-gated",
+      "summary": "Stripe test-mode checkout, signed webhooks, internal projection, entitlement evaluation, reconciliation, portal, and governed agent proposals are implemented and sandbox-proven.",
+      "evidence": [
+        "docs/stripe-billing-staging-status-2026-08-20.md",
+        "packages/billing/src/service.ts",
+        "packages/api/src/routers/billing.ts",
+        "apps/dashboard/app/api/webhooks/stripe/route.ts"
+      ],
+      "remaining": "No live billing is configured or authorized; unresolved commercial and legal decisions remain founder-gated."
+    },
+    {
+      "id": "gmail-correspondence",
+      "status": "implemented-external-gated",
+      "summary": "Gmail OAuth, Pub/Sub, sync, source references, correspondence metadata, and source-message navigation foundations are implemented.",
+      "evidence": [
+        "docs/gmail-source-retrieval.md",
+        "packages/api/src/correspondence/gmail.ts",
+        "apps/workers/src/processors/gmail-sync.ts",
+        "apps/dashboard/app/api/integrations/gmail/pubsub/route.ts"
+      ],
+      "remaining": "Owner credentials, watch renewal, hosted continuity, and authorized delivery remain external gates."
+    },
+    {
+      "id": "local-staging-infrastructure",
+      "status": "proven-locally",
+      "summary": "PostgreSQL/pgvector, Redis, MinIO, its client, and ClamAV use content-addressed image identities and have a provider-dark local health path.",
+      "evidence": [
+        "compose.local-staging.yml",
+        "docs/local-staging-infrastructure.md",
+        "scripts/local-staging-worker.test.mjs"
+      ],
+      "remaining": "Hosted Railway configuration and dependency health remain separately owned and unproven by local compose."
+    },
+    {
+      "id": "operational-usage-evidence",
+      "status": "proven-provider-dark-locally",
+      "summary": "Append-only exact-scope evidence automatically retains fresh queue gauges and database-declared intake/media bytes for founder and bounded platform-worker inspection without assigning money.",
+      "evidence": [
+        "docs/operational-usage-evidence.md",
+        "packages/db/src/helpers/operational-usage-evidence-actions.ts",
+        "packages/db/src/helpers/operational-usage-evidence-producers.ts",
+        "apps/workers/src/lib/operational-usage-observer.ts"
+      ],
+      "remaining": "Hosted observations, provider exports, rate provenance, accounting reconciliation, and founder-approved anomaly policy remain external or unresolved."
+    },
+    {
+      "id": "first-week-account-learning",
+      "status": "proven-provider-dark-locally",
+      "summary": "The nightly learning path materializes immutable, release-anchored day 1, 3, and 7 aggregate reviews and surfaces only useful customer check-in drafts for human review.",
+      "evidence": [
+        "docs/first-week-account-learning.md",
+        "packages/db/src/helpers/first-week-account-reviews.ts",
+        "packages/db/src/helpers/first-week-account-reviews-disposable.integration.test.ts",
+        "apps/dashboard/app/(admin)/admin/clients/[tenantId]/analytics/page.tsx"
+      ],
+      "remaining": "Hosted scheduler continuity and any customer communication remain unproven and gated; drafts have no recipient, provider, or sending authority."
+    },
+    {
+      "id": "privacy-retention",
+      "status": "partially-implemented-policy-gated",
+      "summary": "A truthful privacy-policy status surface, retention inventory, and non-destructive disposition preview exist; general deletion execution does not.",
+      "evidence": [
+        "apps/web/app/privacy/page.tsx",
+        "packages/db/src/helpers/retention-disposition-preview.ts",
+        "packages/api/src/routers/admin/retention-disposition-preview.ts"
+      ],
+      "remaining": "Founder/legal policy decisions and a separately reviewed executor are required before destructive retention actions."
+    },
+    {
+      "id": "customer-access-execution",
+      "status": "implemented-provider-dark-proven-live-gated",
+      "summary": "Owner-evidenced invitation proposals can hand off after exact human approval to a human-admin provider executor with pre-I/O fencing, explicit reconciliation, idempotent pending-invitation reuse, and no fabricated local membership.",
+      "evidence": [
+        "docs/customer-access-execution.md",
+        "packages/db/src/helpers/customer-access-execution-actions.ts",
+        "packages/api/src/lib/customer-access-executor.ts",
+        "packages/api/src/customer-access-execution-disposable.integration.test.ts"
+      ],
+      "remaining": "Authorized hosted Clerk configuration, real invitation delivery/acceptance/webhook proof, and any higher agent execution authority remain external or founder-gated."
+    },
+    {
+      "id": "claim-attribution-calibration",
+      "status": "proven-provider-dark-locally",
+      "summary": "Frozen guest answers can retain append-only human reviews and default-off machine semantic reviews with exact hashes, three-layer admission, dispatch fencing, safe recovery, and deterministic human-only agreement while exposing no threshold or release decision.",
+      "evidence": [
+        "docs/guest-answer-attribution.md",
+        "packages/contracts/src/guest-answer-attribution-agreement.ts",
+        "packages/db/src/helpers/guest-answer-attribution-agreement.ts",
+        "packages/db/src/helpers/guest-answer-attribution-evaluation-actions.ts",
+        "apps/workers/src/processors/guest-answer-attribution-evaluation.ts",
+        "packages/api/src/routers/admin/guest-answer-attributions.ts"
+      ],
+      "remaining": "Provider-enabled staging history, a representative calibrated corpus, any approved threshold or automatic sampling policy, and visitor-facing claim UX remain unproven or product-gated."
+    },
+    {
+      "id": "agent-operational-trust-evidence",
+      "status": "proven-provider-dark-locally",
+      "summary": "Terminal-run review can append exact-action rollback, explicit policy-code/severity violation, and confidence prediction/reviewed-outcome evidence; autonomy-evidence schema v3 derives bounded rollback, violation, accuracy, and Brier evidence without changing authority.",
+      "evidence": [
+        "packages/db/src/helpers/agent-outcome-actions.ts",
+        "packages/db/src/helpers/agent-improvement-proposal-disposable.integration.test.ts",
+        "packages/api/src/routers/admin/attention-agent-evidence.ts",
+        "apps/dashboard/components/admin/AgentOutcomeObservationForm.tsx",
+        "docs/founder-control-room.md"
+      ],
+      "remaining": "Accumulate representative reviewed history before defining any trust threshold; hosted staging integration and every policy/permission change remain separately gated."
+    },
+    {
+      "id": "agent-runtime-routing",
+      "status": "proven-provider-dark-locally",
+      "summary": "Direct agent identities select the centrally governed agent-run workload; execution resolves exact scoped routing, provider health, fallback, limits, and a cumulative request-cost ceiling while bridge targets remain explicit.",
+      "evidence": [
+        "docs/agent-runtime-model-routing.md",
+        "apps/workers/src/processors/agent-run.ts",
+        "packages/ai/src/routed-generation.ts",
+        "packages/db/prisma/migrations/20260825012000_align_agent_runtime_model_routing/migration.sql"
+      ],
+      "remaining": "Authorized provider-backed staging must still prove actual fallback, model quality, spend behavior, and each subscription bridge; no deployment or credentials are authorized by local proof."
+    },
+    {
+      "id": "agent-workforce-credibility",
+      "status": "proven-provider-dark-locally",
+      "summary": "An authenticated disposable bridge scenario proves heterogeneous concurrent workers, two independent instances of one role, exact role/capability routing, system-initiated execution, expired-lease takeover, stale-worker fencing, duplicate-completion prevention, durable artifacts, and exact costs.",
+      "evidence": [
+        "docs/workforce-credibility-shakedown.md",
+        "packages/db/src/helpers/agent-bridge-actions.ts",
+        "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+        "scripts/run-disposable-agent-bridge.mjs",
+        "packages/db/prisma/migrations/20260828155000_allow_fenced_agent_bridge_takeover/migration.sql"
+      ],
+      "remaining": "Live subscription/provider bridges, provider-backed output quality, distributed load capacity, customer-facing effects, production deployment, and any broader permission mapping remain separately gated or unproven."
+    },
+    {
+      "id": "identity-vocabulary",
+      "status": "proven-locally",
+      "summary": "Torchiko is the customer-facing product identity while PathFinder remains a compatibility-safe internal technical namespace; Founder Control Room, Tochi, Hermes, and Codex have explicit non-overlapping ownership.",
+      "evidence": [
+        "docs/identity-vocabulary.md",
+        "scripts/visible-brand-contract.test.mjs",
+        "apps/workers/src/processors/send-welcome-email.ts",
+        "packages/api/src/routers/chat.ts"
+      ],
+      "remaining": "Legal entity, trademark, contract, and future product-direction decisions remain founder or legal work; stable technical identifiers must be migrated deliberately rather than cosmetically renamed."
+    },
+    {
+      "id": "support-knowledge-correction",
+      "status": "proven-provider-dark-locally",
+      "summary": "An exact in-review client content-correction request version and its immutable messages can become one separately reviewed knowledge proposal through either a platform administrator or a verified knowledge:draft worker.",
+      "evidence": [
+        "docs/support-knowledge-proposals.md",
+        "packages/db/src/helpers/support-knowledge-proposal-actions.ts",
+        "packages/db/src/helpers/support-knowledge-proposal-disposable.integration.test.ts",
+        "apps/dashboard/components/admin/SupportKnowledgeProposalForm.tsx"
+      ],
+      "remaining": "Human proposal review, any package/application workflow, canonical knowledge publication, customer communication, hosted continuity, and provider-backed quality remain separately governed or gated."
+    },
+    {
+      "id": "semantic-venue-update-draft",
+      "status": "proven-provider-dark-locally",
+      "summary": "Approved knowledge proposals can be deterministically classified and converted through an exact preview hash into one append-only-linked, separately reviewable VenuePackage DRAFT or inactive OperationalUpdate DRAFT. Exact conflicts can persist one idempotent blocking AgentQuestion for an enabled in-scope Content identity; answers remain guidance and require a recomputed preview. None of these paths grant approval, apply, scheduling, publication, or deletion authority.",
+      "evidence": [
+        "packages/api/src/lib/semantic-venue-updater.ts",
+        "packages/api/src/lib/semantic-venue-update-finalizer.ts",
+        "packages/api/src/lib/semantic-operational-update-finalizer.ts",
+        "packages/api/src/routers/admin/knowledge-proposals.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-conflicts.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-drafts.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-preview.ts",
+        "packages/api/src/routers/admin/knowledge-proposal-review.ts",
+        "packages/db/src/helpers/agent-question-actions.ts",
+        "packages/db/src/helpers/knowledge-proposal-package-handoff-disposable.integration.test.ts",
+        "apps/dashboard/components/admin/SemanticUpdatePreview.tsx"
+      ],
+      "remaining": "Representative semantic quality history, hosted staging rehearsal, package approval/apply, operational scheduling/publication, and production rollout remain separately governed or unproven."
+    }
+  ]
+}

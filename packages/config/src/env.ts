@@ -37,6 +37,7 @@ const rawEnvSchema = z
     // credentials, queues, consumers, schedulers, or accidental outbound calls.
     OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+    INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Stripe Billing is an independently dark integration. Environment gates
     // never replace tenant pilot admission or server-side authorization.
@@ -141,7 +142,7 @@ const rawEnvSchema = z
 
     // Required when email is wired (post-MVP scaffolding)
     RESEND_API_KEY: z.string().optional(),
-    RESEND_FROM_EMAIL: z.string().optional(),
+    RESEND_FROM_EMAIL: z.string().email().optional(),
     RESEND_WEBHOOK_SECRET: z.string().optional(),
     PROSPECT_OUTREACH_DELIVERY_ENABLED: z.enum(['true', 'false']).default('false'),
     PROSPECT_OUTREACH_RECIPIENT_MODE: z
@@ -211,6 +212,62 @@ const rawEnvSchema = z
         })
       }
     }
+    if (values.OPERATIONAL_ALERT_DELIVERY_ENABLED === 'true') {
+      for (const field of [
+        'REDIS_URL',
+        'RESEND_API_KEY',
+        'RESEND_FROM_EMAIL',
+        'OPERATIONAL_ALERT_EMAIL_TO',
+      ] as const) {
+        if (!values[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required when operational alert delivery is enabled`,
+          })
+        }
+      }
+      if (values.OUTBOUND_PROVIDER_WORKERS_ENABLED !== 'true') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['OUTBOUND_PROVIDER_WORKERS_ENABLED'],
+          message: 'Operational alert delivery requires OUTBOUND_PROVIDER_WORKERS_ENABLED=true',
+        })
+      }
+    }
+    if (values.OPERATIONAL_ALERT_DEV_SINK_ENABLED === 'true') {
+      if (values.RAILWAY_ENVIRONMENT === 'production') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['OPERATIONAL_ALERT_DEV_SINK_ENABLED'],
+          message: 'The operational alert development sink is forbidden in production',
+        })
+      }
+      if (!values.REDIS_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['REDIS_URL'],
+          message: 'REDIS_URL is required when the operational alert development sink is enabled',
+        })
+      }
+      if (values.OUTBOUND_PROVIDER_WORKERS_ENABLED !== 'true') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['OUTBOUND_PROVIDER_WORKERS_ENABLED'],
+          message: 'The operational alert development sink requires provider workers',
+        })
+      }
+    }
+    if (
+      values.OPERATIONAL_ALERT_DELIVERY_ENABLED === 'true' &&
+      values.OPERATIONAL_ALERT_DEV_SINK_ENABLED === 'true'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['OPERATIONAL_ALERT_DEV_SINK_ENABLED'],
+        message: 'Choose either external operational alert delivery or the development sink',
+      })
+    }
   })
 
 export const envSchema = rawEnvSchema.transform((values) => ({
@@ -218,6 +275,8 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
   OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
   CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
+  INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED:
+    values.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true',
   STRIPE_BILLING_UI_ENABLED: values.STRIPE_BILLING_UI_ENABLED === 'true',
   STRIPE_CHECKOUT_ENABLED: values.STRIPE_CHECKOUT_ENABLED === 'true',
   STRIPE_CUSTOMER_PORTAL_ENABLED: values.STRIPE_CUSTOMER_PORTAL_ENABLED === 'true',

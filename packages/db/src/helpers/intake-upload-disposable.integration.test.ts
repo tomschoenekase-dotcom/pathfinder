@@ -8,6 +8,7 @@ import {
   claimIntakeUploadVerificationAction,
   db,
   recordIntakeUploadPrecheckAction,
+  recordIntakeFileExtractionReceiptAction,
   reserveIntakeUploadAction,
   settleIntakeUploadAuthoritativeVerificationAction,
   withTenantIsolationBypass,
@@ -51,9 +52,9 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
         request: {
           requestId: randomUUID(),
           displayName: 'Sanitized fixture',
-          fileName: 'fixture.png',
-          mimeType: 'image/png',
-          category: 'PHOTO',
+          fileName: 'fixture.txt',
+          mimeType: 'text/plain',
+          category: 'DOCUMENT',
           byteSize: bytes.byteLength,
           sha256,
         },
@@ -80,7 +81,7 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
         verified: {
           objectGeneration,
           storageVersionId: `version-${suffix}`,
-          mimeType: 'image/png',
+          mimeType: 'text/plain',
           byteSize: bytes.byteLength,
           sha256,
         },
@@ -162,6 +163,57 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
           { kind: 'RESOURCE_SAFETY', verdict: 'PASSED' },
         ]),
       )
+      const extractionOperationId = randomUUID()
+      const extractedText = bytes.toString('utf8')
+      const extractionInput = {
+        operationId: extractionOperationId,
+        tenantId,
+        venueId,
+        runId: upload.intakeRunId!,
+        uploadId: reserved.upload.id,
+        requestHash: createHash('sha256')
+          .update(`disposable-text-extraction:${suffix}`)
+          .digest('hex'),
+        outcome: 'SUCCEEDED' as const,
+        sourceObjectGeneration: objectGeneration,
+        sourceStorageVersionId: `version-${suffix}`,
+        sourceSha256: sha256,
+        sourceByteSize: bytes.byteLength,
+        sourceMimeType: 'text/plain' as const,
+        extractor: 'pathfinder-utf8-document' as const,
+        extractorVersion: '1' as const,
+        extractedText,
+        extractedTextHash: createHash('sha256').update(extractedText).digest('hex'),
+        extractedCharacterCount: [...extractedText].length,
+        extractedLineCount: extractedText.split('\n').length,
+        createdBy: userId,
+      }
+      expect(await recordIntakeFileExtractionReceiptAction(extractionInput)).toMatchObject({
+        replayed: false,
+        reviewRequired: true,
+        packageDraftCreated: false,
+        autoApproved: false,
+        autoApplied: false,
+        autoPublished: false,
+      })
+      expect(await recordIntakeFileExtractionReceiptAction(extractionInput)).toMatchObject({
+        replayed: true,
+        reviewRequired: true,
+      })
+      await expect(
+        db.intakeFileExtractionReceipt.update({
+          where: { id: extractionOperationId },
+          data: { extractedLineCount: 2 },
+        }),
+      ).rejects.toThrow(/append-only/u)
+      await expect(
+        db.intakeFileExtractionReceipt.delete({ where: { id: extractionOperationId } }),
+      ).rejects.toThrow(/append-only/u)
+      expect(
+        await db.intakePackageHandoff.count({
+          where: { tenantId, venueId, runId: upload.intakeRunId! },
+        }),
+      ).toBe(0)
       expect(
         await db.intakeEvidenceRecord.count({
           where: { tenantId, venueId, runId: upload.intakeRunId! },
@@ -171,7 +223,7 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
         await db.intakeRunEvent.count({
           where: { tenantId, venueId, runId: upload.intakeRunId! },
         }),
-      ).toBe(2)
+      ).toBe(3)
       expect(await db.intakeRun.count({ where: { tenantId, venueId } })).toBe(1)
       expect(
         await db.onboardingMilestoneEvent.findMany({
@@ -182,7 +234,7 @@ describe.skipIf(!enabled)('intake upload authoritative disposable lifecycle', ()
         {
           eventType: 'FIRST_USEFUL_MATERIAL',
           sourceId: reserved.upload.id,
-          category: 'PHOTO',
+          category: 'DOCUMENT',
         },
       ])
 

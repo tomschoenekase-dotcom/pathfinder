@@ -35,6 +35,10 @@ import {
   platformAdminActor,
   recordPrimaryContactInvitationMilestone,
 } from './client-management-helpers'
+import {
+  bindClientCreateProspectConversion,
+  clientCreateProspectConversionInput,
+} from './client-prospect-conversion'
 import { uniqueTenantSlug } from './helpers'
 
 export const adminClientManagementRouter = router({
@@ -101,7 +105,6 @@ export const adminClientManagementRouter = router({
     }),
 
   /** Creates the Clerk organization and canonical local client/venue behind a durable fence. */
-
   createClientAndVenue: adminProcedure
     .input(
       z.object({
@@ -109,17 +112,13 @@ export const adminClientManagementRouter = router({
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
         primaryContact: clientCreatePrimaryContactInput,
+        prospectConversion: clientCreateProspectConversionInput,
         venue: CreateVenueRequestInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const actor = platformAdminActor(ctx.session.userId)
-      const requestHash = clientCreateHash({
-        clientName: input.clientName,
-        ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
-        ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
-        venue: input.venue,
-      })
+      const requestHash = clientCreateHash(input)
       let intent
       try {
         intent = await beginClientCreateIntentAction({
@@ -266,13 +265,21 @@ export const adminClientManagementRouter = router({
             },
           }),
         )
-        if (!result.venue) throw new Error('Initial venue result was missing')
+        const initialVenue = result.venue
+        if (!initialVenue) throw new Error('Initial venue result was missing')
+        await bindClientCreateProspectConversion({
+          conversion: input.prospectConversion,
+          tenantId: result.tenant.id,
+          venueId: initialVenue.id,
+          requestId: input.requestId,
+          actor,
+        })
         const completedIntent = await completeClientCreateIntentAction({
           requestId: input.requestId,
           requestHash,
           providerOrganizationId: organization.id,
           tenantId: result.tenant.id,
-          venueId: result.venue.id,
+          venueId: initialVenue.id,
           actor,
         })
         const invitation = await ensurePrimaryContactInvitation({
@@ -284,14 +291,14 @@ export const adminClientManagementRouter = router({
           recordPrimaryContactInvitationMilestone({
             db,
             tenantId: result.tenant.id,
-            venueId: result.venue!.id,
+            venueId: initialVenue.id,
             requestId: input.requestId,
             invitation,
             actorId: ctx.session.userId,
             occurredAt: completedIntent.createdAt,
           }),
         )
-        return { tenant: result.tenant, venue: result.venue, invitation }
+        return { tenant: result.tenant, venue: initialVenue, invitation }
       } catch (error) {
         if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
           mapClientActionError(error)
@@ -312,17 +319,13 @@ export const adminClientManagementRouter = router({
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
         primaryContact: clientCreatePrimaryContactInput,
+        prospectConversion: clientCreateProspectConversionInput,
         venue: CreateVenueRequestInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const actor = platformAdminActor(ctx.session.userId)
-      const requestHash = clientCreateHash({
-        clientName: input.clientName,
-        ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
-        ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
-        venue: input.venue,
-      })
+      const requestHash = clientCreateHash(input)
       const adminUser = await currentUser()
       const adminEmail =
         adminUser?.emailAddresses.find((address) => address.id === adminUser.primaryEmailAddressId)

@@ -20,6 +20,7 @@ const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
   claim: vi.fn(),
   dispatch: vi.fn(),
+  skip: vi.fn(),
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
@@ -49,14 +50,30 @@ vi.mock('@pathfinder/db', () => ({
     maxOutputTokens: 512,
     requestBudgetCeilingE8Usd: null,
   }),
+  resolveNativeGuestReadSnapshotAction: vi.fn().mockResolvedValue({
+    path: 'LEGACY',
+    reason: 'SERVER_DISABLED',
+    releaseId: null,
+    state: null,
+  }),
+  applyNativeGuestContentRead: vi.fn(
+    (input: { legacyPlaces: unknown[]; legacyKnowledgeEntries: unknown[] }) => ({
+      path: 'LEGACY',
+      places: input.legacyPlaces,
+      knowledgeEntries: input.legacyKnowledgeEntries,
+    }),
+  ),
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   reserveGuestChatTurnAction: guestTurnActions.reserve,
   claimGuestChatTurnAction: guestTurnActions.claim,
   markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+  skipGuestChatProviderOperationAction: guestTurnActions.skip,
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
+  publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
+  readActiveUnhealthyAiProviders: vi.fn().mockResolvedValue([]),
 }))
 
 // Force an embedding to exist so chat.send takes the semantic branch.
@@ -164,6 +181,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
     replayed: false,
   })
   guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+  guestTurnActions.skip.mockResolvedValue({ skipped: true })
   guestTurnActions.observe.mockResolvedValue({ observed: true })
   guestTurnActions.finalize.mockImplementation(async ({ input }) => ({
     state: 'COMPLETE',

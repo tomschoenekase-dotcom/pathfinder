@@ -58,7 +58,7 @@ export const adminChatlogsRouter = router({
                 }
               : {}),
           },
-          orderBy: { startedAt: 'desc' },
+          orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
           take: input.limit + 1,
           ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
           select: {
@@ -86,13 +86,21 @@ export const adminChatlogsRouter = router({
               messageCount: messages,
               _count: counts,
             })),
-          nextCursor: hasMore ? (sessions[input.limit]?.id ?? null) : null,
+          nextCursor: hasMore ? (sessions[input.limit - 1]?.id ?? null) : null,
         }
       })
     }),
 
   getSessionChatlog: adminProcedure
-    .input(z.object({ tenantId: z.string(), venueId: z.string(), sessionId: z.string() }))
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        sessionId: z.string(),
+        messageLimit: z.number().int().min(1).max(100).default(50),
+        beforeSequence: z.number().int().nonnegative().optional(),
+      }),
+    )
     .query(async ({ input }) => {
       return withTenantIsolationBypass(async () => {
         const session = await db.visitorSession.findFirst({
@@ -106,13 +114,10 @@ export const adminChatlogsRouter = router({
             venueId: true,
             startedAt: true,
             lastActiveAt: true,
+            messageCount: true,
             isNotable: true,
             experienceScope: true,
             venue: { select: { name: true } },
-            messages: {
-              orderBy: { createdAt: 'asc' },
-              select: { id: true, role: true, content: true, createdAt: true },
-            },
             engagementResponses: {
               orderBy: { askedAt: 'asc' },
               select: {
@@ -136,7 +141,33 @@ export const adminChatlogsRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
         }
 
-        return session
+        const messageRows = await db.message.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            sessionId: input.sessionId,
+            ...(input.beforeSequence !== undefined
+              ? { sessionSequence: { lt: input.beforeSequence } }
+              : {}),
+          },
+          orderBy: { sessionSequence: 'desc' },
+          take: input.messageLimit + 1,
+          select: {
+            id: true,
+            role: true,
+            content: true,
+            createdAt: true,
+            sessionSequence: true,
+          },
+        })
+        const hasMoreMessages = messageRows.length > input.messageLimit
+        const page = messageRows.slice(0, input.messageLimit)
+
+        return {
+          ...session,
+          messages: [...page].reverse(),
+          nextBeforeSequence: hasMoreMessages ? (page.at(-1)?.sessionSequence ?? null) : null,
+        }
       })
     }),
 

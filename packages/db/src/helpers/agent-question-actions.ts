@@ -7,6 +7,77 @@ export type AgentQuestionClient = Pick<typeof db, '$transaction'>
 
 const id = z.string().trim().min(1).max(191)
 const metadataValue = z.union([z.string().max(2000), z.number().finite(), z.boolean(), z.null()])
+const evidenceKind = z.enum([
+  'SOURCE_LINK',
+  'DOCUMENT_EXCERPT',
+  'PHOTO',
+  'VIDEO_TIMESTAMP',
+  'MAP',
+  'CANDIDATE_ENTITY',
+])
+const evidenceItem = z
+  .object({
+    label: z.string().trim().min(1).max(200),
+    reference: z.string().trim().min(1).max(500),
+    summary: z.string().trim().min(1).max(1000).optional(),
+    kind: evidenceKind.optional(),
+    timestampSeconds: z.number().int().min(0).max(86_400).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.timestampSeconds !== undefined && value.kind !== 'VIDEO_TIMESTAMP') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['timestampSeconds'],
+        message: 'Evidence timestamps require VIDEO_TIMESTAMP kind.',
+      })
+    }
+  })
+const candidateEntity = z
+  .object({
+    label: z.string().trim().min(1).max(200),
+    entityType: z.string().trim().min(1).max(100).optional(),
+    reference: z.string().trim().min(1).max(500).optional(),
+    summary: z.string().trim().min(1).max(1000).optional(),
+  })
+  .strict()
+const answerConsequence = z
+  .object({
+    answer: z.string().trim().min(1).max(200),
+    consequence: z.string().trim().min(1).max(1000),
+  })
+  .strict()
+const candidateEntities = z.array(candidateEntity).max(12)
+const answerConsequences = z.array(answerConsequence).max(8)
+const proposedAnswer = z
+  .record(z.string().max(100), z.union([metadataValue, candidateEntities, answerConsequences]))
+  .superRefine((value, ctx) => {
+    for (const [key, fieldValue] of Object.entries(value)) {
+      const expected =
+        key === 'candidateEntities'
+          ? candidateEntities
+          : key === 'answerConsequences'
+            ? answerConsequences
+            : metadataValue
+      if (!expected.safeParse(fieldValue).success) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `Unsupported structured proposed-answer field: ${key}.`,
+        })
+      }
+      if (
+        key === 'confidence' &&
+        (typeof fieldValue !== 'number' || fieldValue < 0 || fieldValue > 1)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: 'Proposed-answer confidence must be between 0 and 1.',
+        })
+      }
+    }
+  })
 const questionFields = z
   .object({
     operationId: z.string().uuid(),
@@ -38,19 +109,8 @@ const questionFields = z
     urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
     choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
     dueAt: z.date().optional(),
-    evidence: z
-      .array(
-        z
-          .object({
-            label: z.string().trim().min(1).max(200),
-            reference: z.string().trim().min(1).max(500),
-            summary: z.string().trim().min(1).max(1000).optional(),
-          })
-          .strict(),
-      )
-      .max(20)
-      .default([]),
-    proposedAnswer: z.record(z.string().max(100), metadataValue).optional(),
+    evidence: z.array(evidenceItem).max(20).default([]),
+    proposedAnswer: proposedAnswer.optional(),
     callbackMetadata: z.record(z.string().max(100), metadataValue).optional(),
     blocking: z.boolean().default(true),
   })
@@ -143,6 +203,40 @@ export async function askAgentQuestionAction(
 ) {
   const input = questionFields.parse(rawInput)
   return client.$transaction(async (transaction) => {
+    if (input.callbackMetadata?.workflow === 'intake-file-extraction-clarification') {
+      const receiptId = input.callbackMetadata.receiptId
+      const runId = input.callbackMetadata.runId
+      const extractedTextHash = input.callbackMetadata.extractedTextHash
+      if (
+        typeof receiptId !== 'string' ||
+        typeof runId !== 'string' ||
+        typeof extractedTextHash !== 'string'
+      ) {
+        throw new AgentQuestionActionError(
+          'INVALID_INPUT',
+          'File clarification callback evidence is incomplete',
+        )
+      }
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${receiptId}`}, 0))`
+      const exactReceipt = await transaction.intakeFileExtractionReceipt.findFirst({
+        where: {
+          id: receiptId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId,
+          outcome: 'SUCCEEDED',
+          extractedTextHash,
+          review: { is: null },
+        },
+        select: { id: true },
+      })
+      if (!exactReceipt) {
+        throw new AgentQuestionActionError(
+          'CONFLICT',
+          'Exact unreviewed file extraction is no longer available for clarification',
+        )
+      }
+    }
     const existing = await transaction.agentQuestion.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
       select: {

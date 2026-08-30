@@ -1,12 +1,18 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
-import { CompanyKnowledgeType } from '@pathfinder/contracts/company-brain'
+import {
+  CompanyKnowledgeType,
+  FounderDecisionCurrentTruthRequest,
+  FounderDecisionPacket,
+} from '@pathfinder/contracts/company-brain'
 import { env } from '@pathfinder/config'
 import {
   createAgentTaskAction,
+  applyFounderDecisionPacketAction,
   createCompanyKnowledgeCandidateAction,
   db,
+  getFounderDecisionCurrentTruth,
   promoteCompanyKnowledgeAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -167,6 +173,21 @@ export const adminCompanyBrainRouter = router({
         )
       }),
     ),
+
+  applyFounderDecisionPacket: adminProcedure
+    .input(FounderDecisionPacket)
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        applyFounderDecisionPacketAction({
+          packet: input,
+          actor: { type: 'HUMAN', actorId: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        }),
+      ),
+    ),
+
+  getFounderDecisionCurrentTruth: adminProcedure
+    .input(FounderDecisionCurrentTruthRequest)
+    .query(({ input }) => withTenantIsolationBypass(() => getFounderDecisionCurrentTruth(input))),
 
   createCompanyPriority: adminProcedure
     .input(

@@ -13,7 +13,40 @@ Every successfully persisted assistant response emits `message.received` with:
 
 A fallback also emits `message.fallback` with `failureStage: generation`, the sanitized failure code, and the same timings. It is intended for live logs/alerts. Both events are server-only and are rejected by the public analytics mutation.
 
+When every configured generation candidate is exhausted and the safe response is durably
+committed, guest chat also publishes `guest-chat.route-degraded` to the tenant's operational
+event stream. The event is grouped by venue and routing-configuration version, links to the venue
+chat review surface, and contains no prompt, response, guest token, or provider exception text.
+A grouped event now retains an exact pointer to its latest affected durable turn. A platform
+administrator can inspect that turn's provider-operation states and their linked sanitized usage
+rows from the Founder Control Room. The read is strictly audited and excludes transcript text,
+prompts, responses, invocation identifiers, and provider exception detail. It grants no retry,
+provider-control, acknowledgement, or incident-mutation authority. Older grouped alerts that only
+pointed at a venue are explicitly reported as lacking exact turn evidence rather than guessed.
+A configured fallback candidate that succeeds does not create an incident. Unexpected
+post-dispatch failures retain separate per-turn evidence rather than being mislabeled as route
+exhaustion. Operational-event publication is best-effort and cannot prevent the safe response.
+
+Before returning that canned response, guest chat executes the ordered fallback candidates from
+its centrally resolved workload configuration. Only gateway/provider failures may advance the
+route; admission, budget, policy, accounting, abort, and durable-dispatch failures stop without an
+extra model call. Each attempted candidate writes route-aware usage evidence, and all candidates
+remain inside one durable response-generation operation.
+
 `totalMs` ends after the response and engagement state are durably persisted; it intentionally excludes best-effort analytics emission. These are completed-request timings, not time-to-first-token measurements because guest chat is not yet streamed.
+
+## Bounded guest citations
+
+Guest chat projects a citation only when the visible answer explicitly names a retrieved public
+place or venue-knowledge entry and that exact record carries useful source provenance. Citations
+are deterministic post-generation evidence: they do not claim sentence-level semantic support,
+and the generator is not instructed to invent or select citations. Unmentioned retrieval results
+are omitted. Credential-bearing, secret-like, or invalid source URLs are never returned.
+
+The citation list and place cards are committed inside the existing idempotent turn replay
+metadata and response hash. Exact retries and conversation reloads therefore reproduce the same
+visible provenance even if venue content changes later. Legacy turns without citation metadata
+retain their original response-hash contract and replay with an empty citation list.
 
 ## Daily rollups
 
@@ -36,5 +69,15 @@ The dashboard presents the latest day with completed responses in the requested 
 ## Limits and rollout
 
 - Analytics writes remain best-effort, so a database outage can undercount reliability events.
-- No alert threshold or destination is chosen here. Live Sentry/Railway alert configuration requires staging access and an approved operating threshold.
+- No outage-rate threshold or external alert destination is chosen here. A concrete degraded
+  guest turn appears in the Founder Control Room without inventing phone/push escalation policy.
+  Live Sentry/Railway alert configuration still requires staging access and an approved operating
+  threshold.
 - These metrics contain IDs, counts, sanitized error codes, and durations only. They do not add guest questions, model responses, prompts, or provider error messages.
+- The current text adapter registry is Anthropic-only. Central model fallback is active; cross-provider text failover still requires another governed text adapter and staging proof.
+- `routeAiCapability` accepts provider-health exclusions, but no canonical health-state producer or
+  automatic provider-disable threshold is established yet. A human platform administrator can now
+  record an audited, expiring provider exclusion in the Founder Control Room. Guest chat reads one
+  fail-closed snapshot before embedding or generation: excluded OpenAI embeddings degrade to the
+  existing non-semantic retrieval path, while excluded text providers are removed from the central
+  route. See [`ai-provider-health-control.md`](ai-provider-health-control.md).

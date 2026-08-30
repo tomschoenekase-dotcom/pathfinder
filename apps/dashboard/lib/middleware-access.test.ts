@@ -128,6 +128,9 @@ describe('dashboard middleware access policy', () => {
     '/api/agent-bridge/tenant_1/venue_1',
     '/api/mcp',
     '/api/mcp/tenant_1/venue_1',
+    '/api/platform-worker/founder-decisions',
+    '/api/platform-worker/founder-operating-view',
+    '/api/platform-worker/operations-readiness',
   ])('preserves the public boundary for %s', (pathname) => {
     expect(
       resolveDashboardAccess({
@@ -147,6 +150,8 @@ describe('dashboard middleware access policy', () => {
     '/api/webhooks/resend-attacker',
     '/api/agent-bridge-attacker/tenant_1/venue_1',
     '/api/mcp-attacker/tenant_1/venue_1',
+    '/api/platform-worker',
+    '/api/platform-worker/attacker',
   ])('does not make the prefix-adjacent path %s public', (pathname) => {
     expect(
       resolveDashboardAccess({

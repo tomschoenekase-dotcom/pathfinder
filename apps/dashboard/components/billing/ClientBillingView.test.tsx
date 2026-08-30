@@ -20,8 +20,8 @@ const billing: ClientBillingViewModel = {
   nextBillingLabel: 'September 20, 2026',
   paidThroughLabel: 'September 20, 2026',
   coveredVenues: [
-    { id: 'venue-1', name: 'Harbor Museum' },
-    { id: 'venue-2', name: 'Hill Park' },
+    { id: 'venue-1', name: 'Harbor Museum', amountLabel: '$15.00' },
+    { id: 'venue-2', name: 'Hill Park', amountLabel: '$10.00' },
   ],
   invoices: [
     {

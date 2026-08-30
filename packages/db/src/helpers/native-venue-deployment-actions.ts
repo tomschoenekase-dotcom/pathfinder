@@ -35,6 +35,33 @@ export class NativeVenueDeploymentError extends Error {
 type Scope = { tenantId: string; venueId: string }
 type BaseUniverse = NativeManifest['baseState']
 type VisibleState = ReturnType<typeof NativeCoreVisibleState.parse>
+export const NATIVE_GUEST_CONTENT_READ_PATH =
+  'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT' as const
+export type NativeContentConvergencePhase =
+  | 'NO_NATIVE_HEAD'
+  | 'NATIVE_HEAD_INVALID'
+  | 'NATIVE_HEAD_DRIFTED'
+  | 'NATIVE_HEAD_IN_SYNC'
+export type NativeContentConvergenceBlocker =
+  | 'NO_NATIVE_HEAD'
+  | 'INVALID_NATIVE_HEAD'
+  | 'MATERIALIZED_STATE_DRIFT'
+  | 'LEGACY_SEMANTIC_READ_PATH'
+type NativeContentConvergenceHead = {
+  releaseId: string
+  artifactId: string
+  manifestHash: string
+  stateHash: string
+  revision: number
+  updatedAt: Date
+  release: {
+    id: string
+    artifactId: string
+    manifestHash: string
+    desiredStateHash: string
+    status: string
+  }
+} | null
 type HeadSnapshot = {
   releaseId: string
   artifactId: string
@@ -64,6 +91,21 @@ const txOptions = { isolationLevel: 'Serializable' as const, maxWait: 5_000, tim
 const iso = (value: Date | null) => value?.toISOString() ?? null
 const envelope = (value: unknown | null) => ({ present: value !== null, value })
 const hashEnvelope = (value: unknown | null) => sha256Hex(JSON.stringify(envelope(value)))
+function normalizedJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizedJson)
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, normalizedJson(item)]),
+    )
+  return value
+}
+// PostgreSQL jsonb normalizes object-key order. Compare reloaded evidence by
+// JSON value, while retaining the immutable pre-storage hashes recorded in the plan.
+const sameJsonValue = (left: unknown, right: unknown) =>
+  JSON.stringify(normalizedJson(left)) === JSON.stringify(normalizedJson(right))
 const isRetryable = (error: unknown) =>
   Boolean(
     error &&
@@ -119,6 +161,7 @@ function venueBotConfigurationState(
     personalityMode: row?.personalityMode ?? 'PRESET',
     tonePreset: row?.tonePreset ?? tone.preset,
     tonePresetVersion: row?.tonePresetVersion ?? tone.behaviorVersion,
+    responseDepth: row?.responseDepth ?? 'BALANCED',
     personalityProfileId: row?.personalityProfileId ?? null,
     characterKey: row?.characterKey ?? null,
     customCharacterId: row?.customCharacterId ?? null,
@@ -481,6 +524,110 @@ export async function projectNativeVenueStateAction(
   return client.$transaction(async (tx: NativeVenueDeploymentClient) => {
     await lockVenueContentMutation(tx, scope)
     return projectLocked(tx, scope)
+  }, txOptions)
+}
+
+export function classifyNativeContentConvergence(input: {
+  current: Awaited<ReturnType<typeof projectNativeVenueStateAction>>
+  head: NativeContentConvergenceHead
+}) {
+  const headValid = Boolean(
+    input.head &&
+    input.head.release.id === input.head.releaseId &&
+    input.head.release.artifactId === input.head.artifactId &&
+    input.head.release.manifestHash === input.head.manifestHash &&
+    input.head.release.desiredStateHash === input.head.stateHash &&
+    input.head.release.status === 'APPLIED',
+  )
+  const stateMatchesHead = Boolean(
+    input.head && headValid && input.current.stateHash === input.head.stateHash,
+  )
+  const phase: NativeContentConvergencePhase = !input.head
+    ? 'NO_NATIVE_HEAD'
+    : !headValid
+      ? 'NATIVE_HEAD_INVALID'
+      : !stateMatchesHead
+        ? 'NATIVE_HEAD_DRIFTED'
+        : 'NATIVE_HEAD_IN_SYNC'
+  const blockers: NativeContentConvergenceBlocker[] = [
+    ...(!input.head
+      ? (['NO_NATIVE_HEAD'] as const)
+      : !headValid
+        ? (['INVALID_NATIVE_HEAD'] as const)
+        : !stateMatchesHead
+          ? (['MATERIALIZED_STATE_DRIFT'] as const)
+          : []),
+    'LEGACY_SEMANTIC_READ_PATH',
+  ]
+
+  return {
+    contractVersion: 1 as const,
+    phase,
+    guestReadPath: NATIVE_GUEST_CONTENT_READ_PATH,
+    headValid,
+    stateMatchesHead,
+    readyForShadowEvaluation: phase === 'NATIVE_HEAD_IN_SYNC',
+    readyForLegacyRetirement: false as const,
+    needsOperatorAttention: phase === 'NATIVE_HEAD_INVALID' || phase === 'NATIVE_HEAD_DRIFTED',
+    blockers,
+    counts: {
+      activePlaces: input.current.state.places.length,
+      enabledKnowledgeEntries: input.current.state.knowledgeEntries.length,
+      publishedGeneralizedModules: input.current.state.generalizedModules.length,
+    },
+    venueActive: input.current.state.venue.isActive,
+    currentStateHash: input.current.stateHash,
+    head: input.head
+      ? {
+          releaseId: input.head.releaseId,
+          revision: input.head.revision,
+          updatedAt: input.head.updatedAt,
+          stateHash: input.head.stateHash,
+          desiredStateHash: input.head.release.desiredStateHash,
+          releaseStatus: input.head.release.status,
+        }
+      : null,
+  }
+}
+
+/**
+ * Measures whether the mutable materialized guest-content state still matches the
+ * exact native deployment head. This is observation only: it neither changes the
+ * guest read path nor authorizes compatibility-table retirement.
+ */
+export async function measureNativeContentConvergenceAction(
+  client: NativeVenueDeploymentClient,
+  scope: Scope,
+) {
+  if (!scope.tenantId.trim() || !scope.venueId.trim())
+    throw new NativeVenueDeploymentError(
+      'INVALID_INPUT',
+      'Exact tenant and venue scope is required.',
+    )
+  return client.$transaction(async (tx: NativeVenueDeploymentClient) => {
+    await lockVenueContentMutation(tx, scope)
+    const current = await projectLocked(tx, scope)
+    const head = await tx.nativeVenueDeploymentHead.findFirst({
+      where: { tenantId: scope.tenantId, venueId: scope.venueId },
+      select: {
+        releaseId: true,
+        artifactId: true,
+        manifestHash: true,
+        stateHash: true,
+        revision: true,
+        updatedAt: true,
+        release: {
+          select: {
+            id: true,
+            artifactId: true,
+            manifestHash: true,
+            desiredStateHash: true,
+            status: true,
+          },
+        },
+      },
+    })
+    return classifyNativeContentConvergence({ current, head })
   }, txOptions)
 }
 
@@ -1084,25 +1231,38 @@ async function publish(
 
 async function recordEffect(
   tx: NativeVenueDeploymentClient,
-  scope: Scope & { releaseId: string },
+  scope: Scope & { releaseId: string; plan: Plan },
   order: number,
   kind: string,
   targetId: string,
   before: unknown | null,
   after: unknown | null,
 ) {
+  const planned = scope.plan.effects[order - 1]
+  if (
+    !planned ||
+    planned.effectOrder !== order ||
+    planned.kind !== kind ||
+    planned.targetId !== targetId ||
+    !sameJsonValue(planned.beforeState, envelope(before)) ||
+    !sameJsonValue(planned.afterState, envelope(after))
+  )
+    throw new NativeVenueDeploymentError(
+      'CONFLICT',
+      'Runtime effect diverged from the immutable release plan.',
+    )
   return tx.nativeVenueDeploymentEffect.create({
     data: {
       tenantId: scope.tenantId,
       venueId: scope.venueId,
       releaseId: scope.releaseId,
-      effectOrder: order,
-      kind,
-      targetId,
-      beforeState: envelope(before),
-      afterState: envelope(after),
-      beforeHash: hashEnvelope(before),
-      afterHash: hashEnvelope(after),
+      effectOrder: planned.effectOrder,
+      kind: planned.kind,
+      targetId: planned.targetId,
+      beforeState: planned.beforeState,
+      afterState: planned.afterState,
+      beforeHash: planned.beforeHash,
+      afterHash: planned.afterHash,
     },
   })
 }
@@ -1301,6 +1461,7 @@ async function applyVisibleState(
 export const nativeVenueDeploymentTestHooks = {
   applyVisibleState,
   plannedEffects,
+  sameJsonValue,
   validateVenueBotConfigurationReferences,
 }
 
@@ -1478,8 +1639,10 @@ export async function revertNativeVenueDeploymentAction(
         planned.targetId !== effect.targetId ||
         planned.beforeHash !== effect.beforeHash ||
         planned.afterHash !== effect.afterHash ||
-        hashEnvelope(before) !== effect.beforeHash ||
-        hashEnvelope(after) !== effect.afterHash
+        !sameJsonValue(planned.beforeState, effect.beforeState) ||
+        !sameJsonValue(planned.afterState, effect.afterState) ||
+        !sameJsonValue(effect.beforeState, envelope(before)) ||
+        !sameJsonValue(effect.afterState, envelope(after))
       )
         throw new NativeVenueDeploymentError(
           'CONFLICT',
@@ -1498,7 +1661,7 @@ export async function revertNativeVenueDeploymentAction(
             'Applied Venue Bot configuration evidence is missing.',
           )
         const actual = venueBotConfigurationState(row, plan.desired.venue)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'Venue Bot configuration changed after materialization.',
@@ -1519,7 +1682,7 @@ export async function revertNativeVenueDeploymentAction(
           after?.runtimeVisible === false
             ? { runtimeVisible: false, row: placeRowState(row) }
             : placeRowState(row)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'An applied place changed after materialization.',
@@ -1569,7 +1732,7 @@ export async function revertNativeVenueDeploymentAction(
           after?.runtimeVisible === false
             ? { runtimeVisible: false, row: knowledgeRowState(row) }
             : knowledgeRowState(row)
-        if (JSON.stringify(actual) !== JSON.stringify(after))
+        if (!sameJsonValue(actual, after))
           throw new NativeVenueDeploymentError(
             'PRECONDITION_FAILED',
             'Applied knowledge changed after materialization.',

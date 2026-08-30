@@ -12,7 +12,6 @@ import {
   releaseIntakeUploadVerificationAction,
   releaseIntakeUploadAuthoritativeVerificationAction,
   reserveIntakeUploadAction,
-  settleIntakeUploadAuthoritativeVerificationAction,
   type IntakeUploadActor,
   bindIntakeUploadMultipartAction,
   cancelIntakeUploadMultipartAction,
@@ -26,6 +25,9 @@ import {
   IntakeUploadMimeType,
   IntakeUploadReserveRequest,
 } from '@pathfinder/contracts/intake-upload'
+import { resolveIntakeUploadClientVerification } from '@pathfinder/contracts/intake-upload'
+import { logger } from '@pathfinder/config'
+import { enqueueIntakeUploadVerification } from '@pathfinder/jobs'
 
 import { publicTRPCError, router } from '../core'
 import {
@@ -40,10 +42,7 @@ import {
   listIntakeUploadMultipartParts,
   signIntakeUploadPart,
 } from '../lib/intake-upload-storage'
-import {
-  configuredIntakeUploadMalwareScanner,
-  verifyIntakeUploadBytes,
-} from '../lib/intake-upload-byte-verifier'
+import { verifyIntakeUploadBytes } from '../lib/intake-upload-byte-verifier'
 import { tenantProcedure } from '../trpc'
 
 const venueId = z.string().trim().min(1).max(191)
@@ -87,9 +86,20 @@ function safeUpload(upload: {
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
+  verificationLeaseActive?: boolean
+  verificationManagedByTorchiko?: boolean
   createdAt: Date
   updatedAt: Date
 }) {
+  const clientVerification = resolveIntakeUploadClientVerification({
+    status: upload.status,
+    ...(upload.verificationLeaseActive !== undefined
+      ? { verificationLeaseActive: upload.verificationLeaseActive }
+      : {}),
+    ...(upload.verificationManagedByTorchiko !== undefined
+      ? { managedByTorchiko: upload.verificationManagedByTorchiko }
+      : {}),
+  })
   return {
     id: upload.id,
     status: upload.status,
@@ -100,6 +110,7 @@ function safeUpload(upload: {
     byteSize: upload.byteSize,
     rejectionCode: upload.rejectionCode,
     intakeRunId: upload.intakeRunId,
+    clientVerification,
     createdAt: upload.createdAt,
     updatedAt: upload.updatedAt,
   }
@@ -112,45 +123,28 @@ const rejectionCodeByInspection = {
   checksum: 'HASH_MISMATCH',
 } as const
 
-async function runAuthoritativeVerification(input: {
-  scope: {
-    client: NonNullable<
-      Parameters<typeof settleIntakeUploadAuthoritativeVerificationAction>[0]['client']
-    >
-    tenantId: string
-    venueId: string
-    uploadId: string
-    actor: IntakeUploadActor
-    claimId: string
-  }
-  target: {
-    objectKey: string
-    objectGeneration: string
-    mimeType: string
-    byteSize: number
-    sha256: string
-    storageVersionId: string | null
-  }
+async function scheduleAuthoritativeVerification(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  observedUpdatedAt: Date
 }) {
-  const scanner = configuredIntakeUploadMalwareScanner()
-  if (!scanner || !input.target.storageVersionId) return null
-  const bytes = await readIntakeUploadVersion({
-    key: input.target.objectKey,
-    versionId: input.target.storageVersionId,
-  })
-  const malware = await scanner.scan({
-    bytes,
-    expectedBytes: input.target.byteSize,
-    expectedSha256: input.target.sha256,
-  })
-  return settleIntakeUploadAuthoritativeVerificationAction({
-    ...input.scope,
-    malware: {
-      ...malware,
-      engine: scanner.engine,
-      engineVersion: scanner.engineVersion,
-    },
-  })
+  try {
+    await enqueueIntakeUploadVerification({
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      uploadId: input.uploadId,
+      observedUpdatedAt: input.observedUpdatedAt.toISOString(),
+    })
+  } catch (error) {
+    logger.warn({
+      action: 'intake-upload.verification-enqueue-deferred',
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      uploadId: input.uploadId,
+      error: error instanceof Error ? error.message : 'Unknown queue error',
+    })
+  }
 }
 
 export const intakeUploadRouter = router({
@@ -426,34 +420,16 @@ export const intakeUploadRouter = router({
       }
       if (claimed.state === 'PRECHECK_PASSED') {
         try {
-          const settled = await runAuthoritativeVerification({
-            scope,
-            target: claimed.uploadTarget,
+          const released = await releaseIntakeUploadAuthoritativeVerificationAction(scope)
+          await scheduleAuthoritativeVerification({
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            uploadId: scope.uploadId,
+            observedUpdatedAt: released.upload.updatedAt,
           })
-          if (settled)
-            return {
-              upload: safeUpload(settled.upload),
-              retryable: false,
-              nextAction: settled.nextAction,
-              processingState:
-                settled.nextAction === 'PATHFINDER_REVIEW'
-                  ? ('READY_FOR_REVIEW' as const)
-                  : ('REJECTED' as const),
-              autoApprove: false as const,
-              autoApply: false as const,
-              published: false as const,
-            }
-        } catch (cause) {
-          try {
-            await releaseIntakeUploadAuthoritativeVerificationAction(scope)
-          } catch {
-            // Preserve the original availability error; claim recovery remains lease-bounded.
-          }
-          throw publicTRPCError({
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'Security verification is temporarily unavailable. Retry this file.',
-            cause,
-          })
+          claimed = { ...claimed, upload: released.upload }
+        } catch (error) {
+          mapActionError(error)
         }
         return {
           upload: safeUpload(claimed.upload),
@@ -682,57 +658,21 @@ export const intakeUploadRouter = router({
             computedSha256: format.computedSha256,
           },
         })
-        if (configuredIntakeUploadMalwareScanner() === null)
-          return {
-            upload: safeUpload(result.upload),
-            retryable: true,
-            nextAction: result.nextAction,
-            processingState: 'MALWARE_SCAN_PENDING' as const,
-            autoApprove: false as const,
-            autoApply: false as const,
-            published: false as const,
-          }
-        const authoritativeClaim = await claimIntakeUploadVerificationAction(scope)
-        if (authoritativeClaim.state !== 'PRECHECK_PASSED')
-          throw new IntakeUploadActionError(
-            'CONFLICT',
-            'Upload could not enter authoritative verification',
-          )
-        let settled: Awaited<ReturnType<typeof runAuthoritativeVerification>>
-        try {
-          settled = await runAuthoritativeVerification({
-            scope,
-            target: {
-              ...authoritativeClaim.uploadTarget,
-              storageVersionId: inspection.versionId,
-            },
-          })
-        } catch (cause) {
-          try {
-            await releaseIntakeUploadAuthoritativeVerificationAction(scope)
-          } catch {
-            // Preserve the original availability error; claim recovery remains lease-bounded.
-          }
-          throw publicTRPCError({
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'Security verification is temporarily unavailable. Retry this file.',
-            cause,
-          })
+        await scheduleAuthoritativeVerification({
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          uploadId: scope.uploadId,
+          observedUpdatedAt: result.upload.updatedAt,
+        })
+        return {
+          upload: safeUpload(result.upload),
+          retryable: true,
+          nextAction: result.nextAction,
+          processingState: 'MALWARE_SCAN_PENDING' as const,
+          autoApprove: false as const,
+          autoApply: false as const,
+          published: false as const,
         }
-        if (settled)
-          return {
-            upload: safeUpload(settled.upload),
-            retryable: false,
-            nextAction: settled.nextAction,
-            processingState:
-              settled.nextAction === 'PATHFINDER_REVIEW'
-                ? ('READY_FOR_REVIEW' as const)
-                : ('REJECTED' as const),
-            autoApprove: false as const,
-            autoApply: false as const,
-            published: false as const,
-          }
-        throw new IntakeUploadActionError('CONFLICT', 'Authoritative verification did not settle')
       } catch (error) {
         mapActionError(error)
       }

@@ -216,12 +216,21 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
+              <caption className="sr-only">Venue knowledge entries</caption>
               <thead className="bg-pf-surface text-left text-pf-deep/50">
                 <tr>
-                  <th className="px-6 py-3 font-medium">Title</th>
-                  <th className="px-6 py-3 font-medium">Category</th>
-                  <th className="px-6 py-3 font-medium">Enabled</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  <th scope="col" className="px-6 py-3 font-medium">
+                    Title
+                  </th>
+                  <th scope="col" className="px-6 py-3 font-medium">
+                    Category
+                  </th>
+                  <th scope="col" className="px-6 py-3 font-medium">
+                    Enabled
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-right font-medium">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>

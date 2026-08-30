@@ -10,6 +10,7 @@ import {
   closeBullMQConnection,
   getBullMQConnection,
   inspectTerminalJobRedrive,
+  inspectTerminalJobRedriveRuntime,
   redriveTerminalJob,
   WEEKLY_REPORT_PROCESS_JOB,
   WEEKLY_REPORT_QUEUE,
@@ -106,6 +107,7 @@ integrationDescribe('terminal redrive (disposable Redis integration)', () => {
       bullJobId: jobId,
       evidence: record,
     })
+    await expect(inspectTerminalJobRedriveRuntime({ evidence: record })).resolves.toEqual(preview)
     await redriveTerminalJob({
       queue,
       bullJobId: jobId,

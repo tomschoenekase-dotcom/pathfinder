@@ -5,16 +5,21 @@ const mocks = vi.hoisted(() => ({
   heartbeat: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
-  generateText: vi.fn(),
+  generateTextForCapability: vi.fn(),
+  route: vi.fn(),
+  resolveConfiguration: vi.fn(),
+  unhealthyProviders: vi.fn(),
   assertVenue: vi.fn(),
 }))
 
 vi.mock('@pathfinder/ai', () => ({
-  AI_MODEL_KEYS: { AGENT_RUN: 'agent-run' },
   AiGatewayError: class AiGatewayError extends Error {
     code = 'gateway'
   },
-  generateText: mocks.generateText,
+  AiRequestBudgetCeilingExceededError: class AiRequestBudgetCeilingExceededError extends Error {},
+  AiRoutingError: class AiRoutingError extends Error {},
+  generateTextForCapability: mocks.generateTextForCapability,
+  routeAiCapability: mocks.route,
 }))
 vi.mock('@pathfinder/db', () => ({
   AgentRunExecutionError: class AgentRunExecutionError extends Error {
@@ -26,6 +31,8 @@ vi.mock('@pathfinder/db', () => ({
   db: {},
   failAgentRunExecution: mocks.fail,
   heartbeatAgentRunExecution: mocks.heartbeat,
+  readActiveUnhealthyAiProviders: mocks.unhealthyProviders,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
 }))
 vi.mock('../lib/ai-usage', () => ({
   createWorkerAiBudgetGate: vi.fn(() => ({})),
@@ -58,20 +65,55 @@ describe('agent run processor', () => {
     mocks.heartbeat.mockResolvedValue({ cancelRequested: false })
     mocks.fail.mockResolvedValue({ status: 'FAILED', completedAt: new Date() })
     mocks.complete.mockResolvedValue({ status: 'COMPLETED', completedAt: new Date() })
+    mocks.resolveConfiguration.mockResolvedValue({
+      primaryModelKey: 'agent-run',
+      fallback: { enabled: true, modelKeys: ['weekly-report'] },
+      timeoutMs: 45_000,
+      maxAttempts: 2,
+      maxOutputTokens: 1_600,
+      requestBudgetCeilingE8Usd: '50000000',
+      configurationVersion: 'config-v1',
+    })
+    mocks.unhealthyProviders.mockResolvedValue(['openai'])
+    mocks.route.mockReturnValue({
+      capability: 'REASONING',
+      workloadId: 'agent-run',
+      configurationVersion: 'config-v1',
+      candidates: [{ modelKey: 'agent-run', provider: 'anthropic', fallback: false }],
+    })
   })
 
   it('executes Anthropic work through admission and budgeted generation then stores a text artifact', async () => {
-    mocks.generateText.mockResolvedValue({
+    mocks.generateTextForCapability.mockResolvedValue({
       text: 'Assign research to the architecture specialist.',
       provider: 'anthropic',
       model: 'claude-sonnet-4-6',
       estimatedCostUsd: 0.001,
+      route: {
+        capability: 'REASONING',
+        workloadId: 'agent-run',
+        modelKey: 'agent-run',
+        fallbackUsed: false,
+      },
     })
     await processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' })
-    expect(mocks.generateText).toHaveBeenCalledWith(
+    expect(mocks.resolveConfiguration).toHaveBeenCalledWith(
+      { workloadId: 'agent-run', tenantId: 'tenant-1', venueId: 'venue-1' },
+      {},
+    )
+    expect(mocks.route).toHaveBeenCalledWith(
       expect.objectContaining({
-        modelKey: 'agent-run',
-        maxAttempts: 1,
+        capability: 'REASONING',
+        workloadId: 'agent-run',
+        unhealthyProviders: ['openai'],
+      }),
+    )
+    expect(mocks.generateTextForCapability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxAttempts: 2,
+        maxOutputTokens: 1_600,
+        timeoutMs: 45_000,
+        requestBudgetCeilingE8Usd: '50000000',
         messages: [{ role: 'user', content: 'Coordinate this work.' }],
       }),
     )
@@ -79,7 +121,15 @@ describe('agent run processor', () => {
       expect.objectContaining({
         runId: 'run-1',
         costE8Usd: 100000n,
-        artifacts: [expect.objectContaining({ type: 'markdown' })],
+        artifacts: [
+          expect.objectContaining({ type: 'markdown' }),
+          expect.objectContaining({
+            type: 'ai-route',
+            configurationVersion: 'config-v1',
+            modelKey: 'agent-run',
+            fallbackUsed: false,
+          }),
+        ],
       }),
     )
   })
@@ -89,7 +139,7 @@ describe('agent run processor', () => {
     await expect(
       processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' }),
     ).resolves.toMatchObject({ status: 'FAILED' })
-    expect(mocks.generateText).not.toHaveBeenCalled()
+    expect(mocks.generateTextForCapability).not.toHaveBeenCalled()
     expect(mocks.fail).toHaveBeenCalledWith(
       expect.objectContaining({
         errorCode: 'PROVIDER_CONFIGURATION_REQUIRED',

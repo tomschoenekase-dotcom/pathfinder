@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Building2,
   CalendarClock,
@@ -94,6 +94,9 @@ export function ProspectDirectory({
   const [campaignOpen, setCampaignOpen] = useState(false)
   const [campaignName, setCampaignName] = useState('')
   const [notice, setNotice] = useState('')
+  const campaignDialogRef = useRef<HTMLDivElement>(null)
+  const campaignNameRef = useRef<HTMLInputElement>(null)
+  const campaignTriggerRef = useRef<HTMLButtonElement>(null)
 
   const filters = useMemo(
     () => ({
@@ -162,6 +165,41 @@ export function ProspectDirectory({
       window.clearTimeout(timeout)
     }
   }, [client, filters, fixture, search])
+
+  useEffect(() => {
+    if (!campaignOpen) return
+    const previousOverflow = document.body.style.overflow
+    const trigger = campaignTriggerRef.current
+    document.body.style.overflow = 'hidden'
+    campaignNameRef.current?.focus()
+    function handleDialogKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setCampaignOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = campaignDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )
+      if (!focusable?.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleDialogKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleDialogKeyDown)
+      trigger?.focus()
+    }
+  }, [campaignOpen])
 
   async function loadMore() {
     if (!result?.nextCursor) return
@@ -250,6 +288,12 @@ export function ProspectDirectory({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            href="/admin/prospects/inbound"
+            className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 shadow-sm"
+          >
+            Inbound interest
+          </Link>
           <Link
             href="/admin/prospects/new"
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm"
@@ -378,6 +422,8 @@ export function ProspectDirectory({
             </div>
           </div>
           <button
+            ref={campaignTriggerRef}
+            type="button"
             onClick={() => setCampaignOpen(true)}
             className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white"
           >
@@ -387,8 +433,8 @@ export function ProspectDirectory({
       ) : null}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col items-start gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <input
               aria-label="Select all shown prospects"
               type="checkbox"
@@ -449,7 +495,7 @@ export function ProspectDirectory({
                   </label>
                   <Link
                     href={`/admin/prospects/${item.id}`}
-                    className="grid gap-3 px-2 py-4 pr-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500 md:grid-cols-[minmax(0,1.4fr)_minmax(12rem,.8fr)_minmax(12rem,.8fr)]"
+                    className="grid min-w-0 w-full gap-3 overflow-hidden px-2 py-4 pr-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500 xl:grid-cols-[minmax(0,1.4fr)_minmax(10rem,.8fr)_minmax(10rem,.8fr)]"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-slate-950">{item.canonicalName}</p>
@@ -458,7 +504,7 @@ export function ProspectDirectory({
                         {item.territory?.name ?? 'Unassigned territory'}
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
                       <span className="rounded-full bg-sky-100 px-2.5 py-1 font-semibold text-sky-800">
                         {label(item.opportunity?.stage ?? 'DISCOVERED')}
                       </span>
@@ -471,9 +517,9 @@ export function ProspectDirectory({
                         {item.opportunity?.priority ?? item.priority}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-slate-600">
                       <CalendarClock className="h-4 w-4 shrink-0 text-slate-400" />
-                      <span className="truncate">
+                      <span className="min-w-0 truncate">
                         {item.opportunity?.nextAction
                           ? `${item.opportunity.nextAction}${item.opportunity.nextActionAt ? ` · ${new Date(item.opportunity.nextActionAt).toLocaleDateString()}` : ''}`
                           : 'No next action set'}
@@ -503,18 +549,25 @@ export function ProspectDirectory({
           role="dialog"
           aria-modal="true"
           aria-labelledby="campaign-title"
+          aria-describedby="campaign-description"
           className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setCampaignOpen(false)
+          }}
         >
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <span className="rounded-xl bg-sky-100 p-2 text-sky-700">
-                <Layers3 className="h-5 w-5" />
+          <div
+            ref={campaignDialogRef}
+            className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6"
+          >
+            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center">
+              <span className="shrink-0 rounded-xl bg-sky-100 p-2 text-sky-700">
+                <Layers3 className="h-5 w-5" aria-hidden="true" />
               </span>
-              <div>
-                <h2 id="campaign-title" className="text-lg font-bold text-slate-950">
+              <div className="min-w-0">
+                <h2 id="campaign-title" className="break-words text-lg font-bold text-slate-950">
                   Create outreach campaign
                 </h2>
-                <p className="text-sm text-slate-500">
+                <p id="campaign-description" className="text-sm text-slate-500">
                   Freeze {selected.size} selected prospect{selected.size === 1 ? '' : 's'} into a
                   review queue.
                 </p>
@@ -523,26 +576,28 @@ export function ProspectDirectory({
             <label className="mt-5 block text-sm font-semibold text-slate-700">
               Campaign name
               <input
-                autoFocus
+                ref={campaignNameRef}
                 value={campaignName}
                 onChange={(event) => setCampaignName(event.target.value)}
-                className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 px-3 font-normal"
+                className="mt-2 min-h-11 min-w-0 w-full rounded-xl border border-slate-300 px-3 font-normal"
                 placeholder="Chicago museums · August"
               />
             </label>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
+                type="button"
                 onClick={() => setCampaignOpen(false)}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold"
+                className="min-h-11 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold sm:w-auto"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 disabled={!campaignName.trim()}
                 onClick={() => void createCampaign()}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-center text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
                 Create campaign
               </button>
             </div>
@@ -569,7 +624,7 @@ function FilterSelect({
   compact?: boolean
 }) {
   return (
-    <label className={compact ? 'min-w-48' : ''}>
+    <label className={compact ? 'w-full sm:w-auto sm:min-w-48' : ''}>
       <span className="sr-only">{labelText}</span>
       <select
         aria-label={labelText}

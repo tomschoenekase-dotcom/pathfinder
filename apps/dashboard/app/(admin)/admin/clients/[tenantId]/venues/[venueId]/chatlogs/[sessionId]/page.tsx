@@ -8,12 +8,30 @@ import { createAdminCaller } from '../../../../../../../../../lib/admin-caller'
 
 type AdminChatlogDetailPageProps = {
   params: Promise<{ tenantId: string; venueId: string; sessionId: string }>
+  searchParams: Promise<{ beforeSequence?: string }>
 }
 
-export default async function AdminChatlogDetailPage({ params }: AdminChatlogDetailPageProps) {
+function parseBeforeSequence(value?: string): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : undefined
+}
+
+export default async function AdminChatlogDetailPage({
+  params,
+  searchParams,
+}: AdminChatlogDetailPageProps) {
   const { tenantId, venueId, sessionId } = await params
+  const query = await searchParams
+  const beforeSequence = parseBeforeSequence(query.beforeSequence)
   const caller = await createAdminCaller()
-  const session = await caller.admin.getSessionChatlog({ tenantId, venueId, sessionId })
+  const session = await caller.admin.getSessionChatlog({
+    tenantId,
+    venueId,
+    sessionId,
+    messageLimit: 50,
+    beforeSequence,
+  })
 
   return (
     <div className="space-y-8">
@@ -51,30 +69,59 @@ export default async function AdminChatlogDetailPage({ params }: AdminChatlogDet
       </header>
 
       <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-        <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Transcript</h2>
-        <div className="space-y-3">
-          {session.messages.map((message) => (
-            <div
-              key={message.id}
-              className={[
-                'max-w-3xl rounded-2xl px-4 py-3 text-sm leading-6',
-                message.role === 'user'
-                  ? 'ml-auto bg-pf-primary text-white'
-                  : 'mr-auto border border-pf-light bg-pf-surface text-pf-deep',
-              ].join(' ')}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Transcript</h2>
+            <p className="mt-1 text-sm text-pf-deep/60">
+              {session.messageCount.toLocaleString()} total messages · showing at most 50 at a time
+            </p>
+          </div>
+          {beforeSequence !== undefined ? (
+            <Link
+              href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs/${sessionId}`}
+              className="text-sm font-semibold text-pf-primary hover:text-pf-accent"
             >
-              <p>{message.content}</p>
-              <p
+              Return to newest
+            </Link>
+          ) : null}
+        </div>
+        <div className="space-y-3">
+          {session.messages.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-pf-light bg-pf-surface p-4 text-sm text-pf-deep/60">
+              No messages are available in this page of the transcript.
+            </p>
+          ) : (
+            session.messages.map((message) => (
+              <div
+                key={message.id}
                 className={[
-                  'mt-2 text-xs',
-                  message.role === 'user' ? 'text-white/70' : 'text-pf-deep/40',
+                  'max-w-3xl rounded-2xl px-4 py-3 text-sm leading-6',
+                  message.role === 'user'
+                    ? 'ml-auto bg-pf-primary text-white'
+                    : 'mr-auto border border-pf-light bg-pf-surface text-pf-deep',
                 ].join(' ')}
               >
-                {message.role} - {message.createdAt.toLocaleString()}
-              </p>
-            </div>
-          ))}
+                <p>{message.content}</p>
+                <p
+                  className={[
+                    'mt-2 text-xs',
+                    message.role === 'user' ? 'text-white/70' : 'text-pf-deep/40',
+                  ].join(' ')}
+                >
+                  {message.role} - {message.createdAt.toLocaleString()}
+                </p>
+              </div>
+            ))
+          )}
         </div>
+        {session.nextBeforeSequence !== null ? (
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs/${sessionId}?beforeSequence=${session.nextBeforeSequence}`}
+            className="inline-flex min-h-10 items-center rounded-full border border-pf-light px-4 text-sm font-semibold text-pf-primary transition hover:border-pf-accent hover:text-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          >
+            Older messages
+          </Link>
+        ) : null}
       </section>
 
       <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">

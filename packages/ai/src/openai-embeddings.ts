@@ -50,8 +50,21 @@ let openAiClient: OpenAiEmbeddingsClient | null = null
 function getOpenAiClient(): OpenAiEmbeddingsClient {
   if (!openAiClient) {
     const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
-    openAiClient = new OpenAI({ apiKey, maxRetries: 0 }) as unknown as OpenAiEmbeddingsClient
+    if (!apiKey) {
+      throw new AiGatewayError('OpenAI embeddings are not configured', {
+        attempts: 0,
+        code: 'provider-not-configured',
+      })
+    }
+    try {
+      openAiClient = new OpenAI({ apiKey, maxRetries: 0 }) as unknown as OpenAiEmbeddingsClient
+    } catch (error) {
+      throw new AiGatewayError('OpenAI embeddings could not initialize', {
+        attempts: 0,
+        code: 'provider-client-initialization',
+        cause: error,
+      })
+    }
   }
   return openAiClient
 }

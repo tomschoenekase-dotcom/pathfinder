@@ -2,6 +2,14 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  defaultIntakeNotesProposalPolicyConstraints,
+  defaultOperationalUpdateDraftPolicyConstraints,
+  defaultSupportRequestDraftPolicyConstraints,
+  defaultSupportRequestOpenPolicyConstraints,
+  defaultSupportInternalNotePolicyConstraints,
+  defaultWeeklyReportDraftPolicyConstraints,
+} from '@pathfinder/contracts'
+import {
   activateAgentBridgeCredentialAction,
   claimAgentRunExecution,
   createCompanyKnowledgeCandidateAction,
@@ -12,6 +20,9 @@ import {
   promoteCompanyKnowledgeAction,
   registerAgentWorkerAction,
   recordApprovalDecisionAction,
+  recordAgentOutcomeAction,
+  revokeApprovalGrantAction,
+  searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
@@ -33,6 +44,8 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       const suffix = randomUUID().slice(0, 8)
       const tenantId = `tenant-brain-${suffix}`
       const venueId = `venue-brain-${suffix}`
+      const secondVenueId = `venue-brain-second-${suffix}`
+      const thirdVenueId = `venue-brain-third-${suffix}`
       const organizationId = `org-brain-${suffix}`
       const identityId = `identity-brain-${suffix}`
       const primaryKey = `tom-hermes-${suffix}`
@@ -60,8 +73,36 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       await db.tenantMembership.create({
         data: { tenantId, userId: human.actorId, role: 'OWNER', joinedAt: now },
       })
-      await db.venue.create({
-        data: { id: venueId, tenantId, name: 'Museum Y Main', slug: venueId },
+      const secondUserId = `secondary-contact-${suffix}`
+      await db.user.create({
+        data: {
+          id: secondUserId,
+          email: `${secondUserId}@example.test`,
+          fullName: 'Secondary Venue Contact',
+        },
+      })
+      await db.tenantMembership.create({
+        data: { tenantId, userId: secondUserId, role: 'STAFF', joinedAt: now },
+      })
+      await db.venue.createMany({
+        data: [
+          { id: venueId, tenantId, name: 'Museum Y Main', slug: venueId },
+          {
+            id: secondVenueId,
+            tenantId,
+            name: 'Museum Y Sculpture Garden',
+            slug: secondVenueId,
+          },
+          {
+            id: thirdVenueId,
+            tenantId,
+            name: 'Museum Y Archive',
+            slug: thirdVenueId,
+          },
+        ],
+      })
+      await db.venueReportConfiguration.create({
+        data: { tenantId, venueId, enabled: true, updatedBy: human.actorId },
       })
       await db.prospectOrganization.create({
         data: {
@@ -124,6 +165,9 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           toAddresses: ['support@torchiko.test'],
           subject: 'Museum Y map update',
           textBody: 'Please keep the reply concise. The lobby map needs the promised exception.',
+          bodyPreview: 'Please keep the reply concise. The lobby map needs the promised exception.',
+          bodyRetentionState: 'TEMPORARY',
+          bodyExpiresAt: new Date('2030-09-20T12:00:00.000Z'),
           occurredAt: new Date('2030-08-20T12:00:00.000Z'),
         },
       })
@@ -301,6 +345,99 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         actor: human,
       })
 
+      const allVenueKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        organizationId,
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y shared operating guidance',
+        summary: 'Use concise customer updates across every Museum Y venue.',
+        body: 'All Museum Y venues inherit the concise-update operating guidance.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-all-venues-${suffix}`,
+        actor: human,
+      })
+      const subsetKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        organizationId,
+        applicableVenueIds: [venueId, secondVenueId],
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y seasonal sculpture guidance',
+        summary: 'Main and sculpture venues share seasonal sculpture guidance.',
+        body: 'Apply this guidance only to the main museum and sculpture garden.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-venue-subset-${suffix}`,
+        actor: human,
+      })
+      const exactVenueKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        venueId,
+        organizationId,
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y main-lobby guidance',
+        summary: 'The main-lobby guidance is specific to the main museum.',
+        body: 'Do not inherit this main-lobby guidance into another venue.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-exact-venue-${suffix}`,
+        actor: human,
+      })
+      for (const knowledgeItemId of [
+        allVenueKnowledge.id,
+        subsetKnowledge.id,
+        exactVenueKnowledge.id,
+      ]) {
+        await promoteCompanyKnowledgeAction({
+          knowledgeItemId,
+          tenantId,
+          promotionReason: 'Disposable scoped-knowledge proof',
+          actor: human,
+        })
+      }
+
+      const searchForVenue = async (requestedVenueId: string) =>
+        searchCompanyKnowledge(
+          {
+            query: 'Museum guidance',
+            clientId: tenantId,
+            venueId: requestedVenueId,
+            organizationId,
+            limit: 20,
+          },
+          { kind: 'CLIENT', clientId: tenantId, roles: ['CLIENT_ADMIN'] },
+        )
+      const [mainKnowledge, secondKnowledge, thirdKnowledge] = await Promise.all([
+        searchForVenue(venueId),
+        searchForVenue(secondVenueId),
+        searchForVenue(thirdVenueId),
+      ])
+      const ids = (result: Awaited<ReturnType<typeof searchForVenue>>) =>
+        new Set(result.results.map((item) => item.id))
+      const mainIds = ids(mainKnowledge)
+      const secondIds = ids(secondKnowledge)
+      const thirdIds = ids(thirdKnowledge)
+      expect(mainIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(mainIds.has(subsetKnowledge.id)).toBe(true)
+      expect(mainIds.has(exactVenueKnowledge.id)).toBe(true)
+      expect(secondIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(secondIds.has(subsetKnowledge.id)).toBe(true)
+      expect(secondIds.has(exactVenueKnowledge.id)).toBe(false)
+      expect(thirdIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(thirdIds.has(subsetKnowledge.id)).toBe(false)
+      expect(thirdIds.has(exactVenueKnowledge.id)).toBe(false)
+      await expect(searchForVenue(`foreign-venue-${suffix}`)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      })
+      expect(await db.tenantMembership.count({ where: { tenantId } })).toBe(2)
+      expect(await db.venue.count({ where: { tenantId } })).toBe(3)
+
       await db.agentIdentity.create({
         data: {
           id: identityId,
@@ -310,7 +447,15 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           name: 'Client Operations Specialist',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['updates:draft', 'meetings.process'],
+          accessCapabilities: [
+            'updates:draft',
+            'support:draft',
+            'support:open',
+            'support:note',
+            'intake:draft',
+            'reports:draft',
+            'meetings.process',
+          ],
           autonomyLevel: 'DRAFT',
           enabled: true,
           createdBy: human.actorId,
@@ -332,6 +477,11 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'meetings:process',
           'integrations:read',
           'updates:draft',
+          'support:draft',
+          'support:open',
+          'support:note',
+          'intake:draft',
+          'reports:draft',
           'agent-runs:execute',
         ],
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
@@ -378,6 +528,11 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
             'meetings:read',
             'meetings:process',
             'updates:draft',
+            'support:draft',
+            'support:open',
+            'support:note',
+            'intake:draft',
+            'reports:draft',
           ],
           agentRoles: ['client-operations'],
           modelProvider: 'fixture',
@@ -457,6 +612,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         actor: { actorType: 'HUMAN', actorId: human.actorId, auditRole: 'PLATFORM_ADMIN' },
       })
       const grant = await issueApprovalGrantAction({
+        operationId: randomUUID(),
         tenantId,
         venueId,
         agentIdentityId: identityId,
@@ -466,6 +622,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         scope: { tenantId, venueId },
         parameters,
         approvalDecisionId: approvalDecision.id,
+        issueReason: 'Approve this exact synthetic operational-update draft for the shakedown.',
         expiresAt: new Date('2030-08-22T12:00:00.000Z'),
         actor: credentialActor,
       })
@@ -588,6 +745,676 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         credentialId: credential.credentialId,
         approvalGrantId: grant.id,
         capability: 'updates:draft',
+      })
+
+      const evidenceRun = await db.agentRun.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          runType: 'SUPPORT',
+          requestedOperation: 'review-operational-update-draft',
+          requestPrompt: 'Review the bounded informational draft workflow.',
+          scopeSnapshot: { tenantId, venueId },
+          status: 'COMPLETED',
+          modelProvider: 'fixture',
+          modelName: 'deterministic',
+          initiatedByType: 'HUMAN',
+          initiatedById: human.actorId,
+          startedAt: new Date(now.getTime() - 120_000),
+          completedAt: new Date(now.getTime() - 60_000),
+        },
+      })
+      const authorityOutcome = await recordAgentOutcomeAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentRunId: evidenceRun.id,
+        verdict: 'POSITIVE',
+        summary: 'The reviewed synthetic draft workflow stayed informational and venue-scoped.',
+        evidenceRef: `OperationalUpdate:${String((created as { id?: string }).id ?? 'synthetic')}`,
+        actor: { type: 'HUMAN', id: human.actorId, role: 'PLATFORM_ADMIN' },
+      })
+
+      const policyOperationId = randomUUID()
+      const policyInput = {
+        operationId: policyOperationId,
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_update_draft',
+        capability: 'updates:draft',
+        mode: 'POLICY_BACKED' as const,
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_ONLY' },
+        policyKey: `reviewed-update-drafts-${suffix}`,
+        constraints: {
+          ...defaultOperationalUpdateDraftPolicyConstraints(),
+          maxTitleChars: 40,
+          maxBodyChars: 200,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes bounded informational drafts.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 1,
+        expiresAt: new Date(now.getTime() + 60 * 60_000),
+        actor: credentialActor,
+      }
+      await expect(
+        issueApprovalGrantAction({
+          ...policyInput,
+          operationId: randomUUID(),
+          policyKey: `rejected-unscoped-evidence-${suffix}`,
+          outcomeObservationIds: ['missing-or-out-of-scope-observation'],
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      const policyGrant = await issueApprovalGrantAction(policyInput)
+      const policyReplay = await issueApprovalGrantAction(policyInput)
+      expect(policyGrant.replayed).toBe(false)
+      expect(policyReplay).toMatchObject({ id: policyGrant.id, replayed: true })
+      expect(
+        await db.approvalGrantEvidence.findMany({
+          where: { tenantId, approvalGrantId: policyGrant.id },
+          select: { outcomeObservationId: true },
+        }),
+      ).toEqual([{ outcomeObservationId: authorityOutcome.id }])
+
+      const policyContext = { credential, approvalGrantId: policyGrant.id }
+      const policyWriteInput = {
+        ...writeInput,
+        operationId: randomUUID(),
+        title: 'Gallery review note',
+        body: 'A bounded informational draft prepared under reviewed policy.',
+      }
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'This title deliberately exceeds the reviewed forty character policy limit',
+          },
+          policyContext,
+        ),
+      ).rejects.toThrow('outside the reviewed operational-update draft policy')
+      const policyCreated = await registry.callTool(
+        'pathfinder.create_update_draft',
+        policyWriteInput,
+        policyContext,
+      )
+      expect(JSON.stringify(policyCreated)).toContain('Approved draft created')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'Second bounded draft',
+          },
+          policyContext,
+        ),
+      ).rejects.toThrow('no remaining uses')
+      expect(await db.operationalUpdate.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: policyGrant.id } }),
+      ).toBe(1)
+
+      const expiredPolicy = await issueApprovalGrantAction({
+        ...policyInput,
+        operationId: randomUUID(),
+        policyKey: `expired-update-drafts-${suffix}`,
+        maxUses: 1,
+        notBefore: new Date(now.getTime() - 120_000),
+        expiresAt: new Date(now.getTime() - 60_000),
+      })
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...policyWriteInput,
+            operationId: randomUUID(),
+            title: 'Expired policy draft',
+          },
+          { credential, approvalGrantId: expiredPolicy.id },
+        ),
+      ).rejects.toThrow('Approval grant is unavailable')
+      expect(
+        await db.approvalGrant.findUniqueOrThrow({
+          where: { id: expiredPolicy.id },
+          select: { expiresAt: true, useCount: true, revokedAt: true },
+        }),
+      ).toEqual({
+        expiresAt: new Date(now.getTime() - 60_000),
+        useCount: 0,
+        revokedAt: null,
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: expiredPolicy.id } }),
+      ).toBe(0)
+      expect(await db.operationalUpdate.count({ where: { tenantId, venueId } })).toBe(2)
+
+      const supportPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_support_draft',
+        capability: 'support:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_ONLY' },
+        policyKey: `reviewed-support-drafts-${suffix}`,
+        constraints: {
+          ...defaultSupportRequestDraftPolicyConstraints(),
+          maxSubjectChars: 80,
+          maxBodyChars: 300,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes private support drafts only.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const supportOperationId = randomUUID()
+      const supportWriteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: supportOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        subject: 'Review lobby map answer',
+        body: 'Investigate the visitor answer internally. Do not contact the customer.',
+        category: 'CONTENT_CORRECTION' as const,
+      }
+      const supportContext = { credential, approvalGrantId: supportPolicy.id }
+      const supportCreated = await registry.callTool(
+        'pathfinder.create_support_draft',
+        supportWriteInput,
+        supportContext,
+      )
+      const supportReplayed = await registry.callTool(
+        'pathfinder.create_support_draft',
+        supportWriteInput,
+        supportContext,
+      )
+      expect(JSON.stringify(supportCreated)).toContain('no customer was contacted')
+      expect(JSON.stringify(supportReplayed)).toContain('Existing internal support draft')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_support_draft',
+          {
+            ...supportWriteInput,
+            operationId: randomUUID(),
+            subject:
+              'This subject deliberately exceeds the reviewed support policy subject length bound',
+          },
+          supportContext,
+        ),
+      ).rejects.toThrow('outside the reviewed support-request draft policy')
+      const supportDraft = await db.supportRequest.findFirstOrThrow({
+        where: { tenantId, venueId, subject: supportWriteInput.subject },
+        include: { messages: true, participants: true },
+      })
+      expect(supportDraft).toMatchObject({
+        status: 'DRAFT',
+        createdByKind: 'AGENT',
+        requesterUserId: null,
+        clientVersion: 1,
+        participants: [],
+        messages: [expect.objectContaining({ visibility: 'INTERNAL_ONLY' })],
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
+      ).toBe(1)
+      const revokedSupportPolicy = await revokeApprovalGrantAction({
+        tenantId,
+        venueId,
+        approvalGrantId: supportPolicy.id,
+        reason: 'Founder stop exercised after the first reviewed draft.',
+        actor: credentialActor,
+      })
+      expect(revokedSupportPolicy.replayed).toBe(false)
+      await expect(
+        registry.callTool(
+          'pathfinder.create_support_draft',
+          {
+            ...supportWriteInput,
+            operationId: randomUUID(),
+            subject: 'Blocked after founder stop',
+          },
+          supportContext,
+        ),
+      ).rejects.toThrow('Approval grant is unavailable')
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: supportPolicy.id } }),
+      ).toBe(1)
+      expect(
+        await db.supportRequest.count({
+          where: { tenantId, venueId, subject: 'Blocked after founder stop' },
+        }),
+      ).toBe(0)
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'ApprovalGrant',
+            targetId: supportPolicy.id,
+            action: 'approval-grant.revoked',
+          },
+          select: { actorType: true, actorId: true, afterState: true },
+        }),
+      ).toMatchObject({
+        actorType: 'HUMAN',
+        actorId: human.actorId,
+        afterState: { reason: 'Founder stop exercised after the first reviewed draft.' },
+      })
+      const supportOpenPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.open_support_request',
+        capability: 'support:open',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_TO_OPEN_ONLY' },
+        policyKey: `reviewed-support-open-once-${suffix}`,
+        constraints: defaultSupportRequestOpenPolicyConstraints(),
+        issueReason: 'Synthetic reviewed evidence authorizes one internal draft opening.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 1,
+        actor: credentialActor,
+      })
+      const supportOpenInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: randomUUID(),
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        requestId: supportDraft.id,
+        expectedVersion: supportDraft.version,
+      }
+      const supportOpenContext = { credential, approvalGrantId: supportOpenPolicy.id }
+      const promoted = await registry.callTool(
+        'pathfinder.open_support_request',
+        supportOpenInput,
+        supportOpenContext,
+      )
+      const promotedReplay = await registry.callTool(
+        'pathfinder.open_support_request',
+        supportOpenInput,
+        supportOpenContext,
+      )
+      expect(promoted.structuredContent).toMatchObject({
+        kind: 'torchiko.support-request-opened',
+        data: { id: supportDraft.id, status: 'OPEN', version: 2, clientVersion: 1 },
+      })
+      expect(JSON.stringify(promotedReplay)).toContain('Existing approved support opening')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: supportOpenPolicy.id },
+        }),
+      ).toBe(1)
+      expect(
+        await db.supportRequest.findUniqueOrThrow({
+          where: { id: supportDraft.id },
+          select: { status: true, version: true, clientVersion: true, participants: true },
+        }),
+      ).toMatchObject({ status: 'OPEN', version: 2, clientVersion: 1, participants: [] })
+      expect(
+        await db.supportMessage.findFirstOrThrow({
+          where: { supportRequestId: supportDraft.id },
+          select: { visibility: true },
+        }),
+      ).toEqual({ visibility: 'INTERNAL_ONLY' })
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'SupportRequest',
+            targetId: supportDraft.id,
+            action: 'support-request.status-changed',
+          },
+          select: {
+            actorType: true,
+            agentIdentityId: true,
+            agentRunId: true,
+            workerId: true,
+            credentialId: true,
+            approvalGrantId: true,
+            capability: true,
+            afterState: true,
+          },
+        }),
+      ).toMatchObject({
+        actorType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: supportOpenPolicy.id,
+        capability: 'support:open',
+        afterState: {
+          customerContacted: false,
+          participantGranted: false,
+          messageSent: false,
+          executionTriggered: false,
+        },
+      })
+
+      const supportNotePolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.add_support_internal_note',
+        capability: 'support:note',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'INTERNAL_NOTE_ONLY' },
+        policyKey: `reviewed-support-note-once-${suffix}`,
+        constraints: {
+          ...defaultSupportInternalNotePolicyConstraints(),
+          maxBodyChars: 300,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes one internal continuity note.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 1,
+        actor: credentialActor,
+      })
+      const supportNoteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: randomUUID(),
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        requestId: supportDraft.id,
+        expectedVersion: 2,
+        body: 'Internal diagnosis: the lobby map answer used stale source material.',
+      }
+      const supportNoteContext = { credential, approvalGrantId: supportNotePolicy.id }
+      const noteAdded = await registry.callTool(
+        'pathfinder.add_support_internal_note',
+        supportNoteInput,
+        supportNoteContext,
+      )
+      const noteReplayed = await registry.callTool(
+        'pathfinder.add_support_internal_note',
+        supportNoteInput,
+        supportNoteContext,
+      )
+      expect(noteAdded.structuredContent).toMatchObject({
+        kind: 'torchiko.support-internal-note-added',
+        data: {
+          requestId: supportDraft.id,
+          visibility: 'INTERNAL_ONLY',
+          requestVersion: 3,
+          clientVersionUnchanged: true,
+          replayed: false,
+        },
+      })
+      expect(JSON.stringify(noteReplayed)).toContain('Existing approved internal support note')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: supportNotePolicy.id },
+        }),
+      ).toBe(1)
+      const supportAfterNote = await db.supportRequest.findUniqueOrThrow({
+        where: { id: supportDraft.id },
+        select: {
+          status: true,
+          version: true,
+          clientVersion: true,
+          clientActivityAt: true,
+          missingInformation: true,
+          participants: true,
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              authorKind: true,
+              authorId: true,
+              visibility: true,
+              body: true,
+              attachments: { select: { id: true } },
+            },
+          },
+        },
+      })
+      expect(supportAfterNote).toMatchObject({
+        status: 'OPEN',
+        version: 3,
+        clientVersion: 1,
+        clientActivityAt: supportDraft.clientActivityAt,
+        missingInformation: supportDraft.missingInformation,
+        participants: [],
+      })
+      expect(supportAfterNote.messages).toHaveLength(2)
+      expect(supportAfterNote.messages[1]).toMatchObject({
+        authorKind: 'AGENT',
+        authorId: identityId,
+        visibility: 'INTERNAL_ONLY',
+        body: supportNoteInput.body,
+        attachments: [],
+      })
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'SupportRequest',
+            targetId: supportDraft.id,
+            action: 'support-request.agent-internal-note-added',
+          },
+          select: {
+            actorType: true,
+            agentIdentityId: true,
+            agentRunId: true,
+            workerId: true,
+            credentialId: true,
+            approvalGrantId: true,
+            capability: true,
+            idempotencyKey: true,
+            afterState: true,
+          },
+        }),
+      ).toMatchObject({
+        actorType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: supportNotePolicy.id,
+        capability: 'support:note',
+        idempotencyKey: supportNoteInput.operationId,
+        afterState: {
+          visibility: 'INTERNAL_ONLY',
+          attachmentCount: 0,
+          customerContacted: false,
+          participantGranted: false,
+          statusChanged: false,
+          triageChanged: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        },
+      })
+
+      const intakePolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.create_intake_notes_proposal',
+        capability: 'intake:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'PROPOSAL_ONLY' },
+        policyKey: `reviewed-intake-notes-${suffix}`,
+        constraints: {
+          ...defaultIntakeNotesProposalPolicyConstraints(),
+          maxNotesChars: 240,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes NOTES-only intake proposals.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const intakeOperationId = randomUUID()
+      const intakeWriteInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: intakeOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        notes: 'Use the accessible east entrance facts as reviewable onboarding source material.',
+      }
+      const intakeContext = { credential, approvalGrantId: intakePolicy.id }
+      const venuePackageCountBeforeIntake = await db.venuePackage.count({
+        where: { tenantId, venueId },
+      })
+      const intakeCreated = await registry.callTool(
+        'pathfinder.create_intake_notes_proposal',
+        intakeWriteInput,
+        intakeContext,
+      )
+      const intakeReplayed = await registry.callTool(
+        'pathfinder.create_intake_notes_proposal',
+        intakeWriteInput,
+        intakeContext,
+      )
+      expect(JSON.stringify(intakeCreated)).toContain('created for human review')
+      expect(JSON.stringify(intakeReplayed)).toContain('Existing onboarding notes proposal')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_intake_notes_proposal',
+          {
+            ...intakeWriteInput,
+            operationId: randomUUID(),
+            notes: 'x'.repeat(241),
+          },
+          intakeContext,
+        ),
+      ).rejects.toThrow('outside the reviewed intake notes proposal policy')
+      const intakeRunId = (intakeCreated.structuredContent.data as unknown as { id: string }).id
+      const intakeRun = await db.intakeRun.findUniqueOrThrow({
+        where: { id: intakeRunId },
+        include: { packageHandoff: true, upload: true },
+      })
+      expect(intakeRun).toMatchObject({
+        status: 'AWAITING_REVIEW',
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        requestedBy: identityId,
+        requestedByType: 'AGENT',
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerId: secondaryKey,
+        credentialId: credential.credentialId,
+        approvalGrantId: intakePolicy.id,
+        capability: 'intake:draft',
+        modelProvider: 'fixture',
+        modelName: 'deterministic',
+        packageHandoff: null,
+        upload: null,
+      })
+      expect(intakeRun.structuredBootstrap).toEqual({
+        kind: 'OPTIONAL_NOTES',
+        notes: intakeWriteInput.notes,
+      })
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: intakePolicy.id } }),
+      ).toBe(1)
+      expect(await db.venuePackage.count({ where: { tenantId, venueId } })).toBe(
+        venuePackageCountBeforeIntake,
+      )
+
+      const reportPolicy = await issueApprovalGrantAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        actionName: 'pathfinder.generate_weekly_report_draft',
+        capability: 'reports:draft',
+        mode: 'POLICY_BACKED',
+        scope: { contractVersion: 1, tenantId, venueId, effect: 'DRAFT_GENERATION_ONLY' },
+        policyKey: `reviewed-weekly-report-drafts-${suffix}`,
+        constraints: {
+          ...defaultWeeklyReportDraftPolicyConstraints(),
+          maxTitleChars: 120,
+          maxRangeDays: 8,
+        },
+        issueReason: 'Synthetic reviewed evidence authorizes internal weekly-report drafts.',
+        outcomeObservationIds: [authorityOutcome.id],
+        maxUses: 2,
+        actor: credentialActor,
+      })
+      const reportOperationId = randomUUID()
+      const reportInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: reportOperationId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: secondaryKey,
+        weekStart: '2026-08-10T00:00:00.000Z',
+        weekEnd: '2026-08-16T23:59:59.000Z',
+        title: 'Internal weekly venue report',
+      }
+      const reportContext = {
+        credential,
+        approvalGrantId: reportPolicy.id,
+      }
+      const reportCreated = await registry.callTool(
+        'pathfinder.generate_weekly_report_draft',
+        reportInput,
+        reportContext,
+      )
+      const reportReplayed = await registry.callTool(
+        'pathfinder.generate_weekly_report_draft',
+        reportInput,
+        reportContext,
+      )
+      expect(JSON.stringify(reportCreated)).toContain('draft generation requested')
+      expect(JSON.stringify(reportReplayed)).toContain('Existing internal weekly-report')
+      await expect(
+        registry.callTool(
+          'pathfinder.generate_weekly_report_draft',
+          {
+            ...reportInput,
+            operationId: randomUUID(),
+            weekStart: '2026-07-01T00:00:00.000Z',
+          },
+          reportContext,
+        ),
+      ).rejects.toThrow('outside the reviewed weekly-report draft policy')
+      const reportId = (reportCreated.structuredContent.data as unknown as { reportId: string })
+        .reportId
+      expect(
+        await db.weeklyReport.findUniqueOrThrow({
+          where: { id: reportId },
+          select: { status: true, publishedAt: true, createdBy: true },
+        }),
+      ).toEqual({ status: 'GENERATING', publishedAt: null, createdBy: identityId })
+      expect(
+        await db.generationRequestDispatch.count({
+          where: { tenantId, venueId, weeklyReportId: reportId },
+        }),
+      ).toBe(1)
+      expect(
+        await db.approvalGrantConsumption.count({ where: { approvalGrantId: reportPolicy.id } }),
+      ).toBe(1)
+      expect(
+        await db.auditLog.findFirstOrThrow({
+          where: {
+            tenantId,
+            targetType: 'WeeklyReport',
+            targetId: reportId,
+            actorRole: 'AGENT',
+          },
+          select: { actorId: true, afterState: true },
+        }),
+      ).toMatchObject({
+        actorId: identityId,
+        afterState: {
+          agentRunId: run.id,
+          workerId: secondaryKey,
+          approvalGrantId: reportPolicy.id,
+          capability: 'reports:draft',
+        },
       })
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,

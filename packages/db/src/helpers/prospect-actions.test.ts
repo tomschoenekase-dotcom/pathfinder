@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   archiveProspectAction,
   beginProspectImportAction,
+  convertPublicInterestToProspectAction,
   createProspectAction,
   resolveProspectDuplicateAction,
   scanProspectDuplicatesAction,
@@ -17,6 +18,13 @@ describe('prospect action safety boundaries', () => {
     await expect(
       createProspectAction({
         organization: { canonicalName: 'Boundary Fixture' },
+        actor: { type: 'HUMAN', id: 'staff', role: 'STAFF' } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    await expect(
+      convertPublicInterestToProspectAction({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        submissionId: 'submission',
         actor: { type: 'HUMAN', id: 'staff', role: 'STAFF' } as never,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })

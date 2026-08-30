@@ -23,6 +23,16 @@ describe('evaluateBillingAccess', () => {
       true,
     ],
     [
+      'provider trial is quarantined from paid launch entitlements',
+      {
+        billingMode: 'STRIPE_SUBSCRIPTION',
+        arrangementStatus: 'TRIALING',
+        providerSubscriptionStatus: 'TRIALING',
+      },
+      'SUSPENDED',
+      false,
+    ],
+    [
       'failed payment in grace',
       {
         billingMode: 'STRIPE_SUBSCRIPTION',

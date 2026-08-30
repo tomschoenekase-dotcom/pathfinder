@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
+import { buildInterviewClarificationReview } from './intake-interview-clarifications'
 import {
   canonicalVenuePackagePayload,
   VenuePackagePayloadV3,
@@ -46,6 +47,45 @@ const bootstrapContent = z.discriminatedUnion('kind', [
 ])
 
 const storedBootstrap = z.object({ version: z.literal(1), content: bootstrapContent }).strict()
+const storedFileClarificationResolution = z
+  .object({
+    resolutionId: z.string().uuid(),
+    questionId: z.string().trim().min(1).max(191),
+    fieldPath: z.string().trim().min(1).max(500),
+    kind: z.enum(['REPLACE_EXCERPT', 'EXCLUDE_EVIDENCE']),
+    answerHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    answeredAt: z.string().datetime({ offset: true }),
+    amendedExcerptHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .nullable(),
+  })
+  .strict()
+const storedFileExtractionReview = z
+  .object({
+    kind: z.literal('FILE_EXTRACTION_REVIEW'),
+    sourceRunId: z.string().trim().min(1).max(191),
+    receiptId: z.string().uuid(),
+    sourceSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceMimeType: z.string().trim().min(1).max(64),
+    extractedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    proposalNotes: z.string().trim().min(1).max(20_000),
+    proposalNotesHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    reviewRationale: z.string().trim().min(1).max(500),
+    clarificationResolutions: z
+      .object({
+        version: z.literal(1),
+        count: z.number().int().min(0).max(50),
+        digest: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .nullable(),
+        receipts: z.array(storedFileClarificationResolution).max(50),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 export const INTAKE_CANDIDATE_MAPPING_VERSION = 1 as const
 
 export type IntakeCandidateIssue = {
@@ -55,6 +95,7 @@ export type IntakeCandidateIssue = {
     | 'INVALID_STORED_SOURCE'
     | 'PACKAGE_FIELD_INVALID'
     | 'INTERVIEW_DISCREPANCY'
+    | 'INTERVIEW_RESOLUTION_INVALID'
     | 'UNKNOWN_FIELD_PATH'
     | 'NO_CANDIDATES'
   path: string
@@ -245,8 +286,12 @@ export async function buildIntakeVenuePackageCandidate(input: {
       id: true,
       sourceKind: true,
       status: true,
+      displayName: true,
       structuredBootstrap: true,
+      submissionRequestId: true,
       submissionInputHash: true,
+      requestedBy: true,
+      requestedByType: true,
       evidence: {
         orderBy: [{ capturedAt: 'asc' as const }, { id: 'asc' as const }],
         select: {
@@ -254,6 +299,55 @@ export async function buildIntakeVenuePackageCandidate(input: {
           locator: true,
           normalizedHash: true,
           confidence: true,
+        },
+      },
+      fileExtractionProposalReview: {
+        select: {
+          id: true,
+          sourceRunId: true,
+          receiptId: true,
+          requestId: true,
+          requestHash: true,
+          decision: true,
+          expectedExtractedTextHash: true,
+          proposalTitle: true,
+          proposalNotes: true,
+          proposalNotesHash: true,
+          clarificationResolutionCount: true,
+          clarificationResolutionDigest: true,
+          rationale: true,
+          createdBy: true,
+          receipt: {
+            select: {
+              sourceSha256: true,
+              sourceMimeType: true,
+              clarificationResolutions: {
+                orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+                select: {
+                  id: true,
+                  runId: true,
+                  expectedExtractedTextHash: true,
+                  fieldPath: true,
+                  reason: true,
+                  blockerScope: true,
+                  excerptHash: true,
+                  answerHash: true,
+                  answeredAt: true,
+                  kind: true,
+                  amendedExcerptHash: true,
+                  question: {
+                    select: {
+                      id: true,
+                      status: true,
+                      answer: true,
+                      answeredAt: true,
+                      callbackMetadata: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       venue: {
@@ -267,6 +361,28 @@ export async function buildIntakeVenuePackageCandidate(input: {
         },
       },
       packageHandoff: { select: { packageDraftId: true } },
+      interviewClarificationResolutions: {
+        orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+        select: {
+          id: true,
+          reviewHash: true,
+          clarificationId: true,
+          fieldPath: true,
+          answerHash: true,
+          answeredAt: true,
+          kind: true,
+          amendedPublicText: true,
+          amendedTextHash: true,
+          question: {
+            select: {
+              operationId: true,
+              status: true,
+              answer: true,
+              answeredAt: true,
+            },
+          },
+        },
+      },
     },
   })
   if (!run) {
@@ -291,6 +407,115 @@ export async function buildIntakeVenuePackageCandidate(input: {
   const candidate = emptyPayload()
 
   if (run.sourceKind === 'STRUCTURED_BOOTSTRAP') {
+    const fileReview = storedFileExtractionReview.safeParse(run.structuredBootstrap)
+    if (fileReview.success) {
+      const review = run.fileExtractionProposalReview
+      const notesHash = createHash('sha256').update(fileReview.data.proposalNotes).digest('hex')
+      const evidence = run.evidence[0]
+      const retainedResolutionReceipts = (review?.receipt.clarificationResolutions ?? []).map(
+        (resolution) => ({
+          resolutionId: resolution.id,
+          questionId: resolution.question.id,
+          fieldPath: resolution.fieldPath,
+          kind: resolution.kind,
+          answerHash: resolution.answerHash,
+          answeredAt: resolution.answeredAt.toISOString(),
+          amendedExcerptHash: resolution.amendedExcerptHash,
+        }),
+      )
+      const retainedResolutionDigest = retainedResolutionReceipts.length
+        ? createHash('sha256').update(JSON.stringify(retainedResolutionReceipts)).digest('hex')
+        : null
+      const storedResolutions = fileReview.data.clarificationResolutions ?? {
+        version: 1 as const,
+        count: 0,
+        digest: null,
+        receipts: [],
+      }
+      const invalidRetainedResolution = review
+        ? (review.receipt.clarificationResolutions ?? []).some((resolution) => {
+            const metadata =
+              resolution.question.callbackMetadata &&
+              typeof resolution.question.callbackMetadata === 'object' &&
+              !Array.isArray(resolution.question.callbackMetadata)
+                ? (resolution.question.callbackMetadata as Record<string, unknown>)
+                : {}
+            return (
+              resolution.runId !== review.sourceRunId ||
+              resolution.expectedExtractedTextHash !== review.expectedExtractedTextHash ||
+              resolution.question.status !== 'ANSWERED' ||
+              !resolution.question.answer ||
+              !resolution.question.answeredAt ||
+              resolution.answerHash !==
+                createHash('sha256').update(resolution.question.answer).digest('hex') ||
+              resolution.answeredAt.getTime() !== resolution.question.answeredAt.getTime() ||
+              resolution.fieldPath !== metadata.fieldPath ||
+              resolution.reason !== metadata.reason ||
+              resolution.blockerScope !== metadata.blockerScope ||
+              resolution.excerptHash !== metadata.excerptHash
+            )
+          })
+        : false
+      if (
+        !review ||
+        review.decision !== 'ACCEPTED_FOR_PROPOSAL' ||
+        run.requestedByType !== 'HUMAN' ||
+        run.requestedBy !== review.createdBy ||
+        run.submissionRequestId !== review.requestId ||
+        run.submissionInputHash !== review.requestHash ||
+        run.displayName !== review.proposalTitle ||
+        fileReview.data.sourceRunId !== review.sourceRunId ||
+        fileReview.data.receiptId !== review.receiptId ||
+        fileReview.data.sourceSha256 !== review.receipt.sourceSha256 ||
+        fileReview.data.sourceMimeType !== review.receipt.sourceMimeType ||
+        fileReview.data.extractedTextHash !== review.expectedExtractedTextHash ||
+        fileReview.data.proposalNotes !== review.proposalNotes ||
+        fileReview.data.proposalNotesHash !== review.proposalNotesHash ||
+        fileReview.data.proposalNotesHash !== notesHash ||
+        fileReview.data.reviewRationale !== review.rationale ||
+        storedResolutions.count !== storedResolutions.receipts.length ||
+        storedResolutions.count !== review.clarificationResolutionCount ||
+        storedResolutions.digest !== review.clarificationResolutionDigest ||
+        storedResolutions.digest !== retainedResolutionDigest ||
+        JSON.stringify(storedResolutions.receipts) !== JSON.stringify(retainedResolutionReceipts) ||
+        invalidRetainedResolution ||
+        run.evidence.length !== 1 ||
+        evidence?.sourceKind !== 'STRUCTURED_BOOTSTRAP' ||
+        evidence.locator !== `intake-file-extraction-review:${review.id}` ||
+        evidence.normalizedHash !== review.proposalNotesHash ||
+        Number(evidence.confidence) !== 1
+      ) {
+        throw new IntakeVenuePackageCandidateError(
+          'INVALID_EVIDENCE',
+          'Stored file extraction review evidence is invalid',
+        )
+      }
+      const sourceHash = createHash('sha256')
+        .update(
+          JSON.stringify({
+            reviewId: review.id,
+            sourceRunId: review.sourceRunId,
+            receiptId: review.receiptId,
+            extractedTextHash: review.expectedExtractedTextHash,
+            proposalNotesHash: review.proposalNotesHash,
+            clarificationResolutionDigest: review.clarificationResolutionDigest,
+          }),
+        )
+        .digest('hex')
+      candidate.knowledgeEntries.create.push({
+        itemKey: deterministicUuid(
+          `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:file-extraction-review:${sourceHash}`,
+        ),
+        provenance: { ...provenance(), sourceName: 'Reviewed file extraction proposal' },
+        value: {
+          title: run.displayName,
+          category: 'DOCUMENT_REVIEW',
+          content: fileReview.data.proposalNotes,
+          isEnabled: true,
+        },
+      })
+      return result(run, scope.venueId, candidate, issues)
+    }
     const bootstrapEvidence = run.evidence[0]
     if (
       !run.submissionInputHash ||
@@ -364,12 +589,47 @@ export async function buildIntakeVenuePackageCandidate(input: {
   }
 
   const review = await getIntakeProposalReview({ db: input.db, ...scope })
-  if (!review.structuredSummary.handoffReady) {
-    issues.push({
-      code: 'INTERVIEW_DISCREPANCY',
-      path: 'review',
-      message: 'The verified interview review is not ready for a package handoff.',
-    })
+  const clarificationReview = buildInterviewClarificationReview({ ...scope, review })
+  const clarificationById = new Map(
+    clarificationReview.clarifications.map((clarification) => [
+      clarification.clarificationId,
+      clarification,
+    ]),
+  )
+  const validResolutionByField = new Map<
+    string,
+    (typeof run.interviewClarificationResolutions)[number]
+  >()
+  for (const resolution of run.interviewClarificationResolutions) {
+    const clarification = clarificationById.get(resolution.clarificationId)
+    const question = resolution.question
+    const valid =
+      resolution.reviewHash === clarificationReview.reviewHash &&
+      clarification?.fieldPath === resolution.fieldPath &&
+      question.operationId === clarification?.operationId &&
+      question.status === 'ANSWERED' &&
+      question.answer !== null &&
+      question.answeredAt !== null &&
+      question.answeredAt.getTime() === resolution.answeredAt.getTime() &&
+      createHash('sha256').update(question.answer).digest('hex') === resolution.answerHash &&
+      ((resolution.kind === 'REPLACE_PUBLIC_TEXT' &&
+        resolution.amendedPublicText !== null &&
+        resolution.amendedTextHash !== null &&
+        createHash('sha256').update(resolution.amendedPublicText).digest('hex') ===
+          resolution.amendedTextHash) ||
+        (resolution.kind === 'EXCLUDE_FIELD' &&
+          resolution.amendedPublicText === null &&
+          resolution.amendedTextHash === null))
+    if (!valid || validResolutionByField.has(resolution.fieldPath)) {
+      issues.push({
+        code: 'INTERVIEW_RESOLUTION_INVALID',
+        path: resolution.fieldPath,
+        message:
+          'Stored interview clarification resolution does not match exact retained evidence.',
+      })
+      continue
+    }
+    validResolutionByField.set(resolution.fieldPath, resolution)
   }
   const orderedAnswers = [...review.answers].sort(
     (left, right) =>
@@ -378,14 +638,20 @@ export async function buildIntakeVenuePackageCandidate(input: {
       left.fieldPath.localeCompare(right.fieldPath),
   )
   for (const answer of orderedAnswers) {
+    const resolution = validResolutionByField.get(answer.fieldPath)
     if (answer.discrepancies.length > 0) {
-      issues.push({
-        code: 'INTERVIEW_DISCREPANCY',
-        path: answer.fieldPath,
-        message: `Resolve ${answer.discrepancies.join(', ')} before creating a package candidate.`,
-      })
+      if (!resolution) {
+        issues.push({
+          code: 'INTERVIEW_DISCREPANCY',
+          path: answer.fieldPath,
+          message: `Resolve ${answer.discrepancies.join(', ')} before creating a package candidate.`,
+        })
+      } else if (resolution.kind === 'EXCLUDE_FIELD') {
+        continue
+      }
     }
-    if (!answer.publicText) continue
+    const publicText = resolution?.amendedPublicText ?? answer.publicText
+    if (!publicText) continue
     const mapping = interviewMappings[answer.fieldPath]
     if (!mapping) {
       issues.push({
@@ -397,13 +663,16 @@ export async function buildIntakeVenuePackageCandidate(input: {
     }
     candidate.knowledgeEntries.create.push({
       itemKey: deterministicUuid(
-        `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:interview:${answer.fieldPath}:${createHash('sha256').update(answer.publicText).digest('hex')}`,
+        `v${INTAKE_CANDIDATE_MAPPING_VERSION}:${namespace}:interview:${answer.fieldPath}:${createHash('sha256').update(publicText).digest('hex')}`,
       ),
-      provenance: { ...provenance(), sourceName: `Staff interview: ${answer.fieldPath}` },
+      provenance: {
+        ...provenance(),
+        sourceName: `${resolution ? 'Reviewed interview amendment' : 'Staff interview'}: ${answer.fieldPath}`,
+      },
       value: {
         title: mapping.title,
         category: mapping.category,
-        content: answer.publicText,
+        content: publicText,
         isEnabled: true,
       },
     })

@@ -43,6 +43,73 @@ export class BillingServiceError extends Error {
   }
 }
 
+export type VenuePriceComponent = {
+  venueId: string
+  amountMinor: bigint
+}
+
+export function normalizeVenuePriceBreakdown(params: {
+  venueIds: string[]
+  totalAmountMinor: bigint | null
+  venueAmounts?: VenuePriceComponent[]
+}): VenuePriceComponent[] {
+  const venueIds = [...new Set(params.venueIds)]
+  const supplied = params.venueAmounts ?? []
+  if (params.totalAmountMinor === null) {
+    if (supplied.length) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Venue price components require an agreement total.',
+      )
+    }
+    return []
+  }
+  if (params.totalAmountMinor <= 0n || params.totalAmountMinor > 999_999_999_999n) {
+    throw new BillingServiceError('CONFLICT', 'The negotiated amount is outside allowed bounds.')
+  }
+  if (!supplied.length) {
+    if (venueIds.length !== 1) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'A multi-venue negotiated total requires one approved amount for every covered venue.',
+      )
+    }
+    return [{ venueId: venueIds[0]!, amountMinor: params.totalAmountMinor }]
+  }
+  const componentIds = supplied.map((component) => component.venueId)
+  if (new Set(componentIds).size !== componentIds.length) {
+    throw new BillingServiceError(
+      'CONFLICT',
+      'A covered venue may appear only once in a price breakdown.',
+    )
+  }
+  if (
+    supplied.length !== venueIds.length ||
+    supplied.some((component) => !venueIds.includes(component.venueId))
+  ) {
+    throw new BillingServiceError(
+      'CONFLICT',
+      'The price breakdown must match the covered venues exactly.',
+    )
+  }
+  if (
+    supplied.some(
+      (component) => component.amountMinor <= 0n || component.amountMinor > 999_999_999_999n,
+    )
+  ) {
+    throw new BillingServiceError('CONFLICT', 'Each venue amount must be positive and bounded.')
+  }
+  if (
+    supplied.reduce((sum, component) => sum + component.amountMinor, 0n) !== params.totalAmountMinor
+  ) {
+    throw new BillingServiceError(
+      'CONFLICT',
+      'The venue price breakdown must equal the approved agreement total.',
+    )
+  }
+  return venueIds.map((venueId) => supplied.find((component) => component.venueId === venueId)!)
+}
+
 function mode(environment: BillingEnvironment): 'TEST' | 'LIVE' {
   return environment.STRIPE_MODE === 'live' ? 'LIVE' : 'TEST'
 }
@@ -217,6 +284,7 @@ export async function createTenantCheckout(params: {
   replaceManualArrangement?: boolean
   negotiatedTerms?: {
     amountMinor: bigint
+    venueAmounts?: VenuePriceComponent[]
     currency: string
     interval: 'month' | 'year'
     intervalCount: number
@@ -250,6 +318,15 @@ export async function createTenantCheckout(params: {
       'Only a platform administrator may approve negotiated Stripe pricing.',
     )
   }
+  if (
+    negotiatedTerms &&
+    (negotiatedTerms.interval !== 'month' || negotiatedTerms.intervalCount !== 1)
+  ) {
+    throw new BillingServiceError(
+      'CONFLICT',
+      'Launch quotes must use monthly recurring billing; contractual commitments remain separate.',
+    )
+  }
   const agreedAmountMinor =
     negotiatedTerms?.amountMinor ?? BigInt(plan.unitAmount * venueIds.length)
   if (agreedAmountMinor <= 0n || agreedAmountMinor > 999_999_999_999n) {
@@ -263,12 +340,25 @@ export async function createTenantCheckout(params: {
   const billingCurrency = negotiatedTerms?.currency ?? plan.currency
   const billingInterval = negotiatedTerms?.interval ?? plan.interval
   const billingIntervalCount = negotiatedTerms?.intervalCount ?? plan.intervalCount
+  const venuePriceBreakdown = negotiatedTerms
+    ? normalizeVenuePriceBreakdown({
+        venueIds,
+        totalAmountMinor: agreedAmountMinor,
+        ...(negotiatedTerms.venueAmounts ? { venueAmounts: negotiatedTerms.venueAmounts } : {}),
+      })
+    : []
   const operationKey = params.operationKey ?? randomUUID()
   const reserved = await client.$transaction(async (tx) => {
     const replay = await tx.billingCheckoutAttempt.findFirst({
       where: { tenantId: params.tenantId, operationKey },
     })
     if (replay) return { replay, tenant: null, account: null, agreement: null, replacementId: null }
+    if (!negotiatedTerms) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Every launch checkout requires a platform-admin-approved custom quote.',
+      )
+    }
     const tenant = await tx.tenant.findUnique({
       where: { id: params.tenantId },
       select: { id: true, name: true },
@@ -300,19 +390,31 @@ export async function createTenantCheckout(params: {
       current.coveredVenueCount === venueIds.length &&
       current.quantity === billingQuantity &&
       current.agreedAmountMinor === agreedAmountMinor &&
+      current.venuePriceBreakdownComplete === Boolean(negotiatedTerms) &&
       current.currency === billingCurrency &&
       current.billingInterval === (billingInterval === 'year' ? 'YEAR' : 'MONTH') &&
       current.billingIntervalCount === billingIntervalCount &&
       current.stripePriceId === (negotiatedTerms ? null : plan.stripePriceId)
     ) {
-      const coveredCount = await tx.commercialAgreementVenue.count({
+      const coveredVenues = await tx.commercialAgreementVenue.findMany({
         where: {
           tenantId: params.tenantId,
           commercialAgreementId: current.id,
           venueId: { in: venueIds },
         },
+        select: { venueId: true, agreedAmountMinor: true },
       })
-      if (coveredCount === venueIds.length) {
+      const coverageMatches = negotiatedTerms
+        ? coveredVenues.length === venuePriceBreakdown.length &&
+          venuePriceBreakdown.every((component) =>
+            coveredVenues.some(
+              (coverage) =>
+                coverage.venueId === component.venueId &&
+                coverage.agreedAmountMinor === component.amountMinor,
+            ),
+          )
+        : coveredVenues.length === venueIds.length
+      if (coverageMatches) {
         const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
         if (!account) throw new BillingServiceError('NOT_FOUND', 'Billing account not found.')
         const existingAttempt = await tx.billingCheckoutAttempt.findFirst({
@@ -387,6 +489,7 @@ export async function createTenantCheckout(params: {
         quantity: billingQuantity,
         coveredVenueCount: venueIds.length,
         agreedAmountMinor,
+        venuePriceBreakdownComplete: Boolean(negotiatedTerms),
         currency: billingCurrency,
         stripeMode: mode(environment),
         stripeAccountId: environment.STRIPE_ACCOUNT_NAMESPACE,
@@ -399,6 +502,9 @@ export async function createTenantCheckout(params: {
         coveredVenues: {
           create: venueIds.map((venueId) => ({
             venueId,
+            agreedAmountMinor:
+              venuePriceBreakdown.find((component) => component.venueId === venueId)?.amountMinor ??
+              null,
             createdBy: params.actorId,
           })),
         },
@@ -435,6 +541,10 @@ export async function createTenantCheckout(params: {
             interval: billingInterval,
             intervalCount: billingIntervalCount,
             coveredVenueCount: venueIds.length,
+            venueAmounts: venuePriceBreakdown.map((component) => ({
+              venueId: component.venueId,
+              amountMinor: component.amountMinor.toString(),
+            })),
             reference: negotiatedTerms.reference,
             reason: negotiatedTerms.reason,
             stripeMode: environment.STRIPE_MODE,
@@ -594,7 +704,7 @@ function projectedStatus(status: ReturnType<typeof projectStripeSubscription>['s
 
 function projectedAccountStatus(status: ReturnType<typeof projectStripeSubscription>['status']) {
   const projected = projectedStatus(status)
-  return projected === 'TRIALING' ? 'ACTIVE' : projected
+  return projected === 'TRIALING' ? 'MANUAL_REVIEW' : projected
 }
 
 async function quarantine(params: {
@@ -1360,6 +1470,7 @@ export async function createManualBillingArrangement(params: {
   mode: 'MANUAL_INVOICE' | 'COMPLIMENTARY' | 'PILOT' | 'NO_BILLING_REQUIRED'
   planKey: string
   amountMinor?: bigint | null
+  venueAmounts?: VenuePriceComponent[]
   accessEndsAt?: Date | null
   venueIds: string[]
   reason: string
@@ -1373,6 +1484,12 @@ export async function createManualBillingArrangement(params: {
       'Complimentary and pilot access require an expiration.',
     )
   }
+  const uniqueVenueIds = [...new Set(params.venueIds)]
+  const venuePriceBreakdown = normalizeVenuePriceBreakdown({
+    venueIds: uniqueVenueIds,
+    totalAmountMinor: params.amountMinor ?? null,
+    ...(params.venueAmounts ? { venueAmounts: params.venueAmounts } : {}),
+  })
   return withTenantIsolationBypass(() =>
     client.$transaction(async (tx) => {
       const tenant = await tx.tenant.findUnique({
@@ -1380,7 +1497,6 @@ export async function createManualBillingArrangement(params: {
         select: { id: true, name: true },
       })
       if (!tenant) throw new BillingServiceError('NOT_FOUND', 'Tenant not found.')
-      const uniqueVenueIds = [...new Set(params.venueIds)]
       const venues = await tx.venue.findMany({
         where: { tenantId: params.tenantId, id: { in: uniqueVenueIds } },
         select: { id: true },
@@ -1428,6 +1544,7 @@ export async function createManualBillingArrangement(params: {
           quantity: uniqueVenueIds.length,
           coveredVenueCount: uniqueVenueIds.length,
           agreedAmountMinor: params.amountMinor ?? null,
+          venuePriceBreakdownComplete: venuePriceBreakdown.length > 0,
           startsAt: new Date(),
           accessStartsAt: new Date(),
           accessEndsAt: params.accessEndsAt ?? null,
@@ -1436,8 +1553,10 @@ export async function createManualBillingArrangement(params: {
           updatedBy: params.actorId,
           coveredVenues: {
             create: uniqueVenueIds.map((venueId) => ({
-              tenantId: params.tenantId,
               venueId,
+              agreedAmountMinor:
+                venuePriceBreakdown.find((component) => component.venueId === venueId)
+                  ?.amountMinor ?? null,
               createdBy: params.actorId,
             })),
           },
@@ -1455,6 +1574,10 @@ export async function createManualBillingArrangement(params: {
             mode: params.mode,
             planKey: params.planKey,
             amountMinor: params.amountMinor?.toString() ?? null,
+            venueAmounts: venuePriceBreakdown.map((component) => ({
+              venueId: component.venueId,
+              amountMinor: component.amountMinor.toString(),
+            })),
             accessEndsAt: params.accessEndsAt?.toISOString() ?? null,
             reason: params.reason,
             reference: params.reference ?? null,

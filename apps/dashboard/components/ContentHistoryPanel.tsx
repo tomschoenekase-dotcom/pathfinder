@@ -297,11 +297,20 @@ export function ContentHistoryPanel({
                       <p className="text-sm text-pf-deep/50">No field-level changes.</p>
                     ) : (
                       <table className="min-w-full table-fixed text-left text-xs">
+                        <caption className="sr-only">
+                          Field changes in this content revision
+                        </caption>
                         <thead className="text-pf-deep/50">
                           <tr>
-                            <th className="w-1/5 px-2 py-2 font-medium">Field</th>
-                            <th className="w-2/5 px-2 py-2 font-medium">Before</th>
-                            <th className="w-2/5 px-2 py-2 font-medium">After</th>
+                            <th scope="col" className="w-1/5 px-2 py-2 font-medium">
+                              Field
+                            </th>
+                            <th scope="col" className="w-2/5 px-2 py-2 font-medium">
+                              Before
+                            </th>
+                            <th scope="col" className="w-2/5 px-2 py-2 font-medium">
+                              After
+                            </th>
                           </tr>
                         </thead>
                         <tbody>

@@ -373,13 +373,24 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-pf-light bg-pf-white">
             <table className="min-w-[44rem] w-full text-left text-sm">
+              <caption className="sr-only">Venue location anchors</caption>
               <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Name</th>
-                  <th className="px-4 py-3 font-semibold">Type</th>
-                  <th className="px-4 py-3 font-semibold">Area</th>
-                  <th className="px-4 py-3 font-semibold">Coords</th>
-                  <th className="px-4 py-3 font-semibold">Score</th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Name
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Type
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Area
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Coords
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Score
+                  </th>
                 </tr>
               </thead>
               <tbody>

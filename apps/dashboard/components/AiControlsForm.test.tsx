@@ -35,6 +35,7 @@ const classicConfiguration: VenueBotConfigurationSnapshot = {
   personalityMode: 'PRESET',
   tonePreset: 'friendly',
   tonePresetVersion: 1,
+  responseDepth: 'BALANCED',
   personalityProfileId: null,
   characterKey: null,
   customCharacterId: null,
@@ -116,6 +117,21 @@ describe('AiControlsForm Venue Bot configuration', () => {
       }),
     )
     expect(screen.getByRole('status').textContent).toContain('Venue Bot settings saved')
+  })
+
+  it('saves a bounded venue response-depth override independently', async () => {
+    renderForm()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Detailed/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Venue Bot settings' }))
+
+    await waitFor(() =>
+      expect(mocks.updateBotConfiguration).toHaveBeenCalledWith({
+        venueId: 'venue_1',
+        expectedRevision: 3,
+        responseDepth: 'DETAILED',
+      }),
+    )
   })
 
   it('shows Tochi only as a nonpublishable development preview behind rollout input', () => {

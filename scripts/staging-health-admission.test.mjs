@@ -325,3 +325,14 @@ test('CLI wiring fails with a code-only error and never echoes URL credentials',
   assert.equal(result.stderr, 'Staging health admission failed: unsafe-health-url\n')
   assert.doesNotMatch(result.stderr, /private-marker/u)
 })
+
+test('release policy targets the product health origin rather than the separate marketing site', () => {
+  const policy = JSON.parse(
+    readFileSync(new globalThis.URL('./release-verification-policy.json', import.meta.url), 'utf8'),
+  )
+  const health = new globalThis.URL(policy.staging.healthUrl)
+  assert.equal(health.protocol, 'https:')
+  assert.equal(health.pathname, '/api/health')
+  assert.equal(health.hostname, policy.staging.host)
+  assert.notEqual(health.hostname, 'staging.torchiko.com')
+})

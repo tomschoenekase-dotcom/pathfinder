@@ -1,15 +1,20 @@
 import {
+  ArrowUpRight,
   Binoculars,
   Building2,
+  ChartNoAxesColumnIncreasing,
   Fish,
   Landmark,
   Leaf,
   MapPinned,
+  MessageCircleMore,
   ScanLine,
   Trophy,
+  UsersRound,
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
+import React from 'react'
 
 import { FadeIn } from '@pathfinder/ui/fade-in'
 
@@ -23,11 +28,11 @@ const exampleQuestions = [
 ]
 
 const venueTypes = [
-  { label: 'Zoos & Aquariums', icon: Fish },
-  { label: 'Museums & Galleries', icon: Landmark },
-  { label: 'Malls & Retail Centers', icon: Building2 },
-  { label: 'Sports Venues & Stadiums', icon: Trophy },
-  { label: 'Parks & Botanical Gardens', icon: Leaf },
+  { label: 'Zoos & aquariums', icon: Fish },
+  { label: 'Museums & galleries', icon: Landmark },
+  { label: 'Retail destinations', icon: Building2 },
+  { label: 'Sports venues', icon: Trophy },
+  { label: 'Parks & gardens', icon: Leaf },
 ]
 
 export default function WebHomePage() {
@@ -37,17 +42,33 @@ export default function WebHomePage() {
         className="sticky top-0 z-50 overflow-hidden border-b border-white/10 bg-pf-deep"
         style={{ height: '80px' }}
       >
-        <div className="mx-auto flex h-full max-w-7xl items-center gap-3 px-6 lg:px-10">
-          <Image
-            src="/torchiko-logo.svg"
-            alt=""
-            aria-hidden="true"
-            width={44}
-            height={44}
-            priority
-            className="h-11 w-11 object-contain"
-          />
-          <span className="text-xl font-semibold tracking-tight text-white">Torchiko</span>
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-6 px-6 lg:px-10">
+          <Link href="/" className="flex min-h-11 items-center gap-3" aria-label="Torchiko home">
+            <Image
+              src="/torchiko-logo.svg"
+              alt=""
+              aria-hidden="true"
+              width={44}
+              height={44}
+              priority
+              className="h-11 w-11 object-contain"
+            />
+            <span className="text-xl font-semibold tracking-tight text-white">Torchiko</span>
+          </Link>
+          <nav className="flex items-center gap-2" aria-label="Primary navigation">
+            <a
+              href="#how-it-works"
+              className="hidden min-h-11 items-center px-4 text-sm font-medium text-white/70 transition hover:text-white sm:inline-flex"
+            >
+              How it works
+            </a>
+            <Link
+              href="/request-demo"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/25 px-5 text-sm font-semibold text-white transition hover:border-white/60 hover:bg-white/10"
+            >
+              Talk about your venue
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -68,29 +89,37 @@ export default function WebHomePage() {
         <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-10 lg:py-32">
           <div className="grid gap-12 lg:grid-cols-[1fr_0.85fr] lg:items-center">
             <div>
+              <p className="mb-6 text-xs font-semibold uppercase tracking-[0.22em] text-pf-light/70">
+                A custom guide for physical places
+              </p>
               <h1 className="text-5xl font-light leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
-                Your venue guide,
+                Give every guest a guide
                 <br />
-                <span className="font-semibold text-pf-light">built on your places.</span>
+                <span className="font-semibold text-pf-light">to the place they&apos;re in.</span>
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-8 text-pf-light/80">
-                Guests ask questions. Torchiko answers with real directions, hours, and
-                recommendations specific to your venue. Set up in an afternoon. No app download
-                required.
+                Torchiko turns your venue&apos;s real information into a conversational guide guests
+                can open by QR code or link. They get useful answers in the moment, while your team
+                spends less time repeating them.
               </p>
               <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-                <a
-                  href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
+                <Link
+                  href="/request-demo"
                   className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
                 >
-                  Request a demo
-                </a>
+                  See it for your venue
+                </Link>
                 <a
                   href="#how-it-works"
                   className="inline-flex min-h-12 items-center justify-center rounded-full border border-pf-light/30 px-7 text-sm font-semibold text-pf-light transition hover:border-pf-light hover:bg-pf-light/10"
                 >
                   See how it works
                 </a>
+              </div>
+              <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold uppercase tracking-[0.14em] text-pf-light/65">
+                <span>QR code or link</span>
+                <span>No app download</span>
+                <span>Setup included</span>
               </div>
             </div>
 
@@ -102,7 +131,7 @@ export default function WebHomePage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Riverside Zoo Guide</p>
-                    <p className="text-xs text-pf-light/70">Powered by Torchiko</p>
+                    <p className="text-xs text-pf-light/70">Illustrative venue guide</p>
                   </div>
                 </div>
                 <div className="mt-5 space-y-4">
@@ -110,13 +139,13 @@ export default function WebHomePage() {
                     What should we see first with two kids?
                   </div>
                   <div className="max-w-[88%] rounded-3xl rounded-bl-md bg-pf-white px-4 py-3 text-sm leading-6 text-pf-deep">
-                    Start at River Otters. It opens at 9 AM and draws the biggest crowds by noon.
-                    From there, the east path takes you to the touch pool in about 4 minutes.
+                    River Otters are a good first stop for families. After that, the east path leads
+                    toward the touch pool. Check today&apos;s posted schedule when you arrive.
                   </div>
                   <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
                     <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
                       <MapPinned className="mb-2 h-4 w-4" aria-hidden="true" />
-                      Directions-aware
+                      Built on venue places
                     </div>
                     <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
                       <ScanLine className="mb-2 h-4 w-4" aria-hidden="true" />
@@ -137,7 +166,7 @@ export default function WebHomePage() {
               How it works
             </span>
             <h2 className="mt-4 max-w-2xl text-3xl font-semibold leading-snug tracking-tight sm:text-4xl">
-              Up and running before your guests arrive.
+              You share the place. Torchiko does the heavy lifting.
             </h2>
           </FadeIn>
 
@@ -145,18 +174,18 @@ export default function WebHomePage() {
             {[
               {
                 step: '01',
-                title: 'Add your places',
-                body: "Enter your venue's locations, exhibits, amenities, and hours. The more detail you add, the better your guide gets.",
+                title: 'Share what your venue knows',
+                body: 'Start with your website, documents, hours, places, and the questions staff hear most often.',
               },
               {
                 step: '02',
-                title: 'The guide learns your venue',
-                body: 'Torchiko builds a guide that knows your specific layout, not generic directions.',
+                title: 'We build and review the guide',
+                body: 'Torchiko organizes your source material into a venue-specific guide for your team to review.',
               },
               {
                 step: '03',
-                title: 'Guests get instant answers',
-                body: 'Via QR code or link, on any phone, no app download required. It just works.',
+                title: 'Guests open it and ask',
+                body: 'A QR code or link opens the guide on a guest phone. No app download is required.',
               },
             ].map((item, index) => (
               <FadeIn key={item.step} delay={index * 100} className="h-full">
@@ -166,6 +195,49 @@ export default function WebHomePage() {
                   <p className="mt-3 text-sm leading-7 text-pf-deep/60">{item.body}</p>
                 </article>
               </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-pf-light bg-white px-6 py-20 lg:px-10">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+              One guide, three outcomes
+            </span>
+            <h2 className="mt-4 text-3xl font-semibold leading-snug tracking-tight sm:text-4xl">
+              Useful in the moment. Useful after the visit.
+            </h2>
+          </div>
+          <div className="divide-y divide-pf-light border-y border-pf-light">
+            {[
+              {
+                icon: MessageCircleMore,
+                title: 'For guests',
+                body: 'Ask a natural question and get an answer grounded in the venue they are visiting.',
+              },
+              {
+                icon: UsersRound,
+                title: 'For staff',
+                body: 'Reduce repetitive questions so people can focus on the moments that need a human.',
+              },
+              {
+                icon: ChartNoAxesColumnIncreasing,
+                title: 'For venue teams',
+                body: 'See the themes visitors ask about, misunderstand, and want to discover next.',
+              },
+            ].map(({ icon: Icon, title, body }) => (
+              <article
+                key={title}
+                className="grid gap-4 py-7 sm:grid-cols-[3rem_10rem_1fr] sm:items-start"
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-pf-accent/10 text-pf-primary">
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+                <p className="text-sm leading-7 text-pf-deep/65">{body}</p>
+              </article>
             ))}
           </div>
         </div>
@@ -219,15 +291,39 @@ export default function WebHomePage() {
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {venueTypes.map(({ label, icon: Icon }, index) => (
               <FadeIn key={label} delay={index * 80} className="h-full">
-                <article className="h-full rounded-3xl border border-pf-light bg-pf-white p-5 shadow-sm">
+                <article className="h-full border-t border-pf-light py-5">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-accent/10 text-pf-primary">
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </div>
-                  <h2 className="mt-5 text-base font-semibold leading-6">{label}</h2>
+                  <h3 className="mt-5 text-base font-semibold leading-6">{label}</h3>
                 </article>
               </FadeIn>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="bg-pf-surface px-6 py-20 lg:px-10">
+        <div className="mx-auto grid max-w-7xl gap-8 border-y border-pf-light py-10 md:grid-cols-[1fr_auto] md:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+              Straightforward commercial terms
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
+              Custom pricing for each venue. Setup is included.
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-pf-deep/65">
+              Scope depends on the venue, its information, and the experience it wants to offer.
+              There is no generic free-trial funnel or one-size-fits-all tier page.
+            </p>
+          </div>
+          <Link
+            href="/request-demo"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-pf-deep px-6 text-sm font-semibold text-white transition hover:bg-pf-primary"
+          >
+            Get a custom quote
+            <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
         </div>
       </section>
 
@@ -237,15 +333,15 @@ export default function WebHomePage() {
             <div>
               <Binoculars className="h-8 w-8 text-pf-light" aria-hidden="true" />
               <h2 className="mt-5 text-3xl font-semibold tracking-tight">
-                Ready to give your guests a smarter experience?
+                See what Torchiko could look like for your venue.
               </h2>
             </div>
-            <a
-              href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
+            <Link
+              href="/request-demo"
               className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-white px-6 text-sm font-semibold text-pf-primary transition hover:bg-pf-surface"
             >
-              Get in touch
-            </a>
+              Talk about your venue
+            </Link>
           </div>
         </FadeIn>
       </section>
@@ -253,15 +349,15 @@ export default function WebHomePage() {
       <footer className="border-t border-white/10 bg-pf-deep px-6 py-10 lg:px-10">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-white/30">
-            © {new Date().getFullYear()} Torchiko. All rights reserved.
+            © {new Date().getFullYear()} Torchiko LLC. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a
-              href="mailto:tomschoenekase@gmail.com"
+            <Link
+              href="/request-demo"
               className="text-xs text-white/30 transition hover:text-white"
             >
               Contact
-            </a>
+            </Link>
             <Link href="/privacy" className="text-xs text-white/30 transition hover:text-white">
               Privacy notice
             </Link>

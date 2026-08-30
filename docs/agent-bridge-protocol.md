@@ -32,20 +32,29 @@ session UUID cannot be rebound to another credential, venue, or provider.
 
 ## Task lifecycle
 
-`claimTask` selects the oldest queued run matching the session provider and supported model. The
-database atomically claims the run, increments its bounded attempt number, creates a short execution
-lease, and binds that lease to the bridge session. Two runners cannot validly complete the same
-lease.
+`claimTask` scans a bounded oldest-first set of queued or expired-running tasks matching the session
+provider and supported model. When a run declares required worker roles or capabilities in its
+scope snapshot, only a registered compatible worker can claim it. A concurrent claim loss advances
+to the next eligible task. The database atomically claims the run, increments its bounded attempt
+number, creates a short execution lease, and binds that lease to the bridge session and worker. Two
+runners cannot validly complete the same lease.
 
 The runner then uses:
 
 - `heartbeatTask` to renew the run lease and observe cancellation;
 - `completeTask` to provide a bounded summary, up to 25 text/Markdown/JSON artifacts, the actual
-  model name, and fixed-point USD cost evidence; or
+  model name, fixed-point USD cost evidence, and an explicit `UNREPORTED`, `ESTIMATED`, or `EXACT`
+  cost status; or
 - `failTask` to provide a bounded error code/message and an explicit retryability decision.
 
 Completion and failure require the current lease token and owning live session. Stale workers fail
 closed. Retryable failures return to the durable queue only while the attempt budget remains.
+
+The claim response is validated through one strict shared contract used by the database boundary
+and runner. It carries the run and operation references, initiating actor, exact agent identity and
+authority snapshot, venue, requested operation, model provider/name, scope, attempt, and lease. A
+runner rejects venue/provider drift before invoking a model. Nullable free-form prompts fall back to
+the durable requested operation instead of becoming poison tasks.
 
 ## Operator interaction and specialists
 
@@ -70,3 +79,10 @@ disposable friend-takeover shakedown proves independent worker registration, tas
 account/knowledge retrieval, exact approval consumption, machine attribution, and reconnection
 without Obsidian or the primary PC. Production availability still requires explicit rollout,
 credential issuance, and a live worker; the UI must not imply otherwise.
+
+`pnpm test:agent-bridge:disposable` proves the provider-dark HTTP/client path, real credential and
+session verification, heterogeneous concurrent workers, same-role multiple instances, explicit
+role/capability routing, retry and fenced crash takeover, stale-settlement rejection, duplicate
+completion rejection, durable artifact readback, exact costs, and a system-initiated workflow that
+does not require founder routing. It removes all exact disposable containers afterward. See
+`docs/workforce-credibility-shakedown.md` for the exact boundary.

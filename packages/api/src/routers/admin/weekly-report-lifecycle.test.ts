@@ -75,6 +75,9 @@ describe('weekly report lifecycle', () => {
       version: '2026-08-11T12:00:00.000Z',
       scope: { tenantId: 'tenant-1', venueId: 'venue-1', reportId: 'report-1' },
     })
+    expect(Object.keys(result.report).sort()).toEqual(
+      ['answerCount', 'error', 'generatedAt', 'publishedAt', 'sessionCount'].sort(),
+    )
     expect(mocks.report).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'report-1', tenantId: 'tenant-1', venueId: 'venue-1' },

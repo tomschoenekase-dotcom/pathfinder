@@ -53,7 +53,7 @@ export function AdminClientPlanForm({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3" role="group" aria-label="Client plan">
         {(
           [
             ['free', 'Free'],
@@ -76,13 +76,22 @@ export function AdminClientPlanForm({
       </div>
 
       {message ? (
-        <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <p
+          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {message}
         </p>
       ) : null}
 
       {errorMessage ? (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <p
+          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          role="alert"
+          aria-atomic="true"
+        >
           {errorMessage}
         </p>
       ) : null}

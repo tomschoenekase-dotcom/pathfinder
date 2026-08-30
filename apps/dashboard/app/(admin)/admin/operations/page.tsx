@@ -3,6 +3,9 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
+import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
+import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
+import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
 
 type Cursor = { createdAt: string; id: string }
@@ -29,7 +32,7 @@ export default async function AdminOperationsPage({
 }) {
   const caller = await createAdminCaller()
   const query = await searchParams
-  const [data, incident] = await Promise.all([
+  const [data, readiness, releaseEvidence, incident, providerHealth] = await Promise.all([
     caller.admin.attentionConsole({
       limit: 10,
       ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
@@ -55,22 +58,29 @@ export default async function AdminOperationsPage({
         ? { platformEventsCursor: cursor(query.platformEventsCursor) }
         : {}),
     }),
+    caller.admin.operationsReadiness(),
+    caller.admin.releaseEvidence({ limit: 5 }),
     caller.admin.getGlobalAiControl(),
+    caller.admin.getAiProviderHealthControl(),
   ])
 
   return (
     <div className="space-y-6">
       <header className="border-b border-slate-200 pb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Operations</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
+          Founder operations
+        </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-          Work and failures
+          Founder Control Room
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          See what needs you, what the AI organization is doing, what finished, and what failed.
-          Detailed evidence remains one click away; this page cannot retry, cancel, approve, or
-          contact providers.
+          Start with the single highest-value founder action, answer compact agent questions, review
+          approvals, and see customer or system risk from one mobile-ready operating surface.
+          Decisions are recorded here; consequential execution remains separately policy-gated.
         </p>
       </header>
+
+      <FounderOperatingConversation exchanges={data.founderConversation} />
 
       <section
         aria-label="Global AI incident state"
@@ -90,6 +100,31 @@ export default async function AdminOperationsPage({
           </Link>
         </p>
       </section>
+
+      {providerHealth.malformed || providerHealth.activeUnhealthyProviders.length > 0 ? (
+        <section
+          aria-label="AI provider routing health"
+          className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+        >
+          <p className="font-semibold">
+            {providerHealth.malformed
+              ? 'AI provider routing is fail-closed'
+              : `${providerHealth.activeUnhealthyProviders.length} AI provider ${providerHealth.activeUnhealthyProviders.length === 1 ? 'exclusion is' : 'exclusions are'} active`}
+          </p>
+          <p className="mt-1 opacity-80">
+            {providerHealth.malformed
+              ? 'Repair the malformed provider-health control before provider-backed routing resumes.'
+              : `Excluded: ${providerHealth.activeUnhealthyProviders.join(', ')}. Expiry restores eligibility automatically.`}{' '}
+            <Link className="font-semibold underline" href="/admin#provider-health-control">
+              Review provider controls
+            </Link>
+          </p>
+        </section>
+      ) : null}
+
+      <OperationsReadinessSummary readiness={readiness} />
+
+      <ReleaseEvidenceSummary evidence={releaseEvidence} />
 
       <OperationsAttentionConsole data={data} />
     </div>

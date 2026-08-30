@@ -16,6 +16,7 @@ const sourceImportAllowlist = new Map([
   ['packages/ai/src/anthropic.ts', new Set(['@anthropic-ai/sdk'])],
   ['packages/ai/src/openai-embeddings.test.ts', new Set(['openai'])],
   ['packages/ai/src/openai-embeddings.ts', new Set(['openai'])],
+  ['packages/ai/src/openai-text.ts', new Set(['openai'])],
 ])
 const dependencyAllowlist = new Map([
   ['apps/workers/package.json', new Set(['openai'])],

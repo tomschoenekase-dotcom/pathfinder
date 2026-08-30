@@ -378,6 +378,82 @@ describe('support domain actions', () => {
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
   })
 
+  it('creates an agent support draft as internal-only with complete machine lineage', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.create.mockResolvedValueOnce({ ...request, status: 'DRAFT' })
+    tx.supportMessage.create.mockResolvedValueOnce({
+      ...message,
+      authorKind: 'AGENT',
+      authorId: 'agent_1',
+      visibility: 'INTERNAL_ONLY',
+    })
+    await createSupportRequestAction(
+      {
+        ...createInput,
+        draftOnly: true,
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:draft',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+          idempotencyKey: operationId,
+        },
+      },
+      actionClient,
+    )
+    expect(tx.supportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'DRAFT' }) }),
+    )
+    expect(tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ visibility: 'INTERNAL_ONLY', clientVersion: null }),
+      }),
+    )
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'REQUEST_DRAFTED' }) }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'support-request.created-draft',
+          actorType: 'AGENT',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:draft',
+        }),
+      }),
+    )
+  })
+
+  it('rejects agent support creation unless it is an internal draft with full lineage', async () => {
+    const { client, actionClient } = harness()
+    await expect(
+      createSupportRequestAction(
+        {
+          ...createInput,
+          actor: {
+            actorType: 'AGENT',
+            participantKind: 'AGENT',
+            actorId: 'agent_1',
+            auditRole: 'AGENT',
+          },
+        },
+        actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('records an intake correction against the exact immutable source version', async () => {
     const { tx, actionClient } = harness()
     await createSupportRequestAction(
@@ -483,26 +559,6 @@ describe('support domain actions', () => {
       'CLIENT_VISIBLE' as const,
       'OPERATOR_MESSAGE_ADDED',
     ],
-    [
-      {
-        actorType: 'AGENT',
-        participantKind: 'AGENT',
-        actorId: 'agent_1',
-        auditRole: 'AGENT',
-      } as const,
-      'INTERNAL_ONLY' as const,
-      'AGENT_INTERNAL_NOTE_ADDED',
-    ],
-    [
-      {
-        actorType: 'AGENT',
-        participantKind: 'AGENT',
-        actorId: 'agent_1',
-        auditRole: 'AGENT',
-      } as const,
-      'CLIENT_VISIBLE' as const,
-      'AGENT_MESSAGE_ADDED',
-    ],
   ])(
     'maps trusted actor and visibility to durable evidence',
     async (actor, visibility, eventType) => {
@@ -547,6 +603,122 @@ describe('support domain actions', () => {
       }
     },
   )
+
+  it('adds an agent internal note with full lineage and no client activity', async () => {
+    const { tx, actionClient } = harness()
+    await appendSupportMessageAction(
+      {
+        operationId,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 1,
+        visibility: 'INTERNAL_ONLY',
+        body: 'Evidence-backed internal diagnosis.',
+        attachments: [],
+        actor: {
+          actorType: 'AGENT',
+          participantKind: 'AGENT',
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+          agentIdentityId: 'agent_1',
+          agentRunId: 'run_1',
+          workerId: 'worker_1',
+          credentialId: 'credential_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:note',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+          idempotencyKey: operationId,
+        },
+      },
+      actionClient,
+    )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientVersion',
+    )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientActivityAt',
+    )
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ eventType: 'AGENT_INTERNAL_NOTE_ADDED' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'AGENT',
+        actorRole: 'AGENT',
+        agentIdentityId: 'agent_1',
+        agentRunId: 'run_1',
+        workerId: 'worker_1',
+        credentialId: 'credential_1',
+        approvalGrantId: 'grant_1',
+        capability: 'support:note',
+        idempotencyKey: operationId,
+        afterState: expect.objectContaining({
+          visibility: 'INTERNAL_ONLY',
+          customerContacted: false,
+          participantGranted: false,
+          statusChanged: false,
+          triageChanged: false,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        }),
+      }),
+    })
+  })
+
+  it('rejects agent support messages that are visible, attached, or missing lineage', async () => {
+    const baseActor = {
+      actorType: 'AGENT' as const,
+      participantKind: 'AGENT' as const,
+      actorId: 'agent_1',
+      auditRole: 'AGENT',
+      agentIdentityId: 'agent_1',
+      agentRunId: 'run_1',
+      workerId: 'worker_1',
+      credentialId: 'credential_1',
+      approvalGrantId: 'grant_1',
+      capability: 'support:note' as const,
+      idempotencyKey: operationId,
+    }
+    for (const candidate of [
+      { visibility: 'CLIENT_VISIBLE' as const, attachments: [], actor: baseActor },
+      {
+        visibility: 'INTERNAL_ONLY' as const,
+        attachments: [{ intakeUploadId: 'upload_1' }],
+        actor: baseActor,
+      },
+      {
+        visibility: 'INTERNAL_ONLY' as const,
+        attachments: [],
+        actor: {
+          actorType: 'AGENT' as const,
+          participantKind: 'AGENT' as const,
+          actorId: 'agent_1',
+          auditRole: 'AGENT',
+        },
+      },
+    ]) {
+      const { client, actionClient } = harness()
+      await expect(
+        appendSupportMessageAction(
+          {
+            operationId,
+            tenantId: 'tenant_1',
+            venueId: 'venue_1',
+            requestId: 'request_1',
+            expectedVersion: 1,
+            body: 'Unsafe agent message.',
+            ...candidate,
+          },
+          actionClient,
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(client.$transaction).not.toHaveBeenCalled()
+    }
+  })
 
   it('binds lookup and CAS to tenant and venue and rejects stale versions', async () => {
     const { tx, actionClient } = harness()
@@ -836,7 +1008,7 @@ describe('support domain actions', () => {
 
   it.each([
     ['reserved upload', { status: 'RESERVED' }],
-    ['wrong upload MIME', { mimeType: 'text/plain' }],
+    ['wrong upload MIME', { mimeType: 'application/zip' }],
     ['empty upload', { byteSize: 0 }],
     ['missing verified timestamp', { verifiedAt: null }],
     ['missing storage version', { storageVersionId: null }],

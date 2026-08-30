@@ -34,6 +34,78 @@ export const NOOP_AI_BUDGET_GATE: AiBudgetGate = {
   releaseUndispatched: async () => undefined,
 }
 
+export class AiRequestBudgetCeilingExceededError extends Error {
+  readonly code = 'REQUEST_BUDGET_CEILING_EXCEEDED'
+
+  constructor(
+    readonly ceilingUnits: bigint,
+    readonly attemptedUnits: bigint,
+  ) {
+    super('AI request exceeds its governed cumulative cost ceiling')
+    this.name = 'AiRequestBudgetCeilingExceededError'
+  }
+}
+
+/**
+ * Adds a fail-closed, invocation-local ceiling around a durable budget gate.
+ * Exact settlements consume observed cost; ambiguous dispatches conservatively
+ * consume their full reservation. The same wrapper must be shared by every
+ * retry and fallback candidate in one logical request.
+ */
+export function withAiRequestBudgetCeiling(
+  budgetGate: AiBudgetGate,
+  ceilingUnits: bigint,
+): AiBudgetGate {
+  if (ceilingUnits < 0n) throw new Error('AI request budget ceiling must be nonnegative')
+
+  let committedUnits = 0n
+  const reservations = new Map<
+    string,
+    { reservedUnits: bigint; underlying: AiBudgetReservationRef | null }
+  >()
+  const pendingUnits = () =>
+    [...reservations.values()].reduce((total, reservation) => total + reservation.reservedUnits, 0n)
+  const take = (reservation: AiBudgetReservationRef) => {
+    const state = reservations.get(reservation.id)
+    if (!state) throw new Error('Unknown AI request budget reservation')
+    reservations.delete(reservation.id)
+    return state
+  }
+
+  return {
+    reserve: async (attempt) => {
+      const attemptedUnits = committedUnits + pendingUnits() + attempt.reservedUnits
+      if (attemptedUnits > ceilingUnits) {
+        throw new AiRequestBudgetCeilingExceededError(ceilingUnits, attemptedUnits)
+      }
+      const underlying = await budgetGate.reserve(attempt)
+      const reservation = { id: randomUUID(), reservedUnits: attempt.reservedUnits }
+      reservations.set(reservation.id, { reservedUnits: attempt.reservedUnits, underlying })
+      return reservation
+    },
+    markDispatched: async (reservation) => {
+      const state = reservations.get(reservation.id)
+      if (!state) throw new Error('Unknown AI request budget reservation')
+      if (state.underlying) await budgetGate.markDispatched(state.underlying)
+    },
+    settleExact: async (reservation, actualUnits) => {
+      if (actualUnits < 0n) throw new Error('AI request settlement must be nonnegative')
+      const state = take(reservation)
+      committedUnits += actualUnits
+      if (state.underlying) await budgetGate.settleExact(state.underlying, actualUnits)
+    },
+    settleAmbiguous: async (reservation) => {
+      const state = take(reservation)
+      committedUnits += state.reservedUnits
+      if (state.underlying) await budgetGate.settleAmbiguous(state.underlying)
+    },
+    releaseUndispatched: async (reservation) => {
+      const state = take(reservation)
+      if (state.underlying) await budgetGate.releaseUndispatched(state.underlying)
+    },
+  }
+}
+
 export function createAiInvocationId(): string {
   return randomUUID()
 }

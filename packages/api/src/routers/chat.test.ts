@@ -40,11 +40,13 @@ const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
   claim: vi.fn(),
   dispatch: vi.fn(),
+  skip: vi.fn(),
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
+const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -54,10 +56,12 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   reserveGuestChatTurnAction: guestTurnActions.reserve,
   claimGuestChatTurnAction: guestTurnActions.claim,
   markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+  skipGuestChatProviderOperationAction: guestTurnActions.skip,
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+  readActiveUnhealthyAiProviders,
 }))
 
 import { router } from '../core'
@@ -99,7 +103,10 @@ const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 const platformConfigFindUnique = vi.fn()
+const aiWorkloadConfigurationOverrideFindFirst = vi.fn()
+const aiScopedWorkloadConfigurationOverrideFindFirst = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
+const operationalEventUpsert = vi.fn()
 const venueFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
 const dbTransaction = vi.fn()
@@ -108,6 +115,10 @@ const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   platformConfig: { findUnique: platformConfigFindUnique },
+  aiWorkloadConfigurationOverride: { findFirst: aiWorkloadConfigurationOverrideFindFirst },
+  aiScopedWorkloadConfigurationOverride: {
+    findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
+  },
   venue: { findFirst: venueFindFirst },
   tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
@@ -120,6 +131,7 @@ const mockDb = {
   aiUsageEvent: { create: aiUsageEventCreate },
   aiCostBudget: { findFirst: aiCostBudgetFindFirst },
   aiCostReservation: {},
+  operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
@@ -200,13 +212,17 @@ describe('chat router', () => {
     semanticSearch.knowledge.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
     resolvePublishedUniversalContent.mockResolvedValue([])
+    readActiveUnhealthyAiProviders.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
     sessionUpdateMany.mockResolvedValue({ count: 1 })
     engagementQuestionResponseCreate.mockResolvedValue({})
     aiUsageEventCreate.mockResolvedValue({})
     platformConfigFindUnique.mockResolvedValue(null)
+    aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
+    aiScopedWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
+    operationalEventUpsert.mockResolvedValue({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
     venueFindFirst.mockResolvedValue({ isActive: true })
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
@@ -240,6 +256,7 @@ describe('chat router', () => {
       replayed: false,
     })
     guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+    guestTurnActions.skip.mockResolvedValue({ skipped: true })
     guestTurnActions.observe.mockResolvedValue({ observed: true })
     guestTurnActions.fail.mockResolvedValue({ failed: true })
     guestTurnActions.finalize.mockImplementation(async ({ input }) => {
@@ -252,6 +269,7 @@ describe('chat router', () => {
         userMessageId: '55555555-5555-4555-8555-555555555555',
         response: input.assistantResponse,
         places: input.replayMetadata.places,
+        citations: input.replayMetadata.citations,
         replayed: false,
       }
     })
@@ -565,8 +583,10 @@ describe('chat router', () => {
         state: 'COMPLETE',
         turnId: '11111111-1111-4111-8111-111111111111',
         sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1',
         response: 'Previously committed response.',
         places: [],
+        citations: [],
         replayed: true,
       })
 
@@ -577,8 +597,10 @@ describe('chat router', () => {
 
       expect(result).toEqual({
         response: 'Previously committed response.',
+        assistantMessageId: 'assistant-message-1',
         sessionId: SESSION_ID,
         places: [],
+        citations: [],
         replayed: true,
       })
       expect(embeddingCreate).not.toHaveBeenCalled()
@@ -833,6 +855,39 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    it('persists and returns safe provenance for retrieved entities explicitly named in the answer', async () => {
+      setupHappyPath('The Elephants habitat is open today.')
+      semanticSearch.places.mockResolvedValueOnce([
+        {
+          ...placeRows[0]!,
+          itemType: null,
+          longDescription: null,
+          photoUrl: null,
+          distance: 0.05,
+          sourceType: 'official-website',
+          sourceName: 'Official zoo visitor guide',
+          sourceUrl: 'https://zoo.example/elephants',
+        },
+      ])
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.citations).toEqual([
+        {
+          label: 'Official zoo visitor guide',
+          href: 'https://zoo.example/elephants',
+          detail: 'Place: Elephants',
+        },
+      ])
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({ citations: result.citations }),
+          }),
+        }),
+      )
+    })
 
     it('admits employee-only knowledge for a same-tenant member without emitting visitor analytics', async () => {
       const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
@@ -1341,6 +1396,75 @@ describe('chat router', () => {
       expect(messageCreate).not.toHaveBeenCalled()
     })
 
+    it('fails before dispatch when the founder-governed provider exclusion removes every route', async () => {
+      setupHappyPath()
+      readActiveUnhealthyAiProviders.mockResolvedValueOnce(['anthropic'])
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
+      })
+      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledWith(mockDb)
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'AI_UNAVAILABLE' }),
+        }),
+      )
+      expect(messageCreate).not.toHaveBeenCalled()
+    })
+
+    it('skips excluded OpenAI embeddings and preserves text chat through safe fallback retrieval', async () => {
+      setupHappyPath('The elephants are near the entrance.')
+      readActiveUnhealthyAiProviders.mockResolvedValueOnce(['openai'])
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'The elephants are near the entrance.',
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.skip).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'QUERY_EMBEDDING' }),
+        }),
+      )
+      expect(guestTurnActions.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'QUERY_EMBEDDING' }),
+        }),
+      )
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+      expect(placeFindMany).toHaveBeenCalled()
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({ retrievalMode: 'geo' }),
+        }),
+      )
+    })
+
+    it('fails closed before any provider dispatch when provider-health state cannot be read', async () => {
+      setupHappyPath()
+      readActiveUnhealthyAiProviders.mockRejectedValueOnce(new Error('control unavailable'))
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The guide could not start this message. Please send it again in a moment.',
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.dispatch).not.toHaveBeenCalled()
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
+    })
+
     it('returns a generic 503 without provider or message writes when the venue pauses mid-request', async () => {
       setupHappyPath()
       venueFindFirst
@@ -1509,12 +1633,13 @@ describe('chat router', () => {
       )
     })
 
-    it('returns fallback string on Claude API failure — does not throw TRPCError', async () => {
+    it('returns fallback on route exhaustion even when incident publication fails', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
       anthropicCreate.mockRejectedValueOnce(new Error('Claude API unavailable'))
+      operationalEventUpsert.mockRejectedValueOnce(new Error('operational event store unavailable'))
       messageCreate.mockResolvedValue({})
 
       const result = await caller.chat.send(sendInput)
@@ -1544,6 +1669,21 @@ describe('chat router', () => {
           }),
         }),
       )
+      expect(operationalEventUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            eventType: 'guest-chat.route-degraded',
+            severity: 'ERROR',
+            actionRequired: true,
+            linkedObjectType: 'guest-chat-turn',
+            linkedObjectId: expect.any(String),
+            deduplicationKey: expect.stringMatching(
+              new RegExp(`^guest-chat-route-degraded:${VENUE_ID}:`),
+            ),
+          }),
+          update: expect.objectContaining({ occurrenceCount: { increment: 1 } }),
+        }),
+      )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',
@@ -1553,6 +1693,83 @@ describe('chat router', () => {
           }),
         }),
       )
+    })
+
+    it('executes the centrally configured fallback route under one durable provider dispatch', async () => {
+      setupHappyPath('unused primary response')
+      anthropicCreate.mockReset()
+      anthropicCreate
+        .mockRejectedValueOnce(Object.assign(new Error('primary unavailable'), { status: 503 }))
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Recovered through the configured route.' }],
+          usage: { input_tokens: 20, output_tokens: 8 },
+        })
+      aiWorkloadConfigurationOverrideFindFirst.mockResolvedValueOnce({
+        id: 'fallback-config',
+        workloadId: 'guest-chat',
+        enabled: true,
+        primaryModelKey: null,
+        primaryModelKeySet: false,
+        fallbackEnabled: true,
+        fallbackEnabledSet: true,
+        fallbackModelKeys: ['agent-run'],
+        fallbackModelKeysSet: true,
+        timeoutMs: null,
+        timeoutMsSet: false,
+        maxAttempts: 1,
+        maxAttemptsSet: true,
+        maxOutputTokens: null,
+        maxOutputTokensSet: false,
+        requestBudgetCeilingE8Usd: null,
+        requestBudgetCeilingE8UsdSet: false,
+        unsafeChangesEnabled: true,
+        isTombstone: false,
+        reason: 'test central fallback',
+        revision: 1,
+        createdBy: 'admin',
+        updatedBy: 'admin',
+        createdAt: new Date('2026-08-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-22T00:00:00.000Z'),
+      })
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.response).toBe('Recovered through the configured route.')
+      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(1)
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            feature: 'guest-chat',
+            routeModelKey: 'guest-chat',
+            fallbackUsed: false,
+            success: false,
+          }),
+        }),
+      )
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            feature: 'guest-chat',
+            routeModelKey: 'agent-run',
+            fallbackUsed: true,
+            success: true,
+          }),
+        }),
+      )
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'SUCCEEDED',
+          }),
+        }),
+      )
+      expect(operationalEventUpsert).not.toHaveBeenCalled()
     })
 
     it('never logs provider error messages that may contain guest text or bearer tokens', async () => {
@@ -1565,8 +1782,11 @@ describe('chat router', () => {
       await caller.chat.send(sendInput)
 
       const serialized = JSON.stringify(configLogger.error.mock.calls)
+      const serializedOperationalEvents = JSON.stringify(operationalEventUpsert.mock.calls)
       expect(serialized).not.toContain(sendInput.message)
       expect(serialized).not.toContain(sendInput.anonymousToken)
+      expect(serializedOperationalEvents).not.toContain(sendInput.message)
+      expect(serializedOperationalEvents).not.toContain(sendInput.anonymousToken)
       expect(configLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'chat.send.ai_failed',
@@ -2016,6 +2236,55 @@ describe('chat router', () => {
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).resolves.toEqual({ messages: [] })
       expect(messageFindMany).not.toHaveBeenCalled()
+    })
+
+    it('restores persisted place cards and citations for completed assistant turns', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      messageFindMany.mockResolvedValueOnce([
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Visit the Elephants habitat.',
+          guestChatTurn: {
+            replayMetadata: {
+              places: [],
+              citations: [
+                {
+                  label: 'Official zoo visitor guide',
+                  href: 'https://zoo.example/elephants',
+                  detail: 'Place: Elephants',
+                },
+              ],
+            },
+          },
+        },
+      ])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).resolves.toEqual({
+        messages: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Visit the Elephants habitat.',
+            blocks: [
+              {
+                type: 'citations',
+                citations: [
+                  {
+                    label: 'Official zoo visitor guide',
+                    href: 'https://zoo.example/elephants',
+                    detail: 'Place: Elephants',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
     })
 
     it('does not expose second-layer history through the public experience', async () => {

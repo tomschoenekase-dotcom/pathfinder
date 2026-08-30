@@ -204,6 +204,11 @@ items and always records an explicit client-visible completion message. These ac
 versions and audits only. They do not create or apply a package, run an agent, or call a provider.
 After an ambiguous result, retry the unchanged operation identity; after a conflict, refresh.
 
+An AI worker may prepare the same prompt and unchanged triage checklist as an approval item. Founder
+approval issues exact one-shot authority but does not contact the client. A separate application
+step creates only that reviewed in-app prompt and `WAITING_FOR_CLIENT` transition. It does not send
+email, add participants, alter triage, execute a package, or grant authority for another message.
+
 An Internal Support operator may append evidence that an exact request audit version relates to one
 existing terminal AgentRun in the same tenant and venue. Confirm the displayed request version and
 terminal run identity/status before linking. The link records the run's terminal status and
@@ -306,6 +311,20 @@ For a native release, use only its dedicated advisory request and evidence contr
 the frozen run identity on the server and expose neither generic run-list model/provider/hash fields
 nor browser-supplied identity hashes. PASS, quality failure, operational failure and no evidence all
 leave the native lifecycle gates unchanged.
+
+For a support-linked onboarding package, open the package review workspace first. Confirm the exact
+support request/version, effective change preview, payload hash, and base digest. Prepare and run the
+seven-case suite against the selected `DRAFT` or `APPROVED` package; the run must show the same exact
+package identity. Review scored quality separately from operational failures. Evaluation evidence
+does not approve or apply the package, and no default pass threshold exists. Use the separate
+lifecycle controls only after human review and any explicit release policy are satisfied.
+
+If an agent prepares `pathfinder.apply_support_package_approval`, the Founder Control Room item is
+still only a decision surface. Confirm the frozen package timestamp, payload/base identity, warning
+evidence, support handoff, and exact evaluation references. `APPROVED` issues one-shot authority but
+does not change the package. The later executor may move only that unchanged package from `DRAFT`
+to `APPROVED`; application, publication, reversion, customer contact, and support-state mutation
+remain separate.
 
 ## Universal content and MCP reads
 
@@ -448,8 +467,10 @@ version; the server creates a bounded reference-only manifest and records durabl
 evidence. The UI deliberately hides object locators, hashes, storage versions, manifest content, and
 actors. `EXPORT_READY` means every declared target and kind has recorded artifact evidence only. It
 does not deliver an export, revoke access, complete offboarding, delete data, or decide retention.
-Migration `20260812001700_add_offboarding_export_finalization` remains unapplied, so local injected-
-storage tests are not live storage or delivery evidence.
+The fresh disposable Golden Venue applies migration
+`20260812001700_add_offboarding_export_finalization`, writes every declared artifact to versioned
+MinIO, reconciles an exact replay, and verifies immutable object metadata. Hosted storage and
+delivery remain unverified.
 
 ## External credentials
 

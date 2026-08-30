@@ -201,7 +201,7 @@ export async function createOffboardingDraftAction(
 
     const plan = await tx.offboardingPlan.create({
       data: {
-        tenantId: input.tenantId,
+        tenant: { connect: { id: input.tenantId } },
         requestId: input.requestId,
         requestHash,
         status: 'REQUESTED',
@@ -210,7 +210,10 @@ export async function createOffboardingDraftAction(
         ...(input.effectiveAt !== undefined ? { effectiveAt: input.effectiveAt } : {}),
         requestedBy: input.actor.id,
         venueTargets: {
-          create: venueIds.map((venueId) => ({ tenantId: input.tenantId, venueId })),
+          create: venueIds.map((venueId) => ({
+            tenant: { connect: { id: input.tenantId } },
+            venue: { connect: { id_tenantId: { id: venueId, tenantId: input.tenantId } } },
+          })),
         },
       },
       select: offboardingPlanSummarySelect,

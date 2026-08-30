@@ -26,14 +26,17 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
-  EMBEDDING_DISPATCH_QUEUE,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
-  GENERATION_RECOVERY_QUEUE,
   GMAIL_SYNC_NOTIFICATION_JOB,
   GMAIL_SYNC_QUEUE,
   GMAIL_SYNC_RECONCILIATION_JOB,
   GMAIL_SYNC_WATCH_RENEWAL_JOB,
+  INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -42,7 +45,7 @@ import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
-  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  OPERATIONAL_QUEUE_NAMES,
   PROSPECT_IMPORT_COMMIT_JOB,
   PROSPECT_IMPORT_INSPECT_JOB,
   PROSPECT_IMPORT_STAGE_JOB,
@@ -58,6 +61,8 @@ import {
   EVALUATION_RUN_PROCESS_JOB,
   EVALUATION_RUN_QUEUE,
   EVALUATION_RUN_RETRY_BACKOFF,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
 } from './queues'
 import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 import type {
@@ -75,10 +80,13 @@ import type {
   WeeklyReportJobPayload,
   MediaIngestionJobPayload,
   EvaluationRunJobPayload,
+  GuestAnswerAttributionEvaluationJobPayload,
   ProspectImportCommitJobPayload,
   ProspectImportInspectionJobPayload,
   ProspectImportStagingJobPayload,
   GmailSyncJobPayload,
+  IntakeUploadVerificationJobPayload,
+  VenueMediaDerivativeJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -357,6 +365,41 @@ export async function enqueueEvaluationRun(
     tenantId: payload.tenantId,
     venueId: payload.venueId,
     runId: payload.runId,
+  })
+  return { enqueued: true }
+}
+
+/** Machine semantic review remains default-off. Every caller must pass the independently
+ * revalidated evaluation-runtime gate; importing this function cannot dispatch provider work. */
+export async function enqueueGuestAnswerAttributionEvaluation(
+  payload: GuestAnswerAttributionEvaluationJobPayload,
+  options: { enabled?: boolean; dispatchKey?: string } = {},
+): Promise<{ enqueued: boolean }> {
+  if (options.enabled !== true) return { enqueued: false }
+  if (
+    !UUID_PATTERN.test(payload.requestId) ||
+    !/^[0-9a-f]{64}$/u.test(payload.answerHash) ||
+    !/^[0-9a-f]{64}$/u.test(payload.evidenceSetHash) ||
+    !payload.tenantId.trim() ||
+    !payload.venueId.trim()
+  ) {
+    throw new Error('Guest answer attribution evaluation payload has invalid exact identity')
+  }
+  await getQueue(GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE).add(
+    GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+    payload,
+    {
+      attempts: 1,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+      jobId: `guest-answer-attribution-evaluation-${payload.requestId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`,
+    },
+  )
+  logger.info({
+    action: 'jobs.guest-answer-attribution-evaluation.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    requestId: payload.requestId,
   })
   return { enqueued: true }
 }
@@ -705,49 +748,146 @@ export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<vo
   logger.info({ action: 'jobs.gmail-sync.enqueued', providerAccountId: payload.providerAccountId })
 }
 
-const OPERATIONAL_QUEUE_NAMES = [
-  WEEKLY_DIGEST_QUEUE,
-  ANSWER_ANALYSIS_QUEUE,
-  WEEKLY_REPORT_QUEUE,
-  DAILY_ROLLUP_QUEUE,
-  EMBED_PLACE_QUEUE,
-  EMBED_KNOWLEDGE_ENTRY_QUEUE,
-  EMBEDDING_DISPATCH_QUEUE,
-  ANALYTICS_ENRICHMENT_QUEUE,
-  SEND_EMAIL_QUEUE,
-  MEDIA_INGESTION_QUEUE,
-  EVALUATION_RUN_QUEUE,
-  AGENT_RUN_QUEUE,
-  GENERATION_DISPATCH_QUEUE,
-  GENERATION_RECOVERY_QUEUE,
-  OPERATIONAL_EVENT_DELIVERY_QUEUE,
-  GMAIL_SYNC_QUEUE,
-] as const
+export async function enqueueIntakeUploadVerification(
+  payload: IntakeUploadVerificationJobPayload,
+): Promise<void> {
+  const identity = [payload.tenantId, payload.venueId, payload.uploadId, payload.observedUpdatedAt]
+  if (identity.some((value) => typeof value !== 'string' || value.trim().length === 0))
+    throw new Error('Intake upload verification requires complete durable identity')
+  if (Number.isNaN(Date.parse(payload.observedUpdatedAt)))
+    throw new Error('Intake upload verification observedUpdatedAt must be an ISO timestamp')
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-intake-upload-verification-v1', ...identity]))
+    .digest('hex')
+  await getQueue(INTAKE_UPLOAD_VERIFICATION_QUEUE).add(
+    INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
+    payload,
+    {
+      jobId: `intake-upload-verification-${digest}`,
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 30_000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  )
+}
 
-export async function inspectQueueOperationalSnapshot(now = new Date()) {
+export async function enqueueVenueMediaDerivative(
+  payload: VenueMediaDerivativeJobPayload,
+): Promise<void> {
+  if (
+    !payload.tenantId.trim() ||
+    !payload.venueId.trim() ||
+    !UUID_PATTERN.test(payload.derivativeId)
+  ) {
+    throw new Error('Venue media derivative requires exact durable identity')
+  }
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'torchiko-venue-media-derivative-v1',
+        payload.tenantId,
+        payload.venueId,
+        payload.derivativeId.toLowerCase(),
+      ]),
+    )
+    .digest('hex')
+  const queue = getQueue(VENUE_MEDIA_DERIVATIVE_QUEUE)
+  const jobId = `venue-media-derivative-${digest}`
+  const retained = await queue.getJob(jobId)
+  const retainedState = retained ? await retained.getState() : null
+  if (retained && retainedState === 'failed') {
+    await retained.retry('failed')
+    logger.info({
+      action: 'jobs.venue-media-derivative.redriven',
+      derivativeId: payload.derivativeId,
+    })
+    return
+  }
+  if (retainedState === 'completed') return
+  await queue.add(VENUE_MEDIA_DERIVATIVE_PROCESS_JOB, payload, {
+    jobId,
+    attempts: 4,
+    backoff: { type: VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF },
+    removeOnComplete: 1000,
+    removeOnFail: 5000,
+  })
+  logger.info({
+    action: 'jobs.venue-media-derivative.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    derivativeId: payload.derivativeId,
+  })
+}
+
+type OperationalSnapshotQueue = Pick<
+  Queue,
+  'getJobCounts' | 'getJobs' | 'getJobSchedulersCount' | 'isPaused'
+>
+
+export async function inspectQueueOperationalSnapshot(
+  now = new Date(),
+  resolveQueue: (name: string) => OperationalSnapshotQueue = getQueue,
+) {
+  const observedAtMs = now.getTime()
+  if (!Number.isFinite(observedAtMs)) throw new Error('Queue snapshot time must be valid')
   const queues = await Promise.all(
     OPERATIONAL_QUEUE_NAMES.map(async (name) => {
-      const queue = getQueue(name)
-      const [counts, oldest] = await Promise.all([
-        queue.getJobCounts('wait', 'active', 'delayed', 'prioritized', 'failed'),
-        queue.getJobs(['waiting', 'delayed', 'prioritized'], 0, 0, true),
+      const queue = resolveQueue(name)
+      const [counts, oldest, paused, jobSchedulers] = await Promise.all([
+        queue.getJobCounts(
+          'wait',
+          'active',
+          'delayed',
+          'prioritized',
+          'waiting-children',
+          'failed',
+        ),
+        queue.getJobs(
+          ['waiting', 'active', 'delayed', 'prioritized', 'waiting-children'],
+          0,
+          0,
+          true,
+        ),
+        queue.isPaused(),
+        queue.getJobSchedulersCount(),
       ])
-      const oldestTimestamp = oldest[0]?.timestamp ?? null
+      const candidateTimestamp = oldest[0]?.timestamp
+      const oldestTimestamp =
+        typeof candidateTimestamp === 'number' &&
+        Number.isFinite(candidateTimestamp) &&
+        candidateTimestamp >= 0
+          ? candidateTimestamp
+          : null
+      const waiting = counts.wait ?? 0
+      const active = counts.active ?? 0
+      const delayed = counts.delayed ?? 0
+      const prioritized = counts.prioritized ?? 0
+      const waitingChildren = counts['waiting-children'] ?? 0
+      const failed = counts.failed ?? 0
       return {
         name,
-        depth:
-          (counts.wait ?? 0) +
-          (counts.active ?? 0) +
-          (counts.delayed ?? 0) +
-          (counts.prioritized ?? 0),
-        failed: counts.failed ?? 0,
+        counts: { waiting, active, delayed, prioritized, waitingChildren, failed },
+        depth: waiting + active + delayed + prioritized + waitingChildren,
+        failed,
+        paused,
+        jobSchedulers,
         oldestQueuedAt: oldestTimestamp === null ? null : new Date(oldestTimestamp),
-        oldestAgeMs: oldestTimestamp === null ? null : Math.max(0, now.getTime() - oldestTimestamp),
+        oldestAgeMs: oldestTimestamp === null ? null : Math.max(0, observedAtMs - oldestTimestamp),
       }
     }),
   )
   return {
+    observedAt: now,
+    coverage: {
+      expectedQueues: OPERATIONAL_QUEUE_NAMES.length,
+      observedQueues: queues.length,
+      complete: queues.length === OPERATIONAL_QUEUE_NAMES.length,
+    },
     totalDepth: queues.reduce((sum, queue) => sum + queue.depth, 0),
+    totalFailed: queues.reduce((sum, queue) => sum + queue.failed, 0),
+    pausedQueues: queues.reduce((sum, queue) => sum + (queue.paused ? 1 : 0), 0),
+    jobSchedulers: queues.reduce((sum, queue) => sum + queue.jobSchedulers, 0),
     oldestAgeMs: queues.reduce<number | null>(
       (oldest, queue) =>
         queue.oldestAgeMs === null

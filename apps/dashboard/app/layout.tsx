@@ -64,11 +64,26 @@ type RootLayoutProps = {
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
+  const document = (
+    <html lang="en" className={chatFontVariables}>
+      <body className="font-jakarta antialiased">{children}</body>
+    </html>
+  )
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  const fixtureWithoutClerk =
+    process.env.NODE_ENV === 'development' && process.env.TORCHIKO_VISUAL_FIXTURES_ENABLED === '1'
+
+  if (!publishableKey) {
+    if (fixtureWithoutClerk) return document
+    throw new Error('Dashboard authentication configuration is unavailable')
+  }
+
   return (
-    <ClerkProvider afterSignOutUrl={process.env.NEXT_PUBLIC_AFTER_SIGN_OUT_URL ?? '/sign-in'}>
-      <html lang="en" className={chatFontVariables}>
-        <body className="font-jakarta antialiased">{children}</body>
-      </html>
+    <ClerkProvider
+      publishableKey={publishableKey}
+      afterSignOutUrl={process.env.NEXT_PUBLIC_AFTER_SIGN_OUT_URL ?? '/sign-in'}
+    >
+      {document}
     </ClerkProvider>
   )
 }

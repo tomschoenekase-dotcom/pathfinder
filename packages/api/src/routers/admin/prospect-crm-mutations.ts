@@ -5,6 +5,8 @@ import {
   archiveProspectAction,
   createProspectAction,
   linkProspectConversionAction,
+  prepareProspectEmailAttachmentRetentionAction,
+  reviewProspectEmailAttachmentRetentionAction,
   updateProspectPipelineAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -19,6 +21,55 @@ import {
 } from './prospect-crm-common'
 
 export const adminProspectCrmMutationsRouter = router({
+  prepareProspectEmailAttachmentRetention: adminProcedure
+    .input(
+      z
+        .object({
+          operationId: z.string().uuid(),
+          emailMessageId: z.string().min(1).max(191),
+          providerAttachmentId: z.string().min(1).max(512),
+          category: z.enum([
+            'CONTRACT_OR_ORDER_FORM',
+            'BROCHURE',
+            'FLOOR_PLAN_OR_MAP',
+            'VENUE_OPERATIONS',
+            'CUSTOMER_KNOWLEDGE',
+            'GUIDE_MEDIA',
+            'OTHER_BUSINESS_RECORD',
+          ]),
+          purpose: prospectBoundedText(2000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        prepareProspectEmailAttachmentRetentionAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapProspectActionError),
+      ),
+    ),
+
+  reviewProspectEmailAttachmentRetention: adminProcedure
+    .input(
+      z
+        .object({
+          requestId: z.string().uuid(),
+          reviewOperationId: z.string().uuid(),
+          decision: z.enum(['APPROVE_FOR_IMPORT', 'KEEP_SOURCE_ONLY']),
+          reason: prospectBoundedText(2000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        reviewProspectEmailAttachmentRetentionAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapProspectActionError),
+      ),
+    ),
+
   createProspect: adminProcedure
     .input(
       z

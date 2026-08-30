@@ -26,6 +26,7 @@ vi.mock('../../lib/trpc', () => ({
       queueProspectSendBatch: { mutate: mocks.queue },
       getProspectCampaign: { query: vi.fn() },
       getProspectOutreachReadiness: { query: vi.fn() },
+      getProspectNoSendRehearsal: { query: vi.fn() },
       saveProspectOutreachDraft: { mutate: vi.fn() },
       reviewProspectOutreachDraft: { mutate: vi.fn() },
       stageProspectSendBatch: { mutate: vi.fn() },
@@ -86,6 +87,58 @@ function fixture(batchStatus: 'STAGED' | 'APPROVED') {
       limits: { cohort: 5000, batch: 500 },
       policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
     } as never,
+    rehearsal: {
+      campaignId: 'campaign-1',
+      generatedAt: new Date('2026-08-26T04:00:00Z'),
+      mode: 'NO_SEND_REHEARSAL',
+      outcome: 'READY_FOR_HUMAN_REVIEW',
+      readyForHumanReview: true,
+      readyToSend: false,
+      blockers: [],
+      safety: {
+        deliveryDark: true,
+        processDeliveryEnabled: false,
+        globalDeliveryEnabled: false,
+        internalOnly: true,
+        emergencyStopAvailable: true,
+        emergencyStopDirection: 'DISABLE_ONLY',
+        providerRequired: false,
+        providerCallsMade: 0,
+        estimatedProviderCostUsd: 0,
+      },
+      cohort: {
+        memberCount: 1,
+        maxCohort: 5000,
+        maxBatch: 500,
+        bounded: true,
+        unsafeMemberCount: 0,
+        missingProvenanceCount: 0,
+        duplicateMemberEmailCount: 0,
+        openOrganizationDuplicateCount: 0,
+      },
+      review: {
+        missingDraftCount: 0,
+        draftsNeedingReviewCount: 1,
+        approvedDraftCount: 0,
+        approvalEvidenceMissingCount: 0,
+      },
+      frozenSnapshots: {
+        activeBatchCount: 1,
+        recipientCount: 1,
+        invalidBatchCount: 0,
+        duplicateEmailCount: 0,
+        duplicateIdentityCount: 0,
+        identities: [
+          {
+            batchId: 'batch-1',
+            status: batchStatus,
+            recipientCount: 1,
+            snapshotHash: 'a'.repeat(64),
+          },
+        ],
+      },
+      campaign: { status: 'DRAFT', paused: false },
+    } as never,
   }
 }
 
@@ -109,6 +162,14 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(within(dialog).getByText('internal@example.com')).toBeTruthy()
     expect(within(dialog).getByText(/Exact count: 1/)).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: /do not send/i })).toBeTruthy()
+  })
+
+  it('shows a zero-cost rehearsal that cannot authorize sending', () => {
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={fixture('STAGED')} />)
+
+    expect(screen.getByText('Ready for human review — never ready to send')).toBeTruthy()
+    expect(screen.getByText(/made 0 provider calls and cost \$0.00/i)).toBeTruthy()
+    expect(screen.getByText(/Emergency stop: disable only/i)).toBeTruthy()
   })
 
   it('moves focus into the confirmation, traps it, and closes on Escape', async () => {

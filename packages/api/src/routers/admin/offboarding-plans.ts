@@ -12,6 +12,7 @@ import {
 } from '@pathfinder/db'
 
 import { router } from '../../core'
+import { loadCustomerStatePreservation } from '../../lib/customer-state-preservation'
 import { adminProcedure } from '../../trpc'
 
 const tenantScope = z.object({ tenantId: z.string().min(1) }).strict()
@@ -35,6 +36,12 @@ function mapOffboardingPlanActionError(error: unknown): never {
 }
 
 export const adminOffboardingPlansRouter = router({
+  getCustomerStatePreservation: adminProcedure.input(tenantScope).query(async ({ ctx, input }) => {
+    const context = await loadCustomerStatePreservation(ctx.db, input.tenantId)
+    if (!context) throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+    return context
+  }),
+
   listOffboardingPlans: adminProcedure
     .input(
       tenantScope.extend({

@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-141-20260821',
+  approval: 'torchiko-staging-lineage-to-205-20260829',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 141,
+  migrationCount: 205,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -27,6 +27,20 @@ const EXPECTED = Object.freeze({
   preBillingPublicTableCount: 164,
   billingFoundationCount: 133,
   billingFoundationPublicTableCount: 175,
+  previousReleaseCount: 134,
+  previousReleasePublicTableCount: 175,
+  b5CompleteCount: 141,
+  b5CompletePublicTableCount: 193,
+  currentStagingCount: 192,
+  currentStagingPublicTableCount: 218,
+  hostedPredecessorCount: 195,
+  hostedPredecessorPublicTableCount: 221,
+  venueMediaPredecessorCount: 196,
+  venueMediaPredecessorPublicTableCount: 225,
+  performancePredecessorCount: 198,
+  performancePredecessorPublicTableCount: 226,
+  founderAbsencePredecessorCount: 199,
+  founderAbsencePredecessorPublicTableCount: 226,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -34,9 +48,17 @@ const EXPECTED = Object.freeze({
   stagingBaselineFinalMigration: '20260819156000_add_operational_event_delivery_audit',
   preBillingFinalMigration: '20260820190000_harden_prospect_import_jobs',
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
-  finalMigration: '20260821201000_add_meeting_processing_capability',
-  manifestHash: '42ed987e8e05e3b54786adde743dead33f6fda1290d084cc166066736798586b',
-  finalPublicTableCount: 193,
+  previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
+  b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
+  currentStagingFinalMigration: '20260825160000_add_venue_response_depth',
+  hostedPredecessorFinalMigration: '20260825220000_add_intake_website_research_receipts',
+  venueMediaPredecessorFinalMigration: '20260826010000_add_governed_venue_media',
+  performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
+  founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
+  finalMigration: '20260829231500_enable_pdf_file_extraction',
+  manifestHash: '427e59d494447c92398577fb6a28afea34a48c1ffa423fac3f1216c1113af7e0',
+  // The reviewed 64-migration suffix after B.5 adds 38 public tables.
+  finalPublicTableCount: 231,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -109,19 +131,20 @@ export async function readMigrationManifest(prismaDirectory) {
 
   const rows = []
   const checksums = new Map()
+  const ledgerChecksums = new Map()
   for (const name of names) {
-    const sql = (await readFile(path.join(migrationRoot, name, 'migration.sql'), 'utf8')).replace(
-      /\r\n/gu,
-      '\n',
-    )
+    const migrationPath = path.join(migrationRoot, name, 'migration.sql')
+    const rawSql = await readFile(migrationPath)
+    const sql = rawSql.toString('utf8').replace(/\r\n/gu, '\n')
     const checksum = createHash('sha256').update(sql).digest('hex')
     checksums.set(name, checksum)
+    ledgerChecksums.set(name, createHash('sha256').update(rawSql).digest('hex'))
     rows.push(`${name} ${checksum}`)
   }
   const hash = createHash('sha256')
     .update(`${rows.join('\n')}\n`)
     .digest('hex')
-  return { names, checksums, hash }
+  return { names, checksums, ledgerChecksums, hash }
 }
 
 export function assertFrozenManifest(manifest) {
@@ -153,6 +176,40 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('billing foundation boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.previousReleaseCount - 1] !== EXPECTED.previousReleaseFinalMigration
+  ) {
+    fail('previous staging release boundary changed')
+  }
+  if (manifest.names[EXPECTED.b5CompleteCount - 1] !== EXPECTED.b5CompleteFinalMigration) {
+    fail('B.5 complete boundary changed')
+  }
+  if (manifest.names[EXPECTED.currentStagingCount - 1] !== EXPECTED.currentStagingFinalMigration) {
+    fail('current staging boundary changed')
+  }
+  if (
+    manifest.names[EXPECTED.hostedPredecessorCount - 1] !== EXPECTED.hostedPredecessorFinalMigration
+  ) {
+    fail('hosted predecessor boundary changed')
+  }
+  if (
+    manifest.names[EXPECTED.venueMediaPredecessorCount - 1] !==
+    EXPECTED.venueMediaPredecessorFinalMigration
+  ) {
+    fail('venue media predecessor boundary changed')
+  }
+  if (
+    manifest.names[EXPECTED.performancePredecessorCount - 1] !==
+    EXPECTED.performancePredecessorFinalMigration
+  ) {
+    fail('performance predecessor boundary changed')
+  }
+  if (
+    manifest.names[EXPECTED.founderAbsencePredecessorCount - 1] !==
+    EXPECTED.founderAbsencePredecessorFinalMigration
+  ) {
+    fail('founder absence predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -164,6 +221,13 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.stagingBaselineCount &&
     rows.length !== EXPECTED.preBillingCount &&
     rows.length !== EXPECTED.billingFoundationCount &&
+    rows.length !== EXPECTED.previousReleaseCount &&
+    rows.length !== EXPECTED.b5CompleteCount &&
+    rows.length !== EXPECTED.currentStagingCount &&
+    rows.length !== EXPECTED.hostedPredecessorCount &&
+    rows.length !== EXPECTED.venueMediaPredecessorCount &&
+    rows.length !== EXPECTED.performancePredecessorCount &&
+    rows.length !== EXPECTED.founderAbsencePredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -175,9 +239,11 @@ function ledgerState(rows, manifest) {
     const expectedName = expectedNames[index]
     if (row.migration_name !== expectedName) fail('ledger migration ordering/name mismatch')
     const expectedChecksum = manifest.checksums.get(expectedName)
+    const expectedLedgerChecksum = manifest.ledgerChecksums?.get(expectedName) ?? expectedChecksum
     const verifiedBaselineChecksum = VERIFIED_BASELINE_CHECKSUMS[expectedName]
     if (
       row.checksum.toLowerCase() !== expectedChecksum &&
+      row.checksum.toLowerCase() !== expectedLedgerChecksum &&
       row.checksum.toLowerCase() !== verifiedBaselineChecksum
     )
       checksumMismatches.push(`${expectedName}:${row.checksum.toLowerCase()}:${expectedChecksum}`)
@@ -196,7 +262,27 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.stagingBaselineCount) return 'staging-baseline'
   if (rows.length === EXPECTED.preBillingCount) return 'pre-billing'
   if (rows.length === EXPECTED.billingFoundationCount) return 'billing-foundation'
+  if (rows.length === EXPECTED.previousReleaseCount) return 'previous-release'
+  if (rows.length === EXPECTED.b5CompleteCount) return 'b5-complete'
+  if (rows.length === EXPECTED.currentStagingCount) return 'current-staging'
+  if (rows.length === EXPECTED.hostedPredecessorCount) return 'hosted-predecessor'
+  if (rows.length === EXPECTED.venueMediaPredecessorCount) return 'venue-media-predecessor'
+  if (rows.length === EXPECTED.performancePredecessorCount) return 'performance-predecessor'
+  if (rows.length === EXPECTED.founderAbsencePredecessorCount) return 'founder-absence-predecessor'
   return 'complete'
+}
+
+function remainingMigrationNames(rows, manifest) {
+  const state = ledgerState(rows, manifest)
+  if (state === 'complete') return []
+  return manifest.names.slice(rows.length)
+}
+
+export function assertBackupEvidenceMatchesLedger(admission, rows) {
+  if (admission.dataPolicy !== 'preserve-existing') return
+  if (!admission.backupEvidence || admission.backupEvidence.ledgerCount !== rows.length) {
+    fail('backup evidence ledger count does not match the target database')
+  }
 }
 
 async function assertVerifiedBaselineSchema(database, rows) {
@@ -295,7 +381,7 @@ function runPrismaDeploy(cli, schema, environment) {
 }
 
 async function main() {
-  assertStagingMigrationAdmission(process.env)
+  const admission = assertStagingMigrationAdmission(process.env)
   assertApprovedTarget(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
@@ -309,6 +395,7 @@ async function main() {
   try {
     const initialLedger = await ledgerRows(database)
     const initialState = ledgerState(initialLedger, manifest)
+    assertBackupEvidenceMatchesLedger(admission, initialLedger)
     await assertVerifiedBaselineSchema(database, initialLedger)
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
@@ -331,7 +418,21 @@ async function main() {
               ? EXPECTED.preBillingPublicTableCount
               : initialState === 'billing-foundation'
                 ? EXPECTED.billingFoundationPublicTableCount
-                : EXPECTED.stagingBaselinePublicTableCount
+                : initialState === 'previous-release'
+                  ? EXPECTED.previousReleasePublicTableCount
+                  : initialState === 'b5-complete'
+                    ? EXPECTED.b5CompletePublicTableCount
+                    : initialState === 'current-staging'
+                      ? EXPECTED.currentStagingPublicTableCount
+                      : initialState === 'hosted-predecessor'
+                        ? EXPECTED.hostedPredecessorPublicTableCount
+                        : initialState === 'venue-media-predecessor'
+                          ? EXPECTED.venueMediaPredecessorPublicTableCount
+                          : initialState === 'performance-predecessor'
+                            ? EXPECTED.performancePredecessorPublicTableCount
+                            : initialState === 'founder-absence-predecessor'
+                              ? EXPECTED.founderAbsencePredecessorPublicTableCount
+                              : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
@@ -363,4 +464,4 @@ if (isMain) {
   })
 }
 
-export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState }
+export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState, remainingMigrationNames }

@@ -44,8 +44,10 @@ Routers, workers, MCP tools, and future agents should call this action rather th
 The support-package handoff is the narrow reference example: exact tenant, venue, support request,
 request version and existing `DRAFT` package; HUMAN operator; CAS; append-only lineage; atomic audit;
 zero package lifecycle writes. Do not broaden that helper into implicit create/approve/apply or
-support completion. Support transitions use a closed graph, HUMAN `OPERATOR` authorization, exact
-scope, expected version/current-status CAS, and transactional append-only support/platform audit.
+support completion. Support transitions use a closed graph, HUMAN `OPERATOR` authorization except
+for the exact founder-approved, one-shot client information-request and completion actions, exact
+scope, expected version/current-status CAS, resolved-information enforcement for completion, and
+transactional append-only support/platform audit.
 They have no lifecycle execution side effects. `VALIDATING` includes validation/evaluation review
 because the persisted enum has no separate evaluation state.
 
@@ -148,6 +150,11 @@ locking, actor-bound command replay/collision, revision CAS, content-version con
 transactional audit. Approval binds the acknowledged payload and warning digests; apply and revert
 retain the V1/V2/V3 effect and rollback rules inside the same outer transaction. Never impersonate a
 tenant owner, split effects from final transition, or replace legacy rollback with V3 rules.
+Support-agent package authoring must use `createVenuePackageDraftService` with
+`supportAgentReviewedDraftFinalizer`; do not add a parallel package persistence path. The finalizer
+consumes the exact one-shot grant and creates the support handoff in the same transaction as the
+V3 `DRAFT`. Its authority ends there: package approval, application, publication, rollback, support
+status/triage, client activity, and external delivery remain outside the grant.
 Weekly-report configuration/edit/publish actions are similarly neutral, but generation dispatch is
 an orchestration concern and must reject an inverted range before any transaction. Client creation
 uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, block ambiguous retry,
@@ -169,6 +176,12 @@ truth and verified webhook synchronization owns local membership persistence. Do
 membership or claim provider/local atomicity in the invitation route. The existing
 `EngagementQuestionsManager` demonstrates revision propagation only; its legacy portal route remains
 redirect-only. Do not cite that dormant component test as evidence of a reachable client control.
+
+Approved customer-access requests use a durable provider executor without changing that
+source-of-truth boundary. Revalidate the exact owner-authored evidence and human approval, commit
+`PROVIDER_STARTED` before Clerk I/O, retain ambiguous outcomes as `RECONCILIATION_REQUIRED`, and
+reuse matching pending invitations on retry. Never create `TenantMembership` from the invitation
+response.
 
 Guest design is an exact-scoped Internal Workspace admin boundary with the real HUMAN
 `PLATFORM_ADMIN`, revision CAS and strict audit. Branding assets may only retain the currently
@@ -264,6 +277,21 @@ off-manifest evidence is explicitly `INCOMPARABLE`. A HUMAN `PLATFORM_ADMIN` may
 only to exact `COMPLETED` run evidence. Actor/scope/revision-bound UUID/hash replay and sanitized
 audit are atomic. Comparison and conclusions are evidence, not package approval, a package gate, or
 provider authority.
+
+For onboarding/package QA, prepare cases against one exact reviewable package identity:
+`venue-package-review:<packageId>:<payloadHash>:<baseDigest>`. DRAFT and APPROVED packages are valid
+only when their stored validation and semantic evidence is complete and their deterministic base is
+still current. Freeze those runs as `REVIEWABLE_VENUE_PACKAGE_V1`; do not label a DRAFT as an
+approved client preview. Evaluation remains advisory unless an explicit domain policy defines a
+gate, and it must not share a transaction with package approval or application.
+
+For support-linked approval automation, use the separate
+`pathfinder.propose_support_package_approval` / `pathfinder.apply_support_package_approval` pair.
+The proposal freezes exact package, handoff, warning, and bounded evaluation evidence. The apply
+tool consumes a founder-issued one-shot grant and delegates to `approveVenuePackageLifecycle`; it
+must preserve the human decision-maker as `approvedBy` and record the agent executor separately.
+Do not widen this binding to package application, publication, reversion, customer contact, or an
+uncited evaluation threshold.
 
 Agent identity configuration uses the closed contracts in `@pathfinder/contracts` and neutral DB
 actions. Creation is disabled-only, edits require a disabled row and current `updatedAt`, and disable

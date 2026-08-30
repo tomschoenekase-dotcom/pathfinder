@@ -5,7 +5,9 @@ const mocks = vi.hoisted(() => ({
   sessionFind: vi.fn(),
   sessionUpsert: vi.fn(),
   sessionUpdate: vi.fn(),
-  runFind: vi.fn(),
+  runFindMany: vi.fn(),
+  runUpdate: vi.fn(),
+  workerFind: vi.fn(),
   claim: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
@@ -19,10 +21,19 @@ vi.mock('../client', () => ({
       upsert: mocks.sessionUpsert,
       updateMany: mocks.sessionUpdate,
     },
-    agentRun: { findFirst: mocks.runFind },
+    agentRun: { findMany: mocks.runFindMany, update: mocks.runUpdate },
+    agentWorker: { findFirst: mocks.workerFind },
   },
 }))
 vi.mock('./agent-run-execution-actions', () => ({
+  AgentRunExecutionError: class AgentRunExecutionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   claimAgentRunExecution: mocks.claim,
   completeAgentRunExecution: mocks.complete,
   failAgentRunExecution: mocks.fail,
@@ -30,6 +41,7 @@ vi.mock('./agent-run-execution-actions', () => ({
 }))
 
 import { claimAgentBridgeTask, registerAgentBridgeSession } from './agent-bridge-actions'
+import { AgentRunExecutionError } from './agent-run-execution-actions'
 
 const credential = {
   credentialId: 'credential-1',
@@ -66,20 +78,30 @@ describe('agent bridge actions', () => {
       provider: 'CODEX_SUBSCRIPTION',
       supportedModels: ['subscription-default'],
     })
-    mocks.runFind.mockResolvedValue({ id: 'run-1' })
+    mocks.runFindMany.mockResolvedValue([{ id: 'run-1', scopeSnapshot: {} }])
     mocks.claim.mockResolvedValue({
       id: 'run-1',
+      operationId: null,
       venueId: 'venue-1',
       runType: 'PRIMARY',
       requestedOperation: 'operator_task',
       requestPrompt: 'Build it',
       modelProvider: 'codex-bridge',
       modelName: 'subscription-default',
-      leaseToken: 'lease',
+      leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
-      agentIdentity: { name: 'EDITH' },
+      initiatedByType: 'HUMAN',
+      initiatedById: 'operator-1',
+      agentIdentity: {
+        identityKey: 'edith.primary',
+        name: 'EDITH',
+        description: null,
+        accessCapabilities: ['operations.read'],
+        autonomyLevel: 'READ_ONLY',
+        autonomousActions: [],
+      },
     })
     const result = await claimAgentBridgeTask({
       sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -97,10 +119,27 @@ describe('agent bridge actions', () => {
         }),
       }),
     )
-    expect(mocks.runFind).toHaveBeenCalledWith(
+    expect(mocks.runFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ modelProvider: 'codex-bridge', status: 'QUEUED' }),
+        where: expect.objectContaining({
+          modelProvider: 'codex-bridge',
+          AND: [
+            {
+              OR: [
+                { status: 'QUEUED' },
+                { status: 'RUNNING', executionLeaseExpiresAt: { lt: expect.any(Date) } },
+              ],
+            },
+            {
+              OR: [
+                { modelName: { in: ['subscription-default'] } },
+                { modelName: 'subscription-default' },
+              ],
+            },
+          ],
+        }),
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 25,
       }),
     )
     expect(mocks.claim).toHaveBeenCalledWith(
@@ -110,5 +149,117 @@ describe('agent bridge actions', () => {
       }),
     )
     expect(result.task?.id).toBe('run-1')
+  })
+
+  it('skips incompatible role-bound work and claims the first compatible task', async () => {
+    mocks.sessionFind.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      provider: 'CODEX_SUBSCRIPTION',
+      supportedModels: ['subscription-default'],
+    })
+    mocks.workerFind.mockResolvedValue({
+      id: 'worker-1',
+      capabilities: ['agent-runs:execute', 'research.read'],
+      agentRoles: ['researcher'],
+    })
+    mocks.runFindMany.mockResolvedValue([
+      { id: 'builder-run', scopeSnapshot: { requiredWorkerRoles: ['builder'] } },
+      {
+        id: 'research-run',
+        scopeSnapshot: {
+          requiredWorkerRoles: ['researcher'],
+          requiredWorkerCapabilities: ['research.read'],
+        },
+      },
+    ])
+    mocks.claim.mockResolvedValue({
+      id: 'research-run',
+      operationId: null,
+      venueId: 'venue-1',
+      runType: 'RESEARCH',
+      requestedOperation: 'review_sources',
+      requestPrompt: null,
+      modelProvider: 'codex-bridge',
+      modelName: 'subscription-default',
+      leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      leaseExpiresAt: new Date(),
+      attemptNumber: 1,
+      scopeSnapshot: {},
+      initiatedByType: 'SYSTEM',
+      initiatedById: 'scheduler',
+      agentIdentity: {
+        identityKey: 'researcher',
+        name: 'Researcher',
+        description: null,
+        accessCapabilities: ['research.read'],
+        autonomyLevel: 'READ_ONLY',
+        autonomousActions: [],
+      },
+    })
+    const result = await claimAgentBridgeTask({
+      sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      venueId: 'venue-1',
+      workerKey: 'researcher-1',
+      credential: credential as never,
+    })
+    expect(mocks.claim).toHaveBeenCalledTimes(1)
+    expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ runId: 'research-run' }))
+    expect(result.task?.id).toBe('research-run')
+  })
+
+  it('continues to the next candidate when another worker wins the first claim race', async () => {
+    mocks.sessionFind.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      provider: 'CODEX_SUBSCRIPTION',
+      supportedModels: ['subscription-default'],
+    })
+    mocks.runFindMany.mockResolvedValue([
+      { id: 'contended-run', scopeSnapshot: {} },
+      { id: 'available-run', scopeSnapshot: {} },
+    ])
+    mocks.claim
+      .mockRejectedValueOnce(
+        new AgentRunExecutionError('NOT_CLAIMABLE', 'Another worker claimed this run'),
+      )
+      .mockResolvedValueOnce({
+        id: 'available-run',
+        operationId: null,
+        venueId: 'venue-1',
+        runType: 'PRIMARY',
+        requestedOperation: 'operator_task',
+        requestPrompt: 'Build it',
+        modelProvider: 'codex-bridge',
+        modelName: 'subscription-default',
+        leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        leaseExpiresAt: new Date(),
+        attemptNumber: 1,
+        scopeSnapshot: {},
+        initiatedByType: 'SYSTEM',
+        initiatedById: 'scheduler',
+        agentIdentity: {
+          identityKey: 'edith.primary',
+          name: 'EDITH',
+          description: null,
+          accessCapabilities: ['operations.read'],
+          autonomyLevel: 'READ_ONLY',
+          autonomousActions: [],
+        },
+      })
+
+    const result = await claimAgentBridgeTask({
+      sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      venueId: 'venue-1',
+      credential: credential as never,
+    })
+
+    expect(mocks.claim).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ runId: 'contended-run' }),
+    )
+    expect(mocks.claim).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ runId: 'available-run' }),
+    )
+    expect(result.task?.id).toBe('available-run')
   })
 })

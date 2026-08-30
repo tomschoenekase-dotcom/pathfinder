@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   STAFF_INTERVIEW_CONSENT_TEXT,
@@ -35,10 +35,30 @@ function draftsFor(role: StaffInterviewRole): Record<string, AnswerDraft> {
   )
 }
 
+function hasMeaningfulDrafts(
+  draftsByRole: Partial<Record<StaffInterviewRole, Record<string, AnswerDraft>>>,
+): boolean {
+  return Object.entries(draftsByRole).some(([role, drafts]) =>
+    Object.entries(drafts ?? {}).some(([questionId, draft]) => {
+      const question = STAFF_INTERVIEW_QUESTION_SETS[role as StaffInterviewRole].find(
+        (candidate) => candidate.id === questionId,
+      )
+      return Boolean(
+        draft.text ||
+        draft.mode !== 'ANSWER' ||
+        draft.privacy !== question?.defaultPrivacy ||
+        draft.uncertain ||
+        draft.confidence !== 0.8,
+      )
+    }),
+  )
+}
+
 export function StaffInterviewCapture({
   disabled,
   clientFacing = false,
   onSubmit,
+  onDirtyChange,
 }: {
   disabled: boolean
   clientFacing?: boolean
@@ -47,15 +67,22 @@ export function StaffInterviewCapture({
     requestId: string
     submission: StaffInterviewSubmission
   }) => Promise<void>
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [role, setRole] = useState<StaffInterviewRole>('EXECUTIVE')
   const [displayName, setDisplayName] = useState('')
-  const [drafts, setDrafts] = useState(() => draftsFor('EXECUTIVE'))
+  const [draftsByRole, setDraftsByRole] = useState<
+    Partial<Record<StaffInterviewRole, Record<string, AnswerDraft>>>
+  >(() => ({ EXECUTIVE: draftsFor('EXECUTIVE') }))
   const [consent, setConsent] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
   const questions = STAFF_INTERVIEW_QUESTION_SETS[role]
+  const drafts = draftsByRole[role] ?? draftsFor(role)
+  const dirty = Boolean(displayName || consent || hasMeaningfulDrafts(draftsByRole))
+
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
   const incomplete = useMemo(
     () =>
       questions.some((question) => {
@@ -67,10 +94,16 @@ export function StaffInterviewCapture({
 
   function update(questionId: string, patch: Partial<AnswerDraft>) {
     setRequestId(browserUuid())
-    setDrafts((current) => ({
-      ...current,
-      [questionId]: { ...current[questionId]!, ...patch },
-    }))
+    setDraftsByRole((current) => {
+      const roleDrafts = current[role] ?? draftsFor(role)
+      return {
+        ...current,
+        [role]: {
+          ...roleDrafts,
+          [questionId]: { ...roleDrafts[questionId]!, ...patch },
+        },
+      }
+    })
   }
 
   async function submit(event: React.FormEvent) {
@@ -108,7 +141,7 @@ export function StaffInterviewCapture({
         },
       })
       setDisplayName('')
-      setDrafts(draftsFor(role))
+      setDraftsByRole((current) => ({ ...current, [role]: draftsFor(role) }))
       setConsent(false)
       setRequestId(browserUuid())
     } catch {
@@ -149,7 +182,9 @@ export function StaffInterviewCapture({
             onChange={(event) => {
               const nextRole = event.target.value as StaffInterviewRole
               setRole(nextRole)
-              setDrafts(draftsFor(nextRole))
+              setDraftsByRole((current) =>
+                current[nextRole] ? current : { ...current, [nextRole]: draftsFor(nextRole) },
+              )
               setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"

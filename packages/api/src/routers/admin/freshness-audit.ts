@@ -81,6 +81,23 @@ function ascendingCursor(
   }
 }
 
+export function classifyDateSensitiveUpdate(
+  update: { startsAt: Date; expiresAt: Date },
+  observedAt: Date,
+) {
+  const temporalState =
+    update.expiresAt <= observedAt
+      ? ('EXPIRED' as const)
+      : update.startsAt > observedAt
+        ? ('SCHEDULED' as const)
+        : ('LIVE' as const)
+  return {
+    temporalState,
+    guestVisibleNow: temporalState === 'LIVE',
+    cleanupPending: temporalState === 'EXPIRED',
+  }
+}
+
 const contentSelect = {
   id: true,
   name: true,
@@ -171,7 +188,14 @@ export const adminFreshnessAuditRouter = router({
           observedAt,
           thresholdDays: input.thresholdDays,
           horizonDays: input.horizonDays,
-          ...page(rows, input.limit, (row) => row.expiresAt),
+          ...page(
+            rows.map((row) => ({
+              ...row,
+              ...classifyDateSensitiveUpdate(row, observedAt),
+            })),
+            input.limit,
+            (row) => row.expiresAt,
+          ),
         }
       }
 

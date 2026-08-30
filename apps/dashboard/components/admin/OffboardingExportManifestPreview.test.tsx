@@ -54,7 +54,7 @@ describe('OffboardingExportManifestPreview', () => {
     await waitFor(() =>
       expect(query).toHaveBeenCalledWith({ tenantId: 'tenant-1', venueIds: ['venue-1'] }),
     )
-    expect(screen.getByText(/Privacy boundary/)).toBeTruthy()
+    expect(await screen.findByText(/Privacy boundary/)).toBeTruthy()
     expect(
       screen.queryByRole('button', { name: /export|download|revoke|delete|execute/i }),
     ).toBeNull()

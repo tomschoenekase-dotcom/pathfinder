@@ -42,11 +42,20 @@ Canonical sources remain:
 
 ## Tool discovery
 
-Run `pnpm torchiko tools list --json`. The command discovers the operational MCP and prospect-agent tools from their canonical registries. It does not imply that a transport, credential, write gate, or provider is enabled.
+Run `pnpm torchiko tools list --json`. The command discovers the operational MCP and prospect-agent tools from their canonical registries and labels each tool `bound` or `declared-unbound` according to the safe runtime composition. A bound tool still requires its transport, credential, capability, scope, approval, and rollout gates; a declared contract is not callable evidence.
 
 Run `pnpm verify:agent-tools` before handoff. The coverage gate requires every mounted application/admin router to match exactly one explicit agent/developer coverage decision. Restricted and human-controlled decisions are valid; silent omission is not.
 
-The first-party tRPC application surface is broader than the external agent surface. See `docs/agents/CAPABILITY_MATRIX.md` and `docs/agents/GAP_REPORT.md` before assuming UI/API parity.
+The first-party tRPC application surface is broader than the external agent surface. Run
+`pnpm torchiko tools coverage --json` to inspect both the mounted-router policy and the exact
+operation inventory. The operation section records each path, query/mutation kind, defining router,
+source file, policy category, and inherited coverage decision. Its reviewed count and SHA-256 digest
+make additions, removals, kind changes, owner changes, and source moves fail the release gate until
+the inventory is reviewed. Schema v3 also gives every operation an exact binding state:
+`direct-tool`, `bounded-alternative`, or `unbound`. Binding rules name real runtime-bound tools or
+resources and carry their own reviewed digest. Unknown operations, duplicate mappings, unknown
+surfaces, and declared-but-runtime-unbound tools fail the release gate. `unbound` remains a truthful
+gap, not a gate failure or an excuse to loosen consequential authority.
 
 ## Targeted tests
 
@@ -69,10 +78,47 @@ Then run the narrow package test before the broader repository suites. The compl
 ```powershell
 pnpm torchiko simulate time small-museum 2026-08-24T16:00:00.000Z --json
 pnpm torchiko simulate location outdoor-park 41.89 -87.61 --json
+pnpm torchiko simulate visitor small-museum 2026-08-24T17:00:00.000Z voice --json
 pnpm torchiko replay conversation large-museum --json
 ```
 
+Visitor simulation combines fixture-only interaction-mode configuration with the canonical
+published/active/start/expiry lifecycle for scheduled operational updates. It reports the requested
+and effective Bot/Voice mode, any fallback, every update lifecycle, and the currently visible
+subset. It does not inspect live entitlements or environment flags and never schedules or mutates
+an update.
+
 Replay preparation emits a synthetic transcript and required-fact assertions. Provider-backed execution and scoring remain separate, explicitly enabled evaluation operations.
+
+To compare one already-produced answer without sending it to a provider, pipe it over stdin. The
+assessment retains only its SHA-256 and byte length, reports each required fact as matched or
+missing, links the result to fixture-owned location/hours evidence, and exits nonzero when a
+required fact is absent:
+
+```powershell
+'Visit the Family Lab.' | pnpm torchiko replay assess large-museum --stdin --json
+```
+
+This is deliberately a deterministic lexical coverage gate. It does not claim to detect arbitrary
+unsupported claims, judge overall usefulness, explain provider internals, or prove a live model.
+
+Each canonical world can also be created or reset in an already migrated disposable PostgreSQL
+database. The command requires an exact loopback URL whose database name starts with
+`pathfinder_disposable_`, a separate environment opt-in, and the same database name twice:
+
+```powershell
+$env:PATHFINDER_ALLOW_DISPOSABLE_SCENARIO_RESET='1'
+$env:PATHFINDER_DISPOSABLE_DATABASE_URL='<loopback disposable PostgreSQL URL>'
+pnpm torchiko scenarios reset small-museum --database pathfinder_disposable_scenarios --confirm-database pathfinder_disposable_scenarios --json
+```
+
+Reset restores only deterministic, inactive rows carrying the exact scenario-owned tenant marker.
+Their visibility values remain schema-valid, but the tenant and venue are synthetic and the venue,
+places, and anchors are all inactive. Unknown core rows, a colliding tenant, a non-loopback target,
+or a non-disposable database fail transactionally. Other domain records are not erased; add an
+explicit scenario-layer reset before treating reports, incidents, support, or similar state as
+reset. The command never calls an AI or external provider and is not a staging or production
+seeder. Existing rows are updated in place so append-only content history remains intact.
 
 The Golden Venue contract is reused rather than replaced:
 
@@ -80,7 +126,8 @@ The Golden Venue contract is reused rather than replaced:
 pnpm torchiko golden validate
 ```
 
-Seeding or resetting data remains separately guarded. Follow `docs/golden-venue-runbook.md`; never broad-delete a shared database.
+Golden Venue seeding remains separately guarded. Follow `docs/golden-venue-runbook.md`; never
+broad-delete a shared database.
 
 ## Common workflow
 

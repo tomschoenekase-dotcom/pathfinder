@@ -2,7 +2,16 @@ import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
+import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
+import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
+import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
+import { FounderDecisionContext } from './FounderDecisionContext'
+import { FounderAbsenceReadiness } from './FounderAbsenceReadiness'
+import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
+import { TerminalRedrivePreview } from './TerminalRedrivePreview'
+import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -41,13 +50,335 @@ function countLabel(page: { items: unknown[]; nextCursor: Cursor | null }) {
   return `${page.items.length}${page.nextCursor ? '+' : ''}`
 }
 
+function tenantEventHref(event: Data['events']['items'][number]) {
+  if (event.eventType.startsWith('ai-cost-budget.')) {
+    return `/admin/clients/${event.tenantId}#ai-cost-budget`
+  }
+  if (event.eventType.startsWith('customer-learning.first-week-')) {
+    return `/admin/clients/${event.tenantId}/analytics#first-week-reviews`
+  }
+  if (!event.venueId) return `/admin/clients/${event.tenantId}`
+  if (event.eventType.startsWith('evaluation.'))
+    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
+  if (event.eventType.startsWith('knowledge.proposal.'))
+    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
+  return `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
+}
+
+function platformEventHref(event: Data['platformEvents']['items'][number]) {
+  if (event.eventType.startsWith('crm.import.')) return '/admin/prospects/imports'
+  if (event.eventType.startsWith('crm.duplicate.')) return '/admin/prospects/duplicates'
+  if (event.eventType.startsWith('crm.')) return '/admin/prospects'
+  return '#alerts'
+}
+
+function briefingTone(urgency: Data['briefing']['focus']['urgency']) {
+  if (urgency === 'CRITICAL') return 'border-rose-400/40 bg-rose-400/10'
+  if (urgency === 'HIGH') return 'border-amber-300/40 bg-amber-300/10'
+  if (urgency === 'NORMAL') return 'border-sky-300/40 bg-sky-300/10'
+  return 'border-emerald-300/40 bg-emerald-300/10'
+}
+
+function usd(value: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value))
+}
+
+function operationalQuantity(quantity: string, unit: string | null) {
+  const value = Number(quantity)
+  if (unit === 'BYTES') {
+    if (!Number.isFinite(value)) return `${quantity} bytes`
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`
+    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MiB`
+    if (value >= 1024) return `${(value / 1024).toFixed(2)} KiB`
+    return `${value.toLocaleString()} bytes`
+  }
+  if (unit === 'MILLISECONDS') {
+    if (!Number.isFinite(value)) return `${quantity} ms`
+    if (value >= 60_000) return `${(value / 60_000).toFixed(1)} min`
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)} sec`
+    return `${value.toLocaleString()} ms`
+  }
+  return `${Number.isFinite(value) ? value.toLocaleString() : quantity} jobs`
+}
+
+function usageLabel(metric: string) {
+  return metric.replaceAll('_', ' ').toLowerCase()
+}
+
+function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
+  const change = data.totals.changePercent
+  const represented = data.nonAi.categories.filter((category) => category.represented)
+  const measuredUsage = data.operationalUsage.metrics.filter((metric) => metric.represented)
+  return (
+    <section
+      id="cost-coverage"
+      aria-labelledby="cost-coverage-heading"
+      className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-5 shadow-sm sm:p-6"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-cyan-900">
+            Operating-cost coverage
+          </p>
+          <h2 id="cost-coverage-heading" className="mt-1 text-lg font-semibold text-slate-950">
+            What is costing Torchiko money?
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
+            A 30-day internal evidence view. AI values are provider-pricing estimates; non-AI values
+            only include current evidence wholly contained in this window.
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-950 ring-1 ring-cyan-200">
+          {data.coverage.complete ? 'Coverage complete' : 'Coverage incomplete'}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {[
+          ['Known total', usd(data.totals.knownOperatingCostUsd)],
+          ['AI estimate', usd(data.ai.estimatedCostUsd)],
+          ['Non-AI evidence', usd(data.nonAi.evidencedCostUsd)],
+          ['Platform unallocated', usd(data.nonAi.platformUnallocatedUsd)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-cyan-100 bg-white p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              {label}
+            </dt>
+            <dd className="mt-1 text-xl font-semibold text-slate-950">{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="rounded-xl border border-cyan-100 bg-white p-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Evidence by category</h3>
+            <p className="text-xs text-slate-500">
+              {change === null
+                ? 'No comparable prior-window baseline'
+                : `${change > 0 ? '+' : ''}${change.toFixed(2)}% from prior known total`}
+            </p>
+          </div>
+          {represented.length ? (
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {represented.map((category) => (
+                <li
+                  key={category.category}
+                  className="flex min-h-11 items-center justify-between rounded-lg bg-slate-50 px-3 text-sm"
+                >
+                  <span className="font-medium text-slate-700">
+                    {category.category.replaceAll('_', ' ').toLowerCase()}
+                  </span>
+                  <span className="font-semibold text-slate-950">{usd(category.amountUsd)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+              No non-AI evidence falls wholly inside this 30-day window yet.
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+          <h3 className="font-semibold">Coverage, not accounting</h3>
+          <p className="mt-1">
+            {data.coverage.unrepresentedCategories.length} non-AI categories have no included
+            evidence. {data.nonAi.excludedOverlappingEvidenceCount} overlapping{' '}
+            {data.nonAi.excludedOverlappingEvidenceCount === 1 ? 'entry was' : 'entries were'}{' '}
+            excluded instead of inventing a prorating rule.
+          </p>
+          <p className="mt-2">
+            No anomaly threshold is settled. This view cannot change invoices, customer prices, or
+            service availability.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-cyan-100 bg-white p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Measured operational load</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Latest quantity evidence by scope. These measurements are not converted into dollars.
+            </p>
+          </div>
+          <span className="text-xs font-medium text-slate-500">
+            {data.operationalUsage.unrepresentedMetrics.length} metrics not observed
+          </span>
+        </div>
+        {measuredUsage.length ? (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {measuredUsage.map((metric) => (
+              <li key={metric.metric} className="rounded-lg bg-slate-50 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  {usageLabel(metric.metric)}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  {operationalQuantity(metric.quantity, metric.unit)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {metric.scopeCount} {metric.scopeCount === 1 ? 'scope' : 'scopes'} · observed{' '}
+                  {date(metric.latestObservedAt)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+            No recent queue or declared-byte observations have been retained yet. Worker failures
+            remain visible separately; this view does not infer zero usage.
+          </p>
+        )}
+        {data.operationalUsage.truncated ? (
+          <p className="mt-3 text-xs font-medium text-amber-800">
+            The bounded read was truncated. Treat these totals as incomplete until the scope is
+            narrowed or the evidence is summarized.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
 export function OperationsAttentionConsole({ data }: { data: Data }) {
+  const { focus, metrics, boundedSnapshot, reviewState } = data.briefing
+  const reviewChanges = reviewState.changesSinceLastReview
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-600">
         Snapshot generated {date(data.generatedAt)}. Review linked evidence before acknowledging or
         resolving an alert.
       </p>
+
+      <section
+        id="founder-now"
+        aria-labelledby="founder-briefing-heading"
+        className="overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-xl sm:p-7"
+      >
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">
+              Torchiko briefing
+            </p>
+            <h2
+              id="founder-briefing-heading"
+              className="mt-2 text-2xl font-semibold tracking-tight"
+            >
+              Your next five minutes
+            </h2>
+            <div className={`mt-4 rounded-2xl border p-4 sm:p-5 ${briefingTone(focus.urgency)}`}>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                {focus.label}
+              </p>
+              <h3 className="mt-2 text-lg font-semibold leading-7 text-white">{focus.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">{focus.detail}</p>
+              <FounderDecisionContext
+                context={focus.decisionContext}
+                generatedAt={data.generatedAt}
+              />
+              <Link
+                href={focus.action.href}
+                className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              >
+                {focus.action.label}
+              </Link>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-400">
+              Recommendation is derived from bounded live queues
+              {boundedSnapshot.hasMore ? ` (showing up to ${boundedSnapshot.limit} per queue)` : ''}
+              . Opening or recording a decision does not bypass execution policy.
+            </p>
+          </div>
+
+          <dl className="grid grid-cols-2 gap-2 lg:w-96">
+            {[
+              ['Decisions', metrics.decisions],
+              ['Critical risk', metrics.criticalRisks],
+              ['Working agents', metrics.workingAgents],
+              ['Customer items', metrics.customerItems],
+              ['Action items', metrics.actionItems],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900 p-3">
+                <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  {label}
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold text-white">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-900/80 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                Since your last review
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-300">
+                {reviewState.lastReviewedThrough
+                  ? `Personal review cursor: ${date(reviewState.lastReviewedThrough)}.`
+                  : 'This is your first recorded review; visible activity is counted as new.'}{' '}
+                Counts reflect this bounded briefing snapshot, not an exhaustive historical audit.
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:min-w-[38rem] lg:grid-cols-6">
+              {[
+                ['Critical', reviewChanges.criticalRisks],
+                ['Decisions', reviewChanges.decisions],
+                ['Completed', reviewChanges.completedAgents],
+                ['Outcomes', reviewChanges.outcomes],
+                ['Customer', reviewChanges.customerItems],
+                ['Action items', reviewChanges.attentionItems],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 text-xl font-semibold text-white">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <FounderBriefingChangeDigest digest={reviewState.changeDigest} />
+          <FounderBriefingReviewForm
+            reviewedThrough={data.generatedAt}
+            previousReviewedThrough={reviewState.lastReviewedThrough}
+            briefingSchemaVersion={data.briefing.schemaVersion}
+            hasUnreviewedChanges={reviewState.hasUnreviewedChanges}
+          />
+        </div>
+
+        <nav
+          className="mt-5 flex snap-x gap-2 overflow-x-auto pb-1"
+          aria-label="Control room shortcuts"
+        >
+          {[
+            ['#needs-you-heading', 'Questions'],
+            ['#approval-attention-heading', 'Approvals'],
+            ['#alerts', 'Alerts'],
+            ['#ai-workforce', 'Agents'],
+            ['#cost-coverage', 'Costs'],
+            ['#founder-absence-readiness', 'Absence test'],
+          ].map(([href, label]) => (
+            <a
+              key={href}
+              href={href}
+              className="min-h-10 shrink-0 snap-start rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200"
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+      </section>
+
+      <FounderAbsenceReadiness data={data.founderAbsenceReadiness} />
+
+      <FounderCostCoverage data={data.unitEconomics} />
 
       <section
         aria-label="AI organization summary"
@@ -92,7 +423,128 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         ))}
       </section>
 
-      <section className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
+      <section
+        aria-labelledby="agent-trust-evidence-heading"
+        className="rounded-2xl border border-violet-200 bg-violet-50/40 p-5 shadow-sm"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-violet-800">
+              Autonomy evidence
+            </p>
+            <h2
+              id="agent-trust-evidence-heading"
+              className="mt-1 text-lg font-semibold text-slate-950"
+            >
+              Has the AI workforce earned more trust?
+            </h2>
+          </div>
+          <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900 ring-1 ring-violet-200">
+            {data.agentTrustEvidence.state.replaceAll('_', ' ').toLowerCase()}
+          </span>
+        </div>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-700">
+          {data.agentTrustEvidence.policy.explanation}
+        </p>
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+          {[
+            ['Positive', data.agentTrustEvidence.verdicts.positive],
+            ['Mixed', data.agentTrustEvidence.verdicts.mixed],
+            ['Negative', data.agentTrustEvidence.verdicts.negative],
+            ['Inconclusive', data.agentTrustEvidence.verdicts.inconclusive],
+            ['Observed runs', data.agentTrustEvidence.distinctObservedRuns],
+            ['Completed unobserved', data.agentTrustEvidence.completedRuns.withoutObservation],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-violet-100 bg-white p-3">
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                {label}
+              </dt>
+              <dd className="mt-1 text-xl font-semibold text-slate-950">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="rounded-xl border border-violet-100 bg-white p-4">
+            <h3 className="text-sm font-semibold text-slate-900">Observed execution evidence</h3>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+              {[
+                ['Actions succeeded', data.agentTrustEvidence.actions.succeeded],
+                ['Tool/action failures', data.agentTrustEvidence.actions.failed],
+                ['Actions denied', data.agentTrustEvidence.actions.denied],
+                [
+                  'Approvals accepted',
+                  `${data.agentTrustEvidence.approvalDecisions.acceptance.numerator}/${data.agentTrustEvidence.approvalDecisions.acceptance.denominator}`,
+                ],
+                ['Quality negatives', data.agentTrustEvidence.qualityEvaluations.negative],
+                ['Customer negatives', data.agentTrustEvidence.customerSignals.negative],
+                ['Canonical rollbacks', data.agentTrustEvidence.rollbackEvidence.distinctActions],
+                ['Policy violations', data.agentTrustEvidence.policyViolationEvidence.observations],
+                ['Confidence pairs', data.agentTrustEvidence.confidenceCalibration.observations],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs font-semibold text-slate-500">{label}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="rounded-xl border border-violet-100 bg-white p-4 text-xs leading-5 text-slate-700">
+            <h3 className="font-semibold text-slate-900">Structured trust signals</h3>
+            <p className="mt-1">
+              Rollback rate:{' '}
+              {data.agentTrustEvidence.rollbackEvidence.rate === null
+                ? 'awaiting a complete evidence window'
+                : `${(data.agentTrustEvidence.rollbackEvidence.rate * 100).toFixed(1)}%`}
+              . Confidence accuracy:{' '}
+              {data.agentTrustEvidence.confidenceCalibration.observedAccuracy === null
+                ? 'no reviewed pairs yet'
+                : `${(data.agentTrustEvidence.confidenceCalibration.observedAccuracy * 100).toFixed(1)}%`}
+              . Brier score:{' '}
+              {data.agentTrustEvidence.confidenceCalibration.brierScore === null
+                ? 'not available'
+                : data.agentTrustEvidence.confidenceCalibration.brierScore.toFixed(3)}
+              .
+            </p>
+            <p className="mt-2">
+              A denied action still proves enforcement, not a policy violation. Only an explicit,
+              evidence-linked violation record appears in this count.
+            </p>
+          </div>
+        </div>
+        {data.agentTrustEvidence.byAgent.length ? (
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold text-slate-900">Evidence by agent identity</h3>
+            <ul className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {data.agentTrustEvidence.byAgent.map((agent) => (
+                <li
+                  key={agent.agentIdentityId}
+                  className="rounded-xl border border-violet-100 bg-white p-3 text-sm"
+                >
+                  <p className="font-semibold text-slate-950">{agent.name}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Runs: {agent.runs.completed} completed / {agent.runs.failed} failed · Actions:{' '}
+                    {agent.actions.succeeded} succeeded / {agent.actions.failed} failed /{' '}
+                    {agent.actions.denied} denied · Outcomes: {agent.outcomes.positive} positive /{' '}
+                    {agent.outcomes.negative} negative · Trust: {agent.operationalTrust.rollbacks}{' '}
+                    rollbacks / {agent.operationalTrust.policyViolations} violations /{' '}
+                    {agent.operationalTrust.confidencePairs} calibrated predictions
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <p className="mt-3 text-xs leading-5 text-slate-600">
+          Counts use canonical bounded run, action, approval, and explicit outcome evidence
+          {data.agentTrustEvidence.boundedSnapshot.hasMore ? '; additional evidence exists' : ''}.
+          No reliability score, trend claim, or permission change is inferred.
+        </p>
+      </section>
+
+      <section
+        id="ai-workforce"
+        className="scroll-mt-24 rounded-2xl border border-sky-200 bg-white p-5 shadow-sm"
+      >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-sky-700">AI workforce</p>
@@ -105,44 +557,88 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             <Empty>No compatible workers have registered.</Empty>
           </div>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="pb-2 pr-4">Worker</th>
-                  <th className="pb-2 pr-4">Runtime</th>
-                  <th className="pb-2 pr-4">State</th>
-                  <th className="pb-2 pr-4">Model route</th>
-                  <th className="pb-2">Heartbeat</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.workers.map((worker) => (
-                  <tr key={worker.id}>
-                    <td className="py-3 pr-4 font-semibold text-slate-900">{worker.workerKey}</td>
-                    <td className="py-3 pr-4 text-slate-600">{worker.runtimeType}</td>
-                    <td className="py-3 pr-4">
-                      <span
-                        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
-                      >
-                        {worker.effectiveStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-4 text-slate-600">
-                      {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
-                        'Runtime managed'}
-                    </td>
-                    <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
+          <>
+            <ul className="mt-4 grid gap-3 md:hidden" aria-label="Registered workers">
+              {data.workers.map((worker) => (
+                <li key={worker.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-950">{worker.workerKey}</p>
+                      <p className="mt-1 text-xs text-slate-500">{worker.runtimeType}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
+                    >
+                      {worker.effectiveStatus}
+                    </span>
+                  </div>
+                  <dl className="mt-3 grid gap-2 text-xs">
+                    <div>
+                      <dt className="font-semibold text-slate-500">Model route</dt>
+                      <dd className="mt-0.5 text-slate-700">
+                        {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
+                          'Runtime managed'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Last heartbeat</dt>
+                      <dd className="mt-0.5 text-slate-700">{date(worker.lastHeartbeatAt)}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 hidden overflow-x-auto md:block">
+              <table className="min-w-full text-left text-sm">
+                <caption className="sr-only">Worker runtime health</caption>
+                <thead className="text-xs uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th scope="col" className="pb-2 pr-4">
+                      Worker
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Runtime
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      State
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Model route
+                    </th>
+                    <th scope="col" className="pb-2">
+                      Heartbeat
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.workers.map((worker) => (
+                    <tr key={worker.id}>
+                      <td className="py-3 pr-4 font-semibold text-slate-900">{worker.workerKey}</td>
+                      <td className="py-3 pr-4 text-slate-600">{worker.runtimeType}</td>
+                      <td className="py-3 pr-4">
+                        <span
+                          className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
+                        >
+                          {worker.effectiveStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-slate-600">
+                        {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
+                          'Runtime managed'}
+                      </td>
+                      <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 
       <section
-        className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
+        id="alerts"
+        className="scroll-mt-24 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
         aria-labelledby="platform-operational-events-heading"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -199,15 +695,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   </p>
                 ) : null}
                 <Link
-                  href={
-                    event.eventType.startsWith('crm.import.')
-                      ? '/admin/prospects/imports'
-                      : event.eventType.startsWith('crm.duplicate.')
-                        ? '/admin/prospects/duplicates'
-                        : event.eventType.startsWith('crm.')
-                          ? '/admin/prospects'
-                          : '/admin/operations'
-                  }
+                  href={platformEventHref(event)}
                   className="mt-3 inline-block text-sm font-semibold text-sky-700"
                 >
                   Open related workspace
@@ -248,13 +736,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         ) : (
           <ul className="mt-4 grid gap-3 xl:grid-cols-2">
             {data.events.items.map((event) => {
-              const scopeHref = event.venueId
-                ? event.eventType.startsWith('evaluation.')
-                  ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
-                  : event.eventType.startsWith('knowledge.proposal.')
-                    ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
-                    : `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
-                : `/admin/clients/${event.tenantId}`
+              const scopeHref = tenantEventHref(event)
               return (
                 <li
                   key={event.id}
@@ -291,6 +773,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   >
                     Open related workspace
                   </Link>
+                  {event.eventType === 'guest-chat.route-degraded' &&
+                  event.linkedObjectType === 'guest-chat-turn' ? (
+                    <GuestChatIncidentEvidence eventId={event.id} />
+                  ) : null}
                   <OperationalEventActions eventId={event.id} state={event.state} />
                 </li>
               )
@@ -323,48 +809,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             <Empty>No agents are waiting for human input.</Empty>
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            {data.questions.items.map((question) => (
-              <article
-                key={question.id}
-                className="rounded-xl border border-amber-200 bg-white p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
-                  <span>{question.agentIdentity.name}</span>
-                  <span>·</span>
-                  <span>{question.blocking ? 'Blocking' : 'Non-blocking'}</span>
-                  <span>·</span>
-                  <span>{question.urgency.toLowerCase()} priority</span>
-                  <span>·</span>
-                  <span>{question.questionType.replaceAll('_', ' ').toLowerCase()}</span>
-                  <span>·</span>
-                  <span>{date(question.createdAt)}</span>
-                </div>
-                <h3 className="mt-2 font-semibold text-slate-950">{question.question}</h3>
-                {question.context ? (
-                  <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
-                    {question.context}
-                  </p>
-                ) : null}
-                {question.dueAt ? (
-                  <p className="mt-2 text-xs font-semibold text-amber-800">
-                    Due {date(question.dueAt)}
-                  </p>
-                ) : null}
-                {question.choices.length ? (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Options: {question.choices.join(' · ')}
-                  </p>
-                ) : null}
-                <Link
-                  className="mt-3 inline-block text-sm font-semibold text-sky-700"
-                  href={`/admin/clients/${question.tenantId}/venues/${question.venueId}/agents#inbox`}
-                >
-                  Answer in agent workspace
-                </Link>
-              </article>
-            ))}
-          </div>
+          <FounderQuestionTriageBoard questions={data.questions} generatedAt={data.generatedAt} />
         )}
         <More param="questionsCursor" cursor={data.questions.nextCursor} label="Older questions" />
       </section>
@@ -554,6 +999,9 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   ) : (
                     <span className="text-slate-500">Platform scoped</span>
                   )}
+                  {job.terminalRedrivePreviewAvailable ? (
+                    <TerminalRedrivePreview jobRecordId={job.id} />
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -648,12 +1096,58 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     {date(approval.createdAt)}
                   </p>
                   {approval.venueId ? (
-                    <Link
-                      className="mt-2 inline-block text-sm font-semibold text-sky-700"
-                      href={`/admin/clients/${approval.tenantId}/venues/${approval.venueId}/agents`}
-                    >
-                      Open agent approvals
-                    </Link>
+                    <CustomerAccessApprovalContext
+                      tenantId={approval.tenantId}
+                      venueId={approval.venueId}
+                      request={approval.customerAccessRequest}
+                    />
+                  ) : null}
+                  {approval.founderDirectiveTask ? (
+                    <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-800">
+                      <p className="text-xs font-bold uppercase tracking-wide text-sky-800">
+                        Founder direction → proposed task
+                      </p>
+                      <p className="mt-2 leading-6">
+                        <span className="font-semibold">Direction:</span>{' '}
+                        {approval.founderDirectiveTask.founderOperatingExchange.prompt}
+                      </p>
+                      <p className="mt-2 leading-6">
+                        <span className="font-semibold">Proposed task:</span>{' '}
+                        {approval.founderDirectiveTask.proposedPrompt}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">
+                        {approval.founderDirectiveTask.rationale}
+                      </p>
+                      {approval.founderDirectiveTask.constraints.length > 0 ? (
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
+                          {approval.founderDirectiveTask.constraints.map((constraint) => (
+                            <li key={constraint}>{constraint}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <p className="mt-2 text-xs font-semibold text-sky-900">
+                        Approval permits exact task materialization only. It does not execute the
+                        task or widen any downstream permission.
+                      </p>
+                    </div>
+                  ) : null}
+                  {approval.venueId ? (
+                    <>
+                      {!approval.expired ? (
+                        <ApprovalDecisionForm
+                          tenantId={approval.tenantId}
+                          venueId={approval.venueId}
+                          approvalRequestId={approval.id}
+                          proposedAction={approval.proposedAction}
+                        />
+                      ) : null}
+                      <Link
+                        className="mt-3 inline-block text-sm font-semibold text-sky-700"
+                        href={`/admin/clients/${approval.tenantId}/venues/${approval.venueId}/agents#approvals`}
+                      >
+                        Open full approval context
+                      </Link>
+                    </>
                   ) : (
                     <Link
                       className="mt-2 inline-block text-sm font-semibold text-sky-700"

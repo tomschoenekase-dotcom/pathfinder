@@ -1,6 +1,32 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
+import {
+  INTAKE_NOTES_PROPOSAL_POLICY_ACTION,
+  INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY,
+  IntakeNotesProposalPolicyConstraints,
+  IntakeNotesProposalPolicyParameters,
+  OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION,
+  OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY,
+  OperationalUpdateDraftPolicyConstraints,
+  OperationalUpdateDraftPolicyParameters,
+  SUPPORT_REQUEST_DRAFT_POLICY_ACTION,
+  SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY,
+  SupportRequestDraftPolicyConstraints,
+  SupportRequestDraftPolicyParameters,
+  SUPPORT_REQUEST_OPEN_POLICY_ACTION,
+  SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY,
+  SupportRequestOpenPolicyConstraints,
+  SupportRequestOpenPolicyParameters,
+  SUPPORT_INTERNAL_NOTE_POLICY_ACTION,
+  SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY,
+  SupportInternalNotePolicyConstraints,
+  SupportInternalNotePolicyParameters,
+  WEEKLY_REPORT_DRAFT_POLICY_ACTION,
+  WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY,
+  WeeklyReportDraftPolicyConstraints,
+  WeeklyReportDraftPolicyParameters,
+} from '@pathfinder/contracts'
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
 import { db } from '../client'
@@ -14,10 +40,23 @@ export type ApprovalGrantHumanActor = {
 
 type ApprovalGrantClient = Pick<typeof db, '$transaction'>
 
+type GrantMode = 'ONE_SHOT' | 'BOUNDED' | 'TEMPORARY' | 'POLICY_BACKED'
+
+const grantOperationId = z.string().uuid()
+const grantPolicyKey = z
+  .string()
+  .trim()
+  .min(1)
+  .max(191)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+const grantIssueReason = z.string().trim().min(3).max(2000)
+const grantOutcomeObservationId = z.string().trim().min(1).max(191)
+
 export class ApprovalGrantActionError extends Error {
   constructor(
     readonly code:
       | 'NOT_FOUND'
+      | 'INVALID_INPUT'
       | 'CONFLICT'
       | 'FORBIDDEN'
       | 'EXPIRED'
@@ -70,13 +109,14 @@ function assertHuman(actor: ApprovalGrantHumanActor) {
 }
 
 function modeRules(input: {
-  mode: 'ONE_SHOT' | 'BOUNDED' | 'TEMPORARY' | 'POLICY_BACKED'
+  mode: GrantMode
   approvalDecisionId?: string
   policyKey?: string
   parameters?: unknown
   constraints?: Record<string, unknown>
   maxUses?: number
   expiresAt?: Date
+  outcomeObservationIds?: string[]
 }) {
   if ((input.approvalDecisionId === undefined) === (input.policyKey === undefined)) {
     throw new ApprovalGrantActionError(
@@ -105,150 +145,687 @@ function modeRules(input: {
       'A grant requires exact parameters or explicit constraints',
     )
   }
+  if (input.mode === 'POLICY_BACKED' && input.parameters !== undefined) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Policy-backed grants require reviewed constraints, not exact parameters',
+    )
+  }
+  const evidenceCount = input.outcomeObservationIds?.length ?? 0
+  if (input.mode === 'POLICY_BACKED' && (evidenceCount < 1 || evidenceCount > 25)) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Policy-backed grants require between 1 and 25 reviewed outcome observations',
+    )
+  }
+  if (input.mode !== 'POLICY_BACKED' && evidenceCount > 0) {
+    throw new ApprovalGrantActionError(
+      'CONFLICT',
+      'Only policy-backed grants may cite authority outcome evidence',
+    )
+  }
 }
 
-export async function issueApprovalGrantAction(
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value))
+}
+
+function validatePolicyConstraints(
+  actionName: string,
+  capability: string,
+  constraints: Record<string, unknown>,
+) {
+  if (
+    actionName === OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION &&
+    capability === OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY
+  ) {
+    const parsed = OperationalUpdateDraftPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Operational-update draft policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
+    actionName === SUPPORT_REQUEST_DRAFT_POLICY_ACTION &&
+    capability === SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportRequestDraftPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support-request draft policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
+    actionName === SUPPORT_REQUEST_OPEN_POLICY_ACTION &&
+    capability === SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportRequestOpenPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support-request open policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
+    actionName === SUPPORT_INTERNAL_NOTE_POLICY_ACTION &&
+    capability === SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY
+  ) {
+    const parsed = SupportInternalNotePolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Support internal-note policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
+    actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
+    capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
+  ) {
+    const parsed = IntakeNotesProposalPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Intake notes proposal policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  if (
+    actionName === WEEKLY_REPORT_DRAFT_POLICY_ACTION &&
+    capability === WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY
+  ) {
+    const parsed = WeeklyReportDraftPolicyConstraints.safeParse(constraints)
+    if (!parsed.success) {
+      throw new ApprovalGrantActionError(
+        'INVALID_INPUT',
+        parsed.error.issues[0]?.message ?? 'Weekly-report draft policy is invalid',
+      )
+    }
+    return parsed.data
+  }
+  throw new ApprovalGrantActionError(
+    'POLICY_UNAVAILABLE',
+    `No reviewed constraint evaluator is registered for ${actionName}`,
+  )
+}
+
+function assertPolicyParameters(
   input: {
     tenantId: string
+    venueId: string
+    actionName: string
+    capability: string
+    parameters: unknown
+  },
+  constraints: unknown,
+) {
+  if (
+    input.actionName === OPERATIONAL_UPDATE_DRAFT_POLICY_ACTION &&
+    input.capability === OPERATIONAL_UPDATE_DRAFT_POLICY_CAPABILITY
+  ) {
+    const policy = OperationalUpdateDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored operational-update draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = OperationalUpdateDraftPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedUpdateTypes.includes(parameters.data.updateType) ||
+      !policy.data.allowedSeverities.includes(parameters.data.severity) ||
+      !policy.data.allowedPriorities.includes(parameters.data.priority) ||
+      parameters.data.title.length > policy.data.maxTitleChars ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed operational-update draft policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === SUPPORT_REQUEST_DRAFT_POLICY_ACTION &&
+    input.capability === SUPPORT_REQUEST_DRAFT_POLICY_CAPABILITY
+  ) {
+    const policy = SupportRequestDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support-request draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportRequestDraftPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedCategories.includes(parameters.data.category) ||
+      parameters.data.subject.length > policy.data.maxSubjectChars ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support-request draft policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === SUPPORT_REQUEST_OPEN_POLICY_ACTION &&
+    input.capability === SUPPORT_REQUEST_OPEN_POLICY_CAPABILITY
+  ) {
+    const policy = SupportRequestOpenPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support-request open policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportRequestOpenPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedFromStatuses.includes(parameters.data.fromStatus) ||
+      !policy.data.allowedToStatuses.includes(parameters.data.toStatus)
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support-request open policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === SUPPORT_INTERNAL_NOTE_POLICY_ACTION &&
+    input.capability === SUPPORT_INTERNAL_NOTE_POLICY_CAPABILITY
+  ) {
+    const policy = SupportInternalNotePolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored support internal-note policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = SupportInternalNotePolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedVisibilities.includes(parameters.data.visibility) ||
+      parameters.data.attachmentCount > policy.data.maxAttachments ||
+      parameters.data.body.length > policy.data.maxBodyChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed support internal-note policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === INTAKE_NOTES_PROPOSAL_POLICY_ACTION &&
+    input.capability === INTAKE_NOTES_PROPOSAL_POLICY_CAPABILITY
+  ) {
+    const policy = IntakeNotesProposalPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored intake notes proposal policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = IntakeNotesProposalPolicyParameters.safeParse(input.parameters)
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      !policy.data.allowedKinds.includes(parameters.data.kind) ||
+      parameters.data.notes.length > policy.data.maxNotesChars
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed intake notes proposal policy',
+      )
+    }
+    return
+  }
+  if (
+    input.actionName === WEEKLY_REPORT_DRAFT_POLICY_ACTION &&
+    input.capability === WEEKLY_REPORT_DRAFT_POLICY_CAPABILITY
+  ) {
+    const policy = WeeklyReportDraftPolicyConstraints.safeParse(constraints)
+    if (!policy.success) {
+      throw new ApprovalGrantActionError(
+        'POLICY_UNAVAILABLE',
+        'The stored weekly-report draft policy is invalid or uses an unsupported version',
+      )
+    }
+    const parameters = WeeklyReportDraftPolicyParameters.safeParse(input.parameters)
+    const durationMs = parameters.success
+      ? new Date(parameters.data.weekEnd).getTime() - new Date(parameters.data.weekStart).getTime()
+      : Number.POSITIVE_INFINITY
+    if (
+      !parameters.success ||
+      parameters.data.clientId !== input.tenantId ||
+      parameters.data.venueId !== input.venueId ||
+      parameters.data.title.length > policy.data.maxTitleChars ||
+      durationMs > policy.data.maxRangeDays * 24 * 60 * 60 * 1000
+    ) {
+      throw new ApprovalGrantActionError(
+        'PARAMETER_MISMATCH',
+        'Action parameters are outside the reviewed weekly-report draft policy',
+      )
+    }
+    return
+  }
+  throw new ApprovalGrantActionError(
+    'POLICY_UNAVAILABLE',
+    `No reviewed constraint evaluator is registered for ${input.actionName}`,
+  )
+}
+
+const grantSelect = {
+  id: true,
+  operationId: true,
+  tenantId: true,
+  venueId: true,
+  approvalDecisionId: true,
+  policyKey: true,
+  agentIdentityId: true,
+  actionName: true,
+  capability: true,
+  mode: true,
+  scope: true,
+  parameterHash: true,
+  constraints: true,
+  issueReason: true,
+  maxUses: true,
+  useCount: true,
+  notBefore: true,
+  expiresAt: true,
+  revokedAt: true,
+  createdByType: true,
+  createdById: true,
+  createdAt: true,
+  updatedAt: true,
+  authorityEvidence: {
+    orderBy: { outcomeObservationId: 'asc' as const },
+    select: { outcomeObservationId: true },
+  },
+} as const
+
+type IssueInput = {
+  operationId: string
+  tenantId: string
+  venueId: string
+  agentIdentityId: string
+  actionName: string
+  capability: string
+  mode: GrantMode
+  scope: Record<string, unknown>
+  approvalDecisionId?: string
+  policyKey?: string
+  parameters?: unknown
+  constraints?: Record<string, unknown>
+  issueReason: string
+  maxUses?: number
+  notBefore?: Date
+  expiresAt?: Date
+  outcomeObservationIds?: string[]
+  actor: ApprovalGrantHumanActor
+}
+
+function sameGrantIssue(
+  existing: {
+    approvalDecisionId: string | null
+    policyKey: string | null
     venueId: string
     agentIdentityId: string
     actionName: string
     capability: string
-    mode: 'ONE_SHOT' | 'BOUNDED' | 'TEMPORARY' | 'POLICY_BACKED'
-    scope: Record<string, unknown>
-    approvalDecisionId?: string
-    policyKey?: string
-    parameters?: unknown
-    constraints?: Record<string, unknown>
-    maxUses?: number
-    notBefore?: Date
-    expiresAt?: Date
-    actor: ApprovalGrantHumanActor
+    mode: GrantMode
+    scope: unknown
+    parameterHash: string | null
+    constraints: unknown
+    issueReason: string | null
+    maxUses: number | null
+    notBefore: Date
+    expiresAt: Date | null
+    createdByType: string
+    createdById: string
+    authorityEvidence?: Array<{ outcomeObservationId: string }>
   },
+  input: IssueInput,
+  normalized: {
+    parameterHash: string | null
+    constraints: Record<string, unknown>
+    issueReason: string
+    outcomeObservationIds: string[]
+  },
+) {
+  return (
+    existing.approvalDecisionId === (input.approvalDecisionId ?? null) &&
+    existing.policyKey === (input.policyKey ?? null) &&
+    existing.venueId === input.venueId &&
+    existing.agentIdentityId === input.agentIdentityId &&
+    existing.actionName === input.actionName &&
+    existing.capability === input.capability &&
+    existing.mode === input.mode &&
+    canonicalJson(existing.scope) === canonicalJson(input.scope) &&
+    existing.parameterHash === normalized.parameterHash &&
+    canonicalJson(existing.constraints) === canonicalJson(normalized.constraints) &&
+    existing.issueReason === normalized.issueReason &&
+    existing.maxUses === (input.mode === 'ONE_SHOT' ? 1 : (input.maxUses ?? null)) &&
+    (input.notBefore === undefined || existing.notBefore.getTime() === input.notBefore.getTime()) &&
+    existing.expiresAt?.getTime() === input.expiresAt?.getTime() &&
+    existing.createdByType === 'HUMAN' &&
+    existing.createdById === input.actor.id &&
+    canonicalJson(
+      ('authorityEvidence' in existing && Array.isArray(existing.authorityEvidence)
+        ? existing.authorityEvidence
+        : []
+      ).map((row: { outcomeObservationId: string }) => row.outcomeObservationId),
+    ) === canonicalJson(normalized.outcomeObservationIds)
+  )
+}
+
+export async function issueApprovalGrantAction(
+  input: IssueInput,
   client: ApprovalGrantClient = db,
 ) {
   assertHuman(input.actor)
   modeRules(input)
+  const parsedOperationId = grantOperationId.safeParse(input.operationId)
+  const parsedIssueReason = grantIssueReason.safeParse(input.issueReason)
+  if (!parsedOperationId.success) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      parsedOperationId.error.issues[0]?.message ?? 'Operation ID is invalid',
+    )
+  }
+  if (!parsedIssueReason.success) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      parsedIssueReason.error.issues[0]?.message ?? 'Issue reason is invalid',
+    )
+  }
+  const parsedPolicyKey = input.policyKey ? grantPolicyKey.safeParse(input.policyKey) : null
+  if (parsedPolicyKey && !parsedPolicyKey.success) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      parsedPolicyKey.error.issues[0]?.message ?? 'Policy key is invalid',
+    )
+  }
+  const operationId = parsedOperationId.data
+  const issueReason = parsedIssueReason.data
+  const policyKey = parsedPolicyKey?.success ? parsedPolicyKey.data : null
+  const parsedOutcomeIds = z
+    .array(grantOutcomeObservationId)
+    .max(25)
+    .safeParse(input.outcomeObservationIds ?? [])
+  if (!parsedOutcomeIds.success) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      parsedOutcomeIds.error.issues[0]?.message ?? 'Outcome evidence is invalid',
+    )
+  }
+  const outcomeObservationIds = [...new Set(parsedOutcomeIds.data)].sort()
+  if (outcomeObservationIds.length !== parsedOutcomeIds.data.length) {
+    throw new ApprovalGrantActionError(
+      'INVALID_INPUT',
+      'Outcome evidence must not contain duplicates',
+    )
+  }
+  const constraints =
+    input.mode === 'POLICY_BACKED'
+      ? validatePolicyConstraints(input.actionName, input.capability, input.constraints ?? {})
+      : (input.constraints ?? {})
   const notBefore = input.notBefore ?? new Date()
   if (input.expiresAt && input.expiresAt <= notBefore) {
     throw new ApprovalGrantActionError('CONFLICT', 'Grant expiration must follow its start')
   }
   const parameterHash =
     input.parameters === undefined ? null : approvalParameterHash(input.parameters)
+  const normalized = { parameterHash, constraints, issueReason, outcomeObservationIds }
 
-  return client.$transaction(async (rawTx) => {
-    const tx = rawTx as unknown as typeof db
-    if (input.approvalDecisionId) {
-      const decision = await tx.approvalDecision.findFirst({
-        where: {
-          id: input.approvalDecisionId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          decision: 'APPROVED',
-        },
-        select: {
-          id: true,
-          grant: { select: { id: true } },
-          approvalRequest: { select: { proposedAction: true, agentIdentityId: true } },
-        },
+  const attempt = () =>
+    client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const replay = await tx.approvalGrant.findFirst({
+        where: { tenantId: input.tenantId, operationId },
+        select: grantSelect,
       })
-      if (!decision) {
-        throw new ApprovalGrantActionError('NOT_FOUND', 'Approved decision not found in scope')
+      if (replay) {
+        if (!sameGrantIssue(replay, input, normalized)) {
+          throw new ApprovalGrantActionError(
+            'CONFLICT',
+            'Approval-grant operation ID was already used for different authority',
+          )
+        }
+        return { ...replay, replayed: true as const }
       }
-      if (decision.grant) {
-        throw new ApprovalGrantActionError('CONFLICT', 'Approval decision already has a grant')
+      if (policyKey) {
+        const activePolicy = await tx.approvalGrant.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+            actionName: input.actionName,
+            policyKey,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          select: { id: true },
+        })
+        if (activePolicy) {
+          throw new ApprovalGrantActionError(
+            'CONFLICT',
+            'An active policy grant already uses this policy key in the same scope',
+          )
+        }
       }
-      if (
-        decision.approvalRequest.proposedAction !== input.actionName ||
-        decision.approvalRequest.agentIdentityId !== input.agentIdentityId
-      ) {
+      if (input.approvalDecisionId) {
+        const decision = await tx.approvalDecision.findFirst({
+          where: {
+            id: input.approvalDecisionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            decision: 'APPROVED',
+          },
+          select: {
+            id: true,
+            grant: { select: { id: true } },
+            approvalRequest: { select: { proposedAction: true, agentIdentityId: true } },
+          },
+        })
+        if (!decision) {
+          throw new ApprovalGrantActionError('NOT_FOUND', 'Approved decision not found in scope')
+        }
+        if (decision.grant) {
+          throw new ApprovalGrantActionError('CONFLICT', 'Approval decision already has a grant')
+        }
+        if (
+          decision.approvalRequest.proposedAction !== input.actionName ||
+          decision.approvalRequest.agentIdentityId !== input.agentIdentityId
+        ) {
+          throw new ApprovalGrantActionError(
+            'FORBIDDEN',
+            'Approval decision does not authorize this action and agent',
+          )
+        }
+      }
+
+      const identity = await tx.agentIdentity.findFirst({
+        where: {
+          id: input.agentIdentityId,
+          tenantId: input.tenantId,
+          enabled: true,
+          OR: [{ venueId: null }, { venueId: input.venueId }],
+          accessCapabilities: { has: input.capability },
+        },
+        select: { id: true },
+      })
+      if (!identity) {
         throw new ApprovalGrantActionError(
           'FORBIDDEN',
-          'Approval decision does not authorize this action and agent',
+          'Enabled agent identity does not hold the granted capability',
         )
       }
-    }
 
-    const identity = await tx.agentIdentity.findFirst({
-      where: {
-        id: input.agentIdentityId,
-        tenantId: input.tenantId,
-        enabled: true,
-        OR: [{ venueId: null }, { venueId: input.venueId }],
-        accessCapabilities: { has: input.capability },
-      },
-      select: { id: true },
-    })
-    if (!identity) {
-      throw new ApprovalGrantActionError(
-        'FORBIDDEN',
-        'Enabled agent identity does not hold the granted capability',
-      )
-    }
+      let authorityEvidence: Array<{
+        id: string
+        agentRunId: string
+        signalKind: string
+        verdict: string
+        taskClass: string
+        modelProvider: string | null
+        modelName: string | null
+        createdAt: Date
+      }> = []
+      if (input.mode === 'POLICY_BACKED') {
+        authorityEvidence = await tx.agentOutcomeObservation.findMany({
+          where: {
+            id: { in: outcomeObservationIds },
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+          },
+          select: {
+            id: true,
+            agentRunId: true,
+            signalKind: true,
+            verdict: true,
+            taskClass: true,
+            modelProvider: true,
+            modelName: true,
+            createdAt: true,
+          },
+        })
+        if (authorityEvidence.length !== outcomeObservationIds.length) {
+          throw new ApprovalGrantActionError(
+            'FORBIDDEN',
+            'Selected outcome evidence was not found in this agent and venue scope',
+          )
+        }
+      }
 
-    const grant = await tx.approvalGrant.create({
-      data: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        approvalDecisionId: input.approvalDecisionId ?? null,
-        policyKey: input.policyKey ?? null,
-        agentIdentityId: input.agentIdentityId,
-        actionName: input.actionName,
-        capability: input.capability,
-        mode: input.mode,
-        scope: input.scope,
-        parameterHash,
-        constraints: input.constraints ?? {},
-        maxUses: input.mode === 'ONE_SHOT' ? 1 : (input.maxUses ?? null),
-        notBefore,
-        expiresAt: input.expiresAt ?? null,
-        createdByType: 'HUMAN',
-        createdById: input.actor.id,
-      },
-      select: {
-        id: true,
-        tenantId: true,
-        venueId: true,
-        agentIdentityId: true,
-        actionName: true,
-        capability: true,
-        mode: true,
-        scope: true,
-        parameterHash: true,
-        constraints: true,
-        maxUses: true,
-        useCount: true,
-        notBefore: true,
-        expiresAt: true,
-        createdAt: true,
-      },
-    })
-    await writeAuditLogStrict(
-      {
-        tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
-        actorType: 'HUMAN',
-        action: 'approval-grant.issued',
-        targetType: 'ApprovalGrant',
-        targetId: grant.id,
-        afterState: {
-          venueId: grant.venueId,
-          agentIdentityId: grant.agentIdentityId,
-          actionName: grant.actionName,
-          capability: grant.capability,
-          mode: grant.mode,
-          maxUses: grant.maxUses,
-          notBefore: grant.notBefore.toISOString(),
-          expiresAt: grant.expiresAt?.toISOString() ?? null,
-          parameterHash: grant.parameterHash,
-          constraints: grant.constraints,
+      const grant = await tx.approvalGrant.create({
+        data: {
+          operationId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          approvalDecisionId: input.approvalDecisionId ?? null,
+          policyKey,
+          agentIdentityId: input.agentIdentityId,
+          actionName: input.actionName,
+          capability: input.capability,
+          mode: input.mode,
+          scope: input.scope,
+          parameterHash,
+          constraints,
+          issueReason,
+          maxUses: input.mode === 'ONE_SHOT' ? 1 : (input.maxUses ?? null),
+          notBefore,
+          expiresAt: input.expiresAt ?? null,
+          createdByType: 'HUMAN',
+          createdById: input.actor.id,
         },
-      },
-      tx,
-    )
-    return grant
-  })
+        select: grantSelect,
+      })
+      if (outcomeObservationIds.length) {
+        await tx.approvalGrantEvidence.createMany({
+          data: outcomeObservationIds.map((outcomeObservationId) => ({
+            tenantId: input.tenantId,
+            approvalGrantId: grant.id,
+            outcomeObservationId,
+          })),
+        })
+      }
+      await writeAuditLogStrict(
+        {
+          tenantId: input.tenantId,
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          actorType: 'HUMAN',
+          action: 'approval-grant.issued',
+          targetType: 'ApprovalGrant',
+          targetId: grant.id,
+          afterState: {
+            venueId: grant.venueId,
+            agentIdentityId: grant.agentIdentityId,
+            actionName: grant.actionName,
+            capability: grant.capability,
+            mode: grant.mode,
+            maxUses: grant.maxUses,
+            notBefore: grant.notBefore.toISOString(),
+            expiresAt: grant.expiresAt?.toISOString() ?? null,
+            parameterHash: grant.parameterHash,
+            constraints: grant.constraints,
+            issueReason: grant.issueReason,
+            operationId: grant.operationId,
+            authorityEvidence: authorityEvidence.map((observation) => ({
+              outcomeObservationId: observation.id,
+              agentRunId: observation.agentRunId,
+              signalKind: observation.signalKind,
+              verdict: observation.verdict,
+              taskClass: observation.taskClass,
+              modelProvider: observation.modelProvider,
+              modelName: observation.modelName,
+              createdAt: observation.createdAt.toISOString(),
+            })),
+          },
+        },
+        tx,
+      )
+      const persistedGrant = await tx.approvalGrant.findFirstOrThrow({
+        where: { id: grant.id, tenantId: input.tenantId },
+        select: grantSelect,
+      })
+      return { ...persistedGrant, replayed: false as const }
+    })
+
+  try {
+    return await attempt()
+  } catch (error) {
+    if (
+      error instanceof ApprovalGrantActionError ||
+      !error ||
+      typeof error !== 'object' ||
+      !('code' in error) ||
+      error.code !== 'P2002'
+    ) {
+      throw error
+    }
+    return client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const replay = await tx.approvalGrant.findFirst({
+        where: { tenantId: input.tenantId, operationId },
+        select: grantSelect,
+      })
+      if (replay && sameGrantIssue(replay, input, normalized)) {
+        return { ...replay, replayed: true as const }
+      }
+      throw new ApprovalGrantActionError(
+        'CONFLICT',
+        'Approval-grant authority changed concurrently; refresh before retrying',
+      )
+    })
+  }
 }
 
 /**
@@ -323,6 +900,7 @@ export async function consumeApprovalGrantAction(
       select: {
         id: true,
         mode: true,
+        constraints: true,
         parameterHash: true,
         useCount: true,
         maxUses: true,
@@ -343,12 +921,8 @@ export async function consumeApprovalGrantAction(
       throw new ApprovalGrantActionError('EXHAUSTED', 'Approval grant has no remaining uses')
     }
     if (grant.parameterHash === null) {
-      throw new ApprovalGrantActionError(
-        'POLICY_UNAVAILABLE',
-        `No reviewed parameter evaluator is registered for ${grant.mode.toLowerCase()} grant`,
-      )
-    }
-    if (grant.parameterHash !== parameterHash) {
+      assertPolicyParameters(input, grant.constraints)
+    } else if (grant.parameterHash !== parameterHash) {
       throw new ApprovalGrantActionError(
         'PARAMETER_MISMATCH',
         'Action parameters do not match the approved parameters',

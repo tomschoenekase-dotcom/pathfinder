@@ -15,6 +15,9 @@ export type SemanticPlace = {
   areaName: string | null
   hours: string | null
   photoUrl: string | null
+  sourceType: string
+  sourceName: string | null
+  sourceUrl: string | null
   distanceMeters?: number
   // pgvector cosine distance of this place's embedding from the query embedding
   // (0 = identical, ~1 = orthogonal). Reused as a free retrieval-confidence proxy.
@@ -35,6 +38,9 @@ type RawPlaceRow = {
   area_name: string | null
   hours: string | null
   photo_url: string | null
+  source_type: string
+  source_name: string | null
+  source_url: string | null
   distance: number
 }
 
@@ -97,6 +103,9 @@ export type SemanticKnowledgeEntry = {
   title: string
   category: string
   content: string
+  sourceType: string
+  sourceName: string | null
+  sourceUrl: string | null
   distance: number
 }
 
@@ -105,6 +114,9 @@ type RawKnowledgeRow = {
   title: string
   category: string
   content: string
+  source_type: string
+  source_name: string | null
+  source_url: string | null
   distance: number
 }
 
@@ -194,6 +206,9 @@ export async function searchPlacesByEmbedding(params: {
       area_name,
       hours,
       photo_url,
+      source_type,
+      source_name,
+      source_url,
       embedding <=> ${vectorStr}::vector AS distance
     FROM places
     WHERE venue_id     = ${venueId}
@@ -218,6 +233,9 @@ export async function searchPlacesByEmbedding(params: {
     areaName: row.area_name,
     hours: row.hours,
     photoUrl: row.photo_url,
+    sourceType: row.source_type,
+    sourceName: row.source_name,
+    sourceUrl: row.source_url,
     distance: Number(row.distance),
     ...(row.lat != null && row.lng != null && userLat != null && userLng != null
       ? { distanceMeters: haversineDistanceMeters(userLat, userLng, row.lat, row.lng) }
@@ -309,6 +327,9 @@ export async function searchKnowledgeByEmbedding(params: {
       title,
       category,
       content,
+      source_type,
+      source_name,
+      source_url,
       embedding <=> ${vectorStr}::vector AS distance
     FROM venue_knowledge_entries
     WHERE venue_id   = ${venueId}
@@ -325,6 +346,9 @@ export async function searchKnowledgeByEmbedding(params: {
     title: row.title,
     category: row.category,
     content: row.content,
+    sourceType: row.source_type,
+    sourceName: row.source_name,
+    sourceUrl: row.source_url,
     distance: Number(row.distance),
   }))
 }

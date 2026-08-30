@@ -9,6 +9,8 @@ const actions = vi.hoisted(() => ({
   approve: vi.fn(),
   apply: vi.fn(),
   revert: vi.fn(),
+  convergence: vi.fn(),
+  preflight: vi.fn(),
 }))
 const releaseReads = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn() }))
 const headReads = vi.hoisted(() => ({ findFirst: vi.fn() }))
@@ -26,6 +28,8 @@ vi.mock('@pathfinder/db', async (original) => ({
   approveNativeVenueDeploymentAction: actions.approve,
   applyNativeVenueDeploymentAction: actions.apply,
   revertNativeVenueDeploymentAction: actions.revert,
+  assessNativeGuestReadActivationAction: actions.preflight,
+  measureNativeContentConvergenceAction: actions.convergence,
 }))
 
 import { adminNativeVenueDeploymentsRouter } from './native-venue-deployments'
@@ -72,6 +76,134 @@ describe('admin native venue deployments', () => {
     )
   })
 
+  it('returns bounded convergence evidence without internal state hashes', async () => {
+    actions.convergence.mockResolvedValue({
+      contractVersion: 1,
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      guestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+      headValid: true,
+      stateMatchesHead: true,
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      needsOperatorAttention: false,
+      blockers: ['LEGACY_SEMANTIC_READ_PATH'],
+      counts: { activePlaces: 2, enabledKnowledgeEntries: 3, publishedGeneralizedModules: 1 },
+      venueActive: true,
+      currentStateHash: 'a'.repeat(64),
+      head: {
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        revision: 4,
+        updatedAt: new Date(0),
+        stateHash: 'a'.repeat(64),
+        desiredStateHash: 'a'.repeat(64),
+        releaseStatus: 'APPLIED',
+      },
+    })
+    const result = await app.createCaller(context()).admin.getNativeContentConvergence({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(result).toMatchObject({
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      head: { revision: 4, releaseStatus: 'APPLIED' },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/stateHash|desiredStateHash/u)
+  })
+
+  it('returns one read-only activation preflight without internal state hashes', async () => {
+    actions.preflight.mockResolvedValue({
+      contractVersion: 1,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      runtime: { serverGateEnabled: false, production: false },
+      policy: {
+        present: true,
+        enabled: true,
+        valid: true,
+        mode: 'DARK',
+        targetReleaseId: '11111111-1111-4111-8111-111111111111',
+        evaluationEvidenceId: '22222222-2222-4222-8222-222222222222',
+        qualityPolicyRef: 'policy://quality',
+        qualityPolicyReferencePresent: true,
+        rollbackRehearsalRef: 'evidence://rollback',
+        rollbackRehearsalReferencePresent: true,
+        productionApprovalRef: null,
+        productionApprovalReferencePresent: false,
+      },
+      head: {
+        present: true,
+        valid: true,
+        targetMatches: true,
+        releaseId: '11111111-1111-4111-8111-111111111111',
+      },
+      evaluation: {
+        valid: true,
+        evidenceId: '22222222-2222-4222-8222-222222222222',
+      },
+      path: 'LEGACY',
+      reason: 'SERVER_DISABLED',
+      readyForConfiguredMode: false,
+      nativeExecutionReady: false,
+      blockers: ['SERVER_GATE_DISABLED'],
+      compatibilityDataRetentionRequired: true,
+      mutationPerformed: false,
+    })
+    actions.convergence.mockResolvedValue({
+      contractVersion: 1,
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      guestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+      headValid: true,
+      stateMatchesHead: true,
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      needsOperatorAttention: false,
+      blockers: ['LEGACY_SEMANTIC_READ_PATH'],
+      counts: { activePlaces: 2, enabledKnowledgeEntries: 3, publishedGeneralizedModules: 1 },
+      venueActive: true,
+      currentStateHash: 'a'.repeat(64),
+      head: {
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        revision: 4,
+        updatedAt: new Date(0),
+        stateHash: 'a'.repeat(64),
+        desiredStateHash: 'a'.repeat(64),
+        releaseStatus: 'APPLIED',
+      },
+    })
+    const result = await app.createCaller(context()).admin.getNativeGuestReadActivationPreflight({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(result).toMatchObject({
+      contractVersion: 1,
+      activation: {
+        path: 'LEGACY',
+        reason: 'SERVER_DISABLED',
+        blockers: ['SERVER_GATE_DISABLED'],
+      },
+      convergence: { phase: 'NATIVE_HEAD_IN_SYNC' },
+      alignment: {
+        runtimeReadGateOpen: false,
+        materializedStateInSync: true,
+        allObservedTechnicalEvidenceAligned: false,
+      },
+      boundaries: {
+        readOnly: true,
+        activationAuthorized: false,
+        qualityThresholdInferred: false,
+        compatibilityDataRetentionRequired: true,
+      },
+    })
+    expect(actions.preflight).toHaveBeenCalledWith({
+      client: expect.anything(),
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(JSON.stringify(result)).not.toMatch(/stateHash|desiredStateHash|secret/u)
+  })
+
   it('requires platform-admin authorization before every service call', async () => {
     const caller = app.createCaller(context(false))
     const scope = { tenantId: 'tenant-1', venueId: 'venue-1' }
@@ -82,6 +214,12 @@ describe('admin native venue deployments', () => {
       expectedUpdatedAt: '2026-08-12T12:00:00.000Z',
     }
     await expect(caller.admin.projectNativeVenueDeployment(scope)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(caller.admin.getNativeContentConvergence(scope)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(caller.admin.getNativeGuestReadActivationPreflight(scope)).rejects.toMatchObject({
       code: 'FORBIDDEN',
     })
     await expect(

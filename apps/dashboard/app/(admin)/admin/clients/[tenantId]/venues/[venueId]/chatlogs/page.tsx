@@ -11,6 +11,7 @@ type AdminChatlogsPageProps = {
     to?: string
     notable?: string
     scope?: 'PUBLIC' | 'SECOND_LAYER'
+    cursor?: string
   }>
 }
 
@@ -33,6 +34,7 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
     dateTo: toEndIso(query.to),
     notableOnly: query.notable === 'on',
     experienceScope: query.scope,
+    cursor: query.cursor,
   })
 
   return (
@@ -94,16 +96,29 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
         </button>
       </form>
 
-      <div className="overflow-hidden rounded-2xl border border-pf-light bg-pf-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border border-pf-light bg-pf-white shadow-sm">
         <table className="w-full text-left text-sm">
+          <caption className="sr-only">Venue guest chat sessions</caption>
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
-              <th className="px-4 py-3 font-semibold">Started</th>
-              <th className="px-4 py-3 font-semibold">Experience</th>
-              <th className="px-4 py-3 font-semibold">Messages</th>
-              <th className="px-4 py-3 font-semibold">Answers</th>
-              <th className="px-4 py-3 font-semibold">Notes</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Started
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Experience
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Messages
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Answers
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Notes
+              </th>
+              <th scope="col" className="px-4 py-3 font-semibold">
+                Status
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -151,6 +166,33 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
             )}
           </tbody>
         </table>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        {query.cursor ? (
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs`}
+            className="inline-flex min-h-10 items-center rounded-full border border-pf-light px-4 text-sm font-semibold text-pf-primary"
+          >
+            Newest sessions
+          </Link>
+        ) : null}
+        {result.nextCursor ? (
+          <Link
+            href={{
+              pathname: `/admin/clients/${tenantId}/venues/${venueId}/chatlogs`,
+              query: {
+                ...(query.from ? { from: query.from } : {}),
+                ...(query.to ? { to: query.to } : {}),
+                ...(query.notable ? { notable: query.notable } : {}),
+                ...(query.scope ? { scope: query.scope } : {}),
+                cursor: result.nextCursor,
+              },
+            }}
+            className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-sm font-semibold text-white"
+          >
+            Older sessions
+          </Link>
+        ) : null}
       </div>
     </div>
   )

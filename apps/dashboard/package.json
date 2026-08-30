@@ -8,7 +8,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests",
-    "test:billing-browser": "playwright test --config playwright.config.ts"
+    "test:billing-browser": "playwright test --config playwright.config.ts",
+    "test:visual-browser": "playwright test --config playwright.visual.config.ts",
+    "test:visitor-launch-browser": "playwright test --config playwright.visitor-launch.config.ts",
+    "measure:visitor-performance": "playwright test --config playwright.visitor-performance.config.ts",
+    "measure:dashboard-performance": "playwright test --config playwright.dashboard-performance.config.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "6.39.3",
@@ -46,6 +50,8 @@
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "axe-core": "4.11.2",
-    "jsdom": "^26.1.0"
+    "jsqr": "1.4.0",
+    "jsdom": "^26.1.0",
+    "sharp": "0.35.3"
   }
 }

@@ -58,10 +58,10 @@ describe('AdminChatlogNoteForm', () => {
       />,
     )
 
-    const input = screen.getByPlaceholderText('Private admin note')
+    const input = screen.getByRole('textbox', { name: 'Private admin note' })
     fireEvent.change(input, { target: { value: 'Private detail' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
-    expect(await screen.findByText('Transport failed')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toBe('Transport failed')
 
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
     await waitFor(() => expect(mocks.addNote).toHaveBeenCalledTimes(2))
@@ -90,7 +90,7 @@ describe('AdminChatlogNoteForm', () => {
         initialNotes={[]}
       />,
     )
-    const input = screen.getByPlaceholderText('Private admin note')
+    const input = screen.getByRole('textbox', { name: 'Private admin note' })
     fireEvent.change(input, { target: { value: 'Original detail' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
     await screen.findByText('Transport failed')
@@ -117,7 +117,7 @@ describe('AdminChatlogNoteForm', () => {
         initialNotes={[]}
       />,
     )
-    fireEvent.change(screen.getByPlaceholderText('Private admin note'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Private admin note' }), {
       target: { value: 'Private detail' },
     })
     const form = screen.getByRole('button', { name: 'Add note' }).closest('form')!

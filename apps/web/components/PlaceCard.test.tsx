@@ -78,4 +78,50 @@ describe('PlaceCard', () => {
     )
     expect(screen.queryByRole('link', { name: 'Get directions to Elephant House' })).toBeNull()
   })
+
+  it('localizes place controls and marks right-to-left content', () => {
+    render(
+      <PlaceCard
+        id="place_1"
+        name="المعرض الشرقي"
+        type="EXHIBIT"
+        photoUrl={null}
+        shortDescription="وصف موجز"
+        areaName="الطابق الأول"
+        hours="٩–٥"
+        distanceMeters={undefined}
+        lat={null}
+        lng={null}
+        language="العربية"
+      />,
+    )
+
+    const details = screen.getByRole('button', { name: 'عرض تفاصيل المعرض الشرقي' })
+    expect(details.closest('article')?.getAttribute('dir')).toBe('rtl')
+    fireEvent.click(details)
+    expect(screen.getByText('المنطقة:')).toBeTruthy()
+    expect(screen.getByText('الساعات:')).toBeTruthy()
+  })
+
+  it('uses natural Japanese directions text and accessible naming', () => {
+    render(
+      <PlaceCard
+        id="place_1"
+        name="東展示室"
+        type="EXHIBIT"
+        photoUrl={null}
+        shortDescription={null}
+        areaName={null}
+        hours={null}
+        distanceMeters={undefined}
+        lat={35.68}
+        lng={139.76}
+        language="日本語"
+      />,
+    )
+
+    const directions = screen.getByRole('link', { name: '東展示室への道順を見る' })
+    expect(directions.textContent).toContain('道順を見る')
+    expect(directions.textContent).not.toContain('：')
+  })
 })

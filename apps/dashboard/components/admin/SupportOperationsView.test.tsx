@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   listEligibleAttachments: vi.fn(),
   refresh: vi.fn(),
+  prepareKnowledge: vi.fn(),
 }))
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
@@ -28,6 +29,7 @@ vi.mock('../../lib/trpc', () => ({
       requestSupportInformation: { mutate: mocks.requestInformation },
       completeSupportRequest: { mutate: mocks.completeRequest },
       linkSupportAgentRun: { mutate: mocks.linkRun },
+      createSupportKnowledgeProposal: { mutate: mocks.prepareKnowledge },
     },
   }),
 }))
@@ -48,12 +50,71 @@ import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 import { SupportAgentRunLineagePanel } from './SupportAgentRunLineagePanel'
+import { SupportKnowledgeProposalForm } from './SupportKnowledgeProposalForm'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('support operations UI', () => {
   afterEach(() => {
     cleanup()
     vi.resetAllMocks()
+  })
+
+  it('prepares an exact-message correction proposal without claiming publication', async () => {
+    mocks.prepareKnowledge.mockResolvedValue({
+      id: 'proposal-1',
+      status: 'PENDING_REVIEW',
+      canonicalKnowledgeChanged: false,
+    })
+    const { container } = render(
+      <SupportKnowledgeProposalForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        eligible
+        messages={[
+          {
+            id: 'message_1',
+            authorKind: 'CLIENT',
+            visibility: 'CLIENT_VISIBLE',
+            body: 'The accessible entrance is on the east side.',
+            requestVersion: 4,
+            createdAt: new Date(),
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Proposed canonical change'), {
+      target: { value: 'Use the verified east entrance.' },
+    })
+    fireEvent.change(screen.getByLabelText('Evidence-based reason'), {
+      target: { value: 'The reviewed client message corrects the stale direction.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review proposal' }))
+
+    await waitFor(() =>
+      expect(mocks.prepareKnowledge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          supportRequestId: 'req_1',
+          expectedVersion: 4,
+          evidenceMessageIds: ['message_1'],
+          correctionKind: 'UPDATE_KNOWLEDGE',
+          proposedChange: 'Use the verified east entrance.',
+          confidence: 0.7,
+        }),
+      ),
+    )
+    expect(
+      screen.getByText(
+        'Proposal prepared for separate human review. No venue knowledge was changed or published.',
+      ),
+    ).toBeTruthy()
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 
   it('visually and textually distinguishes client-visible messages from internal notes', () => {
@@ -82,6 +143,7 @@ describe('support operations UI', () => {
               authorKind: 'CLIENT',
               visibility: 'CLIENT_VISIBLE',
               body: 'Client text',
+              requestVersion: 2,
               createdAt: new Date(),
               attachments: [],
             },
@@ -90,6 +152,7 @@ describe('support operations UI', () => {
               authorKind: 'OPERATOR',
               visibility: 'INTERNAL_ONLY',
               body: 'Private note',
+              requestVersion: 3,
               createdAt: new Date(),
               attachments: [],
             },
@@ -141,6 +204,53 @@ describe('support operations UI', () => {
     expect(screen.getByText(/request is closed/i)).toBeTruthy()
     expect(screen.queryByLabelText('Message')).toBeNull()
     expect(screen.queryByLabelText('Choose a recent venue file')).toBeNull()
+  })
+
+  it('shows only human open-or-cancel review controls for an internal machine draft', async () => {
+    const request = {
+      id: 'req_draft',
+      category: 'GENERAL' as const,
+      missingInformation: [],
+      status: 'DRAFT' as const,
+      subject: 'Review visitor answer',
+      version: 1,
+      createdByKind: 'AGENT',
+      updatedByKind: 'AGENT',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const { container } = render(
+      <SupportOperationsView
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requests={{ items: [request], nextCursor: null }}
+        selected={request}
+        messages={{
+          items: [
+            {
+              id: 'message_draft',
+              authorKind: 'AGENT',
+              visibility: 'INTERNAL_ONLY',
+              body: 'Investigate internally.',
+              requestVersion: 2,
+              createdAt: new Date(),
+              attachments: [],
+            },
+          ],
+          nextCursor: null,
+        }}
+        audit={{ items: [], nextCursor: null }}
+      />,
+    )
+    expect(screen.getByText(/machine-prepared draft is internal only/i)).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Received' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Cancelled' })).toBeTruthy()
+    expect(screen.queryByLabelText('Message')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send questions' })).toBeNull()
+    expect(screen.queryByText('Create reviewed package draft')).toBeNull()
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 
   it('does not carry body, visibility, or selected files into another request', () => {

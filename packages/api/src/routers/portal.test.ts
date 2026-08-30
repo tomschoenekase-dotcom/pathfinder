@@ -17,6 +17,8 @@ const offboardingFindMany = vi.fn()
 const supportFindMany = vi.fn()
 const reportConfigurationFindFirst = vi.fn()
 const weeklyReportFindFirst = vi.fn()
+const visitorSessionCount = vi.fn()
+const messageFeedbackGroupBy = vi.fn()
 
 const app = router({ portal: portalRouter })
 const ctx = {
@@ -32,6 +34,8 @@ const ctx = {
     supportRequest: { findMany: supportFindMany },
     venueReportConfiguration: { findFirst: reportConfigurationFindFirst },
     weeklyReport: { findFirst: weeklyReportFindFirst },
+    visitorSession: { count: visitorSessionCount },
+    messageFeedback: { groupBy: messageFeedbackGroupBy },
   } as unknown as TRPCContext['db'],
   headers: new Headers(),
   session: {
@@ -127,6 +131,53 @@ describe('client portal lifecycle read model', () => {
     expect(supportFindMany).not.toHaveBeenCalled()
     expect(intakeCount).not.toHaveBeenCalled()
     expect(uploadCount).not.toHaveBeenCalled()
+  })
+
+  it('returns a venue-scoped aggregate visitor pulse without conversation or identity data', async () => {
+    venueFindFirst.mockResolvedValue({ id: 'venue-1' })
+    visitorSessionCount.mockResolvedValue(12)
+    messageFeedbackGroupBy.mockResolvedValue([
+      { rating: 'HELPFUL', _count: { _all: 7 } },
+      { rating: 'NOT_HELPFUL', _count: { _all: 2 } },
+    ])
+
+    const result = await app.createCaller(ctx).portal.getVenueVisitorPulse({ venueId: 'venue-1' })
+
+    expect(visitorSessionCount).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        experienceScope: 'PUBLIC',
+        startedAt: { gte: expect.any(Date) },
+      },
+    })
+    expect(messageFeedbackGroupBy).toHaveBeenCalledWith({
+      by: ['rating'],
+      where: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        createdAt: { gte: expect.any(Date) },
+      },
+      _count: { _all: true },
+    })
+    expect(result).toEqual({
+      windowDays: 30,
+      conversationCount: 12,
+      feedback: { helpful: 7, notHelpful: 2 },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/message|identity|location|transcript|reason/iu)
+  })
+
+  it('fails closed before visitor pulse aggregation for a missing or cross-tenant venue', async () => {
+    venueFindFirst.mockResolvedValue(null)
+    visitorSessionCount.mockClear()
+    messageFeedbackGroupBy.mockClear()
+
+    await expect(
+      app.createCaller(ctx).portal.getVenueVisitorPulse({ venueId: 'foreign-venue' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(visitorSessionCount).not.toHaveBeenCalled()
+    expect(messageFeedbackGroupBy).not.toHaveBeenCalled()
   })
 
   it('bounds missing-information evidence and keeps reports fail-closed when disabled', async () => {

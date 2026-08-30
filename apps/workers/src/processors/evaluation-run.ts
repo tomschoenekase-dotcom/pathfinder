@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { ClientVenuePackagePreview } from '@pathfinder/contracts'
+import {
+  ClientVenuePackagePreview,
+  ReviewableVenuePackageEvaluationPreview,
+} from '@pathfinder/contracts'
+import { buildVenueSystemPromptParts } from '@pathfinder/api/venue-context'
 import {
   AI_MODEL_KEYS,
   generateText,
@@ -32,6 +36,7 @@ import {
   db,
   EVALUATION_RUN_EXECUTION_LEASE_MS,
   evaluationSnapshotHash,
+  getEvaluationRegressionAlertPolicy,
   hashEvalCase,
   hashEvalObservation,
   failEvaluationRunAttempt,
@@ -77,13 +82,13 @@ export function detectEvaluationRegression(input: {
   currentScored: number
   previousPassed: number
   previousScored: number
-  minimumDrop?: number
+  minimumDrop: number
 }) {
   if (input.currentScored <= 0 || input.previousScored <= 0) return null
   const currentRate = input.currentPassed / input.currentScored
   const previousRate = input.previousPassed / input.previousScored
   const drop = Math.round((previousRate - currentRate) * 1_000_000_000_000) / 1_000_000_000_000
-  if (drop < (input.minimumDrop ?? 0.05)) return null
+  if (drop < input.minimumDrop) return null
   return { currentRate, previousRate, drop }
 }
 
@@ -91,6 +96,8 @@ async function publishEvaluationRegressionIfPresent(
   payload: EvaluationRunJobPayload,
 ): Promise<void> {
   await withTenantIsolationBypass(async () => {
+    const policy = await getEvaluationRegressionAlertPolicy(db)
+    if (!policy) return
     const current = await db.evalRun.findFirst({
       where: {
         id: payload.runId,
@@ -129,6 +136,7 @@ async function publishEvaluationRegressionIfPresent(
       currentScored: current.results.length,
       previousPassed: previous.results.filter((result) => result.passed === true).length,
       previousScored: previous.results.length,
+      minimumDrop: policy.minimumPassRateDrop,
     })
     if (!regression) return
     const percent = (value: number) => `${Math.round(value * 1000) / 10}%`
@@ -139,9 +147,9 @@ async function publishEvaluationRegressionIfPresent(
         venueId: payload.venueId,
         eventType: 'evaluation.regression.detected',
         sourceSubsystem: 'evaluation-runner',
-        severity: regression.drop >= 0.15 ? 'ERROR' : 'WARNING',
+        severity: regression.drop >= policy.errorPassRateDrop ? 'ERROR' : 'WARNING',
         title: 'Evaluation quality regression detected',
-        summary: `Pass rate declined from ${percent(regression.previousRate)} to ${percent(regression.currentRate)} on the same evaluation corpus.`,
+        summary: `Pass rate declined from ${percent(regression.previousRate)} to ${percent(regression.currentRate)} on the same evaluation corpus, exceeding the explicitly configured ${percent(policy.minimumPassRateDrop)} alert threshold.`,
         actionRequired: true,
         linkedObjectType: 'evaluation-run',
         linkedObjectId: current.id,
@@ -160,7 +168,13 @@ export type FrozenEvaluationRun = {
   caseManifestSnapshot: unknown
   promptContractVersion: string
   promptContractHash: string
-  contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1' | 'NATIVE_CORE_V1' | 'APPROVED_VENUE_PACKAGE_V1'
+  packageSnapshotRef?: string | null
+  packageSnapshotHash?: string | null
+  contentSnapshotKind?:
+    | 'LEGACY_VENUE_CONTENT_V1'
+    | 'NATIVE_CORE_V1'
+    | 'APPROVED_VENUE_PACKAGE_V1'
+    | 'REVIEWABLE_VENUE_PACKAGE_V1'
   contentSnapshotRef?: string | null
   contentSnapshotVersion: bigint
   contentSnapshotHash: string
@@ -298,6 +312,33 @@ export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
     throw new Error('EVALUATION_RUN_CONFIG_INVALID')
   }
   const config = run.runConfigSnapshot as Record<string, unknown>
+  if (run.contentSnapshotKind === 'REVIEWABLE_VENUE_PACKAGE_V1') {
+    if (
+      config.version !== 'pathfinder-reviewable-package-evaluation-run-config-v1' ||
+      config.contentSnapshot === undefined
+    )
+      throw new Error('EVALUATION_CONTENT_SNAPSHOT_MISSING')
+    const content = config.contentSnapshot as Record<string, unknown>
+    const preview = ReviewableVenuePackageEvaluationPreview.safeParse(content.preview)
+    if (
+      content.version !== 'pathfinder-reviewable-package-evaluation-content-v1' ||
+      content.tenantId !== run.tenantId ||
+      content.venueId !== run.venueId ||
+      content.packageId !== run.contentSnapshotRef ||
+      content.payloadHash !== run.packageSnapshotHash ||
+      typeof content.baseDigest !== 'string' ||
+      !preview.success ||
+      preview.data.venue.id !== run.venueId ||
+      preview.data.package.id !== run.contentSnapshotRef ||
+      preview.data.package.status !== content.packageStatus ||
+      evaluationSnapshotHash(
+        'pathfinder-reviewable-package-evaluation-content-v1',
+        content as never,
+      ) !== run.contentSnapshotHash
+    )
+      throw new Error('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+    return content as CanonicalJsonValue
+  }
   if (run.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1') {
     if (
       config.version !== 'pathfinder-approved-package-evaluation-run-config-v1' ||
@@ -365,20 +406,32 @@ export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
   return content
 }
 
-function assertFrozenModel(run: FrozenEvaluationRun): void {
-  const active = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
-  if (
-    active.provider !== run.modelProvider ||
-    active.model !== run.modelName ||
-    evaluationSnapshotHash('pathfinder-eval-model-snapshot-v1', run.modelSnapshot as never) !==
-      run.modelSnapshotHash ||
-    canonicalEvaluationJson(active as unknown as CanonicalJsonValue) !==
-      canonicalEvaluationJson(run.modelSnapshot as CanonicalJsonValue)
-  ) {
-    // The provider facade can select only registered models. Refuse an old or
-    // changed model instead of silently running a different one.
-    throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
+const EVALUATION_MODEL_KEYS = [AI_MODEL_KEYS.GUEST_CHAT, AI_MODEL_KEYS.GUEST_CHAT_OPENAI] as const
+type EvaluationModelKey = (typeof EVALUATION_MODEL_KEYS)[number]
+
+export function frozenEvaluationModelKey(run: FrozenEvaluationRun): EvaluationModelKey {
+  const snapshotHash = evaluationSnapshotHash(
+    'pathfinder-eval-model-snapshot-v1',
+    run.modelSnapshot as never,
+  )
+  if (snapshotHash !== run.modelSnapshotHash) throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
+
+  for (const modelKey of EVALUATION_MODEL_KEYS) {
+    const active = getAiModelSpec(modelKey)
+    if (
+      active.provider === run.modelProvider &&
+      active.model === run.modelName &&
+      canonicalEvaluationJson(active as unknown as CanonicalJsonValue) ===
+        canonicalEvaluationJson(run.modelSnapshot as CanonicalJsonValue)
+    ) {
+      return modelKey
+    }
   }
+
+  // The provider facade can select only the two explicitly governed guest-chat
+  // candidates. Refuse an old, changed, or unrelated registry model instead of
+  // silently dispatching a different provider.
+  throw new Error('EVALUATION_MODEL_IDENTITY_MISMATCH')
 }
 
 /** Pure orchestration seam. Queue/DB/provider adapters remain injectable so tests
@@ -397,7 +450,7 @@ export async function executeFrozenEvaluationRun(
   ) {
     throw new Error('EVALUATION_RUN_IDENTITY_MISMATCH')
   }
-  assertFrozenModel(run)
+  const modelKey = frozenEvaluationModelKey(run)
   const contentSnapshot = frozenContent(run)
   const manifest = EvalCaseManifestSchema.parse(run.caseManifestSnapshot)
   if (manifest.length > EVALUATION_RUN_MAX_CASES) throw new Error('EVALUATION_CASE_LIMIT_EXCEEDED')
@@ -477,7 +530,7 @@ export async function executeFrozenEvaluationRun(
       processed += 1
       continue
     }
-    const reservedCostE8Usd = evaluationPromptCostCeiling(evalCase, contentSnapshot)
+    const reservedCostE8Usd = evaluationPromptCostCeiling(evalCase, contentSnapshot, modelKey)
     const reservation = await deps.reserve({
       run,
       evalCase: frozenCase,
@@ -587,20 +640,167 @@ export async function executeFrozenEvaluationRun(
   return { processed, costE8Usd: spent, cancelled }
 }
 
-function evaluationPrompt(
+type VenuePromptParams = Parameters<typeof buildVenueSystemPromptParts>[0]
+
+function asRecord(value: CanonicalJsonValue | undefined): Record<string, CanonicalJsonValue> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, CanonicalJsonValue>)
+    : {}
+}
+
+function asRecords(value: CanonicalJsonValue | undefined): Record<string, CanonicalJsonValue>[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+        .map((item) => item as Record<string, CanonicalJsonValue>)
+    : []
+}
+
+function optionalString(value: CanonicalJsonValue | undefined): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function legacyPublishedContent(
+  value: CanonicalJsonValue | undefined,
+): NonNullable<VenuePromptParams['publishedUniversalContent']> {
+  return asRecords(value).flatMap((revision) => {
+    const kind = revision.kind
+    const payloadKey =
+      kind === 'SERVICE'
+        ? 'service'
+        : kind === 'POLICY'
+          ? 'policy'
+          : kind === 'EVENT'
+            ? 'event'
+            : kind === 'OPERATIONAL_FACT'
+              ? 'operationalFact'
+              : kind === 'RELATIONSHIP'
+                ? 'relationship'
+                : null
+    if (!payloadKey || typeof revision.moduleId !== 'string') return []
+    return [
+      {
+        moduleId: revision.moduleId,
+        kind,
+        payload: asRecord(revision[payloadKey]),
+      } as NonNullable<VenuePromptParams['publishedUniversalContent']>[number],
+    ]
+  })
+}
+
+function frozenVenuePromptParams(
+  content: CanonicalJsonValue,
+  guideMode: EvalCase['venue']['guideMode'],
+): VenuePromptParams {
+  const root = asRecord(content)
+  const preview = asRecord(root.preview)
+  if (Object.keys(preview).length > 0) {
+    const venue = asRecord(preview.venue)
+    const guide = asRecord(venue.guide)
+    const tone = asRecord(guide.tone)
+    const experience = asRecord(preview.experience)
+    return {
+      venue: {
+        name: String(venue.name),
+        description: optionalString(venue.description),
+        category: optionalString(venue.category),
+        aiGuideName: optionalString(guide.name),
+        tonePreset: optionalString(tone.preset),
+        tonePresetVersion: typeof tone.behaviorVersion === 'number' ? tone.behaviorVersion : null,
+        guideMode,
+      },
+      relevantPlaces: asRecords(
+        experience.places,
+      ) as unknown as VenuePromptParams['relevantPlaces'],
+      knowledgeEntries: asRecords(experience.knowledgeEntries) as unknown as NonNullable<
+        VenuePromptParams['knowledgeEntries']
+      >,
+      userLat: null,
+      userLng: null,
+      guideMode,
+    }
+  }
+
+  const nativeState = asRecord(root.state)
+  if (Object.keys(nativeState).length > 0) {
+    const venue = asRecord(nativeState.venue)
+    const configuration = asRecord(nativeState.venueBotConfiguration)
+    const generalizedModules = asRecords(nativeState.generalizedModules)
+    return {
+      venue: {
+        ...(venue as unknown as VenuePromptParams['venue']),
+        tonePreset: optionalString(configuration.tonePreset) ?? optionalString(venue.tonePreset),
+        tonePresetVersion:
+          typeof configuration.tonePresetVersion === 'number'
+            ? configuration.tonePresetVersion
+            : typeof venue.tonePresetVersion === 'number'
+              ? venue.tonePresetVersion
+              : null,
+        responseDepth:
+          configuration.responseDepth === 'BRIEF' ||
+          configuration.responseDepth === 'BALANCED' ||
+          configuration.responseDepth === 'DETAILED'
+            ? configuration.responseDepth
+            : null,
+      },
+      relevantPlaces: asRecords(
+        nativeState.places,
+      ) as unknown as VenuePromptParams['relevantPlaces'],
+      knowledgeEntries: asRecords(nativeState.knowledgeEntries) as unknown as NonNullable<
+        VenuePromptParams['knowledgeEntries']
+      >,
+      publishedUniversalContent: generalizedModules.map((module) => ({
+        moduleId: String(module.moduleId),
+        kind: module.kind as NonNullable<
+          VenuePromptParams['publishedUniversalContent']
+        >[number]['kind'],
+        payload: asRecord(module.payload),
+      })),
+      userLat: null,
+      userLng: null,
+      guideMode,
+    }
+  }
+
+  const venue = asRecord(root.venue)
+  const places = asRecords(root.places)
+  const placeNames = new Map(places.map((place) => [String(place.id), String(place.name)]))
+  return {
+    venue: venue as unknown as VenuePromptParams['venue'],
+    relevantPlaces: places as unknown as VenuePromptParams['relevantPlaces'],
+    knowledgeEntries: asRecords(root.knowledgeEntries) as unknown as NonNullable<
+      VenuePromptParams['knowledgeEntries']
+    >,
+    activeUpdates: asRecords(root.operationalUpdates).map((update) => ({
+      updateType: String(update.updateType),
+      severity: String(update.severity),
+      priority: String(update.priority),
+      title: String(update.title),
+      body: optionalString(update.body),
+      redirectTo: optionalString(update.redirectTo),
+      place:
+        typeof update.placeId === 'string' && placeNames.has(update.placeId)
+          ? { name: placeNames.get(update.placeId)! }
+          : null,
+    })),
+    publishedUniversalContent: legacyPublishedContent(root.universalRevisions),
+    userLat: null,
+    userLng: null,
+    guideMode,
+  }
+}
+
+export function evaluationPrompt(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
 ): { system: AiSystemBlock[]; messages: AiMessage[] } {
+  const prompt = buildVenueSystemPromptParts(
+    frozenVenuePromptParams(content, evalCase.venue.guideMode),
+  )
   return {
     system: [
-      {
-        type: 'text',
-        text: [
-          'Answer the final guest message using only the frozen Torchiko venue content below.',
-          'Follow the conversation turns. Do not mention this evaluation or the snapshot.',
-          `Frozen venue content JSON:\n${canonicalEvaluationJson(content)}`,
-        ].join('\n\n'),
-      },
+      { type: 'text', text: prompt.staticPart, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: prompt.dynamicPart },
     ],
     messages: evalCase.turns.map((turn) => ({ role: turn.role, content: turn.content })),
   }
@@ -609,8 +809,14 @@ function evaluationPrompt(
 export function evaluationPromptCostCeiling(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
+  modelKey: EvaluationModelKey = AI_MODEL_KEYS.GUEST_CHAT,
 ): bigint {
-  const spec = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
+  const spec = getAiModelSpec(modelKey)
+  if (
+    new TextEncoder().encode(canonicalEvaluationJson(content)).byteLength > spec.maxInputUtf8Bytes
+  ) {
+    throw new Error('AI text input exceeds configured input boundary')
+  }
   return textAttemptCostCeilingUnits({
     spec,
     ...evaluationPrompt(evalCase, content),
@@ -701,8 +907,9 @@ function defaultDependencies(
         leaseToken,
       }),
     evaluate: async ({ run, evalCase, contentSnapshot, remainingBudgetE8Usd, leaseToken }) => {
+      const modelKey = frozenEvaluationModelKey(run)
       const prompt = evaluationPrompt(evalCase, contentSnapshot)
-      const reserved = evaluationPromptCostCeiling(evalCase, contentSnapshot)
+      const reserved = evaluationPromptCostCeiling(evalCase, contentSnapshot, modelKey)
       if (reserved > remainingBudgetE8Usd) throw new EvaluationDeclaredBudgetError()
       const renewLease = () =>
         renewEvaluationRunLease({
@@ -728,7 +935,7 @@ function defaultDependencies(
         operation: (providerSignal) =>
           generateText({
             signal: providerSignal,
-            modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+            modelKey,
             ...prompt,
             maxAttempts: 1,
             usageSink: createWorkerAiUsageSink({

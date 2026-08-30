@@ -1,15 +1,28 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { onboardingBootstrapInputHash } from '@pathfinder/db'
 
 const reviewedDraft = vi.hoisted(() => ({ orchestrate: vi.fn() }))
+const websiteResearch = vi.hoisted(() => ({
+  execute: vi.fn(),
+  dependencies: { resolveHostname: vi.fn() },
+}))
 vi.mock('../venue-package', () => ({
   createVenuePackageDraftService: reviewedDraft.orchestrate,
+}))
+vi.mock('../../lib/website-intake-research-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/website-intake-research-service')>()
+  return { ...actual, executeWebsiteIntakeResearch: websiteResearch.execute }
+})
+vi.mock('../../lib/website-intake-runtime', () => ({
+  createWebsiteIntakeRuntimeDependencies: vi.fn(() => websiteResearch.dependencies),
 }))
 
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
 import { intakeCandidateDraftKey } from '../../lib/intake-venue-package-candidate'
+import { WebsiteResearchExecutionError } from '../../lib/website-intake-research-service'
 import { adminIntakeOperationsRouter } from './intake-operations'
 
 const venueFindFirst = vi.fn()
@@ -70,6 +83,68 @@ const candidateEvidence = {
   ],
 }
 
+function extractionReviewCandidateRun() {
+  const reviewId = '4d8bb6f8-f1d7-42ee-944d-2a628fa50f77'
+  const receiptId = '975140d8-5af9-4c2d-9132-40b5cf6f5962'
+  const proposalNotes = 'The east entrance is step-free.'
+  const proposalNotesHash = createHash('sha256').update(proposalNotes).digest('hex')
+  const requestHash = 'c'.repeat(64)
+  const sourceSha256 = 'b'.repeat(64)
+  const extractedTextHash = 'a'.repeat(64)
+  return {
+    id: 'proposal-run-file',
+    sourceKind: 'STRUCTURED_BOOTSTRAP',
+    status: 'AWAITING_REVIEW',
+    displayName: 'Reviewed visitor information',
+    structuredBootstrap: {
+      kind: 'FILE_EXTRACTION_REVIEW',
+      sourceRunId: 'source-run-file',
+      receiptId,
+      sourceSha256,
+      sourceMimeType: 'text/plain',
+      extractedTextHash,
+      proposalNotes,
+      proposalNotesHash,
+      reviewRationale: 'The selected statement is clear and relevant.',
+    },
+    submissionRequestId: reviewId,
+    submissionInputHash: requestHash,
+    requestedBy: 'platform-admin',
+    requestedByType: 'HUMAN',
+    packageHandoff: null,
+    venue: candidateVenue,
+    evidence: [
+      {
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        locator: `intake-file-extraction-review:${reviewId}`,
+        normalizedHash: proposalNotesHash,
+        confidence: 1,
+      },
+    ],
+    fileExtractionProposalReview: {
+      id: reviewId,
+      sourceRunId: 'source-run-file',
+      receiptId,
+      requestId: reviewId,
+      requestHash,
+      decision: 'ACCEPTED_FOR_PROPOSAL',
+      expectedExtractedTextHash: extractedTextHash,
+      proposalTitle: 'Reviewed visitor information',
+      proposalNotes,
+      proposalNotesHash,
+      rationale: 'The selected statement is clear and relevant.',
+      createdBy: 'platform-admin',
+      clarificationResolutionCount: 0,
+      clarificationResolutionDigest: null,
+      receipt: {
+        sourceSha256,
+        sourceMimeType: 'text/plain',
+        clarificationResolutions: [],
+      },
+    },
+  }
+}
+
 describe('platform admin intake operations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -85,6 +160,82 @@ describe('platform admin intake operations', () => {
       status: 'AWAITING_REVIEW',
       displayName: 'Site',
       createdAt: new Date(),
+    })
+  })
+
+  it('gates bounded website research and supplies only server-owned execution policy', async () => {
+    const operationId = 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca'
+    await expect(
+      testRouter.createCaller(context(false)).operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(websiteResearch.execute).not.toHaveBeenCalled()
+
+    websiteResearch.execute.mockResolvedValue({
+      receiptId: operationId,
+      outcome: 'SUCCEEDED',
+      replayed: false,
+      packageDraftCreated: false,
+      autoApproved: false,
+      autoApplied: false,
+      autoPublished: false,
+    })
+    const result = await testRouter
+      .createCaller(context())
+      .operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+      })
+
+    expect(websiteResearch.execute).toHaveBeenCalledWith({
+      db,
+      request: {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId,
+        maxPages: 5,
+        maxDepth: 1,
+        maxBytesPerPage: 1_000_000,
+        maxDurationMs: 30_000,
+        maxCostUnits: 20,
+        userAgent: 'TorchikoBuilder/1.0',
+        createdBy: 'platform-admin',
+      },
+      dependencies: websiteResearch.dependencies,
+    })
+    expect(result).toMatchObject({
+      packageDraftCreated: false,
+      autoApproved: false,
+      autoApplied: false,
+      autoPublished: false,
+    })
+  })
+
+  it('keeps classified website research rejections actionable for the operator', async () => {
+    websiteResearch.execute.mockRejectedValueOnce(
+      new WebsiteResearchExecutionError(
+        'INVALID_INPUT',
+        'Only a website intake run can execute website research.',
+      ),
+    )
+
+    await expect(
+      testRouter.createCaller(context()).operations.executeWebsiteIntakeResearch({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        operationId: 'a68c2e1a-8ece-47ad-98dc-e4bde64872ca',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Only a website intake run can execute website research.',
     })
   })
 
@@ -196,6 +347,48 @@ describe('platform admin intake operations', () => {
         finalizer: expect.any(Function),
       }),
     )
+  })
+
+  it('routes an exact extraction-review candidate only into the existing atomic DRAFT orchestrator', async () => {
+    const run = extractionReviewCandidateRun()
+    runFindFirst.mockResolvedValue(run)
+    const caller = testRouter.createCaller(context())
+    const candidate = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: run.id,
+    })
+    runFindFirst.mockClear().mockResolvedValue(run)
+    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package-file' }, attachment: {} })
+
+    await caller.operations.createAndLinkIntakeCandidateDraft({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: run.id,
+      expectedCandidateHash: candidate.candidateHash!,
+    })
+
+    expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: {
+          id: 'platform-admin',
+          role: 'PLATFORM_ADMIN',
+          type: 'HUMAN',
+        },
+        tenantId: 'tenant-a',
+        input: expect.objectContaining({
+          venueId: 'venue-a',
+          payload: candidate.payload,
+        }),
+        finalizer: expect.any(Function),
+      }),
+    )
+    expect(candidate).toMatchObject({
+      ready: true,
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
   })
 
   it('rejects a stale candidate hash without starting draft orchestration', async () => {

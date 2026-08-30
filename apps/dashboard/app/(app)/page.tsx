@@ -37,9 +37,14 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0] ?? null
   const selectedLifecycle = lifecycleRows.find((row) => row.venueId === selectedVenue?.id)
   if (!selectedLifecycle) throw new Error('Portal lifecycle evidence is unavailable')
-  const [taskEvidence, secondLayer] = await Promise.all([
+  const showVisitorPulse =
+    selectedLifecycle.lifecycle.state === 'LIVE' || selectedLifecycle.lifecycle.state === 'PAUSED'
+  const [taskEvidence, secondLayer, visitorPulse] = await Promise.all([
     caller.portal.getVenueTaskEvidence({ venueId: selectedVenue!.id }),
     caller.venue.getSecondLayer({ venueId: selectedVenue!.id }),
+    showVisitorPulse
+      ? caller.portal.getVenueVisitorPulse({ venueId: selectedVenue!.id })
+      : Promise.resolve(null),
   ])
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   const now = new Date()
@@ -149,6 +154,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       activeUpdates={activeAlerts}
       chatUrl={chatUrl}
       tasks={tasks.slice(0, 6)}
+      visitorPulse={visitorPulse}
       secondLayer={{
         enabled: secondLayer.secondLayerEnabled,
         label: secondLayer.secondLayerLabel,

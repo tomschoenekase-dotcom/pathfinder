@@ -33,7 +33,7 @@ describe('central AI workload configuration', () => {
     ).toBe(AI_EMBEDDING_MODEL_REGISTRY['guest-query-embedding'].inputUsdPerMillionTokens)
     expect(AI_PROVIDER_REGISTRY).toEqual({
       anthropic: { id: 'anthropic', capabilities: ['TEXT'] },
-      openai: { id: 'openai', capabilities: ['EMBEDDING'] },
+      openai: { id: 'openai', capabilities: ['TEXT', 'EMBEDDING'] },
     })
   })
 

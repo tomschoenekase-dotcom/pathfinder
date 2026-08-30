@@ -22,6 +22,7 @@ import { locationRouter } from './routers/location'
 import { widgetRouter } from './routers/widget'
 import { feedbackRouter } from './routers/feedback'
 import { billingRouter } from './routers/billing'
+import { publicInterestRouter } from './routers/public-interest'
 
 export const appRouter = router({
   admin: adminRouter,
@@ -46,6 +47,7 @@ export const appRouter = router({
   billing: billingRouter,
   place: placeRouter,
   portal: portalRouter,
+  publicInterest: publicInterestRouter,
   health: publicProcedure.query(() => ({
     ok: true,
     scope: 'public',

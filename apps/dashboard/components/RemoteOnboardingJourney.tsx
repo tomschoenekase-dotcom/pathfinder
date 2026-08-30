@@ -2,7 +2,10 @@ import Link from 'next/link'
 import React from 'react'
 import { ArrowRight, Check, Eye, MessageCircle, ShieldCheck } from 'lucide-react'
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
-import type { IntakeUploadCategory } from '@pathfinder/contracts/intake-upload'
+import type {
+  IntakeUploadCategory,
+  IntakeUploadClientVerification,
+} from '@pathfinder/contracts/intake-upload'
 import type { RemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
 
 import { ClientJourneyRail, PortalPrimaryAction } from './ClientPortalPrimitives'
@@ -20,6 +23,8 @@ type JourneyData = {
   materials: {
     uploaded: number
     checking: number
+    checksNeedAction: number
+    checksWaitingOnTorchiko: number
     needsAttention: number
     readyForReview: number
     processed: number
@@ -60,6 +65,7 @@ type SafeUpload = {
   category?: string
   status: string
   rejectionCode?: string | null
+  clientVerification?: IntakeUploadClientVerification
 }
 
 function statusLabel(status: string) {
@@ -90,7 +96,15 @@ function proposalLabel(proposal: IntakeProposalSummary): string {
 
 function primaryHref(data: JourneyData) {
   const home = `/venues/${data.venue.id}/onboarding`
+  if (
+    data.projection.primaryAction.kind === 'CHOOSE_REPLACEMENT' ||
+    data.projection.primaryAction.kind === 'RESUME_MATERIAL_CHECK'
+  ) {
+    return '#material-attention'
+  }
   switch (data.projection.primaryAction.stage) {
+    case 'OVERVIEW':
+      return '#saved-progress'
     case 'MATERIALS':
       return '#materials'
     case 'REVIEW':
@@ -117,15 +131,18 @@ function clientJourney(data: JourneyData): {
       ? 4
       : data.projection.primaryAction.stage === 'QUESTIONS'
         ? 3
-        : data.projection.primaryAction.stage === 'PREVIEW' ||
-            data.projection.primaryAction.stage === 'READINESS'
-          ? 4
-          : data.projection.primaryAction.stage === 'OVERVIEW' ||
-              data.projection.primaryAction.stage === 'REVIEW' ||
-              data.lifecycle.state === 'PROCESSING' ||
-              data.lifecycle.state === 'INTERNAL_REVIEW'
-            ? 2
-            : 1
+        : data.projection.primaryAction.stage === 'MATERIALS' &&
+            data.projection.primaryAction.required
+          ? 1
+          : data.projection.primaryAction.stage === 'PREVIEW' ||
+              data.projection.primaryAction.stage === 'READINESS'
+            ? 4
+            : data.projection.primaryAction.stage === 'OVERVIEW' ||
+                data.projection.primaryAction.stage === 'REVIEW' ||
+                data.lifecycle.state === 'PROCESSING' ||
+                data.lifecycle.state === 'INTERNAL_REVIEW'
+              ? 2
+              : 1
   const labels = [
     { id: 'welcome', label: 'Welcome', summary: 'Know what happens next.' },
     { id: 'share', label: 'Share', summary: 'Give us what you already have.' },
@@ -177,13 +194,15 @@ export function RemoteOnboardingJourney({
       ? `/venues/${data.venue.id}/preview/${data.preview.packageId}?returnTo=${encodeURIComponent(`${onboardingHref}#preview`)}`
       : null
   const journey = clientJourney(data)
-  const recordedMaterialCount =
+  const sharedSourceCount =
     data.materials.uploaded +
     data.materials.checking +
+    data.materials.checksNeedAction +
+    data.materials.checksWaitingOnTorchiko +
     data.materials.needsAttention +
     data.materials.readyForReview +
-    data.materials.processed
-  const organizedCount = data.review.proposedSources + data.review.draftPackages
+    data.review.proposedSources
+  const readyForTorchikoCount = data.materials.readyForReview + data.review.proposedSources
 
   return (
     <div className={styles.page}>
@@ -208,12 +227,40 @@ export function RemoteOnboardingJourney({
           <ClientJourneyRail stages={journey.stages} compact />
         </div>
 
+        {sharedSourceCount > 0 ? (
+          <section
+            id="saved-progress"
+            className={styles.resumeCheckpoint}
+            aria-labelledby="saved-progress-title"
+          >
+            <div>
+              <p className={styles.sectionEyebrow}>Saved checkpoint</p>
+              <h2 id="saved-progress-title">
+                Your onboarding progress will be here when you return.
+              </h2>
+            </div>
+            <p>
+              <strong>
+                {sharedSourceCount} shared source{sharedSourceCount === 1 ? '' : 's'} recorded for{' '}
+                {data.venue.name}.
+              </strong>{' '}
+              {data.projection.primaryAction.required
+                ? 'The action above still needs your attention, and Torchiko will bring you back to it.'
+                : 'Nothing else is required right now. You can close this page and return later.'}{' '}
+              Unfinished entries are not saved until you share them.
+            </p>
+          </section>
+        ) : null}
+
         <div id="materials" className={styles.materials}>
           <IntakeFileUploadWorkspace
             venueId={data.venue.id}
             uploads={uploads}
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}
+            attentionCount={data.materials.needsAttention}
+            checkActionCount={data.materials.checksNeedAction}
+            checkWaitingCount={data.materials.checksWaitingOnTorchiko}
           />
           <section className={styles.sourceDetails} aria-labelledby="more-information-title">
             <h2 id="more-information-title">Add a website, staff knowledge, or optional notes</h2>
@@ -272,21 +319,29 @@ export function RemoteOnboardingJourney({
         <section className={styles.progressStrip} aria-label="Current onboarding activity">
           <div>
             <span>Shared</span>
-            <strong>{recordedMaterialCount}</strong>
-            <p>Material records are safely attached to this venue.</p>
+            <strong>{sharedSourceCount}</strong>
+            <p>Submitted sources are recorded here, including anything needing a safe retry.</p>
           </div>
           <div>
-            <span>Being organized</span>
-            <strong>{data.materials.checking + organizedCount}</strong>
-            <p>Checks and review stay truthful; Torchiko does not invent precise progress.</p>
+            <span>Ready for Torchiko</span>
+            <strong>{readyForTorchikoCount}</strong>
+            <p>Files, websites, staff answers, and notes ready for Torchiko review.</p>
           </div>
           <div>
             <span>Your attention</span>
-            <strong>{data.materials.needsAttention + data.questions.open}</strong>
+            <strong>
+              {data.materials.needsAttention +
+                data.materials.checksNeedAction +
+                data.questions.open}
+            </strong>
             <p>
-              {data.questions.open
-                ? 'A focused answer can move setup forward.'
-                : 'Nothing needs an answer right now.'}
+              {data.materials.needsAttention
+                ? 'Choose a replacement for each file Torchiko could not accept.'
+                : data.materials.checksNeedAction
+                  ? 'Resume the saved file check. You do not need to upload it again.'
+                  : data.questions.open
+                    ? 'A focused answer can move setup forward.'
+                    : 'Nothing needs an answer right now.'}
             </p>
           </div>
         </section>

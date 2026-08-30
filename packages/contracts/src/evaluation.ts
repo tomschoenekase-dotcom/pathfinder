@@ -33,6 +33,49 @@ export const EvalCategorySchema = z.enum([
   'multi-turn-context',
 ])
 
+export const EvalIntentSchema = z.enum([
+  'accessibility',
+  'amenity',
+  'availability',
+  'directions',
+  'general-information',
+  'policy',
+  'privacy',
+  'recommendation',
+  'safety',
+  'schedule',
+])
+export const EvalRiskSchema = z.enum(['low', 'moderate', 'high'])
+export const EvalLanguageSchema = z.enum([
+  'en',
+  'es',
+  'fr',
+  'de',
+  'it',
+  'pt',
+  'zh',
+  'ja',
+  'ko',
+  'ar',
+])
+export const EvalLocationContextSchema = z.enum([
+  'arrival',
+  'exhibit',
+  'amenity',
+  'dining',
+  'whole-venue',
+  'offsite',
+])
+
+export const EvalCoverageDimensionsSchema = z
+  .object({
+    intent: EvalIntentSchema,
+    risk: EvalRiskSchema,
+    language: EvalLanguageSchema,
+    locationContext: EvalLocationContextSchema,
+  })
+  .strict()
+
 const PhraseRuleSchema = z
   .object({
     ruleId: IdSchema,
@@ -52,6 +95,9 @@ export const EvalCaseSchema = z
     schemaVersion: z.literal(EVAL_SCHEMA_VERSION),
     caseId: IdSchema,
     category: EvalCategorySchema,
+    // Optional for pathfinder-eval-v1 compatibility. New representative corpora should provide
+    // all four dimensions; legacy persisted cases remain valid and retain their canonical hashes.
+    dimensions: EvalCoverageDimensionsSchema.optional(),
     venue: z
       .object({
         fixtureId: IdSchema,
@@ -423,6 +469,8 @@ export const EvalAggregateSchema = z
   .strict()
 
 export type EvalCase = z.infer<typeof EvalCaseSchema>
+export type EvalCoverageDimensions = z.infer<typeof EvalCoverageDimensionsSchema>
+export type EvalLanguage = z.infer<typeof EvalLanguageSchema>
 export type EvalObservationInput = z.infer<typeof EvalObservationInputSchema>
 export type EvalObservation = z.infer<typeof EvalObservationSchema>
 export type EvalResult = z.infer<typeof EvalResultSchema>
@@ -462,6 +510,68 @@ export type CanonicalJsonValue =
   | CanonicalJsonValue[]
   | { [key: string]: CanonicalJsonValue }
 
+export type EvalSourceCoverage = {
+  caseId: string
+  supportedMarkers: number
+  totalMarkers: number
+  markers: {
+    markerId: string
+    kind: 'required-phrase' | 'required-fact'
+    supported: boolean
+    matchedPhrase: string | null
+  }[]
+}
+
+function evaluationSourceStrings(value: CanonicalJsonValue): string[] {
+  if (typeof value === 'string') return [value]
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return []
+  if (Array.isArray(value)) return value.flatMap(evaluationSourceStrings)
+  return Object.values(value).flatMap(evaluationSourceStrings)
+}
+
+/**
+ * Provider-free lexical coverage evidence. This does not decide truth, semantic equivalence, case
+ * acceptance, or release readiness; it only reports whether human-authored answer markers appear
+ * in the exact frozen source values.
+ */
+export function evaluateSourceCoverage(
+  rawCase: EvalCase,
+  content: CanonicalJsonValue,
+): EvalSourceCoverage {
+  const evalCase = EvalCaseSchema.parse(rawCase)
+  const sourceValues = evaluationSourceStrings(content).map(normalized)
+  const hasPhrase = (phrase: string) => {
+    const candidate = normalized(phrase)
+    return sourceValues.some((value) => value.includes(candidate))
+  }
+  const markers: EvalSourceCoverage['markers'] = [
+    ...evalCase.rules.requiredPhrases.map((rule) => {
+      const supported = hasPhrase(rule.phrase)
+      return {
+        markerId: rule.ruleId,
+        kind: 'required-phrase' as const,
+        supported,
+        matchedPhrase: supported ? rule.phrase : null,
+      }
+    }),
+    ...evalCase.rules.requiredFacts.map((rule) => {
+      const matchedPhrase = rule.acceptablePhrases.find(hasPhrase) ?? null
+      return {
+        markerId: rule.ruleId,
+        kind: 'required-fact' as const,
+        supported: matchedPhrase !== null,
+        matchedPhrase,
+      }
+    }),
+  ]
+  return {
+    caseId: evalCase.caseId,
+    supportedMarkers: markers.filter((marker) => marker.supported).length,
+    totalMarkers: markers.length,
+    markers,
+  }
+}
+
 /** Browser-safe canonicalization. Hash adapters live in Node-owning packages. */
 export function canonicalEvaluationJson(value: CanonicalJsonValue): string {
   if (typeof value === 'string') return JSON.stringify(value.normalize('NFC'))
@@ -492,6 +602,7 @@ export const EvalContentSnapshotKindSchema = z.enum([
   'LEGACY_VENUE_CONTENT_V1',
   'NATIVE_CORE_V1',
   'APPROVED_VENUE_PACKAGE_V1',
+  'REVIEWABLE_VENUE_PACKAGE_V1',
 ])
 export const NativeDeploymentEvaluationDispositionSchema = z.enum([
   'PASS',

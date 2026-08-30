@@ -29,6 +29,9 @@ const bypassTenantIsolationStorage =
 tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIsolationStorage
 const APPEND_ONLY_MODELS = [
   'AiUsageEvent',
+  'OperatingCostEvidence',
+  'OperationalUsageEvidence',
+  'GuestAnswerAttribution',
   'ProductEntitlementOverride',
   'BillingEventApplication',
   'BillingAccessOverride',
@@ -37,6 +40,7 @@ const APPEND_ONLY_MODELS = [
   'EvalResult',
   'EvalReview',
   'OnboardingMilestoneEvent',
+  'FirstWeekAccountReview',
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',
@@ -46,6 +50,9 @@ const APPEND_ONLY_MODELS = [
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
   'SupportPackageHandoff',
+  'KnowledgeProposalPackageHandoff',
+  'KnowledgeProposalOperationalUpdateHandoff',
+  'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
   'ClientAssistantSupportHandoff',
@@ -68,6 +75,11 @@ const APPEND_ONLY_MODELS = [
   'ContentModulePublication',
   'IntakeRun',
   'IntakeEvidenceRecord',
+  'IntakeWebsiteResearchReceipt',
+  'IntakeFileExtractionReceipt',
+  'IntakeFileExtractionReview',
+  'IntakeFileClarificationResolution',
+  'IntakeInterviewClarificationResolution',
   'IntakeUploadVerificationReceipt',
   'IntakeRunEvent',
   'IntakePackageHandoff',
@@ -86,10 +98,12 @@ const APPEND_ONLY_MODELS = [
   'ProspectContactSuppressionEvent',
   'ProspectEmailEvent',
   'ProspectImportReportEntry',
+  'PlatformReleaseEvidence',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentBridgeSession',
   'AgentRun',
+  'CustomerAccessRequest',
   'EvalRun',
   'EvalRunCostReservation',
   'SupportRequest',
@@ -231,7 +245,10 @@ export async function withTenantIsolationBypass<T>(fn: () => Promise<T>): Promis
     action: 'tenant_isolation.bypass',
     caller: resolveBypassCaller(),
   })
-  return bypassTenantIsolationStorage.run(true, fn)
+  // PrismaPromise is a lazy thenable: returning it directly from run() can
+  // defer query execution until after the AsyncLocalStorage scope has exited.
+  // Assimilate and await it inside the scoped async callback instead.
+  return bypassTenantIsolationStorage.run(true, async () => await fn())
 }
 
 export async function tenantIsolationMiddleware(

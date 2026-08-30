@@ -58,9 +58,13 @@ The bindings expose:
 - native deployment lifecycle metadata without plans, state snapshots, replacement universes, or
   hashes;
 - tenant feature-flag keys/state without metadata or setter identities;
-- derived readiness counts/state without configuration blobs;
+- derived readiness counts/state plus exact native-head convergence phase, blockers, and safe
+  counts without state hashes, native snapshots, configuration blobs, read switching, or legacy
+  retirement authority;
 - venue-scoped agent questions and operator responses without credential or raw execution data; and
-- explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers.
+- explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers; and
+- versioned venue-scoped agent improvement proposals with exact outcome IDs and review state, without operation IDs or reviewer identifiers.
+- immutable approved-proposal validation evidence with implementation version/hash and sanitized same-corpus before/after comparison, without reviewer identifiers or automatic promotion.
 
 ## Agent-to-operator interaction
 
@@ -78,6 +82,16 @@ paused.
 
 The adapter is exported by `@pathfinder/api/mcp`, but nothing instantiates it in a listener. Write
 actions remain injected separately and default-off at the registry boundary.
+
+`torchiko.agent_improvements.propose` is a review-only interaction. An exactly scoped worker may
+prepare an outcome-backed hypothesis for human review. The tool pauses the proposing run and records
+evidence, but cannot alter prompts, routing, models, tools, permissions, or production behavior.
+Approval accepts the proposal for separately validated implementation; it is not an execution grant.
+
+`torchiko.agent_improvements.record_validation` appends evidence only after an exact human approval.
+It binds the approved proposal to an immutable implementation reference and two completed, exact-scope
+evaluation runs. Corpus and evidence mismatches fail closed; content, model, or configuration changes
+must be declared. The tool records no promotion and leaves behavior and authority unchanged.
 
 ## Deliberate limitations
 

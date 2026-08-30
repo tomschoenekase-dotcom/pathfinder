@@ -3,6 +3,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 
 import { NativeReleaseEvaluationPanel } from './NativeReleaseEvaluationPanel'
+import { NativeContentShadowComparisonPanel } from './NativeContentShadowComparisonPanel'
 import { NativeVenueDeploymentLifecycleControls } from './NativeVenueDeploymentLifecycleControls'
 
 type NativeRelease = inferRouterOutputs<AppRouter>['admin']['getNativeVenueDeployment']
@@ -123,6 +124,12 @@ export function NativeVenueDeploymentDetail({
         releaseStatus={release.status}
         runner={release.evaluationRunner}
         initialEvidence={release.evaluationEvidence}
+      />
+
+      <NativeContentShadowComparisonPanel
+        tenantId={tenantId}
+        venueId={venueId}
+        releaseId={release.id}
       />
 
       {!release.materializable || release.unsupported ? (

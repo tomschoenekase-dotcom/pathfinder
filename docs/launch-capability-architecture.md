@@ -6,7 +6,32 @@ This document is the canonical guide for PathFinder's launch-adjacent capability
 
 Application code requests a capability from `packages/ai/src/capability-routing.ts`; workload configuration chooses an ordered, provider-neutral route. Current capabilities include fast and standard conversation, reasoning, premium conversation, realtime voice tiers, extraction, classification, embeddings, moderation, and background analysis. Runtime workload configuration still supports platform, tenant, and venue overrides. Provider/model health, disabled routes, cost policy, quality preference, and fallback ordering are inputs to route planning.
 
+Live guest chat executes the complete centrally configured route rather than selecting only its
+first candidate. Gateway failures may move to an explicit fallback under the same invocation and
+one durable provider-dispatch fence. Non-provider failures—including admission, budget, policy,
+accounting, and abort controls—fail closed and cannot trigger a second candidate. The route model
+is provider-neutral, but current text execution is Anthropic-only; cross-provider text failover is
+an explicit remaining adapter and staging-verification gate.
+
+If every configured guest-chat candidate fails and the safe visitor response is committed, a
+sanitized `guest-chat.route-degraded` operational event is grouped by venue and routing version for
+the Founder Control Room. A successful fallback candidate creates usage evidence but no incident.
+This does not automatically disable a provider, change route health, or establish an outage-rate or
+external-notification threshold.
+
+Human platform administrators can separately record audited, expiring provider-health exclusions.
+Guest chat applies one control snapshot before both embedding and response generation across all
+venues. Expired exclusions restore eligibility automatically; malformed or unreadable control
+fails closed. The control does not infer health or activate an unavailable provider. See
+[`ai-provider-health-control.md`](ai-provider-health-control.md).
+
 `AiUsageEvent` records tenant, venue, capability, request type, provider, model, route key, fallback use, latency, success, token/audio units, pricing version, and estimated cost. Daily rollups retain text and audio units. Do not log prompt or transcript bodies as route telemetry.
+
+The explicitly configured tenant hard budget remains the authoritative pre-dispatch spend fence.
+Denied reservations and recorded over-ceiling breaches now publish deduplicated, tenant-scoped
+Founder Control Room events linked to the budget controls. This adds actionable evidence without
+choosing an alert threshold, changing customer service, or enabling an external escalation channel.
+See [`ai-cost-protection.md`](ai-cost-protection.md).
 
 ## Entitlements
 
@@ -19,6 +44,8 @@ The widget and voice require separate environment gates. Existing widget plan ti
 `packages/ai/src/realtime-voice.ts` is the provider boundary. The initial OpenAI adapter creates a short-lived browser credential on the server. The standard provider API key never enters browser output or persisted session data. Browser WebRTC then exchanges SDP directly with the provider.
 
 Every `VoiceSession` is bound to tenant, venue, public visitor session, bot snapshot, locale, tier, route, entitlement source, and quota policy. Transcript segments store text only; audio is not retained. Admission rechecks concurrent, daily, and monthly quotas under a tenant/venue advisory lock. Usage reported by provider events is validated, priced on the server, and idempotently persisted.
+
+A provider-dark recovery scheduler releases abandoned capacity once per minute. It atomically terminalizes stale `AUTHORIZING` rows after a five-minute technical lease, `READY` rows after their provider credential expires, and `ACTIVE` rows after their already-persisted maximum duration. Recovery is bounded, lock-safe across worker replicas, preserves fresh/terminal sessions, marks text fallback, and emits durable job plus analytics evidence. It does not add a customer-facing timeout or contact a provider.
 
 Configuration:
 

@@ -2,9 +2,22 @@ import Link from 'next/link'
 import { EvaluationRunRequestPanel, type EvaluationCaseListItem } from './EvaluationRunRequestPanel'
 import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
 import { EvaluationComparisonPanel } from './EvaluationComparisonPanel'
+import { EvaluationRuntimeGateControl } from './EvaluationRuntimeGateControl'
 import { OnboardingEvaluationSuitePanel } from './OnboardingEvaluationSuitePanel'
 import { OnboardingMilestoneMetricsPanel } from './OnboardingMilestoneMetricsPanel'
+import {
+  ConversationEvaluationCasePanel,
+  type EvaluationSourceInsight,
+} from './ConversationEvaluationCasePanel'
 import type { OnboardingMilestoneRollup } from '@pathfinder/contracts'
+import {
+  AnswerAttributionAgreementCard,
+  type AnswerAttributionAgreementData,
+} from './AnswerAttributionAgreementCard'
+import {
+  GuestAnswerEvaluationPanel,
+  type GuestAnswerEvaluationRequest,
+} from './GuestAnswerEvaluationPanel'
 
 type EvaluationSummary = {
   resultCount: number
@@ -81,11 +94,40 @@ type EvaluationOperationsViewProps = {
   cases?: EvaluationCaseListItem[]
   caseNextCursor?: { createdAt: string; id: string } | null
   runnerEnabled?: boolean
+  runnerReadiness?: {
+    apiProcessEnabled: boolean
+    durableGlobalEnabled: boolean
+    tenantEnabled: boolean
+  }
+  regressionAlerts?: {
+    configured: boolean
+    minimumPassRateDrop: number | null
+    errorPassRateDrop: number | null
+  }
   maximumCases?: number
+  maximumBudgetE8Usd?: string
+  evaluationModelBudgetCeilingsE8Usd?: Record<'guest-chat' | 'guest-chat-openai', string>
   requestPanelEnabled?: boolean
-  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
+  reviewablePackages?: {
+    id: string
+    status: 'DRAFT' | 'APPROVED'
+    payloadHash: string
+    baseDigest: string
+    createdAt: Date
+    approvedAt: Date | null
+    supportHandoffs: { supportRequestId: string; requestVersion: number }[]
+  }[]
   failedCases?: FailedCase[]
   onboardingMetrics?: OnboardingMilestoneRollup
+  sourceInsights?: EvaluationSourceInsight[]
+  attributionAgreement?: AnswerAttributionAgreementData | null
+  answerEvaluationRequests?: GuestAnswerEvaluationRequest[]
+  answerEvaluationReadiness?: {
+    processEnabled: boolean
+    durableGlobalEnabled: boolean
+    tenantEnabled: boolean
+  }
+  answerEvaluationExecutionEnabled?: boolean
 }
 
 function shortHash(value: string | null) {
@@ -161,11 +203,23 @@ export function EvaluationOperationsView({
   cases = [],
   caseNextCursor = null,
   runnerEnabled = false,
+  runnerReadiness,
+  regressionAlerts,
   maximumCases = 50,
+  maximumBudgetE8Usd = '410000000',
+  evaluationModelBudgetCeilingsE8Usd = {
+    'guest-chat': '20256000',
+    'guest-chat-openai': '5102400',
+  },
   requestPanelEnabled = false,
-  approvedPackages = [],
+  reviewablePackages = [],
   failedCases = [],
   onboardingMetrics,
+  sourceInsights = [],
+  attributionAgreement,
+  answerEvaluationRequests,
+  answerEvaluationReadiness,
+  answerEvaluationExecutionEnabled = false,
 }: EvaluationOperationsViewProps) {
   return (
     <div className="space-y-8">
@@ -186,14 +240,41 @@ export function EvaluationOperationsView({
         </div>
       </header>
 
+      {attributionAgreement !== undefined ? (
+        <AnswerAttributionAgreementCard data={attributionAgreement} />
+      ) : null}
+
+      {answerEvaluationRequests && answerEvaluationReadiness ? (
+        <GuestAnswerEvaluationPanel
+          tenantId={tenantId}
+          venueId={venueId}
+          requests={answerEvaluationRequests}
+          readiness={answerEvaluationReadiness}
+          executionEnabled={answerEvaluationExecutionEnabled}
+        />
+      ) : null}
+
       {onboardingMetrics ? <OnboardingMilestoneMetricsPanel rollup={onboardingMetrics} /> : null}
+
+      {requestPanelEnabled && runnerReadiness ? (
+        <EvaluationRuntimeGateControl
+          tenantId={tenantId}
+          venueId={venueId}
+          readiness={runnerReadiness}
+        />
+      ) : null}
 
       {requestPanelEnabled ? (
         <>
           <OnboardingEvaluationSuitePanel
             tenantId={tenantId}
             venueId={venueId}
-            approvedPackages={approvedPackages}
+            reviewablePackages={reviewablePackages}
+          />
+          <ConversationEvaluationCasePanel
+            tenantId={tenantId}
+            venueId={venueId}
+            insights={sourceInsights}
           />
           <EvaluationRunRequestPanel
             tenantId={tenantId}
@@ -201,8 +282,11 @@ export function EvaluationOperationsView({
             initialCases={cases}
             initialNextCursor={caseNextCursor}
             runnerEnabled={runnerEnabled}
+            {...(regressionAlerts ? { regressionAlerts } : {})}
             maximumCases={maximumCases}
-            approvedPackages={approvedPackages}
+            maximumBudgetE8Usd={maximumBudgetE8Usd}
+            evaluationModelBudgetCeilingsE8Usd={evaluationModelBudgetCeilingsE8Usd}
+            reviewablePackages={reviewablePackages}
           />
         </>
       ) : null}

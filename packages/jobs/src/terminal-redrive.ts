@@ -1,6 +1,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 
-import type { Job, JobsOptions, Queue } from 'bullmq'
+import { Queue, type Job, type JobsOptions } from 'bullmq'
+import IORedis from 'ioredis'
+
+import { env } from '@pathfinder/config'
 
 import {
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
@@ -26,6 +29,7 @@ import {
 
 const MAX_JOB_ID_LENGTH = 512
 const TERMINAL_REDRIVE_CONFIRMATION_DOMAIN = 'pathfinder-terminal-redrive-v1'
+const TERMINAL_REDRIVE_PREVIEW_TIMEOUT_MS = 3_000
 
 const supportedQueueJobs = new Map<string, ReadonlySet<string>>([
   [WEEKLY_DIGEST_QUEUE, new Set([WEEKLY_DIGEST_PROCESS_JOB])],
@@ -167,6 +171,10 @@ export function supportedTerminalRedriveQueues(): string[] {
   return [...supportedQueueJobs.keys()].sort()
 }
 
+export function isTerminalRedriveJobSupported(queueName: string, jobName: string): boolean {
+  return supportedQueueJobs.get(queueName)?.has(jobName) ?? false
+}
+
 export async function inspectTerminalJobRedrive(params: {
   queue: TerminalRedriveQueue
   bullJobId: string
@@ -244,6 +252,44 @@ export async function inspectTerminalJobRedrive(params: {
       }),
     },
     job,
+  }
+}
+
+/**
+ * Opens a bounded, read-only Redis observation for one persisted terminal failure.
+ * The dedicated connection is never shared with workers and is always disconnected.
+ */
+export async function inspectTerminalJobRedriveRuntime(params: {
+  evidence: TerminalJobRecordEvidence
+}): Promise<TerminalRedrivePreview> {
+  const { evidence } = params
+  if (!evidence.bullJobId) refuse('JobRecord has no BullMQ identity')
+  if (!isTerminalRedriveJobSupported(evidence.queue, evidence.jobName)) {
+    refuse('JobRecord job type is not approved for redrive')
+  }
+  if (!env.REDIS_URL) refuse('Redis is not configured for terminal redrive preview')
+
+  const connection = new IORedis(env.REDIS_URL, {
+    commandTimeout: TERMINAL_REDRIVE_PREVIEW_TIMEOUT_MS,
+    connectTimeout: TERMINAL_REDRIVE_PREVIEW_TIMEOUT_MS,
+    enableOfflineQueue: false,
+    enableReadyCheck: false,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null,
+  })
+  connection.on('error', () => undefined)
+  const queue = new Queue(evidence.queue, { connection })
+  try {
+    await queue.waitUntilReady()
+    const inspected = await inspectTerminalJobRedrive({
+      queue,
+      bullJobId: evidence.bullJobId,
+      evidence,
+    })
+    return inspected.preview
+  } finally {
+    await queue.close().catch(() => undefined)
+    connection.disconnect()
   }
 }
 

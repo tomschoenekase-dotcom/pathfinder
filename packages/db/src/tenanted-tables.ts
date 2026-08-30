@@ -1,5 +1,7 @@
 export const TENANTED_TABLES = [
   'TenantMembership',
+  'CustomerAccessRequest',
+  'FounderDirectiveTaskRequest',
   'TenantFeatureFlag',
   'ProductEntitlementOverride',
   'BillingAccount',
@@ -29,6 +31,7 @@ export const TENANTED_TABLES = [
   'EvalResult',
   'EvalReview',
   'OnboardingMilestoneEvent',
+  'FirstWeekAccountReview',
   'VenueContentImportReceipt',
   'VenuePackage',
   'VenuePackageManifestArtifact',
@@ -44,6 +47,8 @@ export const TENANTED_TABLES = [
   'VoiceSession',
   'VoiceTranscriptSegment',
   'GuestChatTurn',
+  'GuestAnswerAttribution',
+  'GuestAnswerAttributionEvaluationRequest',
   'GuestChatProviderOperation',
   'AiUsageEvent',
   'ConversationInsight',
@@ -51,6 +56,8 @@ export const TENANTED_TABLES = [
   'OperationalEventDelivery',
   'OperationalEventDeliveryAttempt',
   'KnowledgeChangeProposal',
+  'KnowledgeProposalPackageHandoff',
+  'KnowledgeProposalOperationalUpdateHandoff',
   'VenueFloor',
   'VenueLocation',
   'VenueLocationConnection',
@@ -84,6 +91,10 @@ export const TENANTED_TABLES = [
   'AgentTimelineEvent',
   'AgentMessage',
   'AgentOutcomeObservation',
+  'AgentImprovementProposal',
+  'AgentImprovementProposalEvidence',
+  'ApprovalGrantEvidence',
+  'AgentImprovementValidationEvidence',
   'AgentQuestion',
   'OnboardingQuestionLink',
   'ApprovalRequest',
@@ -96,6 +107,7 @@ export const TENANTED_TABLES = [
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
   'SupportPackageHandoff',
+  'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
   'ExternalAccessCredential',
@@ -121,9 +133,19 @@ export const TENANTED_TABLES = [
   'IntakeRun',
   'IntakeEvidenceRecord',
   'IntakeRunEvent',
+  'IntakeWebsiteResearchReceipt',
+  'IntakeFileExtractionReceipt',
+  'IntakeFileExtractionReview',
+  'IntakeFileClarificationResolution',
+  'IntakeInterviewClarificationResolution',
   'IntakePackageHandoff',
   'IntakeUpload',
   'IntakeUploadVerificationReceipt',
+  'VenueMediaAsset',
+  'VenueMediaDerivative',
+  'VenueMediaPlaceLink',
+  'VenueMediaKnowledgeLink',
+  'VenueMediaReview',
   'AiScopedWorkloadConfigurationOverride',
   'AiScopedWorkloadConfigurationHistory',
   // Durable bridge from a platform prospect to one exact customer tenant.
@@ -138,12 +160,15 @@ export const PLATFORM_TABLES = [
   'User',
   'Tenant',
   'PlatformConfig',
+  'FounderAbsenceObservation',
   'ClerkWebhookReceipt',
   'AiWorkloadConfigurationOverride',
   'AiWorkloadConfigurationHistory',
   'ClientCreateIntent',
   'ClientCreateIntentEvent',
   'ProductPlanCapability',
+  'PlatformWorkerPolicyCredential',
+  'PlatformReleaseEvidence',
   // Provider receipt exists before tenant ownership can be established so
   // unknown Stripe objects can be quarantined instead of discarded.
   'StripeWebhookReceipt',
@@ -151,8 +176,17 @@ export const PLATFORM_TABLES = [
   'ProspectTag',
   'ProspectOrganizationTag',
   'CorrespondenceProviderAccount',
+  // Google source cursors and raw transcript artifacts are provider-account-owned intake state.
+  // Customer-scoped durable knowledge is projected separately through shared-scope meetings and
+  // provenance-bearing Company Brain records.
+  'GoogleCalendarSyncState',
+  'CompanyMeetingTranscriptArtifact',
   'ProspectDeliveryControl',
   'ProspectOrganization',
+  // Prospect research is platform acquisition work. Jobs and immutable attempts are scoped through
+  // their exact platform-owned organization relation and never inherit customer tenant authority.
+  'ProspectResearchJob',
+  'ProspectResearchAttempt',
   'ProspectVenue',
   'ProspectContact',
   'ProspectContactSuppressionEvent',
@@ -165,6 +199,8 @@ export const PLATFORM_TABLES = [
   'ProspectImportSheet',
   'ProspectImportRow',
   'ProspectImportReportEntry',
+  // Immutable staging-package source lineage belongs to the platform import that admitted it.
+  'ProspectImportSourceRecord',
   'ProspectSavedView',
   'ProspectOutreachCampaign',
   'ProspectCampaignMember',
@@ -175,13 +211,23 @@ export const PLATFORM_TABLES = [
   'ProspectEmailThread',
   'ProspectEmailThreadProvider',
   'ProspectEmailMessage',
+  // Case-by-case attachment decisions inherit exact platform CRM message ownership. They contain
+  // provider metadata and review evidence only; no attachment bytes or customer-tenant authority.
+  'ProspectEmailAttachmentRetentionRequest',
   'ProspectEmailEvent',
   'ProspectFollowup',
   'ProspectEmailWebhookReceipt',
   'PlatformOperationalEvent',
+  'FounderControlRoomReview',
+  'FounderOperatingExchange',
   'EncryptedIntegrationCredential',
   'GmailOAuthAttempt',
   'ProspectInboundQuarantine',
+  // Provider-dark public acquisition evidence is platform-owned until a separately reviewed
+  // conversion creates canonical CRM or customer state.
+  'PublicInterestSubmission',
+  'PublicInterestSubmissionReview',
+  'PublicInterestProspectConversion',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and
@@ -190,6 +236,10 @@ export const PLATFORM_TABLES = [
 export const SHARED_SCOPE_TABLES = [
   'AuditLog',
   'JobRecord',
+  // Internal non-AI cost evidence may be platform-wide or attributed to an
+  // exact tenant/venue. Canonical actions validate every optional scope.
+  'OperatingCostEvidence',
+  'OperationalUsageEvidence',
   'CompanyKnowledgeItem',
   'CompanyKnowledgeRevision',
   'CompanyKnowledgeSource',

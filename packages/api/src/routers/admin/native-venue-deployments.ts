@@ -3,9 +3,11 @@ import { z } from 'zod'
 
 import {
   applyNativeVenueDeploymentAction,
+  assessNativeGuestReadActivationAction,
   approveNativeVenueDeploymentAction,
   createNativeVenueDeploymentAction,
   db,
+  measureNativeContentConvergenceAction,
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
   withTenantIsolationBypass,
@@ -37,6 +39,87 @@ function actor(userId: string) {
 }
 
 export const adminNativeVenueDeploymentsRouter = router({
+  getNativeGuestReadActivationPreflight: adminProcedure.input(scope).query(({ input }) =>
+    withTenantIsolationBypass(async () => {
+      try {
+        const [activation, convergence] = await Promise.all([
+          assessNativeGuestReadActivationAction({ client: db, ...input }),
+          measureNativeContentConvergenceAction(db, input),
+        ])
+        return {
+          contractVersion: 1 as const,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          activation,
+          convergence: {
+            contractVersion: convergence.contractVersion,
+            phase: convergence.phase,
+            guestReadPath: convergence.guestReadPath,
+            headValid: convergence.headValid,
+            stateMatchesHead: convergence.stateMatchesHead,
+            readyForShadowEvaluation: convergence.readyForShadowEvaluation,
+            readyForLegacyRetirement: convergence.readyForLegacyRetirement,
+            needsOperatorAttention: convergence.needsOperatorAttention,
+            blockers: convergence.blockers,
+            counts: convergence.counts,
+            venueActive: convergence.venueActive,
+            head: convergence.head
+              ? {
+                  releaseId: convergence.head.releaseId,
+                  revision: convergence.head.revision,
+                  updatedAt: convergence.head.updatedAt,
+                  releaseStatus: convergence.head.releaseStatus,
+                }
+              : null,
+          },
+          alignment: {
+            runtimeReadGateOpen: activation.readyForConfiguredMode,
+            materializedStateInSync: convergence.phase === 'NATIVE_HEAD_IN_SYNC',
+            allObservedTechnicalEvidenceAligned:
+              activation.readyForConfiguredMode && convergence.phase === 'NATIVE_HEAD_IN_SYNC',
+          },
+          boundaries: {
+            readOnly: true as const,
+            activationAuthorized: false as const,
+            qualityThresholdInferred: false as const,
+            compatibilityDataRetentionRequired: true as const,
+          },
+        }
+      } catch (error) {
+        mapError(error)
+      }
+    }),
+  ),
+  getNativeContentConvergence: adminProcedure.input(scope).query(({ input }) =>
+    withTenantIsolationBypass(async () => {
+      try {
+        const measurement = await measureNativeContentConvergenceAction(db, input)
+        return {
+          contractVersion: measurement.contractVersion,
+          phase: measurement.phase,
+          guestReadPath: measurement.guestReadPath,
+          headValid: measurement.headValid,
+          stateMatchesHead: measurement.stateMatchesHead,
+          readyForShadowEvaluation: measurement.readyForShadowEvaluation,
+          readyForLegacyRetirement: measurement.readyForLegacyRetirement,
+          needsOperatorAttention: measurement.needsOperatorAttention,
+          blockers: measurement.blockers,
+          counts: measurement.counts,
+          venueActive: measurement.venueActive,
+          head: measurement.head
+            ? {
+                releaseId: measurement.head.releaseId,
+                revision: measurement.head.revision,
+                updatedAt: measurement.head.updatedAt,
+                releaseStatus: measurement.head.releaseStatus,
+              }
+            : null,
+        }
+      } catch (error) {
+        mapError(error)
+      }
+    }),
+  ),
   listNativeVenueDeployments: adminProcedure
     .input(
       scope

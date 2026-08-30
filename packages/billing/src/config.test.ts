@@ -34,6 +34,31 @@ describe('billing environment', () => {
     ).toThrow(/forbidden outside/u)
   })
 
+  it('rejects live mode until the exact legal identity is owner-verified', () => {
+    expect(() =>
+      parseBillingEnvironment({
+        ...base,
+        RAILWAY_ENVIRONMENT: 'production',
+        STRIPE_MODE: 'live',
+        STRIPE_LIVE_MODE_ALLOWED: 'true',
+        STRIPE_SECRET_KEY: 'rk_live_example',
+      }),
+    ).toThrow(/owner-verified legal entity/u)
+  })
+
+  it('accepts a restricted live key only with the owner-verified legal identity gate', () => {
+    const environment = parseBillingEnvironment({
+      ...base,
+      RAILWAY_ENVIRONMENT: 'production',
+      STRIPE_MODE: 'live',
+      STRIPE_LIVE_MODE_ALLOWED: 'true',
+      STRIPE_SECRET_KEY: 'rk_live_example',
+      TORCHIKO_LEGAL_ENTITY_VERIFIED: 'true',
+      TORCHIKO_LEGAL_ENTITY_NAME: 'Verified legal party from owner records',
+    })
+    expect(environment.STRIPE_MODE).toBe('live')
+  })
+
   it('requires all portal prerequisites', () => {
     const environment = parseBillingEnvironment({
       ...base,

@@ -19,15 +19,39 @@ This is the normal Torchiko feature-delivery path:
    release-specific production migration/cutover approval has been recorded. Railway production
    tracks `master`, so merging that pull request is the production application deployment action.
 
+## Exact owner handoff
+
+For a large candidate assembled outside the owner staging branch, generate a deterministic handoff
+only after the exact candidate release report passes from a clean worktree:
+
+```powershell
+pnpm staging:handoff -- --base-ref origin/codex/pathfinder-v2-staging --candidate <40-character-candidate-sha> --release-report artifacts/release-verification/<40-character-candidate-sha>-candidate.json
+```
+
+The command performs no network or hosted-state mutation. It fails closed unless the candidate is a
+strict descendant of the resolved staging base, has no staging-side divergence, matches a clean
+`ready-for-staging-review` candidate report, retains an all-default-off centralized feature-flag
+surface, and has a readable migration chain. The ignored JSON artifact pins the base and candidate
+revisions, delta digests, release-report hash, migration-chain hash, approved non-secret staging
+resource identities, required owner actions, and retained production/customer/billing/data gates.
+Re-run it after any candidate or staging-base change; never reuse a manifest for another revision.
+
+Release verification writes a secret-free `release-progress` JSON line to stderr when verification
+starts, whenever a gate starts or completes, every 30 seconds while a gate is still running, and
+when the complete assessment finishes. Each event includes the immutable revision, profile, gate
+position, and elapsed time. The final machine-readable summary remains the single stdout line, and
+progress reporting never changes a gate result or grants release authority.
+
 ## Current service boundaries
 
 - Staging project: `serene-inspiration`
 - Staging environment: `a7a394fc-aa4e-4a45-bd3c-904419a67818`
 - Staging branch: `codex/pathfinder-v2-staging`
-- Marketing site: `https://staging.torchiko.com`
+- Marketing site: `https://staging.torchiko.com` (separate site; it does not expose product health)
 - Legacy visitor-guide custom domain: retired; Railway fallback retained for recovery only
 - Dashboard (canonical after DNS activation): `https://app.staging.torchiko.com`
-- Railway fallback web: `https://staging-web-staging-bbeb.up.railway.app`
+- Product web and exact-revision health origin:
+  `https://staging-web-staging-bbeb.up.railway.app`
 - Railway fallback dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
 - Database resource: `7bd81064-588f-48a5-b138-1fc86691a09b`
 - Redis resource: `d53ab235-d403-4d7d-b525-3ace0ef07b92`

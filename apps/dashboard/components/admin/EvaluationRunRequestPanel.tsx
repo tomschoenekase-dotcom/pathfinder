@@ -16,11 +16,61 @@ export type EvaluationCaseListItem = {
   createdAt: Date
 }
 type Cursor = { createdAt: string; id: string }
+type SourceCoveragePreview = {
+  contentSnapshotHash: string
+  contentVersion: string
+  cases: {
+    caseId: string
+    caseKey: string
+    revision: number
+    coverage: {
+      supportedMarkers: number
+      totalMarkers: number
+      markers: {
+        markerId: string
+        kind: 'required-phrase' | 'required-fact'
+        supported: boolean
+        matchedPhrase: string | null
+      }[]
+    }
+  }[]
+}
 
-export function evaluationBudgetToE8Usd(value: string): string | null {
-  if (!/^(?:0|1)(?:\.\d{0,8})?$/u.test(value) || Number(value) > 1) return null
+const EVALUATION_MODEL_CANDIDATES = [
+  {
+    key: 'guest-chat',
+    label: 'Anthropic · Claude Haiku 4.5 (default guest route)',
+  },
+  {
+    key: 'guest-chat-openai',
+    label: 'OpenAI · GPT-5 mini (provider-diversity candidate)',
+  },
+] as const
+type EvaluationModelKey = (typeof EVALUATION_MODEL_CANDIDATES)[number]['key']
+const CORE_ONBOARDING_CASE_KEYS = new Set([
+  'onboarding-fact-reviewable-package',
+  'onboarding-navigation-reviewable-package',
+  'onboarding-accessibility-reviewable-package',
+  'onboarding-safety-reviewable-package',
+  'onboarding-multilingual-reviewable-package',
+  'onboarding-adversarial-reviewable-package',
+  'onboarding-unanswerable-reviewable-package',
+])
+
+export function evaluationBudgetToE8Usd(
+  value: string,
+  maximumBudgetE8Usd = '410000000',
+): string | null {
+  if (!/^\d+(?:\.\d{0,8})?$/u.test(value)) return null
   const [whole, fraction = ''] = value.split('.')
-  return (BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, '0') || '0')).toString()
+  const units = BigInt(whole!) * 100_000_000n + BigInt(fraction.padEnd(8, '0') || '0')
+  return units <= BigInt(maximumBudgetE8Usd) ? units.toString() : null
+}
+
+export function evaluationBudgetFromE8Usd(value: bigint): string {
+  const whole = value / 100_000_000n
+  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/u, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
 export function EvaluationRunRequestPanel(props: {
@@ -29,8 +79,23 @@ export function EvaluationRunRequestPanel(props: {
   initialCases: EvaluationCaseListItem[]
   initialNextCursor: Cursor | null
   runnerEnabled: boolean
+  regressionAlerts?: {
+    configured: boolean
+    minimumPassRateDrop: number | null
+    errorPassRateDrop: number | null
+  }
   maximumCases: number
-  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
+  maximumBudgetE8Usd?: string
+  evaluationModelBudgetCeilingsE8Usd?: Record<EvaluationModelKey, string>
+  reviewablePackages?: {
+    id: string
+    status: 'DRAFT' | 'APPROVED'
+    payloadHash: string
+    baseDigest: string
+    createdAt: Date
+    approvedAt: Date | null
+    supportHandoffs: { supportRequestId: string; requestVersion: number }[]
+  }[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -38,24 +103,53 @@ export function EvaluationRunRequestPanel(props: {
   const [nextCursor, setNextCursor] = useState(props.initialNextCursor)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [budget, setBudget] = useState('0.25')
-  const [approvedPackageId, setApprovedPackageId] = useState(props.approvedPackages?.[0]?.id ?? '')
+  const [modelKey, setModelKey] = useState<EvaluationModelKey>('guest-chat')
+  const [reviewablePackageId, setReviewablePackageId] = useState(
+    props.reviewablePackages?.[0]?.id ?? '',
+  )
   const [message, setMessage] = useState<string | null>(null)
+  const [sourceCoverage, setSourceCoverage] = useState<SourceCoveragePreview | null>(null)
   const [busy, setBusy] = useState(false)
+  const maximumBudgetE8Usd = props.maximumBudgetE8Usd ?? '410000000'
+  const modelBudgetCeilings = props.evaluationModelBudgetCeilingsE8Usd ?? {
+    'guest-chat': '20256000',
+    'guest-chat-openai': '5102400',
+  }
+  const fullRunBudgetE8Usd = BigInt(modelBudgetCeilings[modelKey]) * BigInt(selected.size)
+  const fullRunBudget = evaluationBudgetFromE8Usd(fullRunBudgetE8Usd)
+  const maximumBudget = evaluationBudgetFromE8Usd(BigInt(maximumBudgetE8Usd))
   const idempotencyKey = useRef(crypto.randomUUID())
   const submitting = useRef(false)
   const generation = useRef(0)
   const scope = `${props.tenantId}:${props.venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
-  const selectedPackage = props.approvedPackages?.find((pkg) => pkg.id === approvedPackageId)
+  const selectedPackage = props.reviewablePackages?.find((pkg) => pkg.id === reviewablePackageId)
   const expectedSourceRef = selectedPackage
-    ? `venue-package:${selectedPackage.id}:${selectedPackage.payloadHash}`
+    ? `venue-package-review:${selectedPackage.id}:${selectedPackage.payloadHash}:${selectedPackage.baseDigest}`
     : null
   const latestOnboardingCases = [
     ...cases
       .filter(
         (item) =>
-          item.sourceType === 'ONBOARDING_APPROVED_PACKAGE' &&
+          CORE_ONBOARDING_CASE_KEYS.has(item.caseKey) &&
+          item.sourceType === 'ONBOARDING_REVIEWABLE_PACKAGE' &&
+          expectedSourceRef !== null &&
+          item.sourceRef === expectedSourceRef,
+      )
+      .reduce((latest, item) => {
+        const prior = latest.get(item.caseKey)
+        if (!prior || item.revision > prior.revision) latest.set(item.caseKey, item)
+        return latest
+      }, new Map<string, EvaluationCaseListItem>())
+      .values(),
+  ]
+  const latestLaunchLanguageCases = [
+    ...cases
+      .filter(
+        (item) =>
+          item.caseKey.startsWith('onboarding-language-') &&
+          item.sourceType === 'ONBOARDING_REVIEWABLE_PACKAGE' &&
           expectedSourceRef !== null &&
           item.sourceRef === expectedSourceRef,
       )
@@ -73,8 +167,10 @@ export function EvaluationRunRequestPanel(props: {
     setNextCursor(props.initialNextCursor)
     setSelected(new Set())
     setBudget('0.25')
-    setApprovedPackageId(props.approvedPackages?.[0]?.id ?? '')
+    setModelKey('guest-chat')
+    setReviewablePackageId(props.reviewablePackages?.[0]?.id ?? '')
     setMessage(null)
+    setSourceCoverage(null)
     setBusy(false)
     submitting.current = false
     idempotencyKey.current = crypto.randomUUID()
@@ -83,7 +179,7 @@ export function EvaluationRunRequestPanel(props: {
     props.venueId,
     props.initialCases,
     props.initialNextCursor,
-    props.approvedPackages,
+    props.reviewablePackages,
   ])
 
   async function loadMore() {
@@ -112,9 +208,17 @@ export function EvaluationRunRequestPanel(props: {
 
   async function submit() {
     if (submitting.current || !props.runnerEnabled) return
-    const budgetCeilingE8Usd = evaluationBudgetToE8Usd(budget)
+    const budgetCeilingE8Usd = evaluationBudgetToE8Usd(budget, maximumBudgetE8Usd)
     if (selected.size < 1 || selected.size > props.maximumCases || budgetCeilingE8Usd === null) {
-      setMessage(`Select 1–${props.maximumCases} cases and enter a budget from $0 to $1.`)
+      setMessage(
+        `Select 1–${props.maximumCases} cases and enter a budget from $0 to $${maximumBudget}.`,
+      )
+      return
+    }
+    if (BigInt(budgetCeilingE8Usd) < fullRunBudgetE8Usd) {
+      setMessage(
+        `The selected model needs a conservative $${fullRunBudget} ceiling to reserve all ${selected.size} cases. Raise the ceiling before requesting the run.`,
+      )
       return
     }
     submitting.current = true
@@ -129,7 +233,8 @@ export function EvaluationRunRequestPanel(props: {
         idempotencyKey: idempotencyKey.current,
         caseIds: [...selected],
         budgetCeilingE8Usd,
-        ...(approvedPackageId ? { approvedPackageId } : {}),
+        modelKey,
+        ...(reviewablePackageId ? { reviewablePackageId } : {}),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       if (result.dispatchPending) {
@@ -170,6 +275,30 @@ export function EvaluationRunRequestPanel(props: {
     }
   }
 
+  async function previewSourceCoverage() {
+    if (busy || selected.size === 0 || reviewablePackageId) return
+    setBusy(true)
+    setMessage(null)
+    setSourceCoverage(null)
+    const currentGeneration = generation.current
+    const requestedScope = scope
+    try {
+      const result = await client.admin.previewCurrentEvaluationSourceCoverage.query({
+        tenantId: props.tenantId,
+        venueId: props.venueId,
+        caseIds: [...selected],
+      })
+      if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
+      setSourceCoverage(result)
+    } catch {
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setMessage('Current source coverage could not be inspected. No evaluation was started.')
+    } finally {
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setBusy(false)
+    }
+  }
+
   return (
     <section
       className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-6"
@@ -184,29 +313,70 @@ export function EvaluationRunRequestPanel(props: {
           gate must all be enabled before a run identity can be created or queued.
         </p>
       ) : null}
+      {props.regressionAlerts?.configured ? (
+        <p className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+          Automatic same-corpus regression alerts use the explicit durable policy: warning at a{' '}
+          {Math.round((props.regressionAlerts.minimumPassRateDrop ?? 0) * 1000) / 10}% pass-rate
+          drop and error at{' '}
+          {Math.round((props.regressionAlerts.errorPassRateDrop ?? 0) * 1000) / 10}%.
+        </p>
+      ) : (
+        <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+          Automatic regression alerts are dark because no explicit durable threshold policy is
+          configured. Stored runs can still be compared manually; Torchiko will not infer alert or
+          severity thresholds.
+        </p>
+      )}
       {cases.length === 0 ? (
         <p className="mt-4 text-sm text-pf-deep/65">
           No evaluation cases are ready for this venue.
         </p>
       ) : (
-        <fieldset className="mt-4 space-y-2" disabled={busy || !props.runnerEnabled}>
+        <fieldset className="mt-4 space-y-2" disabled={busy}>
           <legend className="text-sm font-semibold text-pf-deep">
             Cases ({selected.size}/{props.maximumCases})
           </legend>
-          {approvedPackageId ? (
+          {reviewablePackageId ? (
             <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
-              <button
-                type="button"
-                onClick={() => setSelected(new Set(latestOnboardingCases.map((item) => item.id)))}
-                disabled={latestOnboardingCases.length !== 7}
-                className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Select seven onboarding cases
-              </button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(latestOnboardingCases.map((item) => item.id))
+                    setSelected(next)
+                    const required = BigInt(modelBudgetCeilings[modelKey]) * BigInt(next.size)
+                    if (required <= BigInt(maximumBudgetE8Usd))
+                      setBudget(evaluationBudgetFromE8Usd(required))
+                  }}
+                  disabled={latestOnboardingCases.length !== 7}
+                  className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Select seven onboarding cases
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Set(latestLaunchLanguageCases.map((item) => item.id))
+                    setSelected(next)
+                    const required = BigInt(modelBudgetCeilings[modelKey]) * BigInt(next.size)
+                    if (required <= BigInt(maximumBudgetE8Usd))
+                      setBudget(evaluationBudgetFromE8Usd(required))
+                  }}
+                  disabled={latestLaunchLanguageCases.length !== 20}
+                  className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Select 20 launch-language cases
+                </button>
+              </div>
               <p className="mt-1 text-xs text-sky-950/75">
                 {latestOnboardingCases.length === 7
                   ? 'Selects only the latest immutable revision tied to this exact package hash.'
                   : `${latestOnboardingCases.length} of 7 exact-package cases are ready. Prepare the suite above before requesting a run.`}
+              </p>
+              <p className="mt-1 text-xs text-sky-950/75">
+                {latestLaunchLanguageCases.length === 20
+                  ? 'Selects paired grounded and honest-fallback cases for all ten launch languages.'
+                  : `${latestLaunchLanguageCases.length} of 20 exact-package language cases are ready. Prepare the language suite above before requesting a run.`}
               </p>
             </div>
           ) : null}
@@ -219,18 +389,19 @@ export function EvaluationRunRequestPanel(props: {
                 type="checkbox"
                 className="mt-1"
                 checked={selected.has(item.id)}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setSourceCoverage(null)
                   setSelected((current) => {
                     const next = new Set(current)
                     if (event.target.checked && next.size < props.maximumCases) next.add(item.id)
                     else if (!event.target.checked) next.delete(item.id)
                     return next
                   })
-                }
+                }}
               />
               <span>
                 <span className="block text-sm font-semibold text-pf-deep">{item.caseKey}</span>
-                <span className="text-xs text-pf-deep/60">
+                <span className="text-xs text-pf-deep/70">
                   {item.category} · revision {item.revision}
                 </span>
               </span>
@@ -252,25 +423,97 @@ export function EvaluationRunRequestPanel(props: {
         Evaluation target
         <select
           aria-label="Evaluation target"
-          value={approvedPackageId}
-          onChange={(event) => setApprovedPackageId(event.target.value)}
-          disabled={busy || !props.runnerEnabled}
+          value={reviewablePackageId}
+          onChange={(event) => {
+            setReviewablePackageId(event.target.value)
+            setSourceCoverage(null)
+          }}
+          disabled={busy}
           className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
         >
           <option value="">Current live venue content</option>
-          {(props.approvedPackages ?? []).map((pkg) => (
+          {(props.reviewablePackages ?? []).map((pkg) => (
             <option key={pkg.id} value={pkg.id}>
-              Approved onboarding package · {pkg.payloadHash.slice(0, 12)}
+              {pkg.status} review package · {pkg.payloadHash.slice(0, 12)}
+              {pkg.supportHandoffs[0] ? ' · support-linked' : ''}
             </option>
           ))}
         </select>
       </label>
-      <p className="mt-2 text-xs text-pf-deep/55">
-        Onboarding QA should target the exact approved package. Live content is retained for legacy
-        operational evaluations.
+      <p className="mt-2 text-xs text-pf-deep/70">
+        Package QA can target the exact validated DRAFT before approval. Live content is retained
+        for legacy operational evaluations.
+      </p>
+      <button
+        type="button"
+        onClick={previewSourceCoverage}
+        disabled={busy || selected.size === 0 || Boolean(reviewablePackageId)}
+        className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Check current source coverage
+      </button>
+      <p className="mt-2 text-xs text-pf-deep/70">
+        Provider-free lexical evidence for the current live content only. It does not judge semantic
+        support, set a threshold, pass a case, or approve a release.
+      </p>
+      {sourceCoverage ? (
+        <section
+          className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          aria-live="polite"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+            Live source version {sourceCoverage.contentVersion} ·{' '}
+            {sourceCoverage.contentSnapshotHash.slice(0, 12)}
+          </p>
+          <ul className="mt-2 space-y-2 text-sm text-slate-900">
+            {sourceCoverage.cases.map((item) => (
+              <li key={item.caseId}>
+                <span className="font-semibold">{item.caseKey}</span>:{' '}
+                {item.coverage.supportedMarkers}/{item.coverage.totalMarkers} lexical markers found
+                {item.coverage.markers.some((marker) => !marker.supported) ? (
+                  <span className="block text-xs text-amber-900">
+                    Not found:{' '}
+                    {item.coverage.markers
+                      .filter((marker) => !marker.supported)
+                      .map((marker) => marker.markerId)
+                      .join(', ')}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <label className="mt-5 block text-sm font-semibold text-pf-deep">
+        Evaluation model
+        <select
+          aria-label="Evaluation model"
+          value={modelKey}
+          onChange={(event) => {
+            const nextModelKey = event.target.value as EvaluationModelKey
+            setModelKey(nextModelKey)
+            if (selected.size > 0) {
+              const required = BigInt(modelBudgetCeilings[nextModelKey]) * BigInt(selected.size)
+              if (required <= BigInt(maximumBudgetE8Usd))
+                setBudget(evaluationBudgetFromE8Usd(required))
+            }
+          }}
+          disabled={busy || !props.runnerEnabled}
+          className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
+        >
+          {EVALUATION_MODEL_CANDIDATES.map((candidate) => (
+            <option key={candidate.key} value={candidate.key}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-2 text-xs text-pf-deep/70">
+        The request freezes the exact server-registered model specification. Arbitrary provider or
+        model names are not accepted.
       </p>
       <label className="mt-5 block text-sm font-semibold text-pf-deep">
-        Budget ceiling (USD, maximum $1)
+        Budget ceiling (USD, maximum ${maximumBudget})
         <input
           aria-label="Budget ceiling"
           value={budget}
@@ -280,6 +523,13 @@ export function EvaluationRunRequestPanel(props: {
           className="mt-2 block min-h-11 w-full max-w-xs rounded-xl border border-pf-light px-3"
         />
       </label>
+      {selected.size > 0 ? (
+        <p className="mt-2 text-xs text-pf-deep/70">
+          Conservative full-run ceiling for {selected.size} selected case
+          {selected.size === 1 ? '' : 's'} on this model: ${fullRunBudget}. This is reservation
+          capacity, not a claim about billed provider cost.
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={submit}
@@ -293,7 +543,7 @@ export function EvaluationRunRequestPanel(props: {
           {message}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-pf-deep/55">
+      <p className="mt-3 text-xs text-pf-deep/70">
         A request freezes identities and queues evaluation work only. It does not publish or change
         venue content.
       </p>

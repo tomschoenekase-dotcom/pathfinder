@@ -115,7 +115,7 @@ describe('GeneralizedContentWorkbench', () => {
     expect(mocks.preview).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
     )
-    expect(screen.getByRole('status').textContent).toMatch(
+    expect((await screen.findByRole('status')).textContent).toMatch(
       /guest and client publication remain off/i,
     )
   })

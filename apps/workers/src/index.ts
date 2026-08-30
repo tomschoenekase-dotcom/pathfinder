@@ -1,7 +1,7 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
 import { env, logger } from '@pathfinder/config'
-import { recordWorkerHeartbeat } from '@pathfinder/db'
+import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
 import {
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
@@ -15,11 +15,12 @@ import {
   BILLING_RECONCILIATION_PROCESS_JOB,
   BILLING_RECONCILIATION_QUEUE,
   BILLING_RECONCILIATION_SCHEDULER_JOB,
+  VOICE_SESSION_RECOVERY_QUEUE,
+  VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-  checkBullMQConnection,
   closeBullMQConnection,
   closeJobQueues,
   configureMediaIngestionGlobalConcurrency,
@@ -40,6 +41,9 @@ import {
   EVALUATION_RUN_DISPATCH_JOB,
   EVALUATION_RUN_QUEUE,
   EVALUATION_RUN_RETRY_BACKOFF,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
   GENERATION_DISPATCH_SCHEDULER_JOB,
@@ -53,6 +57,9 @@ import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
+  VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
+  VENUE_MEDIA_DERIVATIVE_QUEUE,
+  VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
   OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
   OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
@@ -72,6 +79,7 @@ import {
   type EmbedCompanyKnowledgeJobPayload,
   type EmbedPlaceJobPayload,
   type EvaluationRunJobPayload,
+  type GuestAnswerAttributionEvaluationJobPayload,
   type GenerationDispatchKickJobPayload,
   type GmailSyncJobPayload,
   type SendWelcomeEmailJobPayload,
@@ -92,6 +100,7 @@ import {
   type WeeklyReportJobPayload,
   type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
+  type VenueMediaDerivativeJobPayload,
   type OperationalEventDeliveryJobPayload,
   type ProspectImportCommitJobPayload,
   type ProspectImportInspectionJobPayload,
@@ -108,6 +117,10 @@ import { processEmbedCompanyKnowledgeJob } from './processors/embed-company-know
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processEvaluationRunJob } from './processors/evaluation-run'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
+import {
+  processGuestAnswerAttributionEvaluationJob,
+  recoverGuestAnswerAttributionEvaluations,
+} from './processors/guest-answer-attribution-evaluation'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
@@ -118,8 +131,10 @@ import { startProspectOutboxDispatcher } from './processors/prospect-outbox-disp
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
+import { processVenueMediaDerivativeJob } from './processors/venue-media-derivative'
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
 import { processBillingReconciliationJob } from './processors/billing-reconciliation'
+import { processVoiceSessionRecovery } from './processors/voice-session-recovery'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -138,7 +153,9 @@ import {
   cancelMediaJobsAfterLockRenewalFailure,
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
-import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { recordOperationalReadinessHeartbeat } from './lib/service-dependency-readiness'
+import { startOperationalUsageObserver } from './lib/operational-usage-observer'
+import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
@@ -161,17 +178,21 @@ async function handleAccountSummaryRefreshQueueJob(job: Job<Record<string, never
 }
 
 async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-disabled') {
-  const write = () =>
-    recordWorkerHeartbeat({
-      mode,
-      schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
-      revision: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
-    }).catch((error: unknown) => {
+  const write = async () => {
+    try {
+      await recordOperationalReadinessHeartbeat({
+        mode,
+        schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
+        revision: resolveReleaseRevision(process.env),
+        environment: env,
+      })
+    } catch (error: unknown) {
       logger.error({
         action: 'workers.heartbeat.failed',
         error: error instanceof Error ? error.message : 'Unknown worker heartbeat error',
       })
-    })
+    }
+  }
   await write()
   const timer = setInterval(() => void write(), 30_000)
   timer.unref()
@@ -455,6 +476,13 @@ async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>)
   throw new Error(`Unsupported generation recovery job: ${job.name}`)
 }
 
+async function handleVoiceSessionRecoveryQueueJob(job: Job<Record<string, never>>) {
+  if (job.name !== VOICE_SESSION_RECOVERY_SCHEDULER_JOB) {
+    throw new Error(`Unsupported voice session recovery job: ${job.name}`)
+  }
+  await processVoiceSessionRecovery(getJobExecutionMetadata(job))
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
   token?: string,
@@ -561,6 +589,13 @@ async function handleMediaIngestionQueueJob(
   throw new Error(`Unsupported media ingestion job: ${job.name}`)
 }
 
+async function handleVenueMediaDerivativeQueueJob(job: Job<VenueMediaDerivativeJobPayload>) {
+  if (job.name !== VENUE_MEDIA_DERIVATIVE_PROCESS_JOB) {
+    throw new Error(`Unsupported venue media derivative job: ${job.name}`)
+  }
+  await processVenueMediaDerivativeJob(job.data)
+}
+
 async function handleEvaluationRunQueueJob(
   job: Job<EvaluationRunJobPayload | Record<string, never>>,
   token?: string,
@@ -592,6 +627,26 @@ async function handleAgentRunQueueJob(
   }
   await runAiJobWithIncidentControl(job, token, async () => {
     await processAgentRunJob(job.data, signal)
+  })
+}
+
+async function handleGuestAnswerAttributionEvaluationQueueJob(
+  job: Job<GuestAnswerAttributionEvaluationJobPayload | Record<string, never>>,
+  token?: string,
+  signal?: AbortSignal,
+) {
+  if (job.name === GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB) {
+    await recoverGuestAnswerAttributionEvaluations()
+    return
+  }
+  if (job.name !== GUEST_ANSWER_ATTRIBUTION_EVALUATION_PROCESS_JOB) {
+    throw new Error(`Unsupported guest answer attribution evaluation job: ${job.name}`)
+  }
+  await runAiJobWithIncidentControl(job, token, async () => {
+    await processGuestAnswerAttributionEvaluationJob(
+      job.data as GuestAnswerAttributionEvaluationJobPayload,
+      signal,
+    )
   })
 }
 
@@ -647,28 +702,6 @@ async function handleBillingReconciliationQueueJob(job: Job<BillingReconciliatio
 }
 
 export async function startWorkers() {
-  if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
-    const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
-    const runtime = await startProviderDisabledRuntime({
-      checkConnection: () => checkBullMQConnection(5_000),
-      closeConnection: closeBullMQConnection,
-      onConnectionError: (error) =>
-        logger.error({ action: 'workers.runtime.error', queueName: null, error: error.message }),
-    })
-    logger.info({
-      action: 'workers.started',
-      mode: runtime.mode,
-      outboundProviderWorkersEnabled: false,
-      queues: runtime.queues,
-    })
-    const shutdown = async () => {
-      stopHeartbeat()
-      await runtime.shutdown()
-    }
-    registerShutdownSignals(shutdown)
-    return { ...runtime, shutdown }
-  }
-
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
@@ -687,8 +720,12 @@ export async function startWorkers() {
   const gmailSyncQueue = new Queue(GMAIL_SYNC_QUEUE, { connection })
   const billingReconciliationQueue = new Queue(BILLING_RECONCILIATION_QUEUE, { connection })
   const accountSummaryRefreshQueue = new Queue(ACCOUNT_SUMMARY_REFRESH_QUEUE, { connection })
+  const voiceSessionRecoveryQueue = new Queue(VOICE_SESSION_RECOVERY_QUEUE, { connection })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
+    : null
+  const guestAnswerAttributionEvaluationQueue = env.EVALUATION_RUNNER_ENABLED
+    ? new Queue(GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE, { connection })
     : null
   const agentRunQueue = env.AGENT_RUNNER_ENABLED ? new Queue(AGENT_RUN_QUEUE, { connection }) : null
 
@@ -711,8 +748,17 @@ export async function startWorkers() {
     { name: GMAIL_SYNC_QUEUE, close: () => gmailSyncQueue.close() },
     { name: BILLING_RECONCILIATION_QUEUE, close: () => billingReconciliationQueue.close() },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, close: () => accountSummaryRefreshQueue.close() },
+    { name: VOICE_SESSION_RECOVERY_QUEUE, close: () => voiceSessionRecoveryQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
+      : []),
+    ...(guestAnswerAttributionEvaluationQueue
+      ? [
+          {
+            name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+            close: () => guestAnswerAttributionEvaluationQueue.close(),
+          },
+        ]
       : []),
     ...(agentRunQueue ? [{ name: AGENT_RUN_QUEUE, close: () => agentRunQueue.close() }] : []),
   ]
@@ -750,6 +796,25 @@ export async function startWorkers() {
           ),
         remove: () =>
           accountSummaryRefreshQueue.removeJobScheduler(ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB),
+      },
+      {
+        upsert: () =>
+          voiceSessionRecoveryQueue.upsertJobScheduler(
+            VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+            { every: 60_000 },
+            {
+              name: VOICE_SESSION_RECOVERY_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 100,
+                removeOnFail: 500,
+              },
+            },
+          ),
+        remove: () =>
+          voiceSessionRecoveryQueue.removeJobScheduler(VOICE_SESSION_RECOVERY_SCHEDULER_JOB),
       },
     ])
     await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
@@ -977,7 +1042,40 @@ export async function startWorkers() {
         },
       ])
     }
+    if (guestAnswerAttributionEvaluationQueue) {
+      await applySchedulerState(env.EVALUATION_RUNNER_ENABLED, [
+        {
+          upsert: () =>
+            guestAnswerAttributionEvaluationQueue.upsertJobScheduler(
+              GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+              { every: 60_000 },
+              {
+                name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+                data: {},
+                opts: { attempts: 1, removeOnComplete: 100, removeOnFail: 500 },
+              },
+            ),
+          remove: () =>
+            guestAnswerAttributionEvaluationQueue.removeJobScheduler(
+              GUEST_ANSWER_ATTRIBUTION_EVALUATION_RECOVERY_JOB,
+            ),
+        },
+      ])
+    }
   }, cleanupAfterStartupFailure)
+
+  const intakeVerification = env.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED
+    ? await createIntakeUploadVerificationResources().catch(async (error) => {
+        await cleanupAfterStartupFailure()
+        throw error
+      })
+    : null
+  if (intakeVerification) {
+    schedulerQueueResources.push({
+      name: intakeVerification.queue.name,
+      close: () => intakeVerification.queue.close(),
+    })
+  }
 
   const observeWorkerRuntime = <DataType, ResultType, NameType extends string>(
     queueName: string,
@@ -1171,6 +1269,14 @@ export async function startWorkers() {
     }),
   )
 
+  const voiceSessionRecoveryWorker = observeWorkerRuntime(
+    VOICE_SESSION_RECOVERY_QUEUE,
+    new Worker(VOICE_SESSION_RECOVERY_QUEUE, handleVoiceSessionRecoveryQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -1232,6 +1338,20 @@ export async function startWorkers() {
     cancelAllMediaJobsAfterWorkerError(mediaIngestionWorker)
   })
 
+  const venueMediaDerivativeWorker = observeWorkerRuntime(
+    VENUE_MEDIA_DERIVATIVE_QUEUE,
+    new Worker(VENUE_MEDIA_DERIVATIVE_QUEUE, handleVenueMediaDerivativeQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) =>
+          type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
+            ? Math.min(attemptsMade * 30_000, 2 * 60_000)
+            : 0,
+      },
+    }),
+  )
+
   // This consumer does not exist unless the server-only rollout gate is
   // explicitly enabled. Each job additionally rechecks the tenant feature flag
   // before every provider dispatch, so changing either gate fails closed.
@@ -1248,6 +1368,17 @@ export async function startWorkers() {
                 : 0,
           },
         }),
+      )
+    : null
+
+  const guestAnswerAttributionEvaluationWorker = env.EVALUATION_RUNNER_ENABLED
+    ? observeWorkerRuntime(
+        GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+        new Worker(
+          GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+          handleGuestAnswerAttributionEvaluationQueueJob,
+          { connection, concurrency: 1 },
+        ),
       )
     : null
 
@@ -1286,6 +1417,9 @@ export async function startWorkers() {
   }
 
   const workers = [
+    ...(intakeVerification
+      ? [{ name: intakeVerification.queue.name, worker: intakeVerification.worker }]
+      : []),
     { name: WEEKLY_DIGEST_QUEUE, worker: weeklyDigestWorker },
     { name: DAILY_ROLLUP_QUEUE, worker: dailyRollupWorker },
     { name: EMBED_PLACE_QUEUE, worker: embedPlaceWorker },
@@ -1300,10 +1434,20 @@ export async function startWorkers() {
     { name: GMAIL_SYNC_QUEUE, worker: gmailSyncWorker },
     { name: BILLING_RECONCILIATION_QUEUE, worker: billingReconciliationWorker },
     { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, worker: accountSummaryRefreshWorker },
+    { name: VOICE_SESSION_RECOVERY_QUEUE, worker: voiceSessionRecoveryWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
+    { name: VENUE_MEDIA_DERIVATIVE_QUEUE, worker: venueMediaDerivativeWorker },
     ...(evaluationRunWorker ? [{ name: EVALUATION_RUN_QUEUE, worker: evaluationRunWorker }] : []),
+    ...(guestAnswerAttributionEvaluationWorker
+      ? [
+          {
+            name: GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
+            worker: guestAnswerAttributionEvaluationWorker,
+          },
+        ]
+      : []),
     ...(agentRunWorker ? [{ name: AGENT_RUN_QUEUE, worker: agentRunWorker }] : []),
   ]
 
@@ -1314,6 +1458,12 @@ export async function startWorkers() {
 
   const stopProspectOutboxDispatcher = startProspectOutboxDispatcher()
   const stopHeartbeat = await startOperationalHeartbeat('provider-enabled')
+  const stopUsageObserver = await startOperationalUsageObserver((error) =>
+    logger.error({
+      action: 'workers.operational-usage.failed',
+      error: error instanceof Error ? error.message : 'Unknown operational usage error',
+    }),
+  )
 
   logger.info({
     action: 'workers.started',
@@ -1342,9 +1492,15 @@ export async function startWorkers() {
       GMAIL_SYNC_QUEUE,
       BILLING_RECONCILIATION_QUEUE,
       ACCOUNT_SUMMARY_REFRESH_QUEUE,
+      VOICE_SESSION_RECOVERY_QUEUE,
       MEDIA_INGESTION_QUEUE,
+      VENUE_MEDIA_DERIVATIVE_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
+      ...(guestAnswerAttributionEvaluationWorker
+        ? [GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE]
+        : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
+      ...(intakeVerification ? [intakeVerification.queue.name] : []),
     ],
   })
 
@@ -1356,6 +1512,7 @@ export async function startWorkers() {
         resources: [
           { name: 'prospect-outbox-dispatcher', close: async () => stopProspectOutboxDispatcher() },
           { name: 'operational', close: async () => stopHeartbeat() },
+          { name: 'operational-usage', close: async () => stopUsageObserver() },
         ],
       },
       {
@@ -1393,6 +1550,8 @@ export async function startWorkers() {
     generationDispatchWorker,
     generationRecoveryQueue,
     generationRecoveryWorker,
+    voiceSessionRecoveryQueue,
+    voiceSessionRecoveryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,
@@ -1406,14 +1565,18 @@ export async function startWorkers() {
     billingReconciliationWorker,
     mediaIngestionQueue,
     mediaIngestionWorker,
+    venueMediaDerivativeWorker,
     evaluationRunWorker,
     evaluationRunQueue,
+    guestAnswerAttributionEvaluationWorker,
+    guestAnswerAttributionEvaluationQueue,
     agentRunWorker,
     agentRunQueue,
     weeklyReportQueue,
     weeklyReportWorker,
     weeklyDigestQueue,
     weeklyDigestWorker,
+    intakeVerification,
     shutdown,
   }
 }

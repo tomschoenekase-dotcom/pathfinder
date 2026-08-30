@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AdminCreateClientForm } from './AdminCreateClientForm'
@@ -8,7 +8,6 @@ import { AdminCreateClientForm } from './AdminCreateClientForm'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
-  linkConversion: vi.fn(),
   push: vi.fn(),
   refresh: vi.fn(),
   uuid: vi.fn(() => '123e4567-e89b-42d3-a456-426614174000'),
@@ -22,7 +21,6 @@ vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       createClientAndVenue: { mutate: mocks.create },
-      linkProspectConversion: { mutate: mocks.linkConversion },
     },
   }),
 }))
@@ -50,6 +48,24 @@ describe('AdminCreateClientForm', () => {
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
     )
+    expect(form.getAttribute('aria-busy')).toBe('true')
+  })
+
+  it('announces a failed creation and returns the form to an operable state', async () => {
+    mocks.create.mockRejectedValueOnce(new Error('Workspace creation failed'))
+    render(<AdminCreateClientForm />)
+    fireEvent.change(screen.getByLabelText('Client name'), { target: { value: 'Northstar' } })
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Lobby' } })
+    fireEvent.change(screen.getByLabelText('Primary client contact'), {
+      target: { value: 'owner@example.com' },
+    })
+    const form = screen.getByRole('button', { name: /Create client/ }).closest('form')!
+    fireEvent.submit(form)
+    expect((await screen.findByRole('alert')).textContent).toBe('Workspace creation failed')
+    await waitFor(() => expect(form.getAttribute('aria-busy')).toBe('false'))
+    expect(
+      (screen.getByRole('button', { name: /Create client/ }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 
   it('creates the client, venue, and primary-contact invitation as one operator flow', async () => {
@@ -95,7 +111,6 @@ describe('AdminCreateClientForm', () => {
       venue: { id: 'venue_1' },
       invitation: { id: 'invite_1', replayed: false },
     })
-    mocks.linkConversion.mockResolvedValue({ conversion: { id: 'conversion_1' }, replayed: false })
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 200 }))
@@ -106,13 +121,15 @@ describe('AdminCreateClientForm', () => {
     fireEvent.submit(screen.getByRole('button', { name: /Create client/ }).closest('form')!)
 
     await vi.waitFor(() =>
-      expect(mocks.linkConversion).toHaveBeenCalledWith({
-        organizationId: 'prospect_1',
-        prospectVenueId: 'prospect_venue_1',
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        evidence: { clientCreateRequestId: '123e4567-e89b-42d3-a456-426614174000' },
-      }),
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: '123e4567-e89b-42d3-a456-426614174000',
+          prospectConversion: {
+            organizationId: 'prospect_1',
+            prospectVenueId: 'prospect_venue_1',
+          },
+        }),
+      ),
     )
     expect(fetchMock).toHaveBeenCalledOnce()
     fetchMock.mockRestore()

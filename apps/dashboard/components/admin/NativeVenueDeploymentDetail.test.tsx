@@ -12,6 +12,9 @@ vi.mock('./NativeVenueDeploymentLifecycleControls', () => ({
 vi.mock('./NativeReleaseEvaluationPanel', () => ({
   NativeReleaseEvaluationPanel: () => <p>Advisory evaluation evidence</p>,
 }))
+vi.mock('./NativeContentShadowComparisonPanel', () => ({
+  NativeContentShadowComparisonPanel: () => <p>Legacy to native shadow comparison</p>,
+}))
 
 import { NativeVenueDeploymentDetail } from './NativeVenueDeploymentDetail'
 
@@ -52,6 +55,7 @@ describe('NativeVenueDeploymentDetail', () => {
     expect(screen.getByText('3 expected effects · 0 recorded effects')).toBeTruthy()
     expect(screen.getByText('Place').parentElement?.textContent).toContain('2')
     expect(screen.getByText('Advisory evaluation evidence')).toBeTruthy()
+    expect(screen.getByText('Legacy to native shadow comparison')).toBeTruthy()
     expect(screen.getByText('Native lifecycle controls')).toBeTruthy()
   })
 

@@ -155,6 +155,8 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
     const materials = {
       uploaded: 1,
       checking: 0,
+      checksNeedAction: 0,
+      checksWaitingOnTorchiko: 0,
       needsAttention: 0,
       readyForReview: 0,
       processed: 0,

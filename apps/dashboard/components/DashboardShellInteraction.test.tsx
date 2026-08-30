@@ -82,4 +82,41 @@ describe('DashboardShell interaction semantics', () => {
     rerender(<DashboardShell paymentAvailable>Payment content</DashboardShell>)
     expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
   })
+
+  it('offers a skip link and moves route-change focus to the new page heading', async () => {
+    const { rerender } = render(
+      <DashboardShell>
+        <h1>Today</h1>
+      </DashboardShell>,
+    )
+    expect(screen.getByRole('link', { name: 'Skip to main content' }).getAttribute('href')).toBe(
+      '#client-main-content',
+    )
+
+    pathname = '/information'
+    rerender(
+      <DashboardShell>
+        <h1>Information</h1>
+      </DashboardShell>,
+    )
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Information' })),
+    )
+  })
+
+  it('does not steal route-change focus from content that deliberately claimed it', () => {
+    const { rerender } = render(
+      <DashboardShell>
+        <h1>Today</h1>
+      </DashboardShell>,
+    )
+    pathname = '/information'
+    rerender(
+      <DashboardShell>
+        <h1>Information</h1>
+        <input aria-label="Information search" autoFocus />
+      </DashboardShell>,
+    )
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Information search' }))
+  })
 })

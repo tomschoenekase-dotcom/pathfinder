@@ -62,11 +62,13 @@ function Set-LocalStagingEnvironment {
   $env:NEXT_PUBLIC_WEB_URL = 'http://127.0.0.1:3100'
   $env:NEXT_DIST_DIR = '.next-local-staging'
   $env:OUTBOUND_PROVIDER_WORKERS_ENABLED = 'false'
+  $env:INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED = 'false'
   $env:WORKER_SCHEDULERS_ENABLED = 'false'
   $env:EMBEDDING_DISPATCH_ENABLED = 'false'
   $env:GENERATION_DISPATCH_ENABLED = 'false'
   $env:GENERATION_RECOVERY_ENABLED = 'false'
   $env:EVALUATION_RUNNER_ENABLED = 'false'
+  $env:VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED = 'true'
 }
 
 function Get-RecordedProcess([string]$pidFile, [string]$expectedFragment) {
@@ -201,7 +203,7 @@ if ($Action -eq 'Status') {
     storageEndpoint = $env:STORAGE_ENDPOINT
     webPid = $web.OwningProcess
     workerPid = $worker.ProcessId
-    workerMode = if ($worker) { 'provider-disabled-health-only' } else { 'not-running' }
+    workerMode = if ($worker) { 'venue-media-derivative-only' } else { 'not-running' }
     containers = $containers
   }
   exit 0

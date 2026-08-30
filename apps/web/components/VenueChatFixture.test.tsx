@@ -1,7 +1,7 @@
 import React from 'react'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/link', () => ({
@@ -11,8 +11,6 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
-vi.mock('./VoiceControl', () => ({ VoiceControl: () => null }))
-
 import { VenueChatFixture, VISITOR_FIXTURE_PROJECTION } from './VenueChatFixture'
 
 describe('VenueChatFixture', () => {
@@ -77,4 +75,101 @@ describe('VenueChatFixture', () => {
     expect(screen.getByText('What should our family see first?')).toBeTruthy()
     expect(container.querySelector('[data-character-layout="compact"]')).toBeTruthy()
   }, 10_000)
+
+  it('renders mixed RTL and CJK fixture content without changing its source language', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="multilingual"
+        asset="ok"
+        motion="reduced"
+        network="offline"
+        language="العربية"
+      />,
+    )
+
+    expect(container.querySelector('[data-fixture-conversation="multilingual"]')).toBeTruthy()
+    expect(screen.getByText(/هل يمكنك اقتراح/)).toBeTruthy()
+    expect(screen.getByText(/子どもと一緒に/)).toBeTruthy()
+    expect(container.querySelector('[lang="ar"][dir="rtl"]')).toBeTruthy()
+  })
+
+  it('renders the production Voice Mode recovery presentation without provider credentials', () => {
+    render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        voice="error"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('Microphone access was denied')
+    expect(screen.getByText('Voice stopped safely. Text chat is still available.')).toBeTruthy()
+  })
+
+  it('renders offline and reconnected guidance through the production shell', () => {
+    const view = render(
+      <VenueChatFixture
+        mode="classic"
+        state="listening"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        network="offline"
+      />,
+    )
+
+    const offlineStatus = screen.getByText("You're offline").closest('[role="status"]')
+    expect(offlineStatus?.textContent).toContain('draft stays on this screen')
+    expect(
+      (screen.getByRole('button', { name: 'Reconnect to send message' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    view.rerender(
+      <VenueChatFixture
+        mode="classic"
+        state="listening"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        network="reconnected"
+      />,
+    )
+    expect(screen.getByText('Back online').closest('[role="status"]')?.textContent).toContain(
+      'You can send your draft',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('exercises the production route planner with deterministic reviewed locations', async () => {
+    render(
+      <VenueChatFixture
+        mode="character"
+        state="idle"
+        conversation="long"
+        asset="ok"
+        motion="reduced"
+        route="ready"
+      />,
+    )
+
+    const plannerToggle = await screen.findByRole('button', { name: 'Plan a route' })
+    fireEvent.click(plannerToggle)
+    fireEvent.click(screen.getByLabelText('Use only connections marked accessible'))
+    fireEvent.click(screen.getByRole('button', { name: 'Find route' }))
+
+    expect(await screen.findByText('Main entrance to Lake gallery')).toBeTruthy()
+    expect(screen.getByText('Take the lift to the upper floor and turn left.')).toBeTruthy()
+  })
 })

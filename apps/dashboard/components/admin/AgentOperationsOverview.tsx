@@ -1,12 +1,18 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
-import { AgentIdentityConfigurationFields } from '@pathfinder/contracts'
+import {
+  AGENT_DIRECT_EXECUTION_ROUTE,
+  AgentIdentityConfigurationFields,
+} from '@pathfinder/contracts'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
+import { AgentApprovalPolicyControl } from './AgentApprovalPolicyControl'
 
 type Cursor = { createdAt: string; id: string } | null
 
@@ -36,6 +42,7 @@ type Run = {
   modelProvider: string | null
   modelName: string | null
   costE8Usd: bigint
+  costStatus?: string
   errorCode: string | null
   createdAt: Date
   agentIdentity: { id: string; name: string; enabled: boolean }
@@ -51,6 +58,16 @@ type Approval = {
   state: string
   createdAt: Date
   agentIdentity: { id: string; name: string }
+  customerAccessRequest?: {
+    id: string
+    targetEmail: string
+    requestedRole: string
+    status: string
+    supportRequestId: string
+    sourceSupportMessageId: string
+    providerInvitationId: string | null
+    updatedAt: Date
+  } | null
 }
 
 type Question = {
@@ -59,11 +76,48 @@ type Question = {
   question: string
   context: string | null
   choices: string[]
+  evidence: unknown
+  proposedAnswer: unknown
   blocking: boolean
   status: string
   createdAt: Date
   updatedAt: Date
   agentIdentity: { id: string; name: string }
+}
+
+type ApprovalPolicy = {
+  id: string
+  policyKey: string | null
+  agentIdentityId: string
+  actionName: string
+  capability: string
+  issueReason: string | null
+  constraints: unknown
+  maxUses: number | null
+  useCount: number
+  expiresAt: Date | null
+  revokedAt: Date | null
+  revokeReason: string | null
+  state: 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'EXHAUSTED' | 'SCHEDULED'
+  _count: { consumptions: number }
+  authorityEvidence: Array<{
+    createdAt: Date
+    outcomeObservation: OutcomeObservation
+  }>
+}
+
+type OutcomeObservation = {
+  id: string
+  agentRunId: string
+  agentIdentityId: string
+  signalKind: string
+  verdict: string
+  summary: string
+  evidenceRef: string | null
+  taskClass: string
+  modelProvider: string | null
+  modelName: string | null
+  createdAt: Date
 }
 
 type Props = {
@@ -73,6 +127,8 @@ type Props = {
   runs: { items: Run[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
   questions: { items: Question[]; nextCursor: Cursor }
+  approvalPolicies?: { items: ApprovalPolicy[]; nextCursor: Cursor }
+  outcomeObservations?: OutcomeObservation[]
   questionRecipients?: Array<{
     userId: string
     role: string
@@ -97,6 +153,12 @@ export function formatE8Usd(value: bigint) {
   const dollars = value / units
   const fractional = (value % units).toString().padStart(8, '0').replace(/0+$/, '')
   return `$${dollars.toString()}${fractional ? `.${fractional}` : '.00'}`
+}
+
+export function formatAgentRunCost(value: bigint, status?: string) {
+  if (!status || status === 'UNREPORTED') return 'Not reported'
+  const amount = formatE8Usd(value)
+  return status === 'ESTIMATED' ? `${amount} estimated` : amount
 }
 
 const bridgeProviderForIdentityProvider: Record<string, string> = {
@@ -137,6 +199,8 @@ export function AgentOperationsOverview({
   runs,
   approvals,
   questions,
+  approvalPolicies = { items: [], nextCursor: null },
+  outcomeObservations = [],
   questionRecipients = [],
   runtime = { agentRunnerEnabled: false },
   bridgeSessions = [],
@@ -172,7 +236,7 @@ export function AgentOperationsOverview({
         {[
           ['#new-task', 'New task'],
           ['#inbox', 'Inbox'],
-          ['#team', 'Team'],
+          ['#team', 'Team & policies'],
           ['#runs', 'Runs'],
           [`${base}/integrations`, 'Integrations'],
           [`${base}/settings`, 'AI controls'],
@@ -232,6 +296,10 @@ export function AgentOperationsOverview({
                 {question.context ? (
                   <p className="mt-2 text-sm leading-6 text-pf-deep/65">{question.context}</p>
                 ) : null}
+                <AgentQuestionEvidence
+                  evidence={question.evidence}
+                  proposedAnswer={question.proposedAnswer}
+                />
                 <AgentQuestionAnswerForm
                   tenantId={tenantId}
                   venueId={venueId}
@@ -309,14 +377,30 @@ export function AgentOperationsOverview({
                 <p className="mt-4 text-xs text-pf-deep/55">
                   {identity.agentType.replace(/_/g, ' ')} · {identity._count.runs} runs ·{' '}
                   {identity._count.approvalRequests} approvals ·{' '}
-                  {[identity.defaultProvider, identity.defaultModel].filter(Boolean).join(' / ') ||
-                    'No default model'}
+                  {identity.defaultModel === AGENT_DIRECT_EXECUTION_ROUTE
+                    ? 'Torchiko managed AI / agent-run workload'
+                    : [identity.defaultProvider, identity.defaultModel]
+                        .filter(Boolean)
+                        .join(' / ') || 'No execution route'}
                 </p>
                 <IdentityConfigurationEditor
                   tenantId={tenantId}
                   venueId={venueId}
                   identity={identity}
                 />
+                <div>
+                  <AgentApprovalPolicyControl
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    identity={identity}
+                    policies={approvalPolicies.items.filter(
+                      (policy) => policy.agentIdentityId === identity.id,
+                    )}
+                    outcomeObservations={outcomeObservations.filter(
+                      (observation) => observation.agentIdentityId === identity.id,
+                    )}
+                  />
+                </div>
               </article>
             ))}
           </div>
@@ -343,13 +427,24 @@ export function AgentOperationsOverview({
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-pf-light bg-white">
             <table className="min-w-[52rem] w-full text-left text-sm">
+              <caption className="sr-only">Agent run history</caption>
               <thead className="border-b border-pf-light bg-pf-surface/50 text-xs uppercase tracking-wider text-pf-deep/55">
                 <tr>
-                  <th className="px-4 py-3">Run</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Evidence</th>
-                  <th className="px-4 py-3">Cost</th>
-                  <th className="px-4 py-3">Created</th>
+                  <th scope="col" className="px-4 py-3">
+                    Run
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Evidence
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Cost
+                  </th>
+                  <th scope="col" className="px-4 py-3">
+                    Created
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -392,7 +487,7 @@ export function AgentOperationsOverview({
                       {run._count.approvalRequests} approvals
                     </td>
                     <td className="px-4 py-4 font-mono text-xs text-pf-deep">
-                      {formatE8Usd(run.costE8Usd)}
+                      {formatAgentRunCost(run.costE8Usd, run.costStatus)}
                     </td>
                     <td className="px-4 py-4 text-xs text-pf-deep/55">
                       {run.createdAt.toLocaleString()}
@@ -598,6 +693,11 @@ export function AgentOperationsOverview({
                 </div>
                 <p className="mt-2 text-sm font-semibold text-pf-deep">{approval.proposedAction}</p>
                 <p className="mt-1 text-sm text-pf-deep/65">{approval.reason}</p>
+                <CustomerAccessApprovalContext
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  request={approval.customerAccessRequest}
+                />
                 {approval.state === 'PENDING' ? (
                   <ApprovalDecisionForm
                     tenantId={tenantId}

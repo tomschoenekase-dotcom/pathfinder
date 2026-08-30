@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
-import type { inferRouterInputs } from '@trpc/server'
+import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import {
   GuestPublicErrorCode,
@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/contracts'
 
 import { useGeolocation } from '../hooks/useGeolocation'
+import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useSession } from '../hooks/useSession'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
@@ -21,22 +22,62 @@ import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
+import { LocationRoutePlanner } from './LocationRoutePlanner'
+import { getVisitorRecoveryCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
+import type { GuestEntrySource } from '../lib/entry-prompt'
 
 type VenueChatExperienceProps = {
   venueSlug: string
   presentation?: VenueChatPresentation
   initialDraft?: string
+  entrySource?: GuestEntrySource
   secondLayerKey?: string
 }
 
 type ChatSendInput = inferRouterInputs<AppRouter>['chat']['send']
+type ChatSendResult = inferRouterOutputs<AppRouter>['chat']['send']
+type ChatStreamEvent =
+  | {
+      type: 'delta'
+      delta: string
+      providerFirstTextMs: number
+      requestFirstTextMs: number
+    }
+  | { type: 'complete'; result: ChatSendResult }
+type ChatStreamClient = {
+  chat: {
+    stream?: {
+      subscribe: (
+        input: ChatSendInput,
+        handlers: {
+          onData: (event: ChatStreamEvent) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        },
+      ) => { unsubscribe: () => void }
+    }
+  }
+}
 type PendingTurn = {
   operationId: string
   input: ChatSendInput
   epoch: number
   venueId: string
   anonymousToken: string
+}
+
+const EXPANSION_REQUEST_MESSAGES: Record<SupportedChatLanguage, string> = {
+  English: 'Tell me more about that.',
+  Español: 'Cuéntame más sobre eso.',
+  Français: 'Dites-m’en plus à ce sujet.',
+  Deutsch: 'Erzähl mir mehr darüber.',
+  Italiano: 'Dimmi di più al riguardo.',
+  Português: 'Conte-me mais sobre isso.',
+  中文: '请再详细介绍一下。',
+  日本語: 'それについてもう少し詳しく教えてください。',
+  한국어: '그것에 대해 더 자세히 알려 주세요.',
+  العربية: 'أخبرني المزيد عن ذلك.',
 }
 
 function trpcErrorCode(error: unknown): string | null {
@@ -57,9 +98,13 @@ export function VenueChatExperience({
   venueSlug,
   presentation = 'standalone',
   initialDraft = '',
+  entrySource,
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
+  const streamingClient = client as unknown as ChatStreamClient
+  const connectionState = useNetworkStatus()
+  const isOnline = connectionState !== 'offline'
   const [venueState, setVenueState] = useState<{ slug: string; venue: VenueSummary | null } | null>(
     null,
   )
@@ -78,10 +123,12 @@ export function VenueChatExperience({
       ? (stored as SupportedChatLanguage)
       : 'English'
   })
+  const recoveryCopy = getVisitorRecoveryCopy(language)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const conversationEpochRef = useRef(0)
   const sendingEpochRef = useRef<number | null>(null)
   const activeOperationRef = useRef<string | null>(null)
+  const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
   const pendingTurnRef = useRef<PendingTurn | null>(null)
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
@@ -91,13 +138,9 @@ export function VenueChatExperience({
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
   const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
-  const { anonymousToken, identityUnavailable, setSessionId, startNewConversation } = useSession(
-    venue?.id ?? '',
-    experienceStorageScope,
-  )
+  const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
+    useSession(venue?.id ?? '', experienceStorageScope)
   const visitorId = useVisitorId()
-  currentVenueIdRef.current = venue?.id ?? null
-  currentAnonymousTokenRef.current = anonymousToken
   const {
     endSession,
     resetAnalytics,
@@ -109,7 +152,13 @@ export function VenueChatExperience({
     venue: secondLayerKey ? null : venue,
     anonymousToken: secondLayerKey ? null : anonymousToken,
     visitorId,
+    ...(!secondLayerKey && entrySource ? { entrySource } : {}),
   })
+
+  useLayoutEffect(() => {
+    currentVenueIdRef.current = venue?.id ?? null
+    currentAnonymousTokenRef.current = anonymousToken
+  }, [anonymousToken, venue?.id])
 
   const clearCharacterReset = useCallback(() => {
     if (characterResetTimerRef.current !== null) {
@@ -139,6 +188,13 @@ export function VenueChatExperience({
   )
 
   useEffect(() => () => clearCharacterReset(), [clearCharacterReset])
+  useEffect(
+    () => () => {
+      activeStreamRef.current?.unsubscribe()
+      activeStreamRef.current = null
+    },
+    [],
+  )
 
   useEffect(() => {
     if (venue && identityUnavailable)
@@ -158,6 +214,8 @@ export function VenueChatExperience({
       setRecoveryMode(null)
       reconciliationRequiredRef.current = false
       setIsSending(false)
+      activeStreamRef.current?.unsubscribe()
+      activeStreamRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
       sendingEpochRef.current = null
@@ -189,7 +247,7 @@ export function VenueChatExperience({
               ...(secondLayerKey ? { secondLayerKey } : {}),
             })
             if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
-              setMessages(history.messages)
+              setMessages(history.messages as ChatMessage[])
           } catch {
             // History is optional; a failed read starts an empty conversation.
           }
@@ -225,7 +283,7 @@ export function VenueChatExperience({
   useEffect(() => {
     let disposed = false
     async function ensureSession() {
-      if (!venue || !anonymousToken) return
+      if (!isOnline || !venue || !anonymousToken) return
       if (lat === null || lng === null) lastSyncedPosRef.current = null
       if (lat !== null && lng !== null && lastSyncedPosRef.current) {
         if (
@@ -261,7 +319,7 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [anonymousToken, client, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
+  }, [anonymousToken, client, isOnline, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
 
   function turnScopeIsCurrent(turn: PendingTurn) {
     return (
@@ -286,6 +344,58 @@ export function VenueChatExperience({
     setSendError(null)
   }
 
+  function applyStreamDelta(turn: PendingTurn, delta: string) {
+    if (!delta || !turnIsCurrent(turn)) return
+    setStableCharacterState('speaking')
+    setMessages((current) => {
+      const existingIndex = current.findIndex(
+        (message) =>
+          message.role === 'assistant' && message.pendingOperationId === turn.operationId,
+      )
+      if (existingIndex === -1) {
+        return [
+          ...current,
+          {
+            role: 'assistant',
+            content: delta,
+            pendingOperationId: turn.operationId,
+          },
+        ]
+      }
+      return current.map((message, index) =>
+        index === existingIndex ? { ...message, content: message.content + delta } : message,
+      )
+    })
+  }
+
+  async function sendTurnRequest(turn: PendingTurn): Promise<ChatSendResult> {
+    const stream = streamingClient.chat.stream
+    if (!stream?.subscribe) return client.chat.send.mutate(turn.input)
+    return new Promise<ChatSendResult>((resolve, reject) => {
+      let completed = false
+      const subscription = stream.subscribe(turn.input, {
+        onData(event) {
+          if (event.type === 'delta') {
+            applyStreamDelta(turn, event.delta)
+            return
+          }
+          completed = true
+          resolve(event.result)
+        },
+        onError(error) {
+          reject(error)
+        },
+        onComplete() {
+          if (!completed) reject(new Error('The guide stream ended before completion.'))
+        },
+      })
+      activeStreamRef.current = {
+        operationId: turn.operationId,
+        unsubscribe: () => subscription.unsubscribe(),
+      }
+    })
+  }
+
   async function reconcileTurn(turn: PendingTurn): Promise<boolean> {
     try {
       const history = await client.chat.history.query({
@@ -294,7 +404,7 @@ export function VenueChatExperience({
         ...(secondLayerKey ? { secondLayerKey } : {}),
       })
       if (!turnIsCurrent(turn)) return false
-      setMessages(history.messages)
+      setMessages(history.messages as ChatMessage[])
       reconciliationRequiredRef.current = false
       return true
     } catch {
@@ -321,24 +431,40 @@ export function VenueChatExperience({
       ])
     sendingEpochRef.current = turn.epoch
     try {
-      const result = await client.chat.send.mutate(turn.input)
+      const result = await sendTurnRequest(turn)
       if (!turnIsCurrent(turn)) return
       const response = result.response
       const resultPlaces = result.places
+      const resultCitations = Array.isArray(result.citations) ? result.citations : []
       if (typeof response !== 'string' || !Array.isArray(resultPlaces)) {
         throw new Error('The completed chat turn response was incomplete.')
       }
       setMessages((current) => [
-        ...current.map((message) =>
-          message.pendingOperationId === turn.operationId
-            ? { role: message.role, content: message.content }
-            : message,
-        ),
+        ...current
+          .filter(
+            (message) =>
+              !(message.role === 'assistant' && message.pendingOperationId === turn.operationId),
+          )
+          .map((message) =>
+            message.pendingOperationId === turn.operationId
+              ? { role: message.role, content: message.content }
+              : message,
+          ),
         {
           ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}),
           role: 'assistant',
           content: response,
           places: resultPlaces as NonNullable<ChatMessage['places']>,
+          ...(resultCitations.length
+            ? {
+                blocks: [
+                  {
+                    type: 'citations' as const,
+                    citations: resultCitations,
+                  },
+                ],
+              }
+            : {}),
         },
       ])
       setSessionId(result.sessionId)
@@ -394,21 +520,26 @@ export function VenueChatExperience({
         setRecoveryMode('retry-turn')
         setSendError(
           publicCode === 'RATE_LIMITED' || code === 'TOO_MANY_REQUESTS'
-            ? 'This message is still being checked. Wait a moment, then retry the same message.'
+            ? 'This message was not sent because the guide is busy. Wait a moment, then retry the same message.'
             : 'The outcome of this message is not confirmed. Retry the same message safely.',
         )
       }
       setTemporaryCharacterState('error', 1600)
     } finally {
+      if (activeStreamRef.current?.operationId === turn.operationId) {
+        activeStreamRef.current.unsubscribe()
+        activeStreamRef.current = null
+      }
       if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
       if (turnScopeIsCurrent(turn)) setIsSending(false)
       if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
     }
   }
 
-  function handleSend(raw: string) {
+  function handleSend(raw: string, responseIntent: 'DEFAULT' | 'EXPAND' = 'DEFAULT') {
     const message = raw.trim()
     if (
+      !isOnline ||
       !venue ||
       !anonymousToken ||
       !message ||
@@ -432,6 +563,7 @@ export function VenueChatExperience({
       ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
       message,
+      ...(responseIntent === 'EXPAND' ? { responseIntent } : {}),
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
       ...(language === 'English' ? {} : { language }),
     }
@@ -441,6 +573,7 @@ export function VenueChatExperience({
   }
 
   function handleRetry() {
+    if (!isOnline) return
     const turn = pendingTurnRef.current
     if (!turn) return
     if (recoveryMode === 'check-history') {
@@ -479,14 +612,9 @@ export function VenueChatExperience({
   }
 
   function handleNewConversation() {
-    if (!venue || !anonymousToken || isSending || activeOperationRef.current !== null) return
-    if (
-      messages.length &&
-      !window.confirm(
-        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
-      )
-    )
+    if (!isOnline || !venue || !anonymousToken || isSending || activeOperationRef.current !== null)
       return
+    if (messages.length && !window.confirm(recoveryCopy[10])) return
     const previousToken = anonymousToken
     const previousStartedAt = sessionStartedAtRef.current
     if (!startNewConversation()) {
@@ -507,14 +635,23 @@ export function VenueChatExperience({
     endSession(venue.id, previousToken, previousStartedAt)
   }
 
-  if (isBooting || venueState?.slug !== venueSlug) return <VenueChatSkeleton />
+  if (isBooting || venueState?.slug !== venueSlug) return <VenueChatSkeleton language={language} />
   if (isVenueUnavailable)
-    return <VenueTemporarilyUnavailable showHomeLink={presentation === 'standalone'} />
+    return (
+      <VenueTemporarilyUnavailable
+        showHomeLink={presentation === 'standalone'}
+        language={language}
+      />
+    )
   if (!venue)
     return (
       <VenueChatError
-        message={pageError ?? 'This venue link is not active.'}
+        message={
+          localizeVisitorShellError(pageError ?? 'This venue link is not active.', language) ??
+          'This venue link is not active.'
+        }
         presentation={presentation}
+        language={language}
       />
     )
 
@@ -530,14 +667,28 @@ export function VenueChatExperience({
       language={language}
       setLanguage={setLanguage}
       initialDraft={initialDraft}
+      connectionState={connectionState}
       characterState={characterState}
       location={{ lat, lng, permission, refresh }}
+      routePlanner={
+        !secondLayerKey ? (
+          <LocationRoutePlanner
+            key={`${venue.id}:${anonymousToken ?? 'pending'}:${sessionId ?? 'unconfirmed'}`}
+            venueId={venue.id}
+            anonymousToken={sessionId ? anonymousToken : null}
+            disabled={!isOnline || isSending}
+            language={language}
+          />
+        ) : null
+      }
       onSend={(message) => {
         handleSend(message)
       }}
+      onRequestMore={() => handleSend(EXPANSION_REQUEST_MESSAGES[language], 'EXPAND')}
+      requestMoreLabel={EXPANSION_REQUEST_MESSAGES[language].replace(/[.。]$/u, '')}
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
-      retryLabel={recoveryMode === 'check-history' ? 'Check conversation' : 'Retry same message'}
+      retryLabel={recoveryMode === 'check-history' ? recoveryCopy[12] : recoveryCopy[13]}
       onNewConversation={handleNewConversation}
       onVoiceCharacterState={setStableCharacterState}
       onPlaceView={(placeId) => {

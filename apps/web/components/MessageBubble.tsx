@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type {
   GuestResponseBlock,
   GuestResponsePlace,
@@ -7,6 +8,8 @@ import type {
 } from '@pathfinder/contracts/guest-response'
 
 import { ResponseRenderer } from './ResponseRenderer'
+import { getChatLanguagePresentation } from './LanguagePicker'
+import { getVisitorUiCopy } from './visitor-ui-copy'
 
 type MessageBubbleProps = {
   role: 'user' | 'assistant'
@@ -23,6 +26,7 @@ type MessageBubbleProps = {
   onVisitorAction?: (action: GuestVisitorAction) => void
   messageId?: string
   onFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
+  language?: SupportedChatLanguage
 }
 
 export function MessageBubble({
@@ -40,9 +44,35 @@ export function MessageBubble({
   onVisitorAction,
   messageId,
   onFeedback,
+  language = 'English',
 }: MessageBubbleProps) {
   const isUser = role === 'user'
-  const speaker = isUser ? 'You' : assistantLabel
+  const presentation = getChatLanguagePresentation(language)
+  const [
+    ,
+    ,
+    ,
+    ,
+    youLabel,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    rateAnswerLabel,
+    helpfulQuestion,
+    helpfulLabel,
+    notHelpfulLabel,
+  ] = getVisitorUiCopy(language).shell
+  const speaker = isUser ? youLabel : assistantLabel
   const [feedback, setFeedback] = useState<'HELPFUL' | 'NOT_HELPFUL' | null>(null)
   const [feedbackPending, setFeedbackPending] = useState(false)
 
@@ -70,7 +100,11 @@ export function MessageBubble({
           color: isUser ? bubbleTextColor : undefined,
         }}
       >
-        <span className="sr-only" lang="en" dir="ltr">
+        <span
+          className="sr-only"
+          lang={isUser ? presentation.code : undefined}
+          dir={isUser ? presentation.direction : 'auto'}
+        >
           {speaker}:
         </span>
         {isUser ? (
@@ -80,6 +114,7 @@ export function MessageBubble({
         ) : (
           <ResponseRenderer
             content={content}
+            language={language}
             {...(blocks ? { blocks } : {})}
             {...(places ? { places } : {})}
             {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
@@ -92,13 +127,15 @@ export function MessageBubble({
         {!isUser && messageId && onFeedback ? (
           <div
             className="mt-2 flex items-center gap-1 border-t border-[var(--chat-border)] pt-2"
-            aria-label="Rate this answer"
+            aria-label={rateAnswerLabel}
+            lang={presentation.code}
+            dir={presentation.direction}
           >
-            <span className="mr-1 text-xs text-[var(--chat-text-muted)]">Was this helpful?</span>
+            <span className="mr-1 text-xs text-[var(--chat-text-muted)]">{helpfulQuestion}</span>
             {(
               [
-                ['HELPFUL', ThumbsUp, 'Helpful'],
-                ['NOT_HELPFUL', ThumbsDown, 'Not helpful'],
+                ['HELPFUL', ThumbsUp, helpfulLabel],
+                ['NOT_HELPFUL', ThumbsDown, notHelpfulLabel],
               ] as const
             ).map(([rating, Icon, label]) => (
               <button

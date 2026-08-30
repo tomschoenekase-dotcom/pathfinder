@@ -12,6 +12,7 @@ import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 import { SupportAgentRunLineagePanel, type SupportRunLineage } from './SupportAgentRunLineagePanel'
+import { SupportKnowledgeProposalForm } from './SupportKnowledgeProposalForm'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
@@ -31,6 +32,7 @@ type Message = {
   authorKind: string
   visibility: string
   body: string
+  requestVersion: number | null
   createdAt: Date
   attachments: { id: string; filename: string; mediaType: string; byteSize: string }[]
 }
@@ -59,6 +61,29 @@ type Handoff = {
   linkedById: string
   createdAt: Date
   venuePackage: { status: string; schemaVersion: number; payloadHash: string }
+  supersessionAsPrior: {
+    id: string
+    replacementHandoffId: string
+    requestVersion: number
+    createdAt: Date
+  } | null
+  supersessionsAsReplacement: {
+    id: string
+    supersededHandoffId: string
+    requestVersion: number
+    createdAt: Date
+  }[]
+}
+type KnowledgeProposalLineage = {
+  id: string
+  status: string
+  supportRequestId: string | null
+  supportRequestVersion: number | null
+  proposedChange: string
+  reason: string
+  evidenceMessageIds: unknown
+  createdByType: string
+  createdAt: Date
 }
 type EligibleAttachment = {
   intakeUploadId: string
@@ -80,6 +105,7 @@ type Props = {
   eligibleAttachmentsNextCursor?: { createdAt: string; id: string } | null
   runLineages?: SupportRunLineage[]
   runLineagesNextCursor?: { createdAt: string; id: string } | null
+  knowledgeProposals?: KnowledgeProposalLineage[]
 }
 
 function query(
@@ -108,6 +134,7 @@ export function SupportOperationsView({
   eligibleAttachmentsNextCursor = null,
   runLineages = [],
   runLineagesNextCursor = null,
+  knowledgeProposals = [],
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/support-operations`
   return (
@@ -173,7 +200,22 @@ export function SupportOperationsView({
                   {selected.updatedByKind.toLowerCase()} · {selected.updatedAt.toLocaleString()}
                 </p>
               </section>
-              {selected.status === 'COMPLETED' || selected.status === 'CANCELLED' ? (
+              {selected.status === 'DRAFT' ? (
+                <div className="space-y-6">
+                  <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950 shadow-sm">
+                    This machine-prepared draft is internal only. Review it, then explicitly open or
+                    cancel it. Customer messaging, participant access, package work, and venue
+                    changes remain unavailable while it is a draft.
+                  </section>
+                  <SupportStatusTransitionForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    currentStatus={selected.status}
+                    expectedVersion={selected.version}
+                  />
+                </div>
+              ) : selected.status === 'COMPLETED' || selected.status === 'CANCELLED' ? (
                 <section className="rounded-3xl border border-pf-light bg-white p-5 text-sm text-pf-deep/75 shadow-sm">
                   This request is closed. New messages, notes, and files cannot be added.
                 </section>
@@ -225,6 +267,23 @@ export function SupportOperationsView({
                     venueId={venueId}
                     support={{ requestId: selected.id, expectedVersion: selected.version }}
                   />
+                  <SupportKnowledgeProposalForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    expectedVersion={selected.version}
+                    eligible={
+                      selected.category === 'CONTENT_CORRECTION' &&
+                      [
+                        'IN_REVIEW',
+                        'PATCH_DRAFTED',
+                        'VALIDATING',
+                        'AWAITING_APPROVAL',
+                        'APPLYING',
+                      ].includes(selected.status)
+                    }
+                    messages={messages.items}
+                  />
                 </SupportVersionBoundActions>
               )}
               <section className="space-y-3" aria-labelledby="support-handoffs-heading">
@@ -245,6 +304,20 @@ export function SupportOperationsView({
                           status {handoff.venuePackage.status} · schema v
                           {handoff.venuePackage.schemaVersion}
                         </p>
+                        {handoff.supersessionAsPrior ? (
+                          <p className="mt-1 text-xs font-semibold text-amber-800">
+                            Historical fulfillment · replaced by handoff{' '}
+                            {handoff.supersessionAsPrior.replacementHandoffId} at request version{' '}
+                            {handoff.supersessionAsPrior.requestVersion}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs font-semibold text-emerald-800">
+                            Current fulfillment
+                            {handoff.supersessionsAsReplacement.length > 0
+                              ? ` · replaces ${handoff.supersessionsAsReplacement.length} historical handoff${handoff.supersessionsAsReplacement.length === 1 ? '' : 's'}`
+                              : ''}
+                          </p>
+                        )}
                       </li>
                     ))}
                   </ol>
@@ -259,6 +332,52 @@ export function SupportOperationsView({
                 lineages={runLineages}
                 nextCursor={runLineagesNextCursor}
               />
+              <section className="space-y-3" aria-labelledby="support-knowledge-heading">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 id="support-knowledge-heading" className="text-xl font-semibold text-pf-deep">
+                    Knowledge proposal lineage
+                  </h3>
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/knowledge-proposals`}
+                    className="inline-flex min-h-11 items-center rounded-xl border border-pf-light bg-white px-4 text-sm font-semibold text-pf-primary"
+                  >
+                    Open review queue
+                  </Link>
+                </div>
+                {knowledgeProposals.length === 0 ? (
+                  <Empty text="No knowledge proposal is bound to a frozen version of this request." />
+                ) : (
+                  <ol className="divide-y divide-pf-light rounded-2xl border border-pf-light bg-white px-4">
+                    {knowledgeProposals.map((proposal) => (
+                      <li key={proposal.id} className="py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-pf-deep">
+                            Request version {proposal.supportRequestVersion} ·{' '}
+                            {proposal.status.replaceAll('_', ' ')}
+                          </p>
+                          <span className="text-xs font-bold uppercase tracking-wide text-pf-primary">
+                            {proposal.createdByType} prepared
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-sm text-pf-deep/75">
+                          {proposal.proposedChange}
+                        </p>
+                        <p className="mt-1 text-xs text-pf-deep/65">
+                          {Array.isArray(proposal.evidenceMessageIds)
+                            ? proposal.evidenceMessageIds.length
+                            : 0}{' '}
+                          exact message reference
+                          {Array.isArray(proposal.evidenceMessageIds) &&
+                          proposal.evidenceMessageIds.length === 1
+                            ? ''
+                            : 's'}{' '}
+                          retained · {proposal.createdAt.toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
               <section className="space-y-3" aria-labelledby="support-thread-heading">
                 <h3 id="support-thread-heading" className="text-xl font-semibold text-pf-deep">
                   Thread

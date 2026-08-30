@@ -60,14 +60,44 @@ export async function findTerminalJobRecordEvidence(params: {
   )
 }
 
+export async function findTerminalJobRecordEvidenceById(
+  id: string,
+): Promise<TerminalJobRecordEvidence | null> {
+  return withTenantIsolationBypass(() =>
+    db.jobRecord.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        bullJobId: true,
+        tenantId: true,
+        payload: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+      },
+    }),
+  )
+}
+
 export async function writeJobRecord(params: WriteJobRecordParams): Promise<string> {
+  const payload = params.payload ?? {}
+  const payloadVenueId = payload.venueId
+  const venueId =
+    typeof payloadVenueId === 'string' && payloadVenueId.trim().length > 0
+      ? payloadVenueId.trim()
+      : null
   const data = {
     queue: params.queue,
     jobName: params.jobName,
     bullJobId: params.bullJobId ?? null,
     tenantId: params.tenantId ?? null,
+    venueId,
     status: params.status,
-    payload: params.payload ?? {},
+    payload,
     error: params.error ?? null,
     startedAt: params.startedAt,
     completedAt: params.completedAt ?? null,

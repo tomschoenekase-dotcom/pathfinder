@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   reject: vi.fn(),
   finalize: vi.fn(),
   settleAuthoritative: vi.fn(),
+  releaseAuthoritative: vi.fn(),
+  enqueueVerification: vi.fn(),
   scanner: null as null | { engine: string; engineVersion: string; scan: ReturnType<typeof vi.fn> },
   rejectPrecheck: vi.fn(),
   list: vi.fn(),
@@ -36,12 +38,18 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   rejectIntakeUploadAction: mocks.reject,
   recordIntakeUploadPrecheckAction: mocks.finalize,
   settleIntakeUploadAuthoritativeVerificationAction: mocks.settleAuthoritative,
+  releaseIntakeUploadAuthoritativeVerificationAction: mocks.releaseAuthoritative,
   recordRejectedIntakeUploadPrecheckAction: mocks.rejectPrecheck,
   listIntakeUploadsAction: mocks.list,
   bindIntakeUploadMultipartAction: mocks.bindMultipart,
   getIntakeUploadMultipartAction: mocks.getMultipart,
   completeIntakeUploadMultipartAction: mocks.completeMultipartAction,
   cancelIntakeUploadMultipartAction: mocks.cancelMultipartAction,
+}))
+
+vi.mock('@pathfinder/jobs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/jobs')>()),
+  enqueueIntakeUploadVerification: mocks.enqueueVerification,
 }))
 
 vi.mock('../lib/intake-upload-storage', async (importOriginal) => ({
@@ -143,6 +151,11 @@ describe('client-safe quarantined intake upload', () => {
       uploadTarget,
       retryable: true,
     })
+    mocks.releaseAuthoritative.mockResolvedValue({
+      upload: { ...upload, status: 'PRECHECK_PASSED' },
+      retryable: true,
+    })
+    mocks.enqueueVerification.mockResolvedValue(undefined)
     mocks.renew.mockResolvedValue({ leaseUntil: new Date(Date.now() + 600_000) })
     mocks.reject.mockResolvedValue({ upload: { ...upload, status: 'REJECTED' }, retryable: false })
     mocks.rejectPrecheck.mockResolvedValue({
@@ -436,47 +449,33 @@ describe('client-safe quarantined intake upload', () => {
     expect(mocks.finalize).not.toHaveBeenCalled()
   })
 
-  it('runs configured authoritative scanning and settles a prechecked upload', async () => {
-    const scan = vi.fn().mockResolvedValue({
-      verdict: 'CLEAN',
-      verdictHash: 'e'.repeat(64),
-      computedByteSize: uploadTarget.byteSize,
-      computedSha256: uploadTarget.sha256,
-    })
-    mocks.scanner = { engine: 'clamav-clamd', engineVersion: 'daemon', scan }
+  it('hands a prechecked upload to the audited system worker without reading bytes', async () => {
     mocks.claim.mockResolvedValue({
       state: 'PRECHECK_PASSED',
       upload: { ...upload, status: 'PRECHECK_PASSED' },
       uploadTarget: { ...uploadTarget, storageVersionId: 'v1' },
       replayed: true,
     })
-    const storedBytes = (async function* () {
-      yield new Uint8Array([1, 2, 3])
-    })()
-    mocks.read.mockResolvedValue(storedBytes)
-
     const result = await caller
       .createCaller(context())
       .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
 
-    expect(mocks.read).toHaveBeenCalledWith({
-      key: uploadTarget.objectKey,
-      versionId: 'v1',
-    })
-    expect(scan).toHaveBeenCalledWith({
-      bytes: storedBytes,
-      expectedBytes: uploadTarget.byteSize,
-      expectedSha256: uploadTarget.sha256,
-    })
-    expect(mocks.settleAuthoritative).toHaveBeenCalledWith(
+    expect(mocks.releaseAuthoritative).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',
-        malware: expect.objectContaining({ verdict: 'CLEAN', engine: 'clamav-clamd' }),
       }),
     )
+    expect(mocks.enqueueVerification).toHaveBeenCalledWith({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      uploadId: 'upload-1',
+      observedUpdatedAt: now.toISOString(),
+    })
+    expect(mocks.read).not.toHaveBeenCalled()
+    expect(mocks.settleAuthoritative).not.toHaveBeenCalled()
     expect(result).toMatchObject({
-      nextAction: 'PATHFINDER_REVIEW',
-      processingState: 'READY_FOR_REVIEW',
+      nextAction: 'MALWARE_SCAN_PENDING',
+      processingState: 'MALWARE_SCAN_PENDING',
       published: false,
     })
   })
@@ -584,6 +583,8 @@ describe('client-safe quarantined intake upload', () => {
       items: [
         {
           ...upload,
+          status: 'VERIFYING',
+          verificationLeaseActive: true,
           objectKey: 'secret-key',
           objectGeneration: 'secret-generation',
           sha256: checksum,
@@ -603,5 +604,10 @@ describe('client-safe quarantined intake upload', () => {
     expect(serialized).not.toContain('secret-generation')
     expect(serialized).not.toContain(checksum)
     expect(serialized).not.toContain('rawError')
+    expect(result.items[0]?.clientVerification).toMatchObject({
+      kind: 'IN_PROGRESS',
+      required: false,
+    })
+    expect(serialized).not.toContain('verificationLeaseActive')
   })
 })

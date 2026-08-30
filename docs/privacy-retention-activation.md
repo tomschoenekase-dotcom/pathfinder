@@ -27,10 +27,15 @@ Each decision must also specify legal holds, backup/restore treatment, derived-r
 2. Pause venue availability and new intake. Do not delete before export and revocation evidence is complete.
 3. Use the offboarding preview and finalized bounded export artifact. Record artifact hash, record counts, omissions, and storage version.
 4. Revoke user and machine credentials through their normal lifecycle actions. Record each result.
-5. Run a dry-run dependency inventory grouped by the retention registry. Treat restricted and append-only evidence as blocked unless its approved rule explicitly permits action.
+5. Run `admin.previewRetentionDisposition` (or the capability-gated
+   `pathfinder.retention-preview` MCP resource) for exact database counts and classification gaps.
+   Treat platform-unscoped, external-artifact, restricted, append-only, unclassified, and unavailable
+   evidence as blocked unless its approved rule and separately reviewed implementation cover it.
 6. Obtain owner approval for the exact inventory and policy version. A client request alone does not override legal holds or immutable-evidence requirements.
 7. Execute only a reviewed, tenant-scoped procedure in dependency order. There is no approved general executor in this repository today; direct ad hoc SQL is prohibited.
 8. Verify database counts, object versions, provider-side records, search indexes, derived reports, and access revocation. Produce an immutable receipt without copying deleted content.
 9. Test the effect of a backup restore and document any records that can reappear. Reapply approved deletion if required.
 
-Current blocker: steps 6–9 cannot be automated until every retention decision is approved and a reviewed executor exists.
+Current blocker: the database preview is implemented, but steps 6–9 cannot be automated until every
+retention decision and remaining data classification is approved, external artifacts are inventoried,
+and a reviewed executor exists.

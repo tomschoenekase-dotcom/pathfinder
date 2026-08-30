@@ -10,9 +10,29 @@ import { AI_MODEL_KEYS } from './model-registry'
 import { NOOP_AI_BUDGET_GATE, type AiBudgetGate } from './budget'
 
 const create = vi.fn()
+const stream = vi.fn()
 const usageSink = vi.fn()
 const admissionGuard = vi.fn().mockResolvedValue(undefined)
-const client = { messages: { create } } as AnthropicMessagesClient
+const client = { messages: { create, stream } } as AnthropicMessagesClient
+
+function anthropicStream(options: {
+  deltas: string[]
+  finalText: string
+  terminalError?: unknown
+}) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const text of options.deltas) {
+        yield { type: 'content_block_delta', delta: { type: 'text_delta', text } }
+      }
+      if (options.terminalError) throw options.terminalError
+    },
+    finalMessage: vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: options.finalText }],
+      usage: { input_tokens: 8, output_tokens: 4 },
+    }),
+  }
+}
 
 function budgetGate(overrides: Partial<AiBudgetGate> = {}): AiBudgetGate {
   return {
@@ -92,6 +112,60 @@ describe('generateText', () => {
 
     expect(result.attempts).toBe(2)
     expect(create).toHaveBeenCalledTimes(2)
+  })
+
+  it('streams text fragments while retaining final usage and authoritative text', async () => {
+    stream.mockReturnValueOnce(
+      anthropicStream({ deltas: ['Welcome', ' nearby.'], finalText: 'Welcome nearby.' }),
+    )
+    const onTextDelta = vi.fn()
+
+    const result = await generateText({
+      modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+      system: [{ type: 'text', text: 'Guide.' }],
+      messages: [{ role: 'user', content: 'Hello' }],
+      usageSink,
+      admissionGuard,
+      budgetGate: NOOP_AI_BUDGET_GATE,
+      onTextDelta,
+    })
+
+    expect(onTextDelta.mock.calls.flat()).toEqual(['Welcome', ' nearby.'])
+    expect(result).toMatchObject({
+      text: 'Welcome nearby.',
+      usage: { inputTokens: 8, outputTokens: 4 },
+      attempts: 1,
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('never retries a provider stream after any guest-visible fragment was emitted', async () => {
+    stream.mockReturnValueOnce(
+      anthropicStream({
+        deltas: ['Partial answer'],
+        finalText: '',
+        terminalError: Object.assign(new Error('busy'), { status: 503 }),
+      }),
+    )
+    const onTextDelta = vi.fn()
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 2,
+        retryDelayMs: 0,
+        usageSink,
+        admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
+        onTextDelta,
+      }),
+    ).rejects.toMatchObject({ attempts: 1, code: 'provider-http-503', textEmitted: true })
+
+    expect(onTextDelta).toHaveBeenCalledWith('Partial answer')
+    expect(stream).toHaveBeenCalledOnce()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('never retries a deliberate provider abort and records its stable code', async () => {

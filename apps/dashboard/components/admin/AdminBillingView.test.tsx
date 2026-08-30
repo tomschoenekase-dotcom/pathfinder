@@ -24,8 +24,18 @@ const billing: AdminBillingViewModel = {
   renewalOrCancellationLabel: 'Renews September 20, 2026',
   minimumCommitmentLabel: 'Through November 20, 2026',
   coveredVenues: [
-    { id: 'venue-1', name: 'Harbor Museum', coverageLabel: 'Base subscription' },
-    { id: 'venue-2', name: 'Hill Park', coverageLabel: 'Base subscription' },
+    {
+      id: 'venue-1',
+      name: 'Harbor Museum',
+      coverageLabel: 'Verified component',
+      amountLabel: '$15.00',
+    },
+    {
+      id: 'venue-2',
+      name: 'Hill Park',
+      coverageLabel: 'Verified component',
+      amountLabel: '$10.00',
+    },
   ],
   provider: {
     customerId: 'cus_test_123',

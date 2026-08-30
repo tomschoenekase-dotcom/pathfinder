@@ -7,9 +7,18 @@
     "./mcp": "./src/mcp/index.ts",
     "./partner-api": "./src/partner-api/index.ts",
     "./agent-bridge": "./src/agent-bridge/index.ts",
+    "./agent-bridge/http-core": "./src/agent-bridge/http-core.ts",
+    "./platform-worker-policy": "./src/platform-worker-policy/index.ts",
     "./prospect-agent": "./src/prospect-agent/index.ts",
     "./correspondence": "./src/correspondence/index.ts",
-    "./prospect-import-storage": "./src/prospect-import-storage.ts"
+    "./prospect-import-storage": "./src/prospect-import-storage.ts",
+    "./google-workspace": "./src/google-workspace/index.ts",
+    "./intake-upload-verification": "./src/intake-upload-verification.ts",
+    "./venue-context": "./src/lib/venue-context.ts",
+    "./guest-answer-attribution-evaluation": "./src/lib/evaluation/guest-answer-attribution.ts",
+    "./deployment-storage-key": "./src/lib/deployment-storage-key.ts",
+    "./venue-media-delivery": "./src/lib/venue-media-delivery.ts",
+    "./founder-absence-observation": "./src/founder-absence-observation.ts"
   },
   "types": "./src/index.ts",
   "scripts": {
@@ -35,6 +44,7 @@
     "@trpc/server": "^11.0.0",
     "ioredis": "^5.8.1",
     "jose": "^6.1.3",
+    "pdfjs-dist": "6.1.200",
     "superjson": "^2.2.2",
     "zod": "^3.0.0"
   }

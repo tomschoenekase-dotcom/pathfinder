@@ -45,6 +45,13 @@
       "exceptionReason": "Returns a fixed process-local object and performs no input, database, queue, provider, or tenant work."
     },
     {
+      "path": "location.catalog",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
       "path": "location.resolve",
       "kind": "query",
       "exposure": "public",
@@ -52,7 +59,28 @@
       "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
     },
     {
+      "path": "location.route",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
+      "path": "publicInterest.submit",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/public-interest.test.ts"]
+    },
+    {
       "path": "venue.getBySlug",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-resource-read",
+      "behavioralEvidence": ["packages/api/src/routers/venue.test.ts"]
+    },
+    {
+      "path": "venue.mediaBySlug",
       "kind": "query",
       "exposure": "public",
       "controlProfile": "bounded-resource-read",
@@ -109,6 +137,16 @@
     }
   ],
   "http": [
+    {
+      "source": "apps/web/app/api/chat-stream/route.ts",
+      "methods": ["POST"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-public-ai-stream",
+      "behavioralEvidence": [
+        "apps/web/app/api/chat-stream/route.test.ts",
+        "packages/api/src/routers/chat-streaming.test.ts"
+      ]
+    },
     {
       "source": "apps/dashboard/app/api/admin/impersonate/route.ts",
       "methods": ["POST"],
@@ -169,6 +207,61 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/platform-worker/founder-decisions/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/founder-decisions/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/http.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/founder-directive-tasks/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/founder-directive-tasks-http.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/platform-worker/founder-operating-view/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/founder-operating-view/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/operating-view-http.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/platform-worker/operations-readiness/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/operations-readiness/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/operations-readiness-http.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/platform-worker/release-evidence/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/release-evidence/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/release-evidence-http.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "middleware-and-procedure-controlled",
@@ -223,6 +316,16 @@
       "behavioralEvidence": ["packages/api/src/trpc.test.ts"]
     },
     {
+      "source": "apps/web/app/api/venue-media/[derivativeId]/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-controlled-media-read",
+      "behavioralEvidence": [
+        "apps/web/app/api/venue-media/[derivativeId]/route.test.ts",
+        "packages/api/src/lib/venue-media-delivery.test.ts"
+      ]
+    },
+    {
       "source": "apps/web/app/api/widget-ready/[venueSlug]/route.ts",
       "methods": ["GET"],
       "exposure": "intentional-public",
@@ -234,6 +337,10 @@
     "/api/agent-bridge",
     "/api/integrations/gmail/pubsub",
     "/api/mcp",
+    "/api/platform-worker/founder-decisions",
+    "/api/platform-worker/founder-operating-view",
+    "/api/platform-worker/operations-readiness",
+    "/api/platform-worker/release-evidence",
     "/api/webhooks/clerk",
     "/api/webhooks/resend",
     "/api/webhooks/stripe"

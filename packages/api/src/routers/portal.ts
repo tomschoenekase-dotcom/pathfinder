@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { tenantProcedure } from '../trpc'
+import { configuredIntakeUploadMalwareScanner } from '../lib/intake-upload-byte-verifier'
 import { VenuePackagePayload } from '../schemas/venue-package'
 import {
   ClientPackagePreviewProjectionError,
@@ -324,8 +325,12 @@ export const portalRouter = router({
           if (!venue)
             throw new TRPCError({ code: 'NOT_FOUND', message: 'Onboarding journey not found' })
 
+          const projectionNow = new Date()
+          const authoritativeScannerAvailable = configuredIntakeUploadMalwareScanner() !== null
+
           const [
             uploadRows,
+            expiredVerificationCount,
             intakeRows,
             mediaRows,
             packageRows,
@@ -336,9 +341,20 @@ export const portalRouter = router({
             approvedPreviewCandidate,
           ] = await Promise.all([
             db.intakeUpload.groupBy({
-              by: ['status', 'category'],
+              by: ['status', 'category', 'rejectionCode'],
               where: { tenantId, venueId: input.venueId },
               _count: { _all: true },
+            }),
+            db.intakeUpload.count({
+              where: {
+                tenantId,
+                venueId: input.venueId,
+                status: 'VERIFYING',
+                OR: [
+                  { verificationLeaseUntil: null },
+                  { verificationLeaseUntil: { lte: projectionNow } },
+                ],
+              },
             }),
             db.intakeRun.groupBy({
               by: ['status'],
@@ -431,6 +447,7 @@ export const portalRouter = router({
             OTHER: 0,
           }
           for (const row of uploadRows) {
+            if (row.status === 'REJECTED' && row.rejectionCode === 'CLIENT_CANCELLED') continue
             uploadCounts.set(row.status, (uploadCounts.get(row.status) ?? 0) + row._count._all)
             materialTypes[row.category] += row._count._all
           }
@@ -544,10 +561,14 @@ export const portalRouter = router({
             assessedDimensions,
             exactPackage: Boolean(latestEvalRun),
           }
+          const verifyingCount = uploadCounts.get('VERIFYING') ?? 0
+          const precheckPassedCount = uploadCounts.get('PRECHECK_PASSED') ?? 0
           const materials = {
             uploaded: uploadCounts.get('RESERVED') ?? 0,
-            checking:
-              (uploadCounts.get('VERIFYING') ?? 0) + (uploadCounts.get('PRECHECK_PASSED') ?? 0),
+            checking: Math.max(0, verifyingCount - expiredVerificationCount),
+            checksNeedAction:
+              expiredVerificationCount + (authoritativeScannerAvailable ? precheckPassedCount : 0),
+            checksWaitingOnTorchiko: authoritativeScannerAvailable ? 0 : precheckPassedCount,
             needsAttention: uploadCounts.get('REJECTED') ?? 0,
             readyForReview: uploadCounts.get('AWAITING_REVIEW') ?? 0,
             processed:
@@ -842,6 +863,46 @@ export const portalRouter = router({
         },
         { isolationLevel: 'RepeatableRead' },
       )
+    }),
+  getVenueVisitorPulse: tenantProcedure
+    .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Visitor pulse not found' })
+
+      const windowDays = 30
+      const windowStart = new Date()
+      windowStart.setUTCDate(windowStart.getUTCDate() - windowDays)
+
+      const [conversationCount, feedbackRows] = await Promise.all([
+        ctx.db.visitorSession.count({
+          where: {
+            tenantId,
+            venueId: input.venueId,
+            experienceScope: 'PUBLIC',
+            startedAt: { gte: windowStart },
+          },
+        }),
+        ctx.db.messageFeedback.groupBy({
+          by: ['rating'],
+          where: { tenantId, venueId: input.venueId, createdAt: { gte: windowStart } },
+          _count: { _all: true },
+        }),
+      ])
+      const feedback = new Map(feedbackRows.map((row) => [row.rating, row._count._all]))
+
+      return {
+        windowDays,
+        conversationCount,
+        feedback: {
+          helpful: feedback.get('HELPFUL') ?? 0,
+          notHelpful: feedback.get('NOT_HELPFUL') ?? 0,
+        },
+      }
     }),
   createPreviewFeedbackRequest: tenantProcedure
     .input(CreateClientPreviewFeedbackInput)

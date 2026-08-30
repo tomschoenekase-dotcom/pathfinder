@@ -25,6 +25,29 @@ describe('LocationBanner', () => {
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 
+  it('keeps location guidance at the hosted visitor contrast floor', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
+
+    expect(screen.getByText(/General questions work without it/i).className).toContain(
+      'text-pf-deep/70',
+    )
+  })
+
+  it('keeps the location permission action at the visitor touch-target floor', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Share location' }).className).toContain('min-h-11')
+  })
+
+  it('uses the selected language and direction for location consent', () => {
+    render(<LocationBanner permission="prompt" onRefresh={vi.fn()} language="العربية" />)
+
+    const action = screen.getByRole('button', { name: 'مشاركة الموقع' })
+    expect(action).toBeTruthy()
+    expect(action.closest('section')?.getAttribute('lang')).toBe('ar')
+    expect(action.closest('section')?.getAttribute('dir')).toBe('rtl')
+  })
+
   it.each([
     { permission: 'granted' as const, show: true },
     { permission: 'prompt' as const, show: false },

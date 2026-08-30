@@ -67,6 +67,9 @@ export async function publishOperationalEvent(args: {
       severity: event.severity,
       summary: event.summary,
       actionRequired: event.actionRequired,
+      ...(event.linkedObjectType && event.linkedObjectId
+        ? { linkedObjectType: event.linkedObjectType, linkedObjectId: event.linkedObjectId }
+        : {}),
       ...(event.recommendedAction ? { recommendedAction: event.recommendedAction } : {}),
     },
     select: { id: true, state: true, occurrenceCount: true },

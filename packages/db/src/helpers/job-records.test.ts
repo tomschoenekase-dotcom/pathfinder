@@ -89,6 +89,30 @@ describe('writeJobRecord', () => {
       }),
     )
   })
+
+  it('persists exact venue scope separately from the opaque execution payload', async () => {
+    createMock.mockResolvedValueOnce({ id: 'record_venue' })
+    const { writeJobRecord } = await import('./job-records')
+
+    await writeJobRecord({
+      queue: 'evaluation-run',
+      jobName: 'evaluation-run-process',
+      tenantId: 'tenant_1',
+      status: 'RUNNING',
+      payload: { venueId: 'venue_1', privatePrompt: 'must remain opaque' },
+      startedAt: new Date('2026-08-23T12:00:00.000Z'),
+    })
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          payload: { venueId: 'venue_1', privatePrompt: 'must remain opaque' },
+        }),
+      }),
+    )
+  })
 })
 
 describe('findTerminalJobRecordEvidence', () => {
@@ -120,6 +144,29 @@ describe('findTerminalJobRecordEvidence', () => {
       where: {
         queue_bullJobId: { queue: 'weekly-report', bullJobId: 'job_1' },
       },
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        bullJobId: true,
+        tenantId: true,
+        payload: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+      },
+    })
+  })
+
+  it('loads the same bounded evidence by record ID for an operator preview', async () => {
+    findUniqueMock.mockResolvedValueOnce(null)
+    const { findTerminalJobRecordEvidenceById } = await import('./job-records')
+
+    await expect(findTerminalJobRecordEvidenceById('record_1')).resolves.toBeNull()
+    expect(findUniqueMock).toHaveBeenCalledWith({
+      where: { id: 'record_1' },
       select: {
         id: true,
         queue: true,

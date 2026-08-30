@@ -1,4 +1,7 @@
-import { ClientVenuePackagePreview } from '@pathfinder/contracts'
+import {
+  ClientVenuePackagePreview,
+  ReviewableVenuePackageEvaluationPreview,
+} from '@pathfinder/contracts'
 import {
   TONE_PRESET_BEHAVIOR_VERSION,
   TONE_PRESET_TO_LEGACY_AI_TONE,
@@ -88,13 +91,14 @@ function safeKnowledge(value: Record<string, unknown>, id: string | null): Knowl
   }
 }
 
-export function clientPackagePreviewProjection(input: {
+type ProjectionInput = {
   venue: Venue
   places: Place[]
   knowledgeEntries: Knowledge[]
-  pkg: { id: string; approvedAt: Date }
   stored: Stored
-}) {
+}
+
+function effectiveVenuePackageProjection(input: ProjectionInput) {
   const venue = { ...input.venue }
   const places = new Map(input.places.map((row) => [row.id!, row]))
   const knowledge = new Map(input.knowledgeEntries.map((row) => [row.id!, row]))
@@ -174,7 +178,7 @@ export function clientPackagePreviewProjection(input: {
   if (effectivePlaces.length > 500 || effectiveKnowledge.length > 500)
     throw new ClientPackagePreviewProjectionError('CONTENT_LIMIT')
   const effectiveTone = resolveEffectiveTone(venue)
-  const candidate = {
+  return {
     venue: {
       id: venue.id,
       name: venue.name,
@@ -195,11 +199,6 @@ export function clientPackagePreviewProjection(input: {
         },
       },
     },
-    package: {
-      id: input.pkg.id,
-      status: 'APPROVED',
-      approvedAt: input.pkg.approvedAt.toISOString(),
-    },
     experience: {
       places: effectivePlaces,
       knowledgeEntries: effectiveKnowledge,
@@ -213,7 +212,43 @@ export function clientPackagePreviewProjection(input: {
     published: false,
     guestAccessible: false,
   }
+}
+
+export function clientPackagePreviewProjection(
+  input: ProjectionInput & { pkg: { id: string; approvedAt: Date } },
+) {
+  const candidate = {
+    ...effectiveVenuePackageProjection(input),
+    package: {
+      id: input.pkg.id,
+      status: 'APPROVED' as const,
+      approvedAt: input.pkg.approvedAt.toISOString(),
+    },
+  }
   const parsed = ClientVenuePackagePreview.safeParse(candidate)
+  if (!parsed.success) throw new ClientPackagePreviewProjectionError('INVALID_PUBLIC_CONTENT')
+  if (
+    Buffer.byteLength(JSON.stringify(parsed.data), 'utf8') >
+    CLIENT_PACKAGE_PREVIEW_SERIALIZED_MAX_BYTES
+  )
+    throw new ClientPackagePreviewProjectionError('SERIALIZED_LIMIT')
+  return parsed.data
+}
+
+export function reviewableVenuePackageEvaluationPreviewProjection(
+  input: ProjectionInput & {
+    pkg: { id: string; status: 'DRAFT' | 'APPROVED'; evidenceAt: Date }
+  },
+) {
+  const candidate = {
+    ...effectiveVenuePackageProjection(input),
+    package: {
+      id: input.pkg.id,
+      status: input.pkg.status,
+      evidenceAt: input.pkg.evidenceAt.toISOString(),
+    },
+  }
+  const parsed = ReviewableVenuePackageEvaluationPreview.safeParse(candidate)
   if (!parsed.success) throw new ClientPackagePreviewProjectionError('INVALID_PUBLIC_CONTENT')
   if (
     Buffer.byteLength(JSON.stringify(parsed.data), 'utf8') >

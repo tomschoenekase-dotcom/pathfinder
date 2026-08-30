@@ -1,10 +1,33 @@
 export { db } from './client'
+export {
+  applyNativeGuestContentRead,
+  assessNativeGuestReadActivationAction,
+  resolveNativeGuestReadSnapshotAction,
+  type NativeGuestReadActivationPreflight,
+  type NativeGuestReadPath,
+  type NativeGuestReadPreflightBlocker,
+  type NativeGuestReadReason,
+} from './helpers/native-guest-content-read'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
 export { readUnifiedIntegrationHealth } from './helpers/integration-health'
 export {
   recordConversationInsightSignals,
   type ConversationInsightSignal,
 } from './helpers/conversation-insights'
+export {
+  KnowledgeCorrectionActionError,
+  listConversationKnowledgeGaps,
+  proposeKnowledgeCorrectionAction,
+  type KnowledgeCorrectionActionErrorCode,
+  type KnowledgeCorrectionKind,
+  type ProposeKnowledgeCorrectionInput,
+} from './helpers/knowledge-correction-actions'
+export {
+  prepareSupportKnowledgeProposalAction,
+  SupportKnowledgeProposalActionError,
+  type SupportKnowledgeProposalActionErrorCode,
+  type SupportKnowledgeProposalInput,
+} from './helpers/support-knowledge-proposal-actions'
 export {
   publishOperationalEvent,
   type PublishOperationalEventInput,
@@ -29,10 +52,21 @@ export {
 } from './helpers/operational-event-deliveries'
 export {
   EXPECTED_LATEST_MIGRATION,
+  OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+  OPERATIONAL_PERFORMANCE_SAMPLE_LIMIT,
+  OPERATIONAL_PERFORMANCE_WINDOW_MS,
+  SERVICE_DEPENDENCY_FRESHNESS_MS,
+  SERVICE_DEPENDENCY_OBSERVATION_KEY,
+  WORKER_HEARTBEAT_FRESHNESS_MS,
   WORKER_HEARTBEAT_KEY,
+  projectServiceDependencyObservation,
+  projectOperationalPerformance,
+  projectWorkerHeartbeat,
   readAppliedMigrationStatus,
   readOperationalHealth,
+  recordServiceDependencyObservation,
   recordWorkerHeartbeat,
+  type ServiceDependencyStatus,
 } from './helpers/operational-health'
 
 export {
@@ -63,6 +97,21 @@ export {
   verifyAgentBridgeCredential,
 } from './helpers/external-credential-verification'
 export type { ExternalCredentialVerificationClient } from './helpers/external-credential-verification'
+export {
+  activatePlatformWorkerPolicyCredentialAction,
+  issuePlatformWorkerPolicyCredentialAction,
+  PlatformWorkerPolicyCredentialError,
+  revokePlatformWorkerPolicyCredentialAction,
+  verifyPlatformWorkerPolicyCredential,
+  verifyPlatformWorkerPolicyCredentialCapability,
+} from './helpers/platform-worker-policy-credentials'
+export type { PlatformWorkerPolicyCredentialClient } from './helpers/platform-worker-policy-credentials'
+export {
+  PlatformReleaseEvidenceError,
+  readPlatformReleaseEvidence,
+  recordPlatformReleaseEvidenceAction,
+} from './helpers/platform-release-evidence'
+export type { PlatformReleaseEvidenceClient } from './helpers/platform-release-evidence'
 
 export {
   claimGuestChatTurnAction,
@@ -76,7 +125,36 @@ export {
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
+  skipGuestChatProviderOperationAction,
 } from './helpers/guest-chat-turn-actions'
+export {
+  GuestAnswerAttributionActionError,
+  recordHumanReviewedGuestAnswerAttributionAction,
+} from './helpers/guest-answer-attribution-actions'
+export { readGuestAnswerAttributionAgreement } from './helpers/guest-answer-attribution-agreement'
+export type { GuestAnswerAttributionAgreementClient } from './helpers/guest-answer-attribution-agreement'
+export type {
+  GuestAnswerAttributionActionClient,
+  GuestAnswerAttributionActionErrorCode,
+  GuestAnswerAttributionActor,
+  RecordGuestAnswerAttributionInput,
+} from './helpers/guest-answer-attribution-actions'
+export {
+  claimGuestAnswerAttributionEvaluationRequestAction,
+  completeGuestAnswerAttributionEvaluationRequestAction,
+  failGuestAnswerAttributionEvaluationRequestAction,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_LEASE_MS,
+  GUEST_ANSWER_ATTRIBUTION_EVALUATOR_ACTOR_ID,
+  GuestAnswerAttributionEvaluationError,
+  markGuestAnswerAttributionEvaluationDispatchedAction,
+  prepareGuestAnswerAttributionEvaluationRequestAction,
+  queueGuestAnswerAttributionEvaluationRequestAction,
+  recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
+} from './helpers/guest-answer-attribution-evaluation-actions'
+export type {
+  GuestAnswerAttributionEvaluationActor,
+  GuestAnswerAttributionEvaluationErrorCode,
+} from './helpers/guest-answer-attribution-evaluation-actions'
 export type {
   GuestChatClaim,
   GuestChatFinalize,
@@ -86,7 +164,58 @@ export type {
   GuestChatTurnActionErrorCode,
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
+export {
+  expireAbandonedVoiceSessions,
+  VOICE_AUTHORIZATION_LEASE_SECONDS,
+  VOICE_SESSION_RECOVERY_BATCH_MAX,
+  type ExpiredVoiceSession,
+} from './helpers/voice-session-recovery'
+export { inspectGmailBodyRetentionDryRun } from './helpers/email-body-retention'
+export { inspectDeclaredOperationalUsage } from './helpers/declared-operational-usage'
+export {
+  previewRetentionDispositionAction,
+  type RetentionDispositionPreviewClient,
+  type RetentionDispositionPreviewInput,
+} from './helpers/retention-disposition-preview'
+export { createGoogleWorkspaceSourceStores } from './helpers/google-workspace-source-actions'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
+export {
+  IntakeWebsiteResearchActionError,
+  MAX_WEBSITE_RESEARCH_RECEIPTS_PER_RUN,
+  recordWebsiteResearchReceiptAction,
+  type RecordWebsiteResearchReceiptInput,
+} from './helpers/intake-website-research-actions'
+export {
+  IntakeFileExtractionActionError,
+  recordIntakeFileExtractionReceiptAction,
+  type RecordIntakeFileExtractionReceiptInput,
+} from './helpers/intake-file-extraction-actions'
+export {
+  IntakeFileExtractionReviewActionError,
+  reviewIntakeFileExtractionAction,
+  type ReviewIntakeFileExtractionInput,
+} from './helpers/intake-file-extraction-review-actions'
+export {
+  OperatingCostEvidenceActionError,
+  recordOperatingCostEvidenceAction,
+} from './helpers/operating-cost-evidence-actions'
+export type {
+  OperatingCostEvidenceActionClient,
+  RecordOperatingCostEvidenceInput,
+} from './helpers/operating-cost-evidence-actions'
+export {
+  OperationalUsageEvidenceActionError,
+  recordOperationalUsageEvidenceAction,
+} from './helpers/operational-usage-evidence-actions'
+export type {
+  OperationalUsageEvidenceActionClient,
+  RecordOperationalUsageEvidenceInput,
+} from './helpers/operational-usage-evidence-actions'
+export {
+  recordDeclaredOperationalUsageSnapshot,
+  recordQueueOperationalUsageSnapshot,
+  type QueueOperationalUsageSnapshot,
+} from './helpers/operational-usage-evidence-producers'
 export {
   addProspectNoteAction,
   approveProspectImportAction,
@@ -98,6 +227,7 @@ export {
   reserveProspectImportUploadAction,
   configureProspectImportMappingAction,
   commitProspectImportBatchAction,
+  convertPublicInterestToProspectAction,
   createProspectAction,
   linkProspectConversionAction,
   PROSPECT_IMPORT_BATCH_MAX,
@@ -109,8 +239,13 @@ export {
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
 } from './helpers/prospect-actions'
+export {
+  prepareProspectEmailAttachmentRetentionAction,
+  reviewProspectEmailAttachmentRetentionAction,
+} from './helpers/prospect-email-attachment-retention-actions'
 export type {
   CreateProspectInput,
+  ConvertPublicInterestToProspectInput,
   ProspectActionClient,
   ProspectActionErrorCode,
   ProspectActor,
@@ -190,6 +325,7 @@ export {
 } from './helpers/venue-content-lock'
 export {
   findTerminalJobRecordEvidence,
+  findTerminalJobRecordEvidenceById,
   writeJobRecord,
   updateJobRecord,
 } from './helpers/job-records'
@@ -283,6 +419,21 @@ export type {
   GlobalAiControlState,
 } from './helpers/incident-control'
 export {
+  AI_PROVIDER_HEALTH_CONTROL_KEY,
+  AiProviderHealthControlActionError,
+  AiProviderHealthControlReadError,
+  readActiveUnhealthyAiProviders,
+  readAiProviderHealthControl,
+  setAiProviderHealthOverrideAction,
+} from './helpers/ai-provider-health-control'
+export type {
+  AiProviderHealthControlActionClient,
+  AiProviderHealthControlActionErrorCode,
+  AiProviderHealthControlActor,
+  AiProviderHealthControlState,
+  AiProviderHealthOverrideState,
+} from './helpers/ai-provider-health-control'
+export {
   assertVenueAiAvailable,
   assertVenueAvailable,
   isVenueUnavailableError,
@@ -326,6 +477,30 @@ export {
   respondToSupportInformationAction,
   SupportActionError,
 } from './helpers/support-actions'
+export {
+  prepareSupportCompletionProposalAction,
+  SupportCompletionProposalActionError,
+  type PrepareSupportCompletionProposalInput,
+  type SupportCompletionProposalActionErrorCode,
+} from './helpers/support-completion-proposal-actions'
+export {
+  readSupportPackageFulfillment,
+  sameSupportPackageFulfillment,
+  supportPackageFulfillmentDigest,
+  SupportPackageFulfillmentError,
+} from './helpers/support-package-fulfillment'
+export {
+  supersedeSupportPackageHandoffAction,
+  SupportPackageHandoffSupersessionError,
+  type SupersedeSupportPackageHandoffInput,
+} from './helpers/support-package-handoff-supersession-actions'
+export {
+  prepareSupportPackageDraftProposalAction,
+  supportPackageDraftPayloadHash,
+  SupportPackageDraftProposalActionError,
+  type PrepareSupportPackageDraftProposalInput,
+  type SupportPackageDraftProposalActionErrorCode,
+} from './helpers/support-package-draft-proposal-actions'
 export type {
   PreviewFeedbackEligibilityAssertion,
   SupportActionActor,
@@ -414,6 +589,14 @@ export {
   promoteCompanyKnowledgeAction,
   supersedeCompanyKnowledgeAction,
 } from './helpers/company-knowledge-actions'
+export {
+  applyFounderDecisionPacketAction,
+  FounderDecisionPacketActionError,
+} from './helpers/founder-decision-packet-actions'
+export {
+  FounderDecisionRetrievalError,
+  getFounderDecisionCurrentTruth,
+} from './helpers/founder-decision-retrieval'
 export {
   CompanyMeetingActionError,
   completeCompanyMeetingProcessingAction,
@@ -508,6 +691,11 @@ export {
   EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
   isEvaluationRuntimeDurablyEnabled,
 } from './helpers/evaluation-runtime-admission'
+export {
+  EVALUATION_REGRESSION_ALERT_POLICY_KEY,
+  getEvaluationRegressionAlertPolicy,
+} from './helpers/evaluation-regression-policy'
+export type { EvaluationRegressionAlertPolicy } from './helpers/evaluation-regression-policy'
 export {
   createOrReplayEvaluationResult,
   EvaluationResultIdentityError,
@@ -637,8 +825,10 @@ export type {
   OperationalUpdateActionErrorCode,
   OperationalUpdateActionResult,
   OperationalUpdateFields,
+  OperationalUpdateDraftFinalizer,
   OperationalUpdateHumanActor,
   OperationalUpdatePreview,
+  SelectedOperationalUpdate,
 } from './helpers/operational-update-actions'
 export {
   createIntakeProposal,
@@ -814,6 +1004,48 @@ export type {
   TenantSettingsHumanActor,
 } from './helpers/tenant-settings-actions'
 export {
+  CustomerAccessRequestActionError,
+  prepareCustomerAccessRequestAction,
+} from './helpers/customer-access-request-actions'
+export type {
+  CustomerAccessRequestActionErrorCode,
+  PrepareCustomerAccessRequestInput,
+} from './helpers/customer-access-request-actions'
+export {
+  confirmCustomerInvitationAction,
+  CustomerAccessExecutionError,
+  markCustomerInvitationReconciliationAction,
+  startApprovedCustomerInvitationAction,
+} from './helpers/customer-access-execution-actions'
+export type {
+  CustomerAccessExecutionActor,
+  CustomerAccessExecutionClient,
+} from './helpers/customer-access-execution-actions'
+export {
+  LocationDraftProposalActionError,
+  prepareLocationDraftProposalAction,
+} from './helpers/location-draft-proposal-actions'
+export type {
+  LocationDraftProposalActionErrorCode,
+  PrepareLocationDraftProposalInput,
+} from './helpers/location-draft-proposal-actions'
+export {
+  prepareSupportTriageProposalAction,
+  SupportTriageProposalActionError,
+} from './helpers/support-triage-proposal-actions'
+export type {
+  PrepareSupportTriageProposalInput,
+  SupportTriageProposalActionErrorCode,
+} from './helpers/support-triage-proposal-actions'
+export {
+  prepareSupportInformationRequestProposalAction,
+  SupportInformationRequestProposalActionError,
+} from './helpers/support-information-request-proposal-actions'
+export type {
+  PrepareSupportInformationRequestProposalInput,
+  SupportInformationRequestProposalActionErrorCode,
+} from './helpers/support-information-request-proposal-actions'
+export {
   addChatlogNoteAction,
   ChatlogReviewActionError,
   setChatlogNotableAction,
@@ -841,6 +1073,10 @@ export type {
   EvaluationComparisonClassification,
   EvaluationComparisonMismatch,
 } from './helpers/evaluation-run-comparison'
+export {
+  compareNativeContentShadowRuns,
+  NativeContentShadowComparisonError,
+} from './helpers/native-content-shadow-comparison'
 export {
   prepareWeeklyDigestIntentAction,
   WeeklyDigestIntentActionError,
@@ -917,6 +1153,9 @@ export {
   approveNativeVenueDeploymentAction,
   createNativeVenueDeploymentAction,
   applyNativeVenueDeploymentAction,
+  classifyNativeContentConvergence,
+  measureNativeContentConvergenceAction,
+  NATIVE_GUEST_CONTENT_READ_PATH,
   NativeVenueDeploymentError,
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
@@ -929,6 +1168,8 @@ export type { NativeDeploymentEvaluationActor } from './helpers/native-deploymen
 export type {
   NativeVenueDeploymentActor,
   NativeVenueDeploymentClient,
+  NativeContentConvergenceBlocker,
+  NativeContentConvergencePhase,
 } from './helpers/native-venue-deployment-actions'
 export {
   getVenueBotConfigurationAction,
@@ -944,9 +1185,59 @@ export type {
   IntakeUploadActionClient,
   IntakeUploadActionErrorCode,
   IntakeUploadActor,
+  IntakeUploadVerificationActor,
   TrustedIntakeUploadObjectIdentity,
 } from './helpers/intake-upload-actions'
-export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
+export {
+  AgentOutcomeActionError,
+  recordAgentOutcomeAction,
+  recordAgentTrustSignalAction,
+} from './helpers/agent-outcome-actions'
+export {
+  FirstWeekAccountReviewError,
+  materializeDueFirstWeekAccountReviews,
+} from './helpers/first-week-account-reviews'
+export {
+  registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
+  resolveApprovedVenueMediaCandidates,
+  reviewVenueMediaAssetAction,
+  VenueMediaActionError,
+  type VenueMediaActionClient,
+  type VenueMediaHumanActor,
+} from './helpers/venue-media-actions'
+export {
+  FounderOperatingExchangeError,
+  listFounderOperatingExchanges,
+  readFounderOperatingExchange,
+  recordFounderOperatingExchange,
+  type FounderOperatingExchangeClient,
+  type RecordFounderOperatingExchangeInput,
+} from './helpers/founder-operating-exchanges'
+export {
+  FounderDirectiveTaskError,
+  materializeFounderDirectiveTaskAction,
+  proposeFounderDirectiveTaskAction,
+  readFounderDirectiveTasks,
+  type FounderDirectiveTaskClient,
+} from './helpers/founder-directive-task-actions'
+export type { MaterializeFirstWeekAccountReviewsInput } from './helpers/first-week-account-reviews'
+export {
+  AgentImprovementProposalActionError,
+  prepareAgentImprovementProposalAction,
+} from './helpers/agent-improvement-proposal-actions'
+export type {
+  AgentImprovementProposalActionClient,
+  PrepareAgentImprovementProposalInput,
+} from './helpers/agent-improvement-proposal-actions'
+export {
+  AgentImprovementValidationActionError,
+  recordAgentImprovementValidationAction,
+} from './helpers/agent-improvement-validation-actions'
+export type {
+  AgentImprovementValidationActionClient,
+  RecordAgentImprovementValidationInput,
+} from './helpers/agent-improvement-validation-actions'
 export {
   ProductEntitlementError,
   requireProductEntitlement,
@@ -956,6 +1247,7 @@ export type { ProductEntitlementClient } from './helpers/product-entitlements'
 export type {
   AgentOutcomeActionClient,
   RecordAgentOutcomeInput,
+  RecordAgentTrustSignalInput,
 } from './helpers/agent-outcome-actions'
 export {
   approveProspectSendBatchAction,
@@ -977,8 +1269,42 @@ export {
   ProspectSendOutboxError,
   recordProspectSendFailureAction,
   recordProspectSendSuccessAction,
+  revalidateProspectSendOutboxClaimAction,
 } from './helpers/prospect-send-outbox-actions'
 export type { FrozenProspectSend } from './helpers/prospect-send-outbox-actions'
+export {
+  emergencyStopProspectDeliveryAction,
+  ProspectDeliveryControlError,
+} from './helpers/prospect-delivery-control-actions'
+export {
+  admitProspectStagingPackageAction,
+  ProspectPackageAdmissionError,
+} from './helpers/prospect-package-admission-actions'
+export {
+  approveProspectStagingPackageCommitAction,
+  claimProspectStagingPackageRecordsAction,
+  commitProspectStagingPackageClaimAction,
+  finalizeProspectStagingPackageAction,
+  ProspectPackageCommitError,
+} from './helpers/prospect-package-commit-actions'
+export {
+  claimNextProspectResearchJobAction,
+  finishProspectResearchJobAction,
+  ProspectResearchJobError,
+  queueProspectResearchJobsAction,
+} from './helpers/prospect-research-job-actions'
+export type { ProspectResearchContext } from './helpers/prospect-research-job-actions'
+export {
+  applyVerifiedProspectEmailEventAction,
+  ProspectEmailEventError,
+} from './helpers/prospect-email-event-actions'
+export { getProspectOutreachAnalyticsAction } from './helpers/prospect-outreach-analytics-actions'
+export {
+  evaluateProspectFollowupReadinessAction,
+  ProspectFollowupError,
+  scheduleProspectFollowupAction,
+} from './helpers/prospect-followup-actions'
+export { recordProspectInboundReplyAction } from './helpers/prospect-inbound-reply-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

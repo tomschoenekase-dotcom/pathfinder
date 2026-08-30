@@ -10,23 +10,53 @@ import { SupportActionError } from './support-actions'
 export const SUPPORT_TRIAGE_MISSING_INFORMATION_MAX = 30
 export const SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX = 500
 
-export type SupportTriageActor = {
-  actorType: 'HUMAN'
-  participantKind: 'OPERATOR'
-  actorId: string
-  auditRole: string
-}
+export type SupportTriageActor =
+  | {
+      actorType: 'HUMAN'
+      participantKind: 'OPERATOR'
+      actorId: string
+      auditRole: string
+    }
+  | {
+      actorType: 'AGENT'
+      participantKind: 'AGENT'
+      actorId: string
+      auditRole: 'AGENT'
+      agentIdentityId: string
+      agentRunId: string
+      workerId: string
+      credentialId: string
+      approvalGrantId: string
+      capability: 'support:triage'
+      modelProvider?: string
+      modelName?: string
+      idempotencyKey: string
+    }
 
 type SupportTriageClient = Pick<typeof db, '$transaction'>
 
-function assertHumanOperator(actor: SupportTriageActor): void {
-  if (
-    actor.actorType !== 'HUMAN' ||
-    actor.participantKind !== 'OPERATOR' ||
-    actor.actorId.trim().length === 0 ||
-    actor.auditRole.trim().length === 0
-  ) {
-    throw new SupportActionError('FORBIDDEN', 'Only a human support operator may record triage')
+function assertAuthorizedActor(actor: SupportTriageActor): void {
+  const humanOperator =
+    actor.actorType === 'HUMAN' &&
+    actor.participantKind === 'OPERATOR' &&
+    actor.actorId.trim().length > 0 &&
+    actor.auditRole.trim().length > 0
+  const approvedAgent =
+    actor.actorType === 'AGENT' &&
+    actor.participantKind === 'AGENT' &&
+    actor.capability === 'support:triage' &&
+    actor.actorId.trim().length > 0 &&
+    actor.agentIdentityId.trim().length > 0 &&
+    actor.agentRunId.trim().length > 0 &&
+    actor.workerId.trim().length > 0 &&
+    actor.credentialId.trim().length > 0 &&
+    actor.approvalGrantId.trim().length > 0 &&
+    actor.idempotencyKey.trim().length > 0
+  if (!humanOperator && !approvedAgent) {
+    throw new SupportActionError(
+      'FORBIDDEN',
+      'Only a human support operator or an approval-bound support-triage agent may record triage',
+    )
   }
 }
 
@@ -64,7 +94,7 @@ export async function triageSupportRequestAction(
   },
   client: SupportTriageClient = db,
 ) {
-  assertHumanOperator(input.actor)
+  assertAuthorizedActor(input.actor)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     throw new SupportActionError('CONFLICT', 'Support request version is invalid')
   }
@@ -108,7 +138,7 @@ export async function triageSupportRequestAction(
         version: nextVersion,
         clientVersion: request.clientVersion + 1,
         clientActivityAt,
-        updatedByKind: 'OPERATOR',
+        updatedByKind: input.actor.participantKind,
         updatedById: input.actor.actorId,
       },
     })
@@ -123,42 +153,72 @@ export async function triageSupportRequestAction(
         supportRequestId: request.id,
         requestVersion: nextVersion,
         eventType: 'TRIAGE_UPDATED',
-        actorKind: 'OPERATOR',
+        actorKind: input.actor.participantKind,
         actorId: input.actor.actorId,
         fromStatus: null,
         toStatus: null,
       },
       select: { id: true },
     })
-    await writeAuditLogStrict(
-      {
-        tenantId: input.tenantId,
-        actorId: input.actor.actorId,
-        actorRole: input.actor.auditRole,
-        action: 'support-request.triage-updated',
-        targetType: 'SupportRequest',
-        targetId: request.id,
-        beforeState: {
-          category: request.category,
-          missingInformationCount: request.missingInformation.length,
-          version: request.version,
-        },
-        afterState: {
-          category: category.data,
-          missingInformationCount: missingInformation.length,
-          version: nextVersion,
-          statusChanged: false,
-          messageSent: false,
-          artifactsChanged: false,
-          packageLifecycleChanged: false,
-          executionTriggered: false,
-        },
+    const auditEvidence = {
+      tenantId: input.tenantId,
+      action: 'support-request.triage-updated',
+      targetType: 'SupportRequest',
+      targetId: request.id,
+      beforeState: {
+        category: request.category,
+        missingInformationCount: request.missingInformation.length,
+        version: request.version,
       },
-      tx,
-    )
+      afterState: {
+        category: category.data,
+        missingInformationCount: missingInformation.length,
+        version: nextVersion,
+        statusChanged: false,
+        artifactsChanged: false,
+        packageLifecycleChanged: false,
+        executionTriggered: false,
+        customerContacted: false,
+        participantGranted: false,
+        messageSent: false,
+      },
+    }
+    if (input.actor.actorType === 'AGENT') {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actor: {
+            type: 'AGENT',
+            role: 'AGENT',
+            actorId: input.actor.actorId,
+            agentIdentityId: input.actor.agentIdentityId,
+            agentRunId: input.actor.agentRunId,
+            workerId: input.actor.workerId,
+            credentialId: input.actor.credentialId,
+            approvalGrantId: input.actor.approvalGrantId,
+            capability: input.actor.capability,
+            ...(input.actor.modelProvider ? { modelProvider: input.actor.modelProvider } : {}),
+            ...(input.actor.modelName ? { modelName: input.actor.modelName } : {}),
+            idempotencyKey: input.actor.idempotencyKey,
+          },
+        },
+        tx,
+      )
+    } else {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actorId: input.actor.actorId,
+          actorRole: input.actor.auditRole,
+          actorType: input.actor.actorType,
+        },
+        tx,
+      )
+    }
 
     return {
       id: request.id,
+      status: request.status,
       category: category.data,
       missingInformation,
       version: nextVersion,

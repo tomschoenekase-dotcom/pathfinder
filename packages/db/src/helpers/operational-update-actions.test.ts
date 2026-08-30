@@ -171,6 +171,48 @@ describe('operational update domain actions', () => {
     expect(result.preview.lifecycle).toBe('DRAFT')
   })
 
+  it('runs an optional draft finalizer inside the same transaction with deterministic identity', async () => {
+    const draft = {
+      ...published,
+      id: 'deterministic-update-id',
+      status: 'DRAFT',
+      isActive: false,
+      publishedBy: null,
+      publishedAt: null,
+    }
+    create.mockResolvedValue(draft)
+    const finalizer = vi.fn().mockResolvedValue(undefined)
+
+    await createOperationalUpdateAction(
+      {
+        tenantId: 'tenant_1',
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+        id: draft.id,
+        fields,
+        schedule: false,
+        now,
+        finalizer,
+      },
+      client,
+    )
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ id: draft.id, status: 'DRAFT' }) }),
+    )
+    expect(finalizer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tx,
+        update: draft,
+        preview: {
+          lifecycle: 'DRAFT',
+          guestVisibleNow: false,
+          startsAt: startsAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        },
+      }),
+    )
+  })
+
   it('does not let a machine actor publish or schedule an update', async () => {
     await expect(
       createOperationalUpdateAction(

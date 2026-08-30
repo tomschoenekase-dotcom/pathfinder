@@ -146,10 +146,13 @@ describe('agent bridge registry', () => {
         artifacts: [{ type: 'markdown', title: 'Result', content: 'Evidence' }],
         modelName: 'subscription-default',
         costE8Usd: '1250',
+        costStatus: 'ESTIMATED',
       },
       { credential },
     )
-    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ costE8Usd: 1250n }))
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ costE8Usd: 1250n, costStatus: 'ESTIMATED' }),
+    )
   })
 
   it('mounts prospect tools through the authenticated bridge and derives authority fields', async () => {

@@ -2,6 +2,19 @@
 
 PathFinder's service worker is a narrow reliability fallback, not an offline application shell. It caches only the generic `/offline.html` document. It does not cache venue pages, chat messages, API responses, operational updates, static application assets, location, session identifiers, analytics, or tenant data. Chat sends and client-side transitions still require the network.
 
+## Loaded guest chat behavior
+
+An already-loaded guest chat listens to the browser's online/offline signal as an advisory connectivity boundary. While the browser reports offline, PathFinder:
+
+- keeps the composer editable and preserves its draft in the current React page only;
+- blocks send, quick prompts, assistant choices, exact retry/check actions, new-conversation rotation, and Voice Mode startup;
+- does not queue or automatically send a draft;
+- labels the interruption without claiming that any unconfirmed message was delivered.
+
+After an online event, the controls reopen, session preparation runs again, and a five-second status confirms that the visitor can decide what to send or retry. A frozen retry still uses the server-backed exact-operation recovery path; reconnection does not create a new operation identity or imply a delivery outcome.
+
+`navigator.onLine` can report connectivity to a network that still cannot reach Torchiko, so this UI is not proof of server availability. Normal request error classification, idempotency, reconciliation, and retry controls remain authoritative. The draft is not persisted to local storage and will be lost if the visitor reloads or closes the page.
+
 The worker intercepts only same-origin `GET` document navigations. It tries the network first and uses the generic page only when that navigation fails. Non-navigation traffic, writes, API calls, assets, and cross-origin requests remain under normal browser networking.
 
 ## Version and diagnostics

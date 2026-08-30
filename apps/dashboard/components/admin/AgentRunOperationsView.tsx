@@ -1,8 +1,10 @@
 import Link from 'next/link'
 
-import { formatE8Usd } from './AgentOperationsOverview'
+import { formatAgentRunCost, formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunCancellationControl } from './AgentRunCancellationControl'
 import { AgentOutcomeObservationForm } from './AgentOutcomeObservationForm'
+import { AgentRunUnifiedTrace } from './AgentRunUnifiedTrace'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 
 type Cursor = { createdAt: string; id: string } | null
 type Run = {
@@ -17,6 +19,7 @@ type Run = {
   modelProvider: string | null
   modelName: string | null
   costE8Usd: bigint
+  costStatus?: string
   errorCode: string | null
   errorMessage: string | null
   initiatedByType: string
@@ -89,6 +92,16 @@ type Approval = {
   expiresAt: Date | null
   createdAt: Date
   decision: { decision: string; reason: string | null; createdAt: Date } | null
+  customerAccessRequest?: {
+    id: string
+    targetEmail: string
+    requestedRole: string
+    status: string
+    supportRequestId: string
+    sourceSupportMessageId: string
+    providerInvitationId: string | null
+    updatedAt: Date
+  } | null
 }
 type OutcomeObservation = {
   id: string
@@ -96,6 +109,12 @@ type OutcomeObservation = {
   verdict: string
   summary: string
   evidenceRef: string | null
+  relatedAgentActionId?: string | null
+  policyCode?: string | null
+  severity?: string | null
+  predictionRef?: string | null
+  predictedConfidenceBps?: number | null
+  actualCorrect?: boolean | null
   taskClass: string
   modelProvider: string | null
   modelName: string | null
@@ -112,6 +131,7 @@ type Props = {
   timeline: { items: Timeline[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
   outcomes?: { items: OutcomeObservation[]; nextCursor: Cursor }
+  trace?: React.ComponentProps<typeof AgentRunUnifiedTrace>['trace']
 }
 
 function nextHref(base: string, prefix: string, cursor: Exclude<Cursor, null>) {
@@ -144,6 +164,7 @@ export function AgentRunOperationsView({
   timeline,
   approvals,
   outcomes = { items: [], nextCursor: null },
+  trace = { items: [], nextCursor: null, bounded: true, excludes: [] },
 }: Props) {
   const overview = `/admin/clients/${tenantId}/venues/${venueId}/agents`
   const base = `${overview}/runs/${run.id}`
@@ -187,7 +208,7 @@ export function AgentRunOperationsView({
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Run summary">
-        <Summary label="Cost" value={formatE8Usd(run.costE8Usd)} />
+        <Summary label="Cost" value={formatAgentRunCost(run.costE8Usd, run.costStatus)} />
         <Summary
           label="Model"
           value={[run.modelProvider, run.modelName].filter(Boolean).join(' / ') || 'Not recorded'}
@@ -218,6 +239,8 @@ export function AgentRunOperationsView({
           ) : null}
         </dl>
       </section>
+
+      <AgentRunUnifiedTrace base={base} trace={trace} />
 
       {run.requestPrompt ? (
         <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">
@@ -307,7 +330,16 @@ export function AgentRunOperationsView({
       </section>
 
       {['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.status) ? (
-        <AgentOutcomeObservationForm tenantId={tenantId} venueId={venueId} agentRunId={run.id} />
+        <AgentOutcomeObservationForm
+          tenantId={tenantId}
+          venueId={venueId}
+          agentRunId={run.id}
+          actions={actions.items.map((action) => ({
+            id: action.id,
+            actionName: action.actionName,
+            status: action.status,
+          }))}
+        />
       ) : null}
 
       <section className="space-y-4" aria-labelledby="run-outcomes-heading">
@@ -340,6 +372,23 @@ export function AgentRunOperationsView({
                   {[outcome.modelProvider, outcome.modelName].filter(Boolean).join(' / ') ||
                     'No model recorded'}
                 </p>
+                {outcome.relatedAgentActionId ? (
+                  <p className="mt-2 break-all font-mono text-xs text-pf-deep/55">
+                    Related action: {outcome.relatedAgentActionId}
+                  </p>
+                ) : null}
+                {outcome.policyCode ? (
+                  <p className="mt-2 text-xs font-semibold text-rose-800">
+                    Policy: {outcome.policyCode} · {outcome.severity?.toLowerCase()}
+                  </p>
+                ) : null}
+                {outcome.predictionRef && outcome.predictedConfidenceBps != null ? (
+                  <p className="mt-2 text-xs text-pf-deep/60">
+                    Prediction {outcome.predictionRef} ·{' '}
+                    {(outcome.predictedConfidenceBps / 100).toFixed(2)}% confidence · reviewed{' '}
+                    {outcome.actualCorrect ? 'correct' : 'incorrect'}
+                  </p>
+                ) : null}
                 {outcome.evidenceRef ? (
                   <p className="mt-2 break-all font-mono text-xs text-pf-deep/55">
                     Evidence: {outcome.evidenceRef}
@@ -498,6 +547,11 @@ export function AgentRunOperationsView({
                 </div>
                 <p className="mt-2 font-semibold text-pf-deep">{approval.proposedAction}</p>
                 <p className="mt-1 text-sm text-pf-deep/65">{approval.reason}</p>
+                <CustomerAccessApprovalContext
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  request={approval.customerAccessRequest}
+                />
                 {approval.decision ? (
                   <p className="mt-3 text-sm text-pf-deep">
                     {approval.decision.decision.replace(/_/g, ' ')}

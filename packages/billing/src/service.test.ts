@@ -17,6 +17,7 @@ const checkoutEnvironment = {
   STRIPE_RECONCILIATION_ENABLED: false,
   BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: false,
   STRIPE_LIVE_MODE_ALLOWED: false,
+  TORCHIKO_LEGAL_ENTITY_VERIFIED: false,
   BILLING_GRACE_PERIOD_DAYS: 14,
   STRIPE_CATALOG_JSON: JSON.stringify({
     catalogVersion: 1,
@@ -167,7 +168,51 @@ describe('negotiated Checkout boundary', () => {
       }),
     ).rejects.toBe(providerError)
     const nestedCreate = commercialAgreementCreate.mock.calls[0]?.[0]?.data?.coveredVenues?.create
-    expect(nestedCreate).toEqual([{ venueId: 'venue-a', createdBy: 'admin-a' }])
+    expect(nestedCreate).toEqual([
+      { venueId: 'venue-a', agreedAmountMinor: 2500n, createdBy: 'admin-a' },
+    ])
+  })
+
+  it('rejects a new catalog-priced checkout without a human-approved custom quote', async () => {
+    const client = {
+      $transaction: async (callback: (tx: unknown) => unknown) =>
+        callback({ billingCheckoutAttempt: { findFirst: vi.fn().mockResolvedValue(null) } }),
+    }
+    await expect(
+      createTenantCheckout({
+        tenantId: 'tenant-a',
+        actorId: 'owner-a',
+        actorRole: 'OWNER',
+        planKey: 'torchiko_pilot_test',
+        venueIds: ['venue-a'],
+        provider: {} as never,
+        client: client as never,
+        environment: checkoutEnvironment,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('rejects annual negotiated billing while keeping commitments in Torchiko state', async () => {
+    await expect(
+      createTenantCheckout({
+        tenantId: 'tenant-a',
+        actorId: 'admin-a',
+        actorRole: 'PLATFORM_ADMIN',
+        planKey: 'torchiko_pilot_test',
+        venueIds: ['venue-a'],
+        negotiatedTerms: {
+          amountMinor: 2500n,
+          currency: 'usd',
+          interval: 'year',
+          intervalCount: 1,
+          reason: 'Invalid launch interval',
+          reference: 'QUOTE-ANNUAL',
+        },
+        provider: {} as never,
+        client: {} as never,
+        environment: checkoutEnvironment,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('reuses a valid matching Checkout Session instead of creating a duplicate', async () => {
@@ -194,13 +239,16 @@ describe('negotiated Checkout boundary', () => {
           coveredVenueCount: 1,
           quantity: 1,
           agreedAmountMinor: 2500n,
+          venuePriceBreakdownComplete: true,
           currency: 'usd',
           billingInterval: 'MONTH',
           billingIntervalCount: 1,
           stripePriceId: null,
         }),
       },
-      commercialAgreementVenue: { count: vi.fn().mockResolvedValue(1) },
+      commercialAgreementVenue: {
+        findMany: vi.fn().mockResolvedValue([{ venueId: 'venue-a', agreedAmountMinor: 2500n }]),
+      },
       billingAccount: { findUnique: vi.fn().mockResolvedValue({ id: 'account-a' }) },
     }
     const client = {

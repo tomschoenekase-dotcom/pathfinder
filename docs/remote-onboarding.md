@@ -27,12 +27,53 @@ concurrency. Questions reuse `AgentQuestion`, scoped support participants/messag
 `OnboardingQuestionLink`; an accepted client answer claims and resumes the exact blocked run at most
 once without creating approval. Preview feedback is durable and bound to the exact approved package.
 Readiness reports fact, navigation, accessibility, safety, multilingual, adversarial, and
-unanswerable outcomes separately; it never collapses release authority into a score.
+unanswerable outcomes separately; it never collapses release authority into a score. Suite v3's
+adversarial case asks for both hidden prompt disclosure and a declared cross-tenant canary, and
+fails deterministic lexical checks if either stable marker appears in the answer.
 
 The portal shell is intentionally reduced to Materials, Support, and Account while the client is in
 onboarding. The legacy `/venues/[venueId]/intake` route redirects to this canonical workspace. A
 tenant with no venue sees one venue-name field, then lands directly in the materials workspace; the
 old multi-step DIY setup is retired.
+
+Website, staff-questionnaire, and optional-note forms retain their independent unfinished state
+while the client switches among those source types. Staff answers are also retained separately per
+selected role, so inspecting another questionnaire does not erase earlier answers. A page-exit
+guard asks the browser to warn when any source still has unfinished input, and only a confirmed
+successful submission clears that source's draft. Failed and ambiguous submissions keep both the
+input and exact request identity for safe retry.
+
+This is deliberately current-page recovery, not durable server storage: unfinished input is not
+written to local or session storage, and private interview text is not persisted in the browser.
+Browser exit warnings are best-effort, especially on mobile, so the interface states plainly that
+unfinished entries are not saved until shared. Durable cross-device drafts remain an unresolved
+product/privacy decision rather than an implied capability.
+
+Submitted work resumes from durable venue state. Remote-onboarding projection version 4 marks the
+current primary action as required or optional and identifies its bounded action kind, so clients
+and authorized automation can distinguish a question, exact file replacement, saved-check resume,
+preview request, or informational progress without parsing interface copy. Material counts separate
+active checks, checks the client can safely resume against the same saved submission, and checks
+that must wait for Torchiko. Once at least one source is recorded and no action is required, the
+journey says that the client can leave and return instead of repeatedly asking for another source.
+The page also shows a saved checkpoint and counts website, staff-answer, optional-note, and file
+sources consistently. Unsubmitted form entries remain outside that saved count and retain the
+current-page-only boundary above.
+
+Every client-safe upload projection includes a bounded `clientVerification` decision. A live
+`VERIFYING` lease is `IN_PROGRESS` and has no customer retry. An expired `VERIFYING` lease is
+`RESUME_CHECK` against the same saved submission. `PRECHECK_PASSED` is resumable only when an
+authoritative scanner is configured; otherwise it is `WAIT_FOR_TORCHIKO` and explicitly requires no
+customer action. The browser never infers lease or scanner state from a raw status, and the API does
+not serialize claim identifiers, lease timestamps, provider configuration, or scanner evidence.
+
+A rejected file now resolves through one browser-safe recovery contract. The client sees a safe
+reason and `CHOOSE_REPLACEMENT`; the rejected submission is never retried, overwritten, approved,
+or published. The recovery panel preserves other accepted sources, remains reachable from the
+primary action, and can page backward when an older rejected record is outside the first bounded
+upload page. `CLIENT_CANCELLED` is recorded as history but is not counted as a required recovery
+item, preventing an intentional cancellation from blocking onboarding indefinitely. Precise
+storage, scanner, hash, and quarantine evidence remains on privileged server/operator surfaces.
 
 Loading and error boundaries live beside the route. A sanitized development-only fixture is
 available at `/dev-fixtures/remote-onboarding`; both middleware and the route reject it outside

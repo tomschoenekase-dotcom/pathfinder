@@ -3,7 +3,14 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { useOrganization } from '@clerk/nextjs'
-import { ArrowRight, ArrowUpRight, Headphones, Megaphone, Sparkles } from 'lucide-react'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Headphones,
+  MessageCircleHeart,
+  Megaphone,
+  Sparkles,
+} from 'lucide-react'
 
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
 import { SecondLayerSettings } from './SecondLayerSettings'
@@ -21,6 +28,11 @@ type DashboardOverviewProps = {
   chatUrl?: string | null
   impersonatedTenantName?: string
   tasks?: ClientPortalTask[]
+  visitorPulse?: {
+    windowDays: number
+    conversationCount: number
+    feedback: { helpful: number; notHelpful: number }
+  } | null
   secondLayer?: { enabled: boolean; label: string; url: string | null; updatedAt: string }
 }
 
@@ -68,17 +80,23 @@ function coreStateFor(lifecycle: ClientPortalLifecycleView): TorchikoCoreState {
   return 'welcome'
 }
 
-export function DashboardOverview({
+export function DashboardOverview(props: DashboardOverviewProps) {
+  const { organization } = useOrganization()
+  return <DashboardOverviewView {...props} organizationName={organization?.name} />
+}
+
+export function DashboardOverviewView({
   venue,
   venues,
   activeUpdates,
   chatUrl,
   impersonatedTenantName,
   tasks,
+  visitorPulse,
   secondLayer,
-}: DashboardOverviewProps) {
-  const { organization } = useOrganization()
-  const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
+  organizationName,
+}: DashboardOverviewProps & { organizationName?: string | undefined }) {
+  const orgName = impersonatedTenantName ?? organizationName ?? venue.name
   const lifecycle = venue.lifecycle
   const clientPreview = venue.clientPreview ?? { state: 'UNAVAILABLE' as const, id: null }
   const showLiveTools = lifecycle.state === 'LIVE' || lifecycle.state === 'PAUSED'
@@ -303,6 +321,67 @@ export function DashboardOverview({
                 </li>
               ))}
             </ol>
+          </section>
+        ) : null}
+
+        {showLiveTools ? (
+          <section className="mt-12" aria-labelledby="visitor-pulse-heading">
+            <div className="grid gap-6 border-y border-pf-light py-7 md:grid-cols-[minmax(0,1.35fr)_minmax(17rem,0.65fr)] md:items-center">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
+                  Visitor pulse
+                </p>
+                <h2
+                  id="visitor-pulse-heading"
+                  className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep"
+                >
+                  A useful view, without visitor profiles
+                </h2>
+                {visitorPulse &&
+                (visitorPulse.conversationCount > 0 ||
+                  visitorPulse.feedback.helpful + visitorPulse.feedback.notHelpful > 0) ? (
+                  <dl className="mt-5 grid grid-cols-2 gap-4 sm:max-w-lg">
+                    <div>
+                      <dt className="text-sm leading-6 text-pf-deep/65">Visitor conversations</dt>
+                      <dd className="mt-1 text-3xl font-semibold tracking-tight text-pf-deep">
+                        {visitorPulse.conversationCount.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm leading-6 text-pf-deep/65">Helpful ratings</dt>
+                      <dd className="mt-1 text-3xl font-semibold tracking-tight text-pf-deep">
+                        {visitorPulse.feedback.helpful.toLocaleString()}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="mt-4 max-w-2xl text-sm leading-6 text-pf-deep/70">
+                    A privacy-safe summary will appear here as visitors use Torchiko and choose to
+                    rate answers.
+                  </p>
+                )}
+                <p className="mt-4 max-w-2xl text-xs leading-5 text-pf-deep/70">
+                  Last {visitorPulse?.windowDays ?? 30} days. This summary does not expose visitor
+                  identities, locations, or conversation transcripts.
+                </p>
+              </div>
+              <div className="md:border-l md:border-pf-light md:pl-7">
+                <MessageCircleHeart className="h-6 w-6 text-pf-primary" aria-hidden="true" />
+                <h3 className="mt-4 text-lg font-semibold text-pf-deep">
+                  Something needs attention?
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/70">
+                  Tell the Torchiko team what you noticed. We’ll review the visitor experience and
+                  handle the change with you.
+                </p>
+                <Link
+                  href={`/support?venue=${encodeURIComponent(venue.id)}&new=visitor-insight`}
+                  className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-pf-primary hover:text-pf-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                >
+                  Ask for a review <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </div>
+            </div>
           </section>
         ) : null}
 

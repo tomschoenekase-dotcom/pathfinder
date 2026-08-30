@@ -15,6 +15,10 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'GENERALIZED_CONTENT_CAPABILITIES_ENABLED',
     defaultEnabled: false,
   },
+  nativeGuestContentRead: {
+    environmentVariable: 'NATIVE_GUEST_CONTENT_READ_ENABLED',
+    defaultEnabled: false,
+  },
   onboardingAutomation: {
     environmentVariable: 'ONBOARDING_AUTOMATION_ENABLED',
     defaultEnabled: false,
@@ -151,6 +155,13 @@ export function isCrmFeatureAvailable(
 }
 
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
+
+export const NATIVE_GUEST_READ_TENANT_FLAG_PREFIX = 'native-guest-content-read-v1:' as const
+
+/** Exact venue scope is part of the key so one venue can never enable another. */
+export function nativeGuestReadTenantFlagKey(venueId: string): string {
+  return `${NATIVE_GUEST_READ_TENANT_FLAG_PREFIX}${venueId}`
+}
 
 export const BILLING_TENANT_FLAG_KEYS = {
   ui: 'billing-ui-v1',

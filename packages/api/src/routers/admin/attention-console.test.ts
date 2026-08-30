@@ -9,15 +9,37 @@ const mocks = vi.hoisted(() => ({
   agents: vi.fn(),
   questions: vi.fn(),
   outcomes: vi.fn(),
+  actions: vi.fn(),
+  approvalDecisions: vi.fn(),
   events: vi.fn(),
   updateEvent: vi.fn(),
   platformEvents: vi.fn(),
   updatePlatformEvent: vi.fn(),
   workers: vi.fn(),
+  founderReview: vi.fn(),
+  aiCosts: vi.fn(),
+  operatingCosts: vi.fn(),
+  operationalUsage: vi.fn(),
+  latestOperationalUsage: vi.fn(),
+  redriveSupported: vi.fn(),
+  founderConversation: vi.fn(),
+  recordFounderExchange: vi.fn(),
+  founderAbsenceObservations: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  FounderOperatingExchangeError: class FounderOperatingExchangeError extends Error {
+    constructor(
+      readonly code: 'CONFLICT' | 'NOT_FOUND',
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  listFounderOperatingExchanges: mocks.founderConversation,
+  recordFounderOperatingExchange: mocks.recordFounderExchange,
   withTenantIsolationBypass: mocks.bypass,
+  writeAuditLogStrict: vi.fn(),
   db: {
     jobRecord: { findMany: mocks.jobs },
     evalRun: { findMany: mocks.evaluations },
@@ -26,18 +48,36 @@ vi.mock('@pathfinder/db', () => ({
     agentRun: { findMany: mocks.agents },
     agentQuestion: { findMany: mocks.questions },
     agentOutcomeObservation: { findMany: mocks.outcomes },
+    agentAction: { findMany: mocks.actions },
+    approvalDecision: { findMany: mocks.approvalDecisions },
     operationalEvent: { findMany: mocks.events, updateMany: mocks.updateEvent },
     platformOperationalEvent: {
       findMany: mocks.platformEvents,
       updateMany: mocks.updatePlatformEvent,
     },
     agentWorker: { findMany: mocks.workers },
+    founderControlRoomReview: { findFirst: mocks.founderReview },
+    aiUsageEvent: { groupBy: mocks.aiCosts },
+    operatingCostEvidence: { findMany: mocks.operatingCosts },
+    operationalUsageEvidence: {
+      findMany: mocks.operationalUsage,
+      findFirst: mocks.latestOperationalUsage,
+    },
+    founderAbsenceObservation: { findMany: mocks.founderAbsenceObservations },
   },
+}))
+
+vi.mock('@pathfinder/jobs', () => ({
+  isTerminalRedriveJobSupported: mocks.redriveSupported,
+}))
+
+vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
 }))
 
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
-import { adminAttentionConsoleRouter } from './attention-console'
+import { adminAttentionConsoleRouter } from './attention-console-router'
 
 const testRouter = router({ admin: adminAttentionConsoleRouter })
 
@@ -58,22 +98,58 @@ describe('admin attention console', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.jobs.mockResolvedValue([])
+    mocks.operationalUsage.mockResolvedValue([])
+    mocks.latestOperationalUsage.mockResolvedValue(null)
     mocks.evaluations.mockResolvedValue([])
     mocks.approvals.mockResolvedValue([])
     mocks.support.mockResolvedValue([])
     mocks.agents.mockResolvedValue([])
     mocks.questions.mockResolvedValue([])
     mocks.outcomes.mockResolvedValue([])
+    mocks.actions.mockResolvedValue([])
+    mocks.approvalDecisions.mockResolvedValue([])
     mocks.events.mockResolvedValue([])
     mocks.updateEvent.mockResolvedValue({ count: 1 })
     mocks.platformEvents.mockResolvedValue([])
     mocks.updatePlatformEvent.mockResolvedValue({ count: 1 })
     mocks.workers.mockResolvedValue([])
+    mocks.founderReview.mockResolvedValue(null)
+    mocks.aiCosts.mockResolvedValue([])
+    mocks.operatingCosts.mockResolvedValue([])
+    mocks.redriveSupported.mockReturnValue(false)
+    mocks.founderConversation.mockResolvedValue([])
+    mocks.recordFounderExchange.mockResolvedValue({
+      exchange: {
+        id: 'exchange_1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        prompt: 'What needs my decision?',
+        intent: 'DECISIONS',
+        disposition: 'ANSWERED',
+        responseTitle: 'No visible founder decisions',
+        responseBody: 'No pending questions or approvals are visible.',
+        evidence: [],
+        snapshot: {},
+        snapshotHash: 'a'.repeat(64),
+        createdAt: new Date('2026-08-25T12:00:00.000Z'),
+      },
+      replayed: false,
+    })
+    mocks.founderAbsenceObservations.mockResolvedValue([])
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
+    const caller = testRouter.createCaller(context(false)).admin
+    await expect(caller.attentionConsole({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(caller.founderOperatingView({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
     await expect(
-      testRouter.createCaller(context(false)).admin.attentionConsole({ limit: 10 }),
+      caller.askFounderOperatingSystem({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        prompt: 'What needs my decision?',
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(mocks.bypass).not.toHaveBeenCalled()
   })
@@ -89,6 +165,8 @@ describe('admin attention console', () => {
       mocks.agents,
       mocks.questions,
       mocks.outcomes,
+      mocks.actions,
+      mocks.approvalDecisions,
       mocks.events,
       mocks.platformEvents,
     ]) {
@@ -99,6 +177,16 @@ describe('admin attention console', () => {
     expect(mocks.workers).toHaveBeenCalledWith(
       expect.objectContaining({ take: 25, select: expect.any(Object) }),
     )
+    expect(mocks.founderReview).toHaveBeenCalledWith({
+      where: { operatorUserId: 'operator_1' },
+      orderBy: [{ reviewedThrough: 'desc' }, { createdAt: 'desc' }],
+      select: expect.any(Object),
+    })
+    expect(mocks.founderConversation).toHaveBeenCalledWith(20)
+    expect(mocks.aiCosts).toHaveBeenCalledTimes(2)
+    expect(mocks.operatingCosts).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.any(Object) }),
+    )
     const calls = JSON.stringify([
       mocks.jobs.mock.calls[0]![0],
       mocks.evaluations.mock.calls[0]![0],
@@ -107,6 +195,8 @@ describe('admin attention console', () => {
       mocks.agents.mock.calls[0]![0],
       mocks.questions.mock.calls[0]![0],
       mocks.outcomes.mock.calls[0]![0],
+      mocks.actions.mock.calls[0]![0],
+      mocks.approvalDecisions.mock.calls[0]![0],
       mocks.events.mock.calls[0]![0],
       mocks.platformEvents.mock.calls[0]![0],
     ])
@@ -117,6 +207,10 @@ describe('admin attention console', () => {
       'scopeSnapshot',
       'artifacts',
       'messages',
+      'output',
+      'errorMessage',
+      'inputSummary',
+      'inputReference',
     ]) {
       expect(calls).not.toContain(forbidden)
     }
@@ -183,6 +277,149 @@ describe('admin attention console', () => {
     expect(result.evaluations.items[0]).toMatchObject({ id: 'eval_2', expiredLease: true })
     expect(result.evaluations.nextCursor).toEqual({ createdAt: old.toISOString(), id: 'eval_2' })
     expect(result.approvals.items[0]).toMatchObject({ id: 'approval_1', expired: true })
+  })
+
+  it('advertises recovery preview only for allowlisted attempts-exhausted terminal jobs', async () => {
+    const terminalAt = new Date('2026-08-23T12:00:00.000Z')
+    mocks.jobs.mockResolvedValue([
+      {
+        id: 'job_record_1',
+        tenantId: 'tenant_1',
+        queue: 'staging--weekly-report',
+        jobName: 'weekly-report-process',
+        bullJobId: 'weekly-report-report_1',
+        status: 'FAILED',
+        attemptNumber: 6,
+        maxAttempts: 6,
+        failureDisposition: 'ATTEMPTS_EXHAUSTED',
+        terminalAt,
+        createdAt: terminalAt,
+      },
+    ])
+    mocks.redriveSupported.mockReturnValue(true)
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+    expect(result.jobs.items[0]).toMatchObject({ terminalRedrivePreviewAvailable: true })
+    expect(result.jobs.items[0]).not.toHaveProperty('bullJobId')
+    expect(mocks.redriveSupported).toHaveBeenCalledWith(
+      'staging--weekly-report',
+      'weekly-report-process',
+    )
+  })
+
+  it('returns the same machine-readable founder priority used by the dashboard', async () => {
+    const createdAt = new Date('2026-08-22T12:00:00.000Z')
+    mocks.events.mockResolvedValue([
+      {
+        id: 'event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'guest-chat.provider-failure',
+        sourceSubsystem: 'guest-chat',
+        severity: 'CRITICAL',
+        title: 'Visitor chat is unavailable',
+        summary: 'Guest turns are failing.',
+        actionRequired: true,
+        linkedObjectType: 'guest-chat-turn',
+        linkedObjectId: 'turn_1',
+        recommendedAction: 'Inspect affected turns.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: createdAt,
+        createdAt,
+      },
+    ])
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+    expect(result.briefing).toMatchObject({
+      schemaVersion: 2,
+      focus: {
+        kind: 'CUSTOMER_RISK',
+        action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },
+        source: {
+          scope: 'TENANT',
+          objectType: 'operational-event',
+          objectId: 'event_1',
+        },
+      },
+      boundedSnapshot: { limit: 10, hasMore: false },
+      reviewState: {
+        changeDigest: {
+          visibleCount: 1,
+          mayHaveMore: false,
+          items: [
+            {
+              kind: 'CRITICAL_RISK',
+              title: 'Visitor chat is unavailable',
+              action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },
+              source: { objectType: 'operational-event', objectId: 'event_1' },
+            },
+          ],
+        },
+      },
+    })
+  })
+
+  it('returns a compact read-only platform view without exposing the source queues', async () => {
+    const result = await testRouter.createCaller(context()).admin.founderOperatingView({
+      limit: 10,
+    })
+
+    expect(result).toMatchObject({
+      schemaVersion: 3,
+      scope: 'PLATFORM',
+      effect: 'READ_ONLY',
+      focus: { kind: 'CLEAR' },
+      autonomyEvidence: {
+        state: 'NO_OUTCOME_EVIDENCE',
+        policy: { approvalReductionRecommended: false },
+      },
+      founderAbsenceReadiness: {
+        kind: 'READINESS_SNAPSHOT',
+        target: { certification: 'NOT_CERTIFIED', launchGate: false },
+        authority: { effect: 'READ_ONLY', canCertifyMaturity: false },
+      },
+      authority: {
+        transport: 'PLATFORM_ADMIN_SESSION_ONLY',
+        customerCredentialCompatible: false,
+        canExecute: false,
+        canApprove: false,
+        canAcknowledge: false,
+        canMutatePolicy: false,
+      },
+    })
+    expect(result).not.toHaveProperty('jobs')
+    expect(result).not.toHaveProperty('approvals')
+    expect(result).not.toHaveProperty('events')
+  })
+
+  it('records a deterministic founder exchange without granting execution authority', async () => {
+    const result = await testRouter.createCaller(context()).admin.askFounderOperatingSystem({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      prompt: 'What needs my decision?',
+    })
+
+    expect(result).toMatchObject({ replayed: false, exchange: { id: 'exchange_1' } })
+    expect(mocks.recordFounderExchange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        operatorUserId: 'operator_1',
+        intent: 'DECISIONS',
+        disposition: 'ANSWERED',
+        snapshot: expect.objectContaining({
+          authority: expect.objectContaining({
+            canExecute: false,
+            canApprove: false,
+            canContactCustomers: false,
+            canChangePricing: false,
+            canSpendMoney: false,
+            canMutatePolicy: false,
+          }),
+        }),
+      }),
+    )
   })
 
   it('acknowledges and resolves only active event states with the operator identity', async () => {

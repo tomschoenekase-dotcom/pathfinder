@@ -1,4 +1,5 @@
 import {
+  AiGatewayError,
   generateText,
   type AiMessage,
   type AiSystemBlock,
@@ -6,7 +7,7 @@ import {
   type AiUsageSink,
 } from './anthropic'
 import type { AiAdmissionGuard } from './admission'
-import type { AiBudgetGate } from './budget'
+import { withAiRequestBudgetCeiling, type AiBudgetGate } from './budget'
 import type { AiModelKey } from './model-registry'
 import { AI_MODEL_REGISTRY } from './model-registry'
 import type { AiRouteCandidate, AiRoutePlan } from './capability-routing'
@@ -21,10 +22,14 @@ export type RoutedAiTextResult<TParsed = string> = AiTextResult<TParsed> & {
 }
 
 function textModelKey(candidate: AiRouteCandidate): AiModelKey {
-  if (candidate.provider !== 'anthropic' || !(candidate.modelKey in AI_MODEL_REGISTRY)) {
+  if (!(candidate.modelKey in AI_MODEL_REGISTRY)) {
     throw new Error(`No text provider adapter is registered for ${candidate.modelKey}`)
   }
-  return candidate.modelKey as AiModelKey
+  const modelKey = candidate.modelKey as AiModelKey
+  if (AI_MODEL_REGISTRY[modelKey].provider !== candidate.provider) {
+    throw new Error(`Text provider identity mismatch for ${candidate.modelKey}`)
+  }
+  return modelKey
 }
 
 /** Executes an already-authorized route plan and records route metadata on every attempt. */
@@ -39,12 +44,20 @@ export async function generateTextForCapability<TParsed = string>(params: {
   usageSink: AiUsageSink
   admissionGuard: AiAdmissionGuard
   budgetGate: AiBudgetGate
+  requestBudgetCeilingE8Usd?: string | null
   parseResponse?: (text: string) => TParsed
+  invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
+  onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
+  const budgetGate =
+    params.requestBudgetCeilingE8Usd === undefined || params.requestBudgetCeilingE8Usd === null
+      ? params.budgetGate
+      : withAiRequestBudgetCeiling(params.budgetGate, BigInt(params.requestBudgetCeilingE8Usd))
   let lastError: unknown
   let dispatchFencePassed = false
+  let budgetAttemptNumberOffset = 0
   for (const candidate of params.route.candidates) {
     const modelKey = textModelKey(candidate)
     try {
@@ -61,7 +74,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
             fallbackUsed: candidate.fallback,
           }),
         admissionGuard: params.admissionGuard,
-        budgetGate: params.budgetGate,
+        budgetGate,
         ...(params.maxOutputTokens !== undefined
           ? { maxOutputTokens: params.maxOutputTokens }
           : {}),
@@ -69,7 +82,10 @@ export async function generateTextForCapability<TParsed = string>(params: {
         ...(params.maxAttempts !== undefined ? { maxAttempts: params.maxAttempts } : {}),
         ...(params.retryDelayMs !== undefined ? { retryDelayMs: params.retryDelayMs } : {}),
         ...(params.parseResponse ? { parseResponse: params.parseResponse } : {}),
+        ...(params.invocationId ? { invocationId: params.invocationId } : {}),
+        budgetAttemptNumberOffset,
         ...(params.signal ? { signal: params.signal } : {}),
+        ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
         ...(params.onBeforeFirstDispatch
           ? {
               onBeforeFirstDispatch: async () => {
@@ -92,6 +108,11 @@ export async function generateTextForCapability<TParsed = string>(params: {
     } catch (error) {
       lastError = error
       if (params.signal?.aborted) throw error
+      // Route fallbacks are for provider/model failures. Admission, budget,
+      // policy, accounting, and dispatch-fence failures must fail closed so a
+      // second candidate cannot bypass the rejected control.
+      if (!(error instanceof AiGatewayError) || error.textEmitted) throw error
+      budgetAttemptNumberOffset += error.attempts
     }
   }
   throw lastError ?? new Error('AI route plan contained no text candidates')

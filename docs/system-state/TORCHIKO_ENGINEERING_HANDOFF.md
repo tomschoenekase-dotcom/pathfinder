@@ -127,9 +127,9 @@ Direct provider mode is text-only. Tool use and specialist delegation require th
 
 ### Events, quality, analytics and reports
 
-- Operational events: `packages/db/src/helpers/operational-events.ts`, event models, admin attention console.
-- Producers currently include chat, voice, evaluation regression and knowledge proposals.
-- `OperationalEventDelivery` is schema ahead of runtime; no multichannel dispatcher exists.
+- Operational events: tenant/platform helpers and models plus the admin attention console.
+- Producers include chat, voice, evaluation regression, knowledge proposals, CRM, and provider health.
+- Tenant events have a dark-by-default operator-email route with durable delivery/attempt state, a BullMQ worker, bounded retry/suppression, and a non-production sink. No external route is enabled or provider-proven here; platform-owned events and other advertised channels remain in-app or unimplemented.
 - Evaluations: contracts in `packages/contracts/src/evaluation.ts`; DB helpers; admin evaluation modules; `apps/workers/src/processors/evaluation-run.ts` and dispatch.
 - Analytics: `packages/analytics`, `packages/api/src/routers/analytics.ts`, daily rollup/answer analysis/enrichment processors.
 - Reports: report configuration/lifecycle in API/DB; `weekly-report.ts`, `weekly-digest.ts`; client sees only published reports.
@@ -216,6 +216,7 @@ pnpm characters:verify
 ```powershell
 pnpm test:accessibility
 pnpm test:browser-foundation
+pnpm test:visual-browser
 ```
 
 ### Local staging
@@ -251,6 +252,10 @@ On 2026-08-19 the current dirty tree produced:
 - `pnpm build`: 13/13 workspaces passed; known Sentry/OpenTelemetry dynamic-require and Windows standalone-link warnings.
 - all listed static gates, accessibility contracts (7 tests) and browser-foundation contracts (186 tests) passed.
 
+After that audit baseline, `pnpm test:visual-browser` added nine deterministic real-Chromium checks
+for Guest route planning, the single-venue portal and remote onboarding at phone/tablet/desktop
+viewports. It remains synthetic local evidence, not authenticated, deployed or real-device proof.
+
 The default suite is not equivalent to CI’s disposable service integrations. Before changing tenancy, migrations, Redis job behavior, storage/uploads, or public surfaces, run the corresponding integration/static gate. Before declaring a provider feature complete, execute a spend-bounded provider-enabled staging smoke.
 
 ## Deployment architecture
@@ -270,7 +275,7 @@ Do not assume these services are currently deployed or correctly secreted becaus
 
 1. **Dirty tree:** launch-capability work predates this audit. Preserve it and distinguish HEAD from working-tree behavior in every report/PR.
 2. **Legacy/native content:** semantic search still reads legacy tables. New native schema does not mean legacy can be deleted.
-3. **Schema implies too much:** citations, event delivery, agent outcomes, billing visibility and location records are not proof of end-to-end behavior.
+3. **Schema implies too much:** event delivery, agent outcomes, billing visibility and location records are not proof of end-to-end behavior. Citations have a bounded retrieved-record runtime as of `f142ef6`, but do not prove claim-level semantic support.
 4. **Tenant bypasses:** approved bypass helpers are not permission to omit explicit scope. The static budgets are safety controls.
 5. **Raw SQL:** PostgreSQL-specific lifecycle and vector operations are intentional, but every query must be tenant-bounded and included in verification.
 6. **Provider calls:** route through `packages/ai`, reserve budget, persist sanitized usage, and never expose raw provider errors/prompts to guests/logs.
@@ -295,7 +300,7 @@ Do not assume these services are currently deployed or correctly secreted becaus
 - “Billing” fields mean payments/invoicing exists.
 - Multilingual UI means translations have been quality-assured.
 - Location V1 means maps or routing exists.
-- Structured citation blocks mean answers include verified citations.
+- Structured citation blocks alone mean verified citations; require persisted retrieved-record provenance, and do not describe it as claim-level support without separate evidence.
 - Existing backup scripts mean current provider backups/PITR are enabled.
 - UI route hiding is authorization; verify the API procedure.
 

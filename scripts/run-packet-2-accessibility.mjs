@@ -18,6 +18,11 @@ const suites = [
     testFile: 'components/PacketAccessibility.test.tsx',
   },
   {
+    label: 'Guest route planner axe contract',
+    directory: 'apps/web',
+    testFile: 'components/LocationRoutePlanner.test.tsx',
+  },
+  {
     label: 'Stripe billing client axe contracts',
     directory: 'apps/dashboard',
     testFile: 'components/billing/ClientBillingView.test.tsx',

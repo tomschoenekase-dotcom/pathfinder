@@ -143,6 +143,42 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByRole('status').textContent).toBe('Venue guide: A new answer.')
   })
 
+  it('keeps streamed fragments out of the live region and announces only the completed answer', () => {
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the café?' }]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'Near' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Where is the café?' },
+          { role: 'assistant', content: 'Nearby, beside the east gallery.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading={false}
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toBe(
+      'Venue guide: Nearby, beside the east gallery.',
+    )
+  })
+
   it('restores focus to the composer after a request finishes', () => {
     const onSend = vi.fn()
     const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
@@ -202,6 +238,47 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(onSend).toHaveBeenCalledWith('Is there a cafe?')
     expect((composer as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('preserves an editable draft but blocks send and exact retry while offline', () => {
+    const onSend = vi.fn()
+    const onRetry = vi.fn()
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        onRetry={onRetry}
+        isLoading={false}
+        isOnline={false}
+        errorMessage="The outcome is not confirmed."
+      />,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(composer, { target: { value: 'Keep this draft' } })
+
+    const send = screen.getByRole('button', { name: 'Reconnect to send message' })
+    expect((send as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Retry same message' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft')
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onRetry).not.toHaveBeenCalled()
+
+    view.rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        onRetry={onRetry}
+        isLoading={false}
+        isOnline
+        errorMessage="The outcome is not confirmed."
+      />,
+    )
+    expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft')
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(onSend).toHaveBeenCalledWith('Keep this draft')
   })
 
   it('offers an accessible exact retry and reports intentional draft edits', () => {
@@ -275,6 +352,32 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('offers one explicit expansion action only after an assistant answer', () => {
+    const onRequestMore = vi.fn()
+    const view = render(
+      <ChatWindow
+        messages={[{ role: 'assistant', content: 'The gallery is upstairs.' }]}
+        onSend={vi.fn()}
+        onRequestMore={onRequestMore}
+        requestMoreLabel="Tell me more"
+        isLoading={false}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me more' }))
+    expect(onRequestMore).toHaveBeenCalledOnce()
+
+    view.rerender(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the gallery?' }]}
+        onSend={vi.fn()}
+        onRequestMore={onRequestMore}
+        isLoading={false}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+  })
+
   it('renders descriptive cards without coordinates and records a real details action', () => {
     const onPlaceCardClick = vi.fn()
     render(
@@ -313,5 +416,21 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText(/10:00 AM–4:00 PM/)).toBeTruthy()
     expect(onPlaceCardClick).toHaveBeenCalledOnce()
     expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
+  })
+
+  it('localizes Arabic conversation, composer, and send accessibility labels', () => {
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'أين المدخل؟' }]}
+        onSend={vi.fn()}
+        isLoading={false}
+        language="العربية"
+      />,
+    )
+
+    expect(screen.getByRole('log', { name: 'المحادثة' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'اطرح سؤالًا' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'إرسال الرسالة' })).toBeTruthy()
+    expect(screen.getByText('أنت:')).toBeTruthy()
   })
 })

@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto'
 
-import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  db,
+  publishCrmOperationalSignal,
+  recordProspectInboundReplyAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 import { ProspectCampaignMemberStatus } from '@prisma/client'
 
 import type { InboundCorrespondenceStore, ReceiptState, ThreadMatchCandidate } from './inbound-sync'
+import { projectGmailBodyForPersistence, type GmailBodyPersistencePolicy } from './body-retention'
 
 const receiptStatus: Record<
   ReceiptState,
@@ -60,7 +66,12 @@ function candidateFromThread(
   }
 }
 
-export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceStore {
+export function createPrismaInboundCorrespondenceStore(
+  options: {
+    bodyPersistence?: GmailBodyPersistencePolicy
+  } = {},
+): InboundCorrespondenceStore {
+  const bodyPersistence = options.bodyPersistence ?? { mode: 'SOURCE_ONLY' as const }
   return {
     async receiveReceipt(input) {
       return withTenantIsolationBypass(async () => {
@@ -202,6 +213,11 @@ export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceS
           select: { id: true },
         })
         if (existing) return { canonicalMessageId: existing.id, inserted: false }
+        const bodyProjection = projectGmailBodyForPersistence({
+          message: input.message,
+          ingestedAt: input.ingestedAt,
+          policy: bodyPersistence,
+        })
         const created = await db.$transaction(async (tx) => {
           const message = await tx.prospectEmailMessage.create({
             data: {
@@ -226,8 +242,7 @@ export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceS
               ccAddresses: input.message.cc.map((item) => item.email),
               bccAddresses: input.message.bcc.map((item) => item.email),
               subject: input.message.subject,
-              textBody: input.message.body.text,
-              htmlBody: input.message.body.html,
+              ...bodyProjection,
               attachmentMetadata: json(input.message.attachments),
               occurredAt: input.message.internalDate,
             },
@@ -258,31 +273,7 @@ export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceS
       })
     },
     async appendRelationshipReply(input) {
-      await withTenantIsolationBypass(() =>
-        db.$transaction(async (tx) => {
-          await tx.prospectActivity.create({
-            data: {
-              organizationId: input.prospectOrganizationId,
-              contactId: input.contactId,
-              type: 'REPLY_RECEIVED',
-              summary: 'Inbound correspondence received',
-              evidence: {
-                messageId: input.canonicalMessageId,
-                threadId: input.canonicalThreadId,
-                matchingEvidence: [...input.matchingEvidence],
-              },
-              actorId: 'gmail-sync',
-              occurredAt: input.occurredAt,
-            },
-          })
-          if (input.campaignMemberId) {
-            await tx.prospectCampaignMember.updateMany({
-              where: { id: input.campaignMemberId, status: { in: ['QUEUED', 'SENT'] } },
-              data: { status: 'REPLIED' },
-            })
-          }
-        }),
-      )
+      await withTenantIsolationBypass(() => recordProspectInboundReplyAction(input))
       await publishCrmOperationalSignal({
         input: {
           signal: 'reply_received',

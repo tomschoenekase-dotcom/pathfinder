@@ -1,5 +1,6 @@
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { isEmbedPreviewEnabled } from '@pathfinder/config/feature-flags'
+import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
 
 import { classifyPublicVenueLookupError } from '../../../../lib/public-venue-error'
 
@@ -15,8 +16,7 @@ function widgetReadyHeaders() {
     'Cache-Control': 'no-store',
     'Cross-Origin-Resource-Policy': 'cross-origin',
     'X-Content-Type-Options': 'nosniff',
-    'X-PathFinder-Revision':
-      process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'unknown',
+    'X-PathFinder-Revision': resolveReleaseRevision(process.env),
   } as const
 }
 

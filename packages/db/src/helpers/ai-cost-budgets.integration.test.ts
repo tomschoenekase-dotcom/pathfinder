@@ -89,6 +89,7 @@ integrationDescribe('AI cost budgets (disposable PostgreSQL integration)', () =>
   })
 
   beforeEach(async () => {
+    await db.operationalEvent.deleteMany({ where: { tenantId } })
     await db.aiCostReservation.deleteMany({ where: { tenantId } })
     await db.aiCostBudget.deleteMany({ where: { tenantId } })
   })
@@ -114,6 +115,16 @@ integrationDescribe('AI cost budgets (disposable PostgreSQL integration)', () =>
     const budget = await db.aiCostBudget.findFirstOrThrow({ where: { tenantId } })
     expect(budget).toMatchObject({ remainingUnits: 0n, reservedUnits: 1_000n, committedUnits: 0n })
     expect(await db.aiCostReservation.count({ where: { tenantId } })).toBe(10)
+    const event = await db.operationalEvent.findFirstOrThrow({
+      where: { tenantId, eventType: 'ai-cost-budget.request-denied' },
+    })
+    expect(event).toMatchObject({
+      venueId,
+      sourceSubsystem: 'ai-cost-control',
+      severity: 'ERROR',
+      actionRequired: true,
+      linkedObjectType: 'AiCostBudget',
+    })
   })
 
   it('settles observed cost exactly and replays without moving counters twice', async () => {
@@ -195,6 +206,16 @@ integrationDescribe('AI cost budgets (disposable PostgreSQL integration)', () =>
     const budget = await db.aiCostBudget.findFirstOrThrow({ where: { tenantId } })
     expect(budget).toMatchObject({ remainingUnits: 880n, reservedUnits: 0n, committedUnits: 120n })
     expect(budget.breachedAt).not.toBeNull()
+    const event = await db.operationalEvent.findFirstOrThrow({
+      where: { tenantId, eventType: 'ai-cost-budget.breached' },
+    })
+    expect(event).toMatchObject({
+      venueId,
+      sourceSubsystem: 'ai-cost-control',
+      severity: 'ERROR',
+      actionRequired: true,
+      linkedObjectType: 'AiCostBudget',
+    })
     await expect(reserve()).rejects.toBeInstanceOf(AiCostBudgetUnavailableError)
   })
 })

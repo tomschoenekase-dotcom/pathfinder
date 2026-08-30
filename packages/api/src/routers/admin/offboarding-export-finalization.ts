@@ -180,7 +180,10 @@ async function buildManifest(
   return {
     schemaVersion: 1,
     privacyBoundary: 'BOUNDED_EXPORT_EVIDENCE',
-    ...input,
+    tenantId: input.tenantId,
+    planId: input.planId,
+    venueId: input.venueId,
+    kind: input.kind,
     records: rows.map((row) => ({
       ...row,
       classification: classifications[input.kind as keyof typeof classifications],

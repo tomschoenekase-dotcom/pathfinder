@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
+import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+
 import { db } from '../client'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
 
@@ -68,8 +70,22 @@ const placeCardSchema = z
   })
   .strict()
 
+const citationSchema = z
+  .object({
+    label: z.string().trim().min(1).max(300),
+    href: z.string().url().max(2048).optional(),
+    detail: z.string().trim().min(1).max(500),
+  })
+  .strict()
+
 export const GuestChatReplayMetadata = z
-  .object({ places: z.array(placeCardSchema).max(20) })
+  .object({
+    places: z.array(placeCardSchema).max(20),
+    citations: z.array(citationSchema).max(12).default([]),
+    // Internal-only, content-addressed evidence for later bounded answer evaluation. Public replay
+    // projections deliberately return only places and citations.
+    answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
+  })
   .strict()
 
 const finalizeSchema = requestObjectSchema
@@ -258,7 +274,22 @@ async function projectExistingTurn(
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
     const responseHash = createHash('sha256')
-      .update(JSON.stringify({ response: assistant.content, places: metadata.data.places }))
+      .update(
+        JSON.stringify({
+          response: assistant.content,
+          places: metadata.data.places,
+          ...(typeof turn.replayMetadata === 'object' &&
+          turn.replayMetadata !== null &&
+          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'citations')
+            ? { citations: metadata.data.citations }
+            : {}),
+          ...(typeof turn.replayMetadata === 'object' &&
+          turn.replayMetadata !== null &&
+          Object.prototype.hasOwnProperty.call(turn.replayMetadata, 'answerEvidence')
+            ? { answerEvidence: metadata.data.answerEvidence }
+            : {}),
+        }),
+      )
       .digest('hex')
     if (responseHash !== turn.responseHash) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
@@ -271,6 +302,7 @@ async function projectExistingTurn(
       assistantMessageId,
       response: assistant.content,
       places: metadata.data.places,
+      citations: metadata.data.citations,
       replayed: true,
     }
   }
@@ -826,6 +858,59 @@ export async function markGuestChatProviderDispatchedAction(args: {
   })
 }
 
+export async function skipGuestChatProviderOperationAction(args: {
+  client?: GuestChatTurnActionClient
+  operation: GuestChatProviderOperationClaim
+  now?: Date
+}) {
+  const operation = parse(providerOperationSchema, args?.operation)
+  const client = args.client ?? db
+  const now = args.now ?? new Date()
+  return client.$transaction(async (tx) => {
+    const turn = await tx.guestChatTurn.findFirst({
+      where: {
+        id: operation.turnId,
+        tenantId: operation.tenantId,
+        venueId: operation.venueId,
+        requestId: operation.requestId,
+        leaseToken: operation.claimId,
+        status: 'GENERATING',
+        session: { anonymousToken: operation.anonymousToken },
+      },
+      select: { sessionId: true, leaseExpiresAt: true },
+    })
+    if (!turn) throw new GuestChatTurnActionError('CONFLICT', 'Chat turn claim is no longer valid.')
+    if (!turn.leaseExpiresAt || turn.leaseExpiresAt.getTime() <= now.getTime()) {
+      throw new GuestChatTurnActionError('IN_PROGRESS', 'Chat turn claim expired before skip.')
+    }
+    const updated = await tx.guestChatProviderOperation.updateMany({
+      where: {
+        tenantId: operation.tenantId,
+        venueId: operation.venueId,
+        sessionId: turn.sessionId,
+        turnId: operation.turnId,
+        kind: operation.kind,
+        status: 'RESERVED',
+        dispatchedAt: null,
+        leaseToken: operation.claimId,
+        leaseExpiresAt: { gt: now },
+      },
+      data: {
+        status: 'OBSERVED',
+        observedAt: now,
+        outcomeCode: 'PROVIDER_EXCLUDED',
+        usageReference: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
+    })
+    if (updated.count !== 1) {
+      throw new GuestChatTurnActionError('CONFLICT', 'Provider skip did not match reservation.')
+    }
+    return { skipped: true as const }
+  })
+}
+
 export async function observeGuestChatProviderOperationAction(args: {
   client?: GuestChatTurnActionClient
   operation: GuestChatProviderOperationClaim & {
@@ -979,7 +1064,14 @@ export async function finalizeGuestChatTurnAction(args: {
     typeof GuestChatReplayMetadata
   >
   const responseHash = createHash('sha256')
-    .update(JSON.stringify({ response: input.assistantResponse, places: replayMetadata.places }))
+    .update(
+      JSON.stringify({
+        response: input.assistantResponse,
+        places: replayMetadata.places,
+        citations: replayMetadata.citations,
+        ...(replayMetadata.answerEvidence ? { answerEvidence: replayMetadata.answerEvidence } : {}),
+      }),
+    )
     .digest('hex')
 
   const run = () =>
@@ -1157,6 +1249,7 @@ export async function finalizeGuestChatTurnAction(args: {
           assistantMessageId,
           response: input.assistantResponse,
           places: replayMetadata.places,
+          citations: replayMetadata.citations,
           replayed: false,
         }
       },

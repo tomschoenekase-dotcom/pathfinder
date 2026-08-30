@@ -1,11 +1,16 @@
 import { notFound } from 'next/navigation'
+import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 
 import {
   VenueChatFixture,
   type VisitorFixtureAsset,
   type VisitorFixtureConversation,
   type VisitorFixtureMode,
+  type VisitorFixtureRoute,
+  type VisitorFixtureVoice,
 } from '../../../components/VenueChatFixture'
+import { VenueChatError, VenueChatSkeleton } from '../../../components/VenueChatStates'
+import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
 
 const VISITOR_FIXTURE_STATES = [
   'idle',
@@ -39,6 +44,11 @@ export default async function VisitorChatVisualFixture({
     conversation?: string | string[]
     asset?: string | string[]
     motion?: string | string[]
+    voice?: string | string[]
+    network?: string | string[]
+    route?: string | string[]
+    language?: string | string[]
+    surface?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -46,9 +56,38 @@ export default async function VisitorChatVisualFixture({
   const params = await searchParams
   const mode = oneOf(params.mode, ['classic', 'character'] as const, 'character')
   const state = oneOf(params.state, VISITOR_FIXTURE_STATES, 'idle')
-  const conversation = oneOf(params.conversation, ['empty', 'long'] as const, 'empty')
+  const conversation = oneOf(
+    params.conversation,
+    ['empty', 'long', 'multilingual', 'streaming'] as const,
+    'empty',
+  )
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
+  const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
+  const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
+  const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
+  const language = oneOf(
+    params.language,
+    SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
+    'English',
+  )
+  const surface = oneOf(
+    params.surface,
+    ['chat', 'loading', 'error', 'temporarily-unavailable'] as const,
+    'chat',
+  )
+
+  if (surface === 'loading') return <VenueChatSkeleton language={language} />
+  if (surface === 'error')
+    return (
+      <VenueChatError
+        message="This venue link is not active."
+        presentation="standalone"
+        language={language}
+      />
+    )
+  if (surface === 'temporarily-unavailable')
+    return <VenueTemporarilyUnavailable language={language} />
 
   return (
     <VenueChatFixture
@@ -57,6 +96,10 @@ export default async function VisitorChatVisualFixture({
       conversation={conversation satisfies VisitorFixtureConversation}
       asset={asset satisfies VisitorFixtureAsset}
       motion={motion}
+      voice={voice satisfies VisitorFixtureVoice}
+      network={network}
+      route={route satisfies VisitorFixtureRoute}
+      language={language}
     />
   )
 }

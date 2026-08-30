@@ -65,6 +65,24 @@ The UI states that saving does not trigger provider execution. A configured requ
 metadata used by future dispatch integration; runtime accounting and `AiBudgetGate` remain the
 authoritative spend boundary.
 
+## Runtime route execution
+
+Guest chat resolves its effective workload configuration for the exact tenant and venue, builds
+the ordered capability route, and executes that route through the shared routed generator. A
+provider/model gateway failure may advance to the next explicitly configured candidate. The
+durable guest operation is marked dispatched once, while every attempt records its route key and
+whether it was a fallback. The same guest-turn invocation identity is retained across candidates
+for cost and recovery evidence.
+
+Fallback cannot bypass a control-plane rejection. Abort, admission, budget, accounting, policy,
+and dispatch-fence failures stop immediately rather than trying another candidate.
+
+The routing contract is provider-neutral, but the current text registry has only an Anthropic
+adapter. The implemented guest fallback can therefore switch centrally configured text
+models/workloads, but cross-provider text failover remains unimplemented and unproven. Adding it
+requires a registered provider adapter, versioned model/pricing metadata, and the same admission,
+budget, usage, and durable-dispatch guarantees; it does not require per-venue chat code changes.
+
 ## Operational boundary
 
 Migration `20260811234000_add_ai_workload_configuration` is additive and forward-only. It has

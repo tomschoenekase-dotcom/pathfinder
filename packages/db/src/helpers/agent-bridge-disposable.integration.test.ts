@@ -125,6 +125,7 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
         artifacts: [{ type: 'markdown', title: 'Proof', content: 'BRIDGE_E2E_OK' }],
         modelName: 'subscription-default',
         costE8Usd: 0n,
+        costStatus: 'UNREPORTED',
         credential,
       })
       const evidence = await db.agentRun.findUniqueOrThrow({

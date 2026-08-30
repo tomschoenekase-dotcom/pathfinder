@@ -1,0 +1,296 @@
+# Founder Control Room
+
+## Purpose
+
+`/admin/operations` is Torchiko's mobile-first founder operating surface. It turns bounded,
+machine-readable operational queues into a short briefing, while preserving links to the exact
+tenant, venue, agent run, approval request, support request, or operational event behind each
+recommendation.
+
+The page is intentionally decision-first rather than dashboard-first. Its first panel answers:
+
+- what deserves founder attention now;
+- which decisions are waiting;
+- whether critical customer or platform risk is visible;
+- what the AI workforce is doing;
+- which customer items need review.
+
+## Priority contract
+
+The current deterministic priority order is:
+
+1. action-required critical/error tenant operational events;
+2. action-required critical/error platform operational events;
+3. blocking agent questions;
+4. unexpired approval requests;
+5. blocked or failed agent runs;
+6. customer support work;
+7. a truthful clear-queue state.
+
+This recommendation is derived only from the bounded queues returned by
+`admin.attentionConsole`. The authenticated API returns a versioned `briefing` object containing
+the selected priority, urgency, compact metrics, exact source scope/object identity, action target,
+and whether any contributing queue has more rows. The dashboard renders that shared contract; it
+does not maintain a separate browser-only priority algorithm. This gives authorized automation and
+the founder interface the same machine-readable operating view while preserving the platform-admin
+authorization boundary.
+
+The interface states the bounded-snapshot limitation rather than claiming exhaustive company
+awareness.
+
+## Company operating conversation
+
+The first interactive surface beneath the Control Room header is a mobile-first company operating
+conversation. It accepts short founder questions and direction. Seven deterministic read intents
+answer from the same canonical bounded state used by the rest of the page: highest priority,
+decisions, incidents, agent activity, customer issues, changes since review, and operating costs.
+Answers retain exact evidence links and an immutable snapshot hash; they do not depend on a model
+provider or silently improvise company facts.
+
+Input outside those read intents is stored as a `DIRECTIVE` with the disposition
+`RECORDED_FOR_TRIAGE`. This creates durable work context for authorized platform workers, but it
+does not create an agent run or approval, contact a customer, change pricing or billing, deploy,
+spend money, or mutate policy. The UI labels that boundary directly. Uncertain browser outcomes
+retain the same operation ID so an unchanged retry reconciles the append-only exchange instead of
+creating duplicate intent.
+
+An explicitly activated platform worker can now narrow one retained directive into an exact
+tenant/venue/identity task proposal. The Control Room shows the original direction, proposed prompt,
+rationale, and constraints as a normal approval item. Approval still queues nothing. A separately
+capability-gated materialization call must present the exact approved decision before the canonical
+agent run is created, and downstream agent/tool policy remains unchanged. See
+[`founder-directive-task-handoff.md`](./founder-directive-task-handoff.md).
+
+`admin.askFounderOperatingSystem` is platform-admin-only. The read-only platform-worker operating
+view exposes the bounded recent history under schema version 2, without operator identity or new
+execution authority. See [`founder-operating-conversation.md`](./founder-operating-conversation.md)
+for persistence, replay, and proof details.
+
+## Operating-cost coverage
+
+The Control Room includes a mobile-responsive 30-day operating-cost evidence panel. It combines
+canonical `AiUsageEvent` provider-pricing estimates with current, provider-neutral non-AI
+`OperatingCostEvidence` for storage, email, media processing, infrastructure, observability,
+security, bandwidth, operator time, and explicitly classified other costs. Platform-wide evidence
+is separated from tenant/venue attribution, and represented categories are separated from coverage
+gaps.
+
+The panel compares the known total with the prior 30-day window, but does not label a change
+normal or anomalous because no founder anomaly threshold is settled. Only evidence wholly
+contained in a window is summed; overlapping periods are counted as excluded instead of inventing
+a prorating rule. The same versioned projection is returned by `admin.founderOperatingView` for
+authorized AI operation.
+
+Non-AI evidence is append-only, idempotent, source-referenced, and scope checked. Corrections create
+a uniquely fenced superseding row rather than rewriting history. Recording evidence has no path to
+invoices, customer prices, budgets, service cutoff, or external communication. This is internal
+coverage evidence, not accounting or a cost-control policy.
+
+## Personal review checkpoints
+
+The briefing includes an actor-scoped "since your last review" summary for critical risks,
+decisions, completed agent runs, outcome signals, and customer support items visible in the bounded
+snapshot. A first review treats the visible snapshot as new. Later reviews compare item activity
+timestamps with the authenticated operator's last durable cursor.
+
+The API also returns a priority-sorted change digest with exact source identity and evidence links.
+Critical customer/platform risks and founder decisions precede customer items, outcome evidence,
+and completed work even when routine activity is newer. The mobile interface shows at most five
+items and explicitly reports when the digest or any contributing source queue may contain more.
+This removes the need to scan every queue merely to identify the visible changes while retaining
+the full queues below for context.
+
+`admin.markFounderBriefingReviewed` appends a checkpoint bound to the exact server-generated
+briefing timestamp, briefing schema version, authenticated operator, expected previous cursor, and
+idempotency operation ID. Checkpoints advance monotonically and cannot branch from the same prior
+cursor. The database rejects updates, deletes, and truncation of this evidence.
+
+This is review evidence only. Recording it does not acknowledge or resolve an operational event,
+answer a question, decide an approval, resume a worker, or execute a queue item. Concurrent or stale
+submissions fail closed and require a refreshed briefing. Counts remain a bounded visible delta,
+not a claim of exhaustive historical accounting.
+
+## First-week customer learning
+
+The nightly analytics path materializes immutable day 1, day 3, and day 7 reviews from each
+venue's first canonical release milestone. Reviews contain aggregate session, question,
+quality-signal, support, failure, and estimated AI-cost evidence only. Raw conversation content,
+feedback reasons, and insight summaries remain in their canonical stores.
+
+Quiet milestones produce no Control Room item. When the aggregate evidence supports a useful
+customer check-in, a deduplicated tenant operational event links directly to the internal client
+analytics review. The draft is visibly internal and has no recipient, provider, outbox, or sending
+action. It must be edited, discarded, or sent through a separately authorized communication
+workflow.
+
+## Decision and execution boundary
+
+The Control Room lets the founder answer an agent question or record an approval decision in
+place. Both paths preserve their existing safety contract:
+
+- answering a question records durable evidence and may make a worker eligible to resume;
+- recording an approval creates a terminal, auditable decision;
+- neither form directly runs, applies, publishes, retries, or enqueues the proposed action;
+- execution remains a separate policy-controlled worker action.
+
+Optimistic concurrency for question answers uses the question's `updatedAt` value. Approval
+forms retain their conflict/expiry checks and force a refresh when the outcome cannot be safely
+confirmed.
+
+## Founder-absence observation
+
+The Control Room includes a read-only seven-day founder-absence maturity observation. A
+provider-dark worker captures at most one immutable platform-wide snapshot per UTC date, bound to
+the exact release SHA. Each sample records bounded current-state signals for founder waits,
+permission friction, repeated escalations, customer response work, failed automation, hidden
+manual steps, and uncontrolled effects. Missing dates and incomplete bounded reads reset the
+consecutive complete-sample streak.
+
+Zero samples is `NOT_STARTED`; one through six consecutive complete samples is `IN_PROGRESS`; and
+seven is `READY_FOR_REVIEW`. The last state is deliberately not certification, launch approval, or
+permission-change authority. The observer cannot resolve work, contact customers, enable provider
+workers, or self-certify maturity. Its staging flag is default-off and may run only alone or beside
+the provider-dark venue-media derivative runtime.
+
+## Agent trust evidence
+
+The Control Room derives a versioned autonomy-evidence summary from bounded canonical
+`AgentRun`, `AgentAction`, `ApprovalDecision`, and `AgentOutcomeObservation` records. Schema v3
+reports run completion/failure, action success/failure/denial/cancellation, denominator-backed
+approval acceptance, quality evaluations, customer signals, and a per-agent-identity breakdown.
+Completion by itself is never treated as evidence of quality, and a denied action proves policy
+enforcement rather than a policy violation.
+
+Schema v3 also accepts three explicit append-only operational trust signals from the terminal-run
+review surface: one rollback linked to the exact responsible action, a policy violation with a
+stable policy code and severity, and an exact confidence prediction paired with reviewed
+correctness. Database constraints reject malformed combinations, duplicate rollback/action or
+prediction/run pairs, and action links outside the same tenant, venue, identity, and run. The
+Control Room reports bounded rollback evidence, explicit violation counts, observed confidence
+accuracy, and Brier score; a truncated evidence window is never presented as a complete rate.
+
+The summary is deliberately descriptive rather than a reliability score. Negative evidence takes
+precedence in the displayed state; mixed or inconclusive evidence remains unresolved; and even a
+positive-only bounded sample does not prove reliability. The API therefore never recommends an
+approval reduction from this projection. Any future permission change requires a separate,
+explicit policy decision using task-specific evidence and must retain the existing capability /
+policy boundary.
+
+The venue Agent workspace now provides explicit progressive-policy controls for reviewed,
+bounded action classes. A founder can let one exact enabled agent prepare informational
+operational-update drafts, private support drafts, onboarding-notes proposals, or internal weekly
+report drafts without approving each attempt. Policies remain venue-scoped, idempotently issued,
+revocable, optionally use/expiry bounded, and fully audited. Report drafting may consume configured
+AI budget but cannot edit, publish, deliver, or create client visibility. No policy can expand the
+agent's configured capability. No policy is enabled automatically from the descriptive trust
+summary. Before enabling a new policy, the founder must select one or more immutable outcome
+observations from that exact agent and venue.
+Those observations remain visible on the policy as provenance; Torchiko does not turn them into a
+score, promotion threshold, or automatic recommendation. Legacy policies without that structured
+membership are surfaced honestly rather than backfilled with invented evidence.
+
+The evidence contract still refuses to interpret these observations as a reliability score or
+promotion threshold. A zero means no explicit signal exists in the bounded records, not proof that
+an agent never failed. Confidence statistics remain descriptive until representative reviewed
+history exists. None of these records changes routing, policy, authority, or runtime behavior.
+
+## Machine-readable operating view
+
+`admin.founderOperatingView` returns a compact, versioned projection of the same canonical
+briefing, change digest, bounded metrics, autonomy evidence, and recent founder operating
+conversation used by the Control Room. Schema version 2 adds that append-only conversation without
+adding execution authority. The
+platform-worker boundary exposes that projection at
+`POST /api/platform-worker/founder-operating-view` behind a separately activated
+`pf_platform_` credential with `founder-operating-view:read`. Both transports explicitly report
+that they cannot execute, approve, acknowledge, or mutate policy.
+
+The worker transport is deliberately separate from tenant/customer MCP and does not widen that
+credential model into a generic cross-tenant customer tool. Every successful read is strictly
+audited; the endpoint fails closed when authentication, snapshot construction, or audit persistence
+is unavailable. Credential issuance and activation remain explicit platform-admin actions.
+
+The venue-native-release workspace also shows a mobile-responsive, read-only convergence card. It
+compares the current materialized venue state with the exact active native head and surfaces
+missing, invalid, drifted, or in-sync evidence plus explicit retirement blockers. This is operator
+context only: it cannot switch guest retrieval, delete compatibility content, or authorize a
+production cutover.
+
+For an exact native release, a second mobile-responsive panel compares completed frozen legacy and
+native evaluation runs. It permits only the intentional content/config snapshot change, fails
+closed on corpus, case-evidence, model, or prompt drift, and reports raw case/latency/cost deltas.
+It also assembles a deterministic read-switch contract from that comparison and the current exact-
+head convergence result. The contract is evidence-only: it lists missing evidence and retained
+policy/runtime gates, preserves compatibility retrieval as the rollback target, and requires a
+rollback rehearsal. It does not infer an approval threshold, activate the separately implemented
+guest-read executor, authorize automatic rollback, or authorize legacy retirement.
+
+The canonical native deployment lifecycle has separately passed a disposable two-venue rehearsal
+that applied a nonzero content change, preserved the control venue, and restored the exact retained
+compatibility state on revert. The default-dark guest-read executor has also passed a fresh
+two-tenant provider-dark rehearsal covering `ACTIVE`, `DARK`, public/second-layer authorization,
+whole-request fallback, tenant isolation, preflight, bounded AI readiness, and immediate server
+kill-switch rollback. The Control Room remains diagnostic: it cannot set the server or venue flag,
+certify quality/rollback evidence, approve production, or retire compatibility data.
+
+The same separately credentialed boundary exposes
+`POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
+It requires `operations-readiness:read`, accepts no selectors, observes every canonical BullMQ
+queue, and makes incomplete or unavailable live observation degrade readiness. It does not expose
+job identity, payload, failure detail, tenant/venue attribution, or queue-control authority.
+
+## Reviewed agent improvement loop
+
+Explicit outcome observations can now be assembled into an immutable, versioned improvement
+proposal for one exact tenant, venue, target identity, and task class. The proposal freezes the
+evidence membership, a descriptive baseline, hypothesis, proposed change, and validation plan.
+It appears through the normal approval system and can be read or prepared through the bounded MCP
+catalog by a specifically authorized quality worker.
+
+After human approval, an authorized quality worker or platform admin may attach one immutable
+implementation reference and a baseline/candidate evaluation comparison. The evaluation corpus and
+evidence must match exactly; content, model, or configuration differences are comparable only when
+declared. The stored comparison is append-only and records actor/run provenance.
+
+This is intentionally not automatic self-modification. A proposal decision or validation record does
+not edit prompts, change routing or models, enable tools, loosen permissions, execute production work,
+or promote a worker. Implementation remains a separate Codex/admin step, and any eventual authority-
+promotion policy remains founder-governed.
+
+## Mobile behavior
+
+The primary briefing, decision controls, and queue shortcuts use touch-sized controls. Worker
+state renders as cards on narrow screens and as a table at desktop widths. Multi-venue and
+tenant context remains behind scoped evidence links rather than being flattened into ambiguous
+global actions.
+
+## Production chat incident reconciliation
+
+Grouped `guest-chat.route-degraded` alerts expose an on-demand, read-only evidence inspection for
+the latest affected turn. It correlates the exact durable turn, provider-operation outcome, and
+linked sanitized usage record without loading conversation text. Successful reads are strictly
+audited. The control does not retry a turn, alter provider health, acknowledge the alert, or change
+incident policy; those remain separate authority surfaces. Legacy venue-only alert pointers fail
+explicitly because the system cannot prove an exact turn correlation for them.
+
+The August 22 production chat repair established that durable guest messages require both
+`venueId` and `sessionSequence`. The current branch already supersedes the minimal hotfix with
+the stronger `reserveGuestChatTurnAction` / `finalizeGuestChatTurnAction` lifecycle, including
+tenant/venue-scoped monotonic sequence allocation. Regression coverage now asserts that both
+the visitor and assistant message retain tenant, venue, session, turn, session sequence, and
+turn-message sequence identity during finalization.
+
+The older minimal hotfix is therefore not cherry-picked: doing so would duplicate a weaker
+implementation. Its incident invariant is retained as an explicit regression test instead.
+
+## Known boundaries
+
+- External urgent escalation channels are not established policy and are not invented here.
+- The Control Room does not authorize production deployment, live billing, pricing changes, or
+  customer commitments.
+- A clear bounded snapshot is not proof that every external system is healthy.
+- A review checkpoint proves only that one authenticated operator marked one generated briefing as
+  reviewed; it is not approval or execution evidence.
+- Cost coverage is incomplete until every relevant source is represented. No anomaly status,
+  margin, invoice truth, or customer pricing conclusion is inferred from the current evidence.
+- General-purpose application engineering remains a separate Codex workflow.

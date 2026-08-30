@@ -32,6 +32,12 @@ All three services must deploy the exact same Git commit SHA. Set
 successful build time as proof that the revisions match; record the full SHA
 reported for each deployment.
 
+Every service resolves the reported revision through one strict shared contract. Provider-injected
+`RAILWAY_GIT_COMMIT_SHA` remains authoritative. For an explicitly reviewed Railway local-upload
+release where provider Git metadata is absent, set `PATHFINDER_RELEASE_SHA` to the exact lowercase
+40-character commit on every service. Missing, malformed, or conflicting provider/configured
+revisions report `unknown` and fail exact-SHA admission; never use a branch name or abbreviated SHA.
+
 The staging-only exception requires resources that are physically or logically independent from
 production before adding application variables:
 
@@ -63,17 +69,80 @@ application graph, it creates no BullMQ queues, consumers, or schedulers, and it
 database, Clerk, Anthropic, or OpenAI variable. A subordinate execution flag set to `true` while
 this mode is disabled is a startup error.
 
+Authoritative intake-upload verification is an internal worker and does not require outbound AI or
+email provider authority. Enable it explicitly with
+`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=true`. Its startup then fails closed unless Redis,
+database, quarantined object-storage credentials, and `INTAKE_CLAMAV_HOST` are present. It consumes
+only durable upload identities, reloads immutable evidence, and reconciles prechecked or
+lease-expired work once per minute. Keep the flag false until those dependencies and disposable
+test data are ready.
+
+Before staging admission, run `pnpm test:intake-upload-verification:disposable` on the exact release
+SHA. Retain its structured success line and the matching candidate-release assessment. The gate
+uses fresh local PostgreSQL, Redis, MinIO, and ClamAV containers; it does not inspect or reset the
+long-lived local-staging stack or any hosted resource.
+
+### Authoritative intake worker staging admission
+
+This is a prepared operator procedure, not standing permission to access credentials or deploy.
+Perform it only after the staging owner authorizes the exact release SHA and independently confirms
+that every referenced resource is staging-only.
+
+1. Record the full release SHA, successful candidate assessment, and successful disposable
+   shakedown. Confirm all worker replicas will use that same SHA.
+2. Inventory the staging database, quarantine bucket, and Redis prefix. Preserve or snapshot any
+   difficult-to-reconstruct founder/customer research; use only synthetic tenant, venue, and upload
+   identities for the canary. Never clear Redis broadly or reset the shared database/bucket.
+3. Apply the reviewed migration set before starting the new worker. Keep
+   `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, `CRM_BACKGROUND_WORKERS_ENABLED=false`, and every
+   unrelated execution flag false. Set `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=true` only on a
+   single coordinated worker replica after Redis, database, quarantine storage, and ClamAV health
+   are independently green.
+4. Verify startup reports only the intake-verification queue and explicitly reports outbound
+   provider workers disabled. Confirm the exact `staging--intake-upload-verification` queue and one
+   repeat scheduler; unexpected provider queues, mixed SHAs, or duplicate worker generations block
+   admission.
+5. Through the normal staging API, create one clean and one EICAR test-file upload under the
+   synthetic venue. Confirm the clean version becomes `AWAITING_REVIEW`, the infected version
+   becomes `REJECTED/UNSAFE_FILE`, and both preserve exact immutable-version, receipt, milestone,
+   and `SYSTEM` audit lineage. Do not use customer-provided content.
+6. Observe at least two reconciliation intervals. A live lease must not create another job. For a
+   synthetic-only recovery case, stop the worker after its claim, allow the ten-minute lease to
+   expire without editing the row, restart the same SHA, and confirm one recovery job reaches a
+   terminal state. Do not shorten or overwrite a shared staging lease merely to accelerate proof.
+7. Record queue depth, failed count, oldest age, final upload states, audit identities, worker SHA,
+   and dependency health without copying raw file content, scanner responses, credentials, or
+   signed URLs.
+8. To back out, set `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=false` uniformly and coordinate a
+   worker restart. Preserve queued and prechecked rows for roll-forward recovery; do not delete
+   receipts, uploads, scheduler keys, or object versions automatically. Escalate any mixed-version
+   worker, valuable-data risk, or ambiguous cleanup target.
+
 This is a per-process guarantee. Before calling staging provider-disabled, scale down and drain every
 older worker replica and prove that only the reviewed release SHA remains; an older replica could
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
 jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
 
-For production workers, all six controls must be explicitly set to `true` or `false`:
-`OUTBOUND_PROVIDER_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
+For production workers, all nine controls must be explicitly set to `true` or `false`:
+`OUTBOUND_PROVIDER_WORKERS_ENABLED`, `CRM_BACKGROUND_WORKERS_ENABLED`,
+`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
 `EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
-`GENERATION_RECOVERY_ENABLED`, and `EVALUATION_RUNNER_ENABLED`. Omission is a startup failure, not
-implicit authorization. Scheduler flags do not by themselves freeze ordinary consumers; a cutover
-freeze still requires stopped/drained worker replicas and inspected queues.
+`GENERATION_RECOVERY_ENABLED`, `EVALUATION_RUNNER_ENABLED`, and
+`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED`. Omission is a startup failure, not implicit authorization.
+Scheduler flags do not by themselves freeze ordinary consumers; a cutover freeze still requires
+stopped/drained worker replicas and inspected queues.
+
+For an isolated staging evaluation window, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
+`EVALUATION_RUNNER_ENABLED=true`, and keep the CRM and intake-only modes false. The worker must report
+`mode=evaluation-only` and exactly the evaluation-run plus guest-answer-attribution queues. Any
+unrelated queue registration, mixed worker generation, or broad provider-enabled mode blocks the
+evaluation canary.
+
+For provider-dark venue-media processing, keep `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, set
+`VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED=true`, and keep the CRM, intake-verification, and evaluation
+isolated modes false. The worker must report `mode=venue-media-derivative-only` and exactly the
+venue-media-derivative queue. This runtime performs deterministic image transformation and
+controlled-storage writes only; it does not import or construct the provider-enabled worker graph.
 
 ## Release procedure
 
@@ -122,14 +191,48 @@ The provider secret store—not a shell history, repository file, command argume
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `RAILWAY_ENVIRONMENT=staging`, the provider release SHA, the
 matching PathFinder release SHA, exact pooled/direct host and database confirmations, matching
 runtime/operator database resource identities, `PATHFINDER_ALLOW_STAGING_MIGRATIONS=1`,
-`PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only`, and a staging spend ceiling no greater than 10. The wrapper rejects the known production project, SHA drift, resource drift, host/database
-drift, non-synthetic policy, missing opt-in, or a larger ceiling before Prisma starts. Remove the
-one-run opt-in after a successful migration.
+an explicitly admitted staging data policy, and a staging spend ceiling no greater than 10. For
+disposable data, set `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only`. The wrapper rejects the
+known production project, SHA drift, resource drift, host/database drift, an unreviewed data policy,
+missing opt-in, or a larger ceiling before Prisma starts. Remove the one-run opt-in after a
+successful migration.
 
-This authorization is for an empty or already synthetic-only staging database. It does not permit
-restoring the production-lineage archive that was previously uploaded to the private staging
-container. Record migration output and a second no-pending result against the same release and
-resource identity.
+The frozen manifest identity is computed from LF-normalized migration text so it is stable across
+checkouts. Ledger verification separately accepts only the exact raw-byte checksum Prisma records
+for the same checked-in file, the normalized checksum, or an explicitly frozen historical baseline
+exception. This distinction preserves exact ledger verification when a reviewed migration is stored
+with CRLF bytes; it does not admit arbitrary checksum drift.
+
+The reviewed 194-migration state contains 220 public tables: the B.5 boundary contains 193 and the
+subsequent 53-migration suffix adds 27. The post-migration guard freezes that exact topology along
+with the ordered ledger, checksums, valid indexes, and validated constraints.
+
+If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.
+Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remains blocked until the
+operator supplies all of the following secret-free evidence from a separately stored logical backup
+and a disposable restore rehearsal completed no more than 24 hours earlier:
+
+- `PATHFINDER_STAGING_BACKUP_RELEASE_SHA` — the exact release being admitted;
+- `PATHFINDER_STAGING_BACKUP_DATABASE_RESOURCE` — the same database resource being migrated;
+- `PATHFINDER_STAGING_BACKUP_STORAGE_RESOURCE` and the identical
+  `PATHFINDER_CONFIRM_STAGING_BACKUP_STORAGE_RESOURCE` — a non-production storage resource distinct
+  from the database resource;
+- `PATHFINDER_STAGING_BACKUP_LEDGER_COUNT` — the migration ledger count observed in the backup and
+  required to match the live predeploy ledger;
+- canonical UTC `PATHFINDER_STAGING_BACKUP_CREATED_AT` and
+  `PATHFINDER_STAGING_BACKUP_RESTORE_VERIFIED_AT` timestamps;
+- exact `PATHFINDER_STAGING_BACKUP_SHA256` and
+  `PATHFINDER_STAGING_BACKUP_RESTORE_PROOF_SHA256` digests.
+
+These fields attest evidence; they do not create the backup. Do not populate them from an unverified
+claim. Backup storage provisioning, credentials, and the restore rehearsal remain owner/external
+gates until a separate reviewed backup mechanism and resource are available. A missing, stale,
+misordered, cross-resource, same-resource, wrong-release, malformed, or ledger-mismatched proof stops
+before Prisma runs. This path does not authorize a staging reset, wipe, or production-lineage restore.
+
+Neither policy permits restoring the production-lineage archive that was previously uploaded to the
+private staging container. Record migration output and a second no-pending result against the same
+release and resource identity.
 
 The synthetic seed does not trust the `staging` label alone. Before a separately authorized
 synthetic seed, independently read the non-secret pooled host, direct host, and database name from

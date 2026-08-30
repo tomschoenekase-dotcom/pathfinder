@@ -5,13 +5,14 @@ import {
   ExternalLink,
   Mail,
   MapPin,
-  MessageSquareText,
   Phone,
   Sparkles,
   UserRound,
 } from 'lucide-react'
 
 import { ProspectActionsPanel } from '../../../../../components/admin/ProspectActionsPanel'
+import { ProspectCorrespondenceHistory } from '../../../../../components/admin/ProspectCorrespondenceHistory'
+import { ProspectMeetingHistory } from '../../../../../components/admin/ProspectMeetingHistory'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 
 export const dynamic = 'force-dynamic'
@@ -201,39 +202,7 @@ export default async function ProspectDetailPage({
             </section>
           ) : null}
 
-          {prospect.companyMeetings.length ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-950">Meetings</h2>
-              <div className="mt-4 space-y-3">
-                {prospect.companyMeetings.map((meeting) => (
-                  <article key={meeting.id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <h3 className="font-semibold text-slate-900">{meeting.title}</h3>
-                      <time className="text-xs text-slate-400">
-                        {new Date(meeting.startedAt).toLocaleString()}
-                      </time>
-                    </div>
-                    <p className="mt-1 text-xs font-semibold uppercase text-slate-500">
-                      {label(meeting.meetingType)} · {label(meeting.processingStatus)}
-                    </p>
-                    {meeting.summary ? (
-                      <p className="mt-3 text-sm leading-6 text-slate-700">{meeting.summary}</p>
-                    ) : null}
-                    {meeting.extractions.length ? (
-                      <ul className="mt-3 space-y-1 text-xs text-slate-600">
-                        {meeting.extractions.slice(0, 5).map((extraction) => (
-                          <li key={extraction.id}>
-                            <span className="font-semibold">{label(extraction.type)}:</span>{' '}
-                            {extraction.content}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          <ProspectMeetingHistory meetings={prospect.companyMeetings} />
 
           {prospect.companyKnowledgeItems.length ? (
             <section className="rounded-2xl border border-violet-200 bg-violet-50 p-5 shadow-sm">
@@ -406,54 +375,7 @@ export default async function ProspectDetailPage({
             )}
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <MessageSquareText className="h-5 w-5 text-sky-700" aria-hidden="true" />
-              <h2 className="font-semibold text-slate-950">Correspondence history</h2>
-            </div>
-            {!prospect.emailThreads.length ? (
-              <p className="mt-4 text-sm text-slate-500">No email correspondence recorded yet.</p>
-            ) : (
-              <div className="mt-4 space-y-4">
-                {prospect.emailThreads.map((thread) => (
-                  <article key={thread.id} className="rounded-xl border border-slate-200">
-                    <div className="border-b border-slate-100 px-4 py-3">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {thread.subject ?? 'Email thread'}
-                      </p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        {thread.messages.length} message{thread.messages.length === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                    <ol className="divide-y divide-slate-100">
-                      {thread.messages.map((message) => (
-                        <li key={message.id} className="p-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span
-                              className={`rounded-full px-2 py-1 text-[10px] font-bold ${message.direction === 'INBOUND' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}`}
-                            >
-                              {message.direction} · {message.status}
-                            </span>
-                            <time className="text-xs text-slate-400">
-                              {new Date(message.occurredAt).toLocaleString()}
-                            </time>
-                          </div>
-                          <p className="mt-2 text-xs font-semibold text-slate-700">
-                            {message.direction === 'INBOUND'
-                              ? message.fromAddress
-                              : `To ${message.toAddresses.join(', ')}`}
-                          </p>
-                          <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                            {message.textBody ?? 'HTML-only message'}
-                          </p>
-                        </li>
-                      ))}
-                    </ol>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          <ProspectCorrespondenceHistory threads={prospect.emailThreads} enableRetentionActions />
         </div>
 
         <aside>

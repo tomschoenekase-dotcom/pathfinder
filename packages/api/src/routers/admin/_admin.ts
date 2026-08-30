@@ -1,11 +1,17 @@
 import { mergeRouters } from '../../core'
 
 import { adminAnswerAnalysisRouter } from './answer-analysis'
-import { adminAttentionConsoleRouter } from './attention-console'
+import { adminAttentionConsoleRouter } from './attention-console-router'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentBridgeOperationsRouter } from './agent-bridge-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
+import { adminSupportOpenPolicyRouter } from './support-open-policy'
+import { adminSupportCompletionApprovalRouter } from './support-completion-approval'
+import { adminSupportDraftApprovalRouter } from './support-package-draft-approval'
+import { adminSupportApplicationApprovalRouter } from './support-package-application-approval'
+import { adminSupportReversionApprovalRouter } from './support-package-reversion-approval'
+import { adminSupportHandoffSupersessionApprovalRouter } from './support-package-handoff-supersession-approval'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 import { adminAgentQuestionsRouter } from './agent-questions'
@@ -29,6 +35,7 @@ import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
 import { adminOffboardingExportFinalizationRouter } from './offboarding-export-finalization'
 import { adminIncidentControlRouter } from './incident-control'
+import { adminCustomerAccessExecutionRouter } from './customer-access-execution'
 import { adminIntakeOperationsRouter } from './intake-operations'
 import { adminIntakeUploadReviewRouter } from './intake-upload-review'
 import { adminLegacyContentRouter } from './legacy-content'
@@ -47,7 +54,14 @@ import { adminVenueAvailabilityRouter } from './venue-availability'
 import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
+import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
+import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
+import { adminLocationAuthoringRouter } from './location-authoring'
+import { adminLocationAvailabilityRouter } from './location-availability'
+import { adminLocationAuthoringApplicationRouter } from './location-proposal-application'
+import { adminLocationFloorAuthoringRouter } from './location-floor-authoring'
+import { adminLocationConnectionAuthoringRouter } from './location-connection-authoring'
 import { adminProductEntitlementsRouter } from './product-entitlements'
 import { adminProspectCrmRouter } from './prospect-crm'
 import { adminOperationsReadinessRouter } from './operations-readiness'
@@ -55,11 +69,23 @@ import { adminBillingRouter } from './billing'
 import { adminBillingRolloutRouter } from './billing-rollout'
 import { adminBillingPortfolioRouter } from './billing-portfolio'
 import { adminCompanyBrainRouter } from './company-brain'
+import { adminPlatformWorkerPolicyCredentialsRouter } from './platform-worker-policy-credentials'
+import { adminUnitEconomicsRouter } from './unit-economics'
+import { adminGuestAnswerAttributionsRouter } from './guest-answer-attributions'
+import { adminRetentionDispositionPreviewRouter } from './retention-disposition-preview'
+import { adminPublicInterestRouter } from './public-interest'
+import { adminReleaseEvidenceRouter } from './release-evidence'
+import { adminIntakeMediaAssetRouter } from './venue-media'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,
+  adminLocationAuthoringRouter,
+  adminLocationAvailabilityRouter,
+  adminLocationAuthoringApplicationRouter,
+  adminLocationFloorAuthoringRouter,
+  adminLocationConnectionAuthoringRouter,
   adminProductEntitlementsRouter,
   adminProspectCrmRouter,
   adminOperationsReadinessRouter,
@@ -67,12 +93,25 @@ export const adminRouter = mergeRouters(
   adminBillingRolloutRouter,
   adminBillingPortfolioRouter,
   adminCompanyBrainRouter,
+  adminPlatformWorkerPolicyCredentialsRouter,
+  adminUnitEconomicsRouter,
+  adminGuestAnswerAttributionsRouter,
+  adminRetentionDispositionPreviewRouter,
+  adminPublicInterestRouter,
+  adminReleaseEvidenceRouter,
+  adminIntakeMediaAssetRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,
   adminAgentOperationsRouter,
   adminAgentBridgeOperationsRouter,
   adminAgentIdentityConfigurationRouter,
+  adminSupportOpenPolicyRouter,
+  adminSupportCompletionApprovalRouter,
+  adminSupportDraftApprovalRouter,
+  adminSupportApplicationApprovalRouter,
+  adminSupportReversionApprovalRouter,
+  adminSupportHandoffSupersessionApprovalRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
   adminAgentQuestionsRouter,
@@ -112,4 +151,7 @@ export const adminRouter = mergeRouters(
   adminDigestRouter,
   adminDeploymentManifestReviewRouter,
   adminTochiRolloutRouter,
+  adminTerminalRedrivePreviewRouter,
+  adminOperationalEvidenceRouter,
+  adminCustomerAccessExecutionRouter,
 )

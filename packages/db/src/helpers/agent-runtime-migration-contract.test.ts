@@ -45,4 +45,17 @@ describe('agent runtime migration contracts', () => {
     expect(guards).toContain('OLD."status" = \'RUNNING\' AND NEW."status" IN (\'QUEUED\'')
     expect(guards).toContain('agent run bridge ownership is immutable once claimed')
   })
+
+  it('permits bridge ownership change only during a fenced expired-lease takeover', () => {
+    const takeover = migration('20260828155000_allow_fenced_agent_bridge_takeover')
+    expect(takeover).toContain('OLD."execution_lease_expires_at" < CURRENT_TIMESTAMP')
+    expect(takeover).toContain('NEW."attempt_number" = OLD."attempt_number" + 1')
+    expect(takeover).toContain(
+      'NEW."execution_lease_token" IS DISTINCT FROM OLD."execution_lease_token"',
+    )
+    expect(takeover).toContain(
+      'agent run bridge ownership can change only at initial claim or fenced expired-lease takeover',
+    )
+    expect(takeover).not.toMatch(/\bDELETE FROM\b|\bDROP TABLE\b/iu)
+  })
 })

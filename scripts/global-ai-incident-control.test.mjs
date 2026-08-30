@@ -75,14 +75,14 @@ test('API authorization runs before incident admission at every AI entry point',
     'the admitted chat procedure must end with requireGlobalAi',
   )
 
-  const chatRouter = variableInitializer(chat, 'chatRouter')
+  const chatReadRouter = variableInitializer(chat, 'chatReadRouter')
   assert.ok(
-    chatRouter &&
-      ts.isCallExpression(chatRouter) &&
-      ts.isObjectLiteralExpression(chatRouter.arguments[0]),
-    'chatRouter must be constructed from an object literal',
+    chatReadRouter &&
+      ts.isCallExpression(chatReadRouter) &&
+      ts.isObjectLiteralExpression(chatReadRouter.arguments[0]),
+    'chatReadRouter must be constructed from an object literal',
   )
-  const sendProperty = chatRouter.arguments[0].properties.find(
+  const sendProperty = chatReadRouter.arguments[0].properties.find(
     (property) =>
       ts.isPropertyAssignment(property) &&
       ((ts.isIdentifier(property.name) && property.name.text === 'send') ||
@@ -97,6 +97,25 @@ test('API authorization runs before incident admission at every AI entry point',
       ts.isIdentifier(sendProperty.initializer.expression.expression) &&
       sendProperty.initializer.expression.expression.text === 'admittedChatSendProcedure',
     'chat send must mutate through the admitted public procedure',
+  )
+  const chatRouter = variableInitializer(chat, 'chatRouter')
+  assert.ok(
+    chatRouter &&
+      ts.isCallExpression(chatRouter) &&
+      ts.isIdentifier(chatRouter.expression) &&
+      chatRouter.expression.text === 'mergeRouters' &&
+      chatRouter.arguments.length === 2 &&
+      chatRouter.arguments.every((argument) => ts.isIdentifier(argument)),
+    'chatRouter must merge only the reviewed session and read routers',
+  )
+  assert.deepEqual(
+    chatRouter.arguments.map((argument) => argument.text),
+    ['chatSessionRouter', 'chatReadRouter'],
+  )
+  assert.match(
+    chat,
+    /chatStreamSink\s*\.run\([\s\S]*?\(\) => chatReadRouter\.createCaller\(ctx\)\.send\(input\)/u,
+    'chat streaming must delegate admission and execution to the reviewed send procedure',
   )
   assert.match(
     venuePackage,

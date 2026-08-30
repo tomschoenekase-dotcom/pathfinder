@@ -12,6 +12,7 @@ import {
 import { useTRPCClient } from '../../lib/trpc'
 
 const labels: Record<SupportRequestStatus, string> = {
+  DRAFT: 'Internal draft',
   OPEN: 'Received',
   WAITING_FOR_CLIENT: 'Waiting for client',
   IN_REVIEW: 'In review',
@@ -78,9 +79,9 @@ export function SupportStatusTransitionForm({
     <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">
       <h3 className="text-lg font-semibold text-pf-deep">Advance support workflow</h3>
       <p className="mt-1 text-sm leading-6 text-pf-deep/65">
-        This records support status only. It does not validate, evaluate, approve, apply, or publish
-        a venue package. Evaluation has no separate support status, so validation/evaluation review
-        remains under VALIDATING.
+        {currentStatus === 'DRAFT'
+          ? 'Opening this internal draft places it in the operator workflow. It does not notify a customer, grant customer access, or apply a venue change.'
+          : 'This records support status only. It does not validate, evaluate, approve, apply, or publish a venue package. Evaluation has no separate support status, so validation/evaluation review remains under VALIDATING.'}
       </p>
       {allowed.length === 0 ? (
         <p className="mt-4 text-sm text-pf-deep/65">This request is in a terminal status.</p>

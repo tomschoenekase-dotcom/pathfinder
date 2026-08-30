@@ -1,13 +1,16 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { SemanticUpdatePreview } from './SemanticUpdatePreview'
 
 export type KnowledgeProposal = {
   id: string
   status: string
+  sessionId?: string | null
   observedVisitorClaim: string | null
   aiInference: string | null
   proposedChange: string
@@ -20,6 +23,9 @@ export type KnowledgeProposal = {
   reviewerId: string | null
   reviewNote: string | null
   reviewedAt: Date | string | null
+  createdByType?: string
+  supportRequestId?: string | null
+  supportRequestVersion?: number | null
 }
 
 function ProposalActions({
@@ -77,7 +83,7 @@ function ProposalActions({
           type="button"
           disabled={pending || !note.trim()}
           onClick={() => void review('APPROVED')}
-          className="min-h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          className="min-h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
         >
           Approve evidence
         </button>
@@ -85,7 +91,7 @@ function ProposalActions({
           type="button"
           disabled={pending || !note.trim()}
           onClick={() => void review('REJECTED')}
-          className="min-h-10 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
+          className="min-h-11 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
         >
           Reject proposal
         </button>
@@ -138,9 +144,16 @@ export function KnowledgeProposalReview({
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                  {proposal.status.replaceAll('_', ' ')}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                    {proposal.status.replaceAll('_', ' ')}
+                  </span>
+                  {proposal.createdByType === 'AGENT' ? (
+                    <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-violet-800">
+                      AI prepared
+                    </span>
+                  ) : null}
+                </div>
                 <span className="text-xs text-slate-500">
                   {Math.round(proposal.confidence * 100)}% confidence
                 </span>
@@ -174,12 +187,50 @@ export function KnowledgeProposalReview({
               <p className="mt-3 text-sm text-slate-600">
                 <span className="font-semibold text-slate-800">Reason:</span> {proposal.reason}
               </p>
+              {proposal.sessionId ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/chatlogs/${proposal.sessionId}`}
+                    className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
+                  >
+                    Review source conversation
+                  </Link>
+                  <span className="text-xs text-slate-500">
+                    {proposal.evidenceMessageIds.length} exact message reference
+                    {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
+                  </span>
+                </div>
+              ) : null}
+              {proposal.supportRequestId && proposal.supportRequestVersion ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                  <Link
+                    href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations?requestId=${encodeURIComponent(proposal.supportRequestId)}`}
+                    className="min-h-11 rounded-lg border border-sky-200 px-3 py-2 font-semibold text-sky-800 hover:bg-sky-50"
+                  >
+                    Review source request
+                  </Link>
+                  <span className="text-xs text-slate-500">
+                    Frozen request version {proposal.supportRequestVersion} ·{' '}
+                    {proposal.evidenceMessageIds.length} exact message reference
+                    {proposal.evidenceMessageIds.length === 1 ? '' : 's'} retained
+                  </span>
+                </div>
+              ) : null}
               {proposal.status === 'PENDING_REVIEW' ? (
                 <ProposalActions tenantId={tenantId} venueId={venueId} proposal={proposal} />
               ) : proposal.reviewNote ? (
                 <p className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-600">
                   <span className="font-semibold">Review:</span> {proposal.reviewNote}
                 </p>
+              ) : null}
+              {proposal.status === 'PENDING_REVIEW' || proposal.status === 'APPROVED' ? (
+                <SemanticUpdatePreview
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  proposalId={proposal.id}
+                  proposalUpdatedAt={proposal.updatedAt}
+                  hasTarget={Boolean(proposal.targetKnowledgeEntryId)}
+                />
               ) : null}
             </article>
           ))}

@@ -7,6 +7,8 @@ import { Globe } from 'lucide-react'
 import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
+import { getVisitorUiCopy } from './visitor-ui-copy'
+
 export const SUPPORTED_LANGUAGES = SUPPORTED_CHAT_LANGUAGES
 const RTL_CHAT_LANGUAGE_CODES: ReadonlySet<string> = new Set(['ar'])
 
@@ -106,6 +108,7 @@ type LanguagePickerProps = {
 
 export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
   const presentation = getChatLanguagePresentation(value)
+  const [selectLanguageLabel] = getVisitorUiCopy(value).shell
   const labelId = useId()
 
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -123,8 +126,8 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
 
   return (
     <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 shadow-sm">
-      <span id={labelId} className="sr-only" lang="en" dir="ltr">
-        Select language
+      <span id={labelId} className="sr-only" lang={presentation.code} dir={presentation.direction}>
+        {selectLanguageLabel}
       </span>
       <Globe
         className="h-3.5 w-3.5 flex-shrink-0 text-[var(--chat-text-muted)]"

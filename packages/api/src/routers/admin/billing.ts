@@ -49,6 +49,20 @@ function rethrow(error: unknown): never {
 }
 
 const tenantId = z.string().trim().min(1).max(191)
+const venuePriceAmounts = z
+  .array(
+    z
+      .object({
+        venueId: z.string().trim().min(1).max(191),
+        amountMinor: z
+          .string()
+          .regex(/^[1-9]\d{0,11}$/u)
+          .transform(BigInt),
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(100)
 
 export const adminBillingRouter = router({
   executeApprovedBillingCommand: adminProcedure
@@ -91,6 +105,7 @@ export const adminBillingRouter = router({
                 .string()
                 .regex(/^[1-9]\d{0,11}$/u)
                 .transform(BigInt),
+              venueAmounts: venuePriceAmounts,
               currency: z
                 .string()
                 .trim()
@@ -185,6 +200,7 @@ export const adminBillingRouter = router({
           mode: z.enum(['MANUAL_INVOICE', 'COMPLIMENTARY', 'PILOT', 'NO_BILLING_REQUIRED']),
           planKey: z.string().trim().min(1).max(100),
           amountMinor: z.string().regex(/^\d+$/u).transform(BigInt).nullable().optional(),
+          venueAmounts: venuePriceAmounts.optional(),
           accessEndsAt: z
             .string()
             .datetime({ offset: true })
@@ -205,6 +221,7 @@ export const adminBillingRouter = router({
           mode: input.mode,
           planKey: input.planKey,
           amountMinor: input.amountMinor ?? null,
+          ...(input.venueAmounts ? { venueAmounts: input.venueAmounts } : {}),
           accessEndsAt: input.accessEndsAt ?? null,
           venueIds: input.venueIds,
           reason: input.reason,

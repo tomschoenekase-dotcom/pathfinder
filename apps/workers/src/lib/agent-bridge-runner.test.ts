@@ -10,6 +10,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
 
 import {
   buildAgentCliInvocation,
+  buildAgentBridgeExecutionPrompt,
   createAgentBridgeHttpClient,
   executeAgentBridgeTask,
   parseAgentBridgeRunnerConfig,
@@ -27,6 +28,31 @@ const base = {
   pollMs: 2_000,
   taskTimeoutMs: 60_000,
 } as const
+
+const bridgeTask = (overrides: Record<string, unknown> = {}) => ({
+  id: 'run-1',
+  operationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  venueId: 'venue-1',
+  runType: 'OPERATIONS',
+  requestedOperation: 'review_plan',
+  prompt: 'Review the plan.',
+  modelProvider: 'codex-bridge',
+  modelName: 'subscription-default',
+  leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  leaseExpiresAt: '2026-08-24T12:00:00.000Z',
+  attemptNumber: 1,
+  scope: { accessCapabilities: ['operations.read'] },
+  initiator: { type: 'HUMAN', id: 'founder-1' },
+  agent: {
+    identityKey: 'operations.reviewer',
+    name: 'Operations Reviewer',
+    description: null,
+    accessCapabilities: ['operations.read'],
+    autonomyLevel: 'READ_ONLY',
+    autonomousActions: [],
+  },
+  ...overrides,
+})
 
 describe('desktop agent bridge runner', () => {
   it('builds fixed no-shell read-only Codex and plan-only Claude invocations', () => {
@@ -71,6 +97,29 @@ describe('desktop agent bridge runner', () => {
         provider: 'CODEX_SUBSCRIPTION',
       }).endpoint,
     ).toBe('http://127.0.0.1:3000/bridge')
+  })
+
+  it('preserves bounded authority context and falls back to the requested operation', () => {
+    const prompt = buildAgentBridgeExecutionPrompt(
+      bridgeTask({ prompt: null }) as Parameters<typeof buildAgentBridgeExecutionPrompt>[0],
+    )
+    expect(prompt).toContain('"runId": "run-1"')
+    expect(prompt).toContain('"type": "HUMAN"')
+    expect(prompt).toContain('"autonomyLevel": "READ_ONLY"')
+    expect(prompt).toContain('"accessCapabilities"')
+    expect(prompt).toContain('Task: review_plan')
+    expect(prompt).toContain('untrusted data')
+  })
+
+  it('rejects venue and provider drift before invoking a model', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    await expect(
+      executeAgentBridgeTask(bridgeTask({ venueId: 'venue-2' }), config),
+    ).rejects.toThrow('TASK_VENUE_MISMATCH')
+    await expect(
+      executeAgentBridgeTask(bridgeTask({ modelProvider: 'claude-bridge' }), config),
+    ).rejects.toThrow('TASK_PROVIDER_MISMATCH')
+    expect(spawn).not.toHaveBeenCalled()
   })
 
   it('permits local inference only on an exact loopback HTTP endpoint', () => {
@@ -168,19 +217,18 @@ describe('desktop agent bridge runner', () => {
     })
     await expect(
       executeAgentBridgeTask(
-        {
+        bridgeTask({
           id: 'run-hermes',
-          venueId: 'venue-1',
           prompt: 'Review architecture.',
-          modelName: 'subscription-default',
-          leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        },
+          modelProvider: 'hermes-bridge',
+        }),
         config,
       ),
     ).resolves.toEqual({
       content: 'Hermes result.',
       modelName: 'subscription-default',
       costE8Usd: '0',
+      costStatus: 'UNREPORTED',
     })
     expect(spawn).toHaveBeenCalledWith(
       'hermes',
@@ -218,19 +266,18 @@ describe('desktop agent bridge runner', () => {
       )
     await expect(
       executeAgentBridgeTask(
-        {
+        bridgeTask({
           id: 'run-local',
-          venueId: 'venue-1',
           prompt: 'Summarize this.',
-          modelName: 'subscription-default',
-          leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        },
+          modelProvider: 'openai-compatible-bridge',
+        }),
         config,
       ),
     ).resolves.toEqual({
       content: 'Grounded local result.',
       modelName: 'qwen3.5:9b',
       costE8Usd: '0',
+      costStatus: 'UNREPORTED',
     })
     const [url, init] = fetcher.mock.calls[0]!
     expect(url).toBe('http://localhost:11434/v1/chat/completions')
@@ -264,13 +311,7 @@ describe('desktop agent bridge runner', () => {
     vi.useFakeTimers()
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
     const controller = new AbortController()
-    const task = {
-      id: 'run-1',
-      venueId: 'venue-1',
-      prompt: 'Review the plan.',
-      modelName: 'subscription-default',
-      leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-    }
+    const task = bridgeTask()
     let claims = 0
     const call = vi.fn(async (method: string) => {
       if (method === 'claimTask') return { task: claims++ === 0 ? task : null }

@@ -86,11 +86,98 @@ describe('support status transition domain action', () => {
     expect(tx).not.toHaveProperty('venuePackage')
   })
 
+  it('lets a human operator open an internal draft without claiming customer activity', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'DRAFT',
+      version: 2,
+      clientVersion: 1,
+    })
+    const result = await transitionSupportRequestStatusAction(
+      { ...input, toStatus: 'OPEN' },
+      actionClient,
+    )
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'OPEN', version: 3, clientVersion: 1 }),
+      }),
+    )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientActivityAt',
+    )
+    expect(result).not.toHaveProperty('clientActivityAt')
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          afterState: expect.objectContaining({ customerContacted: false }),
+        }),
+      }),
+    )
+  })
+
+  it('lets an approval-bound agent perform only DRAFT-to-OPEN with machine lineage', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      status: 'DRAFT',
+      version: 2,
+      clientVersion: 1,
+    })
+    const agent = {
+      actorType: 'AGENT',
+      participantKind: 'AGENT',
+      actorId: 'agent_1',
+      auditRole: 'AGENT',
+      agentIdentityId: 'agent_1',
+      agentRunId: 'run_1',
+      workerId: 'worker_1',
+      credentialId: 'credential_1',
+      approvalGrantId: 'grant_1',
+      capability: 'support:open',
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    } as const
+    await transitionSupportRequestStatusAction(
+      { ...input, actor: agent, toStatus: 'OPEN' },
+      actionClient,
+    )
+    expect(tx.supportRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ updatedByKind: 'AGENT', updatedById: 'agent_1' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          agentRunId: 'run_1',
+          approvalGrantId: 'grant_1',
+          capability: 'support:open',
+          afterState: expect.objectContaining({
+            customerContacted: false,
+            participantGranted: false,
+            messageSent: false,
+          }),
+        }),
+      }),
+    )
+
+    const later = harness()
+    await expect(
+      transitionSupportRequestStatusAction(
+        { ...input, actor: agent, toStatus: 'IN_REVIEW' },
+        later.actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(later.client.$transaction).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['IN_REVIEW', 'COMPLETED'],
     ['PATCH_DRAFTED', 'APPLYING'],
     ['COMPLETED', 'OPEN'],
     ['CANCELLED', 'OPEN'],
+    ['DRAFT', 'IN_REVIEW'],
   ] as const)('rejects unsafe transition %s -> %s', async (fromStatus, toStatus) => {
     const { tx, actionClient } = harness()
     tx.supportRequest.findFirst.mockResolvedValueOnce({

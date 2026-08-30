@@ -1,5 +1,16 @@
 import { z } from 'zod'
 
+import {
+  SupportPackageApprovalApplyParameters,
+  SupportPackageApplicationApplyParameters,
+  SupersededSupportPackageHandoff,
+  ReplacementSupportPackageHandoff,
+  SupportPackageReversionApplyParameters,
+  SupportPackageDraftApplyParameters,
+} from './agent-approval-policy'
+import { VenueLocationDraftFieldsSchema } from './location-authoring'
+import { SupportRequestCategory } from './support-workflow'
+
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
 export const PATHFINDER_MCP_CATALOG_VERSION = 'pathfinder-mcp-v0' as const
@@ -41,17 +52,26 @@ export const McpCapability = z.enum([
   'jobs:read',
   'evaluations:read',
   'reports:read',
+  'reports:draft',
   'conversations:read',
+  'conversations:review',
+  'customer-access:prepare',
   'integrations:read',
   'agent-runs:read',
   'events:read',
   'deployments:read',
   'feature-flags:read',
   'readiness:read',
+  'retention:read',
   'questions:read',
   'outcomes:read',
+  'agent-improvements:read',
+  'agent-improvements:propose',
+  'agent-improvements:validate',
   'accounts:read',
   'knowledge:read',
+  'knowledge:draft',
+  'locations:propose',
   'meetings:read',
   'meetings:process',
   'workers:read',
@@ -59,7 +79,17 @@ export const McpCapability = z.enum([
   'delegations:create',
   'agent-runs:execute',
   'packages:draft',
+  'packages:approve',
+  'packages:apply',
+  'packages:reconcile',
+  'packages:revert',
   'support:draft',
+  'support:open',
+  'support:note',
+  'support:triage',
+  'support:request-information',
+  'support:complete',
+  'intake:draft',
   'updates:draft',
   'evaluations:request',
 ])
@@ -134,7 +164,7 @@ export type PathfinderMcpSecurityMetadata = Readonly<{
   clientBound: true
   venueBound: boolean | 'conditional'
   risk: 'low' | 'moderate'
-  effect: 'read' | 'interaction' | 'draft' | 'bounded-evaluation-request'
+  effect: 'read' | 'interaction' | 'draft' | 'approved-transition' | 'bounded-evaluation-request'
   defaultEnabled: boolean
   approvalRequired: boolean
 }>
@@ -170,7 +200,10 @@ function security(
   effect: PathfinderMcpSecurityMetadata['effect'],
 ): PathfinderMcpSecurityMetadata {
   const readOnly = effect === 'read'
-  const approvalRequired = effect === 'draft' || effect === 'bounded-evaluation-request'
+  const approvalRequired =
+    effect === 'draft' ||
+    effect === 'approved-transition' ||
+    effect === 'bounded-evaluation-request'
   return {
     scope,
     capability,
@@ -261,7 +294,7 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'ai-usage',
     'AI usage',
-    'Bounded venue AI cost, token, and latency summaries.',
+    'Bounded venue AI cost, token, latency, and configured tenant hard-budget state without operator policy material or mutation authority.',
     'pathfinder://clients/{clientId}/venues/{venueId}/ai-usage',
     'venue',
     'ai-usage:read',
@@ -269,7 +302,7 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'jobs',
     'Jobs',
-    'Venue-scoped background job status and failures.',
+    'Venue-scoped persisted background-job status, failure pressure, and shared worker-heartbeat evidence with explicit live-queue and execution-proof boundaries.',
     'pathfinder://clients/{clientId}/venues/{venueId}/jobs',
     'venue',
     'jobs:read',
@@ -315,6 +348,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'agent-runs:read',
   ],
   [
+    'agent-run-trace',
+    'Agent run trace',
+    'One bounded run chronology over safe action, lifecycle, approval, and outcome evidence without raw payloads, scope snapshots, or execution leases.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/trace',
+    'venue',
+    'agent-runs:read',
+  ],
+  [
     'events',
     'Operational events',
     'Venue-scoped operational attention events and recovery guidance.',
@@ -349,10 +390,18 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'readiness',
     'Venue readiness',
-    'Onboarding, preview, and launch-readiness evidence.',
+    'Onboarding, preview, launch-readiness, native-head convergence, and secret-free native guest-read preflight evidence.',
     'pathfinder://clients/{clientId}/venues/{venueId}/readiness',
     'venue',
     'readiness:read',
+  ],
+  [
+    'retention-preview',
+    'Retention disposition preview',
+    'Full-client, read-only database count and policy-coverage evidence; never authorizes deletion, anonymization, revocation, or external provider action.',
+    'pathfinder://clients/{clientId}/retention-preview',
+    'client',
+    'retention:read',
   ],
   [
     'questions',
@@ -369,6 +418,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'pathfinder://clients/{clientId}/venues/{venueId}/agent-outcomes',
     'venue',
     'outcomes:read',
+  ],
+  [
+    'agent-improvements',
+    'Agent improvement proposals',
+    'Versioned, evidence-backed agent improvement proposals and human review state.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-improvements',
+    'venue',
+    'agent-improvements:read',
   ],
 ]
 
@@ -417,9 +474,27 @@ const resultSchema = strictObject(
 
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
+  agentRunId: Identifier.optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(100).default(25),
-}).strict()
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (value.resource === 'agent-run-trace' && !value.agentRunId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['agentRunId'],
+        message: 'agentRunId is required for an agent run trace.',
+      })
+    }
+    if (value.resource !== 'agent-run-trace' && value.agentRunId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['agentRunId'],
+        message: 'agentRunId is only accepted for an agent run trace.',
+      })
+    }
+  })
 export type McpReadInput = z.infer<typeof McpReadInput>
 
 export const McpAccountContextInput = McpRequestedScope.extend({
@@ -442,6 +517,11 @@ export type McpAccountMeetingGetInput = z.infer<typeof McpAccountMeetingGetInput
 
 export const McpIntegrationHealthInput = McpRequestedScope
 export type McpIntegrationHealthInput = z.infer<typeof McpIntegrationHealthInput>
+
+export const McpReportLifecycleInput = McpRequestedScope.extend({
+  reportId: Identifier,
+}).strict()
+export type McpReportLifecycleInput = z.infer<typeof McpReportLifecycleInput>
 
 const McpKnowledgeType = z.enum([
   'DECISION',
@@ -487,6 +567,453 @@ export const McpKnowledgeGetInput = McpRequestedScope.extend({
   knowledgeItemId: Identifier,
 }).strict()
 export type McpKnowledgeGetInput = z.infer<typeof McpKnowledgeGetInput>
+
+export const McpKnowledgeGapListInput = McpRequestedScope.extend({
+  limit: z.number().int().min(1).max(25).default(10),
+}).strict()
+export type McpKnowledgeGapListInput = z.infer<typeof McpKnowledgeGapListInput>
+
+export const McpGuestAnswerAttributionListInput = McpRequestedScope.extend({
+  guestChatTurnId: z.string().uuid().optional(),
+  limit: z.number().int().min(1).max(50).default(10),
+}).strict()
+export type McpGuestAnswerAttributionListInput = z.infer<typeof McpGuestAnswerAttributionListInput>
+
+export const McpGuestAnswerAttributionAgreementInput = McpRequestedScope.extend({
+  limit: z.number().int().min(2).max(100).default(100),
+}).strict()
+export type McpGuestAnswerAttributionAgreementInput = z.infer<
+  typeof McpGuestAnswerAttributionAgreementInput
+>
+
+export const McpKnowledgeCorrectionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  conversationInsightId: z.string().uuid(),
+  targetKnowledgeEntryId: Identifier.optional(),
+  correctionKind: z.enum([
+    'CREATE_KNOWLEDGE',
+    'UPDATE_KNOWLEDGE',
+    'RETIRE_KNOWLEDGE',
+    'RETRIEVAL_CORRECTION',
+    'NO_CONTENT_CHANGE',
+  ]),
+  aiInference: z.string().trim().min(1).max(2000),
+  proposedChange: z.string().trim().min(1).max(10000),
+  reason: z.string().trim().min(1).max(2000),
+  confidence: z.number().min(0).max(1),
+}).strict()
+export type McpKnowledgeCorrectionProposalInput = z.infer<
+  typeof McpKnowledgeCorrectionProposalInput
+>
+
+export const McpSupportKnowledgeProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  supportRequestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  evidenceMessageIds: z
+    .array(Identifier)
+    .min(1)
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, 'Evidence messages must be unique.'),
+  targetKnowledgeEntryId: Identifier.optional(),
+  correctionKind: z.enum([
+    'CREATE_KNOWLEDGE',
+    'UPDATE_KNOWLEDGE',
+    'RETIRE_KNOWLEDGE',
+    'RETRIEVAL_CORRECTION',
+    'NO_CONTENT_CHANGE',
+  ]),
+  aiInference: z.string().trim().min(1).max(2000),
+  proposedChange: z.string().trim().min(1).max(10000),
+  reason: z.string().trim().min(1).max(2000),
+  confidence: z.number().min(0).max(1),
+}).strict()
+export type McpSupportKnowledgeProposalInput = z.infer<typeof McpSupportKnowledgeProposalInput>
+
+export const McpLocationDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+  draft: VenueLocationDraftFieldsSchema,
+}).strict()
+export type McpLocationDraftProposalInput = z.infer<typeof McpLocationDraftProposalInput>
+
+export const McpSupportTriageProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  category: SupportRequestCategory,
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportTriageProposalInput = z.infer<typeof McpSupportTriageProposalInput>
+
+export const McpSupportTriageApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  category: SupportRequestCategory,
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+}).strict()
+export type McpSupportTriageApplyInput = z.infer<typeof McpSupportTriageApplyInput>
+
+const SupportInformationRequestFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  body: z.string().trim().min(1).max(20_000),
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .min(1)
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+}
+
+export const McpSupportInformationRequestProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportInformationRequestFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportInformationRequestProposalInput = z.infer<
+  typeof McpSupportInformationRequestProposalInput
+>
+
+export const McpSupportInformationRequestApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportInformationRequestFields,
+}).strict()
+
+const SupportCompletionFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  body: z.string().trim().min(1).max(20_000),
+}
+
+export const McpSupportCompletionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportCompletionFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+}).strict()
+export type McpSupportCompletionProposalInput = z.infer<typeof McpSupportCompletionProposalInput>
+
+export const McpSupportCompletionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportCompletionFields,
+}).strict()
+export type McpSupportCompletionApplyInput = z.infer<typeof McpSupportCompletionApplyInput>
+export type McpSupportInformationRequestApplyInput = z.infer<
+  typeof McpSupportInformationRequestApplyInput
+>
+
+const SupportPackageDraftFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  draftKey: z.string().uuid(),
+  payload: z.record(JsonValue),
+  operationCounts: SupportPackageDraftApplyParameters.shape.operationCounts,
+}
+
+export const McpSupportPackageDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageDraftFields,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageDraftProposalInput = z.infer<
+  typeof McpSupportPackageDraftProposalInput
+>
+
+export const McpSupportPackageDraftApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageDraftFields,
+}).strict()
+export type McpSupportPackageDraftApplyInput = z.infer<typeof McpSupportPackageDraftApplyInput>
+
+const SupportPackageApprovalFields = {
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  payloadHash: SupportPackageApprovalApplyParameters.shape.payloadHash,
+  baseDigest: SupportPackageApprovalApplyParameters.shape.baseDigest,
+  warningDigest: SupportPackageApprovalApplyParameters.shape.warningDigest,
+  supportHandoff: SupportPackageApprovalApplyParameters.shape.supportHandoff,
+}
+
+export const McpSupportPackageApprovalProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageApprovalProposalInput = z.infer<
+  typeof McpSupportPackageApprovalProposalInput
+>
+
+export const McpSupportPackageApprovalApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageApprovalFields,
+}).strict()
+export type McpSupportPackageApprovalApplyInput = z.infer<
+  typeof McpSupportPackageApprovalApplyInput
+>
+
+const SupportPackageApplicationFields = {
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  payloadHash: SupportPackageApplicationApplyParameters.shape.payloadHash,
+  baseDigest: SupportPackageApplicationApplyParameters.shape.baseDigest,
+  warningDigest: SupportPackageApplicationApplyParameters.shape.warningDigest,
+  approvedAt: SupportPackageApplicationApplyParameters.shape.approvedAt,
+  approvedBy: SupportPackageApplicationApplyParameters.shape.approvedBy,
+  supportHandoff: SupportPackageApplicationApplyParameters.shape.supportHandoff,
+}
+
+export const McpSupportPackageApplicationProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageApplicationProposalInput = z.infer<
+  typeof McpSupportPackageApplicationProposalInput
+>
+
+export const McpSupportPackageApplicationApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageApplicationFields,
+}).strict()
+export type McpSupportPackageApplicationApplyInput = z.infer<
+  typeof McpSupportPackageApplicationApplyInput
+>
+
+const SupportPackageReversionFields = {
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  payloadHash: SupportPackageReversionApplyParameters.shape.payloadHash,
+  baseDigest: SupportPackageReversionApplyParameters.shape.baseDigest,
+  rollbackManifestDigest: SupportPackageReversionApplyParameters.shape.rollbackManifestDigest,
+  appliedAt: SupportPackageReversionApplyParameters.shape.appliedAt,
+  appliedBy: SupportPackageReversionApplyParameters.shape.appliedBy,
+  appliedCommandKey: SupportPackageReversionApplyParameters.shape.appliedCommandKey,
+  supportHandoff: SupportPackageReversionApplyParameters.shape.supportHandoff,
+  supportRequestVersion: SupportPackageReversionApplyParameters.shape.supportRequestVersion,
+  supportRequestStatus: SupportPackageReversionApplyParameters.shape.supportRequestStatus,
+}
+
+export const McpSupportPackageReversionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  packageId: Identifier,
+  expectedUpdatedAt: z.string().datetime(),
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageReversionProposalInput = z.infer<
+  typeof McpSupportPackageReversionProposalInput
+>
+
+export const McpSupportPackageReversionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageReversionFields,
+}).strict()
+export type McpSupportPackageReversionApplyInput = z.infer<
+  typeof McpSupportPackageReversionApplyInput
+>
+
+const SupportPackageHandoffSupersessionFields = {
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  supportRequestStatus: z.enum(['OPEN', 'IN_REVIEW']),
+  superseded: SupersededSupportPackageHandoff,
+  replacement: ReplacementSupportPackageHandoff,
+}
+
+export const McpSupportPackageHandoffSupersessionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  supersededHandoffId: Identifier,
+  replacementHandoffId: Identifier,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(20)
+    .default([]),
+}).strict()
+export type McpSupportPackageHandoffSupersessionProposalInput = z.infer<
+  typeof McpSupportPackageHandoffSupersessionProposalInput
+>
+
+export const McpSupportPackageHandoffSupersessionApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  ...SupportPackageHandoffSupersessionFields,
+}).strict()
+export type McpSupportPackageHandoffSupersessionApplyInput = z.infer<
+  typeof McpSupportPackageHandoffSupersessionApplyInput
+>
+
+export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  targetAgentIdentityId: Identifier,
+  outcomeObservationIds: z.array(Identifier).min(1).max(50),
+  proposalKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(191)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  revision: z.number().int().min(1).max(10_000),
+  supersedesProposalId: Identifier.optional(),
+  targetKind: z.enum([
+    'INSTRUCTIONS',
+    'ROUTING',
+    'RETRIEVAL',
+    'SKILL',
+    'WORKFLOW',
+    'TOOLING',
+    'MODEL_SELECTION',
+  ]),
+  title: z.string().trim().min(3).max(191),
+  hypothesis: z.string().trim().min(10).max(2000),
+  proposedChange: z.string().trim().min(10).max(10000),
+  validationPlan: z.string().trim().min(10).max(5000),
+}).strict()
+export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
+
+export const McpAgentImprovementValidationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  proposalId: Identifier,
+  baselineEvalRunId: z.string().uuid(),
+  candidateEvalRunId: z.string().uuid(),
+  implementationKind: z.enum([
+    'CODE_COMMIT',
+    'CONFIG_VERSION',
+    'PROMPT_VERSION',
+    'SKILL_VERSION',
+    'WORKFLOW_VERSION',
+    'TOOL_VERSION',
+    'MODEL_POLICY_VERSION',
+  ]),
+  implementationRef: z.string().trim().min(1).max(500),
+  implementationVersion: z.string().trim().min(1).max(191).optional(),
+  implementationHash: z.string().regex(/^[0-9a-f]{64}$/),
+  changeDimensions: z
+    .array(z.enum(['CONTENT', 'MODEL', 'CONFIG']))
+    .min(1)
+    .max(3),
+}).strict()
+export type McpAgentImprovementValidationInput = z.infer<typeof McpAgentImprovementValidationInput>
+
+export const McpCustomerAccessPreparationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  supportRequestId: Identifier,
+  sourceSupportMessageId: Identifier,
+  emailAddress: z.string().trim().email().max(320),
+  requestedRole: z.literal('MEMBER'),
+  reason: z.string().trim().min(3).max(2000),
+}).strict()
+export type McpCustomerAccessPreparationInput = z.infer<typeof McpCustomerAccessPreparationInput>
 
 const McpMeetingExtractionType = z.enum([
   'SUMMARY',
@@ -564,6 +1091,10 @@ export const McpUpdateDraftInput = McpRequestedScope.extend({
 export type McpUpdateDraftInput = z.infer<typeof McpUpdateDraftInput>
 
 export const McpSupportDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(20_000),
   category: z.enum([
@@ -576,6 +1107,57 @@ export const McpSupportDraftInput = McpRequestedScope.extend({
   ]),
 }).strict()
 export type McpSupportDraftInput = z.infer<typeof McpSupportDraftInput>
+
+export const McpSupportOpenInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+}).strict()
+export type McpSupportOpenInput = z.infer<typeof McpSupportOpenInput>
+
+export const McpSupportInternalNoteInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  requestId: Identifier,
+  expectedVersion: z.number().int().positive(),
+  body: z.string().trim().min(1).max(20_000),
+}).strict()
+export type McpSupportInternalNoteInput = z.infer<typeof McpSupportInternalNoteInput>
+
+export const McpIntakeNotesProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  notes: z.string().trim().min(1).max(20_000),
+}).strict()
+export type McpIntakeNotesProposalInput = z.infer<typeof McpIntakeNotesProposalInput>
+
+export const McpWeeklyReportDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  weekStart: z.string().datetime({ offset: true }),
+  weekEnd: z.string().datetime({ offset: true }),
+  title: z.string().trim().min(1).max(200),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (Date.parse(value.weekEnd) < Date.parse(value.weekStart)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['weekEnd'],
+        message: 'Report end must not precede start',
+      })
+    }
+  })
+export type McpWeeklyReportDraftInput = z.infer<typeof McpWeeklyReportDraftInput>
 
 export const McpEvaluationRequestInput = McpRequestedScope.extend({
   suiteId: Identifier,
@@ -669,13 +1251,43 @@ export type PathfinderMcpToolName =
   | 'torchiko.account.correspondence'
   | 'torchiko.knowledge.search'
   | 'torchiko.knowledge.get'
+  | 'torchiko.knowledge.list_gaps'
+  | 'torchiko.quality.list_answer_attributions'
+  | 'torchiko.quality.preview_answer_attribution_agreement'
+  | 'torchiko.knowledge.propose_correction'
+  | 'torchiko.knowledge.prepare_from_support'
+  | 'torchiko.locations.propose_draft'
+  | 'pathfinder.propose_support_triage'
+  | 'pathfinder.apply_support_triage'
+  | 'pathfinder.propose_support_information_request'
+  | 'pathfinder.apply_support_information_request'
+  | 'pathfinder.propose_support_completion'
+  | 'pathfinder.apply_support_completion'
+  | 'pathfinder.propose_support_package_draft'
+  | 'pathfinder.apply_support_package_draft'
+  | 'pathfinder.propose_support_package_approval'
+  | 'pathfinder.apply_support_package_approval'
+  | 'pathfinder.propose_support_package_application'
+  | 'pathfinder.apply_support_package_application'
+  | 'pathfinder.propose_support_package_reversion'
+  | 'pathfinder.apply_support_package_reversion'
+  | 'pathfinder.propose_support_package_handoff_supersession'
+  | 'pathfinder.apply_support_package_handoff_supersession'
+  | 'torchiko.agent_improvements.propose'
+  | 'torchiko.agent_improvements.record_validation'
+  | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
+  | 'torchiko.reports.get_lifecycle'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
+  | 'pathfinder.open_support_request'
+  | 'pathfinder.add_support_internal_note'
+  | 'pathfinder.create_intake_notes_proposal'
+  | 'pathfinder.generate_weekly_report_draft'
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
@@ -844,6 +1456,51 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
   },
   {
+    name: 'torchiko.customer_access.prepare_invitation',
+    title: 'Prepare a customer team invitation',
+    description:
+      'Prepare one idempotent tenant-wide member invitation from an exact active owner-authored support message. It creates a high-risk founder approval item and never contacts Clerk, sends email, or changes membership.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        supportRequestId: { type: 'string', minLength: 1, maxLength: 120 },
+        sourceSupportMessageId: { type: 'string', minLength: 1, maxLength: 120 },
+        emailAddress: { type: 'string', format: 'email', maxLength: 320 },
+        requestedRole: { type: 'string', enum: ['MEMBER'] },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'supportRequestId',
+        'sourceSupportMessageId',
+        'emailAddress',
+        'requestedRole',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': {
+        ...security('venue', 'customer-access:prepare', 'interaction'),
+        risk: 'moderate',
+      },
+    },
+  },
+  {
     name: 'torchiko.knowledge.search',
     title: 'Search Company Knowledge',
     description:
@@ -888,10 +1545,1364 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
   },
   {
+    name: 'torchiko.knowledge.list_gaps',
+    title: 'List reviewable visitor knowledge gaps',
+    description:
+      'Return a bounded venue-scoped queue of public visitor questions and assistant answers already flagged by deterministic retrieval-quality rules. No visitor identity or location is returned.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+      },
+      scopeRequired,
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'conversations:review', 'read') },
+  },
+  {
+    name: 'torchiko.quality.list_answer_attributions',
+    title: 'List reviewed guest-answer claim attributions',
+    description:
+      'Return bounded, append-only claim support annotations for exact public guest answers. Results are evaluator-attributed evidence and descriptive metrics, never an automatic quality or release decision.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        guestChatTurnId: { type: 'string', format: 'uuid' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+      },
+      scopeRequired,
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'conversations:review', 'read') },
+  },
+  {
+    name: 'torchiko.quality.preview_answer_attribution_agreement',
+    title: 'Preview guest-answer reviewer agreement',
+    description:
+      'Compute a bounded, deterministic calibration report across independent human claim reviews of the same frozen guest answers. It reports coverage, support-label, and source-set agreement without deciding correctness, applying a threshold, or authorizing a release.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        limit: { type: 'integer', minimum: 2, maximum: 100, default: 100 },
+      },
+      scopeRequired,
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'conversations:review', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.propose_correction',
+    title: 'Prepare a visitor-answer correction',
+    description:
+      'Create one idempotent, evidence-linked knowledge or retrieval correction for human review. It never edits, publishes, retires, or re-embeds canonical venue knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        conversationInsightId: { type: 'string', format: 'uuid' },
+        targetKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 120 },
+        correctionKind: {
+          type: 'string',
+          enum: [
+            'CREATE_KNOWLEDGE',
+            'UPDATE_KNOWLEDGE',
+            'RETIRE_KNOWLEDGE',
+            'RETRIEVAL_CORRECTION',
+            'NO_CONTENT_CHANGE',
+          ],
+        },
+        aiInference: { type: 'string', minLength: 1, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 1, maxLength: 10000 },
+        reason: { type: 'string', minLength: 1, maxLength: 2000 },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'conversationInsightId',
+        'correctionKind',
+        'aiInference',
+        'proposedChange',
+        'reason',
+        'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.prepare_from_support',
+    title: 'Prepare a client correction proposal',
+    description:
+      'Bind one exact in-review content-correction request version and its immutable messages to a separate knowledge proposal for human review. It never edits, publishes, retires, or re-embeds canonical venue knowledge and never contacts the customer.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        supportRequestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        evidenceMessageIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        targetKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 120 },
+        correctionKind: {
+          type: 'string',
+          enum: [
+            'CREATE_KNOWLEDGE',
+            'UPDATE_KNOWLEDGE',
+            'RETIRE_KNOWLEDGE',
+            'RETRIEVAL_CORRECTION',
+            'NO_CONTENT_CHANGE',
+          ],
+        },
+        aiInference: { type: 'string', minLength: 1, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 1, maxLength: 10000 },
+        reason: { type: 'string', minLength: 1, maxLength: 2000 },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'supportRequestId',
+        'expectedVersion',
+        'evidenceMessageIds',
+        'correctionKind',
+        'aiInference',
+        'proposedChange',
+        'reason',
+        'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.propose_support_triage',
+    title: 'Propose structured support triage',
+    description:
+      'Prepare one exact-version support category and missing-information recommendation for human review. This tool never mutates the request, changes client activity, contacts a customer, or authorizes execution.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        category: { type: 'string', enum: SupportRequestCategory.options },
+        missingInformation: {
+          type: 'array',
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'category',
+        'missingInformation',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'support:triage', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_triage',
+    title: 'Apply approved support triage',
+    description:
+      'Apply the exact reviewed category and missing-information change to one unchanged support request under a one-shot approval grant. It cannot send messages, add participants, change status, execute work, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        category: { type: 'string', enum: SupportRequestCategory.options },
+        missingInformation: {
+          type: 'array',
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'category',
+        'missingInformation',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:triage', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_information_request',
+    title: 'Propose a client information request',
+    description:
+      'Prepare one exact-version, client-visible prompt using the request’s unchanged missing-information checklist. It creates a review item only and does not message the client, change status, or trigger external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        missingInformation: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'missingInformation',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:request-information', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_information_request',
+    title: 'Send an approved in-app information request',
+    description:
+      'Create the exact reviewed in-app client-visible prompt and move one unchanged OPEN or IN_REVIEW request to WAITING_FOR_CLIENT under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        missingInformation: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 30,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'missingInformation',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security(
+        'venue',
+        'support:request-information',
+        'approved-transition',
+      ),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_completion',
+    title: 'Propose support completion',
+    description:
+      'Prepare one exact-version, client-visible completion message after all requested information is resolved and every linked package is fully applied. It freezes exact package fulfillment, creates a review item only, and does not message the client, change status, or trigger external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:complete', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_completion',
+    title: 'Apply an approved support completion',
+    description:
+      'Create the exact reviewed in-app completion message and move one unchanged OPEN or IN_REVIEW request with no missing information and unchanged fully applied package evidence to COMPLETED under a one-shot grant. It cannot send email, add participants, alter triage, execute packages, or authorize later actions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        body: { type: 'string', minLength: 1, maxLength: 20_000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'body',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:complete', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_draft',
+    title: 'Propose a granular support package draft',
+    description:
+      'Prepare one exact V3 package-patch payload and unchanged support-request version for human review. It creates no package, handoff, message, public change, or external delivery.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        draftKey: { type: 'string', format: 'uuid' },
+        payload: { type: 'object', additionalProperties: true },
+        operationCounts: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'venuePatch',
+            'placeCreates',
+            'placeUpdates',
+            'placeDeletes',
+            'knowledgeCreates',
+            'knowledgeUpdates',
+            'knowledgeDeletes',
+            'total',
+          ],
+          properties: {
+            venuePatch: { type: 'boolean' },
+            placeCreates: { type: 'integer', minimum: 0 },
+            placeUpdates: { type: 'integer', minimum: 0 },
+            placeDeletes: { type: 'integer', minimum: 0 },
+            knowledgeCreates: { type: 'integer', minimum: 0 },
+            knowledgeUpdates: { type: 'integer', minimum: 0 },
+            knowledgeDeletes: { type: 'integer', minimum: 0 },
+            total: { type: 'integer', minimum: 1, maximum: 500 },
+          },
+        },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'draftKey',
+        'payload',
+        'operationCounts',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_draft',
+    title: 'Create an approved support package draft',
+    description:
+      'Create and link the exact reviewed V3 package as DRAFT under a one-shot grant. It cannot approve, apply, publish, or roll back the package; message the client; or alter request status or triage.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        fromStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        draftKey: { type: 'string', format: 'uuid' },
+        payload: { type: 'object', additionalProperties: true },
+        operationCounts: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'venuePatch',
+            'placeCreates',
+            'placeUpdates',
+            'placeDeletes',
+            'knowledgeCreates',
+            'knowledgeUpdates',
+            'knowledgeDeletes',
+            'total',
+          ],
+          properties: {
+            venuePatch: { type: 'boolean' },
+            placeCreates: { type: 'integer', minimum: 0 },
+            placeUpdates: { type: 'integer', minimum: 0 },
+            placeDeletes: { type: 'integer', minimum: 0 },
+            knowledgeCreates: { type: 'integer', minimum: 0 },
+            knowledgeUpdates: { type: 'integer', minimum: 0 },
+            knowledgeDeletes: { type: 'integer', minimum: 0 },
+            total: { type: 'integer', minimum: 1, maximum: 500 },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'fromStatus',
+        'draftKey',
+        'payload',
+        'operationCounts',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:draft', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_approval',
+    title: 'Propose approval of a support-linked package',
+    description:
+      'Freeze one exact unchanged support-linked package DRAFT, its warning evidence, and bounded evaluation references for founder review. It does not approve, apply, publish, revert, contact a customer, or change support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:approve', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_approval',
+    title: 'Approve an exact support-linked package',
+    description:
+      'Move the exact reviewed support-linked package from DRAFT to APPROVED under one founder-issued one-shot grant. Applying, publishing, reverting, customer contact, and support-state mutation remain separate.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        baseDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        warningDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        supportHandoff: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['handoffId', 'supportRequestId', 'supportRequestVersion'],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestVersion: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'payloadHash',
+        'baseDigest',
+        'warningDigest',
+        'supportHandoff',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:approve', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_application',
+    title: 'Propose application of an approved support package',
+    description:
+      'Freeze one exact unchanged APPROVED support-linked package for founder review. Applying it mutates current venue content and may be visitor-visible; this proposal itself changes nothing.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:apply', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_application',
+    title: 'Apply an exact approved support package',
+    description:
+      'Under one founder-issued one-shot grant, apply the exact reviewed package to current venue content. The change may be visitor-visible. Support completion, customer contact, external delivery, and revert remain separate.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        baseDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        warningDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        approvedAt: { type: 'string', format: 'date-time' },
+        approvedBy: { type: 'string', minLength: 1, maxLength: 191 },
+        supportHandoff: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['handoffId', 'supportRequestId', 'supportRequestVersion'],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestVersion: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'payloadHash',
+        'baseDigest',
+        'warningDigest',
+        'approvedAt',
+        'approvedBy',
+        'supportHandoff',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:apply', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_reversion',
+    title: 'Propose reversion of an applied support package',
+    description:
+      'Freeze one exact unchanged APPLIED support-linked package and active support request for founder review. This proposal does not alter venue content.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:revert', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_support_package_reversion',
+    title: 'Revert an exact applied support package',
+    description:
+      'Under one founder-issued one-shot grant, invoke the canonical drift-checked rollback for the exact reviewed package. It never contacts the customer or changes support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        packageId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        baseDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        rollbackManifestDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        appliedAt: { type: 'string', format: 'date-time' },
+        appliedBy: { type: 'string', minLength: 1, maxLength: 191 },
+        appliedCommandKey: { type: 'string', format: 'uuid' },
+        supportHandoff: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['handoffId', 'supportRequestId', 'supportRequestVersion'],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestId: { type: 'string', minLength: 1, maxLength: 191 },
+            supportRequestVersion: { type: 'integer', minimum: 1 },
+          },
+        },
+        supportRequestVersion: { type: 'integer', minimum: 1 },
+        supportRequestStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'packageId',
+        'expectedUpdatedAt',
+        'payloadHash',
+        'baseDigest',
+        'rollbackManifestDigest',
+        'appliedAt',
+        'appliedBy',
+        'appliedCommandKey',
+        'supportHandoff',
+        'supportRequestVersion',
+        'supportRequestStatus',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:revert', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.propose_support_package_handoff_supersession',
+    title: 'Propose replacement of a reverted support package handoff',
+    description:
+      'Freeze one exact unsuperseded REVERTED support package handoff and one separately linked APPLIED replacement for founder review. It changes no package or support state.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        supersededHandoffId: { type: 'string', minLength: 1, maxLength: 120 },
+        replacementHandoffId: { type: 'string', minLength: 1, maxLength: 120 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 20,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'supersededHandoffId',
+        'replacementHandoffId',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:reconcile', 'interaction'),
+    },
+  },
+  {
+    name: 'pathfinder.apply_support_package_handoff_supersession',
+    title: 'Record an applied replacement for a reverted support package',
+    description:
+      'Under one founder-issued one-shot grant, append current-truth supersession lineage while retaining both immutable handoffs. It changes no package content, support status, client activity, or message.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        supportRequestStatus: { type: 'string', enum: ['OPEN', 'IN_REVIEW'] },
+        superseded: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'handoffId',
+            'packageId',
+            'handoffRequestVersion',
+            'packageUpdatedAt',
+            'payloadHash',
+            'revertedAt',
+            'revertedBy',
+            'revertedCommandKey',
+          ],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            packageId: { type: 'string', minLength: 1, maxLength: 191 },
+            handoffRequestVersion: { type: 'integer', minimum: 1 },
+            packageUpdatedAt: { type: 'string', format: 'date-time' },
+            payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            revertedAt: { type: 'string', format: 'date-time' },
+            revertedBy: { type: 'string', minLength: 1, maxLength: 191 },
+            revertedCommandKey: { type: 'string', format: 'uuid' },
+          },
+        },
+        replacement: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'handoffId',
+            'packageId',
+            'handoffRequestVersion',
+            'packageUpdatedAt',
+            'payloadHash',
+            'appliedAt',
+            'appliedBy',
+            'appliedCommandKey',
+          ],
+          properties: {
+            handoffId: { type: 'string', minLength: 1, maxLength: 191 },
+            packageId: { type: 'string', minLength: 1, maxLength: 191 },
+            handoffRequestVersion: { type: 'integer', minimum: 1 },
+            packageUpdatedAt: { type: 'string', format: 'date-time' },
+            payloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            appliedAt: { type: 'string', format: 'date-time' },
+            appliedBy: { type: 'string', minLength: 1, maxLength: 191 },
+            appliedCommandKey: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'supportRequestStatus',
+        'superseded',
+        'replacement',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'packages:reconcile', 'approved-transition'),
+    },
+  },
+  {
+    name: 'torchiko.locations.propose_draft',
+    title: 'Propose an inactive venue location draft',
+    description:
+      'Prepare one typed venue location anchor for human review. Approval and application remain separate, and this tool never creates, edits, activates, or publishes venue content.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['stableKey', 'kind', 'displayName'],
+          properties: {
+            stableKey: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 },
+            kind: { type: 'string', enum: VenueLocationDraftFieldsSchema.shape.kind.options },
+            displayName: { type: 'string', minLength: 1, maxLength: 191 },
+            description: { type: ['string', 'null'], maxLength: 2000, default: null },
+            visibility: { type: 'string', enum: ['PUBLIC', 'SECOND_LAYER'], default: 'PUBLIC' },
+            floorId: { type: ['string', 'null'], format: 'uuid', default: null },
+            parentLocationId: { type: ['string', 'null'], format: 'uuid', default: null },
+            coordinates: {
+              type: ['object', 'null'],
+              default: null,
+              additionalProperties: false,
+              required: ['latitude', 'longitude'],
+              properties: {
+                latitude: { type: 'number', minimum: -90, maximum: 90 },
+                longitude: { type: 'number', minimum: -180, maximum: 180 },
+              },
+            },
+            mapAnchor: {
+              type: ['object', 'null'],
+              default: null,
+              additionalProperties: false,
+              required: ['x', 'y'],
+              properties: { x: { type: 'number' }, y: { type: 'number' } },
+            },
+            externalMapReference: {
+              type: ['string', 'null'],
+              format: 'uri',
+              maxLength: 2000,
+              default: null,
+            },
+            accessibilityMetadata: {
+              type: 'object',
+              maxProperties: 20,
+              additionalProperties: { type: ['string', 'number', 'boolean'] },
+              default: {},
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'reason',
+        'draft',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'locations:propose', 'interaction') },
+  },
+  {
+    name: 'torchiko.agent_improvements.propose',
+    title: 'Propose an evidence-backed agent improvement',
+    description:
+      'Prepare one versioned improvement hypothesis from exact outcome observations for human review. Approval never applies the change or expands agent authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        targetAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        outcomeObservationIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        proposalKey: { type: 'string', minLength: 1, maxLength: 191 },
+        revision: { type: 'integer', minimum: 1, maximum: 10000 },
+        supersedesProposalId: { type: 'string', minLength: 1, maxLength: 120 },
+        targetKind: {
+          type: 'string',
+          enum: [
+            'INSTRUCTIONS',
+            'ROUTING',
+            'RETRIEVAL',
+            'SKILL',
+            'WORKFLOW',
+            'TOOLING',
+            'MODEL_SELECTION',
+          ],
+        },
+        title: { type: 'string', minLength: 3, maxLength: 191 },
+        hypothesis: { type: 'string', minLength: 10, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 10, maxLength: 10000 },
+        validationPlan: { type: 'string', minLength: 10, maxLength: 5000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'targetAgentIdentityId',
+        'outcomeObservationIds',
+        'proposalKey',
+        'revision',
+        'targetKind',
+        'title',
+        'hypothesis',
+        'proposedChange',
+        'validationPlan',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:propose', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.agent_improvements.record_validation',
+    title: 'Record reviewed agent improvement validation evidence',
+    description:
+      'Bind an approved proposal to one immutable implementation reference and comparable before/after evaluation runs. This records evidence only and never promotes behavior or authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', minLength: 1, maxLength: 120 },
+        baselineEvalRunId: { type: 'string', format: 'uuid' },
+        candidateEvalRunId: { type: 'string', format: 'uuid' },
+        implementationKind: {
+          type: 'string',
+          enum: [
+            'CODE_COMMIT',
+            'CONFIG_VERSION',
+            'PROMPT_VERSION',
+            'SKILL_VERSION',
+            'WORKFLOW_VERSION',
+            'TOOL_VERSION',
+            'MODEL_POLICY_VERSION',
+          ],
+        },
+        implementationRef: { type: 'string', minLength: 1, maxLength: 500 },
+        implementationVersion: { type: 'string', minLength: 1, maxLength: 191 },
+        implementationHash: {
+          type: 'string',
+          minLength: 64,
+          maxLength: 64,
+          pattern: '^[0-9a-f]{64}$',
+        },
+        changeDimensions: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['CONTENT', 'MODEL', 'CONFIG'] },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'baselineEvalRunId',
+        'candidateEvalRunId',
+        'implementationKind',
+        'implementationRef',
+        'implementationHash',
+        'changeDimensions',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:validate', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.reports.get_lifecycle',
+    title: 'Get weekly report lifecycle',
+    description:
+      'Return one privacy-bounded report generation, source-count, review, publication, and delivery-state projection without raw report content or provider errors.',
+    inputSchema: strictObject(
+      { ...scopeProperties, reportId: { type: 'string', minLength: 1, maxLength: 120 } },
+      [...scopeRequired, 'reportId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'reports:read', 'read') },
+  },
+  {
     name: 'torchiko.integrations.health',
     title: 'Get unified integration health',
     description:
-      'Return a bounded secret-free health projection for configured providers, workers, embeddings, deployment, billing, and machine access.',
+      'Return bounded secret-free integration and operational-control health, including global AI admission and active expiring provider exclusions without incident reasons or operator identity.',
     inputSchema: strictObject(scopeProperties, ['clientId']),
     outputSchema: resultSchema,
     annotations: {
@@ -946,6 +2957,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       {
         ...scopeProperties,
         resource: { type: 'string', enum: resourceSeeds.map(([name]) => name) },
+        agentRunId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 120,
+          description: 'Required only when resource is agent-run-trace.',
+        },
         cursor: { type: 'string', minLength: 1, maxLength: 500 },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
       },
@@ -1099,6 +3116,10 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     inputSchema: strictObject(
       {
         ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
         subject: { type: 'string', minLength: 1, maxLength: 200 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },
         category: {
@@ -1113,16 +3134,158 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           ],
         },
       },
-      [...scopeRequired, 'subject', 'body', 'category'],
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'subject',
+        'body',
+        'category',
+      ],
     ),
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'support:draft', 'draft') },
+  },
+  {
+    name: 'pathfinder.open_support_request',
+    title: 'Open an internal support draft',
+    description:
+      'Promote one existing internal support request from DRAFT to OPEN under exact approval. It cannot add participants, send messages, contact a customer, or perform later workflow transitions.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'support:open', 'approved-transition'),
+    },
+  },
+  {
+    name: 'pathfinder.add_support_internal_note',
+    title: 'Add an internal support note',
+    description:
+      'Append one attachment-free INTERNAL_ONLY note to an existing nonclosed support request under exact approval. It cannot contact a customer, add participants, change lifecycle state or triage, or make the note client-visible.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        requestId: { type: 'string', minLength: 1, maxLength: 120 },
+        expectedVersion: { type: 'integer', minimum: 1 },
+        body: { type: 'string', minLength: 1, maxLength: 20000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'requestId',
+        'expectedVersion',
+        'body',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'support:note', 'draft') },
+  },
+  {
+    name: 'pathfinder.create_intake_notes_proposal',
+    title: 'Prepare onboarding notes for review',
+    description:
+      'Create a NOTES-only intake proposal in awaiting-review state. It cannot extract, create or apply a package, publish, or contact a customer.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        notes: { type: 'string', minLength: 1, maxLength: 20000 },
+      },
+      [...scopeRequired, 'operationId', 'agentIdentityId', 'agentRunId', 'workerKey', 'notes'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'intake:draft', 'draft') },
+  },
+  {
+    name: 'pathfinder.generate_weekly_report_draft',
+    title: 'Generate a weekly report draft',
+    description:
+      'Create or replay a bounded internal weekly-report generation request. It can consume configured AI budget, but it cannot publish, deliver, edit, or make the report client-visible.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        weekStart: { type: 'string', format: 'date-time' },
+        weekEnd: { type: 'string', format: 'date-time' },
+        title: { type: 'string', minLength: 1, maxLength: 200 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'weekStart',
+        'weekEnd',
+        'title',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'reports:draft', 'draft') },
   },
   {
     name: 'pathfinder.request_evaluation',
@@ -1180,7 +3343,9 @@ export function validatePathfinderMcpCatalog(): void {
       throw new Error(`Tool ${tool.name} risk metadata is contradictory`)
     }
     if (
-      (metadata.effect === 'draft' || metadata.effect === 'bounded-evaluation-request') &&
+      (metadata.effect === 'draft' ||
+        metadata.effect === 'approved-transition' ||
+        metadata.effect === 'bounded-evaluation-request') &&
       (metadata.defaultEnabled || !metadata.approvalRequired)
     ) {
       throw new Error(`Tool ${tool.name} must remain default-off and approval-gated`)

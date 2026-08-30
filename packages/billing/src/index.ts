@@ -65,3 +65,11 @@ export {
   reconcileBillingAccount,
   recordManualPayment,
 } from './service'
+export {
+  buildPaymentRecoveryContext,
+  type PaymentRecoveryAgreementEvidence,
+  type PaymentRecoveryContext,
+  type PaymentRecoveryContextInput,
+  type PaymentRecoveryInvoiceEvidence,
+  type PaymentRecoveryRelationshipEvidence,
+} from './payment-recovery-context'

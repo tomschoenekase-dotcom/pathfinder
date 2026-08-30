@@ -1,6 +1,8 @@
 import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { EXPECTED as expectedMigration } from './run-staging-migration-predeploy.mjs'
+
 const root = resolve(import.meta.dirname, '..')
 
 const services = [
@@ -54,6 +56,11 @@ for (const service of services) {
       throw new Error(
         `${service.dockerfile}: NEXT_PUBLIC_WEB_URL must be declared in the builder stage before the web build`,
       )
+    }
+
+    const approval = `ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${expectedMigration.approval}`
+    if (!dockerfile.includes(approval)) {
+      throw new Error(`${service.dockerfile}: staging migration approval is stale`)
     }
   }
 

@@ -162,6 +162,36 @@ describe('compareEvaluationRuns', () => {
     },
   )
 
+  it('compares an explicitly declared model change while preserving corpus and case evidence', async () => {
+    const client = fixture([
+      run(baselineId),
+      run(candidateId, { modelName: 'gpt-candidate', modelSnapshotHash: '9'.repeat(64) }),
+    ])
+    client.evalResult.findMany.mockResolvedValue([
+      result('result-a-before', baselineId, caseA, 2, { passed: false }),
+      result('result-a-after', candidateId, caseA, 2),
+      result('result-b-before', baselineId, caseB, 1),
+      result('result-b-after', candidateId, caseB, 1),
+    ])
+
+    await expect(
+      compareEvaluationRuns({ ...scope, allowedMismatchReasons: ['MODEL'] }, client as never),
+    ).resolves.toMatchObject({
+      status: 'COMPARABLE_WITH_DECLARED_CHANGE',
+      mismatchReasons: [],
+      declaredChangeReasons: ['MODEL'],
+      totals: { caseCount: 2, resolvedFailures: 1, newFailures: 0 },
+    })
+  })
+
+  it('never permits corpus or frozen case evidence to be declared away', async () => {
+    const client = fixture()
+    await expect(
+      compareEvaluationRuns({ ...scope, allowedMismatchReasons: ['CORPUS'] }, client as never),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.evalCase.findMany).not.toHaveBeenCalled()
+  })
+
   it('classifies absent terminal evidence without inventing a result', async () => {
     const client = fixture()
     client.evalResult.findMany.mockResolvedValue([

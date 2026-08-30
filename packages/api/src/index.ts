@@ -9,8 +9,15 @@ export { requirePlatformAdminMiddleware } from './middleware/require-platform-ad
 export { requireRole } from './middleware/require-role'
 export { requireTenant } from './middleware/require-tenant'
 export { CreateVenueInput, UpdateVenueInput } from './routers/venue'
+export { ChatSendInput } from './schemas/chat'
+export { streamChatTurn } from './routers/chat'
+export type { ChatSendResult, ChatStreamEvent } from './routers/chat'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './routers/place'
 export type { GuestPlaceCard } from './lib/guest-place-card'
+export {
+  GUEST_ANSWER_ATTRIBUTION_EVALUATOR_PROMPT_VERSION,
+  runProviderBackedGuestAnswerAttributionEvaluation,
+} from './lib/evaluation/guest-answer-attribution'
 export {
   buildWebsiteIntakeProposal,
   isPublicWebsiteAddress,

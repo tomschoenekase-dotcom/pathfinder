@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGuestChatUrl, buildGuideItemEntryUrl } from './guest-chat-url'
+import { buildGuestChatUrl, buildGuideItemEntryUrl, buildQrEntryUrl } from './guest-chat-url'
 
 describe('guest chat URL boundary', () => {
   it('builds an encoded chat URL from an exact HTTPS origin', () => {
@@ -51,7 +51,7 @@ describe('guide item entry URL boundary', () => {
       name: 'Tide Clock & Gallery',
     })
     expect(url).toBe(
-      'https://guide.example.com/museum/chat?entry=guide-item&item=place_1&prompt=Tell+me+about+Tide+Clock+%26+Gallery.',
+      'https://guide.example.com/museum/chat?entry=guide-item&source=qr&item=place_1&prompt=Tell+me+about+Tide+Clock+%26+Gallery.',
     )
   })
 
@@ -62,5 +62,24 @@ describe('guide item entry URL boundary', () => {
     ['https://guide.example.com/museum/chat', { id: 'place_1', name: ' '.repeat(121) }],
   ])('rejects ambiguous or incomplete inputs %#', (base, guideItem) => {
     expect(buildGuideItemEntryUrl(base, guideItem)).toBeNull()
+  })
+})
+
+describe('QR entry URL boundary', () => {
+  it('adds the bounded QR attribution marker to an exact guest chat URL', () => {
+    expect(buildQrEntryUrl('https://guide.example.com/museum/chat')).toBe(
+      'https://guide.example.com/museum/chat?source=qr',
+    )
+  })
+
+  it.each([
+    null,
+    'not a URL',
+    'https://guide.example.com/museum/chat?existing=1',
+    'https://guide.example.com/museum/chat#fragment',
+    'https://user:password@guide.example.com/museum/chat',
+    'https://guide.example.com/museum',
+  ])('rejects ambiguous QR entry bases: %s', (base) => {
+    expect(buildQrEntryUrl(base)).toBeNull()
   })
 })

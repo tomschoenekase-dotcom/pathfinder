@@ -13,11 +13,21 @@ import {
 import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
+import {
+  SupportCompletionPackageFulfillment,
+  type SupportCompletionPackageFulfillment as SupportCompletionPackageFulfillmentValue,
+} from '@pathfinder/contracts'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 import { canTenantActorAccessSupportRequest } from './support-request-access'
+import {
+  readSupportPackageFulfillment,
+  sameSupportPackageFulfillment,
+  SupportPackageFulfillmentError,
+} from './support-package-fulfillment'
+import { lockVenueContentMutation } from './venue-content-lock'
 
 export type SupportActionActor =
   | {
@@ -32,7 +42,26 @@ export type SupportActionActor =
       actorId: string
       auditRole: string
     }
-  | { actorType: 'AGENT'; participantKind: 'AGENT'; actorId: string; auditRole: string }
+  | {
+      actorType: 'AGENT'
+      participantKind: 'AGENT'
+      actorId: string
+      auditRole: string
+      agentIdentityId?: string | undefined
+      agentRunId?: string | undefined
+      workerId?: string | undefined
+      credentialId?: string | undefined
+      approvalGrantId?: string | undefined
+      capability?:
+        | 'support:draft'
+        | 'support:note'
+        | 'support:request-information'
+        | 'support:complete'
+        | undefined
+      modelProvider?: string | undefined
+      modelName?: string | undefined
+      idempotencyKey?: string | undefined
+    }
   | { actorType: 'SYSTEM'; participantKind: 'SYSTEM'; actorId: string; auditRole: string }
 
 export type SupportAttachmentDraft = SupportAttachmentReference
@@ -63,6 +92,17 @@ const supportActionActor = z.union([
       participantKind: z.literal('AGENT'),
       actorId: scopedId,
       auditRole,
+      agentIdentityId: scopedId.optional(),
+      agentRunId: scopedId.optional(),
+      workerId: scopedId.optional(),
+      credentialId: scopedId.optional(),
+      approvalGrantId: scopedId.optional(),
+      capability: z
+        .enum(['support:draft', 'support:note', 'support:request-information', 'support:complete'])
+        .optional(),
+      modelProvider: scopedId.optional(),
+      modelName: scopedId.optional(),
+      idempotencyKey: z.string().uuid().optional(),
     })
     .strict(),
   z
@@ -83,6 +123,7 @@ const createSupportRequestActionInput = z
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20_000),
     attachments: SupportAttachmentReferences,
+    draftOnly: z.boolean().default(false),
     /** Trusted server-only lineage for a correction to an immutable intake source. */
     intakeSource: z
       .object({
@@ -94,6 +135,32 @@ const createSupportRequestActionInput = z
     actor: supportActionActor,
   })
   .strict()
+  .superRefine((value, context) => {
+    if (value.actor.participantKind === 'AGENT' && !value.draftOnly) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['draftOnly'],
+        message: 'Agent support requests must remain internal drafts',
+      })
+    }
+    if (
+      value.draftOnly &&
+      (value.actor.participantKind !== 'AGENT' ||
+        !value.actor.agentIdentityId ||
+        !value.actor.agentRunId ||
+        !value.actor.workerId ||
+        !value.actor.credentialId ||
+        !value.actor.approvalGrantId ||
+        value.actor.capability !== 'support:draft' ||
+        !value.actor.idempotencyKey)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['actor'],
+        message: 'Internal support drafts require complete machine lineage',
+      })
+    }
+  })
 const appendSupportMessageActionInput = z
   .object({
     operationId: z.string().uuid(),
@@ -117,6 +184,24 @@ const appendSupportMessageActionInput = z
       (!isClient && value.expectedClientVersion !== undefined)
     )
       context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid support version field' })
+    if (
+      value.actor.participantKind === 'AGENT' &&
+      (value.visibility !== 'INTERNAL_ONLY' ||
+        value.attachments.length !== 0 ||
+        !value.actor.agentIdentityId ||
+        !value.actor.agentRunId ||
+        !value.actor.workerId ||
+        !value.actor.credentialId ||
+        !value.actor.approvalGrantId ||
+        value.actor.capability !== 'support:note' ||
+        !value.actor.idempotencyKey)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['actor'],
+        message: 'Agent support notes require complete machine lineage and internal-only content',
+      })
+    }
   })
 const createPreviewFeedbackRequestActionInput = z
   .object({
@@ -138,6 +223,42 @@ const createPreviewFeedbackRequestActionInput = z
   })
   .strict()
 
+const operatorConversationActor = z
+  .object({
+    actorType: z.literal('HUMAN'),
+    participantKind: z.literal('OPERATOR'),
+    actorId: scopedId,
+    auditRole: z.literal('PLATFORM_ADMIN'),
+  })
+  .strict()
+
+const approvedClientVisibleSupportAgentActor = z
+  .object({
+    actorType: z.literal('AGENT'),
+    participantKind: z.literal('AGENT'),
+    actorId: scopedId,
+    auditRole: z.literal('AGENT'),
+    agentIdentityId: scopedId,
+    agentRunId: scopedId,
+    workerId: scopedId,
+    credentialId: scopedId,
+    approvalGrantId: scopedId,
+    capability: z.enum(['support:request-information', 'support:complete']),
+    modelProvider: scopedId.optional(),
+    modelName: scopedId.optional(),
+    idempotencyKey: z.string().uuid(),
+  })
+  .strict()
+  .superRefine((actor, context) => {
+    if ((actor.modelProvider === undefined) !== (actor.modelName === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['modelProvider'],
+        message: 'Model provider and model name must be supplied together',
+      })
+    }
+  })
+
 const operatorConversationInput = z
   .object({
     operationId: z.string().uuid(),
@@ -146,17 +267,24 @@ const operatorConversationInput = z
     requestId: scopedId,
     expectedVersion: z.number().int().positive(),
     body: z.string().trim().min(1).max(20_000),
-    actor: z
-      .object({
-        actorType: z.literal('HUMAN'),
-        participantKind: z.literal('OPERATOR'),
-        actorId: scopedId,
-        auditRole: z.literal('PLATFORM_ADMIN'),
-      })
-      .strict(),
+    packageFulfillment: SupportCompletionPackageFulfillment.optional(),
+    actor: z.union([
+      operatorConversationActor,
+      approvedClientVisibleSupportAgentActor.refine(
+        (actor) => actor.capability === 'support:complete',
+        'The exact support:complete capability is required',
+      ),
+    ]),
   })
   .strict()
 const requestInformationInput = operatorConversationInput.extend({
+  actor: z.union([
+    operatorConversationActor,
+    approvedClientVisibleSupportAgentActor.refine(
+      (actor) => actor.capability === 'support:request-information',
+      'The exact support:request-information capability is required',
+    ),
+  ]),
   missingInformation: z
     .array(z.string().trim().min(1).max(500))
     .min(1)
@@ -263,7 +391,7 @@ async function lockSupportOperation(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-operation:${tenantId}:${operationId}`}, 0))`
 }
 
-async function lockSupportRequest(
+export async function lockSupportRequest(
   tx: Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0],
   tenantId: string,
   requestId: string,
@@ -484,15 +612,22 @@ async function createSupportRequestActionOnce(
     subject: string
     body: string
     attachments: SupportAttachmentDraft[]
+    draftOnly?: boolean
     intakeSource?: { runId: string; expectedEventCount: number }
     actor: SupportActionActor
   },
   client: SupportActionClient = db,
 ) {
   const parsed = parseActionInput(createSupportRequestActionInput, input)
-  assertVisibility(parsed.actor, 'CLIENT_VISIBLE')
+  const initialStatus = parsed.draftOnly ? ('DRAFT' as const) : ('OPEN' as const)
+  const initialVisibility = parsed.draftOnly
+    ? ('INTERNAL_ONLY' as const)
+    : ('CLIENT_VISIBLE' as const)
+  assertVisibility(parsed.actor, initialVisibility)
   const submissionInputHash = supportSubmissionHash({
     kind: 'CREATE_REQUEST',
+    initialStatus,
+    initialVisibility,
     actorKind: parsed.actor.participantKind,
     actorId: parsed.actor.actorId,
     tenantId: parsed.tenantId,
@@ -531,7 +666,8 @@ async function createSupportRequestActionOnce(
         existing.submissionInputHash !== submissionInputHash ||
         existing.authorKind !== parsed.actor.participantKind ||
         existing.authorId !== parsed.actor.actorId ||
-        existing.visibility !== 'CLIENT_VISIBLE' ||
+        existing.visibility !== initialVisibility ||
+        existing.supportRequest.status !== initialStatus ||
         !sameAttachmentReferences(parsed.attachments, existing.attachments)
       ) {
         throw new SupportActionError('CONFLICT', 'Support operation ID was already used')
@@ -584,6 +720,7 @@ async function createSupportRequestActionOnce(
         tenantId: parsed.tenantId,
         venueId: parsed.venueId,
         category: parsed.category,
+        status: initialStatus,
         subject: parsed.subject,
         artifacts: intakeSource
           ? {
@@ -607,11 +744,11 @@ async function createSupportRequestActionOnce(
         supportRequestId: request.id,
         authorKind: parsed.actor.participantKind,
         authorId: parsed.actor.actorId,
-        visibility: 'CLIENT_VISIBLE',
+        visibility: initialVisibility,
         body: parsed.body,
         submissionRequestId: parsed.operationId,
         submissionInputHash,
-        clientVersion: 1,
+        clientVersion: parsed.draftOnly ? null : 1,
         attachments: {
           create: attachmentCreates(attachments),
         },
@@ -624,7 +761,7 @@ async function createSupportRequestActionOnce(
         venueId: parsed.venueId,
         supportRequestId: request.id,
         requestVersion: request.version,
-        eventType: 'REQUEST_CREATED',
+        eventType: parsed.draftOnly ? 'REQUEST_DRAFTED' : 'REQUEST_CREATED',
         actorKind: parsed.actor.participantKind,
         actorId: parsed.actor.actorId,
         fromStatus: null,
@@ -632,18 +769,41 @@ async function createSupportRequestActionOnce(
       },
       select: { id: true },
     })
+    const auditActor =
+      parsed.actor.participantKind === 'AGENT'
+        ? {
+            actor: {
+              type: 'AGENT' as const,
+              actorId: parsed.actor.actorId,
+              role: 'AGENT' as const,
+              agentIdentityId: parsed.actor.agentIdentityId!,
+              agentRunId: parsed.actor.agentRunId!,
+              workerId: parsed.actor.workerId!,
+              credentialId: parsed.actor.credentialId!,
+              approvalGrantId: parsed.actor.approvalGrantId!,
+              capability: parsed.actor.capability!,
+              ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+              ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+              idempotencyKey: parsed.actor.idempotencyKey!,
+            },
+          }
+        : {
+            actorId: parsed.actor.actorId,
+            actorRole: parsed.actor.auditRole,
+            actorType: parsed.actor.actorType,
+          }
     await writeAuditLogStrict(
       {
         tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: 'support-request.created',
+        ...auditActor,
+        action: parsed.draftOnly ? 'support-request.created-draft' : 'support-request.created',
         targetType: 'SupportRequest',
         targetId: request.id,
         afterState: {
           venueId: request.venueId,
           category: request.category,
           status: request.status,
+          messageVisibility: initialVisibility,
           version: request.version,
           attachmentCount: attachments.length,
           intakeSource: intakeSource
@@ -1077,23 +1237,61 @@ async function appendSupportMessageActionOnce(
       },
       select: { id: true },
     })
-    await writeAuditLogStrict(
-      {
-        tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: evidence.action,
-        targetType: 'SupportRequest',
-        targetId: request.id,
-        beforeState: { version: request.version },
-        afterState: {
-          version: nextVersion,
-          attachmentCount: attachments.length,
-          ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
-        },
+    const auditEvidence = {
+      tenantId: parsed.tenantId,
+      action: evidence.action,
+      targetType: 'SupportRequest',
+      targetId: request.id,
+      beforeState: { version: request.version },
+      afterState: {
+        version: nextVersion,
+        attachmentCount: attachments.length,
+        ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
+        ...(parsed.actor.participantKind === 'AGENT'
+          ? {
+              visibility: 'INTERNAL_ONLY',
+              customerContacted: false,
+              participantGranted: false,
+              statusChanged: false,
+              triageChanged: false,
+              packageLifecycleChanged: false,
+              executionTriggered: false,
+            }
+          : {}),
       },
-      tx,
-    )
+    }
+    if (parsed.actor.participantKind === 'AGENT') {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actor: {
+            type: 'AGENT' as const,
+            role: 'AGENT',
+            actorId: parsed.actor.actorId,
+            agentIdentityId: parsed.actor.agentIdentityId!,
+            agentRunId: parsed.actor.agentRunId!,
+            workerId: parsed.actor.workerId!,
+            credentialId: parsed.actor.credentialId!,
+            approvalGrantId: parsed.actor.approvalGrantId!,
+            capability: parsed.actor.capability!,
+            ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+            ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+            idempotencyKey: parsed.actor.idempotencyKey!,
+          },
+        },
+        tx,
+      )
+    } else {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actorId: parsed.actor.actorId,
+          actorRole: parsed.actor.auditRole,
+          actorType: parsed.actor.actorType,
+        },
+        tx,
+      )
+    }
     return {
       message,
       requestVersion: nextVersion,
@@ -1133,7 +1331,8 @@ type ManualLoopParsed = {
   body: string
   missingInformation?: string[]
   attachments?: SupportAttachmentDraft[]
-  actor: Extract<SupportActionActor, { actorType: 'HUMAN' }>
+  packageFulfillment?: SupportCompletionPackageFulfillmentValue
+  actor: SupportActionActor
 }
 
 async function manualSupportLoopActionOnce(
@@ -1169,6 +1368,9 @@ async function manualSupportLoopActionOnce(
     requestId: parsed.requestId,
     expectedVersion: expectedVersion ?? expectedClientVersion,
     body: parsed.body,
+    ...(parsed.packageFulfillment
+      ? { packageFulfillmentDigest: parsed.packageFulfillment.digest }
+      : {}),
     missingInformation: requestedItems,
     intakeUploadIds: attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
   })
@@ -1237,6 +1439,7 @@ async function manualSupportLoopActionOnce(
       }
     }
 
+    let completionPackageFulfillment: SupportCompletionPackageFulfillmentValue | null = null
     if (kind === 'REQUEST_INFORMATION') {
       if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
         throw new SupportActionError('CONFLICT', 'Request is not ready for an information prompt')
@@ -1256,6 +1459,34 @@ async function manualSupportLoopActionOnce(
         throw new SupportActionError('CONFLICT', 'Requested information must be resolved first')
       if (request.version !== expectedVersion)
         throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+      await lockVenueContentMutation(tx, {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+      })
+      let currentPackageFulfillment: SupportCompletionPackageFulfillmentValue
+      try {
+        currentPackageFulfillment = await readSupportPackageFulfillment(tx, {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          supportRequestId: parsed.requestId,
+        })
+      } catch (error) {
+        if (error instanceof SupportPackageFulfillmentError) {
+          throw new SupportActionError('CONFLICT', error.message)
+        }
+        throw error
+      }
+      if (
+        parsed.actor.actorType === 'AGENT' &&
+        (!parsed.packageFulfillment ||
+          !sameSupportPackageFulfillment(parsed.packageFulfillment, currentPackageFulfillment))
+      ) {
+        throw new SupportActionError(
+          'CONFLICT',
+          'Linked package fulfillment changed after founder review; refresh completion evidence.',
+        )
+      }
+      completionPackageFulfillment = currentPackageFulfillment
     }
 
     const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
@@ -1330,36 +1561,77 @@ async function manualSupportLoopActionOnce(
       },
       select: { id: true },
     })
-    await writeAuditLogStrict(
-      {
-        tenantId: parsed.tenantId,
-        actorId: parsed.actor.actorId,
-        actorRole: parsed.actor.auditRole,
-        action: evidence.action,
-        targetType: 'SupportRequest',
-        targetId: request.id,
-        beforeState: {
-          status: request.status,
-          version: request.version,
-          missingInformationCount: request.missingInformation.length,
-        },
-        afterState: {
-          status: targetStatus,
-          version: nextVersion,
-          missingInformationCount: requestedItems.length,
-          attachmentCount: resolvedAttachments.length,
-          packageLifecycleChanged: false,
-          executionTriggered: false,
-        },
+    const auditEvidence = {
+      tenantId: parsed.tenantId,
+      action: evidence.action,
+      targetType: 'SupportRequest',
+      targetId: request.id,
+      beforeState: {
+        status: request.status,
+        version: request.version,
+        missingInformationCount: request.missingInformation.length,
       },
-      tx,
-    )
+      afterState: {
+        status: targetStatus,
+        version: nextVersion,
+        missingInformationCount: requestedItems.length,
+        attachmentCount: resolvedAttachments.length,
+        clientVisibleMessageCreated: true,
+        customerContacted: kind !== 'RESPOND_INFORMATION',
+        externalDeliveryTriggered: false,
+        emailSent: false,
+        participantChanged: false,
+        triageChanged: false,
+        packageLifecycleChanged: false,
+        executionTriggered: false,
+        ...(completionPackageFulfillment
+          ? {
+              linkedPackageCount: completionPackageFulfillment.linkedPackageCount,
+              packageFulfillmentDigest: completionPackageFulfillment.digest,
+              allLinkedPackagesApplied: true,
+            }
+          : {}),
+      },
+    }
+    if (parsed.actor.actorType === 'AGENT') {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actor: {
+            type: 'AGENT',
+            actorId: parsed.actor.actorId,
+            role: 'AGENT',
+            agentIdentityId: parsed.actor.agentIdentityId!,
+            agentRunId: parsed.actor.agentRunId!,
+            workerId: parsed.actor.workerId!,
+            credentialId: parsed.actor.credentialId!,
+            approvalGrantId: parsed.actor.approvalGrantId!,
+            capability: parsed.actor.capability!,
+            ...(parsed.actor.modelProvider ? { modelProvider: parsed.actor.modelProvider } : {}),
+            ...(parsed.actor.modelName ? { modelName: parsed.actor.modelName } : {}),
+            idempotencyKey: parsed.actor.idempotencyKey!,
+          },
+        },
+        tx,
+      )
+    } else {
+      await writeAuditLogStrict(
+        {
+          ...auditEvidence,
+          actorId: parsed.actor.actorId,
+          actorRole: parsed.actor.auditRole,
+          actorType: parsed.actor.actorType,
+        },
+        tx,
+      )
+    }
     return {
       message,
       status: targetStatus,
       missingInformation: requestedItems,
       requestVersion: nextVersion,
       clientVersion: nextClientVersion,
+      ...(completionPackageFulfillment ? { packageFulfillment: completionPackageFulfillment } : {}),
       replayed: false as const,
     }
   })

@@ -9,6 +9,22 @@ import {
 
 const revision = new Date('2026-08-11T14:30:00.000Z')
 const actor = { type: 'HUMAN', id: 'owner-1', role: 'OWNER' } as const
+const agentActor = {
+  type: 'AGENT',
+  actorId: 'agent-1',
+  role: 'AGENT',
+  agentIdentityId: 'agent-1',
+  agentRunId: 'run-1',
+  workerId: 'worker-1',
+  credentialId: 'credential-1',
+  approvalGrantId: 'grant-1',
+  capability: 'packages:apply',
+  idempotencyKey: 'command-1',
+} as const
+const reversionAgentActor = {
+  ...agentActor,
+  capability: 'packages:revert',
+} as const
 
 function record(status: string): {
   id: string
@@ -186,6 +202,140 @@ describe('venue package lifecycle actions', () => {
     expect(tx.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ actorRole: 'PLATFORM_ADMIN' }) }),
     )
+  })
+
+  it('permits a fully verified packages:apply agent for apply only and preserves lineage', async () => {
+    const before = record('APPROVED')
+    const after = {
+      ...record('APPLIED'),
+      appliedBy: agentActor.actorId,
+      updatedAt: new Date(revision.getTime() + 1),
+    }
+    const { tx, load, client } = fixture([before, before, after])
+    await applyVenuePackageAction(
+      {
+        tenantId: 'tenant-1',
+        id: 'package-1',
+        expectedUpdatedAt: revision,
+        commandKey: 'command-1',
+        actor: agentActor,
+        load,
+        validate,
+        auditState,
+      },
+      client as never,
+    )
+    expect(tx.venuePackage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ appliedBy: 'agent-1', status: 'APPLIED' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          actorId: 'agent-1',
+          actorRole: 'AGENT',
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerId: 'worker-1',
+          credentialId: 'credential-1',
+          approvalGrantId: 'grant-1',
+          capability: 'packages:apply',
+          idempotencyKey: 'command-1',
+        }),
+      }),
+    )
+    expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ actorType: 'AGENT' }) }),
+    )
+  })
+
+  it('permits a fully verified packages:revert agent for reversion only and preserves lineage', async () => {
+    const before = record('APPLIED')
+    const after = {
+      ...record('REVERTED'),
+      revertedBy: reversionAgentActor.actorId,
+      updatedAt: new Date(revision.getTime() + 1),
+    }
+    const { tx, load, client } = fixture([before, before, after])
+    await revertVenuePackageAction(
+      {
+        tenantId: 'tenant-1',
+        id: 'package-1',
+        expectedUpdatedAt: revision,
+        commandKey: 'command-1',
+        actor: reversionAgentActor,
+        load,
+        validate,
+        auditState,
+      },
+      client as never,
+    )
+    expect(tx.venuePackage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ revertedBy: 'agent-1', status: 'REVERTED' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: 'AGENT',
+          capability: 'packages:revert',
+          approvalGrantId: 'grant-1',
+          idempotencyKey: 'command-1',
+        }),
+      }),
+    )
+  })
+
+  it.each([
+    ['approve', approveVenuePackageAction],
+    ['revert', revertVenuePackageAction],
+  ] as const)('rejects an agent for %s even with apply authority', async (_kind, action) => {
+    const { client, load } = fixture([])
+    await expect(
+      action(
+        {
+          tenantId: 'tenant-1',
+          id: 'package-1',
+          expectedUpdatedAt: revision,
+          commandKey: 'command-1',
+          actor: agentActor,
+          load,
+          validate,
+          auditState,
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' } satisfies Partial<VenuePackageLifecycleError>)
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ ...agentActor, capability: 'packages:approve' }, 'wrong capability'],
+    [{ ...agentActor, approvalGrantId: undefined }, 'missing grant'],
+    [{ ...agentActor, idempotencyKey: undefined }, 'missing idempotency lineage'],
+    [{ ...agentActor, idempotencyKey: 'another-command' }, 'mismatched idempotency lineage'],
+  ] as const)('rejects agent apply with %s (%s)', async (invalidActor, label) => {
+    void label
+    const { client, load } = fixture([])
+    await expect(
+      applyVenuePackageAction(
+        {
+          tenantId: 'tenant-1',
+          id: 'package-1',
+          expectedUpdatedAt: revision,
+          commandKey: 'command-1',
+          actor: invalidActor as never,
+          load,
+          validate,
+          auditState,
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' } satisfies Partial<VenuePackageLifecycleError>)
+    expect(client.$transaction).not.toHaveBeenCalled()
   })
 
   it('fails closed for cross-tenant records before lock or validation', async () => {

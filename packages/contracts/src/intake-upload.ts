@@ -24,6 +24,10 @@ export type IntakeUploadCategory = z.infer<typeof IntakeUploadCategory>
 /** Deliberately excludes SVG and animated formats. */
 export const IntakeUploadMimeType = z.enum([
   'application/pdf',
+  'application/json',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
   'image/jpeg',
   'image/png',
   'image/webp',
@@ -65,6 +69,124 @@ export type IntakeUploadRetryReason = z.infer<typeof IntakeUploadRetryReason>
 
 export const IntakeUploadVerificationStatus = z.enum(['PENDING', 'CLEAN', 'REJECTED'])
 export type IntakeUploadVerificationStatus = z.infer<typeof IntakeUploadVerificationStatus>
+
+export type IntakeUploadClientRecovery = {
+  kind: 'NONE' | 'CHOOSE_REPLACEMENT'
+  required: boolean
+  actionLabel: string | null
+  reason: string | null
+  retrySameSubmission: boolean
+}
+
+export type IntakeUploadClientVerification = {
+  kind: 'NONE' | 'IN_PROGRESS' | 'RESUME_CHECK' | 'WAIT_FOR_TORCHIKO'
+  required: boolean
+  actionLabel: string | null
+  reason: string | null
+  retrySameSubmission: boolean
+}
+
+/**
+ * Browser-safe verification state derived on the server. Lease timestamps, claim IDs, scanner
+ * configuration, and storage evidence never cross the client boundary.
+ */
+export function resolveIntakeUploadClientVerification(input: {
+  status: string
+  verificationLeaseActive?: boolean
+  managedByTorchiko?: boolean
+}): IntakeUploadClientVerification {
+  if (input.status === 'VERIFYING') {
+    return input.verificationLeaseActive
+      ? {
+          kind: 'IN_PROGRESS',
+          required: false,
+          actionLabel: null,
+          reason: 'Torchiko is actively checking this saved file.',
+          retrySameSubmission: false,
+        }
+      : input.managedByTorchiko
+        ? {
+            kind: 'WAIT_FOR_TORCHIKO',
+            required: false,
+            actionLabel: null,
+            reason: 'Torchiko is automatically recovering the saved file security check.',
+            retrySameSubmission: false,
+          }
+        : {
+            kind: 'RESUME_CHECK',
+            required: true,
+            actionLabel: 'Resume file check',
+            reason: 'The saved file check stopped before it finished.',
+            retrySameSubmission: true,
+          }
+  }
+
+  if (input.status === 'PRECHECK_PASSED') {
+    return {
+      kind: 'WAIT_FOR_TORCHIKO',
+      required: false,
+      actionLabel: null,
+      reason: 'The saved file is waiting for Torchiko to finish its security check.',
+      retrySameSubmission: false,
+    }
+  }
+
+  return {
+    kind: 'NONE',
+    required: false,
+    actionLabel: null,
+    reason: null,
+    retrySameSubmission: false,
+  }
+}
+
+/**
+ * Browser-safe recovery guidance for a persisted upload record. Precise scanner and storage
+ * evidence remains server-only; clients and authorized agents receive one bounded next action.
+ */
+export function resolveIntakeUploadClientRecovery(input: {
+  status: string
+  rejectionCode?: string | null
+}): IntakeUploadClientRecovery {
+  if (input.status !== 'REJECTED') {
+    return {
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: null,
+      retrySameSubmission: false,
+    }
+  }
+
+  if (input.rejectionCode === 'CLIENT_CANCELLED') {
+    return {
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: 'You cancelled this upload. It does not block onboarding.',
+      retrySameSubmission: false,
+    }
+  }
+
+  const reason =
+    input.rejectionCode === 'OBJECT_MISSING'
+      ? 'Torchiko could not finish receiving this file.'
+      : ['GENERATION_MISMATCH', 'MIME_MISMATCH', 'SIZE_MISMATCH', 'HASH_MISMATCH'].includes(
+            input.rejectionCode ?? '',
+          )
+        ? 'The file received did not match the file that was selected.'
+        : input.rejectionCode === 'UNSAFE_FILE'
+          ? 'This file did not pass the required safety checks.'
+          : 'Torchiko could not accept this file.'
+
+  return {
+    kind: 'CHOOSE_REPLACEMENT',
+    required: true,
+    actionLabel: 'Choose a replacement',
+    reason,
+    retrySameSubmission: false,
+  }
+}
 
 export const IntakeUploadVerificationEvidence = z
   .object({

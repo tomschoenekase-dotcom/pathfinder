@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   findMany: vi.fn(),
   createCandidate: vi.fn(),
+  applyDecisionPacket: vi.fn(),
+  getFounderDecisions: vi.fn(),
   promote: vi.fn(),
   createTask: vi.fn(),
   enqueue: vi.fn(),
@@ -18,6 +20,8 @@ vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: mocks.enqueue }))
 vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   createCompanyKnowledgeCandidateAction: mocks.createCandidate,
+  applyFounderDecisionPacketAction: mocks.applyDecisionPacket,
+  getFounderDecisionCurrentTruth: mocks.getFounderDecisions,
   promoteCompanyKnowledgeAction: mocks.promote,
   createAgentTaskAction: mocks.createTask,
   db: {
@@ -86,6 +90,60 @@ describe('Company Brain admin router', () => {
       }),
     )
     expect(mocks.promote).toHaveBeenCalled()
+  })
+
+  it('applies a bounded founder packet as the authenticated human administrator', async () => {
+    mocks.applyDecisionPacket.mockResolvedValue({
+      schemaVersion: 'founder-decision-packet-result.v1',
+      packetId: 'founder-direction-2026-08-22',
+      packetHash: 'abc',
+      results: [],
+    })
+    const packet = {
+      schemaVersion: 'founder-decision-packet.v1' as const,
+      packetId: 'founder-direction-2026-08-22',
+      title: 'Founder direction',
+      effectiveAt: '2026-08-22T05:00:00.000Z',
+      sourceRef: 'vault://07 Decisions/Torchiko Founder Engineering Direction 2026-08-22.md',
+      decisions: [
+        {
+          key: 'codex-autonomy',
+          title: 'Codex autonomy',
+          summary: 'Delegate ordinary engineering decisions.',
+          decision: 'Make the best reasonable technical decision and keep moving.',
+          rationale: 'Founder judgment should be reserved for consequential boundaries.',
+          affectedSystems: ['engineering'],
+          scope: { productionAuthorized: false },
+        },
+      ],
+    }
+    await testRouter.createCaller(context(true)).companyBrain.applyFounderDecisionPacket(packet)
+    expect(mocks.applyDecisionPacket).toHaveBeenCalledWith({
+      packet,
+      actor: { type: 'HUMAN', actorId: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+    await expect(
+      testRouter.createCaller(context(false)).companyBrain.applyFounderDecisionPacket(packet),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    expect(mocks.applyDecisionPacket).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves exact current founder decisions only after platform-admin authorization', async () => {
+    mocks.getFounderDecisions.mockResolvedValue({
+      schemaVersion: 'founder-decision-current-truth.v1',
+      complete: true,
+      decisions: [{ key: 'production-release-boundary' }],
+      missingKeys: [],
+    })
+    const request = { keys: ['production-release-boundary'] }
+    await expect(
+      testRouter.createCaller(context(true)).companyBrain.getFounderDecisionCurrentTruth(request),
+    ).resolves.toMatchObject({ complete: true })
+    expect(mocks.getFounderDecisions).toHaveBeenCalledWith(request)
+    await expect(
+      testRouter.createCaller(context(false)).companyBrain.getFounderDecisionCurrentTruth(request),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    expect(mocks.getFounderDecisions).toHaveBeenCalledTimes(1)
   })
 
   it('queues meeting processing through the existing durable AgentRun system', async () => {

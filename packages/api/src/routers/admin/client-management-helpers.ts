@@ -11,6 +11,7 @@ import {
 import { ensureOrganizationInvitation } from '@pathfinder/auth'
 
 import type { CreateVenueRequestInput } from '../../schemas/venue'
+import type { ClientCreateProspectConversion } from './client-prospect-conversion'
 
 export const clientCreatePrimaryContactInput = z
   .object({
@@ -69,9 +70,19 @@ export function clientCreateHash(input: {
   clientName: string
   clientSlug?: string | undefined
   primaryContact?: { emailAddress: string; role: 'org:admin' | 'org:member' } | undefined
+  prospectConversion?: ClientCreateProspectConversion
   venue: z.infer<typeof CreateVenueRequestInput>
 }): string {
-  return createHash('sha256').update(JSON.stringify(input)).digest('hex')
+  const payload = {
+    clientName: input.clientName,
+    ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
+    ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
+    ...(input.prospectConversion !== undefined
+      ? { prospectConversion: input.prospectConversion }
+      : {}),
+    venue: input.venue,
+  }
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex')
 }
 
 export function mapClientCreateIntentError(error: unknown): never {

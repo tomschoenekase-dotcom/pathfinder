@@ -10,6 +10,7 @@ type SupportPageProps = {
   searchParams: Promise<{
     venue?: string | string[]
     request?: string | string[]
+    new?: string | string[]
     returnTo?: string | string[]
   }>
 }
@@ -33,6 +34,8 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
   const requestedRequest = Array.isArray(query.request) ? query.request[0] : query.request
   const requestedRequestId =
     requestedRequest && requestedRequest.length <= 191 ? requestedRequest : undefined
+  const requestedNew = Array.isArray(query.new) ? query.new[0] : query.new
+  const visitorInsightDraft = requestedNew === 'visitor-insight' && !requestedRequestId
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0]!
   const returnHref = query.returnTo
     ? resolveOnboardingReturn(query.returnTo, selectedVenue.id, 'QUESTIONS')
@@ -47,7 +50,7 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
     initialDetail = await caller.support
       .getRequest({ venueId: selectedVenue.id, requestId: requestedRequestId })
       .catch(() => null)
-  } else if (firstRequest) {
+  } else if (firstRequest && !visitorInsightDraft) {
     initialDetail = await caller.support.getRequest({
       venueId: selectedVenue.id,
       requestId: firstRequest.id,
@@ -70,6 +73,14 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
           : undefined
       }
       returnHref={returnHref}
+      {...(visitorInsightDraft
+        ? {
+            initialCreateDraft: {
+              category: 'CONTENT_CORRECTION' as const,
+              subject: 'Visitor experience review',
+            },
+          }
+        : {})}
     />
   )
 }

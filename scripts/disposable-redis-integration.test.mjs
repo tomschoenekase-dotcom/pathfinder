@@ -36,6 +36,7 @@ test('builds isolated, credential-free suite environments with exact confirmatio
     RUN_GENERATION_DISPATCH_REDIS_INTEGRATION: 'inherited',
     RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION: 'inherited',
     RUN_MEDIA_ADMISSION_REDIS_INTEGRATION: 'inherited',
+    RUN_QUEUE_OBSERVABILITY_REDIS_INTEGRATION: 'inherited',
     PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
     PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: 'inherited',
     PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
@@ -57,6 +58,7 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(recovery.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
   assert.equal(recovery.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, undefined)
   assert.equal(recovery.RUN_MEDIA_ADMISSION_REDIS_INTEGRATION, undefined)
+  assert.equal(recovery.RUN_QUEUE_OBSERVABILITY_REDIS_INTEGRATION, undefined)
   assert.equal(recovery.PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS, undefined)
   assert.equal(recovery.PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION, undefined)
   assert.equal(
@@ -86,6 +88,16 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(
     mediaAdmission.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
     'pathfinder_disposable_media_admission',
+  )
+  const queueObservability = buildDisposableRedisChildEnv(parent, 49_156, 'queue-observability')
+  assert.equal(queueObservability.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION, undefined)
+  assert.equal(queueObservability.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
+  assert.equal(queueObservability.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, undefined)
+  assert.equal(queueObservability.RUN_MEDIA_ADMISSION_REDIS_INTEGRATION, undefined)
+  assert.equal(queueObservability.RUN_QUEUE_OBSERVABILITY_REDIS_INTEGRATION, '1')
+  assert.equal(
+    queueObservability.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
+    'pathfinder_disposable_queue_observability',
   )
 })
 
@@ -386,12 +398,13 @@ test('runs all suites without a shell and always verifies exact-container cleanu
       repositoryRoot: 'C:/pathfinder',
     }),
   )
-  assert.equal(runtime.suiteEnvironments.length, 4)
+  assert.equal(runtime.suiteEnvironments.length, 5)
   assert.equal(runtime.isRunning(), false)
   assert.match(stdout.value, /recovery suite: 2\/2 passed/u)
   assert.match(stdout.value, /dispatch suite: 2\/2 passed/u)
   assert.match(stdout.value, /terminal-redrive suite: 2\/2 passed/u)
   assert.match(stdout.value, /media-admission suite: 2\/2 passed/u)
+  assert.match(stdout.value, /queue-observability suite: 2\/2 passed/u)
   assert.match(stdout.value, /removed and verified absent/u)
 })
 

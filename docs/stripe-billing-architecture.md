@@ -204,11 +204,45 @@ The policy distinguishes at least:
 
 Grace duration is configuration and an operator-owned business decision, not an unexplained constant. Grace expiry suspends capabilities but performs no destructive deletion. Agents cannot grant, extend, or approve billing access or overrides.
 
+### Payment-recovery decision context
+
+Payment recovery uses one shared, score-free projection rather than scattered UI heuristics. The
+projection combines the exact commercial amount and interval, outstanding invoice receivables,
+failure/due/retry timing, configured grace evidence, and the active CRM relationship. It also names
+missing inputs—especially ongoing variable cost and prior communication—instead of guessing them.
+
+The projection is deliberately evidence, not authority. It records that relationship preservation
+is the default while exact grace/cutoff policy remains unresolved. It cannot suspend access, contact
+a customer, choose a price, create a provider action, or manufacture a risk score. The platform-admin
+billing portfolio and the exact-scope `billing:read` MCP resource consume the same projection so
+founders and authorized AI workers see consistent current facts and limitations.
+
 ## Manual and early-customer arrangements
 
 Platform-admin-only commands can create a manual invoice arrangement, a complimentary or pilot period, a negotiated commercial reference, a legitimate external-payment confirmation, a temporary entitlement override, or a transition to Stripe. Every command validates tenant and venue ownership, requires source/reason and expiration where applicable, uses optimistic/idempotent mutation semantics, and fails if strict audit cannot be written.
 
 The client and admin UI label the source (`Manual invoice`, `Complimentary`, `Pilot`, or `Stripe`) rather than collapsing it into a generic paid badge. Internal notes and provider diagnostics are visible only to platform admins.
+
+### Multi-venue negotiated-price history
+
+`CommercialAgreement.agreedAmountMinor` remains the organization-level amount. A new explicit
+`venuePriceBreakdownComplete` assertion distinguishes a verified venue breakdown from a legacy or
+otherwise aggregate-only arrangement. When that assertion is true, every
+`CommercialAgreementVenue` stores one positive `agreedAmountMinor` component. Deferred database
+guards require the component set to cover the agreement's exact venue count and sum to the
+organization total at transaction commit. When the assertion is false, component amounts must be
+absent, so a partial breakdown can never masquerade as current truth.
+
+New single-venue negotiated arrangements derive their one component from the approved total. New
+multi-venue negotiated Checkout and manual arrangements require an exact component for every covered
+venue before any record or provider request is created. The platform-admin UI reconciles components
+before enabling submission; admin and client projections show verified components while labeling
+legacy aggregates as breakdown unavailable. Components are historical snapshots on the commercial
+agreement, so replacing an arrangement does not rewrite prior customer history.
+
+This representation creates no price and grants no commercial authority. Amounts still require the
+existing founder/platform-admin pricing decision, reason, and reference. The migration performs no
+backfill guess, Stripe operation, invoice, payment, message, or live-mode activation.
 
 ## Operational events and audit
 

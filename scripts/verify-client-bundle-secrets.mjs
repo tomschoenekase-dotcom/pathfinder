@@ -22,24 +22,27 @@ const configSource = await readFile(
 )
 const coveredKeys = assertSecretCanaryRegistryCoversConfig(configSource)
 // Both Next applications produce standalone traces rooted at the workspace.
-// Build sequentially so a clean forced build cannot race those shared trace inputs.
-const result = spawnSync(
-  process.execPath,
-  [packageManagerCli, 'turbo', 'run', 'build', '--force', '--concurrency=1'],
-  {
-    cwd: repositoryRoot,
-    env: buildSecretCanaryEnvironment(process.env),
-    encoding: 'utf8',
-    maxBuffer: 20 * 1024 * 1024,
-    shell: false,
-    windowsHide: true,
-  },
-)
+// Build them directly and sequentially so shared trace inputs cannot race and a
+// completed nested Turbo process cannot retain the verifier indefinitely.
+for (const application of ['@pathfinder/web', '@pathfinder/dashboard']) {
+  const result = spawnSync(
+    process.execPath,
+    [packageManagerCli, '--filter', application, 'build'],
+    {
+      cwd: repositoryRoot,
+      env: buildSecretCanaryEnvironment(process.env),
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+      shell: false,
+      windowsHide: true,
+    },
+  )
 
-if (result.stdout) process.stdout.write(result.stdout)
-if (result.stderr) process.stderr.write(result.stderr)
-if (result.error) throw new Error(`Verified build failed to start: ${result.error.message}`)
-if (result.status !== 0) process.exit(result.status ?? 1)
+  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.stderr) process.stderr.write(result.stderr)
+  if (result.error) throw new Error(`Verified ${application} build failed to start`)
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
 
 const targets = await discoverNextClientBundleTargets(repositoryRoot)
 const scan = await scanClientBundleTargets(targets)

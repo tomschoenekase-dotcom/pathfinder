@@ -37,11 +37,13 @@ const data = {
     clientActionRequired: true,
   },
   projection: {
-    version: 1 as const,
+    version: 4 as const,
     primaryAction: {
+      kind: 'START_MATERIALS' as const,
       stage: 'MATERIALS' as const,
       label: 'Add another useful source',
       reason: 'A source will help Torchiko continue.',
+      required: true,
     },
     stages: [
       {
@@ -60,7 +62,15 @@ const data = {
       },
     ],
   },
-  materials: { uploaded: 0, checking: 1, needsAttention: 0, readyForReview: 0, processed: 0 },
+  materials: {
+    uploaded: 0,
+    checking: 1,
+    checksNeedAction: 0,
+    checksWaitingOnTorchiko: 0,
+    needsAttention: 0,
+    readyForReview: 0,
+    processed: 0,
+  },
   review: { proposedSources: 0, draftPackages: 0 },
   questions: { open: 0, items: [], additionalQuestionCount: 0 },
   preview: { state: 'UNAVAILABLE' as const, packageId: null },
@@ -167,6 +177,69 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain('Nothing needs an answer right now.')
   })
 
+  it('shows a truthful resumable checkpoint after a submitted website or staff source', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'REVIEW_SOURCES' as const,
+                stage: 'REVIEW' as const,
+                label: 'See what you shared',
+                reason:
+                  'Your information is saved for Torchiko review. You can add a correction now or return later.',
+                required: false,
+              },
+            },
+            review: { proposedSources: 1, draftPackages: 0 },
+          }}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('#saved-progress-title')?.textContent).toContain(
+      'Your onboarding progress will be here when you return.',
+    )
+    expect(root.textContent).toContain('2 shared sources recorded for Museum.')
+    expect(root.textContent).toContain(
+      'Nothing else is required right now. You can close this page and return later.',
+    )
+    const activity = root.querySelector('[aria-label="Current onboarding activity"]')
+    expect(activity?.textContent).toContain('Shared2')
+    expect(activity?.textContent).toContain('Ready for Torchiko1')
+  })
+
+  it('anchors an informational next-step action to the saved return checkpoint', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'VIEW_PROGRESS' as const,
+                stage: 'OVERVIEW' as const,
+                label: 'See what happens next',
+                reason:
+                  'Your information is saved and being checked. You can leave this page and return later.',
+                required: false,
+              },
+            },
+          }}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('a[href="#saved-progress"]')?.textContent).toContain(
+      'See what happens next',
+    )
+    expect(root.querySelector('#saved-progress')).not.toBeNull()
+  })
+
   it('keeps the review action anchored while organized information is still being prepared', () => {
     const root = markupRoot(
       renderToStaticMarkup(
@@ -176,9 +249,11 @@ describe('RemoteOnboardingJourney', () => {
             projection: {
               ...data.projection,
               primaryAction: {
+                kind: 'REVIEW_SOURCES' as const,
                 stage: 'REVIEW' as const,
                 label: 'Review organized information',
                 reason: 'Torchiko is organizing the submitted sources.',
+                required: false,
               },
             },
             review: { proposedSources: 0, draftPackages: 1 },
@@ -232,9 +307,11 @@ describe('RemoteOnboardingJourney', () => {
             projection: {
               ...data.projection,
               primaryAction: {
+                kind: 'TEST_PREVIEW' as const,
                 stage: 'PREVIEW' as const,
                 label: 'Review the visitor experience',
                 reason: 'A reviewed candidate is ready for your feedback.',
+                required: true,
               },
             },
             preview: { state: 'AVAILABLE' as const, packageId: 'package-7' },
@@ -276,6 +353,96 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain('A previous preview is out of date.')
     expect(root.textContent).not.toContain('Test the visitor preview')
     expect(root.querySelector('a[href*="stale-package"]')).toBeNull()
+  })
+
+  it('links a rejected source to the exact replacement recovery target', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'CHOOSE_REPLACEMENT' as const,
+                stage: 'MATERIALS' as const,
+                label: 'Choose a replacement file',
+                reason:
+                  '1 file could not be accepted. Other submitted information remains unchanged.',
+                required: true,
+              },
+            },
+            materials: {
+              uploaded: 0,
+              checking: 0,
+              checksNeedAction: 0,
+              checksWaitingOnTorchiko: 0,
+              needsAttention: 1,
+              readyForReview: 1,
+              processed: 0,
+            },
+          }}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('a[href="#material-attention"]')?.textContent).toContain(
+      'Choose a replacement file',
+    )
+    expect(root.textContent).toContain(
+      'Choose a replacement for each file Torchiko could not accept.',
+    )
+    expect(root.querySelector('[aria-current="step"]')?.textContent).toContain('Share')
+  })
+
+  it('links an expired saved-file check to the exact resumption target', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'RESUME_MATERIAL_CHECK' as const,
+                stage: 'MATERIALS' as const,
+                label: 'Resume file check',
+                reason: '1 saved file needs the check resumed. You do not need to upload it again.',
+                required: true,
+              },
+            },
+            materials: {
+              ...data.materials,
+              checking: 0,
+              checksNeedAction: 1,
+            },
+          }}
+          uploads={[
+            {
+              id: 'expired-check',
+              displayName: 'visitor-guide.pdf',
+              fileName: 'visitor-guide.pdf',
+              mimeType: 'application/pdf',
+              byteSize: 8,
+              status: 'VERIFYING',
+              clientVerification: {
+                kind: 'RESUME_CHECK',
+                required: true,
+                actionLabel: 'Resume file check',
+                reason: 'The saved file check stopped before it finished.',
+                retrySameSubmission: true,
+              },
+            },
+          ]}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('a[href="#material-attention"]')?.textContent).toContain(
+      'Resume file check',
+    )
+    expect(root.textContent).toContain('You do not need to upload it again.')
+    expect(root.querySelector('[aria-current="step"]')?.textContent).toContain('Share')
   })
 
   it('keeps internal workflow jargon out of the primary client journey', () => {

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 import { db } from '../client'
+import { readAiProviderHealthControl } from './ai-provider-health-control'
+import { readGlobalAiControl } from './incident-control'
 
 const request = z
   .object({
@@ -15,13 +17,30 @@ type IntegrationHealthClient = Pick<
   | 'billingAccount'
   | 'agentWorker'
   | 'agentBridgeSession'
+  | 'platformConfig'
   | 'embeddingDispatch'
+  | 'embeddingWorkClaim'
+  | 'intakeUpload'
+  | 'intakeUploadVerificationReceipt'
+  | 'analyticsEvent'
+  | 'dailyRollup'
+  | 'jobRecord'
   | 'nativeVenueDeploymentRelease'
   | 'aiUsageEvent'
   | 'externalAccessCredential'
 >
 
 type HealthState = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'DISABLED' | 'NOT_CONFIGURED'
+
+type BoundedControlRead<T> = { available: true; value: T } | { available: false }
+
+async function readBoundedControl<T>(operation: () => Promise<T>): Promise<BoundedControlRead<T>> {
+  try {
+    return { available: true, value: await operation() }
+  } catch {
+    return { available: false }
+  }
+}
 
 function iso(value: Date | null | undefined) {
   return value?.toISOString() ?? null
@@ -51,6 +70,12 @@ function health(
   }
 }
 
+function latest(values: Array<Date | null | undefined>) {
+  return values
+    .filter((value): value is Date => Boolean(value))
+    .sort((left, right) => right.getTime() - left.getTime())[0]
+}
+
 /** Safe, secret-free projection assembled only from canonical persisted evidence. */
 export async function readUnifiedIntegrationHealth(
   rawInput: z.input<typeof request>,
@@ -60,20 +85,33 @@ export async function readUnifiedIntegrationHealth(
   const input = request.parse(rawInput)
   const venueWhere = input.venueIds.length > 0 ? { venueId: { in: input.venueIds } } : {}
   const [
-    gmail,
+    gmailAccountRows,
     billing,
     workers,
     sessions,
     embeddingBacklog,
     embeddingFailure,
+    embeddingSuccess,
+    latestUpload,
+    latestVersionedUpload,
+    storageVerification,
+    latestAnalyticsEvent,
+    latestRollup,
+    latestDailyRollupJob,
+    latestEnrichmentJob,
     deployment,
     aiSuccess,
     aiFailure,
     credentials,
+    globalControlRead,
+    providerControlRead,
   ] = await Promise.all([
-    client.correspondenceProviderAccount.findFirst({
+    client.correspondenceProviderAccount.findMany({
+      // CRM mailboxes are platform-shared and have no tenant relation. Aggregate only bounded,
+      // secret-free health evidence; never expose account identity through this tenant projection.
       where: { provider: 'GMAIL' },
       orderBy: { updatedAt: 'desc' },
+      take: 101,
       select: {
         connectionStatus: true,
         deliveryEnabled: true,
@@ -94,13 +132,17 @@ export async function readUnifiedIntegrationHealth(
       },
     }),
     client.agentWorker.findMany({
-      where: { clientId: input.clientId, status: { not: 'REVOKED' } },
-      take: 100,
+      where: {
+        tenantId: input.clientId,
+        clientId: input.clientId,
+        status: { not: 'REVOKED' },
+      },
+      take: 101,
       select: { status: true, leaseExpiresAt: true, lastHeartbeatAt: true },
     }),
     client.agentBridgeSession.findMany({
       where: { tenantId: input.clientId, ...venueWhere, status: { not: 'REVOKED' } },
-      take: 100,
+      take: 101,
       select: { status: true, expiresAt: true, lastHeartbeatAt: true },
     }),
     client.embeddingDispatch.count({ where: { tenantId: input.clientId, ...venueWhere } }),
@@ -108,6 +150,56 @@ export async function readUnifiedIntegrationHealth(
       where: { tenantId: input.clientId, ...venueWhere, lastError: { not: null } },
       orderBy: { updatedAt: 'desc' },
       select: { updatedAt: true },
+    }),
+    client.embeddingWorkClaim.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere, status: 'COMPLETE' },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.intakeUpload.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.intakeUpload.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere, storageVersionId: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.intakeUploadVerificationReceipt.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { recordedAt: 'desc' },
+      select: { recordedAt: true },
+    }),
+    client.analyticsEvent.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { receivedAt: 'desc' },
+      select: { receivedAt: true },
+    }),
+    client.dailyRollup.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { date: 'desc' },
+      select: { date: true },
+    }),
+    client.jobRecord.findFirst({
+      where: { tenantId: input.clientId, jobName: 'daily-rollup-process' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        failureDisposition: true,
+      },
+    }),
+    client.jobRecord.findFirst({
+      where: { tenantId: input.clientId, jobName: 'analytics-enrichment-process' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        failureDisposition: true,
+      },
     }),
     client.nativeVenueDeploymentRelease.findFirst({
       where: { tenantId: input.clientId, ...venueWhere },
@@ -126,33 +218,67 @@ export async function readUnifiedIntegrationHealth(
     }),
     client.externalAccessCredential.findMany({
       where: { tenantId: input.clientId, clientId: input.clientId, ...venueWhere },
-      take: 100,
+      take: 101,
       select: { enabled: true, revokedAt: true, expiresAt: true, lastUsedAt: true },
     }),
+    readBoundedControl(() => readGlobalAiControl(client)),
+    readBoundedControl(() => readAiProviderHealthControl(client, now)),
   ])
 
-  const onlineWorkers = workers.filter(
+  const globalControl = globalControlRead.available ? globalControlRead.value : null
+  const providerControl = providerControlRead.available ? providerControlRead.value : null
+  const globalAdmissionState = !globalControl
+    ? 'UNAVAILABLE'
+    : globalControl.malformed
+      ? 'MALFORMED'
+      : globalControl.paused
+        ? 'PAUSED'
+        : 'OPEN'
+  const providerRoutingState = !providerControl
+    ? 'UNAVAILABLE'
+    : providerControl.malformed
+      ? 'MALFORMED'
+      : providerControl.activeUnhealthyProviders.length > 0
+        ? 'DEGRADED'
+        : 'OPEN'
+  const globalAdmissionOpen = globalAdmissionState === 'OPEN'
+  const providerRoutingAvailable = !['UNAVAILABLE', 'MALFORMED'].includes(providerRoutingState)
+
+  const gmailInventoryTruncated = gmailAccountRows.length > 100
+  const workerInventoryTruncated = workers.length > 100
+  const sessionInventoryTruncated = sessions.length > 100
+  const credentialInventoryTruncated = credentials.length > 100
+  const gmailAccounts = gmailAccountRows.slice(0, 100)
+  const boundedWorkers = workers.slice(0, 100)
+  const boundedSessions = sessions.slice(0, 100)
+  const boundedCredentials = credentials.slice(0, 100)
+  const onlineWorkers = boundedWorkers.filter(
     (worker) => worker.status === 'ONLINE' && worker.leaseExpiresAt.getTime() > now.getTime(),
   )
-  const onlineSessions = sessions.filter(
+  const onlineSessions = boundedSessions.filter(
     (session) => session.status === 'ONLINE' && session.expiresAt.getTime() > now.getTime(),
   )
-  const activeCredentials = credentials.filter(
+  const activeCredentials = boundedCredentials.filter(
     (credential) =>
       credential.enabled &&
       !credential.revokedAt &&
       (!credential.expiresAt || credential.expiresAt.getTime() > now.getTime()),
   )
-  const latestWorkerSuccess = [...onlineWorkers, ...onlineSessions]
-    .map((entry) => entry.lastHeartbeatAt)
-    .sort((left, right) => right.getTime() - left.getTime())[0]
-  const gmailState: HealthState = !gmail
-    ? 'NOT_CONFIGURED'
-    : gmail.connectionStatus === 'CONNECTED' && !gmail.healthErrorCode
-      ? 'HEALTHY'
-      : gmail.connectionStatus === 'DISCONNECTED'
-        ? 'OFFLINE'
-        : 'DEGRADED'
+  const latestWorkerSuccess = latest(
+    [...onlineWorkers, ...onlineSessions].map((entry) => entry.lastHeartbeatAt),
+  )
+  const connectedGmailAccounts = gmailAccounts.filter(
+    (account) => account.connectionStatus === 'CONNECTED',
+  )
+  const unhealthyGmailAccounts = gmailAccounts.filter((account) => account.healthErrorCode)
+  const gmailState: HealthState =
+    gmailAccounts.length === 0
+      ? 'NOT_CONFIGURED'
+      : gmailInventoryTruncated || unhealthyGmailAccounts.length > 0
+        ? 'DEGRADED'
+        : connectedGmailAccounts.length > 0
+          ? 'HEALTHY'
+          : 'OFFLINE'
   const billingState: HealthState = !billing
     ? 'NOT_CONFIGURED'
     : !billing.billingMode.startsWith('STRIPE_')
@@ -162,21 +288,77 @@ export async function readUnifiedIntegrationHealth(
         : billing.reconciliationHealth === 'ERROR' || billing.reconciliationHealth === 'DRIFT'
           ? 'DEGRADED'
           : 'DEGRADED'
+  const analyticsJobs = [latestDailyRollupJob, latestEnrichmentJob].filter(
+    (job): job is NonNullable<typeof job> => Boolean(job),
+  )
+  const staleAnalyticsJob = analyticsJobs.find(
+    (job) => job.status === 'RUNNING' && now.getTime() - job.startedAt.getTime() > 15 * 60 * 1000,
+  )
+  const failedAnalyticsJob = analyticsJobs.find((job) => job.status === 'FAILED')
+  const analyticsConfigured = Boolean(
+    latestAnalyticsEvent || latestRollup || latestDailyRollupJob || latestEnrichmentJob,
+  )
+  const analyticsState: HealthState =
+    staleAnalyticsJob || failedAnalyticsJob
+      ? 'DEGRADED'
+      : analyticsConfigured
+        ? 'HEALTHY'
+        : 'NOT_CONFIGURED'
+  const storageSuccessAt = latest([
+    storageVerification?.recordedAt,
+    latestVersionedUpload?.updatedAt,
+  ])
+  const storageConfigured = Boolean(latestUpload || storageVerification)
 
   return {
-    schemaVersion: 'integration-health.v1',
+    schemaVersion: 'integration-health.v2',
     observedAt: now.toISOString(),
     scope: { clientId: input.clientId, venueIds: input.venueIds },
+    controlPlane: {
+      globalAiAdmission: {
+        state: globalAdmissionState,
+        admissionOpen: globalAdmissionOpen,
+        configured: globalControl?.configured ?? null,
+        updatedAt: iso(globalControl?.updatedAt),
+      },
+      providerRouting: {
+        state: providerRoutingState,
+        routingAvailable: providerRoutingAvailable,
+        configured: providerControl?.configured ?? null,
+        updatedAt: iso(providerControl?.updatedAt),
+        activeExclusions:
+          providerControl?.overrides
+            .filter((override) => override.active)
+            .map((override) => ({
+              provider: override.provider,
+              expiresAt: override.expiresAt.toISOString(),
+            })) ?? [],
+      },
+      boundaries: {
+        incidentReasonIncluded: false,
+        operatorIdentityIncluded: false,
+        rawProviderErrorsIncluded: false,
+        mutationAuthorized: false,
+        automaticRecoveryAuthorized: false,
+      },
+    },
     integrations: [
       health('GMAIL', gmailState, {
-        configured: Boolean(gmail),
-        enabled: Boolean(gmail?.deliveryEnabled),
-        lastSuccessAt: gmail?.lastSuccessfulSyncAt,
-        lastFailureAt: gmail?.healthErrorCode ? gmail.lastHealthCheckAt : null,
-        errorCategory: gmail?.healthErrorCode,
-        summary: gmail
-          ? `Mailbox connection is ${gmail.connectionStatus.toLowerCase()}.`
-          : 'No mailbox is configured.',
+        configured: gmailAccounts.length > 0,
+        enabled: gmailAccounts.some(
+          (account) => account.connectionStatus === 'CONNECTED' && account.deliveryEnabled,
+        ),
+        lastSuccessAt: latest(gmailAccounts.map((account) => account.lastSuccessfulSyncAt)),
+        lastFailureAt: latest(unhealthyGmailAccounts.map((account) => account.lastHealthCheckAt)),
+        errorCategory: gmailInventoryTruncated
+          ? 'INVENTORY_TRUNCATED'
+          : unhealthyGmailAccounts.length > 0
+            ? 'PROVIDER_ACCOUNT_HEALTH'
+            : null,
+        summary:
+          gmailAccounts.length > 0
+            ? `${connectedGmailAccounts.length} of ${gmailAccounts.length}${gmailInventoryTruncated ? '+' : ''} mailbox account(s) connected; ${unhealthyGmailAccounts.length} report health errors.`
+            : 'No mailbox is configured.',
       }),
       health('STRIPE', billingState, {
         configured: Boolean(billing),
@@ -190,43 +372,129 @@ export async function readUnifiedIntegrationHealth(
       }),
       health(
         'AGENT_RUNTIME',
-        onlineWorkers.length + onlineSessions.length > 0
-          ? 'HEALTHY'
-          : workers.length + sessions.length > 0
-            ? 'OFFLINE'
-            : 'NOT_CONFIGURED',
+        workerInventoryTruncated || sessionInventoryTruncated
+          ? 'DEGRADED'
+          : onlineWorkers.length + onlineSessions.length > 0
+            ? 'HEALTHY'
+            : boundedWorkers.length + boundedSessions.length > 0
+              ? 'OFFLINE'
+              : 'NOT_CONFIGURED',
         {
-          configured: workers.length + sessions.length > 0,
+          configured: boundedWorkers.length + boundedSessions.length > 0,
           enabled: onlineWorkers.length + onlineSessions.length > 0,
           lastSuccessAt: latestWorkerSuccess,
-          summary: `${onlineWorkers.length} portable worker(s) and ${onlineSessions.length} bridge session(s) online.`,
+          errorCategory:
+            workerInventoryTruncated || sessionInventoryTruncated ? 'INVENTORY_TRUNCATED' : null,
+          summary: `${onlineWorkers.length} portable worker(s) and ${onlineSessions.length} bridge session(s) online${workerInventoryTruncated || sessionInventoryTruncated ? '; inventory exceeds the bounded projection' : ''}.`,
+        },
+      ),
+      health('GLOBAL_AI_ADMISSION', globalAdmissionState === 'OPEN' ? 'HEALTHY' : 'OFFLINE', {
+        configured: globalControl?.configured ?? false,
+        enabled: globalAdmissionOpen,
+        lastSuccessAt: globalAdmissionOpen ? globalControl?.updatedAt : null,
+        lastFailureAt: globalAdmissionOpen ? null : globalControl?.updatedAt,
+        errorCategory: globalAdmissionState === 'OPEN' ? null : `GLOBAL_AI_${globalAdmissionState}`,
+        summary:
+          globalAdmissionState === 'OPEN'
+            ? 'Global AI admission is open.'
+            : globalAdmissionState === 'PAUSED'
+              ? 'Global AI admission is paused by the incident control.'
+              : 'Global AI admission fails closed because its control is unavailable or malformed.',
+      }),
+      health(
+        'AI_PROVIDERS',
+        !globalAdmissionOpen || !providerRoutingAvailable
+          ? 'OFFLINE'
+          : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
+            ? 'DEGRADED'
+            : aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+              ? 'DEGRADED'
+              : aiSuccess
+                ? 'HEALTHY'
+                : 'NOT_CONFIGURED',
+        {
+          configured: (providerControl?.configured ?? false) || Boolean(aiSuccess || aiFailure),
+          enabled:
+            globalAdmissionOpen && providerRoutingAvailable && Boolean(aiSuccess || aiFailure),
+          lastSuccessAt: aiSuccess?.createdAt,
+          lastFailureAt: aiFailure?.createdAt,
+          errorCategory: !globalControlRead.available
+            ? 'GLOBAL_AI_CONTROL_UNAVAILABLE'
+            : globalControl?.malformed
+              ? 'GLOBAL_AI_CONTROL_MALFORMED'
+              : globalControl?.paused
+                ? 'GLOBAL_AI_PAUSED'
+                : !providerControlRead.available
+                  ? 'HEALTH_CONTROL_UNAVAILABLE'
+                  : providerControl?.malformed
+                    ? 'HEALTH_CONTROL_MALFORMED'
+                    : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
+                      ? 'HEALTH_OVERRIDE_ACTIVE'
+                      : aiFailure?.errorCode,
+          summary: !globalAdmissionOpen
+            ? 'Global AI admission is closed by the incident control.'
+            : !providerRoutingAvailable
+              ? 'Provider eligibility fails closed because the provider-health control is unavailable or malformed.'
+              : providerControl?.malformed
+                ? 'The central provider-health control is malformed; provider eligibility fails closed.'
+                : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
+                  ? `${providerControl?.activeUnhealthyProviders.length ?? 0} provider health exclusion(s) are active.`
+                  : aiSuccess || aiFailure
+                    ? 'Derived from persisted AI usage outcomes and central provider-health control.'
+                    : 'No provider outcome has been observed.',
         },
       ),
       health(
-        'AI_PROVIDERS',
-        aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+        'EMBEDDINGS',
+        embeddingFailure
           ? 'DEGRADED'
-          : aiSuccess
+          : embeddingBacklog > 0 || embeddingSuccess
             ? 'HEALTHY'
             : 'NOT_CONFIGURED',
         {
-          configured: Boolean(aiSuccess || aiFailure),
-          enabled: Boolean(aiSuccess || aiFailure),
-          lastSuccessAt: aiSuccess?.createdAt,
-          lastFailureAt: aiFailure?.createdAt,
-          errorCategory: aiFailure?.errorCode,
+          configured: embeddingBacklog > 0 || Boolean(embeddingFailure || embeddingSuccess),
+          enabled: embeddingBacklog > 0 || Boolean(embeddingSuccess),
+          lastSuccessAt: embeddingSuccess?.updatedAt,
+          lastFailureAt: embeddingFailure?.updatedAt,
+          errorCategory: embeddingFailure ? 'DISPATCH_FAILURE' : null,
           summary:
-            aiSuccess || aiFailure
-              ? 'Derived from persisted AI usage outcomes.'
-              : 'No provider outcome has been observed.',
+            embeddingBacklog > 0 || embeddingSuccess || embeddingFailure
+              ? `${embeddingBacklog} embedding dispatch(es) pending.`
+              : 'No embedding dispatch or completed work has been observed.',
         },
       ),
-      health('EMBEDDINGS', embeddingFailure ? 'DEGRADED' : 'HEALTHY', {
-        configured: true,
-        enabled: true,
-        lastFailureAt: embeddingFailure?.updatedAt,
-        errorCategory: embeddingFailure ? 'DISPATCH_FAILURE' : null,
-        summary: `${embeddingBacklog} embedding dispatch(es) pending.`,
+      health(
+        'OBJECT_STORAGE',
+        storageSuccessAt ? 'HEALTHY' : storageConfigured ? 'DEGRADED' : 'NOT_CONFIGURED',
+        {
+          configured: storageConfigured,
+          enabled: Boolean(storageSuccessAt),
+          lastSuccessAt: storageSuccessAt,
+          errorCategory: storageConfigured && !storageSuccessAt ? 'NO_VERIFIED_OBJECT' : null,
+          summary: storageSuccessAt
+            ? 'A versioned object or immutable storage verification receipt has been observed in scope.'
+            : storageConfigured
+              ? 'An upload workflow exists in scope, but no versioned object has been verified.'
+              : 'No object-storage workflow has been observed in scope.',
+        },
+      ),
+      health('ANALYTICS_PIPELINE', analyticsState, {
+        configured: analyticsConfigured,
+        enabled: analyticsConfigured && !staleAnalyticsJob,
+        lastSuccessAt: latest([
+          latestAnalyticsEvent?.receivedAt,
+          latestRollup?.date,
+          ...analyticsJobs.map((job) => (job.status === 'COMPLETE' ? job.completedAt : null)),
+        ]),
+        lastFailureAt: latest(
+          analyticsJobs.map((job) => (job.status === 'FAILED' ? job.completedAt : null)),
+        ),
+        errorCategory: staleAnalyticsJob
+          ? 'STALE_JOB'
+          : (failedAnalyticsJob?.failureDisposition ?? (failedAnalyticsJob ? 'JOB_FAILURE' : null)),
+        summary: analyticsConfigured
+          ? 'Derived from persisted event intake, rollups, and the latest tenant pipeline jobs.'
+          : 'No analytics event, rollup, or pipeline job has been observed.',
       }),
       health(
         'DEPLOYMENT',
@@ -244,19 +512,22 @@ export async function readUnifiedIntegrationHealth(
       ),
       health(
         'EXTERNAL_WORKER_ACCESS',
-        activeCredentials.length > 0
-          ? 'HEALTHY'
-          : credentials.length > 0
-            ? 'DISABLED'
-            : 'NOT_CONFIGURED',
+        credentialInventoryTruncated
+          ? 'DEGRADED'
+          : activeCredentials.length > 0
+            ? 'HEALTHY'
+            : boundedCredentials.length > 0
+              ? 'DISABLED'
+              : 'NOT_CONFIGURED',
         {
-          configured: credentials.length > 0,
+          configured: boundedCredentials.length > 0,
           enabled: activeCredentials.length > 0,
           lastSuccessAt: activeCredentials
             .map((entry) => entry.lastUsedAt)
             .filter((value): value is Date => Boolean(value))
             .sort((left, right) => right.getTime() - left.getTime())[0],
-          summary: `${activeCredentials.length} active scoped machine credential(s).`,
+          errorCategory: credentialInventoryTruncated ? 'INVENTORY_TRUNCATED' : null,
+          summary: `${activeCredentials.length} active scoped machine credential(s)${credentialInventoryTruncated ? '; inventory exceeds the bounded projection' : ''}.`,
         },
       ),
     ],

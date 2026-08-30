@@ -6,6 +6,8 @@ const source = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
 
 describe('offboarding export finalization route boundary', () => {
   it('uses the safe server projection and fails controls closed', () => {
+    expect(source).toContain('getCustomerStatePreservation')
+    expect(source).toContain('<CustomerStatePreservationPanel')
     expect(source).toContain('getOffboardingExportFinalization')
     expect(source).toContain('Export artifact actions are unavailable for this plan.')
     expect(source).toContain('<OffboardingExportFinalizer')
