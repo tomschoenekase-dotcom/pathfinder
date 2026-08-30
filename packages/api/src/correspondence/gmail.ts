@@ -427,7 +427,10 @@ export function createGmailCorrespondenceProvider(dependencies: {
             checkedAt: now(),
             cursor: null,
             watchExpiresAt: null,
-            detail: error.message,
+            detail:
+              error.code === 'NOT_CONFIGURED'
+                ? 'Gmail credentials are not configured.'
+                : 'Gmail authentication must be renewed.',
           }
         }
         throw error

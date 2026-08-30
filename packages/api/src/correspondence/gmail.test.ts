@@ -191,5 +191,26 @@ describe('Gmail correspondence provider', () => {
     const { provider } = setup()
     const result = await provider.health({ ...mailbox, credentialRef: '' })
     expect(result.status).toBe('AUTHENTICATION_REQUIRED')
+    expect(result.detail).toBe('Gmail credentials are not configured.')
+  })
+
+  it('returns code-derived health detail without provider authentication text', async () => {
+    const { provider } = setup({
+      getProfile: vi.fn(async () => {
+        throw new GmailApiError(
+          'AUTHENTICATION',
+          'OAuth rejected client_secret=top-secret for private@example.org',
+        )
+      }),
+    })
+
+    const result = await provider.health(mailbox)
+
+    expect(result).toMatchObject({
+      status: 'AUTHENTICATION_REQUIRED',
+      detail: 'Gmail authentication must be renewed.',
+    })
+    expect(JSON.stringify(result)).not.toContain('top-secret')
+    expect(JSON.stringify(result)).not.toContain('private@example.org')
   })
 })
