@@ -26,12 +26,11 @@ export async function captureCurrentFounderAbsenceObservation(now = new Date()) 
 export async function startFounderAbsenceObserver() {
   await captureCurrentFounderAbsenceObservation()
   const timer = setInterval(() => {
-    void captureCurrentFounderAbsenceObservation().catch((error: unknown) =>
+    void captureCurrentFounderAbsenceObservation().catch(() =>
       process.stderr.write(
         `${JSON.stringify({
           action: 'workers.founder-absence-observation.failed',
           errorCode: 'observation-capture-failed',
-          detail: error instanceof Error ? error.message : 'Unknown observer error',
         })}\n`,
       ),
     )

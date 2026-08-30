@@ -83,13 +83,12 @@ export async function startCrmBackgroundRuntime() {
     ...(intakeVerification ? [intakeVerification.worker] : []),
   ]
   for (const worker of workers)
-    worker.on('error', (error) => {
+    worker.on('error', () => {
       process.stderr.write(
         `${JSON.stringify({
           action: 'workers.runtime.error',
           queueName: worker.name,
           errorCode: 'crm-background-worker-error',
-          detail: error.message,
         })}\n`,
       )
     })

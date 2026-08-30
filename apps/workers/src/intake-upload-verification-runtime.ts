@@ -50,13 +50,12 @@ export async function createIntakeUploadVerificationResources() {
     connection,
     concurrency: 2,
   })
-  worker.on('error', (error) => {
+  worker.on('error', () => {
     process.stderr.write(
       `${JSON.stringify({
         action: 'workers.runtime.error',
         queueName: worker.name,
         errorCode: 'intake-upload-verification-worker-error',
-        detail: error.message,
       })}\n`,
     )
   })

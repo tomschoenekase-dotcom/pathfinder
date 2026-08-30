@@ -25,6 +25,7 @@ describe('founder absence observer runtime', () => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     mocks.readReadiness.mockResolvedValue({ summary: {}, dimensions: [], evidenceWindow: {} })
     mocks.capture.mockResolvedValue({
       id: 'observation_1',
@@ -65,5 +66,21 @@ describe('founder absence observer runtime', () => {
     await runtime.shutdown()
     await vi.advanceTimersByTimeAsync(runtime.intervalMs)
     expect(mocks.capture).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports interval failures without writing exception text', async () => {
+    const runtime = await startFounderAbsenceObserver()
+    mocks.capture.mockRejectedValueOnce(new Error('redis://user:secret@private-host'))
+
+    await vi.advanceTimersByTimeAsync(runtime.intervalMs)
+
+    expect(process.stderr.write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        action: 'workers.founder-absence-observation.failed',
+        errorCode: 'observation-capture-failed',
+      })}\n`,
+    )
+    expect(process.stderr.write).not.toHaveBeenCalledWith(expect.stringContaining('secret'))
+    await runtime.shutdown()
   })
 })
