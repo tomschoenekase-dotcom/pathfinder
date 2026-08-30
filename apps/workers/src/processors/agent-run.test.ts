@@ -14,7 +14,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@pathfinder/ai', () => ({
   AiGatewayError: class AiGatewayError extends Error {
-    code = 'gateway'
+    code: string
+
+    constructor(message: string, options: { code: string }) {
+      super(message)
+      this.code = options.code
+    }
   },
   AiRequestBudgetCeilingExceededError: class AiRequestBudgetCeilingExceededError extends Error {},
   AiRoutingError: class AiRoutingError extends Error {},
@@ -38,6 +43,8 @@ vi.mock('../lib/ai-usage', () => ({
   createWorkerAiBudgetGate: vi.fn(() => ({})),
   createWorkerAiUsageSink: vi.fn(() => vi.fn()),
 }))
+
+import { AiGatewayError } from '@pathfinder/ai'
 
 import { processAgentRunJob } from './agent-run'
 
@@ -146,5 +153,38 @@ describe('agent run processor', () => {
         retryable: false,
       }),
     )
+  })
+
+  it('maps lowercase gateway codes into the durable AgentRun code contract', async () => {
+    mocks.generateTextForCapability.mockRejectedValue(
+      new AiGatewayError('provider detail', {
+        attempts: 1,
+        code: 'provider-connection-timeout',
+      }),
+    )
+
+    await expect(
+      processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' }),
+    ).resolves.toMatchObject({ status: 'FAILED' })
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'PROVIDER_CONNECTION_FAILED', retryable: true }),
+    )
+  })
+
+  it('does not persist an unrecognized gateway code', async () => {
+    mocks.generateTextForCapability.mockRejectedValue(
+      new AiGatewayError('private provider detail', {
+        attempts: 1,
+        code: 'UPSTREAM_SECRET_TOKEN',
+      }),
+    )
+
+    await expect(
+      processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' }),
+    ).resolves.toMatchObject({ status: 'FAILED' })
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'PROVIDER_REQUEST_FAILED', retryable: true }),
+    )
+    expect(JSON.stringify(mocks.fail.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
   })
 })

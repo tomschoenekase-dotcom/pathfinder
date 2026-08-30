@@ -173,4 +173,22 @@ describe('agent run execution actions', () => {
       }),
     )
   })
+
+  it('rejects unknown uppercase failure codes before opening a transaction', async () => {
+    const dbClient = client({})
+
+    await expect(
+      failAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'run-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          errorCode: 'UPSTREAM_SECRET_TOKEN',
+          retryable: true,
+        },
+        dbClient as never,
+      ),
+    ).rejects.toMatchObject({ name: 'ZodError' })
+    expect(dbClient.$transaction).not.toHaveBeenCalled()
+  })
 })

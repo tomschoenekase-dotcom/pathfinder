@@ -23,6 +23,48 @@ import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usa
 const LEASE_DURATION_MS = 90_000
 const HEARTBEAT_INTERVAL_MS = 20_000
 
+function agentRunFailure(error: unknown, cancellation: boolean) {
+  if (cancellation) {
+    return { errorCode: 'CANCELLED_OR_LEASE_LOST', retryable: false }
+  }
+  if (error instanceof Error && error.name === 'AgentProviderConfigurationError') {
+    return { errorCode: 'PROVIDER_CONFIGURATION_REQUIRED', retryable: false }
+  }
+  if (error instanceof AiRequestBudgetCeilingExceededError) {
+    return { errorCode: error.code, retryable: false }
+  }
+  if (error instanceof AiRoutingError) {
+    return { errorCode: error.code, retryable: true }
+  }
+  if (error instanceof AiGatewayError) {
+    if (
+      error.code === 'provider-not-configured' ||
+      error.code === 'provider-client-initialization'
+    ) {
+      return { errorCode: 'PROVIDER_CONFIGURATION_REQUIRED', retryable: false }
+    }
+    if (
+      error.code === 'provider-connection-timeout' ||
+      error.code === 'provider-connection-error'
+    ) {
+      return { errorCode: 'PROVIDER_CONNECTION_FAILED', retryable: true }
+    }
+    if (error.code === 'provider-user-abort') {
+      return { errorCode: 'PROVIDER_REQUEST_ABORTED', retryable: false }
+    }
+    if (
+      error.code === 'missing-text-block' ||
+      error.code === 'invalid-structured-output' ||
+      error.code === 'invalid-provider-response' ||
+      error.code === 'provider-incomplete-response'
+    ) {
+      return { errorCode: 'PROVIDER_INVALID_RESPONSE', retryable: true }
+    }
+    return { errorCode: 'PROVIDER_REQUEST_FAILED', retryable: true }
+  }
+  return { errorCode: 'AGENT_EXECUTION_FAILED', retryable: true }
+}
+
 function providerKind(provider: string | null): 'anthropic' | 'bridge' | 'missing' {
   if (!provider) return 'missing'
   if (['anthropic', 'claude', 'claude-api'].includes(provider.toLowerCase())) return 'anthropic'
@@ -142,27 +184,13 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       costStatus: 'ESTIMATED',
     })
   } catch (error) {
-    const configurationError =
-      error instanceof Error && error.name === 'AgentProviderConfigurationError'
-    const budgetPolicyError = error instanceof AiRequestBudgetCeilingExceededError
     const cancellation = controller.signal.aborted
-    const errorCode = cancellation
-      ? 'CANCELLED_OR_LEASE_LOST'
-      : configurationError
-        ? 'PROVIDER_CONFIGURATION_REQUIRED'
-        : budgetPolicyError
-          ? error.code
-          : error instanceof AiRoutingError
-            ? error.code
-            : error instanceof AiGatewayError
-              ? error.code
-              : 'AGENT_EXECUTION_FAILED'
+    const failure = agentRunFailure(error, cancellation)
     const failureState = await failAgentRunExecution({
       tenantId: run.tenantId,
       runId: run.id,
       leaseToken: run.leaseToken,
-      errorCode,
-      retryable: !configurationError && !budgetPolicyError && !cancellation,
+      ...failure,
     }).catch((failure) => {
       if (failure instanceof AgentRunExecutionError && failure.code === 'LEASE_LOST') return null
       throw failure
