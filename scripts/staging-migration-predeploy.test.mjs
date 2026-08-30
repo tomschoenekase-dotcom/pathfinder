@@ -89,7 +89,7 @@ test('repository migration manifest remains frozen at the reviewed 205-file chai
   )
 })
 
-test('ledger accepts Prisma raw-byte checksums without weakening the normalized manifest freeze', async () => {
+test('ledger accepts exact LF or CRLF Prisma checksums without weakening the normalized manifest freeze', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rawChecksumMigrations = manifest.names.filter(
     (name) => manifest.ledgerChecksums.get(name) !== manifest.checksums.get(name),
@@ -109,6 +109,18 @@ test('ledger accepts Prisma raw-byte checksums without weakening the normalized 
     logs: null,
   }))
   assert.equal(ledgerState(rows, manifest), 'complete')
+  const crlfRows = manifest.names.map((migration_name) => ({
+    migration_name,
+    checksum: manifest.crlfLedgerChecksums.get(migration_name),
+    finished_at: new Date(),
+    rolled_back_at: null,
+    logs: null,
+  }))
+  assert.equal(ledgerState(crlfRows, manifest), 'complete')
+  assert.notEqual(
+    manifest.crlfLedgerChecksums.get('20260821172000_add_verified_actor_audit'),
+    manifest.checksums.get('20260821172000_add_verified_actor_audit'),
+  )
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
 })
 
