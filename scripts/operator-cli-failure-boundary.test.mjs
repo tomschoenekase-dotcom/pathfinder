@@ -40,6 +40,7 @@ test('high-risk operator entrypoints use the code-only writer', async () => {
     'run-queue-observability-redis-gate.mjs',
     'run-terminal-redrive-redis-gate.mjs',
     'torchiko.mjs',
+    'verify-client-bundle-secrets.mjs',
     'verify-docker-context-boundary.mjs',
     'verify-release.mjs',
   ]
@@ -47,5 +48,8 @@ test('high-risk operator entrypoints use the code-only writer', async () => {
     const source = await readFile(new URL(entrypoint, import.meta.url), 'utf8')
     assert.match(source, /reportOperatorCliFailure/u, entrypoint)
     assert.doesNotMatch(source, /error\.message|console\.error/u, entrypoint)
+    if (entrypoint === 'verify-client-bundle-secrets.mjs') {
+      assert.doesNotMatch(source, /result\.(?:stdout|stderr)/u, entrypoint)
+    }
   }
 })

@@ -9,6 +9,7 @@ import {
   discoverNextClientBundleTargets,
   scanClientBundleTargets,
 } from './lib/client-bundle-secret-scan.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const packageManagerCli = process.env.npm_execpath
@@ -24,6 +25,7 @@ const coveredKeys = assertSecretCanaryRegistryCoversConfig(configSource)
 // Both Next applications produce standalone traces rooted at the workspace.
 // Build them directly and sequentially so shared trace inputs cannot race and a
 // completed nested Turbo process cannot retain the verifier indefinitely.
+let buildFailed = false
 for (const application of ['@pathfinder/web', '@pathfinder/dashboard']) {
   const result = spawnSync(
     process.execPath,
@@ -38,11 +40,16 @@ for (const application of ['@pathfinder/web', '@pathfinder/dashboard']) {
     },
   )
 
-  if (result.stdout) process.stdout.write(result.stdout)
-  if (result.stderr) process.stderr.write(result.stderr)
-  if (result.error) throw new Error(`Verified ${application} build failed to start`)
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  if (result.error || result.status !== 0) {
+    process.exitCode = reportOperatorCliFailure({
+      action: 'client-bundle-verification.failed',
+      errorCode: result.error ? 'build-start-failed' : 'application-build-failed',
+    })
+    buildFailed = true
+    break
+  }
 }
+if (buildFailed) process.exit(process.exitCode ?? 1)
 
 const targets = await discoverNextClientBundleTargets(repositoryRoot)
 const scan = await scanClientBundleTargets(targets)
