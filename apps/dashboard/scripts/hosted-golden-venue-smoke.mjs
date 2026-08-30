@@ -171,6 +171,8 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
       report.provider.status = answerEvidence.passed ? 'passed' : 'failed'
       if (!answerEvidence.passed) fail('hosted-provider-answer-failed-corpus-check')
     }
+    report.chat.consoleErrorCount = consoleErrors.length
+    if (report.chat.consoleErrorCount !== 0) fail('golden-venue-browser-errors')
   } catch (error) {
     failure = error
     if (report.provider.attempted && report.provider.status === 'pending')
