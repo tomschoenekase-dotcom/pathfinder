@@ -1,5 +1,7 @@
 # Torchiko staging current truth — 2026-08-30
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+
 This is a bounded snapshot of the authorized Railway `staging` environment. It records exact
 deployment evidence; it does not authorize production, provider activation, customer contact,
 live billing, destructive data work, or deferred marketing/brand/Tochi work.
