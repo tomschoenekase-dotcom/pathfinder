@@ -58,29 +58,52 @@ function safeFailure(error: unknown): {
   errorCode: string
   errorMessage: string
 } {
-  const message =
-    error instanceof Error ? error.message.slice(0, 500) : 'Website research failed unexpectedly.'
   if (error instanceof WebsiteIntakePolicyError) {
+    const message = error.message
     if (/cancelled/iu.test(message)) {
-      return { outcome: 'FAILED', errorCode: 'CANCELLED', errorMessage: message }
+      return {
+        outcome: 'FAILED',
+        errorCode: 'CANCELLED',
+        errorMessage: 'Website research was cancelled before completion.',
+      }
     }
     if (/time limit/iu.test(message)) {
-      return { outcome: 'FAILED', errorCode: 'TIME_LIMIT', errorMessage: message }
+      return {
+        outcome: 'FAILED',
+        errorCode: 'TIME_LIMIT',
+        errorMessage: 'Website research exceeded its approved time limit.',
+      }
     }
     if (/cost-unit/iu.test(message)) {
-      return { outcome: 'FAILED', errorCode: 'COST_LIMIT', errorMessage: message }
+      return {
+        outcome: 'FAILED',
+        errorCode: 'COST_LIMIT',
+        errorMessage: 'Website research exceeded its approved cost-unit limit.',
+      }
     }
     if (/extractor/iu.test(message)) {
-      return { outcome: 'FAILED', errorCode: 'EXTRACTION_FAILED', errorMessage: message }
+      return {
+        outcome: 'FAILED',
+        errorCode: 'EXTRACTION_FAILED',
+        errorMessage: 'Website research could not extract reviewable page evidence.',
+      }
     }
     if (
       /not allowed|did not resolve|non-public|HTTP (?:401|403|404|410)|robots|redirect/iu.test(
         message,
       )
     ) {
-      return { outcome: 'INACCESSIBLE', errorCode: 'SOURCE_INACCESSIBLE', errorMessage: message }
+      return {
+        outcome: 'INACCESSIBLE',
+        errorCode: 'SOURCE_INACCESSIBLE',
+        errorMessage: 'The website source was inaccessible under the approved crawl policy.',
+      }
     }
-    return { outcome: 'FAILED', errorCode: 'POLICY_FAILURE', errorMessage: message }
+    return {
+      outcome: 'FAILED',
+      errorCode: 'POLICY_FAILURE',
+      errorMessage: 'Website research stopped at an approved policy boundary.',
+    }
   }
   return {
     outcome: 'FAILED',

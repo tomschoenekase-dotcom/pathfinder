@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { recordWebsiteResearchReceiptAction } from '@pathfinder/db'
 
 import { executeWebsiteIntakeResearch } from './website-intake-research-service'
-import type { WebsiteIntakeDependencies } from './website-intake'
+import { WebsiteIntakePolicyError, type WebsiteIntakeDependencies } from './website-intake'
 
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/db')>()
@@ -175,5 +175,32 @@ describe('website intake research execution', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(deps.fetchPage).not.toHaveBeenCalled()
+  })
+
+  it('retains a code-derived policy failure without the provider exception text', async () => {
+    const deps = dependencies()
+    deps.extractPage = vi.fn(async () => {
+      throw new WebsiteIntakePolicyError(
+        'Extractor rejected https://user:secret@example.org/?api_key=top-secret',
+      )
+    })
+
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: request(),
+      dependencies: deps,
+      now: () => now,
+    })
+
+    expect(recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'FAILED',
+        errorCode: 'EXTRACTION_FAILED',
+        errorMessage: 'Website research could not extract reviewable page evidence.',
+      }),
+      expect.anything(),
+    )
+    expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('top-secret')
+    expect(JSON.stringify(recordReceipt.mock.calls)).not.toContain('user:secret')
   })
 })
