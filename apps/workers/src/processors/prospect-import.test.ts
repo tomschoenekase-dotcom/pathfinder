@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
+  updateMany: vi.fn(),
+  inspect: vi.fn(),
+  stage: vi.fn(),
   commit: vi.fn(),
   claimPackage: vi.fn(),
   commitPackage: vi.fn(),
@@ -10,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
-  db: { prospectImport: { findUnique: mocks.findUnique } },
+  db: { prospectImport: { findUnique: mocks.findUnique, updateMany: mocks.updateMany } },
   withTenantIsolationBypass: (callback: () => unknown) => callback(),
   commitProspectImportBatchAction: mocks.commit,
   claimProspectStagingPackageRecordsAction: mocks.claimPackage,
@@ -19,10 +22,52 @@ vi.mock('@pathfinder/db', () => ({
   publishCrmOperationalSignal: mocks.publish,
 }))
 
-import { processProspectImportCommitJob } from './prospect-import'
+vi.mock('./prospect-import-source', () => ({
+  inspectProspectImportSource: mocks.inspect,
+  stageProspectImportSource: mocks.stage,
+}))
+
+import {
+  processProspectImportCommitJob,
+  processProspectImportInspectionJob,
+} from './prospect-import'
 
 describe('prospect import worker', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.updateMany.mockResolvedValue({ count: 1 })
+  })
+
+  it('retains a code-only reconciliation when source inspection errors contain secrets', async () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
+    mocks.inspect.mockRejectedValue(new Error(secret))
+
+    await expect(processProspectImportInspectionJob('import-1')).rejects.toThrow(secret)
+
+    const persisted = mocks.updateMany.mock.calls.find(
+      ([call]) => call.data?.reconciliation !== undefined,
+    )?.[0]
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        data: {
+          reconciliation: expect.objectContaining({
+            phase: 'inspection',
+            error: 'prospect-import-inspection-failed',
+          }),
+        },
+      }),
+    )
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          summary: 'Prospect workbook inspection failed; review the import reconciliation.',
+        }),
+      }),
+    )
+    expect(JSON.stringify([mocks.updateMany.mock.calls, mocks.publish.mock.calls])).not.toContain(
+      secret,
+    )
+  })
 
   it('reloads human approval and continues durable batches until complete', async () => {
     mocks.findUnique.mockResolvedValue({ id: 'import-1', status: 'APPROVED', approvedBy: 'tom' })

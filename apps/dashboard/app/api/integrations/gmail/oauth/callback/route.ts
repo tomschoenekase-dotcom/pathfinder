@@ -32,17 +32,14 @@ export async function GET(request: NextRequest) {
         providerAccountId: account.id,
         trigger: 'SCHEDULED_RECONCILIATION',
       })
-    } catch (error) {
+    } catch {
       await publishCrmOperationalSignal({
         input: {
           signal: 'gmail_sync_failed',
           scope: { kind: 'platform' },
           linkedObjectType: 'CorrespondenceProviderAccount',
           linkedObjectId: account.id,
-          summary:
-            error instanceof Error
-              ? `Gmail connected, but initial synchronization could not be queued: ${error.message}`
-              : 'Gmail connected, but initial synchronization could not be queued.',
+          summary: 'Gmail connected, but initial synchronization could not be queued.',
         },
       })
     }

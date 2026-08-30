@@ -113,15 +113,16 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
       return result
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unknown Gmail synchronization failure'
-    if (payload.receiptId) await markNotificationReceipt(payload.receiptId, false, detail)
+    const errorCode =
+      error instanceof CorrespondenceProviderError ? error.code : 'GMAIL_SYNC_FAILED'
+    if (payload.receiptId) await markNotificationReceipt(payload.receiptId, false, errorCode)
     await publishCrmOperationalSignal({
       input: {
         signal: 'gmail_sync_failed',
         scope: { kind: 'platform' },
         linkedObjectType: 'CorrespondenceProviderAccount',
         linkedObjectId: payload.providerAccountId,
-        summary: detail,
+        summary: `Gmail synchronization failed (${errorCode}).`,
       },
     })
     throw error

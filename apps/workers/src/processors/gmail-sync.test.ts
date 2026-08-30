@@ -101,4 +101,36 @@ describe('Gmail sync worker', () => {
       'projects/test/topics/gmail',
     )
   })
+
+  it('persists only a stable failure code when provider errors contain secrets', async () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
+    mocks.synchronize.mockRejectedValue(new Error(secret))
+
+    await expect(
+      processGmailSyncJob({
+        providerAccountId: 'account-1',
+        trigger: 'PUBSUB_NOTIFICATION',
+        receiptId: 'receipt-1',
+      }),
+    ).rejects.toThrow(secret)
+
+    expect(mocks.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'RETRYABLE',
+          processingError: 'GMAIL_SYNC_FAILED',
+        }),
+      }),
+    )
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          summary: 'Gmail synchronization failed (GMAIL_SYNC_FAILED).',
+        }),
+      }),
+    )
+    expect(JSON.stringify([mocks.updateMany.mock.calls, mocks.publish.mock.calls])).not.toContain(
+      secret,
+    )
+  })
 })

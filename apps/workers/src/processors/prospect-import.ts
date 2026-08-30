@@ -12,15 +12,11 @@ import type { ProspectImportCommitJobPayload } from '@pathfinder/jobs'
 
 import { inspectProspectImportSource, stageProspectImportSource } from './prospect-import-source'
 
-async function recordSourceFailure(
-  importId: string,
-  phase: 'inspection' | 'staging',
-  error: unknown,
-) {
-  const detail = error instanceof Error ? error.message : 'Unknown workbook processing failure'
+async function recordSourceFailure(importId: string, phase: 'inspection' | 'staging') {
+  const errorCode = `prospect-import-${phase}-failed`
   await db.prospectImport.updateMany({
     where: { id: importId, status: 'DRAFT' },
-    data: { reconciliation: { phase, error: detail.slice(0, 2_000), failedAt: new Date() } },
+    data: { reconciliation: { phase, error: errorCode, failedAt: new Date() } },
   })
   await publishCrmOperationalSignal({
     input: {
@@ -28,7 +24,7 @@ async function recordSourceFailure(
       scope: { kind: 'platform' },
       linkedObjectType: 'ProspectImport',
       linkedObjectId: importId,
-      summary: `Prospect workbook ${phase} failed: ${detail}`,
+      summary: `Prospect workbook ${phase} failed; review the import reconciliation.`,
     },
   })
 }
@@ -83,7 +79,7 @@ export async function processProspectImportInspectionJob(importId: string) {
       inspectProspectImportSource(importId),
     )
   } catch (error) {
-    await recordSourceFailure(importId, 'inspection', error)
+    await recordSourceFailure(importId, 'inspection')
     throw error
   }
 }
@@ -94,7 +90,7 @@ export async function processProspectImportStagingJob(importId: string) {
       stageProspectImportSource(importId, renew),
     )
   } catch (error) {
-    await recordSourceFailure(importId, 'staging', error)
+    await recordSourceFailure(importId, 'staging')
     throw error
   }
 }
