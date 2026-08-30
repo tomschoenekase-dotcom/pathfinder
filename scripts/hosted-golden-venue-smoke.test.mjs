@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   assessSyntheticAnswer,
   parseHostedGoldenVenueArgs,
+  resolveHostedGoldenVenueReportPath,
   validateHostedHealth,
 } from '../apps/dashboard/scripts/hosted-golden-venue-smoke.mjs'
 
@@ -75,4 +76,19 @@ test('provider evidence is content-addressed and checks every synthetic expected
   assert.match(passed.sha256, /^[a-f0-9]{64}$/u)
   assert.equal(passed.utf8Bytes > 0, true)
   assert.equal(assessSyntheticAnswer('Try again later.', ['Shark Tank']).passed, false)
+})
+
+test('hosted reports remain JSON files inside the repository', () => {
+  assert.match(
+    resolveHostedGoldenVenueReportPath(null, revision),
+    /artifacts[\\/]hosted-golden-venue[\\/][a-f0-9]{40}\.json$/u,
+  )
+  assert.throws(
+    () => resolveHostedGoldenVenueReportPath('../outside.json', revision),
+    /unsafe-report-path/u,
+  )
+  assert.throws(
+    () => resolveHostedGoldenVenueReportPath('artifacts/report.txt', revision),
+    /report-must-be-json/u,
+  )
 })

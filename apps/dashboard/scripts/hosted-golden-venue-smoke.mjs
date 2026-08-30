@@ -62,7 +62,7 @@ export function assessSyntheticAnswer(answer, expectedFacts) {
   }
 }
 
-function safeReportPath(value, revision) {
+export function resolveHostedGoldenVenueReportPath(value, revision) {
   const fallback = `artifacts/hosted-golden-venue/${revision}.json`
   const resolved = path.resolve(repositoryRoot, value ?? fallback)
   const relative = path.relative(repositoryRoot, resolved)
@@ -79,6 +79,14 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
   const policy = (await loadJson('scripts/release-verification-policy.json')).staging
   const fixture = await loadJson('scripts/golden-venue/fixture.json')
   if (fixture.synthetic !== true) fail('golden-venue-must-be-synthetic')
+  const outputPath = resolveHostedGoldenVenueReportPath(options.report, options.revision)
+  const question = options.questionKey
+    ? fixture.expectedQuestions.find((item) => item.key === options.questionKey)
+    : null
+  if (options.questionKey && !question) fail('unknown-synthetic-question-key')
+  if (question && environment.PATHFINDER_ALLOW_HOSTED_PROVIDER_SMOKE !== '1')
+    fail('hosted-provider-smoke-opt-in-required')
+
   const healthUrl = new URL(policy.healthUrl)
   if (healthUrl.protocol !== 'https:' || healthUrl.hostname !== policy.host)
     fail('staging-policy-origin-invalid')
@@ -86,13 +94,6 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
   const healthResponse = await fetch(healthUrl, { signal: AbortSignal.timeout(30_000) })
   if (!healthResponse.ok) fail('staging-health-request-failed')
   validateHostedHealth(await healthResponse.json(), policy, options.revision)
-
-  const question = options.questionKey
-    ? fixture.expectedQuestions.find((item) => item.key === options.questionKey)
-    : null
-  if (options.questionKey && !question) fail('unknown-synthetic-question-key')
-  if (question && environment.PATHFINDER_ALLOW_HOSTED_PROVIDER_SMOKE !== '1')
-    fail('hosted-provider-smoke-opt-in-required')
 
   const consoleErrors = []
   const browser = await chromium.launch({ headless: true })
@@ -171,7 +172,6 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
     await browser.close()
   }
 
-  const outputPath = safeReportPath(options.report, options.revision)
   await mkdir(path.dirname(outputPath), { recursive: true })
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
   process.stdout.write(
