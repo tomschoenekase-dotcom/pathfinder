@@ -11,7 +11,7 @@ console.log(
     databaseHost: admission.databaseHost,
     directDatabaseHost: admission.directDatabaseHost,
     database: admission.database,
-    dataPolicy: 'synthetic-only',
+    dataPolicy: admission.dataPolicy,
     spendCeilingUsd: admission.spendCeilingUsd,
   }),
 )

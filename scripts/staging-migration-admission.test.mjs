@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import {
@@ -37,6 +38,13 @@ test('admits only the exact approved staging release and target', () => {
     backupEvidence: null,
   })
   assert.equal(stagingMigrationPolicy.maximumSpendUsd, 10)
+})
+
+test('migration wrapper reports the admitted data policy without rewriting it', async () => {
+  const source = await readFile(new URL('./migrate-staging-db.mjs', import.meta.url), 'utf8')
+
+  assert.match(source, /dataPolicy: admission\.dataPolicy/u)
+  assert.doesNotMatch(source, /dataPolicy: 'synthetic-only'/u)
 })
 
 test('admits preserved staging data only with fresh separately stored backup and restore proof', () => {
