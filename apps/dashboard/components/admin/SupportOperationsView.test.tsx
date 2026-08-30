@@ -447,6 +447,9 @@ describe('support operations UI', () => {
     expect(screen.getByRole('button', { name: 'Remove hours.pdf' })).toBeTruthy()
     expect(screen.queryByRole('link', { name: /hours\.pdf/i })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh request' })).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('retry identity are retained'),
+    )
     const firstOperationId = mocks.mutate.mock.calls[0]![0].operationId
     fireEvent.click(screen.getByRole('button', { name: 'Add internal note' }))
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2))
