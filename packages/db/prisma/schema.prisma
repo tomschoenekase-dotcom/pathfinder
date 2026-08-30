@@ -6466,6 +6466,14 @@ enum ProspectEmailMessageStatus {
   FAILED
 }
 
+enum ProspectInboundReplyDisposition {
+  POSITIVE_INTEREST
+  QUESTION_OR_OBJECTION
+  NOT_INTERESTED
+  SUPPRESSION_REQUEST
+  OTHER
+}
+
 enum CorrespondenceProviderKey {
   GMAIL
   RESEND
@@ -6855,6 +6863,7 @@ model ProspectOrganization {
   contacts              ProspectContact[]
   opportunity           ProspectOpportunity?
   activities            ProspectActivity[]
+  inboundReplyReviews   ProspectInboundReplyReview[]
   sources               ProspectSourceEvidence[]
   duplicateCandidatesA  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_a")
   duplicateCandidatesB  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_b")
@@ -7654,6 +7663,10 @@ model ProspectEmailMessage {
   bodyRemovedAt               DateTime?                                 @map("body_removed_at")
   sourceReference             String?                                   @map("source_reference") @db.VarChar(1000)
   attachmentMetadata          Json                                      @default("[]") @map("attachment_metadata")
+  inboundReplyDisposition     ProspectInboundReplyDisposition?          @map("inbound_reply_disposition")
+  inboundReplyReviewId        String?                                   @unique @map("inbound_reply_review_id") @db.Uuid
+  inboundReplyReviewedAt      DateTime?                                 @map("inbound_reply_reviewed_at")
+  inboundReplyReviewerId      String?                                   @map("inbound_reply_reviewer_id") @db.VarChar(191)
   occurredAt                  DateTime                                  @map("occurred_at")
   createdAt                   DateTime                                  @default(now()) @map("created_at")
   thread                      ProspectEmailThread                       @relation(fields: [threadId], references: [id], onDelete: Restrict)
@@ -7664,12 +7677,38 @@ model ProspectEmailMessage {
   providerAccount             CorrespondenceProviderAccount?            @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
   events                      ProspectEmailEvent[]
   attachmentRetentionRequests ProspectEmailAttachmentRetentionRequest[]
+  inboundReplyReviews         ProspectInboundReplyReview[]              @relation("ProspectInboundReplyReviewMessage")
+  currentInboundReplyReview   ProspectInboundReplyReview?               @relation("ProspectInboundReplyCurrentReview", fields: [inboundReplyReviewId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([providerAccountId, providerMessageId], map: "prospect_email_messages_provider_message_key")
   @@index([threadId, occurredAt])
   @@index([organizationId, occurredAt])
+  @@index([inboundReplyDisposition, inboundReplyReviewedAt], map: "prospect_email_messages_reply_disposition_idx")
   @@index([bodyRetentionState, bodyExpiresAt], map: "prospect_email_messages_body_retention_idx")
   @@map("prospect_email_messages")
+}
+
+/// Append-only human review evidence for one canonical inbound prospect reply. The email message
+/// carries the mutable current-truth pointer; every prior review remains immutable here.
+model ProspectInboundReplyReview {
+  id             String                          @id @default(uuid()) @db.Uuid
+  operationId    String                          @unique @map("operation_id") @db.Uuid
+  messageId      String                          @map("message_id")
+  organizationId String                          @map("organization_id")
+  disposition    ProspectInboundReplyDisposition
+  reason         String                          @db.VarChar(2000)
+  reviewerId     String                          @map("reviewer_id") @db.VarChar(191)
+  revision       Int
+  inputHash      String                          @map("input_hash") @db.Char(64)
+  createdAt      DateTime                        @default(now()) @map("created_at")
+  message        ProspectEmailMessage            @relation("ProspectInboundReplyReviewMessage", fields: [messageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  currentFor     ProspectEmailMessage?           @relation("ProspectInboundReplyCurrentReview")
+  organization   ProspectOrganization            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([messageId, revision], map: "prospect_inbound_reply_reviews_message_revision_key")
+  @@index([organizationId, createdAt, id], map: "prospect_inbound_reply_reviews_org_created_idx")
+  @@index([disposition, createdAt, id], map: "prospect_inbound_reply_reviews_disposition_created_idx")
+  @@map("prospect_inbound_reply_reviews")
 }
 
 enum ProspectEmailAttachmentRetentionCategory {

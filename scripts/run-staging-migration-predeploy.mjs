@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-205-20260829',
+  approval: 'torchiko-staging-lineage-to-206-20260830',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 205,
+  migrationCount: 206,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -43,6 +43,8 @@ const EXPECTED = Object.freeze({
   founderAbsencePredecessorPublicTableCount: 226,
   founderAbsenceCompleteCount: 200,
   founderAbsenceCompletePublicTableCount: 227,
+  replyReviewPredecessorCount: 205,
+  replyReviewPredecessorPublicTableCount: 231,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -58,10 +60,11 @@ const EXPECTED = Object.freeze({
   performancePredecessorFinalMigration: '20260827220000_add_operational_performance_indexes',
   founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
-  finalMigration: '20260829231500_enable_pdf_file_extraction',
-  manifestHash: '427e59d494447c92398577fb6a28afea34a48c1ffa423fac3f1216c1113af7e0',
-  // The reviewed 64-migration suffix after B.5 adds 38 public tables.
-  finalPublicTableCount: 231,
+  replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
+  finalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
+  manifestHash: 'aa10bf76b923f4917b38b002aa01c57aff34cc31846be350e7eb383b08484162',
+  // The reviewed 65-migration suffix after B.5 adds 39 public tables.
+  finalPublicTableCount: 232,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -224,6 +227,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('founder absence complete boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.replyReviewPredecessorCount - 1] !==
+    EXPECTED.replyReviewPredecessorFinalMigration
+  ) {
+    fail('reply review predecessor boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -243,6 +252,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.performancePredecessorCount &&
     rows.length !== EXPECTED.founderAbsencePredecessorCount &&
     rows.length !== EXPECTED.founderAbsenceCompleteCount &&
+    rows.length !== EXPECTED.replyReviewPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -288,6 +298,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.performancePredecessorCount) return 'performance-predecessor'
   if (rows.length === EXPECTED.founderAbsencePredecessorCount) return 'founder-absence-predecessor'
   if (rows.length === EXPECTED.founderAbsenceCompleteCount) return 'founder-absence-complete'
+  if (rows.length === EXPECTED.replyReviewPredecessorCount) return 'reply-review-predecessor'
   return 'complete'
 }
 
@@ -453,7 +464,9 @@ async function main() {
                               ? EXPECTED.founderAbsencePredecessorPublicTableCount
                               : initialState === 'founder-absence-complete'
                                 ? EXPECTED.founderAbsenceCompletePublicTableCount
-                                : EXPECTED.stagingBaselinePublicTableCount
+                                : initialState === 'reply-review-predecessor'
+                                  ? EXPECTED.replyReviewPredecessorPublicTableCount
+                                  : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

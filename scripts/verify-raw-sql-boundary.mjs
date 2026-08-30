@@ -69,11 +69,18 @@ const approvedPolicies = new Set([
   'tenant-venue-voice-quota-lock',
   'platform-prospect-mailbox-send-reservation-lock',
   'platform-prospect-campaign-send-reservation-lock',
+  'platform-prospect-inbound-reply-review-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/prospect-inbound-reply-review-actions.ts',
+    method: '$executeRaw',
+    hash: '571cc6b90febeeadd6a856c15b82e0397952b20c374d77b1e589910e8327d252',
+    policy: 'platform-prospect-inbound-reply-review-lock',
+  },
   {
     file: 'packages/api/src/lib/intake-file-clarifications.ts',
     method: '$executeRaw',

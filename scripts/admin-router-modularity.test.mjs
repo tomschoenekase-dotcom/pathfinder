@@ -277,6 +277,7 @@ const expectedAdminProcedures = [
   'reviewKnowledgeProposal',
   'reviewOffboardingPlanExports',
   'reviewProspectEmailAttachmentRetention',
+  'reviewProspectInboundReply',
   'reviewProspectOutreachDraft',
   'reviewPublicInterestSubmission',
   'reviewVenueMediaAsset',

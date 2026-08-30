@@ -17,3 +17,17 @@ be discarded and are preserved as auditable organization-level evidence.
 
 This slice adds no reply generation, send authority, follow-up scheduling, alternate-contact
 outreach, provider authentication, or customer contact.
+
+## Human-reviewed reply disposition
+
+The prospect correspondence view now lets a human platform administrator classify an exact
+canonical inbound message as `POSITIVE_INTEREST`, `QUESTION_OR_OBJECTION`, `NOT_INTERESTED`,
+`SUPPRESSION_REQUEST`, or `OTHER`, with a required reason. Torchiko never derives that disposition
+from the compact body preview.
+
+Every review is append-only, actor-bound, operation-idempotent, and revisioned. The email message
+holds a database-validated pointer to the current review, so later corrections do not leave two
+equal pieces of current truth. A positive-interest review updates the existing founder-attention
+event title and context for that exact message; other dispositions receive equally explicit copy.
+The review itself does not send email, suppress a contact, change opportunity stage, or authorize a
+follow-up. Those remain separate governed actions.

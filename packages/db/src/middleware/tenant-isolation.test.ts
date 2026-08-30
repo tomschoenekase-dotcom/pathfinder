@@ -280,6 +280,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectEmailThread',
       'ProspectEmailThreadProvider',
       'ProspectEmailMessage',
+      'ProspectInboundReplyReview',
       'ProspectEmailAttachmentRetentionRequest',
       'ProspectEmailEvent',
       'ProspectFollowup',
@@ -381,6 +382,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectSourceEvidence',
       'ProspectContactSuppressionEvent',
       'ProspectEmailEvent',
+      'ProspectInboundReplyReview',
       'ProspectImportReportEntry',
     ].flatMap((model) =>
       ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),

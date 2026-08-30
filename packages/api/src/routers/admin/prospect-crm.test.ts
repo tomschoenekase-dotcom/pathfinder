@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   prospect: vi.fn(),
   prepareAttachmentRetention: vi.fn(),
   reviewAttachmentRetention: vi.fn(),
+  reviewInboundReply: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -26,6 +27,7 @@ vi.mock('@pathfinder/db', () => ({
   createProspectAction: mocks.createProspect,
   prepareProspectEmailAttachmentRetentionAction: mocks.prepareAttachmentRetention,
   reviewProspectEmailAttachmentRetentionAction: mocks.reviewAttachmentRetention,
+  reviewProspectInboundReplyAction: mocks.reviewInboundReply,
   beginProspectImportAction: mocks.beginImport,
   addProspectNoteAction: vi.fn(),
   approveProspectImportAction: vi.fn(),
@@ -87,6 +89,7 @@ describe('admin prospect CRM router', () => {
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.createProspect).not.toHaveBeenCalled()
     expect(mocks.prepareAttachmentRetention).not.toHaveBeenCalled()
+    expect(mocks.reviewInboundReply).not.toHaveBeenCalled()
   })
 
   it('derives the human platform-admin actor from the authenticated session', async () => {
@@ -179,6 +182,8 @@ describe('admin prospect CRM router', () => {
     const messageSelect = query?.include?.emailThreads?.include?.messages?.select
     expect(messageSelect).toMatchObject({
       bodyPreview: true,
+      inboundReplyDisposition: true,
+      inboundReplyReviewedAt: true,
       bodyRetentionState: true,
       sourceReference: true,
       attachmentMetadata: true,
@@ -189,6 +194,12 @@ describe('admin prospect CRM router', () => {
       purpose: true,
       status: true,
       reviewReason: true,
+    })
+    expect(messageSelect.currentInboundReplyReview.select).toMatchObject({
+      disposition: true,
+      reason: true,
+      reviewerId: true,
+      revision: true,
     })
     expect(messageSelect).not.toHaveProperty('textBody')
     expect(messageSelect).not.toHaveProperty('htmlBody')
@@ -219,6 +230,28 @@ describe('admin prospect CRM router', () => {
       expect.objectContaining({ actor }),
     )
     expect(mocks.reviewAttachmentRetention).toHaveBeenCalledWith(expect.objectContaining({ actor }))
+  })
+
+  it('derives human authority for explicit inbound reply classification', async () => {
+    mocks.reviewInboundReply.mockResolvedValue({
+      review: { id: 'review-1', disposition: 'POSITIVE_INTEREST' },
+      replayed: false,
+    })
+
+    await testRouter.createCaller(context(true)).crm.reviewProspectInboundReply({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      messageId: 'message-1',
+      disposition: 'POSITIVE_INTEREST',
+      reason: 'They asked to schedule a product conversation.',
+    })
+
+    expect(mocks.reviewInboundReply).toHaveBeenCalledWith({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      messageId: 'message-1',
+      disposition: 'POSITIVE_INTEREST',
+      reason: 'They asked to schedule a product conversation.',
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
   })
 
   it('returns meeting transcript provenance metadata without transcript content', async () => {

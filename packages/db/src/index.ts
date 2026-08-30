@@ -1305,6 +1305,7 @@ export {
   scheduleProspectFollowupAction,
 } from './helpers/prospect-followup-actions'
 export { recordProspectInboundReplyAction } from './helpers/prospect-inbound-reply-actions'
+export { reviewProspectInboundReplyAction } from './helpers/prospect-inbound-reply-review-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

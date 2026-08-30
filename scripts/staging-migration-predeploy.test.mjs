@@ -71,9 +71,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 205-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 206-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 231)
+  assert.equal(EXPECTED.finalPublicTableCount, 232)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -82,6 +82,8 @@ test('repository migration manifest remains frozen at the reviewed 205-file chai
   assert.equal(EXPECTED.founderAbsencePredecessorPublicTableCount, 226)
   assert.equal(EXPECTED.founderAbsenceCompleteCount, 200)
   assert.equal(EXPECTED.founderAbsenceCompletePublicTableCount, 227)
+  assert.equal(EXPECTED.replyReviewPredecessorCount, 205)
+  assert.equal(EXPECTED.replyReviewPredecessorPublicTableCount, 231)
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
     () => assertFrozenManifest({ ...manifest, hash: '0'.repeat(64) }),
@@ -174,6 +176,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
   )
   assert.equal(
@@ -192,6 +195,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
   )
   assert.equal(
@@ -208,6 +212,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
   )
   assert.equal(
@@ -223,6 +228,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
   )
   assert.equal(
@@ -237,7 +243,16 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.replyReviewPredecessorCount), manifest),
+    'reply-review-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.replyReviewPredecessorCount), manifest),
+    ['20260830165000_add_prospect_inbound_reply_reviews'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
@@ -400,6 +415,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
+      '20260830165000_add_prospect_inbound_reply_reviews',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -467,6 +483,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260829220000_add_interview_clarification_resolutions',
     '20260829223000_add_file_clarification_resolutions',
     '20260829231500_enable_pdf_file_extraction',
+    '20260830165000_add_prospect_inbound_reply_reviews',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

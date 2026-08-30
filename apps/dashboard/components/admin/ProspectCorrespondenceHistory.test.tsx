@@ -2,7 +2,12 @@
 import React from 'react'
 import axe from 'axe-core'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../lib/trpc', () => ({
+  useTRPCClient: () => ({ admin: { reviewProspectInboundReply: { mutate: vi.fn() } } }),
+}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 import { ProspectCorrespondenceHistory } from './ProspectCorrespondenceHistory'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -50,6 +55,14 @@ describe('ProspectCorrespondenceHistory', () => {
     expect(screen.getByText(/metadata only/iu)).toBeTruthy()
     expect(screen.getByText(/not downloaded/iu)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /retention review/iu })).toBeNull()
+  })
+
+  it('exposes human classification only when reply review actions are enabled', () => {
+    render(<ProspectCorrespondenceHistory threads={threads} enableReplyReviewActions />)
+
+    expect(screen.getByText('Human reply review')).toBeTruthy()
+    expect(screen.getByText(/does not infer sentiment from this preview/iu)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Classify reply' })).toBeTruthy()
   })
 
   it('fails closed when the source URL is unsafe', () => {

@@ -3,7 +3,7 @@ import { TRPCProvider } from '../../../lib/trpc'
 
 export default function ProspectCorrespondenceFixturePage() {
   return (
-    <main className="min-h-screen bg-slate-100 p-4 sm:p-8">
+    <main data-fixture="prospect-correspondence" className="min-h-screen bg-slate-100 p-4 sm:p-8">
       <TRPCProvider scopeKey="fixture:prospect-correspondence">
         <div className="mx-auto max-w-3xl">
           <ProspectCorrespondenceHistory
@@ -22,6 +22,15 @@ export default function ProspectCorrespondenceFixturePage() {
                       'We updated visitor hours for September and added the fall sculpture program. The original Gmail message remains the canonical source.',
                     sourceReference:
                       'https://mail.google.com/mail/u/team%40torchiko.com/#all/message%2Fone',
+                    inboundReplyDisposition: 'POSITIVE_INTEREST' as const,
+                    currentInboundReplyReview: {
+                      id: '55555555-5555-4555-8555-555555555555',
+                      disposition: 'POSITIVE_INTEREST' as const,
+                      reason: 'They asked to schedule a product conversation next week.',
+                      reviewerId: 'founder-fixture',
+                      revision: 1,
+                      createdAt: '2026-08-30T16:50:00.000Z',
+                    },
                     attachmentMetadata: [
                       {
                         providerAttachmentId: 'attachment-1',
@@ -57,6 +66,7 @@ export default function ProspectCorrespondenceFixturePage() {
               },
             ]}
             enableRetentionActions
+            enableReplyReviewActions
           />
         </div>
       </TRPCProvider>

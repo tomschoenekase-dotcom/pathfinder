@@ -2,6 +2,7 @@ import { ExternalLink, MessageSquareText } from 'lucide-react'
 
 import { safeGmailSourceUrl } from '../../lib/gmail-source-url'
 import { ProspectAttachmentRetentionControl } from './ProspectAttachmentRetentionControl'
+import { ProspectInboundReplyReviewControl } from './ProspectInboundReplyReviewControl'
 
 type Attachment = {
   providerAttachmentId: string
@@ -52,6 +53,26 @@ type ProspectCorrespondenceMessage = {
   toAddresses: string[]
   bodyPreview: string | null
   sourceReference: string | null
+  inboundReplyDisposition?:
+    | 'POSITIVE_INTEREST'
+    | 'QUESTION_OR_OBJECTION'
+    | 'NOT_INTERESTED'
+    | 'SUPPRESSION_REQUEST'
+    | 'OTHER'
+    | null
+  currentInboundReplyReview?: {
+    id: string
+    disposition:
+      | 'POSITIVE_INTEREST'
+      | 'QUESTION_OR_OBJECTION'
+      | 'NOT_INTERESTED'
+      | 'SUPPRESSION_REQUEST'
+      | 'OTHER'
+    reason: string
+    reviewerId: string
+    revision: number
+    createdAt: Date | string
+  } | null
   attachmentMetadata?: unknown
   attachmentRetentionRequests?: RetentionRequest[]
   occurredAt: Date | string
@@ -66,9 +87,11 @@ type ProspectCorrespondenceThread = {
 export function ProspectCorrespondenceHistory({
   threads,
   enableRetentionActions = false,
+  enableReplyReviewActions = false,
 }: {
   threads: ProspectCorrespondenceThread[]
   enableRetentionActions?: boolean
+  enableReplyReviewActions?: boolean
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -90,7 +113,7 @@ export function ProspectCorrespondenceHistory({
                 <h3 className="text-sm font-semibold text-slate-900">
                   {thread.subject ?? 'Email thread'}
                 </h3>
-                <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
                   {thread.messages.length} message{thread.messages.length === 1 ? '' : 's'}
                 </p>
               </div>
@@ -106,7 +129,7 @@ export function ProspectCorrespondenceHistory({
                         >
                           {message.direction} · {message.status}
                         </span>
-                        <time className="text-xs text-slate-400">
+                        <time className="text-xs text-slate-600">
                           {new Date(message.occurredAt).toLocaleString()}
                         </time>
                       </div>
@@ -133,6 +156,12 @@ export function ProspectCorrespondenceHistory({
                           Original source link unavailable.
                         </p>
                       )}
+                      {message.direction === 'INBOUND' && enableReplyReviewActions ? (
+                        <ProspectInboundReplyReviewControl
+                          messageId={message.id}
+                          review={message.currentInboundReplyReview ?? null}
+                        />
+                      ) : null}
                       {messageAttachments.length ? (
                         <div className="mt-4 border-t border-slate-100 pt-4">
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">

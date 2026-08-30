@@ -7,6 +7,7 @@ import {
   linkProspectConversionAction,
   prepareProspectEmailAttachmentRetentionAction,
   reviewProspectEmailAttachmentRetentionAction,
+  reviewProspectInboundReplyAction,
   updateProspectPipelineAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -21,6 +22,32 @@ import {
 } from './prospect-crm-common'
 
 export const adminProspectCrmMutationsRouter = router({
+  reviewProspectInboundReply: adminProcedure
+    .input(
+      z
+        .object({
+          operationId: z.string().uuid(),
+          messageId: z.string().min(1).max(191),
+          disposition: z.enum([
+            'POSITIVE_INTEREST',
+            'QUESTION_OR_OBJECTION',
+            'NOT_INTERESTED',
+            'SUPPRESSION_REQUEST',
+            'OTHER',
+          ]),
+          reason: prospectBoundedText(2000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        reviewProspectInboundReplyAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapProspectActionError),
+      ),
+    ),
+
   prepareProspectEmailAttachmentRetention: adminProcedure
     .input(
       z

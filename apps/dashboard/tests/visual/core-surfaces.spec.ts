@@ -221,6 +221,30 @@ test('prospect rehearsal stays visibly no-send across real browser widths', asyn
   expect(runtimeErrors).toEqual([])
 })
 
+test('human-reviewed prospect replies stay explicit and bounded across real browser widths', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/prospect-correspondence`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(page.locator('[data-fixture="prospect-correspondence"]')).toBeVisible()
+  await expect(page.getByText('Positive interest · v1')).toBeVisible()
+  await expect(page.getByText(/does not infer sentiment from this preview/)).toBeVisible()
+  await expect(page.getByText(/cannot send, suppress, change pipeline stage/)).toBeVisible()
+  const disposition = page.getByLabel('Disposition')
+  await disposition.focus()
+  await expect(disposition).toBeFocused()
+  const reason = page.getByLabel('Review reason')
+  await reason.fill('Reviewed against the complete canonical Gmail message.')
+  await expect(page.getByRole('button', { name: 'Record a new review' })).toBeEnabled()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'prospect-inbound-reply-review')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('Founder Control Room shell is responsive and restores mobile navigation focus', async ({
   page,
 }, testInfo) => {

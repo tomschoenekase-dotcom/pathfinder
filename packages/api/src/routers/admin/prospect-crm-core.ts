@@ -101,6 +101,18 @@ export const adminProspectCrmCoreRouter = router({
                     toAddresses: true,
                     subject: true,
                     bodyPreview: true,
+                    inboundReplyDisposition: true,
+                    inboundReplyReviewedAt: true,
+                    currentInboundReplyReview: {
+                      select: {
+                        id: true,
+                        disposition: true,
+                        reason: true,
+                        reviewerId: true,
+                        revision: true,
+                        createdAt: true,
+                      },
+                    },
                     bodyRetentionState: true,
                     sourceReference: true,
                     attachmentMetadata: true,

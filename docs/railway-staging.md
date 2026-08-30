@@ -203,7 +203,7 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The reviewed 205-migration state contains 231 public tables: the B.5 boundary contains 193 and the
+The reviewed 206-migration state contains 232 public tables: the B.5 boundary contains 193 and the
 subsequent 64-migration suffix adds 38. The post-migration guard freezes that exact topology along
 with the ordered ledger, checksums, valid indexes, and validated constraints.
 

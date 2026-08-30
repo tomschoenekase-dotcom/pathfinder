@@ -97,6 +97,7 @@ const APPEND_ONLY_MODELS = [
   'ProspectSourceEvidence',
   'ProspectContactSuppressionEvent',
   'ProspectEmailEvent',
+  'ProspectInboundReplyReview',
   'ProspectImportReportEntry',
   'PlatformReleaseEvidence',
 ] as const
