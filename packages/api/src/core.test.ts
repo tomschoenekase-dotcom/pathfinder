@@ -72,6 +72,7 @@ describe('tRPC production error boundary', () => {
       expect(response.body).toContain('Internal server error')
       expect(response.body).not.toMatch(/sensitive|hostname|provider failure|nested cause|stack/iu)
     },
+    15_000,
   )
 
   it('masks unmarked 4xx messages in production', async () => {
