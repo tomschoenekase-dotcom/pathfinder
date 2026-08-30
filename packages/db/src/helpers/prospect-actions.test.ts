@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   archiveProspectAction,
   beginProspectImportAction,
+  commitProspectImportBatchAction,
   convertPublicInterestToProspectAction,
   createProspectAction,
   resolveProspectDuplicateAction,
@@ -131,5 +132,52 @@ describe('prospect action safety boundaries', () => {
       scanProspectDuplicatesAction({ actor, prospectLimit: 20_001 }, client as never),
     ).resolves.toMatchObject({ organizationsScanned: 20_001, truncated: false })
     expect(offset).toBe(20_001)
+  })
+
+  it('keeps unexpected import failure details out of durable row state', async () => {
+    const privateError = 'postgres://operator:secret@example.test/torchiko'
+    const rowUpdateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
+    const finalTransaction = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PARTIAL' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const client = {
+      prospectImport: {
+        findUnique: vi.fn().mockResolvedValue({ status: 'APPROVED', cancelRequestedAt: null }),
+        update: vi.fn().mockResolvedValue({ status: 'PROCESSING' }),
+      },
+      prospectImportRow: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'row-1' }]),
+        updateMany: rowUpdateMany,
+        groupBy: vi.fn().mockResolvedValue([{ status: 'FAILED', _count: { _all: 1 } }]),
+      },
+      $transaction: vi
+        .fn()
+        .mockRejectedValueOnce(new Error(privateError))
+        .mockImplementationOnce((work) => work(finalTransaction)),
+    }
+
+    await expect(
+      commitProspectImportBatchAction(
+        { importId: 'import-1', limit: 1, workerId: 'worker-1', actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ processed: 0, failed: 1, done: true })
+    expect(rowUpdateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'UNEXPECTED',
+          errorMessage: 'Prospect import failed (UNEXPECTED).',
+        }),
+      }),
+    )
+    expect(JSON.stringify(rowUpdateMany.mock.calls)).not.toContain(privateError)
   })
 })

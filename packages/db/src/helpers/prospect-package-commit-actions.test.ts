@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   claimProspectStagingPackageRecordsAction,
+  commitProspectStagingPackageClaimAction,
   finalizeProspectStagingPackageAction,
 } from './prospect-package-commit-actions'
 
@@ -83,5 +84,41 @@ describe('staging package commit state', () => {
       status: 'PARTIAL',
       reconciliation: { imported: 20_000, failed: 2, truncatedErrors: true },
     })
+  })
+
+  it('keeps unexpected commit failure details out of durable source-record state', async () => {
+    const privateError = 'postgres://operator:secret@example.test/torchiko'
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const client = {
+      prospectImportSourceRecord: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'record-1',
+            claimToken: 'claim-1',
+            claimOwner: 'worker-1',
+            processingStatus: 'PROCESSING',
+          },
+        ]),
+        updateMany,
+      },
+      $transaction: vi.fn().mockRejectedValue(new Error(privateError)),
+    }
+
+    await expect(
+      commitProspectStagingPackageClaimAction(
+        { claimToken: 'claim-1', workerId: 'worker-1' },
+        client as never,
+      ),
+    ).resolves.toEqual({ claimToken: 'claim-1', attempted: 1, processed: 0, failed: 1 })
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processingStatus: 'FAILED',
+          errorCode: 'COMMIT_FAILED',
+          errorMessage: 'Prospect staging commit failed (COMMIT_FAILED).',
+        }),
+      }),
+    )
+    expect(JSON.stringify(updateMany.mock.calls)).not.toContain(privateError)
   })
 })

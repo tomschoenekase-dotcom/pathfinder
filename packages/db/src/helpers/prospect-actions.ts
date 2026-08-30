@@ -2013,13 +2013,13 @@ export async function commitProspectImportBatchAction(
       processed += 1
     } catch (error) {
       failed += 1
+      const errorCode = error instanceof ProspectActionError ? error.code : 'UNEXPECTED'
       await client.prospectImportRow.updateMany({
         where: { id: row.id, claimToken },
         data: {
           status: 'FAILED',
-          errorCode: error instanceof ProspectActionError ? error.code : 'UNEXPECTED',
-          errorMessage:
-            error instanceof Error ? error.message.slice(0, 500) : 'Unexpected import error',
+          errorCode,
+          errorMessage: `Prospect import failed (${errorCode}).`,
           processedAt: new Date(),
           claimToken: null,
           claimOwner: null,

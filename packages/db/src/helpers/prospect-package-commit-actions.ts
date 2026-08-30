@@ -651,6 +651,7 @@ export async function commitProspectStagingPackageClaimAction(
       processed += 1
     } catch (error) {
       failed += 1
+      const errorCode = error instanceof ProspectPackageCommitError ? error.code : 'COMMIT_FAILED'
       await client.prospectImportSourceRecord.updateMany({
         where: {
           id: source.id,
@@ -663,11 +664,8 @@ export async function commitProspectStagingPackageClaimAction(
           claimToken: null,
           claimOwner: null,
           claimExpiresAt: null,
-          errorCode: error instanceof ProspectPackageCommitError ? error.code : 'COMMIT_FAILED',
-          errorMessage: (error instanceof Error
-            ? error.message
-            : 'Unknown staging record failure'
-          ).slice(0, 2_000),
+          errorCode,
+          errorMessage: `Prospect staging commit failed (${errorCode}).`,
           processedAt: now,
         },
       })
