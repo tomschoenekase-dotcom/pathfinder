@@ -177,7 +177,6 @@ export async function processSendWelcomeEmailJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
       execution,
     })
     throw error

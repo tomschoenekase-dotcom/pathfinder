@@ -401,7 +401,7 @@ export async function processWeeklyDigestJob(
       throw error
     }
     const message = error instanceof Error ? error.message : 'Unknown weekly digest error'
-    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+    await recordJobFailure({ jobRecordId, error, execution })
 
     try {
       await markDigestStatus(payload, { status: 'FAILED' })

@@ -164,8 +164,6 @@ export async function processEmbedCompanyKnowledgeJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage:
-        error instanceof Error ? error.message : 'Unknown Company Knowledge embed error',
       execution,
     })
     throw error

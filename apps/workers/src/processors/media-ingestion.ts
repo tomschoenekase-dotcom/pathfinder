@@ -1127,7 +1127,7 @@ export async function processMediaIngestionJob(
     }
     const error = normalizeMediaJobError(caughtError, signal)
     const message = error instanceof Error ? error.message : 'Unknown media ingestion error'
-    await recordJobFailure({ jobRecordId: recordId, error, errorMessage: message, execution })
+    await recordJobFailure({ jobRecordId: recordId, error, execution })
 
     try {
       await withTenantIsolationBypass(() =>

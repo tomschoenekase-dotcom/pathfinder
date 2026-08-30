@@ -456,7 +456,6 @@ export async function processWeeklyReportJob(
       await recordJobFailure({
         jobRecordId,
         error,
-        errorMessage: error.message,
         execution,
       })
       throw error
@@ -484,7 +483,7 @@ export async function processWeeklyReportJob(
     }
     const message = error instanceof Error ? error.message : 'Unknown weekly report error'
     if (!leaseConflict) {
-      await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+      await recordJobFailure({ jobRecordId, error, execution })
     }
 
     if (executionLeaseToken !== null) {

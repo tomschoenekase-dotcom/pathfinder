@@ -603,7 +603,7 @@ describe('media ingestion lifecycle', () => {
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', {
       status: 'FAILED',
-      error: 'temp unavailable',
+      error: 'JOB_ATTEMPTS_EXHAUSTED',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',

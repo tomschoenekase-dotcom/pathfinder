@@ -205,7 +205,6 @@ export async function processEmbedPlaceJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown embed place error',
       execution,
     })
 

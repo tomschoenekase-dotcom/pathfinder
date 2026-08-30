@@ -144,7 +144,6 @@ export async function processEvaluationDispatchJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown evaluation dispatch error',
       execution,
     })
     throw error

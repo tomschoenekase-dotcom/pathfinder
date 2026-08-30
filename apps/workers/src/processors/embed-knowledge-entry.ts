@@ -195,7 +195,6 @@ export async function processEmbedKnowledgeEntryJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown embed knowledge entry error',
       execution,
     })
 

@@ -1129,7 +1129,6 @@ export async function processEvaluationRunJob(
       await recordJobFailure({
         jobRecordId,
         error,
-        errorMessage: error.message,
         execution,
       })
       throw error
@@ -1150,7 +1149,6 @@ export async function processEvaluationRunJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown evaluation runner error',
       execution,
     })
     throw error

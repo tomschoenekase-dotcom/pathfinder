@@ -826,7 +826,6 @@ export async function processAnalyticsEnrichmentJob(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown analytics enrichment error',
       execution,
     })
 

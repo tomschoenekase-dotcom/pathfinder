@@ -411,7 +411,6 @@ export async function processAnswerAnalysisJob(
       await recordJobFailure({
         jobRecordId,
         error,
-        errorMessage: error.message,
         execution,
       })
       throw error
@@ -439,7 +438,7 @@ export async function processAnswerAnalysisJob(
     }
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
     if (!leaseConflict) {
-      await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+      await recordJobFailure({ jobRecordId, error, execution })
     }
 
     if (leaseToken !== null) {

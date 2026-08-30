@@ -252,7 +252,7 @@ describe('processWeeklyDigestJob', () => {
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'provider unavailable',
+      error: 'JOB_ATTEMPTS_EXHAUSTED',
       attemptNumber: 3,
       maxAttempts: 3,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',

@@ -61,7 +61,6 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: 'Voice session recovery run failed.',
       execution,
     })
     logger.error({

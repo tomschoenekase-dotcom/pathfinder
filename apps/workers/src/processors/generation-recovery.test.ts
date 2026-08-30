@@ -151,7 +151,7 @@ describe('processGenerationRecovery', () => {
       'job_record_1',
       expect.objectContaining({
         status: 'FAILED',
-        error: 'Generation recovery run failed.',
+        error: 'JOB_RETRY_ELIGIBLE',
         attemptNumber: 2,
         maxAttempts: 3,
         failureDisposition: 'RETRY_ELIGIBLE',
@@ -172,7 +172,7 @@ describe('processGenerationRecovery', () => {
       'job_record_1',
       expect.objectContaining({
         status: 'FAILED',
-        error: 'Generation recovery run failed.',
+        error: 'JOB_ATTEMPTS_EXHAUSTED',
       }),
     )
     const serializedLogs = JSON.stringify(mocks.loggerError.mock.calls)

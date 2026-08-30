@@ -118,7 +118,6 @@ export async function processGenerationRecovery(
     await recordJobFailure({
       jobRecordId,
       error,
-      errorMessage: 'Generation recovery run failed.',
       execution,
     })
     logger.error({

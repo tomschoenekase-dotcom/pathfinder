@@ -57,15 +57,15 @@ export function classifyJobFailure(
 export async function recordJobFailure(params: {
   jobRecordId: string
   error: unknown
-  errorMessage: string
   execution: JobExecutionMetadata
 }): Promise<void> {
   const failureDisposition = classifyJobFailure(params.error, params.execution)
+  const failureCode = `JOB_${failureDisposition}`
 
   try {
     await updateJobRecord(params.jobRecordId, {
       status: 'FAILED',
-      error: params.errorMessage,
+      error: failureCode,
       attemptNumber: params.execution.attemptNumber,
       maxAttempts: params.execution.maxAttempts,
       failureDisposition,
@@ -77,7 +77,7 @@ export async function recordJobFailure(params: {
       attemptNumber: params.execution.attemptNumber,
       maxAttempts: params.execution.maxAttempts,
       failureDisposition,
-      originalError: params.errorMessage,
+      originalErrorCode: failureCode,
       error:
         persistenceError instanceof Error
           ? persistenceError.message

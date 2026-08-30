@@ -79,7 +79,6 @@ describe('voice session recovery processor', () => {
       expect.objectContaining({
         jobRecordId: 'job_record_1',
         error: failure,
-        errorMessage: 'Voice session recovery run failed.',
       }),
     )
     expect(mocks.updateJob).not.toHaveBeenCalled()

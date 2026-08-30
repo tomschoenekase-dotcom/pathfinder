@@ -86,19 +86,19 @@ describe('recordJobFailure', () => {
     await expect(
       recordJobFailure({
         jobRecordId: 'record_1',
-        error: new Error('temporary outage'),
-        errorMessage: 'temporary outage',
+        error: new Error('postgres://operator:secret@example.test/torchiko'),
         execution: { bullJobId: 'bull_1', attemptNumber: 2, maxAttempts: 6 },
       }),
     ).resolves.toBeUndefined()
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('record_1', {
       status: 'FAILED',
-      error: 'temporary outage',
+      error: 'JOB_RETRY_ELIGIBLE',
       attemptNumber: 2,
       maxAttempts: 6,
       failureDisposition: 'RETRY_ELIGIBLE',
     })
+    expect(JSON.stringify(mocks.updateJobRecord.mock.calls)).not.toContain('operator:secret')
   })
 
   it('absorbs JobRecord persistence errors so they cannot replace the processing failure', async () => {
@@ -108,7 +108,6 @@ describe('recordJobFailure', () => {
       recordJobFailure({
         jobRecordId: 'record_1',
         error: new UnrecoverableError('invalid payload'),
-        errorMessage: 'invalid payload',
         execution: { attemptNumber: 1, maxAttempts: 6 },
       }),
     ).resolves.toBeUndefined()
@@ -120,8 +119,7 @@ describe('recordJobFailure', () => {
     expect(mocks.loggerError).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'workers.job-record.failure-persistence-failed',
-        originalError: 'invalid payload',
-        error: 'job record database unavailable',
+        originalErrorCode: 'JOB_UNRECOVERABLE',
       }),
     )
   })

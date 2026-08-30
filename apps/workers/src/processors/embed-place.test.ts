@@ -202,7 +202,7 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'Place place_1 not found',
+      error: 'JOB_UNRECOVERABLE',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'UNRECOVERABLE',
@@ -232,7 +232,7 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'Embedding contentUpdatedAt must be an ISO UTC timestamp',
+      error: 'JOB_UNRECOVERABLE',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'UNRECOVERABLE',
@@ -289,7 +289,7 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'Identical embedding work is currently leased',
+      error: 'JOB_ATTEMPTS_EXHAUSTED',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',
@@ -344,7 +344,7 @@ describe('processEmbedPlaceJob', () => {
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'scope changed',
+      error: 'JOB_ATTEMPTS_EXHAUSTED',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',
