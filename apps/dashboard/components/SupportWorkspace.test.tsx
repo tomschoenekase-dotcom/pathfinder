@@ -394,13 +394,20 @@ describe('SupportWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledOnce())
     const operationId = mocks.addMessage.mock.calls[0]![0].operationId
-    expect(screen.getByRole('alert').textContent).toContain('could not confirm')
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('could not confirm'),
+    )
     expect(document.body.textContent).not.toContain(sentinel)
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('Keep this reply.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
     expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(operationId)
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
+        false,
+      ),
+    )
   })
 
   it('ignores a late create result after a render-synchronous venue scope change', async () => {
@@ -507,10 +514,12 @@ describe('SupportWorkspace', () => {
 
   it('sends reply references, fences same-tick duplicates, and rotates identity only after edits', async () => {
     const pending = deferred<never>()
+    const retry = deferred<never>()
+    const changed = deferred<never>()
     mocks.addMessage
       .mockReturnValueOnce(pending.promise)
-      .mockRejectedValueOnce(new Error('Again'))
-      .mockRejectedValueOnce(new Error('Again'))
+      .mockReturnValueOnce(retry.promise)
+      .mockReturnValueOnce(changed.promise)
     renderWorkspace({ initialEligibleAttachments: eligible })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the file.' } })
     fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
@@ -522,13 +531,30 @@ describe('SupportWorkspace', () => {
     const first = mocks.addMessage.mock.calls[0]![0]
     expect(first).toMatchObject({ attachments: [{ intakeUploadId: 'upload_alpha' }] })
     await act(async () => pending.reject(new Error('Unknown outcome.')))
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
+        false,
+      ),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
     expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(first.operationId)
+    await act(async () => retry.reject(new Error('Again')))
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
+        false,
+      ),
+    )
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the revised file.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
     await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(3))
     expect(mocks.addMessage.mock.calls[2]![0].operationId).not.toBe(first.operationId)
+    await act(async () => changed.reject(new Error('Again')))
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Send reply' }).disabled).toBe(
+        false,
+      ),
+    )
   })
 
   it('fences conversation and venue navigation while a reply result is unresolved', async () => {
