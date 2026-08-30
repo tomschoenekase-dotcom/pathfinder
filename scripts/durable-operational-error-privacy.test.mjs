@@ -101,3 +101,20 @@ test('agent failure APIs accept only code and retry policy', async () => {
     assert.doesNotMatch(source, /errorMessage:\s*(?:string|error\.message|input\.errorMessage)/u)
   }
 })
+
+test('job-record persistence derives terminal error from failure disposition', async () => {
+  const root = new URL('../', import.meta.url)
+  const jobRecords = await readFile(
+    new URL('packages/db/src/helpers/job-records.ts', root),
+    'utf8',
+  )
+  const jobExecution = await readFile(
+    new URL('apps/workers/src/lib/job-execution.ts', root),
+    'utf8',
+  )
+
+  assert.doesNotMatch(jobRecords, /WriteJobRecordParams[\s\S]{0,400}\berror\??:\s*string/u)
+  assert.doesNotMatch(jobRecords, /status:\s*'FAILED'[\s\S]{0,200}\berror:\s*string/u)
+  assert.match(jobRecords, /error:\s*`JOB_\$\{data\.failureDisposition\}`/u)
+  assert.doesNotMatch(jobExecution, /updateJobRecord\([\s\S]{0,300}\berror:/u)
+})

@@ -93,7 +93,6 @@ describe('recordJobFailure', () => {
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('record_1', {
       status: 'FAILED',
-      error: 'JOB_RETRY_ELIGIBLE',
       attemptNumber: 2,
       maxAttempts: 6,
       failureDisposition: 'RETRY_ELIGIBLE',

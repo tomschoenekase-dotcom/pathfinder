@@ -65,7 +65,6 @@ export async function recordJobFailure(params: {
   try {
     await updateJobRecord(params.jobRecordId, {
       status: 'FAILED',
-      error: failureCode,
       attemptNumber: params.execution.attemptNumber,
       maxAttempts: params.execution.maxAttempts,
       failureDisposition,

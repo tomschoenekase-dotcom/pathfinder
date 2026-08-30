@@ -8,7 +8,6 @@ export type WriteJobRecordParams = {
   tenantId?: string | null
   status: 'RUNNING'
   payload?: Record<string, unknown>
-  error?: string | null
   startedAt: Date
   completedAt?: Date | null
   attemptNumber?: number | null
@@ -98,7 +97,7 @@ export async function writeJobRecord(params: WriteJobRecordParams): Promise<stri
     venueId,
     status: params.status,
     payload,
-    error: params.error ?? null,
+    error: null,
     startedAt: params.startedAt,
     completedAt: params.completedAt ?? null,
     attemptNumber: params.attemptNumber ?? null,
@@ -146,7 +145,6 @@ export async function updateJobRecord(
     | { status: 'COMPLETE'; completedAt?: Date }
     | {
         status: 'FAILED'
-        error: string
         attemptNumber: number
         maxAttempts: number
         failureDisposition: JobFailureDisposition
@@ -161,7 +159,7 @@ export async function updateJobRecord(
         data.status === 'FAILED'
           ? {
               status: data.status,
-              error: data.error,
+              error: `JOB_${data.failureDisposition}`,
               attemptNumber: data.attemptNumber,
               maxAttempts: data.maxAttempts,
               failureDisposition: data.failureDisposition,

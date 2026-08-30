@@ -196,7 +196,6 @@ describe('updateJobRecord', () => {
 
     await updateJobRecord('record_1', {
       status: 'FAILED',
-      error: 'temporary outage',
       attemptNumber: 1,
       maxAttempts: 6,
       failureDisposition: 'RETRY_ELIGIBLE',
@@ -207,7 +206,7 @@ describe('updateJobRecord', () => {
       where: { id: 'record_1' },
       data: {
         status: 'FAILED',
-        error: 'temporary outage',
+        error: 'JOB_RETRY_ELIGIBLE',
         attemptNumber: 1,
         maxAttempts: 6,
         failureDisposition: 'RETRY_ELIGIBLE',
@@ -225,7 +224,6 @@ describe('updateJobRecord', () => {
 
       await updateJobRecord('record_1', {
         status: 'FAILED',
-        error: 'permanent failure',
         attemptNumber: 6,
         maxAttempts: 6,
         failureDisposition,
@@ -236,6 +234,7 @@ describe('updateJobRecord', () => {
         where: { id: 'record_1' },
         data: expect.objectContaining({
           status: 'FAILED',
+          error: `JOB_${failureDisposition}`,
           failureDisposition,
           terminalAt: completedAt,
           completedAt,
