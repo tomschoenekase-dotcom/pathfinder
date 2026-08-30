@@ -122,7 +122,7 @@ test('agent failure APIs accept only code and retry policy', async () => {
   )
   assert.match(bridgeRunner, /durableTaskFailureCodes\.has\(error\.message\)/u)
   assert.doesNotMatch(bridgeRunner, /\^\[A-Z\]\[A-Z0-9_\][^\n]*\.test\(code\)/u)
-  assert.match(agentRunActions, /errorCode:\s*agentRunFailureCodeSchema/u)
+  assert.match(agentRunActions, /errorCode:\s*AgentRunFailureCode/u)
   assert.doesNotMatch(agentRunActions, /errorCode:\s*z\.string\(\)\.regex/u)
   assert.match(agentRunWorker, /error\.code === 'provider-connection-timeout'/u)
   assert.match(agentRunWorker, /errorCode:\s*'PROVIDER_REQUEST_FAILED'/u)

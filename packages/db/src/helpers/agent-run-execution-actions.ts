@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import type { InputJsonValue } from '@prisma/client/runtime/library'
 import { z } from 'zod'
 
+import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
+
 import { db } from '../client'
 
 export type AgentRunExecutionClient = Pick<typeof db, '$transaction'>
@@ -31,32 +33,6 @@ const leaseSchema = scopeSchema.extend({
     .default(60_000),
 })
 const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
-const agentRunFailureCodeSchema = z.enum([
-  'AGENT_EXECUTION_FAILED',
-  'CANCELLED_OR_LEASE_LOST',
-  'CAPABILITY_MISMATCH',
-  'CAPABILITY_NOT_ENTITLED',
-  'CAPABILITY_UNAVAILABLE',
-  'NO_HEALTHY_ROUTE',
-  'PROVIDER_CONFIGURATION_REQUIRED',
-  'PROVIDER_CONNECTION_FAILED',
-  'PROVIDER_INVALID_RESPONSE',
-  'PROVIDER_REQUEST_ABORTED',
-  'PROVIDER_REQUEST_FAILED',
-  'PROVIDER_UNAVAILABLE',
-  'REQUEST_BUDGET_CEILING_EXCEEDED',
-  'TASK_CANCELLED',
-  'TASK_ERROR_OUTPUT_TOO_LARGE',
-  'TASK_EXECUTOR_EMPTY_RESULT',
-  'TASK_EXECUTOR_FAILED',
-  'TASK_EXECUTOR_INVALID_RESULT',
-  'TASK_EXECUTOR_UNAVAILABLE',
-  'TASK_OUTPUT_TOO_LARGE',
-  'TASK_PROVIDER_MISMATCH',
-  'TASK_TIMEOUT',
-  'TASK_VENUE_MISMATCH',
-  'TIMEOUT',
-])
 
 /** Atomically claims a queued run or takes over a running run whose lease expired. */
 export async function claimAgentRunExecution(
@@ -304,7 +280,7 @@ export async function failAgentRunExecution(
   const input = scopeSchema
     .extend({
       leaseToken: z.string().uuid(),
-      errorCode: agentRunFailureCodeSchema,
+      errorCode: AgentRunFailureCode,
       retryable: z.boolean(),
     })
     .parse(rawInput)

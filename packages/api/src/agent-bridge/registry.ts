@@ -1,7 +1,11 @@
 import { z } from 'zod'
 
 import { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
-import { AgentBridgeProvider, AgentCostStatus } from '@pathfinder/contracts/agent-bridge'
+import {
+  AgentBridgeProvider,
+  AgentCostStatus,
+  AgentRunFailureCode,
+} from '@pathfinder/contracts/agent-bridge'
 import {
   claimAgentBridgeTask,
   completeAgentBridgeTask,
@@ -176,7 +180,7 @@ export function createAgentBridgeRegistry(
         .extend({
           runId: z.string().trim().min(1).max(191),
           leaseToken: z.string().uuid(),
-          errorCode: z.string().trim().min(1).max(100),
+          errorCode: AgentRunFailureCode,
           retryable: z.boolean(),
         })
         .parse(raw)

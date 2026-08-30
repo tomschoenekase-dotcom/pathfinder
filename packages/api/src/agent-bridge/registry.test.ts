@@ -155,6 +155,25 @@ describe('agent bridge registry', () => {
     )
   })
 
+  it('rejects unknown task failure codes before calling the database boundary', async () => {
+    const registry = createAgentBridgeRegistry()
+
+    expect(() =>
+      registry.failTask(
+        {
+          sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          venueId: 'venue-1',
+          runId: 'run-1',
+          leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          errorCode: 'UPSTREAM_SECRET_TOKEN',
+          retryable: true,
+        },
+        { credential },
+      ),
+    ).toThrow()
+    expect(mocks.fail).not.toHaveBeenCalled()
+  })
+
   it('mounts prospect tools through the authenticated bridge and derives authority fields', async () => {
     mocks.prospectCall.mockResolvedValue({ id: 'draft-1' })
     const result = await createAgentBridgeRegistry().callProspectTool(
