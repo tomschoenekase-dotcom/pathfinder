@@ -327,7 +327,9 @@ describe('support operations UI', () => {
     expect(sent).not.toHaveProperty('body')
     expect(sent).not.toHaveProperty('artifacts')
     expect(sent).not.toHaveProperty('venuePackageId')
-    expect(screen.getByRole('status').textContent).toContain('No status changed')
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('No status changed'),
+    )
   })
 
   it('retains triage fields and rejects duplicate missing-information lines locally', async () => {
