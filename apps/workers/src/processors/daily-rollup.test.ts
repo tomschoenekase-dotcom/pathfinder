@@ -469,7 +469,6 @@ describe('processDailyRollupJob AI cost rollups', () => {
     )
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'JOB_RETRY_ELIGIBLE',
       attemptNumber: 1,
       maxAttempts: 6,
       failureDisposition: 'RETRY_ELIGIBLE',

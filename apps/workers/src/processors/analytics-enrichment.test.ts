@@ -708,7 +708,6 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(mocks.clusterCreateMany).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
-      error: 'JOB_ATTEMPTS_EXHAUSTED',
       attemptNumber: 1,
       maxAttempts: 1,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',

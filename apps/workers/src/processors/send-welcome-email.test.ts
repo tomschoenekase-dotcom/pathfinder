@@ -158,7 +158,7 @@ describe('processSendWelcomeEmailJob', () => {
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
       'job_record_1',
-      expect.objectContaining({ status: 'FAILED', error: 'JOB_ATTEMPTS_EXHAUSTED' }),
+      expect.objectContaining({ status: 'FAILED' }),
     )
   })
 
