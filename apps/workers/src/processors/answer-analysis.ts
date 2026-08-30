@@ -437,13 +437,17 @@ export async function processAnswerAnalysisJob(
       throw error
     }
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
+    const durableErrorCode = 'ANSWER_ANALYSIS_FAILED'
     if (!leaseConflict) {
       await recordJobFailure({ jobRecordId, error, execution })
     }
 
     if (leaseToken !== null) {
       try {
-        await markSnapshotStatus(payload, leaseToken, { status: 'FAILED', error: message })
+        await markSnapshotStatus(payload, leaseToken, {
+          status: 'FAILED',
+          error: durableErrorCode,
+        })
         leaseToken = null
       } catch (statusError) {
         logger.warn({

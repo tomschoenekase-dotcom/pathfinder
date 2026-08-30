@@ -482,6 +482,7 @@ export async function processWeeklyReportJob(
       throw error
     }
     const message = error instanceof Error ? error.message : 'Unknown weekly report error'
+    const durableErrorCode = 'WEEKLY_REPORT_FAILED'
     if (!leaseConflict) {
       await recordJobFailure({ jobRecordId, error, execution })
     }
@@ -490,7 +491,7 @@ export async function processWeeklyReportJob(
       try {
         await markReportStatus(payload, executionLeaseToken, {
           status: 'FAILED',
-          error: message,
+          error: durableErrorCode,
         })
         executionLeaseToken = null
       } catch (statusError) {

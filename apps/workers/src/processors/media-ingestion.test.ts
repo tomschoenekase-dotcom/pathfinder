@@ -428,7 +428,7 @@ describe('media ingestion lifecycle', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'Media ingestion stopped after the worker lost its job lock.',
+        error: 'MEDIA_INGESTION_FAILED',
       },
     })
     expect(mocks.rm).toHaveBeenCalledWith('C:/temp/media-cancelled', {
@@ -457,7 +457,7 @@ describe('media ingestion lifecycle', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'Media ingestion stopped after the worker lost its job lock.',
+        error: 'MEDIA_INGESTION_FAILED',
       },
     })
     expect(mocks.rm).not.toHaveBeenCalled()
@@ -485,7 +485,7 @@ describe('media ingestion lifecycle', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'Media ingestion attempt exceeded its 21600000-millisecond execution safety limit.',
+        error: 'MEDIA_INGESTION_FAILED',
       },
     })
     expect(mocks.rm).toHaveBeenCalledWith('C:/temp/media-deadline', {
@@ -562,7 +562,7 @@ describe('media ingestion lifecycle', () => {
 
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'project_1', tenantId: 'tenant_1', uploadAttemptId: null },
-      data: { status: 'FAILED', error: 'temp unavailable' },
+      data: { status: 'FAILED', error: 'MEDIA_INGESTION_FAILED' },
     })
   })
 
@@ -587,11 +587,12 @@ describe('media ingestion lifecycle', () => {
   })
 
   it('marks project and job FAILED when temp-directory creation fails after claim', async () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
     mocks.projectFindFirst.mockResolvedValueOnce(project)
     mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
-    mocks.mkdtemp.mockRejectedValueOnce(new Error('temp unavailable'))
+    mocks.mkdtemp.mockRejectedValueOnce(new Error(secret))
 
-    await expect(processMediaIngestionJob(payload, 'bull_1')).rejects.toThrow('temp unavailable')
+    await expect(processMediaIngestionJob(payload, 'bull_1')).rejects.toThrow(secret)
 
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
       where: {
@@ -599,7 +600,7 @@ describe('media ingestion lifecycle', () => {
         tenantId: 'tenant_1',
         uploadAttemptId: payload.uploadAttemptId,
       },
-      data: { status: 'FAILED', error: 'temp unavailable' },
+      data: { status: 'FAILED', error: 'MEDIA_INGESTION_FAILED' },
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', {
       status: 'FAILED',
@@ -608,6 +609,7 @@ describe('media ingestion lifecycle', () => {
       maxAttempts: 1,
       failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
+    expect(JSON.stringify(mocks.projectUpdateMany.mock.calls)).not.toContain(secret)
     expect(mocks.rm).not.toHaveBeenCalled()
   })
 

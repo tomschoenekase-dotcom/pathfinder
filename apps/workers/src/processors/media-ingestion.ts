@@ -1033,7 +1033,7 @@ export async function processMediaIngestionJob(
           mediaType,
           sha256,
           ...(signal ? { signal } : {}),
-          outcome: { status: 'FAILED', error: message },
+          outcome: { status: 'FAILED', error: 'MEDIA_ASSET_ANALYSIS_FAILED' },
         })
       }
       assertMediaJobActive(signal)
@@ -1137,7 +1137,7 @@ export async function processMediaIngestionJob(
             tenantId: payload.tenantId,
             uploadAttemptId,
           },
-          data: { status: 'FAILED', error: message },
+          data: { status: 'FAILED', error: 'MEDIA_INGESTION_FAILED' },
         }),
       )
     } catch (statusError) {

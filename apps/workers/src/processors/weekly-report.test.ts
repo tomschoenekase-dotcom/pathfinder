@@ -451,7 +451,7 @@ describe('processWeeklyReportJob', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'provider unavailable',
+        error: 'WEEKLY_REPORT_FAILED',
         executionLeaseToken: null,
         executionLeaseExpiresAt: null,
       },
@@ -490,7 +490,7 @@ describe('processWeeklyReportJob', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'The weekly-report ownership state no longer matched.',
+        error: 'WEEKLY_REPORT_FAILED',
         executionLeaseToken: null,
         executionLeaseExpiresAt: null,
       },

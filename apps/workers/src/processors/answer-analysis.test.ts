@@ -501,7 +501,7 @@ describe('processAnswerAnalysisJob', () => {
       },
       data: {
         status: 'FAILED',
-        error: 'provider unavailable',
+        error: 'ANSWER_ANALYSIS_FAILED',
         executionLeaseToken: null,
         executionLeaseExpiresAt: null,
       },
