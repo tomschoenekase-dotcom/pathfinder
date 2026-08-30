@@ -197,6 +197,15 @@ known production project, SHA drift, resource drift, host/database drift, an unr
 missing opt-in, or a larger ceiling before Prisma starts. Remove the one-run opt-in after a
 successful migration.
 
+Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
+rollout, set the non-secret Railway **web service variable**
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-206-20260830`. The value must
+match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
+Prisma. After the exact migration and hosted health pass, restore
+`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. A normal
+deployment with the closed value is expected to stop at pre-deploy and is not a second migration
+proof.
+
 The frozen manifest identity is computed from LF-normalized migration text so it is stable across
 checkouts. Ledger verification separately accepts only the exact raw-byte checksum Prisma records
 for the same checked-in file, the normalized checksum, or an explicitly frozen historical baseline

@@ -47,6 +47,15 @@ test('staging image pins the same exact migration approval as the predeploy', as
   )
 })
 
+test('staging runbook requires the exact Railway service-level predeploy approval', async () => {
+  const runbook = await readFile('docs/railway-staging.md', 'utf8')
+  assert.match(runbook, /does not inherit Docker image `ENV`/u)
+  assert.match(
+    runbook,
+    new RegExp(`PATHFINDER_STAGING_MIGRATION_APPROVAL=${EXPECTED.approval}`, 'u'),
+  )
+})
+
 test('preserved-data backup evidence must match the live migration ledger boundary', () => {
   const rows = Array.from({ length: EXPECTED.migrationCount }, () => ({}))
   assert.doesNotThrow(() =>

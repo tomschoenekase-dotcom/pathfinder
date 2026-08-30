@@ -2,8 +2,14 @@ import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { EXPECTED as expectedMigration } from './run-staging-migration-predeploy.mjs'
+import {
+  STAGING_MIGRATION_APPROVAL_VARIABLE,
+  buildStagingPredeployServiceContract,
+} from './lib/staging-predeploy-service-contract.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+const runbook = await readFile(resolve(root, 'docs/railway-staging.md'), 'utf8')
+const predeployServiceContract = buildStagingPredeployServiceContract(expectedMigration.approval)
 
 const services = [
   {
@@ -58,9 +64,17 @@ for (const service of services) {
       )
     }
 
-    const approval = `ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${expectedMigration.approval}`
+    const approval = `ENV ${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`
     if (!dockerfile.includes(approval)) {
       throw new Error(`${service.dockerfile}: staging migration approval is stale`)
+    }
+    if (
+      !runbook.includes(
+        `${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`,
+      ) ||
+      !runbook.includes('does not inherit Docker image `ENV`')
+    ) {
+      throw new Error('docs/railway-staging.md: service-level migration approval is stale')
     }
   }
 
@@ -83,4 +97,6 @@ for (const service of services) {
   }
 }
 
-console.log(`Verified ${services.length} staging service configurations.`)
+console.log(
+  `Verified ${services.length} staging service configurations and the ${predeployServiceContract.service} pre-deploy service-variable contract.`,
+)

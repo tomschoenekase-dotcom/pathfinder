@@ -57,6 +57,20 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(first.rolloutSafety.featureFlagDefaultsDisabled, true)
   assert.equal(first.rolloutSafety.productionDeploymentAuthorized, false)
   assert.equal(first.rolloutSafety.customerContactAuthorized, false)
+  assert.equal(
+    first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
+      .PATHFINDER_STAGING_MIGRATION_APPROVAL,
+    'torchiko-staging-lineage-to-206-20260830',
+  )
+  assert.deepEqual(first.rolloutSafety.stagingPredeployServiceEnvironment.oneRunServiceVariable, {
+    name: 'PATHFINDER_ALLOW_STAGING_MIGRATIONS',
+    admittedValue: '1',
+    closedValue: '0',
+  })
+  assert.equal(
+    first.admission.requiredActions.some((action) => action.includes('image ENV alone')),
+    true,
+  )
   assert.equal(JSON.stringify(first).includes('generatedAt'), false)
 })
 
