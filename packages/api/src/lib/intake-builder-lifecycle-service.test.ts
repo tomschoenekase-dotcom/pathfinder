@@ -68,7 +68,7 @@ describe('getIntakeBuilderLifecycle', () => {
     expect(result).toMatchObject({
       currentStage: 'EXTRACT',
       currentState: 'BLOCKED',
-      nextAction: 'REVIEW_FILE_SOURCE',
+      nextAction: 'RUN_FILE_EXTRACTION',
       fileUpload: {
         uploadId: 'upload-a',
         displayName: 'Visitor guide source',
@@ -78,11 +78,11 @@ describe('getIntakeBuilderLifecycle', () => {
         byteSize: 4096,
         sha256,
         verifiedAt,
-        deterministicTextExtractionAvailable: false,
+        deterministicTextExtractionAvailable: true,
       },
     })
     expect(result.stages.find(({ stage }) => stage === 'EXTRACT')?.blockers).toEqual([
-      expect.objectContaining({ code: 'FILE_EXTRACTION_ADAPTER_REQUIRED' }),
+      expect.objectContaining({ code: 'FILE_EXTRACTION_REQUIRED' }),
     ])
   })
 

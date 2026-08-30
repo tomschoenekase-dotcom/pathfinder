@@ -37,8 +37,8 @@ const lifecycle: IntakeBuilderLifecycle = {
   fileUpload: {
     uploadId: 'fixture-upload',
     displayName: 'Visitor services handbook — summer operating guide',
-    fileName: 'visitor-services-handbook-summer-2026-reviewed-source.md',
-    mimeType: 'text/markdown',
+    fileName: 'visitor-services-handbook-summer-2026-reviewed-source.pdf',
+    mimeType: 'application/pdf',
     category: 'DOCUMENT',
     byteSize: 2_438_619,
     sha256,
@@ -79,8 +79,7 @@ const lifecycle: IntakeBuilderLifecycle = {
             {
               code: 'FILE_EXTRACTION_REQUIRED',
               path: 'fileUpload',
-              message:
-                'The verified text-like document is ready for one bounded deterministic extraction.',
+              message: 'The verified PDF is ready for bounded embedded-text extraction.',
             },
           ]
         : [],
@@ -92,7 +91,7 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
   fileExtraction: {
     receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
     outcome: 'SUCCEEDED',
-    extractor: 'pathfinder-utf8-document',
+    extractor: 'pathfinder-pdfjs-document',
     extractorVersion: '1',
     extractedTextHash: 'd'.repeat(64),
     extractedCharacterCount: 156,
@@ -103,7 +102,7 @@ const extractedLifecycle: IntakeBuilderLifecycle = {
   },
   fileExtractionReview: {
     receiptId: '568c2e1a-8ece-47ad-98dc-e4bde64872ca',
-    extractor: 'pathfinder-utf8-document',
+    extractor: 'pathfinder-pdfjs-document',
     extractorVersion: '1',
     extractedTextHash: 'd'.repeat(64),
     extractedCharacterCount: 156,

@@ -971,7 +971,7 @@ export function IntakeBuilderLifecycleView({
           <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-pf-deep/75">
             Verification admits this file as source evidence only.{' '}
             {lifecycle.fileUpload.deterministicTextExtractionAvailable
-              ? 'This text-like document can use the bounded local extractor.'
+              ? 'This document can use a bounded local text extractor.'
               : 'This source still needs a format-specific extraction adapter.'}{' '}
             No approval, apply, publication, or provider work was triggered.
           </p>
@@ -983,7 +983,7 @@ export function IntakeBuilderLifecycleView({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-violet-950">
-                Extracted text ·{' '}
+                Document text ·{' '}
                 {lifecycle.fileExtractionReview.review ? 'review recorded' : 'review required'}
               </p>
               <p className="mt-1 text-xs text-violet-900/75">
@@ -1391,11 +1391,12 @@ export function IntakeBuilderLifecycleView({
             onClick={onRunFileExtraction}
             className="min-h-11 rounded-full bg-pf-primary px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-pf-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pf-primary disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none"
           >
-            {extractionBusy ? 'Extracting text…' : 'Extract text for review'}
+            {extractionBusy ? 'Extracting document…' : 'Extract document for review'}
           </button>
           <p className="mt-2 max-w-2xl text-xs leading-5 text-pf-deep/75">
-            Reads the exact verified object version through a bounded local UTF-8 adapter. No model,
-            provider, package creation, approval, apply, or publication.
+            Reads the exact verified object version through its bounded local document adapter. PDFs
+            use embedded text only; image-only pages stop for OCR review. No model, provider,
+            package creation, approval, apply, or publication.
           </p>
         </div>
       ) : null}

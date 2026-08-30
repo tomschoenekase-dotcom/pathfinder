@@ -125,6 +125,55 @@ describe('intake file extraction receipt action', () => {
     })
   })
 
+  it('admits exact verified PDF terminal evidence through the PDF extractor only', async () => {
+    findUpload.mockResolvedValueOnce({
+      ...(await findUpload()),
+      byteSize: 4_000_000,
+      mimeType: 'application/pdf',
+      verificationReceipts: ['PRECHECK', 'RESOURCE_SAFETY', 'MALWARE'].map((kind) => ({
+        kind,
+        verdict: kind === 'MALWARE' ? 'CLEAN' : 'PASSED',
+        objectGeneration: generation,
+        storageVersionId: 'version-a',
+        computedByteSize: 4_000_000,
+        computedSha256: sourceHash,
+      })),
+    })
+    await recordIntakeFileExtractionReceiptAction(
+      input({
+        sourceByteSize: 4_000_000,
+        sourceMimeType: 'application/pdf',
+        extractor: 'pathfinder-pdfjs-document',
+      }) as never,
+      client as never,
+    )
+
+    expect(createReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceMimeType: 'application/pdf',
+          extractor: 'pathfinder-pdfjs-document',
+        }),
+      }),
+    )
+  })
+
+  it('rejects source and extractor mismatches before any transaction', async () => {
+    await expect(
+      recordIntakeFileExtractionReceiptAction(
+        input({ sourceMimeType: 'application/pdf' }) as never,
+        client as never,
+      ),
+    ).rejects.toThrow()
+    await expect(
+      recordIntakeFileExtractionReceiptAction(
+        input({ sourceByteSize: 2_097_153 }) as never,
+        client as never,
+      ),
+    ).rejects.toThrow()
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('replays only the exact operation identity and rejects conflicting reuse', async () => {
     findUnique.mockResolvedValue({
       id: operationId,

@@ -6,6 +6,10 @@ const migration = new URL(
   '../../prisma/migrations/20260829032000_add_intake_file_extraction_receipts/migration.sql',
   import.meta.url,
 )
+const pdfMigration = new URL(
+  '../../prisma/migrations/20260829231500_enable_pdf_file_extraction/migration.sql',
+  import.meta.url,
+)
 
 describe('intake file extraction receipt migration contract', () => {
   it('adds bounded text formats and exact tenant/run/upload terminal evidence', async () => {
@@ -28,7 +32,16 @@ describe('intake file extraction receipt migration contract', () => {
   })
 
   it('contains no package, approval, apply, publication, or provider dispatch surface', async () => {
-    const sql = await readFile(migration, 'utf8')
+    const sql = `${await readFile(migration, 'utf8')}\n${await readFile(pdfMigration, 'utf8')}`
     expect(sql).not.toMatch(/package_draft|approval_grant|publish(ed|ing)?|provider_dispatch/iu)
+  })
+
+  it('adds only a bounded PDF adapter while retaining the text-document boundary', async () => {
+    const sql = await readFile(pdfMigration, 'utf8')
+    expect(sql).toContain('source_byte_size" BETWEEN 1 AND 10485760')
+    expect(sql).toContain("'application/pdf'")
+    expect(sql).toContain("extractor\" = 'pathfinder-pdfjs-document'")
+    expect(sql).toContain('source_byte_size" <= 2097152')
+    expect(sql).toContain("extractor\" = 'pathfinder-utf8-document'")
   })
 })

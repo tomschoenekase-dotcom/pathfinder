@@ -15,9 +15,15 @@ const terminalInput = z
     sourceObjectGeneration: z.string().uuid(),
     sourceStorageVersionId: z.string().trim().min(1).max(1024),
     sourceSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    sourceByteSize: z.number().int().min(1).max(2_097_152),
-    sourceMimeType: z.enum(['application/json', 'text/plain', 'text/markdown', 'text/csv']),
-    extractor: z.literal('pathfinder-utf8-document'),
+    sourceByteSize: z.number().int().min(1).max(10_485_760),
+    sourceMimeType: z.enum([
+      'application/json',
+      'application/pdf',
+      'text/plain',
+      'text/markdown',
+      'text/csv',
+    ]),
+    extractor: z.enum(['pathfinder-utf8-document', 'pathfinder-pdfjs-document']),
     extractorVersion: z.literal('1'),
     extractedText: z.string().min(1).max(1_000_000).optional(),
     extractedTextHash: z
@@ -32,6 +38,17 @@ const terminalInput = z
   })
   .strict()
   .superRefine((value, context) => {
+    const pdfSource = value.sourceMimeType === 'application/pdf'
+    const extractorMatchesSource = pdfSource
+      ? value.extractor === 'pathfinder-pdfjs-document'
+      : value.extractor === 'pathfinder-utf8-document' && value.sourceByteSize <= 2_097_152
+    if (!extractorMatchesSource) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['extractor'],
+        message: 'File extraction source and bounded extractor do not match.',
+      })
+    }
     const successful = value.outcome === 'SUCCEEDED'
     const successShape =
       Boolean(value.extractedText) &&

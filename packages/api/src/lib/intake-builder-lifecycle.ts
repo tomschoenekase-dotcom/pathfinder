@@ -239,7 +239,7 @@ export function projectIntakeBuilderLifecycle(input: IntakeBuilderLifecycleInput
             : 'FILE_EXTRACTION_ADAPTER_REQUIRED',
           'fileUpload',
           fileUpload.deterministicTextExtractionAvailable
-            ? 'The verified text-like document is ready for one bounded deterministic extraction.'
+            ? 'The verified document is ready for one bounded deterministic text extraction.'
             : 'The verified file needs a source-specific document, OCR, image, audio, or video extraction adapter.',
         ),
       ])

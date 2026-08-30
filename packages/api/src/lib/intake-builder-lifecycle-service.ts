@@ -11,6 +11,7 @@ import {
 } from './intake-venue-package-candidate'
 import { loadInterviewClarificationReview } from './intake-interview-clarifications'
 import {
+  INTAKE_PDF_EXTRACTION_MAX_BYTES,
   INTAKE_TEXT_EXTRACTION_MAX_BYTES,
   INTAKE_TEXT_MIME_TYPES,
 } from './intake-file-extraction-service'
@@ -473,8 +474,10 @@ export async function getIntakeBuilderLifecycle(input: {
           sha256: run.upload.sha256,
           verifiedAt: run.upload.verifiedAt,
           deterministicTextExtractionAvailable:
-            (INTAKE_TEXT_MIME_TYPES as readonly string[]).includes(run.upload.mimeType) &&
-            run.upload.byteSize <= INTAKE_TEXT_EXTRACTION_MAX_BYTES,
+            (run.upload.mimeType === 'application/pdf' &&
+              run.upload.byteSize <= INTAKE_PDF_EXTRACTION_MAX_BYTES) ||
+            ((INTAKE_TEXT_MIME_TYPES as readonly string[]).includes(run.upload.mimeType) &&
+              run.upload.byteSize <= INTAKE_TEXT_EXTRACTION_MAX_BYTES),
         }
       : null
   const fileExtraction = latestFileExtraction

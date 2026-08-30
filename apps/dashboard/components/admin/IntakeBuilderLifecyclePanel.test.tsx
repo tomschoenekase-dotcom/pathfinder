@@ -468,8 +468,8 @@ describe('IntakeBuilderLifecyclePanel', () => {
       fileUpload: {
         uploadId: 'upload-a',
         displayName: 'Visitor guide source',
-        fileName: 'visitor-guide.pdf',
-        mimeType: 'application/pdf',
+        fileName: 'gallery-photo.jpg',
+        mimeType: 'image/jpeg',
         category: 'DOCUMENT',
         byteSize: 4096,
         sha256: 'c'.repeat(64),
@@ -509,8 +509,8 @@ describe('IntakeBuilderLifecyclePanel', () => {
     expect(await screen.findByRole('heading', { name: 'Extract · blocked' })).toBeTruthy()
     expect(screen.getByText('Verified file source')).toBeTruthy()
     expect(screen.getByText('Visitor guide source')).toBeTruthy()
-    expect(screen.getByText('visitor-guide.pdf')).toBeTruthy()
-    expect(screen.getByText('application/pdf · 4 KB')).toBeTruthy()
+    expect(screen.getByText('gallery-photo.jpg')).toBeTruthy()
+    expect(screen.getByText('image/jpeg · 4 KB')).toBeTruthy()
     expect(screen.getByText('c'.repeat(64))).toBeTruthy()
     expect(screen.getByText(/No approval, apply, publication, or provider work/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
@@ -530,9 +530,9 @@ describe('IntakeBuilderLifecyclePanel', () => {
       websiteResearch: null,
       fileUpload: {
         uploadId: 'upload-a',
-        displayName: 'Staff notes',
-        fileName: 'staff-notes.txt',
-        mimeType: 'text/plain',
+        displayName: 'Visitor guide',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
         category: 'DOCUMENT',
         byteSize: 18,
         sha256: 'c'.repeat(64),
@@ -560,7 +560,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
       fileExtraction: {
         receiptId: operationId,
         outcome: 'SUCCEEDED',
-        extractor: 'pathfinder-utf8-document',
+        extractor: 'pathfinder-pdfjs-document',
         extractorVersion: '1',
         extractedTextHash: 'd'.repeat(64),
         extractedCharacterCount: 18,
@@ -571,7 +571,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
       },
       fileExtractionReview: {
         receiptId: operationId,
-        extractor: 'pathfinder-utf8-document',
+        extractor: 'pathfinder-pdfjs-document',
         extractorVersion: '1',
         extractedTextHash: 'd'.repeat(64),
         extractedCharacterCount: 18,
@@ -639,7 +639,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
 
     render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-file" />)
     fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Extract text for review' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Extract document for review' }))
 
     await waitFor(() =>
       expect(extractionMutate).toHaveBeenCalledWith({
@@ -649,7 +649,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         operationId,
       }),
     )
-    expect(await screen.findByText('Extracted text · review required')).toBeTruthy()
+    expect(await screen.findByText('Document text · review required')).toBeTruthy()
     expect(
       screen.getByText(
         (_, element) => element?.tagName === 'PRE' && element.textContent === 'Line one\nLine two',

@@ -12,6 +12,11 @@ export const INTAKE_TEXT_EXTRACTION_MAX_BYTES = 2 * 1024 * 1024
 export const INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS = 500_000
 export const INTAKE_TEXT_EXTRACTOR = 'pathfinder-utf8-document'
 export const INTAKE_TEXT_EXTRACTOR_VERSION = '1'
+export const INTAKE_PDF_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024
+export const INTAKE_PDF_EXTRACTION_MAX_PAGES = 200
+export const INTAKE_PDF_EXTRACTION_TIMEOUT_MS = 15_000
+export const INTAKE_PDF_EXTRACTOR = 'pathfinder-pdfjs-document'
+export const INTAKE_PDF_EXTRACTOR_VERSION = '1'
 export const INTAKE_TEXT_MIME_TYPES = [
   'application/json',
   'text/plain',
@@ -20,6 +25,27 @@ export const INTAKE_TEXT_MIME_TYPES = [
 ] as const
 
 type SupportedTextMime = (typeof INTAKE_TEXT_MIME_TYPES)[number]
+type SupportedDocumentMime = SupportedTextMime | 'application/pdf'
+
+type ExtractionResult =
+  | {
+      outcome: 'SUCCEEDED'
+      text: string
+      textHash: string
+      characterCount: number
+      lineCount: number
+    }
+  | { outcome: 'FAILED'; errorCode: string; errorMessage: string }
+
+type ExtractionProfile = {
+  domain: string
+  extractor: typeof INTAKE_TEXT_EXTRACTOR | typeof INTAKE_PDF_EXTRACTOR
+  extractorVersion: '1'
+  maxBytes: number
+  maxCharacters: number
+  maxPages?: number
+  timeoutMs?: number
+}
 
 export class IntakeFileExtractionError extends Error {
   constructor(
@@ -40,6 +66,30 @@ function isSupportedTextMime(value: string): value is SupportedTextMime {
   return (INTAKE_TEXT_MIME_TYPES as readonly string[]).includes(value)
 }
 
+function isSupportedDocumentMime(value: string): value is SupportedDocumentMime {
+  return value === 'application/pdf' || isSupportedTextMime(value)
+}
+
+function extractionProfile(mimeType: SupportedDocumentMime): ExtractionProfile {
+  return mimeType === 'application/pdf'
+    ? {
+        domain: 'pathfinder.intake-file-pdf-extraction.v1',
+        extractor: INTAKE_PDF_EXTRACTOR,
+        extractorVersion: INTAKE_PDF_EXTRACTOR_VERSION,
+        maxBytes: INTAKE_PDF_EXTRACTION_MAX_BYTES,
+        maxCharacters: INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS,
+        maxPages: INTAKE_PDF_EXTRACTION_MAX_PAGES,
+        timeoutMs: INTAKE_PDF_EXTRACTION_TIMEOUT_MS,
+      }
+    : {
+        domain: 'pathfinder.intake-file-extraction.v1',
+        extractor: INTAKE_TEXT_EXTRACTOR,
+        extractorVersion: INTAKE_TEXT_EXTRACTOR_VERSION,
+        maxBytes: INTAKE_TEXT_EXTRACTION_MAX_BYTES,
+        maxCharacters: INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS,
+      }
+}
+
 function requestHash(input: {
   tenantId: string
   venueId: string
@@ -50,16 +100,20 @@ function requestHash(input: {
   sourceSha256: string
   sourceByteSize: number
   sourceMimeType: string
+  profile: ExtractionProfile
 }) {
+  const { profile, ...identity } = input
   return createHash('sha256')
     .update(
       JSON.stringify({
-        domain: 'pathfinder.intake-file-extraction.v1',
-        extractor: INTAKE_TEXT_EXTRACTOR,
-        extractorVersion: INTAKE_TEXT_EXTRACTOR_VERSION,
-        maxBytes: INTAKE_TEXT_EXTRACTION_MAX_BYTES,
-        maxCharacters: INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS,
-        ...input,
+        domain: profile.domain,
+        extractor: profile.extractor,
+        extractorVersion: profile.extractorVersion,
+        maxBytes: profile.maxBytes,
+        maxCharacters: profile.maxCharacters,
+        ...(profile.maxPages === undefined ? {} : { maxPages: profile.maxPages }),
+        ...(profile.timeoutMs === undefined ? {} : { timeoutMs: profile.timeoutMs }),
+        ...identity,
       }),
     )
     .digest('hex')
@@ -69,6 +123,7 @@ async function readBoundedBytes(input: {
   key: string
   versionId: string
   expectedBytes: number
+  maxBytes: number
   storage?: IntakeUploadStorageTransport
 }) {
   let source: AsyncIterable<Uint8Array>
@@ -90,7 +145,7 @@ async function readBoundedBytes(input: {
   try {
     for await (const chunk of source) {
       byteSize += chunk.byteLength
-      if (byteSize > input.expectedBytes || byteSize > INTAKE_TEXT_EXTRACTION_MAX_BYTES) {
+      if (byteSize > input.expectedBytes || byteSize > input.maxBytes) {
         throw new IntakeFileExtractionError(
           'CONFLICT',
           'The exact stored file exceeded its verified extraction boundary.',
@@ -109,33 +164,12 @@ async function readBoundedBytes(input: {
   return { bytes: Buffer.concat(chunks), byteSize, sha256: digest.digest('hex') }
 }
 
-function normalizeText(bytes: Uint8Array):
-  | {
-      outcome: 'SUCCEEDED'
-      text: string
-      textHash: string
-      characterCount: number
-      lineCount: number
-    }
-  | { outcome: 'FAILED'; errorCode: string; errorMessage: string } {
-  let decoded: string
-  try {
-    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return {
-      outcome: 'FAILED',
-      errorCode: 'INVALID_UTF8',
-      errorMessage: 'The verified document is not valid UTF-8 text.',
-    }
-  }
-  const text = decoded.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n')
-  if (!text.trim()) {
-    return {
-      outcome: 'FAILED',
-      errorCode: 'EMPTY_TEXT',
-      errorMessage: 'The verified document contains no reviewable text.',
-    }
-  }
+function normalizeExtractedText(
+  value: string,
+  emptyFailure: { errorCode: string; errorMessage: string },
+): ExtractionResult {
+  const text = value.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n')
+  if (!text.trim()) return { outcome: 'FAILED', ...emptyFailure }
   for (const character of text) {
     const code = character.codePointAt(0) ?? 0
     if ((code < 32 && code !== 9 && code !== 10) || code === 127) {
@@ -160,6 +194,98 @@ function normalizeText(bytes: Uint8Array):
     textHash: createHash('sha256').update(text, 'utf8').digest('hex'),
     characterCount,
     lineCount: text.split('\n').length,
+  }
+}
+
+function normalizeText(bytes: Uint8Array): ExtractionResult {
+  let decoded: string
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return {
+      outcome: 'FAILED',
+      errorCode: 'INVALID_UTF8',
+      errorMessage: 'The verified document is not valid UTF-8 text.',
+    }
+  }
+  return normalizeExtractedText(decoded, {
+    errorCode: 'EMPTY_TEXT',
+    errorMessage: 'The verified document contains no reviewable text.',
+  })
+}
+
+function appendPdfTextItem(line: string, value: string) {
+  if (!value) return line
+  if (!line || /\s$/u.test(line) || /^[,.;:!?)}\]]/u.test(value)) return `${line}${value}`
+  return `${line} ${value}`
+}
+
+async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const loadingTask = getDocument({
+    data: new Uint8Array(bytes),
+    disableFontFace: true,
+    stopAtErrors: true,
+    useSystemFonts: false,
+    useWorkerFetch: false,
+    verbosity: 0,
+  })
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    void loadingTask.destroy()
+  }, INTAKE_PDF_EXTRACTION_TIMEOUT_MS)
+  try {
+    const document = await loadingTask.promise
+    if (document.numPages > INTAKE_PDF_EXTRACTION_MAX_PAGES) {
+      return {
+        outcome: 'FAILED',
+        errorCode: 'PDF_TOO_MANY_PAGES',
+        errorMessage: 'The verified PDF exceeds the 200-page extraction boundary.',
+      }
+    }
+    const pages: string[] = []
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber)
+      try {
+        const content = await page.getTextContent()
+        const lines: string[] = []
+        let line = ''
+        for (const item of content.items) {
+          if (!('str' in item)) continue
+          line = appendPdfTextItem(line, item.str)
+          if (item.hasEOL) {
+            lines.push(line.trimEnd())
+            line = ''
+          }
+        }
+        if (line) lines.push(line.trimEnd())
+        pages.push(lines.join('\n').trim())
+      } finally {
+        page.cleanup()
+      }
+    }
+    return normalizeExtractedText(pages.filter(Boolean).join('\n\n'), {
+      errorCode: 'PDF_NO_EXTRACTABLE_TEXT',
+      errorMessage: 'The verified PDF contains no extractable text and requires OCR review.',
+    })
+  } catch (error) {
+    return {
+      outcome: 'FAILED',
+      errorCode: timedOut
+        ? 'PDF_EXTRACTION_TIMEOUT'
+        : error instanceof Error && error.name === 'PasswordException'
+          ? 'PDF_PASSWORD_REQUIRED'
+          : 'PDF_PARSE_FAILED',
+      errorMessage: timedOut
+        ? 'The verified PDF exceeded the bounded extraction time.'
+        : error instanceof Error && error.name === 'PasswordException'
+          ? 'The verified PDF is password protected and cannot be extracted.'
+          : 'The verified PDF could not be parsed safely.',
+    }
+  } finally {
+    clearTimeout(timeout)
+    if (!timedOut) await loadingTask.destroy()
   }
 }
 
@@ -205,16 +331,19 @@ export async function executeIntakeFileExtraction(input: {
       'The file must finish exact verification before extraction.',
     )
   }
-  if (!isSupportedTextMime(upload.mimeType)) {
+  if (!isSupportedDocumentMime(upload.mimeType)) {
     throw new IntakeFileExtractionError(
       'UNSUPPORTED_SOURCE',
       'This source needs a different document, media, or OCR extraction adapter.',
     )
   }
-  if (upload.byteSize > INTAKE_TEXT_EXTRACTION_MAX_BYTES) {
+  const profile = extractionProfile(upload.mimeType)
+  if (upload.byteSize > profile.maxBytes) {
     throw new IntakeFileExtractionError(
       'SOURCE_TOO_LARGE',
-      'This text-like document exceeds the 2 MB deterministic extraction boundary.',
+      upload.mimeType === 'application/pdf'
+        ? 'This PDF exceeds the 10 MB deterministic extraction boundary.'
+        : 'This text-like document exceeds the 2 MB deterministic extraction boundary.',
     )
   }
   const identity = {
@@ -232,6 +361,7 @@ export async function executeIntakeFileExtraction(input: {
     key: upload.objectKey,
     versionId: upload.storageVersionId,
     expectedBytes: upload.byteSize,
+    maxBytes: profile.maxBytes,
     ...(input.storage ? { storage: input.storage } : {}),
   })
   if (read.byteSize !== upload.byteSize || read.sha256 !== upload.sha256) {
@@ -240,15 +370,18 @@ export async function executeIntakeFileExtraction(input: {
       'The exact stored file no longer matches its verified size and hash.',
     )
   }
-  const extraction = normalizeText(read.bytes)
+  const extraction =
+    upload.mimeType === 'application/pdf'
+      ? await extractPdfText(read.bytes)
+      : normalizeText(read.bytes)
   try {
     return await recordIntakeFileExtractionReceiptAction({
       operationId: input.operationId,
       ...identity,
-      requestHash: requestHash(identity),
+      requestHash: requestHash({ ...identity, profile }),
       outcome: extraction.outcome,
-      extractor: INTAKE_TEXT_EXTRACTOR,
-      extractorVersion: INTAKE_TEXT_EXTRACTOR_VERSION,
+      extractor: profile.extractor,
+      extractorVersion: profile.extractorVersion,
       ...(extraction.outcome === 'SUCCEEDED'
         ? {
             extractedText: extraction.text,

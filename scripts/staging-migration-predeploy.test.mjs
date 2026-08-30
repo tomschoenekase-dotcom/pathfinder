@@ -71,7 +71,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 204-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 205-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 231)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
@@ -159,6 +159,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
     ],
   )
   assert.equal(
@@ -176,6 +177,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
     ],
   )
   assert.equal(
@@ -191,6 +193,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
     ],
   )
   assert.equal(
@@ -205,6 +208,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -367,6 +371,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260829165000_add_intake_file_extraction_reviews',
       '20260829220000_add_interview_clarification_resolutions',
       '20260829223000_add_file_clarification_resolutions',
+      '20260829231500_enable_pdf_file_extraction',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -433,6 +438,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260829165000_add_intake_file_extraction_reviews',
     '20260829220000_add_interview_clarification_resolutions',
     '20260829223000_add_file_clarification_resolutions',
+    '20260829231500_enable_pdf_file_extraction',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
