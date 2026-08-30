@@ -568,7 +568,6 @@ export async function runAgentBridge(
         runId: claimed.task.id,
         leaseToken: claimed.task.leaseToken,
         errorCode: /^[A-Z][A-Z0-9_]{2,99}$/u.test(code) ? code : 'TASK_EXECUTOR_FAILED',
-        errorMessage: 'The local subscription executor did not produce a confirmed result.',
         retryable: code !== 'TASK_CANCELLED',
       }).catch(() => undefined)
     } finally {

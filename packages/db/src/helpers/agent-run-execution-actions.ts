@@ -271,7 +271,6 @@ export async function failAgentRunExecution(
   rawInput: z.input<typeof scopeSchema> & {
     leaseToken: string
     errorCode: string
-    errorMessage: string
     retryable: boolean
   },
   client: AgentRunExecutionClient = db,
@@ -280,7 +279,6 @@ export async function failAgentRunExecution(
     .extend({
       leaseToken: z.string().uuid(),
       errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{2,99}$/u),
-      errorMessage: z.string().trim().min(1).max(5_000),
       retryable: z.boolean(),
     })
     .parse(rawInput)

@@ -87,3 +87,17 @@ test('prospect delivery failure persistence derives detail from a bounded code',
   assert.match(outboxActions, /lastErrorMessage:\s*failureMessage/u)
   assert.doesNotMatch(deliveryWorker, /message:\s*error\.message/u)
 })
+
+test('agent failure APIs accept only code and retry policy', async () => {
+  const root = new URL('../', import.meta.url)
+  for (const relativePath of [
+    'packages/db/src/helpers/agent-run-execution-actions.ts',
+    'packages/db/src/helpers/agent-bridge-actions.ts',
+    'packages/api/src/agent-bridge/registry.ts',
+    'apps/workers/src/lib/agent-bridge-runner.ts',
+    'apps/workers/src/processors/agent-run.ts',
+  ]) {
+    const source = await readFile(new URL(relativePath, root), 'utf8')
+    assert.doesNotMatch(source, /errorMessage:\s*(?:string|error\.message|input\.errorMessage)/u)
+  }
+})

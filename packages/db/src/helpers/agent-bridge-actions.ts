@@ -381,7 +381,6 @@ export async function failAgentBridgeTask(input: {
   runId: string
   leaseToken: string
   errorCode: string
-  errorMessage: string
   retryable: boolean
   credential: VerifiedMcpCredentialScope
 }) {
@@ -391,7 +390,6 @@ export async function failAgentBridgeTask(input: {
     runId: input.runId,
     leaseToken: input.leaseToken,
     errorCode: input.errorCode,
-    errorMessage: input.errorMessage,
     retryable: input.retryable,
   })
 }

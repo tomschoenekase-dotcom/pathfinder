@@ -119,7 +119,6 @@ describe('agent run execution actions', () => {
         runId: 'run-1',
         leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         errorCode: 'TIMEOUT',
-        errorMessage: 'Timed out',
         retryable: true,
       },
       client(transaction) as never,
@@ -132,8 +131,7 @@ describe('agent run execution actions', () => {
     )
   })
 
-  it('persists a stable code-derived terminal failure without reflecting executor details', async () => {
-    const secret = 'postgres://operator:secret@example.test/torchiko'
+  it('persists a stable code-derived terminal failure', async () => {
     const transaction = {
       agentRun: {
         findFirst: vi.fn().mockResolvedValue({
@@ -153,7 +151,6 @@ describe('agent run execution actions', () => {
         runId: 'run-1',
         leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         errorCode: 'TASK_EXECUTOR_FAILED',
-        errorMessage: secret,
         retryable: true,
       },
       client(transaction) as never,
@@ -175,11 +172,5 @@ describe('agent run execution actions', () => {
         }),
       }),
     )
-    expect(
-      JSON.stringify([
-        transaction.agentRun.updateMany.mock.calls,
-        transaction.agentTimelineEvent.create.mock.calls,
-      ]),
-    ).not.toContain(secret)
   })
 })

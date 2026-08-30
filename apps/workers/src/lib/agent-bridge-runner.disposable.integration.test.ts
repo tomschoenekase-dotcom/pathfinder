@@ -210,7 +210,6 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
               runId: string
               leaseToken: string
               errorCode: string
-              errorMessage: string
               retryable: boolean
             }),
             credential: context.credential as VerifiedMcpCredentialScope,
@@ -1303,7 +1302,6 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           runId: providerFailureRun.id,
           leaseToken: providerFailureClaim.task!.leaseToken,
           errorCode: 'PROVIDER_UNAVAILABLE',
-          errorMessage: 'The provider-dark fixture reports an unavailable provider.',
           retryable: true,
           credential,
         }),
@@ -1355,12 +1353,12 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         },
       })
       const recoverableFailures = [
-        ['TOOL_HTTP_500', 'The bounded tool returned HTTP 500.'],
-        ['DB_TRANSIENT', 'The worker observed a retryable database transaction failure.'],
-        ['INVALID_STRUCTURED_OUTPUT', 'The model output failed the exact structured contract.'],
-        ['PARTIAL_RESULT_REJECTED', 'A partial result was rejected before artifact persistence.'],
+        'TOOL_HTTP_500',
+        'DB_TRANSIENT',
+        'INVALID_STRUCTURED_OUTPUT',
+        'PARTIAL_RESULT_REJECTED',
       ] as const
-      for (const [index, [errorCode, errorMessage]] of recoverableFailures.entries()) {
+      for (const [index, errorCode] of recoverableFailures.entries()) {
         const worker = workers[0]!
         const claim = await claimAgentBridgeTask({
           sessionId: worker.sessionId,
@@ -1379,7 +1377,6 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             runId: recoverableFailureRun.id,
             leaseToken: claim.task!.leaseToken,
             errorCode,
-            errorMessage,
             retryable: true,
             credential,
           }),

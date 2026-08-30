@@ -177,7 +177,6 @@ export function createAgentBridgeRegistry(
           runId: z.string().trim().min(1).max(191),
           leaseToken: z.string().uuid(),
           errorCode: z.string().trim().min(1).max(100),
-          errorMessage: z.string().trim().min(1).max(5_000),
           retryable: z.boolean(),
         })
         .parse(raw)

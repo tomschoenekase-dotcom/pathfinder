@@ -162,7 +162,6 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       runId: run.id,
       leaseToken: run.leaseToken,
       errorCode,
-      errorMessage: error instanceof Error ? error.message : 'Unknown agent execution failure',
       retryable: !configurationError && !budgetPolicyError && !cancellation,
     }).catch((failure) => {
       if (failure instanceof AgentRunExecutionError && failure.code === 'LEASE_LOST') return null
