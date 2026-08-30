@@ -103,7 +103,6 @@ export type InboundCorrespondenceStore = Readonly<{
     mailbox: ProviderMailboxRef
     operation: 'INCREMENTAL_SYNC' | 'RECONCILIATION' | 'WATCH_RENEWAL'
     state: 'SUCCEEDED' | 'FAILED'
-    detail: string | null
     occurredAt: Date
   }): Promise<void>
 }>
@@ -342,7 +341,6 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: mode === 'INCREMENTAL' ? 'INCREMENTAL_SYNC' : 'RECONCILIATION',
           state: 'SUCCEEDED',
-          detail: null,
           occurredAt: now(),
         })
         return { mode, cursor: finalCursor, processed }
@@ -351,7 +349,6 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: mode === 'INCREMENTAL' ? 'INCREMENTAL_SYNC' : 'RECONCILIATION',
           state: 'FAILED',
-          detail: 'Correspondence synchronization failed before cursor commit.',
           occurredAt: now(),
         })
         throw error
@@ -366,7 +363,6 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: 'WATCH_RENEWAL',
           state: 'SUCCEEDED',
-          detail: null,
           occurredAt: now(),
         })
         return watch
@@ -375,7 +371,6 @@ export function createInboundCorrespondenceService(input: {
           mailbox,
           operation: 'WATCH_RENEWAL',
           state: 'FAILED',
-          detail: 'Correspondence watch renewal failed.',
           occurredAt: now(),
         })
         throw error

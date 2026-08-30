@@ -284,9 +284,9 @@ describe('inbound correspondence synchronization', () => {
     expect(fixture.calls.health).toContainEqual(
       expect.objectContaining({
         state: 'FAILED',
-        detail: 'Correspondence synchronization failed before cursor commit.',
       }),
     )
+    expect(fixture.calls.health[0]).not.toHaveProperty('detail')
     expect(JSON.stringify(fixture.calls.health)).not.toContain('secret')
   })
 
@@ -304,9 +304,9 @@ describe('inbound correspondence synchronization', () => {
     expect(fixture.calls.health).toContainEqual(
       expect.objectContaining({
         state: 'FAILED',
-        detail: 'Correspondence watch renewal failed.',
       }),
     )
+    expect(fixture.calls.health[0]).not.toHaveProperty('detail')
     expect(JSON.stringify(fixture.calls.health)).not.toContain('secret')
   })
 

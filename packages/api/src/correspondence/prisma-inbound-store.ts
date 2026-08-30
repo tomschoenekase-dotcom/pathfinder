@@ -37,6 +37,12 @@ function canonicalReceiptState(
   return status
 }
 
+function healthFailureSummary(operation: 'INCREMENTAL_SYNC' | 'RECONCILIATION' | 'WATCH_RENEWAL') {
+  if (operation === 'INCREMENTAL_SYNC') return 'Correspondence incremental synchronization failed.'
+  if (operation === 'RECONCILIATION') return 'Correspondence reconciliation failed.'
+  return 'Correspondence watch renewal failed.'
+}
+
 function json(value: unknown): object | unknown[] {
   return JSON.parse(JSON.stringify(value)) as object | unknown[]
 }
@@ -382,7 +388,7 @@ export function createPrismaInboundCorrespondenceStore(
                   lastHealthCheckAt: input.occurredAt,
                   connectionStatus: 'DEGRADED',
                   healthErrorCode: input.operation,
-                  healthErrorSummary: input.detail?.slice(0, 2_000) ?? 'Unknown sync failure',
+                  healthErrorSummary: healthFailureSummary(input.operation),
                 },
         }),
       )
