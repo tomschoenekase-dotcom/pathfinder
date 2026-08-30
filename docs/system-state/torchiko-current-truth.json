@@ -99,13 +99,15 @@
     {
       "id": "golden-venue-lifecycle",
       "status": "proven-provider-dark-locally",
-      "summary": "A disposable end-to-end venue lifecycle and eight failure classes are retained and replayable through production domain paths.",
+      "summary": "A disposable end-to-end venue lifecycle and eight failure classes are retained through production domain paths, and the exact Railway release passed a guarded mobile arrival-to-chat smoke for the synthetic venue.",
       "evidence": [
         "docs/golden-venue-runbook.md",
+        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md",
         "scripts/run-disposable-golden-venue.mjs",
-        "scripts/golden-venue/fixture.json"
+        "scripts/golden-venue/fixture.json",
+        "apps/dashboard/scripts/hosted-golden-venue-smoke.mjs"
       ],
-      "remaining": "Run the synthetic flow in authorized hosted staging and separately prove provider-backed answer and voice quality."
+      "remaining": "Hosted lifecycle writes, authenticated operator/client journeys, provider-backed answer and voice quality, and physical-device proof remain unproven or gated."
     },
     {
       "id": "native-guest-read",
@@ -172,9 +174,10 @@
       "evidence": [
         "compose.local-staging.yml",
         "docs/local-staging-infrastructure.md",
-        "scripts/local-staging-worker.test.mjs"
+        "scripts/local-staging-worker.test.mjs",
+        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md"
       ],
-      "remaining": "Hosted Railway configuration and dependency health remain separately owned and unproven by local compose."
+      "remaining": "The bounded exact Railway topology is separately proven; local compose still cannot prove future releases, external provider health, production topology, or backup/PITR recovery."
     },
     {
       "id": "operational-usage-evidence",
