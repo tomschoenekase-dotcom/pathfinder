@@ -1,6 +1,6 @@
+import { reportDisposableRunnerFailure } from './lib/disposable-runner-failure.mjs'
+
 import {
-  DisposableIntakeVerificationExecutionError,
-  DisposableIntakeVerificationRefusal,
   runDisposableServiceShakedown,
 } from './lib/disposable-intake-upload-verification.mjs'
 
@@ -46,24 +46,5 @@ async function run() {
 try {
   process.exitCode = await run()
 } catch (error) {
-  if (error instanceof DisposableIntakeVerificationRefusal) {
-    console.error(`Disposable content convergence shakedown refused: ${error.message}`)
-    process.exitCode = 2
-  } else if (error instanceof DisposableIntakeVerificationExecutionError) {
-    console.error(`Disposable content convergence shakedown failed: ${error.message}`)
-    process.exitCode = 1
-  } else if (error instanceof AggregateError) {
-    console.error('Disposable content convergence shakedown and cleanup did not both succeed.')
-    for (const cause of error.errors) {
-      console.error(cause instanceof Error ? cause.message : 'Unknown failure')
-    }
-    process.exitCode = 1
-  } else {
-    console.error(
-      error instanceof Error
-        ? `Disposable content convergence shakedown failed: ${error.message}`
-        : 'Disposable content convergence shakedown failed unexpectedly.',
-    )
-    process.exitCode = 1
-  }
+  process.exitCode = reportDisposableRunnerFailure(error, import.meta.url)
 }
