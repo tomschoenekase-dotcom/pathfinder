@@ -40,7 +40,7 @@ async function mailboxFor(providerAccountId: string): Promise<ProviderMailboxRef
   }
 }
 
-async function markNotificationReceipt(receiptId: string, success: boolean, detail?: string) {
+async function markNotificationReceipt(receiptId: string, success: boolean) {
   await withTenantIsolationBypass(() =>
     db.prospectEmailWebhookReceipt.updateMany({
       where: { id: receiptId },
@@ -48,7 +48,7 @@ async function markNotificationReceipt(receiptId: string, success: boolean, deta
         status: success ? 'PROCESSED' : 'RETRYABLE',
         attemptCount: { increment: 1 },
         ...(success ? { processedAt: new Date(), processingError: null } : {}),
-        ...(!success && detail ? { processingError: detail.slice(0, 2_000) } : {}),
+        ...(!success ? { processingError: 'Gmail synchronization failed.' } : {}),
       },
     }),
   )
@@ -115,7 +115,7 @@ export async function processGmailSyncJob(payload: GmailSyncJobPayload) {
   } catch (error) {
     const errorCode =
       error instanceof CorrespondenceProviderError ? error.code : 'GMAIL_SYNC_FAILED'
-    if (payload.receiptId) await markNotificationReceipt(payload.receiptId, false, errorCode)
+    if (payload.receiptId) await markNotificationReceipt(payload.receiptId, false)
     await publishCrmOperationalSignal({
       input: {
         signal: 'gmail_sync_failed',

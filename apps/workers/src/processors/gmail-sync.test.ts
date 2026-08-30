@@ -118,7 +118,7 @@ describe('Gmail sync worker', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'RETRYABLE',
-          processingError: 'GMAIL_SYNC_FAILED',
+          processingError: 'Gmail synchronization failed.',
         }),
       }),
     )

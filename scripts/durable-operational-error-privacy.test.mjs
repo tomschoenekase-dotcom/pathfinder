@@ -16,6 +16,13 @@ test('durable CRM failure records cannot copy arbitrary exception messages', asy
     assert.doesNotMatch(source, /processingError:[^\n]*error\.message/u)
     assert.doesNotMatch(source, /reconciliation:[^\n]*error\.message/u)
   }
+
+  const gmailSync = await readFile(
+    new URL('apps/workers/src/processors/gmail-sync.ts', root),
+    'utf8',
+  )
+  assert.doesNotMatch(gmailSync, /markNotificationReceipt\([^)]*detail/u)
+  assert.match(gmailSync, /processingError:\s*'Gmail synchronization failed\.'/u)
 })
 
 test('durable intake and correspondence sinks reject free-form failure detail', async () => {
