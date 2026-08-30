@@ -68,7 +68,6 @@ function providerFailure(error: unknown): {
   retryable: boolean
   acceptanceAmbiguous: boolean
   retryAt?: Date
-  message: string
 } {
   if (error instanceof CorrespondenceProviderError) {
     return {
@@ -78,14 +77,12 @@ function providerFailure(error: unknown): {
       ...(error.retryAfterMs
         ? { retryAt: new Date(Date.now() + Math.min(error.retryAfterMs, 86_400_000)) }
         : {}),
-      message: error.message,
     }
   }
   return {
     code: 'UNCLASSIFIED_PROVIDER_FAILURE',
     retryable: false,
     acceptanceAmbiguous: true,
-    message: error instanceof Error ? error.message : 'Unknown provider failure',
   }
 }
 
@@ -131,7 +128,6 @@ export async function processSendProspectOutreachJob(
         outboxId: claimed.outboxId,
         workerId,
         code: 'INTERNAL_RECIPIENT_ALLOWLIST_BLOCKED',
-        message: 'Recipient is outside the server-authoritative internal smoke-test allowlist',
         retryable: false,
         acceptanceAmbiguous: false,
       })
@@ -181,7 +177,6 @@ export async function processSendProspectOutreachJob(
         outboxId: claimed.outboxId,
         workerId,
         code: failure.code,
-        message: failure.message,
         retryable: failure.retryable,
         acceptanceAmbiguous: failure.acceptanceAmbiguous,
         ...(failure.retryAt ? { retryAt: failure.retryAt } : {}),

@@ -171,7 +171,6 @@ describe.skipIf(!enabled)('canonical CRM disposable safety', () => {
         outboxId: claimed.outboxId,
         workerId: claimed.claimOwner,
         code: 'AMBIGUOUS_SEND',
-        message: 'Provider may have accepted the message',
         retryable: false,
         acceptanceAmbiguous: true,
       })

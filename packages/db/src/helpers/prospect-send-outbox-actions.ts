@@ -415,7 +415,6 @@ export async function recordProspectSendFailureAction(
     outboxId: string
     workerId: string
     code: string
-    message: string
     retryable: boolean
     acceptanceAmbiguous: boolean
     retryAt?: Date
@@ -424,6 +423,10 @@ export async function recordProspectSendFailureAction(
   client: Client = db,
 ): Promise<void> {
   const now = input.now ?? new Date()
+  const failureCode = /^[A-Z][A-Z0-9_]{2,99}$/u.test(input.code)
+    ? input.code
+    : 'UNCLASSIFIED_PROVIDER_FAILURE'
+  const failureMessage = `Prospect delivery failed (${failureCode}).`
   const outboxStatus = input.acceptanceAmbiguous
     ? 'AMBIGUOUS'
     : input.retryable
@@ -452,8 +455,8 @@ export async function recordProspectSendFailureAction(
         availableAt: input.retryAt ?? new Date(now.getTime() + 60_000),
         claimOwner: null,
         claimExpiresAt: null,
-        lastErrorCode: input.code.slice(0, 100),
-        lastErrorMessage: input.message.slice(0, 2000),
+        lastErrorCode: failureCode,
+        lastErrorMessage: failureMessage,
         lastErrorRetryable: input.retryable,
         ambiguousSince: input.acceptanceAmbiguous ? now : null,
         terminalAt: input.retryable ? null : now,
@@ -469,8 +472,8 @@ export async function recordProspectSendFailureAction(
       where: { id: operation.sendItem.id },
       data: {
         status: itemStatus,
-        lastErrorCode: input.code.slice(0, 100),
-        lastErrorMessage: input.message.slice(0, 2000),
+        lastErrorCode: failureCode,
+        lastErrorMessage: failureMessage,
       },
     })
     return operation.sendItem.batchId

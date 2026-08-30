@@ -67,3 +67,23 @@ test('dispatch persistence APIs have no free-form error argument', async () => {
     assert.doesNotMatch(source, /lastError:\s*(?:params\.)?error/u)
   }
 })
+
+test('prospect delivery failure persistence derives detail from a bounded code', async () => {
+  const root = new URL('../', import.meta.url)
+  const outboxActions = await readFile(
+    new URL('packages/db/src/helpers/prospect-send-outbox-actions.ts', root),
+    'utf8',
+  )
+  const deliveryWorker = await readFile(
+    new URL('apps/workers/src/processors/send-prospect-outreach.ts', root),
+    'utf8',
+  )
+
+  assert.doesNotMatch(
+    outboxActions,
+    /recordProspectSendFailureAction[\s\S]{0,400}\bmessage:\s*string/u,
+  )
+  assert.doesNotMatch(outboxActions, /lastErrorMessage:\s*input\.message/u)
+  assert.match(outboxActions, /lastErrorMessage:\s*failureMessage/u)
+  assert.doesNotMatch(deliveryWorker, /message:\s*error\.message/u)
+})

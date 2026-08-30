@@ -168,7 +168,6 @@ describe('prospect send lease completion', () => {
           outboxId: 'outbox-1',
           workerId: 'stale-worker',
           code: 'TRANSIENT',
-          message: 'late completion',
           retryable: true,
           acceptanceAmbiguous: false,
           now: new Date('2026-08-22T16:00:00.000Z'),
@@ -186,5 +185,49 @@ describe('prospect send lease completion', () => {
       }),
     )
     expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
+  })
+
+  it('derives durable failure detail from the bounded code', async () => {
+    const tx = {
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          sendItem: { id: 'item-1', batchId: 'batch-1' },
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn((work) => work(tx)),
+      prospectSendBatch: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'batch-1' }),
+        update: vi.fn(),
+      },
+      prospectSendItem: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+    }
+    await recordProspectSendFailureAction(
+      {
+        outboxId: 'outbox-1',
+        workerId: 'worker-1',
+        code: 'TRANSIENT',
+        retryable: true,
+        acceptanceAmbiguous: false,
+        now: new Date('2026-08-22T16:00:00.000Z'),
+      },
+      client as never,
+    )
+    const expected = {
+      lastErrorCode: 'TRANSIENT',
+      lastErrorMessage: 'Prospect delivery failed (TRANSIENT).',
+    }
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining(expected) }),
+    )
+    expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining(expected) }),
+    )
   })
 })
