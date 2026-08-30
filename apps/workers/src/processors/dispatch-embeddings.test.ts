@@ -99,7 +99,9 @@ describe('processEmbeddingDispatches', () => {
       leaseToken: 'lease_1',
       dispatches: [placeDispatch],
     })
-    mocks.enqueueEmbedPlace.mockRejectedValueOnce(new Error('redis unavailable'))
+    mocks.enqueueEmbedPlace.mockRejectedValueOnce(
+      new Error('postgres://operator:secret@example.test/torchiko'),
+    )
 
     await expect(processEmbeddingDispatches()).resolves.toEqual({
       acknowledged: 0,
@@ -112,7 +114,6 @@ describe('processEmbeddingDispatches', () => {
         id: 'place:place_1',
         contentUpdatedAt: revision,
         leaseToken: 'lease_1',
-        error: 'redis unavailable',
       }),
     )
   })

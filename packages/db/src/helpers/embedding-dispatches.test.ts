@@ -68,7 +68,7 @@ describe('embedding dispatch outbox', () => {
     })
   })
 
-  it('releases the exact failed lease with bounded diagnostic text', async () => {
+  it('releases the exact failed lease with a stable durable code', async () => {
     mocks.executeRaw.mockResolvedValue(1)
 
     await expect(
@@ -78,9 +78,10 @@ describe('embedding dispatch outbox', () => {
         venueId: 'venue_1',
         contentUpdatedAt: revision,
         leaseToken: 'lease_1',
-        error: 'x'.repeat(1_500),
       }),
     ).resolves.toBe(true)
-    expect(mocks.executeRaw.mock.calls[0]?.slice(1)).toContain('x'.repeat(1_000))
+    const durableValues = JSON.stringify(mocks.executeRaw.mock.calls[0]?.slice(1))
+    expect(durableValues).toContain('EMBEDDING_DISPATCH_FAILED')
+    expect(durableValues).not.toContain('postgres://operator:secret@example.test/torchiko')
   })
 })

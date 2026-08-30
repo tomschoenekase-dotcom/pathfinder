@@ -6,6 +6,7 @@ import { db } from '../client'
 
 export const EMBEDDING_DISPATCH_LEASE_MS = 60_000
 export const EMBEDDING_DISPATCH_BATCH_SIZE = 50
+export const EMBEDDING_DISPATCH_FAILURE_CODE = 'EMBEDDING_DISPATCH_FAILED'
 
 export type LeasedEmbeddingDispatch = {
   id: string
@@ -74,7 +75,6 @@ export async function failEmbeddingDispatch(params: {
   venueId: string
   contentUpdatedAt: Date
   leaseToken: string
-  error: string
 }): Promise<boolean> {
   const failed = await db.$executeRaw`
     UPDATE embedding_dispatches
@@ -82,7 +82,7 @@ export async function failEmbeddingDispatch(params: {
         lease_expires_at = NULL,
         next_attempt_at = clock_timestamp()
           + LEAST(300, 5 * POWER(2, GREATEST(attempts - 1, 0))) * INTERVAL '1 second',
-        last_error = ${params.error.slice(0, 1_000)},
+        last_error = ${EMBEDDING_DISPATCH_FAILURE_CODE},
         updated_at = clock_timestamp()
     WHERE id = ${params.id}
       AND tenant_id = ${params.tenantId}

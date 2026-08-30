@@ -195,14 +195,17 @@ integrationDescribe('embedding dispatch outbox (PostgreSQL integration)', () => 
         venueId,
         contentUpdatedAt: entry.updatedAt,
         leaseToken,
-        error: 'redis unavailable',
       }),
     ).resolves.toBe(true)
     expect(
       await db.embeddingDispatch.findFirstOrThrow({
         where: { tenantId, venueId, entityType: 'KNOWLEDGE_ENTRY', entityId: entryId },
       }),
-    ).toMatchObject({ leaseToken: null, leaseExpiresAt: null, lastError: 'redis unavailable' })
+    ).toMatchObject({
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastError: 'EMBEDDING_DISPATCH_FAILED',
+    })
 
     await db.venueKnowledgeEntry.deleteMany({ where: { id: entryId, tenantId } })
     expect(await db.embeddingDispatch.count({ where: { tenantId, entityId: entryId } })).toBe(0)

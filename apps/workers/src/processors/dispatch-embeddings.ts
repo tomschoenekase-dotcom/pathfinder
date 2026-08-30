@@ -59,7 +59,12 @@ export async function processEmbeddingDispatches(): Promise<{
         venueId: dispatch.venueId,
         contentUpdatedAt: dispatch.contentUpdatedAt,
         leaseToken,
-        error: error instanceof Error ? error.message : 'Unknown embedding dispatch error',
+      })
+      logger.warn({
+        action: 'workers.embedding-dispatch.failed',
+        dispatchId: dispatch.id,
+        error: 'Embedding dispatch enqueue failed.',
+        errorType: error instanceof Error ? error.name : 'UnknownError',
       })
     }
   }
