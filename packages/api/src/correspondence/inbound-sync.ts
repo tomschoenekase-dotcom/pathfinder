@@ -257,8 +257,8 @@ export function createInboundCorrespondenceService(input: {
       )
       return result
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Unknown provider retrieval failure'
       if (error instanceof CorrespondenceProviderError && error.code === 'NOT_FOUND') {
+        const detail = 'Provider message was not available for retrieval.'
         await store.quarantine({
           receiptId: receipt.id,
           reason: 'PROVIDER_MESSAGE_NOT_FOUND',
@@ -269,7 +269,11 @@ export function createInboundCorrespondenceService(input: {
         await store.markReceiptState(receipt.id, 'QUARANTINED', detail)
         return { state: 'QUARANTINED' as const }
       }
-      await store.markReceiptState(receipt.id, 'RETRYABLE_FAILURE', detail)
+      await store.markReceiptState(
+        receipt.id,
+        'RETRYABLE_FAILURE',
+        'Provider message retrieval failed before canonical ingestion.',
+      )
       throw error
     }
   }

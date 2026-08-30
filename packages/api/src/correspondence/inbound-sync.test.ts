@@ -66,6 +66,7 @@ function createStore(input?: {
     cursors: [] as unknown[],
     health: [] as unknown[],
     watches: [] as unknown[],
+    receiptStates: [] as unknown[],
   }
   const store: InboundCorrespondenceStore = {
     async receiveReceipt(receipt) {
@@ -81,8 +82,9 @@ function createStore(input?: {
       receipts.set(key, created)
       return { receipt: created, inserted: true }
     },
-    async markReceiptState(receiptId, state) {
+    async markReceiptState(receiptId, state, detail) {
       events.push(`receipt:${state}`)
+      calls.receiptStates.push({ receiptId, state, detail: detail ?? null })
       for (const [key, value] of receipts) {
         if (value.id === receiptId) receipts.set(key, { ...value, state })
       }
@@ -218,7 +220,10 @@ describe('inbound correspondence synchronization', () => {
   it('retains an unavailable provider message in quarantine for reconciliation', async () => {
     const provider = createFakeCorrespondenceProvider()
     vi.spyOn(provider, 'retrieveMessage').mockRejectedValue(
-      new CorrespondenceProviderError('NOT_FOUND', 'Message is not visible yet'),
+      new CorrespondenceProviderError(
+        'NOT_FOUND',
+        'Message at https://user:secret@provider.test is not visible yet',
+      ),
     )
     const fixture = createStore()
     const service = createInboundCorrespondenceService({ provider, store: fixture.store })
@@ -231,8 +236,42 @@ describe('inbound correspondence synchronization', () => {
 
     expect(result.state).toBe('QUARANTINED')
     expect(fixture.calls.quarantines).toEqual([
-      expect.objectContaining({ reason: 'PROVIDER_MESSAGE_NOT_FOUND' }),
+      expect.objectContaining({
+        reason: 'PROVIDER_MESSAGE_NOT_FOUND',
+        detail: 'Provider message was not available for retrieval.',
+      }),
     ])
+    expect(fixture.calls.receiptStates).toContainEqual(
+      expect.objectContaining({
+        state: 'QUARANTINED',
+        detail: 'Provider message was not available for retrieval.',
+      }),
+    )
+    expect(JSON.stringify(fixture.calls)).not.toContain('user:secret')
+  })
+
+  it('retains code-derived retry detail without provider exception text', async () => {
+    const provider = createFakeCorrespondenceProvider()
+    vi.spyOn(provider, 'retrieveMessage').mockRejectedValue(
+      new Error('redis://user:secret@private-host/provider-retrieval'),
+    )
+    const fixture = createStore()
+    const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+
+    await expect(
+      service.receiveNotification({
+        mailbox,
+        externalReceiptId: 'notification-retryable',
+        message: message().message,
+      }),
+    ).rejects.toThrow('secret@private-host')
+    expect(fixture.calls.receiptStates).toContainEqual(
+      expect.objectContaining({
+        state: 'RETRYABLE_FAILURE',
+        detail: 'Provider message retrieval failed before canonical ingestion.',
+      }),
+    )
+    expect(JSON.stringify(fixture.calls)).not.toContain('user:secret')
   })
 
   it('prefers provider thread or RFC evidence over participant-only candidates', () => {
