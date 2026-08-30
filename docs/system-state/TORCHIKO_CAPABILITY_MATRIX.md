@@ -6,29 +6,29 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 ## Current truth anchors
 
-| Truth ID                           | Current status                      | Boundary still retained                                                                                     |
-| ---------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `founder-operating-conversation`   | PROVEN PROVIDER-DARK LOCALLY        | Open-ended reasoning, proactive notification, and hosted provider synthesis remain unproven.                |
-| `founder-directive-task-handoff`   | PROVEN PROVIDER-DARK LOCALLY        | Approval does not execute; hosted workers and downstream action authority remain separately gated.          |
-| `guest-prompt-integrity`           | PROVEN PROVIDER-DARK LOCALLY        | Model-specific resistance and hosted staging behavior remain unproven.                                      |
-| `release-evidence`                 | PROVEN LOCALLY                      | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate.         |
-| `golden-venue-lifecycle`           | PROVEN PROVIDER-DARK LOCALLY        | Hosted staging and provider-backed quality remain unproven.                                                 |
-| `native-guest-read`                | PROVEN PROVIDER-DARK LOCALLY        | Activation evidence and compatibility retirement remain hosted/approval gated.                              |
-| `crm-pipeline`                     | IMPLEMENTED BUT EXTERNAL GATED      | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.                       |
-| `outreach-operations`              | IMPLEMENTED BUT EXTERNAL GATED      | Sending remains dark pending separate authorization and a bounded canary.                                   |
-| `stripe-billing`                   | SANDBOX-PROVEN; LIVE GATED          | No live billing is configured or authorized.                                                                |
-| `gmail-correspondence`             | IMPLEMENTED BUT EXTERNAL GATED      | Owner credentials, watch renewal, and hosted continuity remain external gates.                              |
-| `local-staging-infrastructure`     | PROVEN LOCALLY                      | Local proof does not establish hosted Railway state.                                                        |
-| `operational-usage-evidence`       | PROVEN PROVIDER-DARK LOCALLY        | Provider exports, rate provenance, accounting, and anomaly policy remain open.                              |
-| `first-week-account-learning`      | PROVEN PROVIDER-DARK LOCALLY        | Drafts require human review; hosted scheduling and customer communication remain gated.                     |
-| `privacy-retention`                | PARTIALLY IMPLEMENTED; POLICY GATED | Privacy status and read-only disposition preview exist; destructive execution does not.                     |
-| `customer-access-execution`        | PROVIDER-DARK PROVEN; LIVE GATED    | Live Clerk delivery/acceptance and any agent execution authority remain external/founder-gated.             |
-| `claim-attribution-calibration`    | PROVEN PROVIDER-DARK LOCALLY        | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.                 |
-| `agent-operational-trust-evidence` | PROVEN PROVIDER-DARK LOCALLY        | Representative history, trust thresholds, hosted staging, and every authority change remain gated.          |
-| `agent-workforce-credibility`      | PROVEN PROVIDER-DARK LOCALLY        | Live bridges, provider quality, sustained load, production, and broader permissions remain gated.           |
-| `identity-vocabulary`              | PROVEN LOCALLY                      | Legal/trademark/product changes and migrations of stable technical identifiers remain separately gated.     |
-| `support-knowledge-correction`     | PROVEN PROVIDER-DARK LOCALLY        | Review, publication, contact, hosted continuity, and provider quality remain separate or gated.             |
-| `semantic-venue-update-draft`      | PROVEN PROVIDER-DARK LOCALLY        | Exact conflict questions are durable; hosted rehearsal, quality history, downstream execution remain gated. |
+| Truth ID                           | Current status                         | Boundary still retained                                                                                            |
+| ---------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `founder-operating-conversation`   | PROVEN PROVIDER-DARK LOCALLY           | Open-ended reasoning, proactive notification, and hosted provider synthesis remain unproven.                       |
+| `founder-directive-task-handoff`   | PROVEN PROVIDER-DARK LOCALLY           | Approval does not execute; hosted workers and downstream action authority remain separately gated.                 |
+| `guest-prompt-integrity`           | PROVEN PROVIDER-DARK LOCALLY           | Model-specific resistance and hosted staging behavior remain unproven.                                             |
+| `release-evidence`                 | PROVEN LOCALLY                         | Retention is not deployment approval; hosted persistence remains unproven for the latest candidate.                |
+| `golden-venue-lifecycle`           | PROVIDER-DARK LOCAL + HOSTED READ-ONLY | Exact-revision mobile arrival-to-chat passed; hosted lifecycle writes and provider-backed quality remain unproven. |
+| `native-guest-read`                | PROVEN PROVIDER-DARK LOCALLY           | Activation evidence and compatibility retirement remain hosted/approval gated.                                     |
+| `crm-pipeline`                     | IMPLEMENTED BUT EXTERNAL GATED         | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.                              |
+| `outreach-operations`              | IMPLEMENTED BUT EXTERNAL GATED         | Sending remains dark pending separate authorization and a bounded canary.                                          |
+| `stripe-billing`                   | SANDBOX-PROVEN; LIVE GATED             | No live billing is configured or authorized.                                                                       |
+| `gmail-correspondence`             | IMPLEMENTED BUT EXTERNAL GATED         | Owner credentials, watch renewal, and hosted continuity remain external gates.                                     |
+| `local-staging-infrastructure`     | PROVEN LOCALLY                         | Local proof does not establish hosted Railway state.                                                               |
+| `operational-usage-evidence`       | PROVEN PROVIDER-DARK LOCALLY           | Provider exports, rate provenance, accounting, and anomaly policy remain open.                                     |
+| `first-week-account-learning`      | PROVEN PROVIDER-DARK LOCALLY           | Drafts require human review; hosted scheduling and customer communication remain gated.                            |
+| `privacy-retention`                | PARTIALLY IMPLEMENTED; POLICY GATED    | Privacy status and read-only disposition preview exist; destructive execution does not.                            |
+| `customer-access-execution`        | PROVIDER-DARK PROVEN; LIVE GATED       | Live Clerk delivery/acceptance and any agent execution authority remain external/founder-gated.                    |
+| `claim-attribution-calibration`    | PROVEN PROVIDER-DARK LOCALLY           | Agreement is descriptive; semantic correctness, thresholds, and visitor UX remain unproven.                        |
+| `agent-operational-trust-evidence` | PROVEN PROVIDER-DARK LOCALLY           | Representative history, trust thresholds, hosted staging, and every authority change remain gated.                 |
+| `agent-workforce-credibility`      | PROVEN PROVIDER-DARK LOCALLY           | Live bridges, provider quality, sustained load, production, and broader permissions remain gated.                  |
+| `identity-vocabulary`              | PROVEN LOCALLY                         | Legal/trademark/product changes and migrations of stable technical identifiers remain separately gated.            |
+| `support-knowledge-correction`     | PROVEN PROVIDER-DARK LOCALLY           | Review, publication, contact, hosted continuity, and provider quality remain separate or gated.                    |
+| `semantic-venue-update-draft`      | PROVEN PROVIDER-DARK LOCALLY           | Exact conflict questions are durable; hosted rehearsal, quality history, downstream execution remain gated.        |
 
 ## Product ownership in one minute
 

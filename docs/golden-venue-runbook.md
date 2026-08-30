@@ -32,6 +32,34 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
 6. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a
    shared staging or production database.
 
+## Hosted read-only and provider smoke
+
+After an exact staging revision passes the hosted release profile, run the retained mobile browser
+smoke against the policy-owned origin:
+
+```text
+pnpm golden-venue:hosted-smoke -- --revision <exact-40-character-staging-sha>
+```
+
+The command refuses caller-supplied origins, verifies exact deployment/resource health first, and
+then checks the synthetic venue arrival-to-chat journey at 390 × 844. It performs no provider call
+by default. Retain its revision-keyed JSON report from `artifacts/hosted-golden-venue/`.
+
+One named checked-in corpus question may be sent only with the separate one-run opt-in:
+
+```text
+PATHFINDER_ALLOW_HOSTED_PROVIDER_SMOKE=1 pnpm golden-venue:hosted-smoke -- --revision <exact-sha> --question-key shark-feeding
+```
+
+The provider report retains only answer byte length, SHA-256, and per-fact matches. A safe guest
+fallback or missing expected fact fails the command. Provider credentials, model routing, spend
+authority, and any required human-admin configuration remain outside this command.
+
+Before enabling the provider smoke, a human `PLATFORM_ADMIN` must verify that the synthetic venue's
+effective model route is backed by a credential available in the exact staging web deployment. Use
+the governed Admin OS override workflow when a route change is required; do not direct-write the
+configuration tables or treat the smoke opt-in as authorization to change provider routing.
+
 ## Lifecycle evidence checklist
 
 For each required phase, record timestamp, actor/surface, stable record ID, URL or artifact hash, expected result, observed result, and status. Cover client, venue, onboarding, upload/intake, review, content/package/evaluation, release, guest retrieval/chat, feedback, report, support, operational update, and export/offboarding.

@@ -77,11 +77,13 @@ for cost and recovery evidence.
 Fallback cannot bypass a control-plane rejection. Abort, admission, budget, accounting, policy,
 and dispatch-fence failures stop immediately rather than trying another candidate.
 
-The routing contract is provider-neutral, but the current text registry has only an Anthropic
-adapter. The implemented guest fallback can therefore switch centrally configured text
-models/workloads, but cross-provider text failover remains unimplemented and unproven. Adding it
-requires a registered provider adapter, versioned model/pricing metadata, and the same admission,
-budget, usage, and durable-dispatch guarantees; it does not require per-venue chat code changes.
+The text registry includes the Anthropic `guest-chat` platform default and the registered OpenAI
+`guest-chat-openai` provider-diversity candidate. Both execute through the same admission, budget,
+usage, and durable-dispatch controls. A governed workload, client, or venue override must explicitly
+select the OpenAI key; the mere presence of an OpenAI credential does not change the inherited
+Anthropic route. Provider availability therefore remains an environment-and-configuration concern,
+and cross-provider fallback is proven only where an ordered route has been explicitly configured and
+tested.
 
 ## Operational boundary
 

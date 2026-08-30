@@ -20,6 +20,15 @@ health projection reported the reviewed database, Redis, and storage identities 
 queue status `up`. The authenticated hosted staging profile passed 19/19 with zero failed or
 blocked gates.
 
+A separate retained mobile Golden Venue smoke verified the public synthetic Riverside Aquarium
+arrival-to-chat path at 390 × 844: HTTP 200, exact venue heading, successful guide navigation,
+enabled composer, no horizontal overflow, and zero console/page errors. Its revision-keyed JSON
+report has SHA-256 `6194a499a2c99e2f01ba58fb7e57c504900568e0a15df0bbae74ad2098beb9e6`.
+This was intentionally read-only. One earlier bounded provider question reached the safe fallback
+because the venue inherited the Anthropic text route while the exact staging web service exposed
+only the isolated OpenAI credential. A governed human `PLATFORM_ADMIN` route review remains the
+gate; no configuration table was bypassed or direct-written.
+
 ## Database boundary
 
 - The guarded web pre-deploy accepted the exact Railway target, frozen 206-file migration manifest,
@@ -49,6 +58,9 @@ authenticated pixel review, backup/PITR recovery, production state, or any exter
 - `docs/railway-staging.md`
 - `docs/staging-release-workflow.md`
 - `docs/inbound-reply-continuity.md`
+- Hosted Golden Venue report:
+  `artifacts/hosted-golden-venue/a82328e5402d3150d43147b25abf0df54e0930b0.json`
+  (runtime artifact; SHA-256 retained above)
 - Candidate report:
   `artifacts/release-verification/a82328e5402d3150d43147b25abf0df54e0930b0-candidate.{json,md}`
   (runtime artifact; intentionally gitignored)
