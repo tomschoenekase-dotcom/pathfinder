@@ -71,6 +71,11 @@ export function fingerprintHostedBrowserError(kind, message) {
   }
 }
 
+export function hostedSmokeErrorCode(error) {
+  const message = error instanceof Error ? error.message : ''
+  return /^[a-z0-9][a-z0-9-]{0,63}$/u.test(message) ? message : 'unexpected-failure'
+}
+
 export function resolveHostedGoldenVenueReportPath(value, revision, questionKey = null) {
   if (questionKey !== null && !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(questionKey))
     fail('unsafe-question-key')
@@ -213,9 +218,7 @@ if (path.resolve(process.argv[1] ?? '') === scriptPath) {
   try {
     await runHostedGoldenVenueSmoke(parseHostedGoldenVenueArgs(process.argv.slice(2)))
   } catch (error) {
-    process.stderr.write(
-      `Hosted Golden Venue smoke failed: ${error instanceof Error ? error.message : 'unexpected-failure'}\n`,
-    )
+    process.stderr.write(`Hosted Golden Venue smoke failed: ${hostedSmokeErrorCode(error)}\n`)
     process.exitCode = 1
   }
 }

@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   assessSyntheticAnswer,
   fingerprintHostedBrowserError,
+  hostedSmokeErrorCode,
   parseHostedGoldenVenueArgs,
   resolveHostedGoldenVenueReportPath,
   validateHostedHealth,
@@ -50,6 +51,15 @@ test('browser errors retain only content-addressed diagnostic evidence', () => {
     () => fingerprintHostedBrowserError('warning', 'detail'),
     /unknown-browser-error-kind/u,
   )
+})
+
+test('top-level smoke failures retain controlled codes without reflecting transport details', () => {
+  assert.equal(hostedSmokeErrorCode(new Error('exact-staging-health-rejected')), 'exact-staging-health-rejected')
+  assert.equal(
+    hostedSmokeErrorCode(new Error('fetch failed for https://operator:secret@staging.invalid')),
+    'unexpected-failure',
+  )
+  assert.equal(hostedSmokeErrorCode({ message: 'credential-secret' }), 'unexpected-failure')
 })
 
 test('hosted health must match staging, revision, dependencies, and reviewed resource identities', () => {
