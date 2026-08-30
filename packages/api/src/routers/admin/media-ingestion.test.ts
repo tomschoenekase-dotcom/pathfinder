@@ -625,7 +625,8 @@ describe('media ingestion router', () => {
       status: 'DRAFT',
     })
     mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
-    mocks.beginMediaUpload.mockRejectedValueOnce(new Error('storage unavailable'))
+    const privateError = 'postgres://operator:secret@example.test/torchiko'
+    mocks.beginMediaUpload.mockRejectedValueOnce(new Error(privateError))
 
     const caller = testRouter.createCaller(context(true))
     await expect(
@@ -638,7 +639,7 @@ describe('media ingestion router', () => {
         bytes: 10,
         contentType: 'application/zip',
       }),
-    ).rejects.toThrow('storage unavailable')
+    ).rejects.toThrow('Media upload creation failed.')
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
       where: {
         id: 'project_1',
@@ -650,7 +651,7 @@ describe('media ingestion router', () => {
       data: {
         status: 'FAILED',
         stage: 'upload',
-        error: 'storage unavailable',
+        error: 'MEDIA_UPLOAD_CREATION_FAILED',
         uploadAttemptId: null,
         uploadStartedAt: null,
         storageUploadId: null,
@@ -658,6 +659,7 @@ describe('media ingestion router', () => {
         sourceContentType: null,
       },
     })
+    expect(serializeCalls(mocks.projectUpdateMany.mock.calls)).not.toContain(privateError)
   })
 
   it('preserves the storage creation failure when its compensation write rejects', async () => {
@@ -682,12 +684,13 @@ describe('media ingestion router', () => {
         bytes: 10,
         contentType: 'application/zip',
       }),
-    ).rejects.toThrow('storage unavailable')
+    ).rejects.toThrow('Media upload creation failed.')
     expect(mocks.loggerWarn).toHaveBeenCalledWith({
       action: 'media-ingestion.upload-creation-compensation.failed',
       projectId: 'project_1',
       uploadAttemptId: ATTEMPT_ID,
-      error: 'database unavailable',
+      error: 'Upload creation compensation failed.',
+      errorType: 'Error',
     })
   })
 
@@ -711,7 +714,7 @@ describe('media ingestion router', () => {
         bytes: 10,
         contentType: 'application/zip',
       }),
-    ).rejects.toThrow('storage unavailable')
+    ).rejects.toThrow('Media upload creation failed.')
     expect(mocks.loggerWarn).toHaveBeenCalledWith({
       action: 'media-ingestion.upload-creation-compensation.missed',
       projectId: 'project_1',
@@ -1599,7 +1602,8 @@ describe('media ingestion router', () => {
       storageUploadId: 'storage_upload_1',
     })
     mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
-    mocks.finishMediaUpload.mockRejectedValueOnce(new Error('Completed media upload is empty.'))
+    const privateError = 'postgres://operator:secret@example.test/torchiko'
+    mocks.finishMediaUpload.mockRejectedValueOnce(new Error(privateError))
 
     const caller = testRouter.createCaller(context(true))
     await expect(
@@ -1609,7 +1613,7 @@ describe('media ingestion router', () => {
         uploadAttemptId: ATTEMPT_ID,
         parts: [{ partNumber: 1, etag: 'etag_1' }],
       }),
-    ).rejects.toThrow(/empty/)
+    ).rejects.toThrow('Media upload completion failed.')
 
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
       where: {
@@ -1619,8 +1623,13 @@ describe('media ingestion router', () => {
         stage: 'finalizing',
         uploadAttemptId: ATTEMPT_ID,
       },
-      data: { status: 'FAILED', stage: 'upload', error: 'Completed media upload is empty.' },
+      data: {
+        status: 'FAILED',
+        stage: 'upload',
+        error: 'MEDIA_UPLOAD_FINALIZATION_FAILED',
+      },
     })
+    expect(serializeCalls(mocks.projectUpdateMany.mock.calls)).not.toContain(privateError)
     expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
   })
 
@@ -2102,11 +2111,12 @@ describe('media ingestion router', () => {
         uploadAttemptId: ATTEMPT_ID,
         parts: [{ partNumber: 1, etag: 'etag_1' }],
       }),
-    ).rejects.toThrow('head unavailable')
+    ).rejects.toThrow('Media upload completion failed.')
     expect(mocks.loggerWarn).toHaveBeenCalledWith({
       action: 'media-ingestion.upload-finalization-compensation.failed',
       projectId: 'project_1',
-      error: 'database unavailable',
+      error: 'Upload finalization compensation failed.',
+      errorType: 'Error',
     })
     expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
   })
@@ -2130,7 +2140,7 @@ describe('media ingestion router', () => {
         uploadAttemptId: ATTEMPT_ID,
         parts: [{ partNumber: 1, etag: 'etag_1' }],
       }),
-    ).rejects.toThrow('head unavailable')
+    ).rejects.toThrow('Media upload completion failed.')
     expect(mocks.loggerWarn).toHaveBeenCalledWith({
       action: 'media-ingestion.upload-finalization-compensation.missed',
       projectId: 'project_1',

@@ -161,7 +161,6 @@ export const mediaIngestionBeginUploadRouter = router({
       try {
         started = await beginMediaUpload(objectKey, input.contentType, input.uploadAttemptId)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Media upload creation failed.'
         try {
           const compensated = await withTenantIsolationBypass(() =>
             db.mediaIngestionProject.updateMany({
@@ -175,7 +174,7 @@ export const mediaIngestionBeginUploadRouter = router({
               data: {
                 status: 'FAILED',
                 stage: 'upload',
-                error: message,
+                error: 'MEDIA_UPLOAD_CREATION_FAILED',
                 uploadAttemptId: null,
                 uploadStartedAt: null,
                 storageUploadId: null,
@@ -196,13 +195,15 @@ export const mediaIngestionBeginUploadRouter = router({
             action: 'media-ingestion.upload-creation-compensation.failed',
             projectId: project.id,
             uploadAttemptId: input.uploadAttemptId,
-            error:
-              compensationError instanceof Error
-                ? compensationError.message
-                : 'Unknown compensation error',
+            error: 'Upload creation compensation failed.',
+            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
           })
         }
-        throw error
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Media upload creation failed.',
+          cause: error,
+        })
       }
       let persistenceError: unknown
       try {

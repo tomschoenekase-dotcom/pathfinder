@@ -190,7 +190,6 @@ export const mediaIngestionCompleteUploadRouter = router({
             cause: error,
           })
         }
-        const message = error instanceof Error ? error.message : 'Media upload completion failed.'
         try {
           const compensated = await withTenantIsolationBypass(() =>
             db.mediaIngestionProject.updateMany({
@@ -201,7 +200,11 @@ export const mediaIngestionCompleteUploadRouter = router({
                 stage: 'finalizing',
                 uploadAttemptId: input.uploadAttemptId,
               },
-              data: { status: 'FAILED', stage: 'upload', error: message },
+              data: {
+                status: 'FAILED',
+                stage: 'upload',
+                error: 'MEDIA_UPLOAD_FINALIZATION_FAILED',
+              },
             }),
           )
           if (compensated.count !== 1) {
@@ -215,13 +218,15 @@ export const mediaIngestionCompleteUploadRouter = router({
           logger.warn({
             action: 'media-ingestion.upload-finalization-compensation.failed',
             projectId: project.id,
-            error:
-              compensationError instanceof Error
-                ? compensationError.message
-                : 'Unknown compensation error',
+            error: 'Upload finalization compensation failed.',
+            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
           })
         }
-        throw error
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Media upload completion failed.',
+          cause: error,
+        })
       }
       return queueVerifiedMediaUpload({
         tenantId: input.tenantId,
