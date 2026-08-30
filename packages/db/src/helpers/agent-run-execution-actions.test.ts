@@ -131,4 +131,55 @@ describe('agent run execution actions', () => {
       }),
     )
   })
+
+  it('persists a stable code-derived terminal failure without reflecting executor details', async () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          venueId: 'venue-1',
+          attemptNumber: 3,
+          maxAttempts: 3,
+          cancelRequestedAt: null,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+    }
+
+    const result = await failAgentRunExecution(
+      {
+        tenantId: 'tenant-1',
+        runId: 'run-1',
+        leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        errorCode: 'TASK_EXECUTOR_FAILED',
+        errorMessage: secret,
+        retryable: true,
+      },
+      client(transaction) as never,
+    )
+
+    expect(result.status).toBe('FAILED')
+    expect(transaction.agentRun.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          errorCode: 'TASK_EXECUTOR_FAILED',
+          errorMessage: 'Agent execution failed (TASK_EXECUTOR_FAILED).',
+        }),
+      }),
+    )
+    expect(transaction.agentTimelineEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          message: 'Agent execution failed (TASK_EXECUTOR_FAILED).',
+        }),
+      }),
+    )
+    expect(
+      JSON.stringify([
+        transaction.agentRun.updateMany.mock.calls,
+        transaction.agentTimelineEvent.create.mock.calls,
+      ]),
+    ).not.toContain(secret)
+  })
 })

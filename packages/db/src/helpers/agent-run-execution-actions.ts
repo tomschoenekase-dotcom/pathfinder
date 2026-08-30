@@ -279,7 +279,7 @@ export async function failAgentRunExecution(
   const input = scopeSchema
     .extend({
       leaseToken: z.string().uuid(),
-      errorCode: z.string().trim().min(1).max(100),
+      errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{2,99}$/u),
       errorMessage: z.string().trim().min(1).max(5_000),
       retryable: z.boolean(),
     })
@@ -301,6 +301,7 @@ export async function failAgentRunExecution(
       : input.retryable && run.attemptNumber < run.maxAttempts
         ? 'QUEUED'
         : 'FAILED'
+    const failureMessage = `Agent execution failed (${input.errorCode}).`
     const now = new Date()
     const changed = await transaction.agentRun.updateMany({
       where: {
@@ -312,7 +313,7 @@ export async function failAgentRunExecution(
       data: {
         status,
         errorCode: status === 'FAILED' ? input.errorCode : null,
-        errorMessage: status === 'FAILED' ? input.errorMessage : null,
+        errorMessage: status === 'FAILED' ? failureMessage : null,
         executionLeaseToken: null,
         executionLeaseExpiresAt: null,
         completedAt: status === 'QUEUED' ? null : now,
@@ -328,7 +329,12 @@ export async function failAgentRunExecution(
         actorType: 'SYSTEM',
         actorId: 'agent-runtime',
         eventType: status === 'QUEUED' ? 'EXECUTION_RETRY_SCHEDULED' : `EXECUTION_${status}`,
-        message: status === 'QUEUED' ? 'The task will be retried.' : input.errorMessage,
+        message:
+          status === 'QUEUED'
+            ? 'The task will be retried.'
+            : status === 'CANCELLED'
+              ? 'The task was cancelled.'
+              : failureMessage,
         data: { errorCode: input.errorCode, retryable: input.retryable },
       },
     })
