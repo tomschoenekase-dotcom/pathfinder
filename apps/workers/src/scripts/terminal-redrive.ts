@@ -10,6 +10,7 @@ import {
   terminalRedriveFinalError,
   terminalRedriveMutationWasAccepted,
 } from '../lib/terminal-redrive-cli'
+import { writeSafeCliFailure } from '../lib/safe-cli-failure'
 
 async function main(): Promise<void> {
   assertServerEnv(['REDIS_URL'], 'terminal-redrive')
@@ -44,13 +45,11 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  process.stderr.write(
-    `${JSON.stringify({
-      ok: false,
-      mutationAccepted: terminalRedriveMutationWasAccepted(error),
-      error: error instanceof Error ? error.message : 'Unknown terminal redrive failure',
-      environment: env.RAILWAY_ENVIRONMENT,
-    })}\n`,
-  )
+  writeSafeCliFailure({
+    action: 'terminal-redrive.failed',
+    errorCode: 'terminal-redrive-failed',
+    mutationAccepted: terminalRedriveMutationWasAccepted(error),
+    environment: env.RAILWAY_ENVIRONMENT,
+  })
   process.exitCode = 1
 })

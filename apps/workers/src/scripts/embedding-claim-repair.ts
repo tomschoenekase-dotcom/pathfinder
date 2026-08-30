@@ -2,6 +2,7 @@ import {
   parseEmbeddingClaimRepairArgs,
   runEmbeddingClaimRepairCommand,
 } from '../lib/embedding-claim-repair-cli'
+import { writeSafeCliFailure } from '../lib/safe-cli-failure'
 
 async function main(): Promise<void> {
   const command = parseEmbeddingClaimRepairArgs(process.argv.slice(2), process.env)
@@ -9,9 +10,10 @@ async function main(): Promise<void> {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(
-    `${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`,
-  )
+main().catch(() => {
+  writeSafeCliFailure({
+    action: 'embedding.claim-repair.failed',
+    errorCode: 'embedding-claim-repair-failed',
+  })
   process.exitCode = 1
 })
