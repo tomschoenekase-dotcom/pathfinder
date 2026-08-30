@@ -42,6 +42,26 @@ const configSchema = z.object({
 
 export type AgentBridgeRunnerConfig = z.infer<typeof configSchema>
 
+const durableTaskFailureCodes = new Set([
+  'TASK_CANCELLED',
+  'TASK_ERROR_OUTPUT_TOO_LARGE',
+  'TASK_EXECUTOR_EMPTY_RESULT',
+  'TASK_EXECUTOR_FAILED',
+  'TASK_EXECUTOR_INVALID_RESULT',
+  'TASK_EXECUTOR_UNAVAILABLE',
+  'TASK_OUTPUT_TOO_LARGE',
+  'TASK_PROVIDER_MISMATCH',
+  'TASK_TIMEOUT',
+  'TASK_VENUE_MISMATCH',
+])
+
+function durableTaskFailureCode(error: unknown): string {
+  if (!(error instanceof Error) || !durableTaskFailureCodes.has(error.message)) {
+    return 'TASK_EXECUTOR_FAILED'
+  }
+  return error.message
+}
+
 function validateEndpoint(raw: string) {
   const endpoint = new URL(raw)
   const loopback = endpoint.hostname === '127.0.0.1' || endpoint.hostname === 'localhost'
@@ -562,12 +582,12 @@ export async function runAgentBridge(
         costStatus: result.costStatus,
       })
     } catch (error) {
-      const code = error instanceof Error ? error.message : 'TASK_EXECUTOR_FAILED'
+      const code = durableTaskFailureCode(error)
       await call('failTask', {
         ...session,
         runId: claimed.task.id,
         leaseToken: claimed.task.leaseToken,
-        errorCode: /^[A-Z][A-Z0-9_]{2,99}$/u.test(code) ? code : 'TASK_EXECUTOR_FAILED',
+        errorCode: code,
         retryable: code !== 'TASK_CANCELLED',
       }).catch(() => undefined)
     } finally {

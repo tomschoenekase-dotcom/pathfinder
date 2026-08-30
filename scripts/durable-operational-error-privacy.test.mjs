@@ -107,6 +107,13 @@ test('agent failure APIs accept only code and retry policy', async () => {
     const source = await readFile(new URL(relativePath, root), 'utf8')
     assert.doesNotMatch(source, /errorMessage:\s*(?:string|error\.message|input\.errorMessage)/u)
   }
+
+  const bridgeRunner = await readFile(
+    new URL('apps/workers/src/lib/agent-bridge-runner.ts', root),
+    'utf8',
+  )
+  assert.match(bridgeRunner, /durableTaskFailureCodes\.has\(error\.message\)/u)
+  assert.doesNotMatch(bridgeRunner, /\^\[A-Z\]\[A-Z0-9_\][^\n]*\.test\(code\)/u)
 })
 
 test('job-record persistence derives terminal error from failure disposition', async () => {

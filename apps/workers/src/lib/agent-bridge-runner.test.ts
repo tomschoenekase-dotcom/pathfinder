@@ -348,4 +348,27 @@ describe('desktop agent bridge runner', () => {
     )
     vi.useRealTimers()
   })
+
+  it('maps untrusted uppercase executor failures to the fixed durable fallback', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    let claims = 0
+    const call = vi.fn(async (method: string) => {
+      if (method === 'claimTask') return { task: claims++ === 0 ? bridgeTask() : null }
+      if (method === 'failTask') controller.abort()
+      return {}
+    })
+    const execute = vi.fn().mockRejectedValue(new Error('UPSTREAM_SECRET_TOKEN'))
+
+    await runAgentBridge(config, controller.signal, {
+      call: call as never,
+      execute: execute as never,
+    })
+
+    expect(call).toHaveBeenCalledWith(
+      'failTask',
+      expect.objectContaining({ errorCode: 'TASK_EXECUTOR_FAILED', retryable: true }),
+    )
+    expect(JSON.stringify(call.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
+  })
 })
