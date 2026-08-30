@@ -82,9 +82,9 @@ function createStore(input?: {
       receipts.set(key, created)
       return { receipt: created, inserted: true }
     },
-    async markReceiptState(receiptId, state, detail) {
+    async markReceiptState(receiptId, state) {
       events.push(`receipt:${state}`)
-      calls.receiptStates.push({ receiptId, state, detail: detail ?? null })
+      calls.receiptStates.push({ receiptId, state })
       for (const [key, value] of receipts) {
         if (value.id === receiptId) receipts.set(key, { ...value, state })
       }
@@ -244,9 +244,9 @@ describe('inbound correspondence synchronization', () => {
     expect(fixture.calls.receiptStates).toContainEqual(
       expect.objectContaining({
         state: 'QUARANTINED',
-        detail: 'Provider message was not available for retrieval.',
       }),
     )
+    expect(fixture.calls.receiptStates[0]).not.toHaveProperty('detail')
     expect(JSON.stringify(fixture.calls)).not.toContain('user:secret')
   })
 
@@ -268,9 +268,9 @@ describe('inbound correspondence synchronization', () => {
     expect(fixture.calls.receiptStates).toContainEqual(
       expect.objectContaining({
         state: 'RETRYABLE_FAILURE',
-        detail: 'Provider message retrieval failed before canonical ingestion.',
       }),
     )
+    expect(fixture.calls.receiptStates[1]).not.toHaveProperty('detail')
     expect(JSON.stringify(fixture.calls)).not.toContain('user:secret')
   })
 

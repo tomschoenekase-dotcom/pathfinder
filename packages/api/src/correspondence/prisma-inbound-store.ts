@@ -123,14 +123,17 @@ export function createPrismaInboundCorrespondenceStore(
         return { inserted: true, receipt: { ...input, id: receipt.id, state: 'RECEIVED' } }
       })
     },
-    async markReceiptState(receiptId, state, detail) {
+    async markReceiptState(receiptId, state) {
       await withTenantIsolationBypass(() =>
         db.prospectEmailWebhookReceipt.update({
           where: { id: receiptId },
           data: {
             status: receiptStatus[state],
             attemptCount: { increment: 1 },
-            ...(detail ? { processingError: detail.slice(0, 2_000) } : {}),
+            processingError:
+              state === 'RETRYABLE_FAILURE'
+                ? 'Provider message retrieval failed before canonical ingestion.'
+                : null,
             ...(['PROCESSED', 'QUARANTINED', 'PERMANENT_FAILURE'].includes(state)
               ? { processedAt: new Date() }
               : {}),

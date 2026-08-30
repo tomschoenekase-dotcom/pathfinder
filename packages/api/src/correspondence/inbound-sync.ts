@@ -58,7 +58,7 @@ export type InboundCorrespondenceStore = Readonly<{
     receipt: ReceiptRecord
     inserted: boolean
   }>
-  markReceiptState(receiptId: string, state: ReceiptState, detail?: string): Promise<void>
+  markReceiptState(receiptId: string, state: ReceiptState): Promise<void>
   findThreadCandidates(message: NormalizedProviderMessage): Promise<readonly ThreadMatchCandidate[]>
   upsertCanonicalMessage(input: {
     canonicalThreadId: string
@@ -266,14 +266,10 @@ export function createInboundCorrespondenceService(input: {
           message: null,
           occurredAt: now(),
         })
-        await store.markReceiptState(receipt.id, 'QUARANTINED', detail)
+        await store.markReceiptState(receipt.id, 'QUARANTINED')
         return { state: 'QUARANTINED' as const }
       }
-      await store.markReceiptState(
-        receipt.id,
-        'RETRYABLE_FAILURE',
-        'Provider message retrieval failed before canonical ingestion.',
-      )
+      await store.markReceiptState(receipt.id, 'RETRYABLE_FAILURE')
       throw error
     }
   }
