@@ -8,6 +8,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const monitoringContext = resolveMonitoringContext(process.env, 'web')
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['127.0.0.1'],
   distDir: process.env.NEXT_DIST_DIR || '.next',
   env: {
     NEXT_PUBLIC_SENTRY_ENVIRONMENT: monitoringContext.environment,

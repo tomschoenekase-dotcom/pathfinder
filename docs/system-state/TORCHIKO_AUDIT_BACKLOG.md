@@ -289,12 +289,12 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.8 — Remove the remaining UI/build warnings
 
-- **Status:** **LOCALLY RESOLVED 2026-08-24** for the actionable application warnings. The venue-photo `<img>` is now an explicit security-boundary exception, and both Next applications externalize the Sentry/OpenTelemetry instrumentation chain while preserving those packages in standalone output. Focused production builds complete without the raw-image lint warning, `Critical dependency`, `require-in-the-middle`, or `Compiled with warnings` output.
-- **Historical problem:** Lint warned on raw `<img>`; Next builds warned on Sentry/OpenTelemetry dynamic requires and Windows standalone link names.
-- **Evidence:** `apps/web/components/PlaceCard.tsx`; both `next.config.ts` files; focused web/dashboard lint and production builds; standalone-package trace inspection.
+- **Status:** **LOCALLY RESOLVED 2026-08-30** for the actionable application warnings. The venue-photo `<img>` is now an explicit security-boundary exception, and both Next applications externalize the Sentry/OpenTelemetry instrumentation chain while preserving those packages in standalone output. Focused production builds complete without the raw-image lint warning, `Critical dependency`, `require-in-the-middle`, or `Compiled with warnings` output. Both applications now explicitly admit only the numeric loopback used by the local browser verifier through Next's development-only origin boundary, eliminating the future-blocking cross-origin warning without broadening production origin policy.
+- **Historical problem:** Lint warned on raw `<img>`; Next builds warned on Sentry/OpenTelemetry dynamic requires and Windows standalone link names; real-browser gates still warned that `127.0.0.1` would require an explicit future Next development-origin admission.
+- **Evidence:** `apps/web/components/PlaceCard.tsx`; both `next.config.ts` and `next-config.test.ts` files; focused web/dashboard lint, typecheck, production builds, and real Playwright visitor/Founder Control Room probes; standalone-package trace inspection.
 - **Affected system:** Web performance, build signal quality.
 - **Remaining deployment proof:** Exercise the generated standalone artifacts on the actual Linux staging path. Windows-specific standalone-link behavior is not treated as Linux deployment evidence.
-- **Why it matters:** Warning-free gates preserve useful signal, though none blocked this audit.
+- **Why it matters:** Actionable-warning-free gates preserve useful signal and keep a future Next upgrade from turning the local browser verifier into a blocked request. Toolchain color-environment noise and webpack's cache-serialization advisory remain runner/build-tool observations rather than suppressed application warnings.
 - **Effort:** S
 - **Dependencies:** Image-domain/loader decision; Sentry version guidance.
 - **Before more venue acquisition:** **No**.
