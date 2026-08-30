@@ -21,6 +21,7 @@ import {
   simulateScenarioVisitor,
 } from './lib/torchiko-developer-tools.mjs'
 import { executeSyntheticScenarioReset } from './lib/synthetic-scenario-worlds.mjs'
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -75,11 +76,11 @@ async function main() {
   if (group === 'scenarios' && action === 'reset' && rest.length > 0) {
     try {
       return emit(await executeSyntheticScenarioReset({ root, args: rest }))
-    } catch (error) {
-      process.stderr.write(
-        `Synthetic scenario reset refused: ${error instanceof Error ? error.message : 'scenario-reset-failed'}\n`,
-      )
-      process.exitCode = 1
+    } catch {
+      process.exitCode = reportOperatorCliFailure({
+        action: 'torchiko.scenario-reset.failed',
+        errorCode: 'scenario-reset-refused',
+      })
       return
     }
   }
@@ -109,11 +110,11 @@ async function main() {
       emit(report)
       if (report.verdict !== 'pass') process.exitCode = 1
       return
-    } catch (error) {
-      process.stderr.write(
-        `Synthetic replay assessment refused: ${error instanceof Error ? error.message : 'assessment-failed'}\n`,
-      )
-      process.exitCode = 1
+    } catch {
+      process.exitCode = reportOperatorCliFailure({
+        action: 'torchiko.replay-assessment.failed',
+        errorCode: 'replay-assessment-refused',
+      })
       return
     }
   }

@@ -39,6 +39,7 @@ test('high-risk operator entrypoints use the code-only writer', async () => {
     'run-media-admission-redis-gate.mjs',
     'run-queue-observability-redis-gate.mjs',
     'run-terminal-redrive-redis-gate.mjs',
+    'torchiko.mjs',
     'verify-docker-context-boundary.mjs',
     'verify-release.mjs',
   ]
