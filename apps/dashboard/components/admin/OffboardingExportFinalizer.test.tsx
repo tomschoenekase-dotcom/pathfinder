@@ -137,6 +137,7 @@ describe('OffboardingExportFinalizer', () => {
     fireEvent.click(button)
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalledTimes(2))
     expect(screen.queryByText(/artifact was stored and its metadata recorded/iu)).toBeNull()
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(button)
     await waitFor(() => expect(mocks.finalize).toHaveBeenCalledTimes(3))
     expect(mocks.finalize.mock.calls[0]?.[0]).toEqual(mocks.finalize.mock.calls[1]?.[0])
