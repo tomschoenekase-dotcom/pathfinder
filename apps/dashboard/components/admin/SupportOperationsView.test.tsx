@@ -108,7 +108,7 @@ describe('support operations UI', () => {
       ),
     )
     expect(
-      screen.getByText(
+      await screen.findByText(
         'Proposal prepared for separate human review. No venue knowledge was changed or published.',
       ),
     ).toBeTruthy()
