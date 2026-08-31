@@ -143,7 +143,7 @@ describe('processGenerationRecovery', () => {
         attemptNumber: 2,
         maxAttempts: 3,
       }),
-    ).rejects.toThrow('Failed to enqueue 1 generation recovery candidate(s).')
+    ).rejects.toThrow('GENERATION_RECOVERY_FAILED')
 
     expect(mocks.enqueueAnswer).toHaveBeenCalledTimes(2)
     expect(mocks.enqueueReport).toHaveBeenCalledOnce()
@@ -162,11 +162,11 @@ describe('processGenerationRecovery', () => {
     expect(serializedLogs).not.toContain(analysis.executionLeaseToken)
   })
 
-  it('records a sanitized discovery failure and preserves the original error for BullMQ', async () => {
+  it('records a sanitized discovery failure and exposes only a code to BullMQ', async () => {
     const discoveryError = new Error('postgresql://user:secret@internal.example unavailable')
     mocks.discover.mockRejectedValueOnce(discoveryError)
 
-    await expect(processGenerationRecovery()).rejects.toBe(discoveryError)
+    await expect(processGenerationRecovery()).rejects.toThrow('GENERATION_RECOVERY_FAILED')
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
       'job_record_1',
       expect.objectContaining({

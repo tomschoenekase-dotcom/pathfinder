@@ -19,6 +19,7 @@ import {
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -179,7 +180,7 @@ export async function processSendWelcomeEmailJob(
       error,
       execution,
     })
-    throw error
+    throw toQueueSafeJobError(error, 'WELCOME_EMAIL_DELIVERY_FAILED')
   }
 }
 

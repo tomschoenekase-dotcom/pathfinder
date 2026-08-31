@@ -10,6 +10,7 @@ import {
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -508,6 +509,6 @@ export async function processDailyRollupJob(
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
     })
 
-    throw error
+    throw toQueueSafeJobError(error, 'DAILY_ROLLUP_FAILED')
   }
 }

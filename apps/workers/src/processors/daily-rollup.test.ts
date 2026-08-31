@@ -458,7 +458,7 @@ describe('processDailyRollupJob AI cost rollups', () => {
         { tenantId: 'tenant_1', date: targetDate.toISOString() },
         { bullJobId: 'daily_job_1', attemptNumber: 1, maxAttempts: 6 },
       ),
-    ).rejects.toThrow('database unavailable')
+    ).rejects.toThrow('DAILY_ROLLUP_FAILED')
     expect(mocks.writeJobRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         bullJobId: 'daily_job_1',

@@ -14,6 +14,7 @@ import {
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -69,6 +70,6 @@ export async function processVoiceSessionRecovery(executionInput?: JobExecutionI
       maxAttempts: execution.maxAttempts,
       error: 'Voice session recovery run failed.',
     })
-    throw error
+    throw toQueueSafeJobError(error, 'VOICE_SESSION_RECOVERY_FAILED')
   }
 }

@@ -74,7 +74,7 @@ describe('voice session recovery processor', () => {
     mocks.expire.mockRejectedValue(failure)
     mocks.recordFailure.mockResolvedValue(undefined)
 
-    await expect(processVoiceSessionRecovery()).rejects.toThrow('database unavailable')
+    await expect(processVoiceSessionRecovery()).rejects.toThrow('VOICE_SESSION_RECOVERY_FAILED')
     expect(mocks.recordFailure).toHaveBeenCalledWith(
       expect.objectContaining({
         jobRecordId: 'job_record_1',

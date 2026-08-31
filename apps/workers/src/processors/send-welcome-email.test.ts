@@ -154,7 +154,7 @@ describe('processSendWelcomeEmailJob', () => {
         recipientName: 'Ada Lovelace',
         orgName: 'Ada Venues',
       }),
-    ).rejects.toThrow('resend down')
+    ).rejects.toThrow('WELCOME_EMAIL_DELIVERY_FAILED')
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
       'job_record_1',
@@ -192,7 +192,7 @@ describe('processSendWelcomeEmailJob', () => {
         recipientName: null,
         orgName: 'Ada Venues',
       }),
-    ).rejects.toThrow('ambiguous and requires manual reconciliation')
+    ).rejects.toThrow('WELCOME_EMAIL_DELIVERY_FAILED')
 
     expect(mocks.beginDeliveryAttempt).not.toHaveBeenCalled()
     expect(mocks.send).not.toHaveBeenCalled()
@@ -210,7 +210,7 @@ describe('processSendWelcomeEmailJob', () => {
         recipientName: null,
         orgName: 'Ada Venues',
       }),
-    ).rejects.toThrow('provider rejected')
+    ).rejects.toThrow('WELCOME_EMAIL_DELIVERY_FAILED')
 
     expect(mocks.markDeliveryComplete).not.toHaveBeenCalled()
   })

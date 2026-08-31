@@ -15,6 +15,7 @@ import {
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -130,6 +131,6 @@ export async function processGenerationRecovery(
       reason: 'generation-recovery-run-failed',
       error: 'Generation recovery run failed.',
     })
-    throw error
+    throw toQueueSafeJobError(error, 'GENERATION_RECOVERY_FAILED')
   }
 }

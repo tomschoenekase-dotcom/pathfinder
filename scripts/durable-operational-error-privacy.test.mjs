@@ -367,6 +367,10 @@ test('embedding processors expose only finite failure codes to BullMQ retention'
       'apps/workers/src/processors/embed-company-knowledge.ts',
       'EMBED_COMPANY_KNOWLEDGE_FAILED',
     ],
+    ['apps/workers/src/processors/send-welcome-email.ts', 'WELCOME_EMAIL_DELIVERY_FAILED'],
+    ['apps/workers/src/processors/generation-recovery.ts', 'GENERATION_RECOVERY_FAILED'],
+    ['apps/workers/src/processors/voice-session-recovery.ts', 'VOICE_SESSION_RECOVERY_FAILED'],
+    ['apps/workers/src/processors/daily-rollup.ts', 'DAILY_ROLLUP_FAILED'],
   ]) {
     const source = await readFile(new URL(relativePath, root), 'utf8')
     assert.match(
