@@ -114,7 +114,9 @@ test('dynamic repository facts agree with all current-state documents', async ()
     assert.match(document, /torchiko-current-truth\.json/)
     assert.match(document, new RegExp(`\\b${migrationCount} migrations\\b`))
     assert.match(document, new RegExp(`Current-truth overlay[^\\n]*${truth.asOf}`))
-    assert.doesNotMatch(document, /bounded 2026-08-30 snapshot/u)
+    for (const match of document.matchAll(/bounded (\d{4}-\d{2}-\d{2}) snapshot/gu)) {
+      assert.equal(match[1], truth.asOf)
+    }
   }
   assert.match(stateDocument, new RegExp(truth.hostedStagingSnapshot.releaseSha.slice(0, 8)))
   assert.match(auditBacklog, new RegExp(truth.hostedStagingSnapshot.releaseSha))
