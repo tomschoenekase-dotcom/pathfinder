@@ -210,6 +210,7 @@ const synthesisDraftSchema = VenuePackagePayloadV1Object.extend({
   })
 
 type MediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
+export const MEDIA_ASSET_ANALYSIS_FAILURE_CODE = 'MEDIA_ASSET_ANALYSIS_FAILED' as const
 
 type PersistMediaIngestionAssetParams = {
   tenantId: string
@@ -219,12 +220,20 @@ type PersistMediaIngestionAssetParams = {
   mediaType: MediaType
   sha256: string
   signal?: AbortSignal
-  outcome: { status: 'COMPLETE'; analysis: Analysis } | { status: 'FAILED'; error: string }
+  outcome:
+    | { status: 'COMPLETE'; analysis: Analysis }
+    | { status: 'FAILED'; error: typeof MEDIA_ASSET_ANALYSIS_FAILURE_CODE }
 }
 
 export async function persistMediaIngestionAsset(
   params: PersistMediaIngestionAssetParams,
 ): Promise<void> {
+  if (
+    params.outcome.status === 'FAILED' &&
+    params.outcome.error !== MEDIA_ASSET_ANALYSIS_FAILURE_CODE
+  ) {
+    throw new Error('Unsupported media asset failure code.')
+  }
   assertMediaJobActive(params.signal)
   const identity = {
     filename: params.file.filename,
@@ -1036,7 +1045,7 @@ export async function processMediaIngestionJob(
           mediaType,
           sha256,
           ...(signal ? { signal } : {}),
-          outcome: { status: 'FAILED', error: 'MEDIA_ASSET_ANALYSIS_FAILED' },
+          outcome: { status: 'FAILED', error: MEDIA_ASSET_ANALYSIS_FAILURE_CODE },
         })
       }
       assertMediaJobActive(signal)

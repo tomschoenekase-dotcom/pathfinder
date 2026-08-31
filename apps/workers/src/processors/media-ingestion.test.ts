@@ -70,6 +70,7 @@ import {
   downloadAndExtract,
   assertMediaSourceFilename,
   failedMediaAssetAnalysis,
+  MEDIA_ASSET_ANALYSIS_FAILURE_CODE,
   mediaSynthesisToVenuePackage,
   MediaGeneratedOutputCleanupError,
   MediaSynthesisSummaryBudget,
@@ -767,5 +768,26 @@ describe('media ingestion lifecycle', () => {
         }),
       })
     }
+  })
+
+  it('rejects an unknown asset failure code before persistence', async () => {
+    const secret = 'UPSTREAM_SECRET_TOKEN'
+    const file = assignMediaSourceIds([{ filename: 'P001-front.jpg', bytes: 101 }])[0]!
+
+    await expect(
+      persistMediaIngestionAsset({
+        tenantId: payload.tenantId,
+        projectId: payload.projectId,
+        sourceObjectKey: project.sourceObjectKey,
+        file,
+        mediaType: 'IMAGE',
+        sha256: 'hash-1',
+        outcome: { status: 'FAILED', error: secret },
+      } as unknown as Parameters<typeof persistMediaIngestionAsset>[0]),
+    ).rejects.toThrow('Unsupported media asset failure code.')
+
+    expect(MEDIA_ASSET_ANALYSIS_FAILURE_CODE).toBe('MEDIA_ASSET_ANALYSIS_FAILED')
+    expect(mocks.assetUpsert).not.toHaveBeenCalled()
+    expect(JSON.stringify(mocks.assetUpsert.mock.calls)).not.toContain(secret)
   })
 })

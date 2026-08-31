@@ -297,6 +297,9 @@ test('media asset analysis failures cannot enter synthesis or findings as except
   )
   assert.match(source, /analysis = failedMediaAssetAnalysis\(\)/u)
   assert.doesNotMatch(source, /emptyAnalysis\('Analysis failed\.',\s*(?:error|message)/u)
+  assert.match(source, /MEDIA_ASSET_ANALYSIS_FAILURE_CODE = 'MEDIA_ASSET_ANALYSIS_FAILED'/u)
+  assert.match(source, /throw new Error\('Unsupported media asset failure code\.'\)/u)
+  assert.doesNotMatch(source, /status: 'FAILED'; error: string/u)
 })
 
 test('job-record persistence derives terminal error from failure disposition', async () => {
