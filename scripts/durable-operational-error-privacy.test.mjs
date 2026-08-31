@@ -116,6 +116,10 @@ test('agent failure APIs accept only code and retry policy', async () => {
     new URL('packages/db/src/helpers/agent-run-execution-actions.ts', root),
     'utf8',
   )
+  const agentBridgeActions = await readFile(
+    new URL('packages/db/src/helpers/agent-bridge-actions.ts', root),
+    'utf8',
+  )
   const agentRunWorker = await readFile(
     new URL('apps/workers/src/processors/agent-run.ts', root),
     'utf8',
@@ -124,6 +128,9 @@ test('agent failure APIs accept only code and retry policy', async () => {
   assert.doesNotMatch(bridgeRunner, /\^\[A-Z\]\[A-Z0-9_\][^\n]*\.test\(code\)/u)
   assert.match(agentRunActions, /errorCode:\s*AgentRunFailureCode/u)
   assert.doesNotMatch(agentRunActions, /errorCode:\s*z\.string\(\)\.regex/u)
+  assert.doesNotMatch(agentRunActions, /failAgentRunExecution\([\s\S]{0,200}errorCode:\s*string/u)
+  assert.doesNotMatch(agentBridgeActions, /failAgentBridgeTask\([\s\S]{0,250}errorCode:\s*string/u)
+  assert.match(agentBridgeActions, /errorCode:\s*AgentRunFailureCode/u)
   assert.match(agentRunWorker, /error\.code === 'provider-connection-timeout'/u)
   assert.match(agentRunWorker, /errorCode:\s*'PROVIDER_REQUEST_FAILED'/u)
   assert.doesNotMatch(

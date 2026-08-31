@@ -183,7 +183,8 @@ describe('agent run execution actions', () => {
           tenantId: 'tenant-1',
           runId: 'run-1',
           leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          errorCode: 'UPSTREAM_SECRET_TOKEN',
+          // Deliberately bypass the compile-time enum to prove the runtime boundary also fails closed.
+          errorCode: 'UPSTREAM_SECRET_TOKEN' as never,
           retryable: true,
         },
         dbClient as never,

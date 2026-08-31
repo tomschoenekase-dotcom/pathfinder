@@ -6,6 +6,7 @@ import {
   AgentBridgeClaimResult,
   AgentBridgeProvider,
 } from '@pathfinder/contracts/agent-bridge'
+import type { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -380,7 +381,7 @@ export async function failAgentBridgeTask(input: {
   venueId: string
   runId: string
   leaseToken: string
-  errorCode: string
+  errorCode: AgentRunFailureCode
   retryable: boolean
   credential: VerifiedMcpCredentialScope
 }) {

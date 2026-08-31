@@ -272,7 +272,7 @@ export async function completeAgentRunExecution(
 export async function failAgentRunExecution(
   rawInput: z.input<typeof scopeSchema> & {
     leaseToken: string
-    errorCode: string
+    errorCode: AgentRunFailureCode
     retryable: boolean
   },
   client: AgentRunExecutionClient = db,
