@@ -662,6 +662,11 @@ historical report data requires a separate reviewed migration.
 
 ### Staging smoke tests
 
+Railway Config as Code has a hard cutoff on 2026-12-01. The bounded migration-preparation workflow,
+current importer gap, secret-free readiness command, and no-apply gate are documented in
+[`railway-iac-migration.md`](railway-iac-migration.md). Do not use an automatically generated IaC file
+until that verifier and a reviewed zero-destructive-change plan represent all three staging services.
+
 - Run the exact-revision `verify:staging-health` admission command above and
   record its sanitized JSON result. Railway health must also be green.
 - Pipe the linked staging project's `npx --yes @railway/cli@5.45.10 status --json` into

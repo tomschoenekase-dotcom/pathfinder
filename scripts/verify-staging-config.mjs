@@ -10,6 +10,7 @@ import {
 
 const root = resolve(import.meta.dirname, '..')
 const runbook = await readFile(resolve(root, 'docs/railway-staging.md'), 'utf8')
+const iacRunbook = await readFile(resolve(root, 'docs/railway-iac-migration.md'), 'utf8')
 const predeployServiceContract = buildStagingPredeployServiceContract(expectedMigration.approval)
 
 const services = [
@@ -72,6 +73,16 @@ if (
   !runbook.includes('checks the provider process exit status')
 ) {
   throw new Error('docs/railway-staging.md: bounded runtime-log audit is incomplete')
+}
+
+if (
+  !runbook.includes('railway-iac-migration.md') ||
+  !iacRunbook.includes('2026-12-01') ||
+  !iacRunbook.includes('pnpm verify:railway-iac-readiness') ||
+  !iacRunbook.includes('must not be applied') ||
+  !iacRunbook.includes('Production is outside this migration')
+) {
+  throw new Error('docs/railway-iac-migration.md: fail-closed migration boundary is incomplete')
 }
 
 for (const service of services) {
