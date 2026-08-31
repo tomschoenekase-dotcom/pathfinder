@@ -364,7 +364,7 @@ The current operator-centric model will not scale. Torchiko would need automated
 - CRM, Gmail, bounded outbound, and Stripe test-mode foundations exist; credentials, delivery, customer contact, pricing, live billing, and consequential lifecycle execution remain gated.
 - Operator email has a dark-by-default delivery foundation; SMS, push, Slack/webhook, urgent external founder escalation policy, and platform-event external delivery remain incomplete.
 - Claim-level semantic citation validation and provider-enabled citation QA remain unproven; bounded retrieved-record provenance is implemented.
-- Current staging migration parity and bounded service health are established for the exact 2026-08-30 snapshot. Provider-backed quality, backups/PITR, external monitoring/delivery, and production state remain unproven or gated.
+- Current staging migration parity and bounded service health are established for the exact 2026-08-31 snapshot. Provider-backed quality, backups/PITR, external monitoring/delivery, and production state remain unproven or gated.
 
 ## Top 10 Things Torchiko Should Do Next
 
