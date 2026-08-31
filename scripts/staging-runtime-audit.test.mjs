@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+import { RAILWAY_CLI_PACKAGE, RAILWAY_STATUS_COMMAND } from './lib/railway-cli-contract.mjs'
+
 import {
   auditStagingRuntime,
   buildRuntimeLogQueries,
@@ -113,4 +115,14 @@ test('Windows reaches the npm shim through Node without a command shell', () => 
   assert.match(source, /node_modules\/npm\/bin\/npx-cli\.js/u)
   assert.match(source, /shell: false/u)
   assert.doesNotMatch(source, /ComSpec|cmd\.exe|shell: true/u)
+})
+
+test('Railway provider reads use one exact CLI package identity', () => {
+  assert.match(RAILWAY_CLI_PACKAGE, /^@railway\/cli@\d+\.\d+\.\d+$/u)
+  assert.equal(RAILWAY_STATUS_COMMAND, `npx --yes ${RAILWAY_CLI_PACKAGE} status --json`)
+  const runtimeSource = readFileSync('scripts/verify-staging-runtime.mjs', 'utf8')
+  const handoffSource = readFileSync('scripts/lib/staging-handoff-manifest.mjs', 'utf8')
+  assert.match(runtimeSource, /RAILWAY_CLI_PACKAGE/u)
+  assert.match(handoffSource, /RAILWAY_STATUS_COMMAND/u)
+  assert.doesNotMatch(`${runtimeSource}\n${handoffSource}`, /['"]@railway\/cli['"]/u)
 })

@@ -299,7 +299,7 @@ operator invocation performs a live request. Passing proves the public web healt
 Immediately pair it with the read-only Railway topology admission from the linked staging project:
 
 ```bash
-railway status --json | pnpm verify:staging-topology -- --expected-revision "$RELEASE_SHA"
+npx --yes @railway/cli@5.45.10 status --json | pnpm verify:staging-topology -- --expected-revision "$RELEASE_SHA"
 ```
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
@@ -665,7 +665,8 @@ historical report data requires a separate reviewed migration.
 
 - Run the exact-revision `verify:staging-health` admission command above and
   record its sanitized JSON result. Railway health must also be green.
-- Pipe the linked staging project's `railway status --json` into `verify:staging-topology` and retain
+- Pipe the linked staging project's `npx --yes @railway/cli@5.45.10 status --json` into
+  `verify:staging-topology` and retain
   only its bounded three-service result. A deployment marked successful without a running web,
   dashboard, or worker instance fails this gate.
 - Run `verify:staging-runtime` with the three exact admitted deployment IDs. Retain only its bounded

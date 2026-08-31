@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { EXPECTED as expectedMigration } from '../run-staging-migration-predeploy.mjs'
+import { RAILWAY_STATUS_COMMAND } from './railway-cli-contract.mjs'
 import { buildStagingPredeployServiceContract } from './staging-predeploy-service-contract.mjs'
 
 const execFileAsync = promisify(execFile)
@@ -133,7 +134,7 @@ export function buildStagingHandoffManifest({
         mustMatchProviderRelease: true,
       },
       topologyAdmission: {
-        input: 'railway status --json',
+        input: RAILWAY_STATUS_COMMAND,
         command: `pnpm verify:staging-topology -- --expected-revision ${candidate}`,
         services: ['staging-web', 'staging-dashboard', 'staging-workers'],
         requiresSuccessfulDeployment: true,
@@ -162,7 +163,7 @@ export function buildStagingHandoffManifest({
         'Run the checked-in staging migration predeploy against preserved staging data.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
-        'Pipe railway status --json into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.',
+        `Pipe ${RAILWAY_STATUS_COMMAND} into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.`,
         'Run verify:staging-runtime with the exact deployment IDs emitted by verify:staging-topology; retain only its bounded counts and never treat a refused empty provider query as clean evidence.',
         'Record provider, OAuth, billing-test, browser, and customer-flow evidence separately where applicable.',
       ],

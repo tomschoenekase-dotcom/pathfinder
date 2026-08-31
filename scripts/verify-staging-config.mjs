@@ -2,6 +2,7 @@ import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { EXPECTED as expectedMigration } from './run-staging-migration-predeploy.mjs'
+import { RAILWAY_STATUS_COMMAND } from './lib/railway-cli-contract.mjs'
 import {
   STAGING_MIGRATION_APPROVAL_VARIABLE,
   buildStagingPredeployServiceContract,
@@ -54,10 +55,7 @@ if (
   throw new Error('docs/railway-staging.md: compatibility boundary is incomplete')
 }
 
-if (
-  !runbook.includes('railway status --json | pnpm verify:staging-topology') ||
-  !runbook.includes('without a running web,')
-) {
+if (!runbook.includes(`${RAILWAY_STATUS_COMMAND} | pnpm verify:staging-topology`) || !runbook.includes('without a running web,')) {
   throw new Error('docs/railway-staging.md: three-service topology admission is incomplete')
 }
 

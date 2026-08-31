@@ -7,6 +7,7 @@ import {
   validateFeatureFlagDefaults,
   validateReleaseReport,
 } from './lib/staging-handoff-manifest.mjs'
+import { RAILWAY_STATUS_COMMAND } from './lib/railway-cli-contract.mjs'
 
 const BASE = 'a'.repeat(40)
 const CANDIDATE = 'b'.repeat(40)
@@ -64,7 +65,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     mustMatchProviderRelease: true,
   })
   assert.deepEqual(first.rolloutSafety.topologyAdmission, {
-    input: 'railway status --json',
+    input: RAILWAY_STATUS_COMMAND,
     command: `pnpm verify:staging-topology -- --expected-revision ${CANDIDATE}`,
     services: ['staging-web', 'staging-dashboard', 'staging-workers'],
     requiresSuccessfulDeployment: true,
@@ -102,7 +103,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   )
   assert.equal(
     first.admission.requiredActions.some(
-      (action) => action.includes('railway status --json') && action.includes('three-service'),
+      (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
     ),
     true,
   )

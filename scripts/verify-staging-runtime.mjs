@@ -6,11 +6,12 @@ import {
   parseStagingRuntimeArgs,
   StagingRuntimeAuditError,
 } from './lib/staging-runtime-audit.mjs'
+import { RAILWAY_CLI_PACKAGE } from './lib/railway-cli-contract.mjs'
 
 try {
   const options = parseStagingRuntimeArgs(process.argv.slice(2))
   const result = auditStagingRuntime(options, (args) => {
-    const npxArgs = ['--yes', '@railway/cli', ...args]
+    const npxArgs = ['--yes', RAILWAY_CLI_PACKAGE, ...args]
     const executable = process.platform === 'win32' ? process.execPath : 'npx'
     const executableArgs =
       process.platform === 'win32'
