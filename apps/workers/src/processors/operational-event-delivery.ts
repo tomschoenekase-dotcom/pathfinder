@@ -125,17 +125,26 @@ export async function processOperationalEventDeliveries(
         }),
       )
     } catch {
-      await withTenantIsolationBypass(() =>
-        recordOperationalEventDeliveryAttempt({
+      await withTenantIsolationBypass(() => {
+        const common = {
           deliveryId: delivery.id,
           tenantId: delivery.tenantId,
           attemptNumber,
-          status: attemptNumber >= 6 ? 'SUPPRESSED' : 'FAILED',
           provider: adapter.provider,
-          errorCode: attemptNumber >= 6 ? 'retry-exhausted' : 'provider-failure',
-          ...(attemptNumber < 6 ? { nextAttemptAt: retryAt(attemptNumber, now) } : {}),
-        }),
-      )
+        }
+        return attemptNumber >= 6
+          ? recordOperationalEventDeliveryAttempt({
+              ...common,
+              status: 'SUPPRESSED',
+              errorCode: 'RETRY_EXHAUSTED',
+            })
+          : recordOperationalEventDeliveryAttempt({
+              ...common,
+              status: 'FAILED',
+              errorCode: 'PROVIDER_FAILURE',
+              nextAttemptAt: retryAt(attemptNumber, now),
+            })
+      })
     }
   }
   return { status: 'enabled' as const, processed }

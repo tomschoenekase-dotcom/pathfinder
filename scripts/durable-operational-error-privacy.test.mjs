@@ -155,6 +155,25 @@ test('guest answer attribution failures use a finite durable code vocabulary', a
   )
 })
 
+test('operational alert delivery failure state is finite and internally consistent', async () => {
+  const root = new URL('../', import.meta.url)
+  const actions = await readFile(
+    new URL('packages/db/src/helpers/operational-event-deliveries.ts', root),
+    'utf8',
+  )
+  const worker = await readFile(
+    new URL('apps/workers/src/processors/operational-event-delivery.ts', root),
+    'utf8',
+  )
+
+  assert.match(actions, /z\.discriminatedUnion\('status'/u)
+  assert.match(actions, /errorCode:\s*z\.literal\('PROVIDER_FAILURE'\)/u)
+  assert.match(actions, /errorCode:\s*z\.literal\('RETRY_EXHAUSTED'\)/u)
+  assert.doesNotMatch(actions, /errorCode\??:\s*string/u)
+  assert.match(worker, /errorCode:\s*'PROVIDER_FAILURE'/u)
+  assert.match(worker, /errorCode:\s*'RETRY_EXHAUSTED'/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

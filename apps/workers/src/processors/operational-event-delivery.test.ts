@@ -84,7 +84,7 @@ describe('operational event delivery processor', () => {
     expect(mocks.record).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'FAILED',
-        errorCode: 'provider-failure',
+        errorCode: 'PROVIDER_FAILURE',
         nextAttemptAt: new Date('2026-08-19T12:00:30Z'),
       }),
     )
@@ -106,7 +106,7 @@ describe('operational event delivery processor', () => {
       expect.objectContaining({
         attemptNumber: 6,
         status: 'SUPPRESSED',
-        errorCode: 'retry-exhausted',
+        errorCode: 'RETRY_EXHAUSTED',
       }),
     )
     expect(mocks.record.mock.calls[0]?.[0]).not.toHaveProperty('nextAttemptAt')

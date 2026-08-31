@@ -15,6 +15,42 @@ export const OperationalEventRoutingPolicy = z
 
 export type OperationalEventRoutingPolicy = z.infer<typeof OperationalEventRoutingPolicy>
 
+const operationalEventDeliveryAttempt = z.discriminatedUnion('status', [
+  z
+    .object({
+      deliveryId: z.string().trim().min(1),
+      tenantId: z.string().trim().min(1),
+      attemptNumber: z.number().int().positive(),
+      status: z.literal('SENT'),
+      provider: z.string().trim().min(1).max(100),
+      providerRef: z.string().trim().min(1).max(500).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      deliveryId: z.string().trim().min(1),
+      tenantId: z.string().trim().min(1),
+      attemptNumber: z.number().int().positive(),
+      status: z.literal('FAILED'),
+      provider: z.string().trim().min(1).max(100),
+      errorCode: z.literal('PROVIDER_FAILURE'),
+      nextAttemptAt: z.date(),
+    })
+    .strict(),
+  z
+    .object({
+      deliveryId: z.string().trim().min(1),
+      tenantId: z.string().trim().min(1),
+      attemptNumber: z.number().int().positive(),
+      status: z.literal('SUPPRESSED'),
+      provider: z.string().trim().min(1).max(100),
+      errorCode: z.literal('RETRY_EXHAUSTED'),
+    })
+    .strict(),
+])
+
+export type OperationalEventDeliveryAttemptInput = z.infer<typeof operationalEventDeliveryAttempt>
+
 export function operationalEventDestinationKey(policy: OperationalEventRoutingPolicy): string {
   return createHash('sha256')
     .update(
@@ -83,36 +119,33 @@ export async function readNextOperationalEventDelivery(input: {
   })
 }
 
-export async function recordOperationalEventDeliveryAttempt(input: {
-  deliveryId: string
-  tenantId: string
-  attemptNumber: number
-  status: 'SENT' | 'FAILED' | 'SUPPRESSED'
-  provider: string
-  providerRef?: string
-  errorCode?: string
-  nextAttemptAt?: Date
-}) {
-  return db.$transaction(async (transaction) => {
+export async function recordOperationalEventDeliveryAttempt(
+  input: OperationalEventDeliveryAttemptInput,
+  client = db,
+) {
+  const attempt = operationalEventDeliveryAttempt.parse(input)
+  return client.$transaction(async (transaction) => {
     await transaction.operationalEventDeliveryAttempt.create({
       data: {
-        deliveryId: input.deliveryId,
-        tenantId: input.tenantId,
-        attemptNumber: input.attemptNumber,
-        status: input.status,
-        provider: input.provider,
-        ...(input.providerRef ? { providerRef: input.providerRef } : {}),
-        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        deliveryId: attempt.deliveryId,
+        tenantId: attempt.tenantId,
+        attemptNumber: attempt.attemptNumber,
+        status: attempt.status,
+        provider: attempt.provider,
+        ...(attempt.status === 'SENT' && attempt.providerRef
+          ? { providerRef: attempt.providerRef }
+          : {}),
+        ...('errorCode' in attempt ? { errorCode: attempt.errorCode } : {}),
       },
     })
     return transaction.operationalEventDelivery.update({
-      where: { id: input.deliveryId, tenantId: input.tenantId },
+      where: { id: attempt.deliveryId, tenantId: attempt.tenantId },
       data: {
-        status: input.status,
-        attemptCount: input.attemptNumber,
-        lastErrorCode: input.errorCode ?? null,
-        nextAttemptAt: input.nextAttemptAt ?? null,
-        ...(input.status === 'SENT' ? { sentAt: new Date() } : {}),
+        status: attempt.status,
+        attemptCount: attempt.attemptNumber,
+        lastErrorCode: 'errorCode' in attempt ? attempt.errorCode : null,
+        nextAttemptAt: 'nextAttemptAt' in attempt ? attempt.nextAttemptAt : null,
+        ...(attempt.status === 'SENT' ? { sentAt: new Date() } : {}),
       },
     })
   })

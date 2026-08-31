@@ -48,6 +48,7 @@ export {
   operationalEventDestinationKey,
   readNextOperationalEventDelivery,
   recordOperationalEventDeliveryAttempt,
+  type OperationalEventDeliveryAttemptInput,
   type OperationalEventRoutingPolicy as OperationalEventRoutingPolicyType,
 } from './helpers/operational-event-deliveries'
 export {
