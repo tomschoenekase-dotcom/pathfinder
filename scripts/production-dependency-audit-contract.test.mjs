@@ -14,11 +14,12 @@ test('production dependency audit remains an enforced CI gate', async () => {
   assert.match(workflow, /^\s+run: pnpm audit:prod$/mu)
 })
 
-test('known production advisory fixes remain pinned to reviewed patched versions', async () => {
+test('known dependency advisory fixes remain pinned to reviewed patched versions', async () => {
   const rootPackage = await readJson('package.json')
   const apiPackage = await readJson('packages/api/package.json')
 
   assert.equal(rootPackage.pnpm.overrides['postcss>nanoid'], '3.3.18')
   assert.equal(rootPackage.pnpm.overrides['@prisma/config>deepmerge-ts'], '8.0.0')
+  assert.equal(rootPackage.pnpm.overrides['esbuild@>=0.27.3 <0.28.1'], '0.28.1')
   assert.equal(apiPackage.dependencies['pdfjs-dist'], '6.2.108')
 })
