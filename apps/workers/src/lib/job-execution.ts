@@ -1,4 +1,4 @@
-import type { Job } from 'bullmq'
+import { UnrecoverableError, type Job } from 'bullmq'
 
 import { updateJobRecord, type JobFailureDisposition } from '@pathfinder/db'
 import { logger } from '@pathfinder/config'
@@ -52,6 +52,23 @@ export function classifyJobFailure(
   }
 
   return execution.attemptNumber >= execution.maxAttempts ? 'ATTEMPTS_EXHAUSTED' : 'RETRY_ELIGIBLE'
+}
+
+/**
+ * BullMQ retains a thrown error's message as failedReason. Convert processor
+ * failures to a finite product-owned code before they cross that durable queue
+ * boundary, while preserving whether BullMQ should stop retrying the job.
+ * Deliberately do not retain the original error as a cause: BullMQ serializes
+ * error metadata, and provider/database messages must remain private.
+ */
+export function toQueueSafeJobError(error: unknown, failureCode: string): Error {
+  if (!/^[A-Z][A-Z0-9_]{0,99}$/u.test(failureCode)) {
+    throw new Error('Queue-safe job failure code is invalid')
+  }
+
+  return classifyJobFailure(error, { attemptNumber: 1, maxAttempts: 2 }) === 'UNRECOVERABLE'
+    ? new UnrecoverableError(failureCode)
+    : new Error(failureCode)
 }
 
 export async function recordJobFailure(params: {

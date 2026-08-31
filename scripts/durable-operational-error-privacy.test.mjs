@@ -346,6 +346,38 @@ test('job-record persistence derives terminal error from failure disposition', a
   assert.doesNotMatch(jobExecution, /updateJobRecord\([\s\S]{0,300}\berror:/u)
 })
 
+test('embedding processors expose only finite failure codes to BullMQ retention', async () => {
+  const root = new URL('../', import.meta.url)
+  const jobExecution = await readFile(
+    new URL('apps/workers/src/lib/job-execution.ts', root),
+    'utf8',
+  )
+
+  assert.match(jobExecution, /function toQueueSafeJobError/u)
+  assert.match(jobExecution, /new UnrecoverableError\(failureCode\)/u)
+  assert.doesNotMatch(jobExecution, /cause:\s*error/u)
+
+  for (const [relativePath, failureCode] of [
+    ['apps/workers/src/processors/embed-place.ts', 'EMBED_PLACE_FAILED'],
+    [
+      'apps/workers/src/processors/embed-knowledge-entry.ts',
+      'EMBED_KNOWLEDGE_ENTRY_FAILED',
+    ],
+    [
+      'apps/workers/src/processors/embed-company-knowledge.ts',
+      'EMBED_COMPANY_KNOWLEDGE_FAILED',
+    ],
+  ]) {
+    const source = await readFile(new URL(relativePath, root), 'utf8')
+    assert.match(
+      source,
+      new RegExp(`throw toQueueSafeJobError\\(error, '${failureCode}'\\)`, 'u'),
+      relativePath,
+    )
+    assert.doesNotMatch(source, /catch \(error\)[\s\S]{0,1600}\n\s*throw error\s*\n/u, relativePath)
+  }
+})
+
 test('website research receipt persistence derives failure detail from a bounded code', async () => {
   const root = new URL('../', import.meta.url)
   const receiptActions = await readFile(

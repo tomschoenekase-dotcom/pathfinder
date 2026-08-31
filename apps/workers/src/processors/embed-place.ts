@@ -27,6 +27,7 @@ import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embeddi
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -216,6 +217,6 @@ export async function processEmbedPlaceJob(
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
     })
 
-    throw error
+    throw toQueueSafeJobError(error, 'EMBED_PLACE_FAILED')
   }
 }

@@ -19,6 +19,7 @@ import {
   getJobExecutionMetadata,
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
 } from './job-execution'
 
 beforeEach(() => {
@@ -120,6 +121,37 @@ describe('recordJobFailure', () => {
         action: 'workers.job-record.failure-persistence-failed',
         originalErrorCode: 'JOB_UNRECOVERABLE',
       }),
+    )
+  })
+})
+
+describe('toQueueSafeJobError', () => {
+  it('removes retryable provider detail before BullMQ can retain failedReason', () => {
+    const original = new Error('postgres://operator:secret@example.test/torchiko')
+    const safe = toQueueSafeJobError(original, 'EMBED_PLACE_FAILED')
+
+    expect(safe).toBeInstanceOf(Error)
+    expect(safe).not.toBeInstanceOf(UnrecoverableError)
+    expect(safe.message).toBe('EMBED_PLACE_FAILED')
+    expect(safe).not.toHaveProperty('cause')
+    expect(JSON.stringify(safe)).not.toContain('operator:secret')
+    expect(safe.stack).not.toContain('operator:secret')
+  })
+
+  it('preserves unrecoverable retry semantics without retaining the original message', () => {
+    const safe = toQueueSafeJobError(
+      new UnrecoverableError('VenueKnowledgeEntry private-id not found'),
+      'EMBED_KNOWLEDGE_ENTRY_FAILED',
+    )
+
+    expect(safe).toBeInstanceOf(UnrecoverableError)
+    expect(safe.message).toBe('EMBED_KNOWLEDGE_ENTRY_FAILED')
+    expect(safe.stack).not.toContain('private-id')
+  })
+
+  it('rejects non-code failure labels', () => {
+    expect(() => toQueueSafeJobError(new Error('private'), 'not a safe code')).toThrow(
+      'Queue-safe job failure code is invalid',
     )
   })
 })

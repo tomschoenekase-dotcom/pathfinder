@@ -188,7 +188,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
     mocks.entryFindFirst.mockResolvedValueOnce(null)
     await expect(
       processEmbedKnowledgeEntryJob({ ...payload, tenantId: 'wrong_tenant' }),
-    ).rejects.toThrow('VenueKnowledgeEntry entry_1 not found')
+    ).rejects.toThrow('EMBED_KNOWLEDGE_ENTRY_FAILED')
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
     expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
@@ -240,7 +240,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
       throw new Error('OpenAI embedding request failed')
     })
     await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow(
-      'OpenAI embedding request failed',
+      'EMBED_KNOWLEDGE_ENTRY_FAILED',
     )
     expect(mocks.generateEmbedding).toHaveBeenCalledTimes(1)
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
@@ -273,7 +273,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
     mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'leased' })
 
     await expect(processEmbedKnowledgeEntryJob(payload, 'bull_duplicate')).rejects.toThrow(
-      'currently leased',
+      'EMBED_KNOWLEDGE_ENTRY_FAILED',
     )
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
@@ -314,7 +314,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
   it('retains successful provider usage but fails the job when scoped storage fails', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
     mocks.storeKnowledgeEntryEmbeddingForScope.mockRejectedValueOnce(new Error('scope changed'))
-    await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow('scope changed')
+    await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow(
+      'EMBED_KNOWLEDGE_ENTRY_FAILED',
+    )
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ success: true }),
     })

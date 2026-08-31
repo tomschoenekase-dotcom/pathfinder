@@ -27,6 +27,7 @@ import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embeddi
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
+  toQueueSafeJobError,
   type JobExecutionInput,
 } from '../lib/job-execution'
 
@@ -166,6 +167,6 @@ export async function processEmbedCompanyKnowledgeJob(
       error,
       execution,
     })
-    throw error
+    throw toQueueSafeJobError(error, 'EMBED_COMPANY_KNOWLEDGE_FAILED')
   }
 }

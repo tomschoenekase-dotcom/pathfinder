@@ -195,7 +195,7 @@ describe('processEmbedPlaceJob', () => {
   it('fails closed without provider, usage, or storage when the scoped entity is absent', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(null)
     await expect(processEmbedPlaceJob({ ...payload, tenantId: 'wrong_tenant' })).rejects.toThrow(
-      'Place place_1 not found',
+      'EMBED_PLACE_FAILED',
     )
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
@@ -249,7 +249,7 @@ describe('processEmbedPlaceJob', () => {
       })
       throw new Error('OpenAI embedding request failed')
     })
-    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('OpenAI embedding request failed')
+    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('EMBED_PLACE_FAILED')
     expect(mocks.generateEmbedding).toHaveBeenCalledTimes(1)
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -281,7 +281,7 @@ describe('processEmbedPlaceJob', () => {
     mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'leased' })
 
     await expect(processEmbedPlaceJob(payload, 'bull_duplicate')).rejects.toThrow(
-      'currently leased',
+      'EMBED_PLACE_FAILED',
     )
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
@@ -335,7 +335,7 @@ describe('processEmbedPlaceJob', () => {
   it('retains successful provider usage but fails the job when scoped storage fails', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
     mocks.storePlaceEmbeddingForScope.mockRejectedValueOnce(new Error('scope changed'))
-    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('scope changed')
+    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('EMBED_PLACE_FAILED')
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ success: true }),
     })
