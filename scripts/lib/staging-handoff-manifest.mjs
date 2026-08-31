@@ -139,6 +139,14 @@ export function buildStagingHandoffManifest({
         requiresSuccessfulDeployment: true,
         requiresRunningInstance: true,
       },
+      runtimeAudit: {
+        deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
+        commandTemplate:
+          'pnpm verify:staging-runtime -- --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --since 24h',
+        services: ['staging-web', 'staging-dashboard', 'staging-workers'],
+        requiresProviderExitSuccess: true,
+        rawLogsRetained: false,
+      },
       stagingPredeployServiceEnvironment: buildStagingPredeployServiceContract(
         expectedMigration.approval,
         candidate,
@@ -155,6 +163,7 @@ export function buildStagingHandoffManifest({
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
         'Pipe railway status --json into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.',
+        'Run verify:staging-runtime with the exact deployment IDs emitted by verify:staging-topology; retain only its bounded counts and never treat a refused empty provider query as clean evidence.',
         'Record provider, OAuth, billing-test, browser, and customer-flow evidence separately where applicable.',
       ],
       retainedGates: [

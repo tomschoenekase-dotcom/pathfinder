@@ -70,6 +70,14 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     requiresSuccessfulDeployment: true,
     requiresRunningInstance: true,
   })
+  assert.deepEqual(first.rolloutSafety.runtimeAudit, {
+    deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
+    commandTemplate:
+      'pnpm verify:staging-runtime -- --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --since 24h',
+    services: ['staging-web', 'staging-dashboard', 'staging-workers'],
+    requiresProviderExitSuccess: true,
+    rawLogsRetained: false,
+  })
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
       .PATHFINDER_STAGING_MIGRATION_APPROVAL,
@@ -88,14 +96,22 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(
     first.admission.requiredActions.some(
       (action) =>
-        action.includes('PATHFINDER_RELEASE_SHA') &&
-        action.includes('web, dashboard, and workers'),
+        action.includes('PATHFINDER_RELEASE_SHA') && action.includes('web, dashboard, and workers'),
     ),
     true,
   )
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes('railway status --json') && action.includes('three-service'),
+    ),
+    true,
+  )
+  assert.equal(
+    first.admission.requiredActions.some(
+      (action) =>
+        action.includes('verify:staging-runtime') &&
+        action.includes('exact deployment IDs') &&
+        action.includes('refused empty provider query'),
     ),
     true,
   )
