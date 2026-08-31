@@ -271,7 +271,6 @@ export const mediaIngestionBeginUploadRouter = router({
             errorType: abortError instanceof Error ? abortError.name : 'UnknownError',
           })
         }
-        const message = 'Upload identity persistence failed.'
         try {
           const compensated = await withTenantIsolationBypass(() =>
             db.mediaIngestionProject.updateMany({
@@ -285,7 +284,7 @@ export const mediaIngestionBeginUploadRouter = router({
               data: {
                 status: 'FAILED',
                 stage: 'upload',
-                error: message,
+                error: 'MEDIA_UPLOAD_IDENTITY_PERSISTENCE_FAILED',
                 uploadAttemptId: null,
                 uploadStartedAt: null,
                 storageUploadId: null,

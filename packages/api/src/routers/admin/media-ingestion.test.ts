@@ -1259,7 +1259,7 @@ describe('media ingestion router', () => {
       },
       data: expect.objectContaining({
         status: 'FAILED',
-        error: 'Upload identity persistence failed.',
+        error: 'MEDIA_UPLOAD_IDENTITY_PERSISTENCE_FAILED',
         uploadAttemptId: null,
         storageUploadId: null,
       }),

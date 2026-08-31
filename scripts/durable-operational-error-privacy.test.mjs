@@ -302,6 +302,24 @@ test('media asset analysis failures cannot enter synthesis or findings as except
   assert.doesNotMatch(source, /status: 'FAILED'; error: string/u)
 })
 
+test('media upload failure persistence uses finite product-owned codes', async () => {
+  const root = new URL('../', import.meta.url)
+  const beginUpload = await readFile(
+    new URL('packages/api/src/routers/admin/media-ingestion-begin-upload.ts', root),
+    'utf8',
+  )
+  const completeUpload = await readFile(
+    new URL('packages/api/src/routers/admin/media-ingestion-complete-upload.ts', root),
+    'utf8',
+  )
+
+  assert.match(beginUpload, /error: 'MEDIA_UPLOAD_CREATION_FAILED'/u)
+  assert.match(beginUpload, /error: 'MEDIA_UPLOAD_IDENTITY_PERSISTENCE_FAILED'/u)
+  assert.match(completeUpload, /error: 'MEDIA_UPLOAD_FINALIZATION_FAILED'/u)
+  assert.doesNotMatch(beginUpload, /error:\s*(?:message|error\.message)/u)
+  assert.doesNotMatch(completeUpload, /error:\s*(?:message|error\.message)/u)
+})
+
 test('Clerk mutations never reflect provider error detail into tRPC responses', async () => {
   const source = await readFile(new URL('../packages/auth/src/server.ts', import.meta.url), 'utf8')
 
