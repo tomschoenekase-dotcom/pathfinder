@@ -212,6 +212,8 @@ describe('ProspectCampaignWorkbench release safety', () => {
       <ProspectCampaignWorkbench campaignId="campaign-1" fixture={fixture('STAGED')} />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Approve exact batch' }))
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })

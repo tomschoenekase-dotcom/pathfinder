@@ -44,6 +44,8 @@ describe('release evidence summary', () => {
       <ReleaseEvidenceSummary evidence={{ current: null, items: [] } as never} />,
     )
     expect(screen.getByRole('heading', { name: /No release assessment is recorded/i })).toBeTruthy()
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })

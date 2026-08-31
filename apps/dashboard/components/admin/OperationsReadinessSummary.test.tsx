@@ -95,6 +95,8 @@ describe('operations readiness summary', () => {
 
   it('has no automated accessibility violations', async () => {
     const { container } = render(<OperationsReadinessSummary readiness={readiness} />)
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })

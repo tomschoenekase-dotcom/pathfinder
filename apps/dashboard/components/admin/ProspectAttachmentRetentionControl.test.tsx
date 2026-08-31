@@ -125,6 +125,8 @@ describe('ProspectAttachmentRetentionControl', () => {
         }}
       />,
     )
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })

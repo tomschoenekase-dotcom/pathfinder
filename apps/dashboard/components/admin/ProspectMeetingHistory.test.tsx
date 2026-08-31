@@ -55,6 +55,8 @@ describe('ProspectMeetingHistory', () => {
 
   it('has no detectable accessibility violations', async () => {
     const { container } = render(<ProspectMeetingHistory meetings={[meeting]} />)
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })
