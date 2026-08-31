@@ -55,12 +55,19 @@ if (
   throw new Error('docs/railway-staging.md: compatibility boundary is incomplete')
 }
 
-if (!runbook.includes(`${RAILWAY_STATUS_COMMAND} | pnpm verify:staging-topology`) || !runbook.includes('without a running web,')) {
+if (
+  !runbook.includes(
+    `${RAILWAY_STATUS_COMMAND} | pnpm verify:staging-topology --expected-revision`,
+  ) ||
+  runbook.includes('verify:staging-topology -- --expected-revision') ||
+  !runbook.includes('without a running web,')
+) {
   throw new Error('docs/railway-staging.md: three-service topology admission is incomplete')
 }
 
 if (
-  !runbook.includes('pnpm verify:staging-runtime --') ||
+  !runbook.includes('pnpm verify:staging-runtime --web-deployment') ||
+  runbook.includes('verify:staging-runtime -- --web-deployment') ||
   !runbook.includes('both the deployment ID and its exact staging') ||
   !runbook.includes('checks the provider process exit status')
 ) {

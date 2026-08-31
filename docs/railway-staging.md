@@ -299,7 +299,7 @@ operator invocation performs a live request. Passing proves the public web healt
 Immediately pair it with the read-only Railway topology admission from the linked staging project:
 
 ```bash
-npx --yes @railway/cli@5.45.10 status --json | pnpm verify:staging-topology -- --expected-revision "$RELEASE_SHA"
+npx --yes @railway/cli@5.45.10 status --json | pnpm verify:staging-topology --expected-revision "$RELEASE_SHA"
 ```
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
@@ -317,8 +317,7 @@ service, checks the provider process exit status before accepting an empty resul
 at 200 rows and 1 MiB, and emits counts rather than raw logs or request metadata:
 
 ```bash
-pnpm verify:staging-runtime -- \
-  --web-deployment <staging-web-deployment-id> \
+pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> \
   --dashboard-deployment <staging-dashboard-deployment-id> \
   --workers-deployment <staging-workers-deployment-id> \
   --since 24h

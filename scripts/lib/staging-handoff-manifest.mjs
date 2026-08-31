@@ -135,7 +135,7 @@ export function buildStagingHandoffManifest({
       },
       topologyAdmission: {
         input: RAILWAY_STATUS_COMMAND,
-        command: `pnpm verify:staging-topology -- --expected-revision ${candidate}`,
+        command: `pnpm verify:staging-topology --expected-revision ${candidate}`,
         services: ['staging-web', 'staging-dashboard', 'staging-workers'],
         requiresSuccessfulDeployment: true,
         requiresRunningInstance: true,
@@ -143,7 +143,7 @@ export function buildStagingHandoffManifest({
       runtimeAudit: {
         deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
         commandTemplate:
-          'pnpm verify:staging-runtime -- --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --since 24h',
+          'pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --since 24h',
         services: ['staging-web', 'staging-dashboard', 'staging-workers'],
         requiresProviderExitSuccess: true,
         rawLogsRetained: false,
