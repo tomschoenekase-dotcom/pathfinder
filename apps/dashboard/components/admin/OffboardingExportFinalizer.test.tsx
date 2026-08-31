@@ -94,7 +94,7 @@ describe('OffboardingExportFinalizer', () => {
     })
     expect((button as HTMLButtonElement).disabled).toBe(true)
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByRole('status').textContent).toMatch(/No artifact was generated/iu)
+    expect((await screen.findByRole('status')).textContent).toMatch(/No artifact was generated/iu)
   })
 
   it('finalizes the selected remaining kind and retains an ambiguous operation identity', async () => {
