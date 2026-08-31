@@ -328,6 +328,23 @@ error-level row, any web/dashboard HTTP 5xx row, or a founder-absence capture-fa
 successful empty query is accepted only after Railway itself exits successfully. The worker summary
 is recent process evidence only; it does not certify a consecutive-day founder-absence window.
 
+To reconcile an exact founder-absence window across active and removed worker deployments, run the
+bounded historical auditor with one to eight reviewed deployment IDs and a supported 24-hour through
+168-hour window:
+
+```bash
+pnpm verify:founder-absence-history \
+  --deployment <older-staging-workers-deployment-id> \
+  --deployment <current-staging-workers-deployment-id> \
+  --since 168h
+```
+
+The command pins the Railway CLI, queries only `staging-workers` in `staging`, rejects provider or
+capture failures, rejects malformed or drifting daily identities, and emits only dates, immutable
+release identities, bounded counts, and the latest complete streak. `sevenDayReviewReady` is evidence
+for human review only: the command always returns `certificationGranted=false` and `launchGate=false`.
+It never reads variables, connects to the database, creates an SSH key, deploys, or changes config.
+
 If the release includes the default-off website-widget preview, run the
 exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
 

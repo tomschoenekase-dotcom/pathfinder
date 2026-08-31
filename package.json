@@ -74,6 +74,7 @@
     "verify:staging-health": "node scripts/verify-staging-health.mjs",
     "verify:staging-topology": "node scripts/verify-staging-topology.mjs",
     "verify:staging-runtime": "node scripts/verify-staging-runtime.mjs",
+    "verify:founder-absence-history": "node scripts/verify-founder-absence-history.mjs",
     "verify:railway-iac-readiness": "node scripts/verify-railway-iac-readiness.mjs",
     "verify:staging-widget": "node scripts/verify-staging-widget.mjs",
     "verify:release": "node scripts/verify-release.mjs",
