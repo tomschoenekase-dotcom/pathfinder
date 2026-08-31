@@ -57,6 +57,12 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(first.rolloutSafety.featureFlagDefaultsDisabled, true)
   assert.equal(first.rolloutSafety.productionDeploymentAuthorized, false)
   assert.equal(first.rolloutSafety.customerContactAuthorized, false)
+  assert.deepEqual(first.rolloutSafety.applicationReleaseIdentity, {
+    variable: 'PATHFINDER_RELEASE_SHA',
+    value: CANDIDATE,
+    services: ['web', 'dashboard', 'workers'],
+    mustMatchProviderRelease: true,
+  })
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
       .PATHFINDER_STAGING_MIGRATION_APPROVAL,
@@ -74,7 +80,9 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   })
   assert.equal(
     first.admission.requiredActions.some(
-      (action) => action.includes('PATHFINDER_RELEASE_SHA') && action.includes('image ENV alone'),
+      (action) =>
+        action.includes('PATHFINDER_RELEASE_SHA') &&
+        action.includes('web, dashboard, and workers'),
     ),
     true,
   )

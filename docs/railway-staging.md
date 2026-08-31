@@ -215,6 +215,12 @@ known production project, SHA drift, resource drift, host/database drift, an unr
 missing opt-in, or a larger ceiling before Prisma starts. Remove the one-run opt-in after a
 successful migration.
 
+Before deploying, set the non-secret `PATHFINDER_RELEASE_SHA` service variable to the same exact
+full revision on `staging-web`, `staging-dashboard`, and `staging-workers`. Each runtime reconciles
+that value with Railway's provider commit metadata; drift can make release identity unknown and
+causes exact-revision evidence paths such as the founder-absence observer to fail closed. A green
+build or public web health response is not proof that all three service variables agree.
+
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
 `PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-206-20260830`. The value must

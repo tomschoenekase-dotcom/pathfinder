@@ -48,7 +48,8 @@ for (const config of compatibilityConfigs) {
 
 if (
   !runbook.includes('are **not staging configuration**') ||
-  !runbook.includes('Production remains untouched.')
+  !runbook.includes('Production remains untouched.') ||
+  !runbook.includes('`staging-web`, `staging-dashboard`, and `staging-workers`')
 ) {
   throw new Error('docs/railway-staging.md: compatibility boundary is incomplete')
 }
