@@ -19,6 +19,7 @@ import {
 
 import { processStaleAccountSummaries } from './processors/account-summary-refresh'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
+import { queueSafeJobProcessor } from './lib/job-execution'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -65,13 +66,17 @@ export async function startCrmBackgroundRuntime() {
       },
     },
   )
-  const prospectImportWorker = new Worker(PROSPECT_IMPORT_QUEUE, handleImport, {
-    connection,
-    concurrency: 1,
-  })
+  const prospectImportWorker = new Worker(
+    PROSPECT_IMPORT_QUEUE,
+    queueSafeJobProcessor(handleImport),
+    {
+      connection,
+      concurrency: 1,
+    },
+  )
   const accountSummaryWorker = new Worker(
     ACCOUNT_SUMMARY_REFRESH_QUEUE,
-    handleAccountSummaryRefresh,
+    queueSafeJobProcessor(handleAccountSummaryRefresh),
     { connection, concurrency: 1 },
   )
   const intakeVerification = env.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED

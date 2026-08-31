@@ -71,6 +71,20 @@ export function toQueueSafeJobError(error: unknown, failureCode: string): Error 
     : new Error(failureCode)
 }
 
+/** Wrap the actual BullMQ processor boundary, including setup that may fail
+ * before a domain processor creates its SQL JobRecord. */
+export function queueSafeJobProcessor<TArgs extends unknown[], TResult>(
+  processor: (...args: TArgs) => Promise<TResult>,
+): (...args: TArgs) => Promise<TResult> {
+  return async (...args: TArgs): Promise<TResult> => {
+    try {
+      return await processor(...args)
+    } catch (error) {
+      throw toQueueSafeJobError(error, 'WORKER_JOB_FAILED')
+    }
+  }
+}
+
 export async function recordJobFailure(params: {
   jobRecordId: string
   error: unknown

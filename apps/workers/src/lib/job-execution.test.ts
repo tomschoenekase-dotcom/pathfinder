@@ -18,6 +18,7 @@ import {
   classifyJobFailure,
   getJobExecutionMetadata,
   normalizeJobExecutionMetadata,
+  queueSafeJobProcessor,
   recordJobFailure,
   toQueueSafeJobError,
 } from './job-execution'
@@ -153,5 +154,29 @@ describe('toQueueSafeJobError', () => {
     expect(() => toQueueSafeJobError(new Error('private'), 'not a safe code')).toThrow(
       'Queue-safe job failure code is invalid',
     )
+  })
+})
+
+describe('queueSafeJobProcessor', () => {
+  it('contains failures that occur before a domain processor can create its JobRecord', async () => {
+    const processor = queueSafeJobProcessor(async () => {
+      throw new Error('postgresql://worker:secret@private.example/torchiko')
+    })
+
+    await expect(processor()).rejects.toThrow('WORKER_JOB_FAILED')
+    await processor().catch((error: unknown) => {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).stack).not.toContain('worker:secret')
+      expect((error as Error).stack).not.toContain('private.example')
+    })
+  })
+
+  it('preserves BullMQ unrecoverable semantics at the outer boundary', async () => {
+    const processor = queueSafeJobProcessor(async () => {
+      throw new UnrecoverableError('private entity identity')
+    })
+
+    await expect(processor()).rejects.toBeInstanceOf(UnrecoverableError)
+    await expect(processor()).rejects.toThrow('WORKER_JOB_FAILED')
   })
 })

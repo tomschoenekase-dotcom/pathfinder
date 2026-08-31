@@ -16,7 +16,7 @@ import {
   type GuestAnswerAttributionEvaluationJobPayload,
 } from '@pathfinder/jobs'
 
-import { getJobExecutionMetadata } from './lib/job-execution'
+import { getJobExecutionMetadata, queueSafeJobProcessor } from './lib/job-execution'
 import { runAiJobWithIncidentControl } from './lib/global-ai-deferral'
 import { createShutdownCoordinator, runStartupWithCleanup } from './lib/worker-lifecycle'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
@@ -176,7 +176,7 @@ export async function startEvaluationOnlyRuntime() {
     ])
 
     evaluationRunWorker = observeWorker(
-      new Worker(EVALUATION_RUN_QUEUE, handleEvaluationRunQueueJob, {
+      new Worker(EVALUATION_RUN_QUEUE, queueSafeJobProcessor(handleEvaluationRunQueueJob), {
         connection,
         concurrency: 1,
         settings: {
@@ -188,7 +188,7 @@ export async function startEvaluationOnlyRuntime() {
     attributionWorker = observeWorker(
       new Worker(
         GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
-        handleGuestAnswerAttributionEvaluationQueueJob,
+        queueSafeJobProcessor(handleGuestAnswerAttributionEvaluationQueueJob),
         { connection, concurrency: 1 },
       ),
     )

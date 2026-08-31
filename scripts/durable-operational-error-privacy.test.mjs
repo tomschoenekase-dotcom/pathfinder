@@ -346,7 +346,7 @@ test('job-record persistence derives terminal error from failure disposition', a
   assert.doesNotMatch(jobExecution, /updateJobRecord\([\s\S]{0,300}\berror:/u)
 })
 
-test('embedding processors expose only finite failure codes to BullMQ retention', async () => {
+test('guarded domain processors expose only finite failure codes to BullMQ retention', async () => {
   const root = new URL('../', import.meta.url)
   const jobExecution = await readFile(
     new URL('apps/workers/src/lib/job-execution.ts', root),
@@ -379,6 +379,27 @@ test('embedding processors expose only finite failure codes to BullMQ retention'
       relativePath,
     )
     assert.doesNotMatch(source, /catch \(error\)[\s\S]{0,1600}\n\s*throw error\s*\n/u, relativePath)
+  }
+})
+
+test('every BullMQ worker registration crosses the queue-safe retention boundary', async () => {
+  const root = new URL('../', import.meta.url)
+  for (const relativePath of [
+    'apps/workers/src/index.ts',
+    'apps/workers/src/evaluation-only-runtime.ts',
+    'apps/workers/src/crm-background.ts',
+    'apps/workers/src/venue-media-derivative-runtime.ts',
+    'apps/workers/src/intake-upload-verification-runtime.ts',
+  ]) {
+    const source = await readFile(new URL(relativePath, root), 'utf8')
+    const registrations = source.match(/new Worker\(/gu) ?? []
+    const guardedProcessors = source.match(/queueSafeJobProcessor\(/gu) ?? []
+    assert.ok(registrations.length > 0, `${relativePath}: no worker registration found`)
+    assert.equal(
+      guardedProcessors.length,
+      registrations.length,
+      `${relativePath}: every worker registration must be queue-safe`,
+    )
   }
 })
 

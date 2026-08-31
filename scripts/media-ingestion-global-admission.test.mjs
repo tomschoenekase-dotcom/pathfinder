@@ -17,7 +17,7 @@ test('configures and verifies global admission before constructing the media wor
     'await configureMediaIngestionGlobalConcurrency(mediaIngestionQueue)',
   )
   const mediaWorker = worker.indexOf(
-    'new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob',
+    'new Worker(MEDIA_INGESTION_QUEUE, queueSafeJobProcessor(handleMediaIngestionQueueJob)',
   )
 
   assert.ok(cleanupBoundary >= 0)

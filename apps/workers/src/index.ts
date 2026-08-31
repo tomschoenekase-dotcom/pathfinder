@@ -146,7 +146,7 @@ import {
   enqueueScheduledDailyRollups,
   enqueueScheduledWeeklyDigests,
 } from './scheduled-tenant-fanout'
-import { getJobExecutionMetadata } from './lib/job-execution'
+import { getJobExecutionMetadata, queueSafeJobProcessor } from './lib/job-execution'
 import { globalAiAdmissionAvailable, runAiJobWithIncidentControl } from './lib/global-ai-deferral'
 import {
   cancelAllMediaJobsAfterWorkerError,
@@ -1094,7 +1094,7 @@ export async function startWorkers() {
 
   const weeklyDigestWorker = observeWorkerRuntime(
     WEEKLY_DIGEST_QUEUE,
-    new Worker(WEEKLY_DIGEST_QUEUE, handleWeeklyDigestQueueJob, {
+    new Worker(WEEKLY_DIGEST_QUEUE, queueSafeJobProcessor(handleWeeklyDigestQueueJob), {
       connection,
       concurrency: 2,
       settings: {
@@ -1111,7 +1111,7 @@ export async function startWorkers() {
 
   const dailyRollupWorker = observeWorkerRuntime(
     DAILY_ROLLUP_QUEUE,
-    new Worker(DAILY_ROLLUP_QUEUE, handleDailyRollupQueueJob, {
+    new Worker(DAILY_ROLLUP_QUEUE, queueSafeJobProcessor(handleDailyRollupQueueJob), {
       connection,
       concurrency: 2,
       settings: {
@@ -1128,7 +1128,7 @@ export async function startWorkers() {
 
   const embedPlaceWorker = observeWorkerRuntime(
     EMBED_PLACE_QUEUE,
-    new Worker(EMBED_PLACE_QUEUE, handleEmbedPlaceQueueJob, {
+    new Worker(EMBED_PLACE_QUEUE, queueSafeJobProcessor(handleEmbedPlaceQueueJob), {
       connection,
       concurrency: 2,
       settings: {
@@ -1145,24 +1145,28 @@ export async function startWorkers() {
 
   const embedKnowledgeEntryWorker = observeWorkerRuntime(
     EMBED_KNOWLEDGE_ENTRY_QUEUE,
-    new Worker(EMBED_KNOWLEDGE_ENTRY_QUEUE, handleEmbedKnowledgeEntryQueueJob, {
-      connection,
-      concurrency: 2,
-      settings: {
-        backoffStrategy: (attemptsMade, type) => {
-          if (type === EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF) {
-            return getEmbedKnowledgeEntryBackoffDelay(attemptsMade)
-          }
+    new Worker(
+      EMBED_KNOWLEDGE_ENTRY_QUEUE,
+      queueSafeJobProcessor(handleEmbedKnowledgeEntryQueueJob),
+      {
+        connection,
+        concurrency: 2,
+        settings: {
+          backoffStrategy: (attemptsMade, type) => {
+            if (type === EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF) {
+              return getEmbedKnowledgeEntryBackoffDelay(attemptsMade)
+            }
 
-          return 0
+            return 0
+          },
         },
       },
-    }),
+    ),
   )
 
   const embeddingDispatchWorker = observeWorkerRuntime(
     EMBEDDING_DISPATCH_QUEUE,
-    new Worker(EMBEDDING_DISPATCH_QUEUE, handleEmbeddingDispatchQueueJob, {
+    new Worker(EMBEDDING_DISPATCH_QUEUE, queueSafeJobProcessor(handleEmbeddingDispatchQueueJob), {
       connection,
       concurrency: 1,
     }),
@@ -1171,7 +1175,7 @@ export async function startWorkers() {
   // Keep kick consumption active even when recurring dispatch scans are disabled.
   const generationDispatchWorker = observeWorkerRuntime(
     GENERATION_DISPATCH_QUEUE,
-    new Worker(GENERATION_DISPATCH_QUEUE, handleGenerationDispatchQueueJob, {
+    new Worker(GENERATION_DISPATCH_QUEUE, queueSafeJobProcessor(handleGenerationDispatchQueueJob), {
       connection,
       concurrency: 1,
     }),
@@ -1179,7 +1183,7 @@ export async function startWorkers() {
 
   const generationRecoveryWorker = observeWorkerRuntime(
     GENERATION_RECOVERY_QUEUE,
-    new Worker(GENERATION_RECOVERY_QUEUE, handleGenerationRecoveryQueueJob, {
+    new Worker(GENERATION_RECOVERY_QUEUE, queueSafeJobProcessor(handleGenerationRecoveryQueueJob), {
       connection,
       concurrency: 1,
     }),
@@ -1187,24 +1191,28 @@ export async function startWorkers() {
 
   const analyticsEnrichmentWorker = observeWorkerRuntime(
     ANALYTICS_ENRICHMENT_QUEUE,
-    new Worker(ANALYTICS_ENRICHMENT_QUEUE, handleAnalyticsEnrichmentQueueJob, {
-      connection,
-      concurrency: 2,
-      settings: {
-        backoffStrategy: (attemptsMade, type) => {
-          if (type === ANALYTICS_ENRICHMENT_RETRY_BACKOFF) {
-            return getAnalyticsEnrichmentBackoffDelay(attemptsMade)
-          }
+    new Worker(
+      ANALYTICS_ENRICHMENT_QUEUE,
+      queueSafeJobProcessor(handleAnalyticsEnrichmentQueueJob),
+      {
+        connection,
+        concurrency: 2,
+        settings: {
+          backoffStrategy: (attemptsMade, type) => {
+            if (type === ANALYTICS_ENRICHMENT_RETRY_BACKOFF) {
+              return getAnalyticsEnrichmentBackoffDelay(attemptsMade)
+            }
 
-          return 0
+            return 0
+          },
         },
       },
-    }),
+    ),
   )
 
   const sendEmailWorker = observeWorkerRuntime(
     SEND_EMAIL_QUEUE,
-    new Worker(SEND_EMAIL_QUEUE, handleSendEmailQueueJob, {
+    new Worker(SEND_EMAIL_QUEUE, queueSafeJobProcessor(handleSendEmailQueueJob), {
       connection,
       concurrency: 4,
       settings: {
@@ -1225,15 +1233,19 @@ export async function startWorkers() {
 
   const operationalEventDeliveryWorker = observeWorkerRuntime(
     OPERATIONAL_EVENT_DELIVERY_QUEUE,
-    new Worker(OPERATIONAL_EVENT_DELIVERY_QUEUE, handleOperationalEventDeliveryJob, {
-      connection,
-      concurrency: 1,
-    }),
+    new Worker(
+      OPERATIONAL_EVENT_DELIVERY_QUEUE,
+      queueSafeJobProcessor(handleOperationalEventDeliveryJob),
+      {
+        connection,
+        concurrency: 1,
+      },
+    ),
   )
 
   const prospectImportWorker = observeWorkerRuntime(
     PROSPECT_IMPORT_QUEUE,
-    new Worker(PROSPECT_IMPORT_QUEUE, handleProspectImportQueueJob, {
+    new Worker(PROSPECT_IMPORT_QUEUE, queueSafeJobProcessor(handleProspectImportQueueJob), {
       connection,
       concurrency: 1,
       settings: {
@@ -1247,7 +1259,7 @@ export async function startWorkers() {
 
   const gmailSyncWorker = observeWorkerRuntime(
     GMAIL_SYNC_QUEUE,
-    new Worker(GMAIL_SYNC_QUEUE, handleGmailSyncQueueJob, {
+    new Worker(GMAIL_SYNC_QUEUE, queueSafeJobProcessor(handleGmailSyncQueueJob), {
       connection,
       concurrency: 1,
     }),
@@ -1255,31 +1267,43 @@ export async function startWorkers() {
 
   const billingReconciliationWorker = observeWorkerRuntime(
     BILLING_RECONCILIATION_QUEUE,
-    new Worker(BILLING_RECONCILIATION_QUEUE, handleBillingReconciliationQueueJob, {
-      connection,
-      concurrency: 1,
-    }),
+    new Worker(
+      BILLING_RECONCILIATION_QUEUE,
+      queueSafeJobProcessor(handleBillingReconciliationQueueJob),
+      {
+        connection,
+        concurrency: 1,
+      },
+    ),
   )
 
   const accountSummaryRefreshWorker = observeWorkerRuntime(
     ACCOUNT_SUMMARY_REFRESH_QUEUE,
-    new Worker(ACCOUNT_SUMMARY_REFRESH_QUEUE, handleAccountSummaryRefreshQueueJob, {
-      connection,
-      concurrency: 1,
-    }),
+    new Worker(
+      ACCOUNT_SUMMARY_REFRESH_QUEUE,
+      queueSafeJobProcessor(handleAccountSummaryRefreshQueueJob),
+      {
+        connection,
+        concurrency: 1,
+      },
+    ),
   )
 
   const voiceSessionRecoveryWorker = observeWorkerRuntime(
     VOICE_SESSION_RECOVERY_QUEUE,
-    new Worker(VOICE_SESSION_RECOVERY_QUEUE, handleVoiceSessionRecoveryQueueJob, {
-      connection,
-      concurrency: 1,
-    }),
+    new Worker(
+      VOICE_SESSION_RECOVERY_QUEUE,
+      queueSafeJobProcessor(handleVoiceSessionRecoveryQueueJob),
+      {
+        connection,
+        concurrency: 1,
+      },
+    ),
   )
 
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
-    new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
+    new Worker(ANSWER_ANALYSIS_QUEUE, queueSafeJobProcessor(handleAnswerAnalysisQueueJob), {
       connection,
       concurrency: 2,
       settings: {
@@ -1296,7 +1320,7 @@ export async function startWorkers() {
 
   const weeklyReportWorker = observeWorkerRuntime(
     WEEKLY_REPORT_QUEUE,
-    new Worker(WEEKLY_REPORT_QUEUE, handleWeeklyReportQueueJob, {
+    new Worker(WEEKLY_REPORT_QUEUE, queueSafeJobProcessor(handleWeeklyReportQueueJob), {
       connection,
       concurrency: 2,
       settings: {
@@ -1316,7 +1340,7 @@ export async function startWorkers() {
   // local concurrency remains one as a second, process-level boundary.
   const mediaIngestionWorker = observeWorkerRuntime(
     MEDIA_INGESTION_QUEUE,
-    new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob, {
+    new Worker(MEDIA_INGESTION_QUEUE, queueSafeJobProcessor(handleMediaIngestionQueueJob), {
       connection,
       concurrency: 1,
       settings: {
@@ -1340,16 +1364,20 @@ export async function startWorkers() {
 
   const venueMediaDerivativeWorker = observeWorkerRuntime(
     VENUE_MEDIA_DERIVATIVE_QUEUE,
-    new Worker(VENUE_MEDIA_DERIVATIVE_QUEUE, handleVenueMediaDerivativeQueueJob, {
-      connection,
-      concurrency: 2,
-      settings: {
-        backoffStrategy: (attemptsMade, type) =>
-          type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
-            ? Math.min(attemptsMade * 30_000, 2 * 60_000)
-            : 0,
+    new Worker(
+      VENUE_MEDIA_DERIVATIVE_QUEUE,
+      queueSafeJobProcessor(handleVenueMediaDerivativeQueueJob),
+      {
+        connection,
+        concurrency: 2,
+        settings: {
+          backoffStrategy: (attemptsMade, type) =>
+            type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
+              ? Math.min(attemptsMade * 30_000, 2 * 60_000)
+              : 0,
+        },
       },
-    }),
+    ),
   )
 
   // This consumer does not exist unless the server-only rollout gate is
@@ -1358,7 +1386,7 @@ export async function startWorkers() {
   const evaluationRunWorker = env.EVALUATION_RUNNER_ENABLED
     ? observeWorkerRuntime(
         EVALUATION_RUN_QUEUE,
-        new Worker(EVALUATION_RUN_QUEUE, handleEvaluationRunQueueJob, {
+        new Worker(EVALUATION_RUN_QUEUE, queueSafeJobProcessor(handleEvaluationRunQueueJob), {
           connection,
           concurrency: 1,
           settings: {
@@ -1376,7 +1404,7 @@ export async function startWorkers() {
         GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
         new Worker(
           GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE,
-          handleGuestAnswerAttributionEvaluationQueueJob,
+          queueSafeJobProcessor(handleGuestAnswerAttributionEvaluationQueueJob),
           { connection, concurrency: 1 },
         ),
       )
@@ -1385,7 +1413,7 @@ export async function startWorkers() {
   const agentRunWorker = env.AGENT_RUNNER_ENABLED
     ? observeWorkerRuntime(
         AGENT_RUN_QUEUE,
-        new Worker(AGENT_RUN_QUEUE, handleAgentRunQueueJob, {
+        new Worker(AGENT_RUN_QUEUE, queueSafeJobProcessor(handleAgentRunQueueJob), {
           connection,
           concurrency: 1,
           settings: {

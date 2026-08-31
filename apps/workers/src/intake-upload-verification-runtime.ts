@@ -15,6 +15,7 @@ import {
   processIntakeUploadVerificationJob,
   reconcileIntakeUploadVerificationJobs,
 } from './processors/intake-upload-verification'
+import { queueSafeJobProcessor } from './lib/job-execution'
 
 async function handleVerification(
   job: Job<IntakeUploadVerificationJobPayload | Record<string, never>>,
@@ -46,10 +47,14 @@ export async function createIntakeUploadVerificationResources() {
       },
     },
   )
-  const worker = new Worker(INTAKE_UPLOAD_VERIFICATION_QUEUE, handleVerification, {
-    connection,
-    concurrency: 2,
-  })
+  const worker = new Worker(
+    INTAKE_UPLOAD_VERIFICATION_QUEUE,
+    queueSafeJobProcessor(handleVerification),
+    {
+      connection,
+      concurrency: 2,
+    },
+  )
   worker.on('error', () => {
     process.stderr.write(
       `${JSON.stringify({

@@ -11,6 +11,7 @@ import {
 
 import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { queueSafeJobProcessor } from './lib/job-execution'
 import { processVenueMediaDerivativeJob } from './processors/venue-media-derivative'
 import { startFounderAbsenceObserver } from './founder-absence-observer-runtime'
 
@@ -31,16 +32,20 @@ export async function startVenueMediaDerivativeRuntime() {
         `${JSON.stringify({ action: 'workers.runtime.error', errorCode: 'redis-unreachable' })}\n`,
       ),
   })
-  const worker = new Worker(VENUE_MEDIA_DERIVATIVE_QUEUE, handleVenueMediaDerivativeJob, {
-    connection: getBullMQConnection(),
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) =>
-        type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
-          ? Math.min(attemptsMade * 30_000, 2 * 60_000)
-          : 0,
+  const worker = new Worker(
+    VENUE_MEDIA_DERIVATIVE_QUEUE,
+    queueSafeJobProcessor(handleVenueMediaDerivativeJob),
+    {
+      connection: getBullMQConnection(),
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) =>
+          type === VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF
+            ? Math.min(attemptsMade * 30_000, 2 * 60_000)
+            : 0,
+      },
     },
-  })
+  )
   worker.on('error', () =>
     process.stderr.write(
       `${JSON.stringify({ action: 'workers.runtime.error', errorCode: 'venue-media-derivative-worker-error' })}\n`,
