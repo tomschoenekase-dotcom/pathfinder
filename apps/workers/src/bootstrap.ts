@@ -4,6 +4,7 @@ import {
   resolveWorkerStartupPolicy,
   type WorkerStartupEnvironment,
 } from './lib/worker-startup-policy'
+import { assertStagingWorkerReleaseIdentity } from './lib/worker-release-identity'
 
 function assertRequiredEnvironment(keys: string[]): void {
   const missing = keys.filter((key) => !process.env[key])
@@ -26,6 +27,7 @@ function registerShutdown(shutdown: () => Promise<void>): void {
 }
 
 export async function bootstrapWorkers() {
+  assertStagingWorkerReleaseIdentity(process.env)
   const policy = resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)
   assertRequiredEnvironment(policy.requiredEnvironmentKeys)
 

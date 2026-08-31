@@ -20,9 +20,13 @@ describe('provider-disabled worker registration boundary', () => {
 
   it('chooses dormant mode before importing the provider-enabled worker graph', () => {
     const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
+    const identity = bootstrap.indexOf(
+      'assertStagingWorkerReleaseIdentity(process.env)',
+      entryPoint,
+    )
     const policy = bootstrap.indexOf(
       'resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)',
-      entryPoint,
+      identity,
     )
     const assertion = bootstrap.indexOf(
       'assertRequiredEnvironment(policy.requiredEnvironmentKeys)',
@@ -33,12 +37,14 @@ describe('provider-disabled worker registration boundary', () => {
     const providerImport = bootstrap.indexOf("await import('./index.js')", disabledReturn)
 
     expect(entryPoint).toBeGreaterThanOrEqual(0)
-    expect(policy).toBeGreaterThan(entryPoint)
+    expect(identity).toBeGreaterThan(entryPoint)
+    expect(policy).toBeGreaterThan(identity)
     expect(assertion).toBeGreaterThan(policy)
     expect(disabledBranch).toBeGreaterThan(assertion)
     expect(disabledReturn).toBeGreaterThan(disabledBranch)
     expect(providerImport).toBeGreaterThan(disabledReturn)
-    expect(bootstrap).not.toContain('@pathfinder/config')
+    expect(bootstrap).toContain("from './lib/worker-release-identity'")
+    expect(bootstrap).not.toContain("from '@pathfinder/config'")
   })
 
   it('loads the deterministic derivative runtime without importing the provider worker graph', () => {
