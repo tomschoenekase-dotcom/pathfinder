@@ -75,6 +75,27 @@ describe('guest chat turn actions', () => {
     ).not.toHaveBeenCalled()
   })
 
+  it('rejects unknown guest-chat failure codes before opening a transaction', async () => {
+    const client = transactionClient({})
+    await expect(
+      failGuestChatTurnAction({
+        client,
+        claim: {
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          anonymousToken: request.anonymousToken,
+          requestId: request.requestId,
+          turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          failureCode: 'UPSTREAM_SECRET_TOKEN' as never,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(
+      (client as unknown as { $transaction: ReturnType<typeof vi.fn> }).$transaction,
+    ).not.toHaveBeenCalled()
+  })
+
   it('records a strict provider observation with its outcome evidence', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 })
     const operation = {
@@ -87,7 +108,7 @@ describe('guest chat turn actions', () => {
       kind: 'QUERY_EMBEDDING' as const,
       outcomeCode: 'SUCCEEDED',
       usageReference: null,
-    }
+    } as const
 
     await expect(
       observeGuestChatProviderOperationAction({

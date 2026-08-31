@@ -44,16 +44,43 @@ const providerOperationSchema = claimSchema
   .extend({ kind: z.enum(['QUERY_EMBEDDING', 'RESPONSE_GENERATION']) })
   .strict()
 
+export const GuestChatProviderOutcomeCode = z.enum([
+  'SUCCEEDED',
+  'ADMISSION_REJECTED',
+  'FAILED_FALLBACK',
+  'SUCCESS',
+  'SYNTHETIC_PROVIDER_DARK',
+])
+export type GuestChatProviderOutcomeCode = z.infer<typeof GuestChatProviderOutcomeCode>
+
 const providerObservationSchema = providerOperationSchema
   .extend({
-    outcomeCode: z.string().trim().min(1).max(64),
+    outcomeCode: GuestChatProviderOutcomeCode,
     usageReference: z.string().trim().min(1).max(191).nullable().optional(),
   })
   .strict()
 
+export const GuestChatPreDispatchFailureCode = z.enum([
+  'AI_UNAVAILABLE',
+  'PRE_DISPATCH_FAILURE',
+  'PROVIDER_REJECTED',
+])
+export type GuestChatPreDispatchFailureCode = z.infer<typeof GuestChatPreDispatchFailureCode>
+
 const failureClaimSchema = claimSchema
-  .extend({ failureCode: z.string().trim().min(1).max(64) })
+  .extend({ failureCode: GuestChatPreDispatchFailureCode })
   .strict()
+
+export const GuestChatFallbackCode = z.enum([
+  'PROVIDER_CONFIGURATION_REQUIRED',
+  'PROVIDER_CONNECTION_FAILED',
+  'PROVIDER_REQUEST_ABORTED',
+  'PROVIDER_INVALID_RESPONSE',
+  'PROVIDER_REQUEST_FAILED',
+  'NO_RELEVANT_CONTEXT',
+  'UNEXPECTED_FAILURE',
+])
+export type GuestChatFallbackCode = z.infer<typeof GuestChatFallbackCode>
 
 const placeCardSchema = z
   .object({
@@ -94,7 +121,7 @@ const finalizeSchema = requestObjectSchema
     claimId: z.string().uuid(),
     assistantResponse: z.string().trim().min(1).max(10_000),
     replayMetadata: GuestChatReplayMetadata,
-    fallbackCode: z.string().trim().min(1).max(64).nullable(),
+    fallbackCode: GuestChatFallbackCode.nullable(),
     nextPending: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('NONE') }).strict(),
       z.object({ kind: z.literal('AUTHORED'), questionId: z.string().min(1).max(191) }).strict(),
@@ -914,7 +941,7 @@ export async function skipGuestChatProviderOperationAction(args: {
 export async function observeGuestChatProviderOperationAction(args: {
   client?: GuestChatTurnActionClient
   operation: GuestChatProviderOperationClaim & {
-    outcomeCode: string
+    outcomeCode: GuestChatProviderOutcomeCode
     usageReference?: string | null
   }
   now?: Date
@@ -949,7 +976,7 @@ export async function observeGuestChatProviderOperationAction(args: {
 
 export async function failGuestChatTurnAction(args: {
   client?: GuestChatTurnActionClient
-  claim: GuestChatClaim & { failureCode: string }
+  claim: GuestChatClaim & { failureCode: GuestChatPreDispatchFailureCode }
   now?: Date
 }) {
   const claim = parse(failureClaimSchema, args?.claim)

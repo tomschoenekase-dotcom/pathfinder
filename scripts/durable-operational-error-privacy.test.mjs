@@ -230,6 +230,25 @@ test('evaluation run attempt failure persistence admits only its production code
   assert.doesNotMatch(lifecycle, /ERROR_CODE\.test\(scope\.errorCode\)/u)
 })
 
+test('guest chat failure state is finite and provider codes are normalized', async () => {
+  const root = new URL('../', import.meta.url)
+  const actions = await readFile(
+    new URL('packages/db/src/helpers/guest-chat-turn-actions.ts', root),
+    'utf8',
+  )
+  const router = await readFile(new URL('packages/api/src/routers/chat.ts', root), 'utf8')
+
+  assert.match(actions, /failureCode:\s*GuestChatPreDispatchFailureCode/u)
+  assert.match(actions, /outcomeCode:\s*GuestChatProviderOutcomeCode/u)
+  assert.match(actions, /fallbackCode:\s*GuestChatFallbackCode\.nullable\(\)/u)
+  assert.doesNotMatch(actions, /failureCode:\s*z\.string\(\)/u)
+  assert.doesNotMatch(actions, /outcomeCode:\s*z\.string\(\)/u)
+  assert.doesNotMatch(actions, /fallbackCode:\s*z\.string\(\)/u)
+  assert.match(router, /boundedGuestChatFallbackCode\(err\)/u)
+  assert.match(router, /return 'PROVIDER_REQUEST_FAILED'/u)
+  assert.doesNotMatch(router, /fallbackFailureCode\s*=\s*err instanceof AiGatewayError \? err\.code/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

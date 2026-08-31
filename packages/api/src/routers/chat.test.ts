@@ -1664,7 +1664,7 @@ describe('chat router', () => {
           sessionId: SESSION_ID,
           metadata: expect.objectContaining({
             failureStage: 'generation',
-            failureCode: 'provider-error',
+            failureCode: 'PROVIDER_REQUEST_FAILED',
             totalMs: expect.any(Number),
           }),
         }),
@@ -1689,7 +1689,7 @@ describe('chat router', () => {
           eventType: 'message.received',
           metadata: expect.objectContaining({
             fallback: true,
-            failureCode: 'provider-error',
+            failureCode: 'PROVIDER_REQUEST_FAILED',
           }),
         }),
       )
@@ -1790,7 +1790,7 @@ describe('chat router', () => {
       expect(configLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'chat.send.ai_failed',
-          failureCode: 'provider-error',
+          failureCode: 'PROVIDER_REQUEST_FAILED',
           errorName: 'AiGatewayError',
         }),
       )

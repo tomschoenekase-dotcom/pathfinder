@@ -34,6 +34,7 @@ import {
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
   resolveNativeGuestReadSnapshotAction,
+  type GuestChatFallbackCode,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
@@ -71,6 +72,27 @@ function venueUnavailable(): TRPCError {
     message: 'This venue guide is temporarily unavailable.',
     publicCode: 'CONTENT_UNAVAILABLE',
   })
+}
+
+function boundedGuestChatFallbackCode(error: unknown): GuestChatFallbackCode {
+  if (!(error instanceof AiGatewayError)) return 'UNEXPECTED_FAILURE'
+  if (error.code === 'provider-not-configured' || error.code === 'provider-client-initialization') {
+    return 'PROVIDER_CONFIGURATION_REQUIRED'
+  }
+  if (error.code === 'provider-connection-error' || error.code === 'provider-connection-timeout') {
+    return 'PROVIDER_CONNECTION_FAILED'
+  }
+  if (error.code === 'provider-user-abort' || error.code === 'provider-request-aborted') {
+    return 'PROVIDER_REQUEST_ABORTED'
+  }
+  if (
+    error.code === 'provider-incomplete-response' ||
+    error.code === 'provider-invalid-response' ||
+    error.code === 'provider-empty-response'
+  ) {
+    return 'PROVIDER_INVALID_RESPONSE'
+  }
+  return 'PROVIDER_REQUEST_FAILED'
 }
 
 function guestChatTurnError(error: unknown): never {
@@ -1117,7 +1139,7 @@ const chatReadRouter = router({
     //    while every attempt is recorded best-effort for cost and reliability evidence.
     let assistantResponse: string
     let engagementAskedThisTurn = false
-    let fallbackFailureCode: string | null = null
+    let fallbackFailureCode: GuestChatFallbackCode | null = null
     let fallbackWasRouteExhaustion = false
     let generationRouteConfigurationVersion: string | undefined
     const modelStartedAt = performance.now()
@@ -1258,7 +1280,7 @@ const chatReadRouter = router({
         await recordGuestAiFailure('provider-unavailable')
         throw aiUnavailable()
       }
-      fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
+      fallbackFailureCode = boundedGuestChatFallbackCode(err)
       fallbackWasRouteExhaustion = err instanceof AiGatewayError
       logger.error({
         action: 'chat.send.ai_failed',
