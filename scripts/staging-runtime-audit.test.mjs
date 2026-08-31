@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -104,4 +105,12 @@ test('CLI contains option and provider failures without echoing private content'
   assert.equal(invalid.status, 1)
   assert.equal(invalid.stdout, '')
   assert.equal(invalid.stderr, 'Staging runtime audit failed: invalid-options\n')
+})
+
+test('Windows reaches the npm shim through Node without a command shell', () => {
+  const source = readFileSync('scripts/verify-staging-runtime.mjs', 'utf8')
+  assert.match(source, /process\.execPath/u)
+  assert.match(source, /node_modules\/npm\/bin\/npx-cli\.js/u)
+  assert.match(source, /shell: false/u)
+  assert.doesNotMatch(source, /ComSpec|cmd\.exe|shell: true/u)
 })

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
 
 import {
   auditStagingRuntime,
@@ -10,14 +11,14 @@ try {
   const options = parseStagingRuntimeArgs(process.argv.slice(2))
   const result = auditStagingRuntime(options, (args) => {
     const npxArgs = ['--yes', '@railway/cli', ...args]
-    const executable = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : 'npx'
+    const executable = process.platform === 'win32' ? process.execPath : 'npx'
     const executableArgs =
-      process.platform === 'win32' ? ['/d', '/s', '/c', ['npx.cmd', ...npxArgs].join(' ')] : npxArgs
+      process.platform === 'win32'
+        ? [resolve(dirname(process.execPath), 'node_modules/npm/bin/npx-cli.js'), ...npxArgs]
+        : npxArgs
     const child = spawnSync(executable, executableArgs, {
       encoding: 'utf8',
       maxBuffer: 1_048_576,
-      // Windows cannot execute npm's npx.cmd shim directly (spawn EINVAL). The cmd.exe
-      // command contains only constants and UUIDs strictly validated before this point.
       shell: false,
     })
     return { status: child.status, stdout: child.stdout }
