@@ -460,6 +460,7 @@ export {
 export { isAiAdmissionControlError } from './helpers/ai-admission-control'
 export {
   ClientAssistantActionError,
+  ClientAssistantFailureCode,
   claimClientAssistantTurnGenerationAction,
   completeClientAssistantTurnAction,
   linkClientAssistantSupportHandoffAction,

@@ -19,6 +19,7 @@ import {
   assertVenueAiAvailable,
   claimClientAssistantTurnGenerationAction,
   completeClientAssistantTurnAction,
+  type ClientAssistantFailureCode,
   createSupportRequestAction,
   linkClientAssistantSupportHandoffAction,
   markClientAssistantTurnProviderDispatchedAction,
@@ -555,7 +556,9 @@ export const clientAssistantRouter = router({
       const context = await clientContext(tenantCtx, input.venueId)
       const history = await recentHistory(tenantCtx, reservation.turn.threadId, input.venueId)
       let reply: ClientAssistantClientReply
-      let outcome: { status: 'COMPLETED' } | { status: 'FAILED'; failureCode: string }
+      let outcome:
+        | { status: 'COMPLETED' }
+        | { status: 'FAILED'; failureCode: ClientAssistantFailureCode }
       const deterministic = resolveDeterministicClientTochiResponse(message, context)
       if (deterministic) {
         reply = projectClientTochiResponse(deterministic, context)

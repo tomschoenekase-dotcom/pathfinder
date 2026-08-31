@@ -37,6 +37,9 @@ const reserveTurnInput = z
   })
   .strict()
 
+export const ClientAssistantFailureCode = z.literal('assistant-unavailable')
+export type ClientAssistantFailureCode = z.infer<typeof ClientAssistantFailureCode>
+
 const completeTurnInput = z
   .object({
     tenantId: scopedId,
@@ -52,7 +55,7 @@ const completeTurnInput = z
       z
         .object({
           status: z.literal('FAILED'),
-          failureCode: z.string().trim().min(1).max(100),
+          failureCode: ClientAssistantFailureCode,
         })
         .strict(),
     ]),

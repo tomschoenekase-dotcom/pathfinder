@@ -249,6 +249,24 @@ test('guest chat failure state is finite and provider codes are normalized', asy
   assert.doesNotMatch(router, /fallbackFailureCode\s*=\s*err instanceof AiGatewayError \? err\.code/u)
 })
 
+test('client assistant terminal failure state uses its single production code', async () => {
+  const root = new URL('../', import.meta.url)
+  const actions = await readFile(
+    new URL('packages/db/src/helpers/client-assistant-actions.ts', root),
+    'utf8',
+  )
+  const router = await readFile(
+    new URL('packages/api/src/routers/client-assistant.ts', root),
+    'utf8',
+  )
+
+  assert.match(actions, /ClientAssistantFailureCode = z\.literal\('assistant-unavailable'\)/u)
+  assert.match(actions, /failureCode:\s*ClientAssistantFailureCode/u)
+  assert.doesNotMatch(actions, /failureCode:\s*z\.string\(\)/u)
+  assert.match(router, /failureCode:\s*ClientAssistantFailureCode/u)
+  assert.doesNotMatch(router, /status:\s*'FAILED';\s*failureCode:\s*string/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

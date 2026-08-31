@@ -344,6 +344,28 @@ describe('client assistant domain actions', () => {
     )
   })
 
+  it('rejects an unknown terminal failure code before opening a transaction', async () => {
+    const dbClient = client({})
+    await expect(
+      completeClientAssistantTurnAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          turnId: 'turn-1',
+          generationLeaseId,
+          expectedRevision: 1,
+          assistantMessage: 'Please try again later.',
+          questionCategory: 'fallback',
+          safeActions: [],
+          outcome: { status: 'FAILED', failureCode: 'UPSTREAM_SECRET_TOKEN' as never },
+          actor,
+        },
+        dbClient as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(dbClient.$transaction).not.toHaveBeenCalled()
+  })
+
   it('links only a matching completed-turn preview to the client-owned support request', async () => {
     const handoff = {
       id: 'handoff-1',
