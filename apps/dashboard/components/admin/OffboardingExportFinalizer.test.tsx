@@ -150,7 +150,9 @@ describe('OffboardingExportFinalizer', () => {
       operationId: '35a7173c-b42b-485b-8885-81355585489e',
       expectedPlanUpdatedAt: '2026-08-12T12:00:00.000Z',
     })
-    expect(screen.getByRole('status').textContent).toMatch(/1 requested artifact remains/iu)
+    expect((await screen.findByRole('status')).textContent).toMatch(
+      /1 requested artifact remains/iu,
+    )
   })
 
   it('retains an ambiguous operation identity across another selection and back', async () => {

@@ -294,7 +294,7 @@ describe('GeneralizedContentWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm retirement revision' }))
     await waitFor(() => expect(mocks.retire).toHaveBeenCalledOnce())
     await waitFor(() => expect((retireButton as HTMLButtonElement).disabled).toBe(true))
-    expect(screen.getByRole('status').textContent).toMatch(/retirement boundary recorded/i)
+    expect((await screen.findByRole('status')).textContent).toMatch(/retirement boundary recorded/i)
     rerender(
       <GeneralizedContentWorkbench
         tenantId="tenant-1"
