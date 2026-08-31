@@ -72,6 +72,7 @@
     "local-staging:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-staging.ps1 -Action Up",
     "local-staging:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-staging.ps1 -Action Stop",
     "verify:staging-health": "node scripts/verify-staging-health.mjs",
+    "verify:staging-topology": "node scripts/verify-staging-topology.mjs",
     "verify:staging-widget": "node scripts/verify-staging-widget.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "release:evidence:prepare": "node scripts/prepare-release-evidence.mjs",

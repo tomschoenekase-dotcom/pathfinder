@@ -295,10 +295,21 @@ staging host. The verifier rejects credentials, query strings, fragments,
 redirects, cacheable responses, non-JSON or oversized bodies, degraded
 dependencies, and any revision other than the full expected SHA. Its CI
 test validates the contract without contacting staging; only this explicit
-operator invocation performs a live request. Passing proves the public web
-health response only. It does not prove dashboard or worker revisions, or
-database, Redis, storage, identity-provider, and outbound-provider isolation;
-retain the manual evidence for those boundaries.
+operator invocation performs a live request. Passing proves the public web health response only.
+Immediately pair it with the read-only Railway topology admission from the linked staging project:
+
+```bash
+railway status --json | pnpm verify:staging-topology -- --expected-revision "$RELEASE_SHA"
+```
+
+The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
+emits only the three application deployment IDs, immutable image digests, expected revision, and
+bounded success/running states. It requires exactly one `staging-web`, `staging-dashboard`, and
+`staging-workers` service, each with an active successful deployment at the exact revision and one
+running instance; removed overlap instances are allowed, but crashed or other unexpected states
+fail closed. This closes the deployment-status false green that a web-only health response cannot
+detect. It still does not prove database, Redis, storage, identity-provider, or outbound-provider
+isolation; retain the separate evidence for those boundaries.
 
 If the release includes the default-off website-widget preview, run the
 exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
@@ -636,6 +647,9 @@ historical report data requires a separate reviewed migration.
 
 - Run the exact-revision `verify:staging-health` admission command above and
   record its sanitized JSON result. Railway health must also be green.
+- Pipe the linked staging project's `railway status --json` into `verify:staging-topology` and retain
+  only its bounded three-service result. A deployment marked successful without a running web,
+  dashboard, or worker instance fails this gate.
 - For an enabled widget canary, run the exact-revision widget admission above,
   then preserve browser evidence from one authorized third-party test page and
   one non-allow-listed origin that CSP blocks. Record only sanitized output.

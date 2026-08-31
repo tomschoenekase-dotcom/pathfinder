@@ -54,6 +54,13 @@ if (
   throw new Error('docs/railway-staging.md: compatibility boundary is incomplete')
 }
 
+if (
+  !runbook.includes('railway status --json | pnpm verify:staging-topology') ||
+  !runbook.includes('without a running web,')
+) {
+  throw new Error('docs/railway-staging.md: three-service topology admission is incomplete')
+}
+
 for (const service of services) {
   const configPath = resolve(root, service.config)
   const config = JSON.parse(await readFile(configPath, 'utf8'))
