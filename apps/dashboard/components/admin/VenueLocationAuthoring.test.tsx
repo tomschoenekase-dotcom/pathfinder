@@ -107,7 +107,7 @@ describe('VenueLocationAuthoring', () => {
         }),
       ),
     )
-    expect(screen.getByText(/remains invisible to guests/)).toBeTruthy()
+    expect(await screen.findByText(/remains invisible to guests/)).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 
