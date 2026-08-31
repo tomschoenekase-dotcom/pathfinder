@@ -285,6 +285,20 @@ test('AI usage sinks normalize failure codes and never log persistence exception
   assert.doesNotMatch(workerSink, /error instanceof Error \? error\.message/u)
 })
 
+test('media asset analysis failures cannot enter synthesis or findings as exception text', async () => {
+  const source = await readFile(
+    new URL('../apps/workers/src/processors/media-ingestion.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    source,
+    /failedMediaAssetAnalysis\(\)[\s\S]{0,200}This asset requires manual review\./u,
+  )
+  assert.match(source, /analysis = failedMediaAssetAnalysis\(\)/u)
+  assert.doesNotMatch(source, /emptyAnalysis\('Analysis failed\.',\s*(?:error|message)/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

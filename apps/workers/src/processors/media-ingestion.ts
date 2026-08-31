@@ -397,6 +397,10 @@ function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
   }
 }
 
+export function failedMediaAssetAnalysis(): Analysis {
+  return emptyAnalysis('Analysis failed.', 'This asset requires manual review.')
+}
+
 async function analyzeImage(
   openai: OpenAI,
   admissionGuard: MediaAdmissionGuard,
@@ -1022,8 +1026,7 @@ export async function processMediaIngestionJob(
         assertMediaJobActive(signal)
         if (isAiAdmissionControlError(error)) throw error
         if (error instanceof UnrecoverableError) throw error
-        const message = error instanceof Error ? error.message : 'Unknown asset analysis error'
-        analysis = emptyAnalysis('Analysis failed.', message)
+        analysis = failedMediaAssetAnalysis()
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
         await persistMediaIngestionAsset({
           tenantId: payload.tenantId,

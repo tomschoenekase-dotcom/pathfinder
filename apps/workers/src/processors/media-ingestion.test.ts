@@ -69,6 +69,7 @@ import {
   cleanupMediaWorkDir,
   downloadAndExtract,
   assertMediaSourceFilename,
+  failedMediaAssetAnalysis,
   mediaSynthesisToVenuePackage,
   MediaGeneratedOutputCleanupError,
   MediaSynthesisSummaryBudget,
@@ -98,6 +99,20 @@ const project = {
 }
 
 describe('media ingestion provider output validation', () => {
+  it('uses code-owned asset failure findings without exception detail', () => {
+    const secret = 'postgres://operator:secret@example.test/torchiko'
+    const analysis = failedMediaAssetAnalysis()
+
+    expect(analysis).toEqual({
+      summary: 'Analysis failed.',
+      visibleText: [],
+      objects: [],
+      spatialClues: [],
+      uncertainties: ['This asset requires manual review.'],
+    })
+    expect(JSON.stringify(analysis)).not.toContain(secret)
+  })
+
   it('rejects a media source path beyond the persisted review filename bound', () => {
     expect(() => assertMediaSourceFilename('x'.repeat(1_001))).toThrow(
       'Media source path exceeds the 1000-character safety limit.',
