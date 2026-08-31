@@ -210,6 +210,19 @@ test('venue duplicate-analysis receipts normalize provider failure codes', async
   assert.doesNotMatch(router, /settleFailure[^\n]*errorCode:\s*string/u)
 })
 
+test('evaluation run attempt failure persistence admits only its production code', async () => {
+  const root = new URL('../', import.meta.url)
+  const lifecycle = await readFile(
+    new URL('packages/db/src/helpers/evaluation-run-lifecycle.ts', root),
+    'utf8',
+  )
+
+  assert.match(lifecycle, /type EvaluationRunAttemptFailureCode = 'EVALUATION_EXECUTION_FAILED'/u)
+  assert.match(lifecycle, /scope\.errorCode !== 'EVALUATION_EXECUTION_FAILED'/u)
+  assert.doesNotMatch(lifecycle, /errorCode:\s*string/u)
+  assert.doesNotMatch(lifecycle, /ERROR_CODE\.test\(scope\.errorCode\)/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

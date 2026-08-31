@@ -688,7 +688,10 @@ export {
   renewEvaluationRunLease,
   requestEvaluationRunCancellation,
 } from './helpers/evaluation-run-lifecycle'
-export type { EvaluationRunAttemptClaim } from './helpers/evaluation-run-lifecycle'
+export type {
+  EvaluationRunAttemptClaim,
+  EvaluationRunAttemptFailureCode,
+} from './helpers/evaluation-run-lifecycle'
 export {
   EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
   isEvaluationRuntimeDurablyEnabled,

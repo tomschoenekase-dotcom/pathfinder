@@ -4,8 +4,8 @@ import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { writeAuditLogStrict } from './audit'
 
-const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,99}$/u
 export const EVALUATION_RUN_EXECUTION_LEASE_MS = 15 * 60 * 1000
+export type EvaluationRunAttemptFailureCode = 'EVALUATION_EXECUTION_FAILED'
 
 type Scope = {
   runId: string
@@ -247,11 +247,13 @@ export async function failEvaluationRunAttempt(
     attemptNumber: number
     maxAttempts: number
     leaseToken: string
-    errorCode: string
+    errorCode: EvaluationRunAttemptFailureCode
     now?: Date
   },
 ): Promise<'retry-eligible' | 'failed' | 'cancelled' | 'stale'> {
-  if (!ERROR_CODE.test(scope.errorCode)) throw new Error('Evaluation failure code is invalid')
+  if (scope.errorCode !== 'EVALUATION_EXECUTION_FAILED') {
+    throw new Error('Evaluation failure code is invalid')
+  }
   return withTenantIsolationBypass(async () => {
     const now = scope.now ?? new Date()
     const finalAttempt = scope.attemptNumber >= scope.maxAttempts

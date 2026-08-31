@@ -241,7 +241,7 @@ describe('evaluation run lifecycle', () => {
         attemptNumber: takeover.attemptNumber,
         maxAttempts: 3,
         leaseToken: takeover.leaseToken,
-        errorCode: 'PRE_PROVIDER_FAILURE',
+        errorCode: 'EVALUATION_EXECUTION_FAILED',
       }),
     ).resolves.toBe('retry-eligible')
     const retry = await claimEvaluationRunAttempt({
@@ -280,7 +280,7 @@ describe('evaluation run lifecycle', () => {
         attemptNumber: 3,
         maxAttempts: 3,
         leaseToken: claim.leaseToken,
-        errorCode: 'RECOVERY_FAILED',
+        errorCode: 'EVALUATION_EXECUTION_FAILED',
       }),
     ).resolves.toBe('failed')
   })
@@ -310,6 +310,19 @@ describe('evaluation run lifecycle', () => {
     )
   })
 
+  it('rejects an unknown failure code before persistence', async () => {
+    await expect(
+      failEvaluationRunAttempt({
+        ...scope,
+        attemptNumber: 1,
+        maxAttempts: 3,
+        leaseToken: '11111111-1111-4111-8111-111111111111',
+        errorCode: 'UPSTREAM_SECRET_TOKEN',
+      } as never),
+    ).rejects.toThrow('Evaluation failure code is invalid')
+    expect(mocks.updateMany).not.toHaveBeenCalled()
+  })
+
   it('parks retryable failures without claiming worker ownership and makes the final failure terminal', async () => {
     mocks.updateMany.mockResolvedValue({ count: 1 })
     await expect(
@@ -318,7 +331,7 @@ describe('evaluation run lifecycle', () => {
         attemptNumber: 1,
         maxAttempts: 3,
         leaseToken: '11111111-1111-4111-8111-111111111111',
-        errorCode: 'PROVIDER_UNAVAILABLE',
+        errorCode: 'EVALUATION_EXECUTION_FAILED',
       }),
     ).resolves.toBe('retry-eligible')
     expect(mocks.updateMany).toHaveBeenLastCalledWith(
@@ -330,7 +343,7 @@ describe('evaluation run lifecycle', () => {
         attemptNumber: 3,
         maxAttempts: 3,
         leaseToken: '11111111-1111-4111-8111-111111111111',
-        errorCode: 'PROVIDER_UNAVAILABLE',
+        errorCode: 'EVALUATION_EXECUTION_FAILED',
       }),
     ).resolves.toBe('failed')
     expect(mocks.updateMany).toHaveBeenLastCalledWith(
@@ -413,7 +426,7 @@ describe('evaluation run lifecycle', () => {
         attemptNumber: 2,
         maxAttempts: 3,
         leaseToken: '11111111-1111-4111-8111-111111111111',
-        errorCode: 'PROVIDER_UNAVAILABLE',
+        errorCode: 'EVALUATION_EXECUTION_FAILED',
         now,
       }),
     ).resolves.toBe('stale')
