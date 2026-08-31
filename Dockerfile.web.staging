@@ -32,6 +32,7 @@ COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/
 COPY --from=builder --chown=node:node /migration /migration
 COPY --from=builder --chown=node:node /app/scripts/run-staging-migration-predeploy.mjs /migration/scripts/run-staging-migration-predeploy.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/staging-migration-admission.mjs /migration/scripts/lib/staging-migration-admission.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/operator-cli-failure.mjs /migration/scripts/lib/operator-cli-failure.mjs
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0

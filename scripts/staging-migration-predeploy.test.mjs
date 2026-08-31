@@ -47,6 +47,19 @@ test('staging image pins the same exact migration approval as the predeploy', as
   )
 })
 
+test('staging image contains every local runtime dependency of the migration predeploy', async () => {
+  const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
+  for (const dependency of ['staging-migration-admission.mjs', 'operator-cli-failure.mjs']) {
+    assert.match(
+      dockerfile,
+      new RegExp(
+        `COPY --from=builder --chown=node:node /app/scripts/lib/${dependency} /migration/scripts/lib/${dependency}`,
+        'u',
+      ),
+    )
+  }
+})
+
 test('staging runbook requires the exact Railway service-level predeploy approval', async () => {
   const runbook = await readFile('docs/railway-staging.md', 'utf8')
   assert.match(runbook, /does not inherit Docker image `ENV`/u)
