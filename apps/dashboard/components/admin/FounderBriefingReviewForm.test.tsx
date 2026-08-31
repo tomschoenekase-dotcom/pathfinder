@@ -43,7 +43,7 @@ describe('FounderBriefingReviewForm', () => {
       expectedPreviousReviewedThrough: '2026-08-22T11:00:00.000Z',
       briefingSchemaVersion: 1,
     })
-    expect(screen.getByRole('status').textContent).toContain('No queue item was resolved')
+    expect((await screen.findByRole('status')).textContent).toContain('No queue item was resolved')
     expect(mocks.refresh).toHaveBeenCalledTimes(1)
   })
 

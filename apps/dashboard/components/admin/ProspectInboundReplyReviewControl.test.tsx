@@ -43,7 +43,7 @@ describe('ProspectInboundReplyReviewControl', () => {
       disposition: 'POSITIVE_INTEREST',
       reason: 'They asked to schedule a product conversation.',
     })
-    expect(screen.getByRole('status').textContent).toContain(
+    expect((await screen.findByRole('status')).textContent).toContain(
       'No email was sent and no stage changed',
     )
     expect(mocks.refresh).toHaveBeenCalledOnce()

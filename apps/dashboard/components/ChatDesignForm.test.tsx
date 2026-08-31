@@ -69,7 +69,7 @@ describe('ChatDesignForm', () => {
         chatFont: 'poppins',
       }),
     )
-    expect(screen.getByRole('status').textContent).toContain('Design saved')
+    expect((await screen.findByRole('status')).textContent).toContain('Design saved')
   })
 
   it('rejects a non-empty invalid accent without clearing the stored override', async () => {

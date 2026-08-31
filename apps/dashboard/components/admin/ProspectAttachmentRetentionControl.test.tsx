@@ -54,7 +54,9 @@ describe('ProspectAttachmentRetentionControl', () => {
       category: 'FLOOR_PLAN_OR_MAP',
       purpose: 'Needed for the visitor guide.',
     })
-    expect(screen.getByRole('status').textContent).toContain('No attachment bytes were downloaded')
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'No attachment bytes were downloaded',
+    )
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 
@@ -85,7 +87,9 @@ describe('ProspectAttachmentRetentionControl', () => {
       decision: 'APPROVE_FOR_IMPORT',
       reason: 'Useful source material.',
     })
-    expect(screen.getByRole('status').textContent).toContain('No bytes were downloaded or retained')
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'No bytes were downloaded or retained',
+    )
   })
 
   it('renders a terminal source-only decision with no action controls', () => {
