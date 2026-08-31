@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import type { AiBudgetGate, AiBudgetReservationRef, AiUsageSink } from '@pathfinder/ai'
+import { type AiBudgetGate, type AiBudgetReservationRef, type AiUsageSink } from '@pathfinder/ai'
+import { normalizeAiUsageErrorCode } from '@pathfinder/ai/usage-error-code'
 import { logger } from '@pathfinder/config'
 import {
   markAiCostAttemptDispatched,
@@ -27,6 +28,7 @@ export function createApiAiUsageRecorder(params: {
 
   const sink: AiUsageSink = async (usage) => {
     try {
+      const errorCode = normalizeAiUsageErrorCode(usage.errorCode)
       const event = await params.db.aiUsageEvent.create({
         data: {
           tenantId: params.tenantId,
@@ -57,7 +59,7 @@ export function createApiAiUsageRecorder(params: {
           latencyMs: usage.latencyMs,
           attempts: usage.attempts,
           success: usage.success,
-          ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+          ...(errorCode ? { errorCode } : {}),
         },
         select: { id: true },
       })

@@ -58,8 +58,26 @@ describe('createWorkerAiUsageSink', () => {
     })
   })
 
+  it('normalizes arbitrary usage failure codes before persistence', async () => {
+    mocks.create.mockResolvedValueOnce({})
+    const sink = createWorkerAiUsageSink({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      feature: 'analytics-topic-classifier',
+    })
+
+    await sink({ ...usage, success: false, errorCode: 'UPSTREAM_SECRET_TOKEN' })
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ errorCode: 'provider-error' }),
+      }),
+    )
+    expect(JSON.stringify(mocks.create.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
+  })
+
   it('logs and resolves when persistence fails', async () => {
-    mocks.create.mockRejectedValueOnce(new Error('database unavailable'))
+    mocks.create.mockRejectedValueOnce(new Error('database host and secret detail'))
     const sink = createWorkerAiUsageSink({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
@@ -68,7 +86,13 @@ describe('createWorkerAiUsageSink', () => {
 
     await expect(sink(usage)).resolves.toBeUndefined()
     expect(mocks.loggerError).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'workers.ai_usage.failed' }),
+      expect.objectContaining({
+        action: 'workers.ai_usage.failed',
+        error: 'AI usage persistence failed',
+      }),
+    )
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain(
+      'database host and secret detail',
     )
   })
 })

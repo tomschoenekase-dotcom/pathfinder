@@ -2,7 +2,8 @@
   "name": "@pathfinder/ai",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./usage-error-code": "./src/usage-error-code.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

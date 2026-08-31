@@ -267,6 +267,24 @@ test('client assistant terminal failure state uses its single production code', 
   assert.doesNotMatch(router, /status:\s*'FAILED';\s*failureCode:\s*string/u)
 })
 
+test('AI usage sinks normalize failure codes and never log persistence exceptions', async () => {
+  const root = new URL('../', import.meta.url)
+  const normalizer = await readFile(
+    new URL('packages/ai/src/usage-error-code.ts', root),
+    'utf8',
+  )
+  const apiSink = await readFile(new URL('packages/api/src/lib/api-ai-usage.ts', root), 'utf8')
+  const workerSink = await readFile(new URL('apps/workers/src/lib/ai-usage.ts', root), 'utf8')
+
+  assert.match(normalizer, /return 'provider-error'/u)
+  assert.match(normalizer, /\^provider-http-\[1-5\]\\d\{2\}\$/u)
+  assert.match(apiSink, /normalizeAiUsageErrorCode\(usage\.errorCode\)/u)
+  assert.match(workerSink, /normalizeAiUsageErrorCode\(usage\.errorCode\)/u)
+  assert.doesNotMatch(apiSink, /errorCode:\s*usage\.errorCode/u)
+  assert.doesNotMatch(workerSink, /errorCode:\s*usage\.errorCode/u)
+  assert.doesNotMatch(workerSink, /error instanceof Error \? error\.message/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

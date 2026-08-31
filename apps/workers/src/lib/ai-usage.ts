@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import type { AiBudgetGate, AiBudgetReservationRef, AiUsageSink } from '@pathfinder/ai'
+import { type AiBudgetGate, type AiBudgetReservationRef, type AiUsageSink } from '@pathfinder/ai'
+import { normalizeAiUsageErrorCode } from '@pathfinder/ai/usage-error-code'
 import { logger } from '@pathfinder/config'
 import {
   db,
@@ -19,6 +20,7 @@ export function createWorkerAiUsageSink(params: {
 }): AiUsageSink {
   return async (usage) => {
     try {
+      const errorCode = normalizeAiUsageErrorCode(usage.errorCode)
       await db.aiUsageEvent.create({
         data: {
           tenantId: params.tenantId,
@@ -45,16 +47,16 @@ export function createWorkerAiUsageSink(params: {
           latencyMs: usage.latencyMs,
           attempts: usage.attempts,
           success: usage.success,
-          ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+          ...(errorCode ? { errorCode } : {}),
         },
       })
-    } catch (error) {
+    } catch {
       logger.error({
         action: 'workers.ai_usage.failed',
         tenantId: params.tenantId,
         venueId: params.venueId,
         feature: params.feature,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: 'AI usage persistence failed',
       })
     }
   }

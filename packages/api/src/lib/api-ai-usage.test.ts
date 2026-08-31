@@ -78,6 +78,7 @@ describe('API AI usage recorder', () => {
     createUsageEvent
       .mockResolvedValueOnce({ id: 'usage_1' })
       .mockResolvedValueOnce({ id: 'usage_2' })
+      .mockResolvedValueOnce({ id: 'usage_3' })
     const recorder = createApiAiUsageRecorder({
       db,
       tenantId: 'tenant_1',
@@ -88,14 +89,17 @@ describe('API AI usage recorder', () => {
 
     await recorder.sink({ ...usage, success: false, errorCode: 'provider-timeout' })
     await recorder.sink(usage)
+    await recorder.sink({ ...usage, success: false, errorCode: 'UPSTREAM_SECRET_TOKEN' })
 
     expect(createUsageEvent.mock.calls[0]![0].data.errorCode).toBe('provider-timeout')
     expect(createUsageEvent.mock.calls[1]![0].data).not.toHaveProperty('errorCode')
-    expect(recorder.usageEventIds()).toEqual(['usage_1', 'usage_2'])
+    expect(createUsageEvent.mock.calls[2]![0].data.errorCode).toBe('provider-error')
+    expect(JSON.stringify(createUsageEvent.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
+    expect(recorder.usageEventIds()).toEqual(['usage_1', 'usage_2', 'usage_3'])
 
     const returnedIds = recorder.usageEventIds()
     returnedIds.push('external-mutation')
-    expect(recorder.usageEventIds()).toEqual(['usage_1', 'usage_2'])
+    expect(recorder.usageEventIds()).toEqual(['usage_1', 'usage_2', 'usage_3'])
   })
 
   it('correlates Client Tochi usage without assigning a public visitor session', async () => {
