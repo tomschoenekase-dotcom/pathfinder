@@ -25,6 +25,28 @@ export type GuestAnswerAttributionEvaluationErrorCode =
   | 'PRECONDITION_FAILED'
   | 'CONFLICT'
 
+export const GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILURE_CODES = [
+  'REQUEST_BUDGET_CEILING_EXCEEDED',
+  'CAPABILITY_MISMATCH',
+  'CAPABILITY_NOT_ENTITLED',
+  'CAPABILITY_UNAVAILABLE',
+  'NO_HEALTHY_ROUTE',
+  'PROVIDER_CONFIGURATION_REQUIRED',
+  'PROVIDER_CONNECTION_FAILED',
+  'PROVIDER_REQUEST_ABORTED',
+  'PROVIDER_INVALID_RESPONSE',
+  'PROVIDER_REQUEST_FAILED',
+  'GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILED',
+  'WORKER_LOST_AFTER_PROVIDER_DISPATCH',
+] as const
+
+export type GuestAnswerAttributionEvaluationFailureCode =
+  (typeof GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILURE_CODES)[number]
+
+const guestAnswerAttributionEvaluationFailureCodes = new Set<string>(
+  GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILURE_CODES,
+)
+
 export class GuestAnswerAttributionEvaluationError extends Error {
   constructor(
     readonly code: GuestAnswerAttributionEvaluationErrorCode,
@@ -446,13 +468,17 @@ export async function failGuestAnswerAttributionEvaluationRequestAction(
     venueId: string
     requestId: string
     leaseToken: string
-    errorCode: string
+    errorCode: GuestAnswerAttributionEvaluationFailureCode
     ambiguous?: boolean
     now?: Date
   },
   client: EvaluationClient = db,
 ) {
-  if (!uuid.test(input.requestId) || !uuid.test(input.leaseToken) || !input.errorCode?.trim()) {
+  if (
+    !uuid.test(input.requestId) ||
+    !uuid.test(input.leaseToken) ||
+    !guestAnswerAttributionEvaluationFailureCodes.has(input.errorCode)
+  ) {
     fail('INVALID_INPUT', 'Exact request, lease, and bounded error code are required')
   }
   const now = input.now ?? new Date()
@@ -466,7 +492,7 @@ export async function failGuestAnswerAttributionEvaluationRequestAction(
     },
     data: {
       status: input.ambiguous ? 'AMBIGUOUS' : 'FAILED',
-      lastErrorCode: input.errorCode.trim().slice(0, 64),
+      lastErrorCode: input.errorCode,
       failedAt: now,
       leaseToken: null,
       leaseExpiresAt: null,
@@ -508,7 +534,7 @@ export async function recoverStaleGuestAnswerAttributionEvaluationRequestsAction
       data: ambiguous
         ? {
             status: 'AMBIGUOUS',
-            lastErrorCode: 'worker-lost-after-provider-dispatch',
+            lastErrorCode: 'WORKER_LOST_AFTER_PROVIDER_DISPATCH',
             failedAt: now,
             leaseToken: null,
             leaseExpiresAt: null,

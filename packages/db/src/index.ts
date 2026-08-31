@@ -154,6 +154,7 @@ export {
 export type {
   GuestAnswerAttributionEvaluationActor,
   GuestAnswerAttributionEvaluationErrorCode,
+  GuestAnswerAttributionEvaluationFailureCode,
 } from './helpers/guest-answer-attribution-evaluation-actions'
 export type {
   GuestChatClaim,

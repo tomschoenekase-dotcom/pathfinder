@@ -23,7 +23,12 @@ vi.mock('@pathfinder/config', () => ({
 }))
 vi.mock('@pathfinder/ai', () => ({
   AiGatewayError: class AiGatewayError extends Error {
-    code = 'AI_GATEWAY_FAILED'
+    readonly code: string
+
+    constructor(message: string, options: { code: string }) {
+      super(message)
+      this.code = options.code
+    }
   },
   AiRequestBudgetCeilingExceededError: class extends Error {
     code = 'AI_BUDGET_BLOCKED'
@@ -65,6 +70,7 @@ import {
   processGuestAnswerAttributionEvaluationJob,
   recoverGuestAnswerAttributionEvaluations,
 } from './guest-answer-attribution-evaluation'
+import { AiGatewayError } from '@pathfinder/ai'
 
 const payload = {
   tenantId: 'tenant-1',
@@ -140,6 +146,36 @@ describe('guest answer attribution evaluator worker', () => {
         errorCode: 'GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILED',
       }),
     )
+  })
+
+  it('maps provider codes into a finite durable failure vocabulary', async () => {
+    mocks.evaluate.mockRejectedValue(
+      new AiGatewayError('provider failure', {
+        attempts: 1,
+        code: 'provider-connection-timeout',
+      }),
+    )
+    await expect(processGuestAnswerAttributionEvaluationJob(payload)).rejects.toThrow()
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: payload.requestId,
+        errorCode: 'PROVIDER_CONNECTION_FAILED',
+      }),
+    )
+  })
+
+  it('does not persist an unknown secret-like provider code', async () => {
+    mocks.evaluate.mockRejectedValue(
+      new AiGatewayError('provider failure', { attempts: 1, code: 'UPSTREAM_SECRET_TOKEN' }),
+    )
+    await expect(processGuestAnswerAttributionEvaluationJob(payload)).rejects.toThrow()
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: payload.requestId,
+        errorCode: 'PROVIDER_REQUEST_FAILED',
+      }),
+    )
+    expect(JSON.stringify(mocks.fail.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
   })
 
   it('republishes durable queued work but never republishes ambiguous recovery rows', async () => {

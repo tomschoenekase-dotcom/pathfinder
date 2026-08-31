@@ -132,6 +132,29 @@ test('agent failure APIs accept only code and retry policy', async () => {
   )
 })
 
+test('guest answer attribution failures use a finite durable code vocabulary', async () => {
+  const root = new URL('../', import.meta.url)
+  const actions = await readFile(
+    new URL('packages/db/src/helpers/guest-answer-attribution-evaluation-actions.ts', root),
+    'utf8',
+  )
+  const worker = await readFile(
+    new URL('apps/workers/src/processors/guest-answer-attribution-evaluation.ts', root),
+    'utf8',
+  )
+
+  assert.match(actions, /errorCode:\s*GuestAnswerAttributionEvaluationFailureCode/u)
+  assert.match(actions, /guestAnswerAttributionEvaluationFailureCodes\.has\(input\.errorCode\)/u)
+  assert.doesNotMatch(actions, /lastErrorCode:\s*input\.errorCode\.trim\(\)\.slice/u)
+  assert.match(actions, /lastErrorCode:\s*'WORKER_LOST_AFTER_PROVIDER_DISPATCH'/u)
+  assert.match(worker, /error\.code === 'provider-connection-timeout'/u)
+  assert.match(worker, /return 'PROVIDER_REQUEST_FAILED'/u)
+  assert.doesNotMatch(
+    worker,
+    /error instanceof AiGatewayError[\s\S]{0,1500}return error\.code/u,
+  )
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

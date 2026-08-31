@@ -8,6 +8,7 @@ import {
   completeGuestAnswerAttributionEvaluationRequestAction,
   db,
   failGuestAnswerAttributionEvaluationRequestAction,
+  type GuestAnswerAttributionEvaluationFailureCode,
   isEvaluationRuntimeDurablyEnabled,
   markGuestAnswerAttributionEvaluationDispatchedAction,
   recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
@@ -67,10 +68,33 @@ async function assertExecutionAllowed(input: {
   if (!owned) throw new Error('Guest answer evaluation lease is unavailable')
 }
 
-function boundedErrorCode(error: unknown): string {
+function boundedErrorCode(error: unknown): GuestAnswerAttributionEvaluationFailureCode {
   if (error instanceof AiRequestBudgetCeilingExceededError) return error.code
   if (error instanceof AiRoutingError) return error.code
-  if (error instanceof AiGatewayError) return error.code
+  if (error instanceof AiGatewayError) {
+    if (
+      error.code === 'provider-not-configured' ||
+      error.code === 'provider-client-initialization'
+    ) {
+      return 'PROVIDER_CONFIGURATION_REQUIRED'
+    }
+    if (
+      error.code === 'provider-connection-timeout' ||
+      error.code === 'provider-connection-error'
+    ) {
+      return 'PROVIDER_CONNECTION_FAILED'
+    }
+    if (error.code === 'provider-user-abort') return 'PROVIDER_REQUEST_ABORTED'
+    if (
+      error.code === 'missing-text-block' ||
+      error.code === 'invalid-structured-output' ||
+      error.code === 'invalid-provider-response' ||
+      error.code === 'provider-incomplete-response'
+    ) {
+      return 'PROVIDER_INVALID_RESPONSE'
+    }
+    return 'PROVIDER_REQUEST_FAILED'
+  }
   return 'GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILED'
 }
 
