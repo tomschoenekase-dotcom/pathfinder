@@ -63,6 +63,37 @@ function trackedFiles() {
     .map((entry) => entry.replaceAll('\\', '/'))
 }
 
+function historicalCredentialChanges() {
+  const historyExpression = [
+    ['-----BEGIN ', '(RSA |EC |OPENSSH |DSA )?', 'PRIVATE KEY-----'].join(''),
+    ['sk-', '(proj-)?', '[A-Za-z0-9_-]{20,}'].join(''),
+    ['(sk|rk)', '_live_', '[A-Za-z0-9]{16,}'].join(''),
+    ['gh', '[pousr]_', '[A-Za-z0-9]{20,}'].join(''),
+    ['(AK', 'IA|AS', 'IA)', '[A-Z0-9]{16}'].join(''),
+    ['xox', '[baprs]-', '[A-Za-z0-9-]{20,}'].join(''),
+  ].join('|')
+  return execFileSync(
+    'git',
+    [
+      'log',
+      '--all',
+      '--no-renames',
+      '-G',
+      `(${historyExpression})`,
+      '--format=COMMIT %H',
+      '--name-only',
+      '--',
+      '.',
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+    },
+  ).trim()
+}
+
 function scanContent(relativePath, content) {
   return credentialPatterns
     .filter(({ expression }) => expression.test(content))
@@ -101,6 +132,10 @@ test('tracked text excludes high-confidence credential patterns without reportin
   }
 
   assert.deepEqual(findings, [])
+})
+
+test('published history contains no high-confidence credential additions or removals', () => {
+  assert.equal(historicalCredentialChanges(), '')
 })
 
 test('credential pattern canaries are detected by identifier and path only', () => {
