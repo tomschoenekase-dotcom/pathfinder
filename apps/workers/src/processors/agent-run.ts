@@ -16,6 +16,7 @@ import {
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
 } from '@pathfinder/db'
+import type { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 import type { AgentRunJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -23,7 +24,10 @@ import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usa
 const LEASE_DURATION_MS = 90_000
 const HEARTBEAT_INTERVAL_MS = 20_000
 
-function agentRunFailure(error: unknown, cancellation: boolean) {
+function agentRunFailure(
+  error: unknown,
+  cancellation: boolean,
+): { errorCode: AgentRunFailureCode; retryable: boolean } {
   if (cancellation) {
     return { errorCode: 'CANCELLED_OR_LEASE_LOST', retryable: false }
   }

@@ -5,6 +5,7 @@ import {
   handleAgentBridgeHttpRequestCore,
   type AgentBridgeHttpRegistry,
 } from '@pathfinder/api/agent-bridge/http-core'
+import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
   AI_COST_BUDGET_COVERAGE_VERSION,
@@ -202,18 +203,21 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             credential: context.credential as VerifiedMcpCredentialScope,
           })
         },
-        failTask: async (raw, context) =>
-          failAgentBridgeTask({
-            ...(raw as {
-              sessionId: string
-              venueId: string
-              runId: string
-              leaseToken: string
-              errorCode: string
-              retryable: boolean
-            }),
+        failTask: async (raw, context) => {
+          const input = raw as {
+            sessionId: string
+            venueId: string
+            runId: string
+            leaseToken: string
+            errorCode: string
+            retryable: boolean
+          }
+          return failAgentBridgeTask({
+            ...input,
+            errorCode: AgentRunFailureCode.parse(input.errorCode),
             credential: context.credential as VerifiedMcpCredentialScope,
-          }),
+          })
+        },
       }
       const fetcher: typeof fetch = async (input, init) =>
         handleAgentBridgeHttpRequestCore(
@@ -1353,11 +1357,11 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         },
       })
       const recoverableFailures = [
-        'TOOL_HTTP_500',
-        'DB_TRANSIENT',
-        'INVALID_STRUCTURED_OUTPUT',
-        'PARTIAL_RESULT_REJECTED',
-      ] as const
+        'TASK_EXECUTOR_FAILED',
+        'PROVIDER_CONNECTION_FAILED',
+        'PROVIDER_REQUEST_FAILED',
+        'TIMEOUT',
+      ] as const satisfies readonly AgentRunFailureCode[]
       for (const [index, errorCode] of recoverableFailures.entries()) {
         const worker = workers[0]!
         const claim = await claimAgentBridgeTask({
