@@ -49,7 +49,12 @@ test('staging image pins the same exact migration approval as the predeploy', as
 
 test('staging image contains every local runtime dependency of the migration predeploy', async () => {
   const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
-  for (const dependency of ['staging-migration-admission.mjs', 'operator-cli-failure.mjs']) {
+  const predeploy = await readFile('scripts/run-staging-migration-predeploy.mjs', 'utf8')
+  const dependencies = [
+    ...predeploy.matchAll(/from '\.\/lib\/(?<dependency>[^']+\.mjs)'/gu),
+  ].map((match) => match.groups.dependency)
+  assert.ok(dependencies.length > 0)
+  for (const dependency of dependencies) {
     assert.match(
       dockerfile,
       new RegExp(

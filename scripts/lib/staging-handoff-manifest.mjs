@@ -128,6 +128,7 @@ export function buildStagingHandoffManifest({
       valuableDataDestructionAuthorized: false,
       stagingPredeployServiceEnvironment: buildStagingPredeployServiceContract(
         expectedMigration.approval,
+        candidate,
       ),
     },
     admission: {
@@ -135,7 +136,7 @@ export function buildStagingHandoffManifest({
       requiredActions: [
         'Review and integrate this exact candidate into the owner staging branch.',
         'Deploy the resulting immutable staging revision with provider release metadata intact.',
-        'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable; image ENV alone does not reach pre-deploy.',
+        'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL and PATHFINDER_RELEASE_SHA=<candidate.revision> as Railway web service variables; image ENV alone does not reach pre-deploy.',
         'Run the checked-in staging migration predeploy against preserved staging data.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
