@@ -302,6 +302,15 @@ test('media asset analysis failures cannot enter synthesis or findings as except
   assert.doesNotMatch(source, /status: 'FAILED'; error: string/u)
 })
 
+test('Clerk mutations never reflect provider error detail into tRPC responses', async () => {
+  const source = await readFile(new URL('../packages/auth/src/server.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /message: 'Organization creation is temporarily unavailable'/u)
+  assert.match(source, /message: 'Organization invitation is temporarily unavailable'/u)
+  assert.doesNotMatch(source, /describeClerkError/u)
+  assert.doesNotMatch(source, /Clerk rejected[^\n]*\$\{/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

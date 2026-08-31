@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   clerkClientMock,
+  createOrganization,
   createOrganizationInvitation,
   getOrganization,
   getOrganizationInvitationList,
@@ -10,6 +11,7 @@ const {
   getUser,
 } = vi.hoisted(() => ({
   clerkClientMock: vi.fn(),
+  createOrganization: vi.fn(),
   createOrganizationInvitation: vi.fn(),
   getOrganization: vi.fn(),
   getOrganizationInvitationList: vi.fn(),
@@ -22,7 +24,11 @@ vi.mock('@clerk/nextjs/server', () => ({
   currentUser: vi.fn(),
 }))
 
-import { ensureOrganizationInvitation, validateExistingOrganizationOwner } from './server'
+import {
+  createOrganization as createOrganizationAction,
+  ensureOrganizationInvitation,
+  validateExistingOrganizationOwner,
+} from './server'
 
 const input = {
   organizationId: 'org_1',
@@ -35,6 +41,7 @@ describe('validateExistingOrganizationOwner', () => {
     vi.resetAllMocks()
     clerkClientMock.mockResolvedValue({
       organizations: {
+        createOrganization,
         createOrganizationInvitation,
         getOrganization,
         getOrganizationInvitationList,
@@ -61,6 +68,7 @@ describe('validateExistingOrganizationOwner', () => {
     })
     getOrganizationInvitationList.mockResolvedValue({ data: [] })
     createOrganizationInvitation.mockResolvedValue({ id: 'invite_new' })
+    createOrganization.mockResolvedValue({ id: 'org_new', name: 'New Organization', slug: null })
   })
 
   it('returns exact Clerk identity and canonical primary email for an admin member', async () => {
@@ -159,6 +167,30 @@ describe('validateExistingOrganizationOwner', () => {
   })
 })
 
+describe('createOrganization', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    clerkClientMock.mockResolvedValue({ organizations: { createOrganization } })
+    createOrganization.mockResolvedValue({ id: 'org_new', name: 'New Organization', slug: null })
+  })
+
+  it('returns a product-owned failure without Clerk detail', async () => {
+    const secret = 'clerk secret provider detail'
+    createOrganization.mockRejectedValueOnce({ errors: [{ longMessage: secret }] })
+
+    await expect(
+      createOrganizationAction({
+        name: 'New Organization',
+        slug: 'new-organization',
+        createdByUserId: 'admin_1',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Organization creation is temporarily unavailable',
+    } satisfies Partial<TRPCError>)
+  })
+})
+
 describe('ensureOrganizationInvitation', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -203,5 +235,15 @@ describe('ensureOrganizationInvitation', () => {
       code: 'CONFLICT',
     })
     expect(createOrganizationInvitation).not.toHaveBeenCalled()
+  })
+
+  it('returns a product-owned invitation failure without Clerk detail', async () => {
+    const secret = 'clerk invitation secret detail'
+    createOrganizationInvitation.mockRejectedValueOnce({ errors: [{ longMessage: secret }] })
+
+    await expect(ensureOrganizationInvitation(invitationInput)).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Organization invitation is temporarily unavailable',
+    } satisfies Partial<TRPCError>)
   })
 })

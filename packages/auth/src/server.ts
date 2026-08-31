@@ -32,22 +32,6 @@ export type ValidatedOrganizationOwner = {
   emailAddress: string
 }
 
-// Clerk API errors carry the real reason in `.errors[].longMessage`; the
-// generic top-level `.message` is often just the HTTP status text (e.g.
-// "Forbidden"), which is useless on its own for diagnosing why a call failed.
-function describeClerkError(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'errors' in error) {
-    const clerkErrors = (error as { errors?: unknown }).errors
-    if (Array.isArray(clerkErrors) && clerkErrors.length > 0) {
-      const [first] = clerkErrors as Array<{ message?: string; longMessage?: string }>
-      const detail = first?.longMessage ?? first?.message
-      if (detail) return detail
-    }
-  }
-
-  return error instanceof Error ? error.message : 'Unknown Clerk error'
-}
-
 function isClerkNotFoundError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
 
@@ -145,25 +129,23 @@ export async function createOrganization(input: {
   slug: string
   createdByUserId: string
 }): Promise<CreatedOrganization> {
-  const client = await clerkClient()
-
-  let organization: Awaited<ReturnType<typeof client.organizations.createOrganization>>
   try {
-    organization = await client.organizations.createOrganization({
+    const client = await clerkClient()
+    const organization = await client.organizations.createOrganization({
       name: input.name,
       createdBy: input.createdByUserId,
     })
-  } catch (error) {
+
+    return {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug ?? input.slug,
+    }
+  } catch {
     throw new TRPCError({
       code: 'INTERNAL_SERVER_ERROR',
-      message: `Clerk rejected the organization creation: ${describeClerkError(error)}`,
+      message: 'Organization creation is temporarily unavailable',
     })
-  }
-
-  return {
-    id: organization.id,
-    name: organization.name,
-    slug: organization.slug ?? input.slug,
   }
 }
 
@@ -195,9 +177,8 @@ export async function inviteOrganizationMember(input: {
   role: OrganizationRole
   inviterUserId: string
 }): Promise<{ id: string }> {
-  const client = await clerkClient()
-
   try {
+    const client = await clerkClient()
     const invitation = await client.organizations.createOrganizationInvitation({
       organizationId: input.organizationId,
       emailAddress: input.emailAddress,
@@ -206,10 +187,10 @@ export async function inviteOrganizationMember(input: {
     })
 
     return { id: invitation.id }
-  } catch (error) {
+  } catch {
     throw new TRPCError({
       code: 'INTERNAL_SERVER_ERROR',
-      message: `Clerk rejected the invitation: ${describeClerkError(error)}`,
+      message: 'Organization invitation is temporarily unavailable',
     })
   }
 }
