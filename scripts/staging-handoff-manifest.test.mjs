@@ -63,6 +63,13 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     services: ['web', 'dashboard', 'workers'],
     mustMatchProviderRelease: true,
   })
+  assert.deepEqual(first.rolloutSafety.topologyAdmission, {
+    input: 'railway status --json',
+    command: `pnpm verify:staging-topology -- --expected-revision ${CANDIDATE}`,
+    services: ['staging-web', 'staging-dashboard', 'staging-workers'],
+    requiresSuccessfulDeployment: true,
+    requiresRunningInstance: true,
+  })
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
       .PATHFINDER_STAGING_MIGRATION_APPROVAL,
@@ -83,6 +90,12 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
       (action) =>
         action.includes('PATHFINDER_RELEASE_SHA') &&
         action.includes('web, dashboard, and workers'),
+    ),
+    true,
+  )
+  assert.equal(
+    first.admission.requiredActions.some(
+      (action) => action.includes('railway status --json') && action.includes('three-service'),
     ),
     true,
   )

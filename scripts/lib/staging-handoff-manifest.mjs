@@ -132,6 +132,13 @@ export function buildStagingHandoffManifest({
         services: ['web', 'dashboard', 'workers'],
         mustMatchProviderRelease: true,
       },
+      topologyAdmission: {
+        input: 'railway status --json',
+        command: `pnpm verify:staging-topology -- --expected-revision ${candidate}`,
+        services: ['staging-web', 'staging-dashboard', 'staging-workers'],
+        requiresSuccessfulDeployment: true,
+        requiresRunningInstance: true,
+      },
       stagingPredeployServiceEnvironment: buildStagingPredeployServiceContract(
         expectedMigration.approval,
         candidate,
@@ -147,6 +154,7 @@ export function buildStagingHandoffManifest({
         'Run the checked-in staging migration predeploy against preserved staging data.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
+        'Pipe railway status --json into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.',
         'Record provider, OAuth, billing-test, browser, and customer-flow evidence separately where applicable.',
       ],
       retainedGates: [
