@@ -126,6 +126,28 @@ test('fails closed on provider errors, failed captures, malformed rows, and iden
   )
 })
 
+test('fails closed when Railway output exceeds the local row or byte ceiling', () => {
+  const options = { deployments: [FIRST], since: '168h' }
+  assert.throws(
+    () =>
+      auditFounderAbsenceHistory(options, () => ({
+        status: 0,
+        stdout: Array.from({ length: 1001 }, () => JSON.stringify({ action: 'unrelated' })).join(
+          '\n',
+        ),
+      })),
+    /invalid-log-output/u,
+  )
+  assert.throws(
+    () =>
+      auditFounderAbsenceHistory(options, () => ({
+        status: 0,
+        stdout: JSON.stringify({ action: 'unrelated', detail: 'x'.repeat(1_048_576) }),
+      })),
+    /invalid-log-output/u,
+  )
+})
+
 test('CLI failures expose only a code and Windows uses no command shell', () => {
   const invalid = spawnSync(
     process.execPath,

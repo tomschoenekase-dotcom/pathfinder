@@ -5,6 +5,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/u
 const SHA = /^[0-9a-f]{40}$/u
 const WINDOWS = new Set(['24h', '48h', '72h', '96h', '120h', '144h', '168h'])
 const MAX_DEPLOYMENTS = 8
+const MAX_LOG_LINES = 1000
 
 export class FounderAbsenceHistoryAuditError extends Error {
   constructor(code) {
@@ -30,6 +31,17 @@ function previousUtcDay(value) {
   const date = utcDay(value)
   date.setUTCDate(date.getUTCDate() - 1)
   return date.toISOString().slice(0, 10)
+}
+
+function parseFounderAbsenceLogLines(text) {
+  if (typeof text !== 'string') fail('invalid-log-output')
+  const lines = text.split(/\r?\n/u).filter(Boolean)
+  if (lines.length > MAX_LOG_LINES) fail('invalid-log-output')
+  try {
+    return parseBoundedLogLines(text)
+  } catch {
+    fail('invalid-log-output')
+  }
 }
 
 export function parseFounderAbsenceHistoryArgs(args) {
@@ -102,7 +114,7 @@ export function auditFounderAbsenceHistory(options, runRailway) {
     ) {
       fail('railway-query-failed')
     }
-    for (const row of parseBoundedLogLines(result.stdout)) {
+    for (const row of parseFounderAbsenceLogLines(result.stdout)) {
       if (
         row.action === 'workers.founder-absence-observation.retained' ||
         row.action === 'workers.founder-absence-observation.failed'
