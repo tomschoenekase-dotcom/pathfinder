@@ -113,7 +113,10 @@ test('dynamic repository facts agree with all current-state documents', async ()
   for (const document of [stateDocument, capabilityMatrix, auditBacklog]) {
     assert.match(document, /torchiko-current-truth\.json/)
     assert.match(document, new RegExp(`\\b${migrationCount} migrations\\b`))
+    assert.match(document, new RegExp(`Current-truth overlay[^\\n]*${truth.asOf}`))
   }
+  assert.match(stateDocument, new RegExp(truth.hostedStagingSnapshot.releaseSha.slice(0, 8)))
+  assert.match(auditBacklog, new RegExp(truth.hostedStagingSnapshot.releaseSha))
   for (const document of [stateDocument, capabilityMatrix]) {
     for (const capability of truth.capabilities) {
       assert.match(document, new RegExp(`\\b${capability.id}\\b`))

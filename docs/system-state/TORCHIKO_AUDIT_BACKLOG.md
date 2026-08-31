@@ -1,6 +1,6 @@
 # Torchiko Audit Backlog
 
-**Current-truth overlay:** 2026-08-30 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
+**Current-truth overlay:** 2026-08-31 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
 This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 206 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
@@ -33,11 +33,11 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **No**; credentials, cost, and production backup authority are required. Codex can prepare and verify the runbook.
 
-### P0.3 — Prove the integrated migration lineage in disposable and staging databases — RESOLVED FOR THE EXACT 2026-08-30 STAGING RELEASE
+### P0.3 — Prove the integrated migration lineage in disposable and staging databases — RESOLVED FOR THE EXACT 2026-08-31 STAGING RELEASE
 
-- **Status:** **EXACT HOSTED STAGING LINEAGE PROVEN 2026-08-30.** The active web, dashboard, and worker services run exact revision `a82328e5402d3150d43147b25abf0df54e0930b0`. Guarded pre-deploy admitted the frozen 206-file manifest and exact complete 206-row ledger, applied no migrations, then rechecked 206/206 ledger integrity against exactly 232 public tables. The exact hosted profile passed 19/19 and migration admissions returned to `0`.
+- **Status:** **EXACT HOSTED STAGING LINEAGE PROVEN 2026-08-31.** The active web, dashboard, and worker services run exact revision `46e404777f197e53bfb181b9953e25423e72aa54`. Guarded pre-deploy admitted the frozen 206-file manifest and exact complete 206-row ledger, then rechecked 206/206 integrity against exactly 232 public tables. The exact hosted profile passed 19/19, migration admissions returned to `0`, and a later fail-closed topology read proved one `SUCCESS` deployment with one `RUNNING` instance per application service.
 - **Remaining boundary:** This snapshot does not prove current production parity, backup/PITR recovery, or future release parity. Every later migration release must repeat the exact admission, pre-deploy, health, and hosted-profile workflow. Preserved-data recovery evidence remains P0.2.
-- **Evidence:** `docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-30.md`; `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact candidate and staging runtime artifacts.
+- **Evidence:** `docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-31.md`; `scripts/verify-staging-config.mjs`; `scripts/create-staging-handoff.mjs`; `scripts/staging-migration-predeploy.test.mjs`; exact candidate and staging runtime artifacts.
 - **Affected system:** Database, public API, AI, analytics, admin, deployment.
 - **Recommended change:** Repeat the fail-closed workflow for each later staging migration release and complete the separately authorized backup/PITR rehearsal in P0.2.
 - **Why it matters:** The exact staging schema boundary is now trustworthy; the remaining risk is treating a dated release snapshot as proof of production or a future release.
