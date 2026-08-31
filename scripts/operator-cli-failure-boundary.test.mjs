@@ -38,6 +38,7 @@ test('high-risk operator entrypoints use the code-only writer', async () => {
     'migrate-disposable-db.mjs',
     'run-media-admission-redis-gate.mjs',
     'run-queue-observability-redis-gate.mjs',
+    'run-staging-migration-predeploy.mjs',
     'run-terminal-redrive-redis-gate.mjs',
     'torchiko.mjs',
     'verify-client-bundle-secrets.mjs',

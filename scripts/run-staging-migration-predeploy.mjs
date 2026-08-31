@@ -4,6 +4,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
+import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
@@ -489,12 +490,12 @@ async function main() {
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 if (isMain) {
-  main().catch(async (error) => {
-    console.error(
-      error instanceof Error ? error.message : 'staging-migration-stop: unknown failure',
-    )
+  main().catch(async () => {
+    process.exitCode = reportOperatorCliFailure({
+      action: 'staging-migration.failed',
+      errorCode: 'staging-migration-failed',
+    })
     await new Promise((resolve) => setTimeout(resolve, 2_000))
-    process.exitCode = 1
   })
 }
 
