@@ -758,12 +758,40 @@ describe('venue package router', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'FAILED',
-          errorCode: 'provider-not-configured',
+          errorCode: 'provider-configuration-required',
         }),
       }),
     )
     expect(JSON.stringify(analysisUpdateMany.mock.calls)).not.toContain('SECRET_SENTINEL')
     expect(writeAuditLogStrict).not.toHaveBeenCalled()
+  })
+
+  it('does not persist an unknown secret-like provider code', async () => {
+    analysisFindFirst.mockResolvedValueOnce(null)
+    vi.mocked(generateEmbeddings).mockRejectedValueOnce(
+      new AiGatewayError('provider failure', {
+        attempts: 1,
+        code: 'UPSTREAM_SECRET_TOKEN',
+      }),
+    )
+
+    await expect(
+      testRouter
+        .createCaller(context('MANAGER'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    ).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Duplicate analysis could not complete; no draft was saved.',
+    })
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'provider-request-failed',
+        }),
+      }),
+    )
+    expect(JSON.stringify(analysisUpdateMany.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
   })
 
   it('blocks approval when venue content drifted after preview', async () => {

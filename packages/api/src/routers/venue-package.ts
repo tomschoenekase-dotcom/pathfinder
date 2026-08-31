@@ -1277,7 +1277,43 @@ export async function createVenuePackageDraftService(request: {
     surface: 'client-dashboard',
   })
 
-  const settleFailure = async (status: 'FAILED' | 'STALE', errorCode: string) => {
+  type DuplicateAnalysisFailureCode =
+    | 'usage-persistence-failed'
+    | 'provider-configuration-required'
+    | 'provider-connection-failed'
+    | 'provider-request-aborted'
+    | 'provider-invalid-response'
+    | 'provider-request-failed'
+    | 'unexpected-error'
+    | 'attachment-finalization-failed'
+    | 'finalization-failed'
+
+  const providerFailureCode = (error: AiGatewayError): DuplicateAnalysisFailureCode => {
+    if (
+      error.code === 'provider-not-configured' ||
+      error.code === 'provider-client-initialization'
+    ) {
+      return 'provider-configuration-required'
+    }
+    if (
+      error.code === 'provider-connection-timeout' ||
+      error.code === 'provider-connection-error'
+    ) {
+      return 'provider-connection-failed'
+    }
+    if (error.code === 'provider-user-abort') return 'provider-request-aborted'
+    if (
+      error.code === 'missing-text-block' ||
+      error.code === 'invalid-structured-output' ||
+      error.code === 'invalid-provider-response' ||
+      error.code === 'provider-incomplete-response'
+    ) {
+      return 'provider-invalid-response'
+    }
+    return 'provider-request-failed'
+  }
+
+  const settleFailure = async (errorCode: DuplicateAnalysisFailureCode) => {
     try {
       await db.venuePackageDuplicateAnalysis.updateMany({
         where: {
@@ -1288,7 +1324,7 @@ export async function createVenuePackageDraftService(request: {
           claimToken,
         },
         data: {
-          status,
+          status: 'FAILED',
           errorCode,
           usageEventIds: jsonValue(usage.usageEventIds()),
           completedAt: new Date(),
@@ -1302,7 +1338,7 @@ export async function createVenuePackageDraftService(request: {
         tenantId,
         venueId: input.venueId,
         analysisId: prepared.analysisId,
-        terminalStatus: status,
+        terminalStatus: 'FAILED',
         error: 'Duplicate-analysis settlement failed',
       })
     }
@@ -1318,7 +1354,7 @@ export async function createVenuePackageDraftService(request: {
       shouldAbort: usage.persistenceFailed,
     })
     if (usage.persistenceFailed()) {
-      await settleFailure('FAILED', 'usage-persistence-failed')
+      await settleFailure('usage-persistence-failed')
       throw new TRPCError({
         code: 'SERVICE_UNAVAILABLE',
         message: 'Duplicate analysis could not be recorded; no draft was saved.',
@@ -1329,7 +1365,7 @@ export async function createVenuePackageDraftService(request: {
     const errorCode = usage.persistenceFailed()
       ? 'usage-persistence-failed'
       : error instanceof AiGatewayError
-        ? error.code
+        ? providerFailureCode(error)
         : 'unexpected-error'
     logger.warn({
       action: 'venue_package.duplicate_analysis.failed',
@@ -1340,11 +1376,11 @@ export async function createVenuePackageDraftService(request: {
       errorCode,
       usagePersistenceFailed: usage.persistenceFailed(),
     })
-    await settleFailure('FAILED', errorCode)
+    await settleFailure(errorCode)
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
       message:
-        errorCode === 'provider-not-configured' || errorCode === 'provider-client-initialization'
+        errorCode === 'provider-configuration-required'
           ? 'The embedding provider is not configured; no draft was saved.'
           : 'Duplicate analysis could not complete; no draft was saved.',
     })
@@ -1524,7 +1560,7 @@ export async function createVenuePackageDraftService(request: {
     }
   } catch (error) {
     if (error instanceof VenuePackageDraftFinalizerError) {
-      await settleFailure('FAILED', 'attachment-finalization-failed')
+      await settleFailure('attachment-finalization-failed')
       throw error.cause
     }
     if (error instanceof TRPCError && error.code === 'CONFLICT') {
@@ -1542,7 +1578,7 @@ export async function createVenuePackageDraftService(request: {
           : 'unknown',
       error: 'Duplicate-analysis finalization failed',
     })
-    await settleFailure('FAILED', 'finalization-failed')
+    await settleFailure('finalization-failed')
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
       message: 'Duplicate analysis could not be finalized; no draft was saved.',

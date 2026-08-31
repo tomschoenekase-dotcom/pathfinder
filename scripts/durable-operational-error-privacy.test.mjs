@@ -193,6 +193,23 @@ test('evaluation result terminal codes are finite and outcome-specific', async (
   assert.match(worker, /function persistedTerminalEvidence/u)
 })
 
+test('venue duplicate-analysis receipts normalize provider failure codes', async () => {
+  const root = new URL('../', import.meta.url)
+  const router = await readFile(
+    new URL('packages/api/src/routers/venue-package.ts', root),
+    'utf8',
+  )
+
+  assert.match(router, /type DuplicateAnalysisFailureCode/u)
+  assert.match(router, /return 'provider-request-failed'/u)
+  assert.match(router, /providerFailureCode\(error\)/u)
+  assert.doesNotMatch(
+    router,
+    /error instanceof AiGatewayError[\s\S]{0,300}\? error\.code/u,
+  )
+  assert.doesNotMatch(router, /settleFailure[^\n]*errorCode:\s*string/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(
