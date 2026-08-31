@@ -86,6 +86,8 @@ This is a discovery index, not an activation guide. Commands retain their checke
 | `pnpm verify:release`                                | verification     | `node scripts/verify-release.mjs`                                                              |
 | `pnpm verify:staging`                                | verification     | `node scripts/verify-staging-config.mjs`                                                       |
 | `pnpm verify:staging-health`                         | verification     | `node scripts/verify-staging-health.mjs`                                                       |
+| `pnpm verify:staging-runtime`                        | verification     | `node scripts/verify-staging-runtime.mjs`                                                      |
+| `pnpm verify:staging-topology`                       | verification     | `node scripts/verify-staging-topology.mjs`                                                     |
 | `pnpm verify:staging-widget`                         | verification     | `node scripts/verify-staging-widget.mjs`                                                       |
 | `pnpm verify:tenant-bypasses`                        | verification     | `node scripts/verify-tenant-bypass-boundary.mjs`                                               |
 | `pnpm verify:tenant-procedures`                      | verification     | `node scripts/verify-tenant-procedure-coverage.mjs`                                            |

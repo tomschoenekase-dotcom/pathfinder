@@ -61,6 +61,14 @@ if (
   throw new Error('docs/railway-staging.md: three-service topology admission is incomplete')
 }
 
+if (
+  !runbook.includes('pnpm verify:staging-runtime --') ||
+  !runbook.includes('both the deployment ID and its exact staging') ||
+  !runbook.includes('checks the provider process exit status')
+) {
+  throw new Error('docs/railway-staging.md: bounded runtime-log audit is incomplete')
+}
+
 for (const service of services) {
   const configPath = resolve(root, service.config)
   const config = JSON.parse(await readFile(configPath, 'utf8'))
@@ -99,9 +107,7 @@ for (const service of services) {
       throw new Error(`${service.dockerfile}: staging migration approval is stale`)
     }
     if (
-      !runbook.includes(
-        `${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`,
-      ) ||
+      !runbook.includes(`${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`) ||
       !runbook.includes('does not inherit Docker image `ENV`')
     ) {
       throw new Error('docs/railway-staging.md: service-level migration approval is stale')

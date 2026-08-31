@@ -311,6 +311,24 @@ fail closed. This closes the deployment-status false green that a web-only healt
 detect. It still does not prove database, Redis, storage, identity-provider, or outbound-provider
 isolation; retain the separate evidence for those boundaries.
 
+After topology admission, use those exact deployment IDs for the privacy-bounded recent-runtime
+audit. This wrapper binds every Railway query to both the deployment ID and its exact staging
+service, checks the provider process exit status before accepting an empty result, caps each query
+at 200 rows and 1 MiB, and emits counts rather than raw logs or request metadata:
+
+```bash
+pnpm verify:staging-runtime -- \
+  --web-deployment <staging-web-deployment-id> \
+  --dashboard-deployment <staging-dashboard-deployment-id> \
+  --workers-deployment <staging-workers-deployment-id> \
+  --since 24h
+```
+
+The audit fails closed on an unlinked/refused Railway query, malformed or oversized JSON, any
+error-level row, any web/dashboard HTTP 5xx row, or a founder-absence capture-failure event. A
+successful empty query is accepted only after Railway itself exits successfully. The worker summary
+is recent process evidence only; it does not certify a consecutive-day founder-absence window.
+
 If the release includes the default-off website-widget preview, run the
 exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
 
@@ -650,6 +668,8 @@ historical report data requires a separate reviewed migration.
 - Pipe the linked staging project's `railway status --json` into `verify:staging-topology` and retain
   only its bounded three-service result. A deployment marked successful without a running web,
   dashboard, or worker instance fails this gate.
+- Run `verify:staging-runtime` with the three exact admitted deployment IDs. Retain only its bounded
+  counts; never suppress Railway errors and interpret an unverified empty pipeline as a clean log.
 - For an enabled widget canary, run the exact-revision widget admission above,
   then preserve browser evidence from one authorized third-party test page and
   one non-allow-listed origin that CSP blocks. Record only sanitized output.
