@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 FROM base AS installer
@@ -20,12 +20,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/prisma-engine/query-engine.node
 
-COPY --from=builder /app/apps/dashboard/.next/standalone ./
-COPY --from=builder /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
-COPY --from=builder /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
+COPY --from=builder --chown=node:node /app/apps/dashboard/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
+COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0
 
 WORKDIR /app/apps/dashboard
+USER node
 CMD ["node", "server.js"]

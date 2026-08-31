@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 FROM base AS installer
@@ -26,15 +26,16 @@ ENV PATHFINDER_PRISMA_DIR=/migration/prisma
 ENV PATHFINDER_PRISMA_CLI=/migration/node_modules/.bin/prisma
 ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-206-20260830
 
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
-COPY --from=builder /migration /migration
-COPY --from=builder /app/scripts/run-staging-migration-predeploy.mjs /migration/scripts/run-staging-migration-predeploy.mjs
-COPY --from=builder /app/scripts/lib/staging-migration-admission.mjs /migration/scripts/lib/staging-migration-admission.mjs
+COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
+COPY --from=builder --chown=node:node /migration /migration
+COPY --from=builder --chown=node:node /app/scripts/run-staging-migration-predeploy.mjs /migration/scripts/run-staging-migration-predeploy.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/staging-migration-admission.mjs /migration/scripts/lib/staging-migration-admission.mjs
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0
 
 WORKDIR /app/apps/web
+USER node
 CMD ["node", "server.js"]

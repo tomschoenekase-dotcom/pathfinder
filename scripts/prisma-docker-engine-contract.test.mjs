@@ -27,9 +27,8 @@ test('Next runtime images use a stable Prisma engine path', async () => {
     )
     assert.match(
       dockerfile,
-      /^COPY --from=builder \/app\/prisma-engine\/query-engine\.node \/app\/prisma-engine\/query-engine\.node$/mu,
-      `${relativePath} copies the stable engine into the runtime image`,
+      /^COPY --from=builder --chown=node:node \/app\/prisma-engine\/query-engine\.node \/app\/prisma-engine\/query-engine\.node$/mu,
+      `${relativePath} copies the stable engine into the runtime image with non-root ownership`,
     )
   }
 })
-
