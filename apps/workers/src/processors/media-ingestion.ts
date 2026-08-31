@@ -7,7 +7,6 @@ import { pipeline } from 'node:stream/promises'
 import { Writable, type Readable } from 'node:stream'
 
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import OpenAI from 'openai'
 import sharp from 'sharp'
 import * as unzipper from 'unzipper'
 import ffmpegPath from 'ffmpeg-static'
@@ -22,6 +21,7 @@ import {
 } from '@pathfinder/contracts'
 
 import { logger } from '@pathfinder/config'
+import { createOpenAiMediaJson, transcribeOpenAiMedia } from '@pathfinder/ai'
 import {
   assertVenueAiAvailable,
   db,
@@ -411,7 +411,6 @@ export function failedMediaAssetAnalysis(): Analysis {
 }
 
 async function analyzeImage(
-  openai: OpenAI,
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   generatedOutputBudget: MediaGeneratedOutputBudget,
@@ -433,46 +432,40 @@ async function analyzeImage(
     admissionGuard,
     reserveProviderOperation,
     () =>
-      openai.chat.completions.create(
-        {
-          model: process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
-            },
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `Source ${sourceId}. Project context (context is not visual evidence):\n${context.slice(0, 12_000)}`,
+      createOpenAiMediaJson({
+        model: process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Source ${sourceId}. Project context (context is not visual evidence):\n${context.slice(0, 12_000)}`,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
+                  detail: mode === 'FORENSIC' ? 'high' : 'low',
                 },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
-                    detail: mode === 'FORENSIC' ? 'high' : 'low',
-                  },
-                },
-              ],
-            },
-          ],
-        },
-        signal ? { signal } : undefined,
-      ),
+              },
+            ],
+          },
+        ],
+        ...(signal ? { signal } : {}),
+      }),
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  const text = response.choices[0]?.message.content
-  if (!text) throw new Error(`No visual analysis returned for ${sourceId}.`)
-  return parseMediaAnalysisResponse(text)
+  return parseMediaAnalysisResponse(response)
 }
 
 async function transcribe(
-  openai: OpenAI,
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
@@ -483,17 +476,15 @@ async function transcribe(
     admissionGuard,
     reserveProviderOperation,
     () =>
-      openai.audio.transcriptions.create(
-        {
-          file: createReadStream(filePath),
-          model: process.env.MEDIA_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
-        },
-        signal ? { signal } : undefined,
-      ),
+      transcribeOpenAiMedia({
+        file: createReadStream(filePath),
+        model: process.env.MEDIA_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+        ...(signal ? { signal } : {}),
+      }),
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  return emptyAnalysis(result.text)
+  return emptyAnalysis(result)
 }
 
 async function extractVideoFrames(
@@ -696,7 +687,6 @@ export async function downloadAndExtract(
 }
 
 async function synthesize(
-  openai: OpenAI,
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   venueName: string,
@@ -719,31 +709,26 @@ async function synthesize(
         admissionGuard,
         reserveProviderOperation,
         () =>
-          openai.chat.completions.create(
-            {
-              model:
-                process.env.MEDIA_SYNTHESIS_MODEL ??
-                process.env.MEDIA_ANALYSIS_MODEL ??
-                'gpt-5.6-luna',
-              response_format: { type: 'json_object' },
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    'Condense this evidence batch into JSON while preserving every named object, verbatim label fact, source ID, spatial clue, contradiction, and uncertainty. Merge nothing unless the evidence explicitly establishes a duplicate.',
-                },
-                { role: 'user', content: JSON.stringify(batch) },
-              ],
-            },
-            signal ? { signal } : undefined,
-          ),
+          createOpenAiMediaJson({
+            model:
+              process.env.MEDIA_SYNTHESIS_MODEL ??
+              process.env.MEDIA_ANALYSIS_MODEL ??
+              'gpt-5.6-luna',
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Condense this evidence batch into JSON while preserving every named object, verbatim label fact, source ID, spatial clue, contradiction, and uncertainty. Merge nothing unless the evidence explicitly establishes a duplicate.',
+              },
+              { role: 'user', content: JSON.stringify(batch) },
+            ],
+            ...(signal ? { signal } : {}),
+          }),
         () => assertMediaJobActive(signal),
       )
       assertMediaJobActive(signal)
-      const text = response.choices[0]?.message.content
-      if (!text) throw new Error('No batch evidence summary was returned.')
       const summary = parseProviderJson(
-        text,
+        response,
         z.record(z.unknown()),
         'Media batch-summary provider output',
       )
@@ -761,31 +746,26 @@ async function synthesize(
     admissionGuard,
     reserveProviderOperation,
     () =>
-      openai.chat.completions.create(
-        {
-          model:
-            process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Build draft Torchiko import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs name (max 200 characters), type, tags, and importanceScore (integer 0-100); optionally include itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), shortDescription (max 500), longDescription (max 2000), areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), content (max 5000), and isEnabled. Return at most 500 total places plus knowledge entries, and at most 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
-            },
-            {
-              role: 'user',
-              content: `Venue: ${venueName}\nOperator context:\n${context.slice(0, 12_000)}\n\nEvidence summaries:\n${compact}`,
-            },
-          ],
-        },
-        signal ? { signal } : undefined,
-      ),
+      createOpenAiMediaJson({
+        model:
+          process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Build draft Torchiko import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs name (max 200 characters), type, tags, and importanceScore (integer 0-100); optionally include itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), shortDescription (max 500), longDescription (max 2000), areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), content (max 5000), and isEnabled. Return at most 500 total places plus knowledge entries, and at most 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
+          },
+          {
+            role: 'user',
+            content: `Venue: ${venueName}\nOperator context:\n${context.slice(0, 12_000)}\n\nEvidence summaries:\n${compact}`,
+          },
+        ],
+        ...(signal ? { signal } : {}),
+      }),
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  const text = response.choices[0]?.message.content
-  if (!text) throw new Error('No synthesis result was returned.')
-  return parseMediaSynthesisResponse(text)
+  return parseMediaSynthesisResponse(response)
 }
 
 export async function processMediaIngestionJob(
@@ -867,7 +847,6 @@ export async function processMediaIngestionJob(
       await downloadAndExtract(project.sourceObjectKey, workDir, signal),
     )
     assertMediaJobActive(signal)
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0 })
     const analyses: Array<{
       sourceId: string
       filename: string
@@ -922,7 +901,6 @@ export async function processMediaIngestionJob(
           analysis = duplicate
         } else if (mediaType === 'IMAGE') {
           analysis = await analyzeImage(
-            openai,
             venueAdmission,
             reserveProviderOperation,
             generatedOutputBudget,
@@ -933,13 +911,7 @@ export async function processMediaIngestionJob(
             signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
-          analysis = await transcribe(
-            openai,
-            venueAdmission,
-            reserveProviderOperation,
-            file.path,
-            signal,
-          )
+          analysis = await transcribe(venueAdmission, reserveProviderOperation, file.path, signal)
         } else if (mediaType === 'VIDEO') {
           const frameDir = join(workDir, `frames-${index}`)
           analysis = await withMediaGeneratedOutputDirectory(frameDir, async () => {
@@ -954,7 +926,6 @@ export async function processMediaIngestionJob(
             for (const frame of frames) {
               frameAnalyses.push(
                 await analyzeImage(
-                  openai,
                   venueAdmission,
                   reserveProviderOperation,
                   generatedOutputBudget,
@@ -972,13 +943,7 @@ export async function processMediaIngestionJob(
               try {
                 await extractVideoAudio(file.path, audioPath, generatedOutputBudget, signal)
                 transcript = (
-                  await transcribe(
-                    openai,
-                    venueAdmission,
-                    reserveProviderOperation,
-                    audioPath,
-                    signal,
-                  )
+                  await transcribe(venueAdmission, reserveProviderOperation, audioPath, signal)
                 ).summary
               } catch (error) {
                 assertMediaJobActive(signal)
@@ -1076,7 +1041,6 @@ export async function processMediaIngestionJob(
     )
     assertMediaJobActive(signal)
     const synthesis = await synthesize(
-      openai,
       venueAdmission,
       reserveProviderOperation,
       project.venue.name,

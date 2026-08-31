@@ -11,17 +11,14 @@ const providers = ['@anthropic-ai/sdk', 'openai']
 // Temporary, explicit exceptions. Delete each entry when that processor moves
 // behind @pathfinder/ai; adding an exception requires code review in this file.
 const sourceImportAllowlist = new Map([
-  ['apps/workers/src/processors/media-ingestion.ts', new Set(['openai'])],
   ['packages/ai/src/anthropic.test.ts', new Set(['@anthropic-ai/sdk'])],
   ['packages/ai/src/anthropic.ts', new Set(['@anthropic-ai/sdk'])],
   ['packages/ai/src/openai-embeddings.test.ts', new Set(['openai'])],
   ['packages/ai/src/openai-embeddings.ts', new Set(['openai'])],
+  ['packages/ai/src/openai-media.ts', new Set(['openai'])],
   ['packages/ai/src/openai-text.ts', new Set(['openai'])],
 ])
-const dependencyAllowlist = new Map([
-  ['apps/workers/package.json', new Set(['openai'])],
-  ['packages/ai/package.json', new Set(providers)],
-])
+const dependencyAllowlist = new Map([['packages/ai/package.json', new Set(providers)]])
 
 async function collectFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })

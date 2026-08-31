@@ -13,6 +13,13 @@ export {
 } from './anthropic'
 export { normalizeAiUsageErrorCode, type AiUsageErrorCode } from './usage-error-code'
 export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from './openai-text'
+export {
+  createOpenAiMediaJson,
+  setOpenAiMediaClientForTesting,
+  transcribeOpenAiMedia,
+  type OpenAiMediaClient,
+  type OpenAiMediaMessage,
+} from './openai-media'
 export type { AiAdmissionGuard } from './admission'
 export {
   createAiInvocationId,
