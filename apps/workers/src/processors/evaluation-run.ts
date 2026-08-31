@@ -201,20 +201,29 @@ export type EvaluationAttempt = {
   modelName: string
 }
 
-export type EvaluationTerminalEvidence =
-  | {
-      outcome: 'SCORED'
-      observation: EvalObservation
-      result: EvalResult
-      latencyMs: number
-      costE8Usd: bigint
-    }
-  | {
-      outcome: 'OPERATIONAL_FAILURE' | 'BUDGET_BLOCKED' | 'CANCELLED'
-      errorCode: string
-      latencyMs: number
-      costE8Usd: bigint
-    }
+export type EvaluationTerminalEvidence = EvaluationResultTerminal & {
+  latencyMs: number
+  costE8Usd: bigint
+}
+
+function persistedTerminalEvidence(terminal: EvaluationTerminalEvidence): EvaluationResultTerminal {
+  switch (terminal.outcome) {
+    case 'SCORED':
+      return {
+        outcome: terminal.outcome,
+        observation: terminal.observation,
+        result: terminal.result,
+      }
+    case 'OPERATIONAL_FAILURE':
+      return { outcome: terminal.outcome, errorCode: terminal.errorCode }
+    case 'ADMISSION_DEFERRED':
+      return { outcome: terminal.outcome, errorCode: terminal.errorCode }
+    case 'BUDGET_BLOCKED':
+      return { outcome: terminal.outcome, errorCode: terminal.errorCode }
+    case 'CANCELLED':
+      return { outcome: terminal.outcome, errorCode: terminal.errorCode }
+  }
+}
 
 export type EvaluationRunnerDependencies = {
   loadRun(payload: EvaluationRunJobPayload): Promise<FrozenEvaluationRun | null>
@@ -1007,10 +1016,7 @@ function defaultDependencies(
       }),
     persist: ({ run, evalCase, terminal, reservation, attemptNumber, leaseToken }) =>
       withTenantIsolationBypass(async () => {
-        const terminalEvidence: EvaluationResultTerminal =
-          terminal.outcome === 'SCORED'
-            ? { outcome: 'SCORED', observation: terminal.observation, result: terminal.result }
-            : { outcome: terminal.outcome, errorCode: terminal.errorCode }
+        const terminalEvidence = persistedTerminalEvidence(terminal)
         const common = {
           db,
           resultId: randomUUID(),

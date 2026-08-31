@@ -243,13 +243,13 @@ describe('trusted evaluation result persistence', () => {
     await expect(
       createOrReplayEvaluationResult({
         db: client() as never,
-        ...params({ outcome: 'CANCELLED', errorCode: 'not-valid' }),
+        ...params({ outcome: 'CANCELLED', errorCode: 'UPSTREAM_SECRET_TOKEN' } as never),
       }),
-    ).rejects.toThrow(/errorCode/)
+    ).rejects.toThrow(/not admitted/)
     await expect(
       createOrReplayEvaluationResult({
         db: client() as never,
-        ...params({ outcome: 'CANCELLED', errorCode: 'USER_CANCELLED' }),
+        ...params({ outcome: 'CANCELLED', errorCode: 'RUN_CANCELLED' }),
         latencyMs: -1,
       }),
     ).rejects.toThrow(/latencyMs/)

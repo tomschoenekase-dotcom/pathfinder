@@ -174,6 +174,25 @@ test('operational alert delivery failure state is finite and internally consiste
   assert.match(worker, /errorCode:\s*'RETRY_EXHAUSTED'/u)
 })
 
+test('evaluation result terminal codes are finite and outcome-specific', async () => {
+  const root = new URL('../', import.meta.url)
+  const results = await readFile(
+    new URL('packages/db/src/helpers/evaluation-results.ts', root),
+    'utf8',
+  )
+  const worker = await readFile(
+    new URL('apps/workers/src/processors/evaluation-run.ts', root),
+    'utf8',
+  )
+
+  assert.match(results, /outcome:\s*'OPERATIONAL_FAILURE'[\s\S]{0,150}PROVIDER_COST_INVARIANT/u)
+  assert.match(results, /outcome:\s*'ADMISSION_DEFERRED'[\s\S]{0,100}VENUE_AI_PAUSED/u)
+  assert.match(results, /outcome:\s*'BUDGET_BLOCKED'[\s\S]{0,100}RUN_BUDGET_CEILING/u)
+  assert.match(results, /outcome:\s*'CANCELLED'[\s\S]{0,100}RUN_CANCELLED/u)
+  assert.doesNotMatch(results, /outcome:\s*OperationalOutcome[\s\S]{0,100}errorCode:\s*string/u)
+  assert.match(worker, /function persistedTerminalEvidence/u)
+})
+
 test('job-record persistence derives terminal error from failure disposition', async () => {
   const root = new URL('../', import.meta.url)
   const jobRecords = await readFile(

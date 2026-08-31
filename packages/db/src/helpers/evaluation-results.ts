@@ -16,17 +16,10 @@ import type { db } from '../client'
 import { hashEvalCase, hashEvalObservation } from './evaluation-hash'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,99}$/
 const MAX_INT32 = 2_147_483_647
 const MAX_INT64 = 9_223_372_036_854_775_807n
 
 type EvaluationResultClient = Pick<typeof db, 'evalRun' | 'evalCase' | 'evalResult'>
-type OperationalOutcome =
-  | 'OPERATIONAL_FAILURE'
-  | 'ADMISSION_DEFERRED'
-  | 'BUDGET_BLOCKED'
-  | 'CANCELLED'
-
 export type EvaluationResultTerminal =
   | {
       outcome: 'SCORED'
@@ -35,11 +28,49 @@ export type EvaluationResultTerminal =
       errorCode?: never
     }
   | {
-      outcome: OperationalOutcome
-      errorCode: string
+      outcome: 'OPERATIONAL_FAILURE'
+      errorCode: 'PROVIDER_OUTCOME_AMBIGUOUS' | 'PROVIDER_COST_INVARIANT'
       observation?: never
       result?: never
     }
+  | {
+      outcome: 'ADMISSION_DEFERRED'
+      errorCode: 'VENUE_AI_PAUSED'
+      observation?: never
+      result?: never
+    }
+  | {
+      outcome: 'BUDGET_BLOCKED'
+      errorCode: 'RUN_BUDGET_CEILING'
+      observation?: never
+      result?: never
+    }
+  | {
+      outcome: 'CANCELLED'
+      errorCode: 'RUN_CANCELLED'
+      observation?: never
+      result?: never
+    }
+
+type OperationalTerminal = Exclude<EvaluationResultTerminal, { outcome: 'SCORED' }>
+type OperationalOutcome = OperationalTerminal['outcome']
+
+const operationalErrorCodes: {
+  [Outcome in OperationalOutcome]: ReadonlySet<
+    Extract<OperationalTerminal, { outcome: Outcome }>['errorCode']
+  >
+} = {
+  OPERATIONAL_FAILURE: new Set(['PROVIDER_OUTCOME_AMBIGUOUS', 'PROVIDER_COST_INVARIANT']),
+  ADMISSION_DEFERRED: new Set(['VENUE_AI_PAUSED']),
+  BUDGET_BLOCKED: new Set(['RUN_BUDGET_CEILING']),
+  CANCELLED: new Set(['RUN_CANCELLED']),
+}
+
+function isAdmittedOperationalTerminal(
+  terminal: OperationalTerminal,
+): terminal is OperationalTerminal {
+  return operationalErrorCodes[terminal.outcome].has(terminal.errorCode as never)
+}
 
 export class EvaluationResultIdentityError extends Error {
   constructor(message: string) {
@@ -145,6 +176,9 @@ export async function createOrReplayEvaluationResult(params: {
   if (params.costE8Usd < 0n || params.costE8Usd > MAX_INT64) {
     throw new EvaluationResultIdentityError('costE8Usd must be a nonnegative 64-bit integer')
   }
+  if (params.terminal.outcome !== 'SCORED' && !isAdmittedOperationalTerminal(params.terminal)) {
+    throw new EvaluationResultIdentityError('errorCode is not admitted for the terminal outcome')
+  }
 
   const [run, evalCase] = await Promise.all([
     params.db.evalRun.findFirst({
@@ -229,9 +263,6 @@ export async function createOrReplayEvaluationResult(params: {
       errorCode: null,
     }
   } else {
-    if (!ERROR_CODE_PATTERN.test(params.terminal.errorCode)) {
-      throw new EvaluationResultIdentityError('errorCode must be a bounded uppercase identifier')
-    }
     quality = {
       outcome: params.terminal.outcome,
       observationHash: null,
