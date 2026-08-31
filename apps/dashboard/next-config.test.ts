@@ -15,3 +15,19 @@ describe('standalone runtime tracing', () => {
     )
   })
 })
+
+describe('response security baseline', () => {
+  it('applies transport and content-type protection to every route', async () => {
+    expect(nextConfig.headers).toBeTypeOf('function')
+    const rules = await nextConfig.headers!()
+    expect(rules).toEqual([
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      },
+    ])
+  })
+})

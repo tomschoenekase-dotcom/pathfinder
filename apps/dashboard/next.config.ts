@@ -6,6 +6,10 @@ import { resolveMonitoringContext } from '@pathfinder/config/monitoring'
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const monitoringContext = resolveMonitoringContext(process.env, 'dashboard')
+const transportSecurityHeaders = [
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+]
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['127.0.0.1'],
@@ -31,6 +35,9 @@ const nextConfig: NextConfig = {
       '../../node_modules/.pnpm/@prisma+client*/**/*.node',
       '../../node_modules/.pnpm/meriyah@*/node_modules/meriyah/**/*',
     ],
+  },
+  async headers() {
+    return [{ source: '/:path*', headers: transportSecurityHeaders }]
   },
 }
 

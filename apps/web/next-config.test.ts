@@ -17,6 +17,14 @@ describe('standalone runtime tracing', () => {
 })
 
 describe('embed response headers', () => {
+  it('applies transport and content-type protection to every route', async () => {
+    const rules = await nextConfig.headers!()
+    expect(rules.find((rule) => rule.source === '/:path*')?.headers).toEqual([
+      { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+    ])
+  })
+
   it('leaves dynamic framing to middleware while retaining crawler denial', async () => {
     expect(nextConfig.headers).toBeTypeOf('function')
     const rules = await nextConfig.headers!()

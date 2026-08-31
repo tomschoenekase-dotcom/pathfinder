@@ -6,6 +6,10 @@ import { resolveMonitoringContext } from '@pathfinder/config/monitoring'
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const monitoringContext = resolveMonitoringContext(process.env, 'web')
+const transportSecurityHeaders = [
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+]
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['127.0.0.1'],
@@ -31,6 +35,7 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      { source: '/:path*', headers: transportSecurityHeaders },
       {
         source: '/embed/:path*',
         headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
