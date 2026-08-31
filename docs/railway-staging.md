@@ -175,7 +175,7 @@ literal credentials:
 ```bash
 PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 \
 PATHFINDER_DISPOSABLE_DATABASE_URL='postgresql://USER:PASSWORD@127.0.0.1:PORT/pathfinder_disposable_example' \
-pnpm db:migrate:disposable -- \
+pnpm db:migrate:disposable \
   --database pathfinder_disposable_example \
   --confirm-database pathfinder_disposable_example
 ```
@@ -185,7 +185,7 @@ PowerShell uses the same contract:
 ```powershell
 $env:PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS = '1'
 $env:PATHFINDER_DISPOSABLE_DATABASE_URL = 'postgresql://USER:PASSWORD@127.0.0.1:PORT/pathfinder_disposable_example'
-pnpm db:migrate:disposable -- `
+pnpm db:migrate:disposable `
   --database pathfinder_disposable_example `
   --confirm-database pathfinder_disposable_example
 ```
@@ -280,7 +280,7 @@ After an authorized deployment, admit the independently identified public stagin
 with the checked-in verifier:
 
 ```bash
-pnpm verify:staging-health -- \
+pnpm verify:staging-health \
   --url https://pathfinder-staging.example.com/api/health \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \
@@ -332,7 +332,7 @@ If the release includes the default-off website-widget preview, run the
 exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
 
 ```bash
-pnpm verify:staging-widget -- \
+pnpm verify:staging-widget \
   --url https://pathfinder-staging.example.com/api/health \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \

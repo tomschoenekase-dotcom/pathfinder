@@ -52,7 +52,7 @@ Run the web tests, type check, lint, build, and client-bundle secret scan before
 From a clean checkout containing the exact deployed revision, an authorized operator can admit the live HTTP prerequisites with:
 
 ```bash
-pnpm verify:staging-widget -- \
+pnpm verify:staging-widget \
   --url https://pathfinder-staging.example.com/api/health \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \

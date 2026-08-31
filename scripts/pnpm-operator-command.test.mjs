@@ -29,7 +29,10 @@ test('operator-facing pnpm script commands do not forward a literal option separ
 
   for (const path of files) {
     const source = await readFile(path, 'utf8')
-    if (invalidSeparator.test(source)) offenders.push(relative(root, path).replaceAll('\\', '/'))
+    const joinedCommands = source.replace(/\\\r?\n/g, ' ').replace(/`\r?\n/g, ' ')
+    if (invalidSeparator.test(joinedCommands)) {
+      offenders.push(relative(root, path).replaceAll('\\', '/'))
+    }
     invalidSeparator.lastIndex = 0
   }
 
