@@ -6,12 +6,12 @@ a release request, approval, deployment, migration, customer communication, or b
 
 ## Evidence path
 
-1. Run `pnpm verify:release -- --profile candidate` on a clean exact revision.
+1. Run `pnpm verify:release --profile candidate` on a clean exact revision.
 2. Run `pnpm staging:handoff` when an owner-reviewable staging handoff is appropriate.
 3. Project those artifacts without credentials or network access:
 
    ```powershell
-   pnpm release:evidence:prepare -- --assessment artifacts/release-verification/<revision>-candidate.json --handoff artifacts/staging-handoff/<revision>.json
+   pnpm release:evidence:prepare --assessment artifacts/release-verification/<revision>-candidate.json --handoff artifacts/staging-handoff/<revision>.json
    ```
 
 4. A platform administrator may record the payload through `admin.recordReleaseEvidence`. A

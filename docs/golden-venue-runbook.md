@@ -38,7 +38,7 @@ After an exact staging revision passes the hosted release profile, run the retai
 smoke against the policy-owned origin:
 
 ```text
-pnpm golden-venue:hosted-smoke -- --revision <exact-40-character-staging-sha>
+pnpm golden-venue:hosted-smoke --revision <exact-40-character-staging-sha>
 ```
 
 The command refuses caller-supplied origins, verifies exact deployment/resource health first, and
@@ -49,7 +49,7 @@ by default. Retain its revision-and-mode-keyed JSON report from
 One named checked-in corpus question may be sent only with the separate one-run opt-in:
 
 ```text
-PATHFINDER_ALLOW_HOSTED_PROVIDER_SMOKE=1 pnpm golden-venue:hosted-smoke -- --revision <exact-sha> --question-key shark-feeding
+PATHFINDER_ALLOW_HOSTED_PROVIDER_SMOKE=1 pnpm golden-venue:hosted-smoke --revision <exact-sha> --question-key shark-feeding
 ```
 
 The provider report retains only answer byte length, SHA-256, and per-fact matches. A safe guest

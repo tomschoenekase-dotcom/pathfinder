@@ -40,4 +40,4 @@ network.
 - `pnpm audit:prod`
 - `pnpm audit --json`
 - `node --test scripts/production-dependency-audit-contract.test.mjs`
-- `pnpm verify:release -- --profile candidate --revision <exact-clean-sha>`
+- `pnpm verify:release --profile candidate --revision <exact-clean-sha>`

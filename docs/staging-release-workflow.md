@@ -25,7 +25,7 @@ For a large candidate assembled outside the owner staging branch, generate a det
 only after the exact candidate release report passes from a clean worktree:
 
 ```powershell
-pnpm staging:handoff -- --base-ref origin/codex/pathfinder-v2-staging --candidate <40-character-candidate-sha> --release-report artifacts/release-verification/<40-character-candidate-sha>-candidate.json
+pnpm staging:handoff --base-ref origin/codex/pathfinder-v2-staging --candidate <40-character-candidate-sha> --release-report artifacts/release-verification/<40-character-candidate-sha>-candidate.json
 ```
 
 The command performs no network or hosted-state mutation. It fails closed unless the candidate is a

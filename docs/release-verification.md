@@ -20,8 +20,8 @@ machine-readable JSON report and a short founder-readable Markdown report under
 
 ```powershell
 pnpm verify:release
-pnpm verify:release -- --profile candidate
-pnpm verify:release -- --profile staging --revision <exact-40-character-sha>
+pnpm verify:release --profile candidate
+pnpm verify:release --profile staging --revision <exact-40-character-sha>
 ```
 
 Use `--report artifacts/release-verification/custom-name.json` to select a repository-contained
@@ -29,7 +29,7 @@ report path. The sibling Markdown report is generated automatically. Reports con
 status and duration, but do not persist command output or environment values.
 
 After a clean candidate report and matching `pnpm staging:handoff`, use
-`pnpm release:evidence:prepare -- --assessment <report.json> --handoff <handoff.json>` to produce a
+`pnpm release:evidence:prepare --assessment <report.json> --handoff <handoff.json>` to produce a
 deterministic, schema-compatible record payload. The command is offline and does not record,
 deploy, or authorize anything. See `docs/platform-release-evidence.md`.
 

@@ -228,7 +228,7 @@ $env:PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS = '1'
 $env:PATHFINDER_DISPOSABLE_DATABASE_URL = $databaseUrl
 Push-Location $repoRoot
 try {
-  pnpm db:migrate:disposable -- --database $databaseName --confirm-database $databaseName
+  pnpm db:migrate:disposable --database $databaseName --confirm-database $databaseName
   if ($LASTEXITCODE -ne 0) { throw 'Local staging migration failed.' }
 } finally {
   Pop-Location
