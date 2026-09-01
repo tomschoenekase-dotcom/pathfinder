@@ -17,7 +17,8 @@ A passing package requires:
 
 - exact staging release SHA and credential-free HTTPS origin;
 - one real iOS session and one real Android session;
-- device, OS, browser, operator, observation time, and documented weak/variable-network method;
+- device, OS, browser, operator, observation time, and documented weak/variable-network method with
+  bounded downlink, latency, packet-loss, and measurement-time values;
 - passing physical checks for New Chat/reset, soft keyboard and safe areas, screen reader,
   text zoom/reflow, switch or external control, printed QR scan, glare/focus, cold load, and
   attribution marker behavior on both platforms;

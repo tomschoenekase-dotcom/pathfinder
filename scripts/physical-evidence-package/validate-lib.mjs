@@ -136,6 +136,28 @@ function validateSessions(sessions, evidenceKeys) {
       fail(`session ${key} network.profile is unsupported`)
     nonEmpty(network.method, `sessions[${index}].network.method`, 500)
     nonEmpty(network.evidenceReference, `sessions[${index}].network.evidenceReference`, 500)
+    const measurements = object(network.measurements, `sessions[${index}].network.measurements`)
+    if (
+      typeof measurements.downlinkKbps !== 'number' ||
+      !Number.isFinite(measurements.downlinkKbps) ||
+      measurements.downlinkKbps <= 0 ||
+      measurements.downlinkKbps > 20_000 ||
+      typeof measurements.latencyMs !== 'number' ||
+      !Number.isFinite(measurements.latencyMs) ||
+      measurements.latencyMs < 1 ||
+      measurements.latencyMs > 10_000 ||
+      typeof measurements.packetLossPercent !== 'number' ||
+      !Number.isFinite(measurements.packetLossPercent) ||
+      measurements.packetLossPercent < 0 ||
+      measurements.packetLossPercent > 100
+    )
+      fail(`session ${key} network measurements are invalid or outside bounded weak-network ranges`)
+    const measuredAt = isoInstant(
+      measurements.measuredAt,
+      `sessions[${index}].network.measurements.measuredAt`,
+    )
+    if (Math.abs(Date.parse(measuredAt) - Date.parse(observedAt)) > 6 * 60 * 60 * 1000)
+      fail(`session ${key} network measurement must be within six hours of the session`)
     if (!Array.isArray(session.checks)) fail(`session ${key} checks must be an array`)
     const checkIds = new Set()
     for (const [checkIndex, check] of session.checks.entries()) {

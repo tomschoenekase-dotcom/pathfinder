@@ -89,6 +89,12 @@ function fixture() {
           profile: 'REAL_WEAK_OR_VARIABLE',
           method: 'Observed on a bounded real cellular session.',
           evidenceReference: 'ios-network-log-1',
+          measurements: {
+            downlinkKbps: 1200,
+            latencyMs: 180,
+            packetLossPercent: 2,
+            measuredAt: '2026-09-01T12:10:00Z',
+          },
         },
         checks: checks('ios-session-capture'),
       },
@@ -109,6 +115,12 @@ function fixture() {
           profile: 'CONTROLLED_WEAK_NETWORK',
           method: 'Observed through a documented device-level weak-network setup.',
           evidenceReference: 'android-network-log-1',
+          measurements: {
+            downlinkKbps: 900,
+            latencyMs: 250,
+            packetLossPercent: 4,
+            measuredAt: '2026-09-01T12:20:00Z',
+          },
         },
         checks: checks('android-session-capture'),
       },
@@ -181,6 +193,28 @@ test('rejects failed checks and cross-session evidence references', async () => 
   await assert.rejects(
     () => validatePhysicalEvidencePackage(crossed, { packageDirectory: root }),
     /invalid or duplicate evidence/,
+  )
+})
+
+test('rejects absent, unbounded, or stale network measurements', async () => {
+  const root = await workspace()
+  const absent = fixture()
+  delete absent.sessions[0].network.measurements
+  await assert.rejects(
+    () => validatePhysicalEvidencePackage(absent, { packageDirectory: root }),
+    /measurements must be an object/,
+  )
+  const unbounded = fixture()
+  unbounded.sessions[0].network.measurements.downlinkKbps = 100_000
+  await assert.rejects(
+    () => validatePhysicalEvidencePackage(unbounded, { packageDirectory: root }),
+    /outside bounded weak-network ranges/,
+  )
+  const stale = fixture()
+  stale.sessions[0].network.measurements.measuredAt = '2026-08-31T12:10:00Z'
+  await assert.rejects(
+    () => validatePhysicalEvidencePackage(stale, { packageDirectory: root }),
+    /within six hours/,
   )
 })
 
