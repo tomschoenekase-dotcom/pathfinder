@@ -7,6 +7,12 @@
 For the active day-to-day feature and promotion path, see
 [`staging-release-workflow.md`](staging-release-workflow.md).
 
+For an owner-authorized, passive pixel capture of authenticated staging admin routes, use the
+fail-closed [`hosted-authenticated-surface-evidence.md`](hosted-authenticated-surface-evidence.md)
+procedure. Its session state must remain outside the repository and its potentially sensitive
+screenshots remain local and gitignored. The procedure grants no identity, mutation, provider,
+outreach, billing, production, or customer-data authority.
+
 This runbook creates a staging release boundary for PathFinder. It does not
 authorize access to an account, provision resources, change credentials, or
 deploy anything by itself.

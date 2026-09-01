@@ -18,6 +18,7 @@
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "golden-venue:hosted-smoke": "pnpm --dir apps/dashboard exec node scripts/hosted-golden-venue-smoke.mjs",
     "dashboard:hosted-assets": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-dashboard-assets.mjs",
+    "dashboard:hosted-authenticated-surfaces": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-authenticated-surfaces.mjs",
     "visitor:hosted-performance": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-visitor-performance.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
     "test:operating-cost:disposable": "node scripts/run-disposable-operating-cost.mjs",
