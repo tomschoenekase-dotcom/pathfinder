@@ -320,12 +320,12 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-pf-deep">AI cost budget</h2>
-          <p className="mt-1 text-sm leading-6 text-pf-deep/60">
-            Atomic pre-provider spend envelope for gateway-accounted AI. Weekly digest and media
-            ingestion remain explicitly outside this first coverage version.
+          <p className="mt-1 text-sm leading-6 text-pf-deep/70">
+            Atomic pre-provider spend envelope for gateway-accounted AI. Tenant-wide weekly digest
+            generation remains explicitly outside this coverage version.
           </p>
         </div>
-        <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-wider text-pf-deep/60">
+        <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-wider text-pf-deep/70">
           {status}
         </span>
       </div>
@@ -435,7 +435,7 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
           </button>
         ) : null}
         {state.updatedAt ? (
-          <p className="text-xs text-pf-deep/50">
+          <p className="text-xs text-pf-deep/70">
             Revision {state.revision} / changed {new Date(state.updatedAt).toLocaleString()}
             {state.updatedBy ? ` by ${state.updatedBy}` : ''}
           </p>
@@ -451,7 +451,7 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
         </button>
       ) : null}
       {pending === 'reload' ? (
-        <p className="text-sm text-pf-deep/60" role="status">
+        <p className="text-sm text-pf-deep/70" role="status">
           Reloading AI cost budget…
         </p>
       ) : null}

@@ -29,6 +29,14 @@ const mediaGateway = await readFile(
   new URL('../packages/ai/src/openai-media.ts', import.meta.url),
   'utf8',
 )
+const costBudgetApi = await readFile(
+  new URL('../packages/api/src/routers/admin/cost-budget.ts', import.meta.url),
+  'utf8',
+)
+const costBudgetForm = await readFile(
+  new URL('../apps/dashboard/components/admin/AdminAiCostBudgetForm.tsx', import.meta.url),
+  'utf8',
+)
 const envSchema = await readFile(new URL('../packages/config/src/env.ts', import.meta.url), 'utf8')
 
 test('media provider-operation migration is atomic and database bounded', () => {
@@ -96,6 +104,9 @@ test('media jobs resolve only reviewed model identifiers before source processin
   assert.equal(mediaGateway.match(/budgetGate\.settleAmbiguous\(reservation\)/gu)?.length, 2)
   assert.match(mediaGateway, /max_completion_tokens: OPENAI_MEDIA_JSON_MAX_OUTPUT_TOKENS/u)
   assert.match(mediaGateway, /success: false/gu)
+  assert.match(costBudgetApi, /excludedProviderPaths: \['weekly-digest'\] as const/u)
+  assert.doesNotMatch(costBudgetApi, /excludedProviderPaths:[^\n]*media-ingestion/u)
+  assert.doesNotMatch(costBudgetForm, /media\s+ingestion remain explicitly outside/u)
 
   const modelResolution = processor.indexOf('const analysisModel = resolveOpenAiMediaJsonModel')
   const sourceProcessing = processor.indexOf('await downloadAndExtract(')

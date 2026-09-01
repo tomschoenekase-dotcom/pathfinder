@@ -70,7 +70,7 @@ function budgetResult(overrides: Record<string, unknown> = {}) {
     updatedAt: new Date('2026-08-08T20:01:00.000Z'),
     updatedBy: 'admin_1',
     version: 'gateway-v1',
-    excludedProviderPaths: ['weekly-digest', 'media-ingestion'],
+    excludedProviderPaths: ['weekly-digest'],
     replayed: false,
     ...overrides,
   }
@@ -87,6 +87,10 @@ describe('AdminAiCostBudgetForm', () => {
     mocks.mutate.mockResolvedValueOnce(budgetResult())
     render(<AdminAiCostBudgetForm tenantId="tenant_1" initialState={initialState} />)
 
+    expect(
+      screen.getByText(/Tenant-wide weekly digest generation remains explicitly outside/),
+    ).toBeTruthy()
+    expect(screen.queryByText(/media ingestion remain explicitly outside/i)).toBeNull()
     expect(screen.getByText('Committed', { exact: false }).textContent).toContain('$8.00000000')
     fireEvent.click(screen.getByRole('button', { name: 'Save AI budget' }))
 
@@ -136,7 +140,7 @@ describe('AdminAiCostBudgetForm', () => {
       updatedAt: new Date('2026-08-08T20:02:00.000Z'),
       updatedBy: 'admin_1',
       version: 'gateway-v1',
-      excludedProviderPaths: ['weekly-digest', 'media-ingestion'],
+      excludedProviderPaths: ['weekly-digest'],
       reconciliation: { scanned: 1, settled: 1, raced: 0 },
     })
     render(<AdminAiCostBudgetForm tenantId="tenant_1" initialState={disabledState} />)

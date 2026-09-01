@@ -114,7 +114,7 @@ describe('platform AI cost budget control', () => {
     ).resolves.toEqual({
       configured: false,
       version: 'gateway-v1',
-      excludedProviderPaths: ['weekly-digest', 'media-ingestion'],
+      excludedProviderPaths: ['weekly-digest'],
     })
   })
 
