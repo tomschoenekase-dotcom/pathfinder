@@ -192,7 +192,7 @@ export const adminClientAnalyticsRouter = router({
         const byVenue = new Map<
           string,
           {
-            venueId: string
+            venueId: string | null
             venueName: string
             requestCount: number
             totalTokens: number
@@ -212,9 +212,10 @@ export const adminClientAnalyticsRouter = router({
           failedRequestCount += row.failedRequestCount
           totalTokens += row.totalTokens
 
-          const venue = byVenue.get(row.venueId) ?? {
+          const venueKey = row.venueId === null ? 'tenant-wide' : `venue:${row.venueId}`
+          const venue = byVenue.get(venueKey) ?? {
             venueId: row.venueId,
-            venueName: row.venue.name,
+            venueName: row.venue?.name ?? 'Tenant-wide',
             requestCount: 0,
             totalTokens: 0,
             costUnits: 0n,
@@ -233,7 +234,7 @@ export const adminClientAnalyticsRouter = router({
           feature.totalTokens += row.totalTokens
           feature.costUnits += costUnits
           venue.features.set(row.feature, feature)
-          byVenue.set(row.venueId, venue)
+          byVenue.set(venueKey, venue)
 
           return { ...row, estimatedCostUsd }
         })

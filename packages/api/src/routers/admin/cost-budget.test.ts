@@ -108,13 +108,13 @@ describe('platform AI cost budget control', () => {
     expect(findTenant).not.toHaveBeenCalled()
   })
 
-  it('returns an explicit unconfigured gateway-v1 state with exclusions', async () => {
+  it('returns an explicit unconfigured gateway-v1 state with complete coverage', async () => {
     await expect(
       app.createCaller(context(true)).admin.getAiCostBudget({ tenantId: 'tenant_1' }),
     ).resolves.toEqual({
       configured: false,
       version: 'gateway-v1',
-      excludedProviderPaths: ['weekly-digest'],
+      excludedProviderPaths: [],
     })
   })
 

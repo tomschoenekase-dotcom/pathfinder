@@ -104,9 +104,8 @@ test('media jobs resolve only reviewed model identifiers before source processin
   assert.equal(mediaGateway.match(/budgetGate\.settleAmbiguous\(reservation\)/gu)?.length, 2)
   assert.match(mediaGateway, /max_completion_tokens: OPENAI_MEDIA_JSON_MAX_OUTPUT_TOKENS/u)
   assert.match(mediaGateway, /success: false/gu)
-  assert.match(costBudgetApi, /excludedProviderPaths: \['weekly-digest'\] as const/u)
-  assert.doesNotMatch(costBudgetApi, /excludedProviderPaths:[^\n]*media-ingestion/u)
-  assert.doesNotMatch(costBudgetForm, /media\s+ingestion remain explicitly outside/u)
+  assert.match(costBudgetApi, /excludedProviderPaths: \[\] as const/u)
+  assert.doesNotMatch(costBudgetForm, /remain(?:s)? explicitly outside/u)
 
   const modelResolution = processor.indexOf('const analysisModel = resolveOpenAiMediaJsonModel')
   const sourceProcessing = processor.indexOf('await downloadAndExtract(')

@@ -223,7 +223,7 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-206-20260830`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-207-20260901`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma. After the exact migration and hosted health pass, restore
 `PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. A normal

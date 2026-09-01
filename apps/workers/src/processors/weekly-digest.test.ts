@@ -14,6 +14,19 @@ const mocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
+  createTenantWideWorkerAiUsageSink: vi.fn(() => vi.fn()),
+  createTenantWideWorkerAiBudgetGate: vi.fn(() => ({
+    reserve: vi.fn().mockResolvedValue(null),
+    markDispatched: vi.fn().mockResolvedValue(undefined),
+    settleExact: vi.fn().mockResolvedValue(undefined),
+    settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+    releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+  })),
+}))
+
+vi.mock('../lib/ai-usage', () => ({
+  createTenantWideWorkerAiUsageSink: mocks.createTenantWideWorkerAiUsageSink,
+  createTenantWideWorkerAiBudgetGate: mocks.createTenantWideWorkerAiBudgetGate,
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -175,16 +188,14 @@ describe('processWeeklyDigestJob', () => {
       { timeout: 30_000 },
     )
     expect(mocks.assertGlobalAiAvailable).toHaveBeenCalledTimes(2)
-    expect(mocks.loggerInfo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'workers.weekly-digest.ai-usage-unattributed',
-        tenantId: 'tenant_1',
-        digestId: 'digest_1',
-        inputTokens: 120,
-        outputTokens: 50,
-        success: true,
-      }),
-    )
+    expect(mocks.createTenantWideWorkerAiUsageSink).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      feature: 'weekly-digest',
+    })
+    expect(mocks.createTenantWideWorkerAiBudgetGate).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      feature: 'weekly-digest',
+    })
     expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: {
@@ -230,13 +241,6 @@ describe('processWeeklyDigestJob', () => {
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: { status: 'FAILED' },
     })
-    expect(mocks.loggerInfo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'workers.weekly-digest.ai-usage-unattributed',
-        success: false,
-        errorCode: 'invalid-structured-output',
-      }),
-    )
   })
 
   it('marks the digest failed when the provider rejects', async () => {
@@ -260,13 +264,6 @@ describe('processWeeklyDigestJob', () => {
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: { status: 'FAILED' },
     })
-    expect(mocks.loggerInfo).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'workers.weekly-digest.ai-usage-unattributed',
-        success: false,
-        errorCode: 'provider-error',
-      }),
-    )
   })
 
   it('scopes every source read to the tenant and does not log session content', async () => {

@@ -24,7 +24,7 @@ type RollupRow = {
 }
 
 type AiUsageRow = {
-  venueId: string
+  venueId: string | null
   feature: string
   requestCount: number
   inputTokens: number
@@ -41,7 +41,7 @@ type AiUsageRow = {
 
 type AiCostRollupRow = {
   tenantId: string
-  venueId: string
+  venueId: string | null
   date: Date
   feature: string
   requestCount: number
@@ -178,7 +178,7 @@ export function buildAiCostRollups(params: {
     .sort((left, right) =>
       left.venueId === right.venueId
         ? left.feature.localeCompare(right.feature)
-        : left.venueId.localeCompare(right.venueId),
+        : (left.venueId ?? '').localeCompare(right.venueId ?? ''),
     )
     .map(({ costUnits, ...rollup }) => ({
       ...rollup,

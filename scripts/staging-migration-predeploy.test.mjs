@@ -50,9 +50,9 @@ test('staging image pins the same exact migration approval as the predeploy', as
 test('staging image contains every local runtime dependency of the migration predeploy', async () => {
   const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
   const predeploy = await readFile('scripts/run-staging-migration-predeploy.mjs', 'utf8')
-  const dependencies = [
-    ...predeploy.matchAll(/from '\.\/lib\/(?<dependency>[^']+\.mjs)'/gu),
-  ].map((match) => match.groups.dependency)
+  const dependencies = [...predeploy.matchAll(/from '\.\/lib\/(?<dependency>[^']+\.mjs)'/gu)].map(
+    (match) => match.groups.dependency,
+  )
   assert.ok(dependencies.length > 0)
   for (const dependency of dependencies) {
     assert.match(
@@ -98,7 +98,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 206-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 207-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 232)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
@@ -204,6 +204,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.equal(
@@ -223,6 +224,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.equal(
@@ -240,6 +242,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.equal(
@@ -256,6 +259,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.equal(
@@ -271,6 +275,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.equal(
@@ -279,7 +284,10 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.replyReviewPredecessorCount), manifest),
-    ['20260830165000_add_prospect_inbound_reply_reviews'],
+    [
+      '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
+    ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
@@ -443,6 +451,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260829223000_add_file_clarification_resolutions',
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
+      '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -511,6 +520,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260829223000_add_file_clarification_resolutions',
     '20260829231500_enable_pdf_file_extraction',
     '20260830165000_add_prospect_inbound_reply_reviews',
+    '20260901020000_support_tenant_wide_ai_accounting',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

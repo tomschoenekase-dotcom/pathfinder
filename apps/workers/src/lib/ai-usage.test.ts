@@ -23,7 +23,12 @@ vi.mock('@pathfinder/db', () => ({
   releaseUndispatchedAiCostAttempt: mocks.releaseUndispatched,
 }))
 
-import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from './ai-usage'
+import {
+  createTenantWideWorkerAiBudgetGate,
+  createTenantWideWorkerAiUsageSink,
+  createWorkerAiBudgetGate,
+  createWorkerAiUsageSink,
+} from './ai-usage'
 
 const usage = {
   provider: 'anthropic' as const,
@@ -66,6 +71,25 @@ describe('createWorkerAiUsageSink', () => {
         success: true,
       }),
     })
+  })
+
+  it('writes explicitly tenant-wide usage without fabricating a venue', async () => {
+    mocks.create.mockResolvedValueOnce({})
+    const sink = createTenantWideWorkerAiUsageSink({
+      tenantId: 'tenant_1',
+      feature: 'weekly-digest',
+    })
+
+    await sink(usage)
+
+    expect(mocks.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        feature: 'weekly-digest',
+        surface: 'worker',
+      }),
+    })
+    expect(mocks.create.mock.calls[0]?.[0]?.data).not.toHaveProperty('venueId')
   })
 
   it('normalizes arbitrary usage failure codes before persistence', async () => {
@@ -220,5 +244,47 @@ describe('createWorkerAiBudgetGate', () => {
     await expect(gate.settleAmbiguous(ref!)).rejects.toThrow('database unavailable')
     await expect(gate.settleAmbiguous(ref!)).resolves.toBeUndefined()
     expect(mocks.settleAmbiguous).toHaveBeenCalledTimes(2)
+  })
+
+  it('reserves tenant-wide spend with an explicit null venue scope', async () => {
+    const reservation = {
+      id: 'reservation_tenant_wide',
+      budgetId: 'budget_1',
+      budgetEpoch: 1,
+      tenantId: 'tenant_1',
+      venueId: null,
+      invocationId: 'invocation_tenant_wide',
+      attemptNumber: 1,
+      feature: 'weekly-digest',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      pricingVersion: 'anthropic-public-2026-08-07',
+      reservedUnits: 61_800_000n,
+    }
+    mocks.reserve.mockResolvedValueOnce(reservation)
+    const gate = createTenantWideWorkerAiBudgetGate({
+      tenantId: 'tenant_1',
+      feature: 'weekly-digest',
+    })
+
+    await expect(
+      gate.reserve({
+        invocationId: 'invocation_tenant_wide',
+        attemptNumber: 1,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        pricingVersion: 'anthropic-public-2026-08-07',
+        reservedUnits: 61_800_000n,
+      }),
+    ).resolves.toEqual({ id: 'reservation_tenant_wide', reservedUnits: 61_800_000n })
+    expect(mocks.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: null,
+          feature: 'weekly-digest',
+        }),
+      }),
+    )
   })
 })

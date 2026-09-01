@@ -2,7 +2,7 @@ import { sumAiCostDecimals } from '@pathfinder/ai'
 
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260830165000_add_prospect_inbound_reply_reviews'
+export const EXPECTED_LATEST_MIGRATION = '20260901020000_support_tenant_wide_ai_accounting'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 export const WORKER_HEARTBEAT_FRESHNESS_MS = 90_000
 export const SERVICE_DEPENDENCY_OBSERVATION_KEY = 'operations.service-dependencies.v1'

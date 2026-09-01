@@ -13,18 +13,20 @@ import {
   type AiCostReservationRef,
 } from '@pathfinder/db'
 
-export function createWorkerAiUsageSink(params: {
+type WorkerAiAccountingScope = {
   tenantId: string
-  venueId: string
+  venueId: string | null
   feature: string
-}): AiUsageSink {
+}
+
+function createScopedWorkerAiUsageSink(params: WorkerAiAccountingScope): AiUsageSink {
   return async (usage) => {
     try {
       const errorCode = normalizeAiUsageErrorCode(usage.errorCode)
       await db.aiUsageEvent.create({
         data: {
           tenantId: params.tenantId,
-          venueId: params.venueId,
+          ...(params.venueId !== null ? { venueId: params.venueId } : {}),
           feature: params.feature,
           capability: usage.capability ?? 'UNCLASSIFIED',
           ...(usage.requestType ? { requestType: usage.requestType } : {}),
@@ -57,7 +59,7 @@ export function createWorkerAiUsageSink(params: {
       logger.error({
         action: 'workers.ai_usage.failed',
         tenantId: params.tenantId,
-        venueId: params.venueId,
+        ...(params.venueId !== null ? { venueId: params.venueId } : {}),
         feature: params.feature,
         error: 'AI usage persistence failed',
       })
@@ -65,11 +67,22 @@ export function createWorkerAiUsageSink(params: {
   }
 }
 
-export function createWorkerAiBudgetGate(params: {
+export function createWorkerAiUsageSink(params: {
   tenantId: string
   venueId: string
   feature: string
-}): AiBudgetGate {
+}): AiUsageSink {
+  return createScopedWorkerAiUsageSink(params)
+}
+
+export function createTenantWideWorkerAiUsageSink(params: {
+  tenantId: string
+  feature: string
+}): AiUsageSink {
+  return createScopedWorkerAiUsageSink({ ...params, venueId: null })
+}
+
+function createScopedWorkerAiBudgetGate(params: WorkerAiAccountingScope): AiBudgetGate {
   const reservations = new Map<string, AiCostReservationRef>()
   const requireReservation = (ref: AiBudgetReservationRef): AiCostReservationRef => {
     const reservation = reservations.get(ref.id)
@@ -122,4 +135,19 @@ export function createWorkerAiBudgetGate(params: {
       reservations.delete(ref.id)
     },
   }
+}
+
+export function createWorkerAiBudgetGate(params: {
+  tenantId: string
+  venueId: string
+  feature: string
+}): AiBudgetGate {
+  return createScopedWorkerAiBudgetGate(params)
+}
+
+export function createTenantWideWorkerAiBudgetGate(params: {
+  tenantId: string
+  feature: string
+}): AiBudgetGate {
+  return createScopedWorkerAiBudgetGate({ ...params, venueId: null })
 }

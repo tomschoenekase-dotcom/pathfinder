@@ -2815,7 +2815,7 @@ model VisitorSession {
 model AiUsageEvent {
   id                       String               @id @default(cuid())
   tenantId                 String               @map("tenant_id")
-  venueId                  String               @map("venue_id")
+  venueId                  String?              @map("venue_id")
   sessionId                String?              @map("session_id")
   clientAssistantTurnId    String?              @map("client_assistant_turn_id")
   feature                  String
@@ -2843,7 +2843,7 @@ model AiUsageEvent {
   errorCode                String?              @map("error_code")
   createdAt                DateTime             @default(now()) @map("created_at")
   tenant                   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                    Venue                @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  venue                    Venue?               @relation(fields: [venueId], references: [id], onDelete: Restrict)
   session                  VisitorSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   clientAssistantTurn      ClientAssistantTurn? @relation(fields: [clientAssistantTurnId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
@@ -3525,7 +3525,7 @@ model VenueLocationConnection {
 model AiUsageDailyRollup {
   id                       String   @id @default(cuid())
   tenantId                 String   @map("tenant_id")
-  venueId                  String   @map("venue_id")
+  venueId                  String?  @map("venue_id")
   date                     DateTime
   feature                  String
   requestCount             Int      @default(0) @map("request_count")
@@ -3541,7 +3541,7 @@ model AiUsageDailyRollup {
   totalTokens              Int      @default(0) @map("total_tokens")
   estimatedCostUsd         Decimal  @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
   tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                    Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  venue                    Venue?   @relation(fields: [venueId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, venueId, date, feature])
   @@index([tenantId, date])
@@ -3832,7 +3832,7 @@ model AiCostReservation {
   id                String                  @id @db.Uuid
   budgetId          String                  @map("budget_id")
   tenantId          String                  @map("tenant_id")
-  venueId           String                  @map("venue_id")
+  venueId           String?                 @map("venue_id")
   budgetEpoch       Int                     @map("budget_epoch")
   invocationId      String                  @map("invocation_id") @db.Uuid
   attemptNumber     Int                     @map("attempt_number")
@@ -3851,7 +3851,7 @@ model AiCostReservation {
   updatedAt         DateTime                @updatedAt @map("updated_at")
   budget            AiCostBudget            @relation(fields: [budgetId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue             Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue?                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([budgetId, budgetEpoch, invocationId, attemptNumber])
   @@index([tenantId, venueId, createdAt])

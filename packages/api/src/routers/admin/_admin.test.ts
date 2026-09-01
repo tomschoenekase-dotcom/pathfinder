@@ -643,6 +643,17 @@ describe('admin router', () => {
           estimatedCostUsd: '2e-8',
           venue: { name: 'Main Venue' },
         },
+        {
+          date: new Date('2026-08-07T00:00:00.000Z'),
+          venueId: null,
+          feature: 'weekly-digest',
+          requestCount: 1,
+          successfulRequestCount: 1,
+          failedRequestCount: 0,
+          totalTokens: 170,
+          estimatedCostUsd: '0.00111000',
+          venue: null,
+        },
       ])
 
       const result = await testRouter
@@ -661,13 +672,17 @@ describe('admin router', () => {
         }),
       )
       expect(result.totals).toEqual({
-        requestCount: 3,
-        successfulRequestCount: 2,
+        requestCount: 4,
+        successfulRequestCount: 3,
         failedRequestCount: 1,
-        totalTokens: 125,
-        estimatedCostUsd: '0.10000003',
+        totalTokens: 295,
+        estimatedCostUsd: '0.10111003',
       })
-      expect(result.costs.map((row) => row.estimatedCostUsd)).toEqual(['0.10000001', '0.00000002'])
+      expect(result.costs.map((row) => row.estimatedCostUsd)).toEqual([
+        '0.10000001',
+        '0.00000002',
+        '0.00111000',
+      ])
       expect(result.breakdown).toEqual([
         {
           venueId: 'venue_1',
@@ -687,6 +702,21 @@ describe('admin router', () => {
               requestCount: 1,
               totalTokens: 5,
               estimatedCostUsd: '0.00000002',
+            },
+          ],
+        },
+        {
+          venueId: null,
+          venueName: 'Tenant-wide',
+          requestCount: 1,
+          totalTokens: 170,
+          estimatedCostUsd: '0.00111000',
+          features: [
+            {
+              feature: 'weekly-digest',
+              requestCount: 1,
+              totalTokens: 170,
+              estimatedCostUsd: '0.00111000',
             },
           ],
         },

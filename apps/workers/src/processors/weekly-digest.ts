@@ -3,9 +3,7 @@ import { z } from 'zod'
 import {
   AI_MODEL_KEYS,
   generateText,
-  NOOP_AI_BUDGET_GATE,
   setAnthropicClientForTesting,
-  type AiUsageSink,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
@@ -28,6 +26,10 @@ import {
   recordJobFailure,
   type JobExecutionInput,
 } from '../lib/job-execution'
+import {
+  createTenantWideWorkerAiBudgetGate,
+  createTenantWideWorkerAiUsageSink,
+} from '../lib/ai-usage'
 
 const MESSAGE_CONTENT_LIMIT = 500
 const MINIMUM_SESSION_COUNT = 5
@@ -83,31 +85,6 @@ function parseDigestInsights(rawText: string): WeeklyDigestInsight[] {
 
     return weeklyDigestResponseSchema.parse(JSON.parse(candidate.slice(firstBrace, lastBrace + 1)))
       .insights
-  }
-}
-
-function createTenantWideDigestUsageSink(params: {
-  tenantId: string
-  digestId: string
-}): AiUsageSink {
-  return async (usage) => {
-    logger.info({
-      action: 'workers.weekly-digest.ai-usage-unattributed',
-      tenantId: params.tenantId,
-      digestId: params.digestId,
-      provider: usage.provider,
-      model: usage.model,
-      pricingVersion: usage.pricingVersion,
-      inputTokens: usage.usage.inputTokens,
-      outputTokens: usage.usage.outputTokens,
-      cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
-      cacheReadInputTokens: usage.usage.cacheReadInputTokens,
-      estimatedCostUsd: usage.estimatedCostUsd,
-      latencyMs: usage.latencyMs,
-      attempts: usage.attempts,
-      success: usage.success,
-      ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
-    })
   }
 }
 
@@ -359,13 +336,14 @@ export async function processWeeklyDigestJob(
       system: [],
       messages: [{ role: 'user', content: prompt }],
       parseResponse: parseDigestInsights,
-      usageSink: createTenantWideDigestUsageSink({
+      usageSink: createTenantWideWorkerAiUsageSink({
         tenantId: payload.tenantId,
-        digestId: payload.digestId,
+        feature: 'weekly-digest',
       }),
-      // Weekly digests intentionally remain outside the venue-attributed durable
-      // budget ledger until it supports honest tenant-wide accounting.
-      budgetGate: NOOP_AI_BUDGET_GATE,
+      budgetGate: createTenantWideWorkerAiBudgetGate({
+        tenantId: payload.tenantId,
+        feature: 'weekly-digest',
+      }),
     })
 
     const insights = response.parsed

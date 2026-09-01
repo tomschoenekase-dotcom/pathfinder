@@ -82,7 +82,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
       .PATHFINDER_STAGING_MIGRATION_APPROVAL,
-    'torchiko-staging-lineage-to-206-20260830',
+    'torchiko-staging-lineage-to-207-20260901',
   )
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables

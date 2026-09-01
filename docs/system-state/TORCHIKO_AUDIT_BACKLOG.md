@@ -2,7 +2,7 @@
 
 **Current-truth overlay:** 2026-08-31 · **Historical audit baseline:** 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`.
 
-This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 206 migrations. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
+This is a prioritized consequence of the audit, not a repository TODO dump. The machine-readable current overlay is [`torchiko-current-truth.json`](./torchiko-current-truth.json); completed historical problem statements below must be read with their current status and remaining boundary. The integrated lineage contains 207 migrations; the bounded active staging snapshot remains at 206. “Before acquisition” means before deliberately adding more live venue customers, not before accepting any design partner. “Autonomous” means a coding agent can safely implement the change without product/legal/credential decisions; verification may still require Tom.
 
 ## P0 — Broken / Dangerous
 

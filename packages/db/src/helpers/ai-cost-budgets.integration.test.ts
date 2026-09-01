@@ -102,6 +102,14 @@ integrationDescribe('AI cost budgets (disposable PostgreSQL integration)', () =>
     await expect(reserve()).resolves.toBeNull()
   })
 
+  it('reserves tenant-wide work without inventing a venue', async () => {
+    await createBudget()
+    const reservation = await reserve(100n, identity({ venueId: null, feature: 'weekly-digest' }))
+    expect(reservation).toMatchObject({ tenantId, venueId: null, feature: 'weekly-digest' })
+    const stored = await db.aiCostReservation.findFirstOrThrow({ where: { tenantId } })
+    expect(stored).toMatchObject({ tenantId, venueId: null, feature: 'weekly-digest' })
+  })
+
   it('admits exactly the concurrent capacity and never overspends', async () => {
     await createBudget()
     const results = await Promise.allSettled(Array.from({ length: 32 }, () => reserve(100n)))

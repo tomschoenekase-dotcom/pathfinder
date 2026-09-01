@@ -21,7 +21,7 @@ const MAX_AI_COST_BUDGET_UNITS = 1_000_000_000_000_000n
 
 const coverage = {
   version: AI_COST_BUDGET_COVERAGE_VERSION,
-  excludedProviderPaths: ['weekly-digest'] as const,
+  excludedProviderPaths: [] as const,
 }
 
 const budgetInput = z

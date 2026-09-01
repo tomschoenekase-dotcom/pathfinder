@@ -321,8 +321,8 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-pf-deep">AI cost budget</h2>
           <p className="mt-1 text-sm leading-6 text-pf-deep/70">
-            Atomic pre-provider spend envelope for gateway-accounted AI. Tenant-wide weekly digest
-            generation remains explicitly outside this coverage version.
+            Atomic pre-provider spend envelope for every gateway-accounted tenant AI path, including
+            venue-scoped and tenant-wide generation.
           </p>
         </div>
         <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-wider text-pf-deep/70">

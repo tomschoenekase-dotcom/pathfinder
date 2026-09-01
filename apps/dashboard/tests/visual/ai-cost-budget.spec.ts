@@ -21,10 +21,8 @@ test('AI cost coverage remains truthful and usable across real browser widths', 
   await page.locator('nextjs-portal').evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
 
   await expect(page.getByRole('heading', { name: 'AI cost budget' })).toBeVisible()
-  await expect(
-    page.getByText(/Tenant-wide weekly digest generation remains explicitly outside/),
-  ).toBeVisible()
-  await expect(page.getByText(/media ingestion remain explicitly outside/i)).toHaveCount(0)
+  await expect(page.getByText(/including venue-scoped and tenant-wide generation/)).toBeVisible()
+  await expect(page.getByText(/remain(?:s)? explicitly outside/i)).toHaveCount(0)
   await expect(page.getByLabel('Hard limit (USD)')).toBeEditable()
   await expect
     .poll(() => page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth + 1))

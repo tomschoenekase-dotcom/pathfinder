@@ -13,7 +13,7 @@ type BudgetClient = Pick<
 
 export type AiCostAttemptIdentity = {
   tenantId: string
-  venueId: string
+  venueId: string | null
   invocationId: string
   attemptNumber: number
   feature: string
@@ -51,7 +51,7 @@ export class AiCostBudgetInvariantError extends Error {
 }
 
 function assertIdentity(identity: AiCostAttemptIdentity): void {
-  if (!identity.tenantId || !identity.venueId || !identity.invocationId) {
+  if (!identity.tenantId || identity.venueId === '' || !identity.invocationId) {
     throw new AiCostBudgetInvariantError('AI cost reservation identity is incomplete')
   }
   if (!Number.isInteger(identity.attemptNumber) || identity.attemptNumber < 1) {
@@ -122,7 +122,7 @@ async function publishCostProtectionEventBestEffort(params: {
       client: params.db,
       event: {
         tenantId: params.identity.tenantId,
-        venueId: params.identity.venueId,
+        ...(params.identity.venueId !== null ? { venueId: params.identity.venueId } : {}),
         eventType: breached ? 'ai-cost-budget.breached' : 'ai-cost-budget.request-denied',
         sourceSubsystem: 'ai-cost-control',
         severity: 'ERROR',

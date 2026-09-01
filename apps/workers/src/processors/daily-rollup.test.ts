@@ -250,6 +250,41 @@ describe('buildAiCostRollups', () => {
       }),
     ).toThrow('AI cost exceeds 8 decimal places')
   })
+
+  it('keeps tenant-wide usage in a distinct null-venue rollup', () => {
+    expect(
+      buildAiCostRollups({
+        tenantId: 'tenant_1',
+        date: targetDate,
+        events: [
+          {
+            venueId: null,
+            feature: 'weekly-digest',
+            requestCount: 1,
+            inputTokens: 120,
+            outputTokens: 50,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            audioInputTokens: 0,
+            audioOutputTokens: 0,
+            cachedAudioInputTokens: 0,
+            totalTokens: 170,
+            estimatedCostUsd: '0.00111000',
+            success: true,
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: null,
+        feature: 'weekly-digest',
+        requestCount: 1,
+        totalTokens: 170,
+        estimatedCostUsd: '0.00111000',
+      }),
+    ])
+  })
 })
 
 describe('processDailyRollupJob AI cost rollups', () => {
