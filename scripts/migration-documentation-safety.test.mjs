@@ -28,7 +28,7 @@ const unsafeInstructionPatterns = [
     /```sql[\s\S]*?\b(?:alter|create|delete|drop|insert|select|truncate|update)\b[\s\S]*?```/i,
   ],
   ['SQL inspection statement', /`select\s+[^`]*(?:from|current_database\s*\()[^`]*`/i],
-  ['imperative migration step', /\b(?:apply|run)\s+(?:the\s+)?migration\b/i],
+  ['imperative migration step', /(?<![\w-])(?:apply|run)\s+(?:the\s+)?migration\b/i],
   ['embedding-dispatch write exercise', /EmbeddingDispatch[\s\S]{0,300}dispatch row is committed/i],
 ]
 
@@ -131,4 +131,11 @@ test('the detector rejects an adversarial unguarded instruction fixture', () => 
     assert.equal(hasLeadingMarker(fixture, activeStopMarker), false)
     assert.equal(hasLeadingMarker(fixture, historicalMarker), false)
   }
+})
+
+test('the detector does not treat hyphenated release-state prose as an instruction', () => {
+  assert.deepEqual(
+    findUnsafeInstructions('The one-run migration admission returned to zero after staging.'),
+    [],
+  )
 })
