@@ -73,6 +73,11 @@ function safeKey(value, label) {
 function isoInstant(value, label) {
   if (!ISO_INSTANT.test(nonEmpty(value, label, 40)) || Number.isNaN(Date.parse(value)))
     fail(`${label} must be an ISO UTC instant`)
+  const normalized = value.includes('.')
+    ? value.replace(/\.(\d{1,3})Z$/u, (_, fraction) => `.${fraction.padEnd(3, '0')}Z`)
+    : value.replace(/Z$/u, '.000Z')
+  if (new Date(value).toISOString() !== normalized)
+    fail(`${label} must be a real ISO UTC calendar instant`)
   return value
 }
 

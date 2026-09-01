@@ -153,6 +153,24 @@ test('CLI rejection is bounded and does not emit a stack or input path', () => {
   assert.doesNotMatch(result.stderr, /[\\/]scripts[\\/]|\bat\s/)
 })
 
+test('CLI refuses an oversized package before JSON parsing', async () => {
+  const packageDirectory = await workspace()
+  const oversized = path.join(packageDirectory, 'oversized.json')
+  await writeFile(oversized, 'x'.repeat(1_048_577))
+  const command = fileURLToPath(new URL('./validate.mjs', import.meta.url))
+  const result = spawnSync(process.execPath, [command, oversized], {
+    encoding: 'utf8',
+    shell: false,
+  })
+  assert.equal(result.status, 1)
+  assert.equal(result.stdout, '')
+  assert.equal(
+    result.stderr.trim(),
+    'Founder evidence package rejected: unreadable or invalid package',
+  )
+  assert.doesNotMatch(result.stderr, /oversized|[\\/]torchiko-founder-evidence-/)
+})
+
 for (const [name, mutate, pattern] of [
   ['pending approval', (value) => (value.approval.status = 'PENDING'), /approval\.status/],
   ['customer data', (value) => (value.customerData = true), /synthetic must be true/],
@@ -187,6 +205,11 @@ for (const [name, mutate, pattern] of [
     'approval before review',
     (value) => (value.approval.approvedAt = '2026-08-31T12:00:00Z'),
     /approvedAt must be at or after/,
+  ],
+  [
+    'impossible calendar date',
+    (value) => (value.approval.approvedAt = '2026-02-30T12:00:00Z'),
+    /real ISO UTC calendar instant/,
   ],
   [
     'changed duplicate',

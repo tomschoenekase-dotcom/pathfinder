@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -11,8 +11,11 @@ if (args.length !== 1 || args[0] === '--help') {
 }
 
 try {
-  const inputPath = await realpath(path.resolve(args[0])).catch(() => null)
-  if (!inputPath) throw new Error('Founder evidence package does not exist')
+  const requestedPath = path.resolve(args[0])
+  const inputMetadata = await lstat(requestedPath).catch(() => null)
+  if (!inputMetadata?.isFile() || inputMetadata.isSymbolicLink() || inputMetadata.size > 1_048_576)
+    throw new Error('Founder evidence package is not a bounded regular file')
+  const inputPath = await realpath(requestedPath)
   const input = JSON.parse(await readFile(inputPath, 'utf8'))
   const receipt = await validateFounderEvidencePackage(input, {
     packageDirectory: path.dirname(inputPath),
