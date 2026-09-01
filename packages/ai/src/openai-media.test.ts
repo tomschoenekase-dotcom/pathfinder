@@ -13,6 +13,7 @@ import {
 
 const createChatCompletion = vi.fn()
 const createTranscription = vi.fn()
+const usageSink = vi.fn()
 const client = {
   chat: { completions: { create: createChatCompletion } },
   audio: { transcriptions: { create: createTranscription } },
@@ -21,6 +22,7 @@ const client = {
 describe('OpenAI media gateway', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    usageSink.mockResolvedValue(undefined)
     setOpenAiMediaClientForTesting(client)
   })
 
@@ -43,16 +45,24 @@ describe('OpenAI media gateway', () => {
   it('requests bounded JSON chat output and forwards cancellation', async () => {
     createChatCompletion.mockResolvedValueOnce({
       choices: [{ message: { content: '{"summary":"entrance"}' } }],
+      usage: {
+        prompt_tokens: 120,
+        completion_tokens: 30,
+        prompt_tokens_details: { cached_tokens: 20 },
+      },
     })
     const controller = new AbortController()
 
     await expect(
       createOpenAiMediaJson({
         model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
         messages: [{ role: 'user', content: 'Inspect this.' }],
         signal: controller.signal,
       }),
-    ).resolves.toBe('{"summary":"entrance"}')
+    ).resolves.toEqual({ summary: 'entrance' })
 
     expect(createChatCompletion).toHaveBeenCalledWith(
       {
@@ -62,36 +72,139 @@ describe('OpenAI media gateway', () => {
       },
       { signal: controller.signal },
     )
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: 'MEDIA_ANALYSIS',
+        model: OPENAI_MEDIA_JSON_MODEL,
+        success: true,
+        usage: expect.objectContaining({
+          inputTokens: 100,
+          outputTokens: 30,
+          cacheReadInputTokens: 20,
+        }),
+      }),
+    )
   })
 
   it('rejects malformed or empty media responses at the gateway', async () => {
-    createChatCompletion.mockResolvedValueOnce({ choices: [{ message: { content: null } }] })
+    createChatCompletion.mockResolvedValueOnce({
+      choices: [{ message: { content: null } }],
+      usage: { prompt_tokens: 12, completion_tokens: 0 },
+    })
     await expect(
       createOpenAiMediaJson({
         model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
+    expect(usageSink).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        attempts: 1,
+        errorCode: 'missing-text-block',
+        success: false,
+        usage: expect.objectContaining({ inputTokens: 12 }),
+      }),
+    )
 
-    createChatCompletion.mockResolvedValueOnce({ choices: [] })
+    createChatCompletion.mockResolvedValueOnce({
+      choices: [],
+      usage: { prompt_tokens: 12, completion_tokens: 0 },
+    })
     await expect(
       createOpenAiMediaJson({
         model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
+  })
+
+  it('records billed usage when structured media output is rejected', async () => {
+    createChatCompletion.mockResolvedValueOnce({
+      choices: [{ message: { content: '{not-json' } }],
+      usage: {
+        prompt_tokens: 50,
+        completion_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 5 },
+      },
+    })
+
+    await expect(
+      createOpenAiMediaJson({
+        model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_SYNTHESIS',
+        parseResponse: JSON.parse,
+        usageSink,
+        messages: [{ role: 'user', content: 'Synthesize this.' }],
+      }),
+    ).rejects.toThrow()
+
+    expect(usageSink).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attempts: 1,
+        capability: 'MEDIA_SYNTHESIS',
+        errorCode: 'invalid-structured-output',
+        estimatedCostUsd: 0.0000211,
+        success: false,
+        usage: expect.objectContaining({
+          inputTokens: 45,
+          outputTokens: 10,
+          cacheReadInputTokens: 5,
+        }),
+      }),
+    )
+  })
+
+  it('applies the documented Luna long-context price multiplier', async () => {
+    createChatCompletion.mockResolvedValueOnce({
+      choices: [{ message: { content: '{"ok":true}' } }],
+      usage: { prompt_tokens: 272_001, completion_tokens: 100 },
+    })
+
+    await createOpenAiMediaJson({
+      model: OPENAI_MEDIA_JSON_MODEL,
+      capability: 'MEDIA_SYNTHESIS',
+      parseResponse: JSON.parse,
+      usageSink,
+      messages: [{ role: 'user', content: 'Synthesize this.' }],
+    })
+
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({ estimatedCostUsd: 0.1089804, success: true }),
+    )
   })
 
   it('transcribes a supplied media stream through the shared client', async () => {
     const file = { stream: true }
-    createTranscription.mockResolvedValueOnce({ text: 'Welcome to the north hall.' })
+    createTranscription.mockResolvedValueOnce({
+      text: 'Welcome to the north hall.',
+      usage: {
+        type: 'tokens',
+        input_tokens: 80,
+        output_tokens: 12,
+        input_token_details: { audio_tokens: 80, text_tokens: 0 },
+      },
+    })
 
     await expect(
-      transcribeOpenAiMedia({ file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL }),
+      transcribeOpenAiMedia({ file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL, usageSink }),
     ).resolves.toBe('Welcome to the north hall.')
     expect(createTranscription).toHaveBeenCalledWith(
       { file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL },
       undefined,
+    )
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: 'MEDIA_TRANSCRIPTION',
+        success: true,
+        usage: expect.objectContaining({ audioInputTokens: 80, inputTokens: 80, outputTokens: 12 }),
+      }),
     )
   })
 })

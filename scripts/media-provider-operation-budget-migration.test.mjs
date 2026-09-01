@@ -77,15 +77,16 @@ test('media jobs resolve only reviewed model identifiers before source processin
     mediaGateway,
     /OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const/u,
   )
-  assert.match(
-    envSchema,
-    /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5\.6-luna'\)\.optional\(\)/u,
-  )
+  assert.match(envSchema, /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5\.6-luna'\)\.optional\(\)/u)
   assert.match(
     envSchema,
     /MEDIA_TRANSCRIPTION_MODEL: z\.literal\('gpt-4o-mini-transcribe'\)\.optional\(\)/u,
   )
   assert.doesNotMatch(processor, /gpt-5-mini-2025-08-07/u)
+  assert.equal(processor.match(/createWorkerAiUsageSink\(\{/gu)?.length, 1)
+  assert.equal(processor.match(/usageSink,/gu)?.length, 9)
+  assert.match(mediaGateway, /OPENAI_MEDIA_PRICING_VERSION = 'openai-public-2026-09-01'/u)
+  assert.match(mediaGateway, /success: false/gu)
 
   const modelResolution = processor.indexOf('const analysisModel = resolveOpenAiMediaJsonModel')
   const sourceProcessing = processor.indexOf('await downloadAndExtract(')

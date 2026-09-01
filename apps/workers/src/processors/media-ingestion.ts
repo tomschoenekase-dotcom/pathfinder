@@ -26,6 +26,7 @@ import {
   resolveOpenAiMediaJsonModel,
   resolveOpenAiMediaTranscriptionModel,
   transcribeOpenAiMedia,
+  type AiUsageSink,
 } from '@pathfinder/ai'
 import {
   assertVenueAiAvailable,
@@ -69,6 +70,7 @@ import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
 } from '../lib/media-provider-budget'
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
 
 const MAX_FILES = 10_000
 const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
@@ -424,6 +426,7 @@ async function analyzeImage(
   context: string,
   mode: string,
   model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
+  usageSink: AiUsageSink,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -440,6 +443,9 @@ async function analyzeImage(
     () =>
       createOpenAiMediaJson({
         model,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: parseMediaAnalysisResponse,
+        usageSink,
         messages: [
           {
             role: 'system',
@@ -468,7 +474,7 @@ async function analyzeImage(
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  return parseMediaAnalysisResponse(response)
+  return response
 }
 
 async function transcribe(
@@ -476,6 +482,7 @@ async function transcribe(
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
   model: ReturnType<typeof resolveOpenAiMediaTranscriptionModel>,
+  usageSink: AiUsageSink,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -486,6 +493,7 @@ async function transcribe(
       transcribeOpenAiMedia({
         file: createReadStream(filePath),
         model,
+        usageSink,
         ...(signal ? { signal } : {}),
       }),
     () => assertMediaJobActive(signal),
@@ -700,6 +708,7 @@ async function synthesize(
   context: string,
   analyses: unknown[],
   model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
+  usageSink: AiUsageSink,
   signal?: AbortSignal,
 ) {
   assertMediaJobActive(signal)
@@ -719,6 +728,10 @@ async function synthesize(
         () =>
           createOpenAiMediaJson({
             model,
+            capability: 'MEDIA_SYNTHESIS',
+            parseResponse: (text) =>
+              parseProviderJson(text, z.record(z.unknown()), 'Media batch-summary provider output'),
+            usageSink,
             messages: [
               {
                 role: 'system',
@@ -732,11 +745,7 @@ async function synthesize(
         () => assertMediaJobActive(signal),
       )
       assertMediaJobActive(signal)
-      const summary = parseProviderJson(
-        response,
-        z.record(z.unknown()),
-        'Media batch-summary provider output',
-      )
+      const summary = response
       summaryBudget.retain(summary)
       summaries.push(summary)
     }
@@ -753,6 +762,9 @@ async function synthesize(
     () =>
       createOpenAiMediaJson({
         model,
+        capability: 'MEDIA_SYNTHESIS',
+        parseResponse: parseMediaSynthesisResponse,
+        usageSink,
         messages: [
           {
             role: 'system',
@@ -769,7 +781,7 @@ async function synthesize(
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  return parseMediaSynthesisResponse(response)
+  return response
 }
 
 export async function processMediaIngestionJob(
@@ -849,6 +861,11 @@ export async function processMediaIngestionJob(
     const transcriptionModel = resolveOpenAiMediaTranscriptionModel(
       process.env.MEDIA_TRANSCRIPTION_MODEL,
     )
+    const usageSink = createWorkerAiUsageSink({
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      feature: 'media-ingestion',
+    })
     const settings = project.settings as {
       transcribeAudio?: boolean
       detectDuplicates?: boolean
@@ -920,6 +937,7 @@ export async function processMediaIngestionJob(
             project.context,
             project.mode,
             analysisModel,
+            usageSink,
             signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
@@ -928,6 +946,7 @@ export async function processMediaIngestionJob(
             reserveProviderOperation,
             file.path,
             transcriptionModel,
+            usageSink,
             signal,
           )
         } else if (mediaType === 'VIDEO') {
@@ -952,6 +971,7 @@ export async function processMediaIngestionJob(
                   project.context,
                   project.mode,
                   analysisModel,
+                  usageSink,
                   signal,
                 ),
               )
@@ -967,6 +987,7 @@ export async function processMediaIngestionJob(
                     reserveProviderOperation,
                     audioPath,
                     transcriptionModel,
+                    usageSink,
                     signal,
                   )
                 ).summary
@@ -1072,6 +1093,7 @@ export async function processMediaIngestionJob(
       project.context,
       analyses,
       synthesisModel,
+      usageSink,
       signal,
     )
     assertMediaJobActive(signal)

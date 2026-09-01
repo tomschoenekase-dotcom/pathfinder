@@ -70,9 +70,9 @@ environment exists.
 
 - **Production-ready:** tenant isolation middleware, auth/role model, core chat pipeline
   (fail-open design), audit logging, rate limiting, CI (typecheck/lint/test on every push).
-- **Working but has real gaps:** cost/usage tracking (**none exists** for any AI call), no staging
-  environment, no health checks in Railway configs, in-memory rate-limit fallback isn't
-  multi-instance-safe, migrations are a manual runbook step.
+- **Working but has real gaps:** canonical AI usage/cost events exist, but live provider-quality and
+  representative cost observations remain gated; project-local media cent fields are legacy display
+  scaffolding. In-memory rate-limit fallback still isn't multi-instance-safe.
 - **Experimental / recently added, less proven:** engagement questions "curious mode" (AI-invented
   questions), nightly analytics-enrichment (topic classification, weekly themes, question
   clustering), weekly reports and answer-analysis (Sonnet-generated, Zod-validated with
@@ -529,24 +529,26 @@ Per-asset failures are recorded and skipped (fail-open); job-level failures mark
 FAILED (BullMQ retries ×3). Code-owned model contracts admit `gpt-5.6-luna` for
 image/synthesis calls and `gpt-4o-mini-transcribe` for audio. Matching environment values may be
 supplied, but arbitrary overrides fail before archive processing or provider dispatch.
-`estimatedCostCents`/
-`actualCostCents` fields exist on the project model and are shown in the admin UI but are **never
-assigned anywhere** — dead cost-tracking scaffolding, the only such scaffold in the codebase.
+Every provider dispatch writes canonical tenant/venue-attributed `AiUsageEvent` evidence with a
+capability, versioned public price, observed tokens, latency, success/failure, and a normalized error
+code. Billed responses rejected by bounded schema validation retain their observed usage as failures.
+The project model's `estimatedCostCents`/`actualCostCents` fields remain unassigned legacy display
+scaffolding and are not the canonical ledger.
 
 ### 6.5 Cross-cutting summary
 
-| Call site                                 | Model                           | Latency class            | Streamed? | Cost tracked?                  |
-| ----------------------------------------- | ------------------------------- | ------------------------ | --------- | ------------------------------ |
-| Guest chat                                | Claude Haiku 4.5                | synchronous, user-facing | No        | No                             |
-| Curious-mode question                     | (same call as chat)             | synchronous              | No        | No                             |
-| Weekly digest                             | Claude Sonnet 4.6               | background, weekly       | n/a       | No                             |
-| Weekly report                             | Claude Sonnet 4.6               | background, on-demand    | n/a       | No                             |
-| Answer analysis                           | Claude Sonnet 4.6               | background, on-demand    | n/a       | No                             |
-| Topic classification                      | Claude Haiku 4.5                | background, nightly      | n/a       | No                             |
-| Weekly theme synthesis                    | Claude Haiku 4.5                | background, weekly       | n/a       | No                             |
-| Embeddings (chat + indexing + clustering) | OpenAI text-embedding-3-small   | mixed sync/async         | n/a       | No                             |
-| Media analysis/synthesis                  | OpenAI `gpt-5.6-luna`           | background, long-running | n/a       | No (fields exist, unpopulated) |
-| Media transcription                       | OpenAI `gpt-4o-mini-transcribe` | background               | n/a       | No                             |
+| Call site                                 | Model                           | Latency class            | Streamed? | Cost tracked?        |
+| ----------------------------------------- | ------------------------------- | ------------------------ | --------- | -------------------- |
+| Guest chat                                | Claude Haiku 4.5                | synchronous, user-facing | No        | No                   |
+| Curious-mode question                     | (same call as chat)             | synchronous              | No        | No                   |
+| Weekly digest                             | Claude Sonnet 4.6               | background, weekly       | n/a       | No                   |
+| Weekly report                             | Claude Sonnet 4.6               | background, on-demand    | n/a       | No                   |
+| Answer analysis                           | Claude Sonnet 4.6               | background, on-demand    | n/a       | No                   |
+| Topic classification                      | Claude Haiku 4.5                | background, nightly      | n/a       | No                   |
+| Weekly theme synthesis                    | Claude Haiku 4.5                | background, weekly       | n/a       | No                   |
+| Embeddings (chat + indexing + clustering) | OpenAI text-embedding-3-small   | mixed sync/async         | n/a       | No                   |
+| Media analysis/synthesis                  | OpenAI `gpt-5.6-luna`           | background, long-running | n/a       | Yes (`AiUsageEvent`) |
+| Media transcription                       | OpenAI `gpt-4o-mini-transcribe` | background               | n/a       | Yes (`AiUsageEvent`) |
 
 **First-message latency** for guest chat is therefore the sum of: rate-limit check + session upsert
 

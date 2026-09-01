@@ -16,6 +16,7 @@ export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from '
 export {
   createOpenAiMediaJson,
   OPENAI_MEDIA_JSON_MODEL,
+  OPENAI_MEDIA_PRICING_VERSION,
   OPENAI_MEDIA_TRANSCRIPTION_MODEL,
   resolveOpenAiMediaJsonModel,
   resolveOpenAiMediaTranscriptionModel,

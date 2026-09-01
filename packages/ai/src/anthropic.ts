@@ -57,6 +57,9 @@ export type AiTokenUsage = {
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
+  audioInputTokens?: number
+  audioOutputTokens?: number
+  cachedAudioInputTokens?: number
 }
 
 export type AiTextResult<TParsed = string> = {

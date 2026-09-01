@@ -36,6 +36,9 @@ export function createWorkerAiUsageSink(params: {
           pricingVersion: usage.pricingVersion,
           inputTokens: usage.usage.inputTokens,
           outputTokens: usage.usage.outputTokens,
+          audioInputTokens: usage.usage.audioInputTokens ?? 0,
+          audioOutputTokens: usage.usage.audioOutputTokens ?? 0,
+          cachedAudioInputTokens: usage.usage.cachedAudioInputTokens ?? 0,
           cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
           cacheReadInputTokens: usage.usage.cacheReadInputTokens,
           totalTokens:

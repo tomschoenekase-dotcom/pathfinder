@@ -76,6 +76,38 @@ describe('createWorkerAiUsageSink', () => {
     expect(JSON.stringify(mocks.create.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
   })
 
+  it('persists audio token details without double-counting total tokens', async () => {
+    mocks.create.mockResolvedValueOnce({})
+    const sink = createWorkerAiUsageSink({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      feature: 'media-ingestion',
+    })
+
+    await sink({
+      ...usage,
+      provider: 'openai',
+      usage: {
+        inputTokens: 80,
+        outputTokens: 12,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        audioInputTokens: 80,
+        audioOutputTokens: 0,
+        cachedAudioInputTokens: 0,
+      },
+    })
+
+    expect(mocks.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        audioInputTokens: 80,
+        audioOutputTokens: 0,
+        cachedAudioInputTokens: 0,
+        totalTokens: 92,
+      }),
+    })
+  })
+
   it('logs and resolves when persistence fails', async () => {
     mocks.create.mockRejectedValueOnce(new Error('database host and secret detail'))
     const sink = createWorkerAiUsageSink({

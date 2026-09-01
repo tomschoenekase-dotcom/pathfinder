@@ -48,6 +48,16 @@ versioned model-contract update rather than an arbitrary environment edit. OpenA
 publishes `gpt-5.6-luna` as the only stable identifier for this model (no dated snapshot is listed),
 with Chat Completions, structured outputs, and image input supported.
 
+Every image-analysis, evidence-condensation, synthesis, and transcription dispatch writes a
+tenant- and venue-attributed `AiUsageEvent` through the shared worker sink. The event retains the
+capability, model, pricing version, latency, attempt/success state, normalized error code, exact
+observed token categories, and an estimated USD cost. A billed response that fails bounded schema
+validation is recorded as a failed usage event with its observed tokens; persistence is best-effort
+and cannot cause another provider attempt. Luna's documented long-context multiplier is applied
+when observed input exceeds 272,000 tokens. The project-level `estimatedCostCents` and
+`actualCostCents` display fields remain legacy scaffolding and are not treated as the canonical
+ledger.
+
 ## Required deployment configuration
 
 Set the existing storage credentials plus:
