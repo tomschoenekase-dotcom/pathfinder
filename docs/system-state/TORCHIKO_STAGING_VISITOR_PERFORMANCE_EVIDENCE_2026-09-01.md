@@ -35,3 +35,16 @@ These observations replace the stale-release baseline for the currently deployed
 ## Remaining PERF-01 boundary
 
 This closes the durable current-release public visitor-shell measurement gap. It does not close PERF-01: physical iPhone/Android CPU and real-radio evidence, approved-media loading, and one founder-approved spend-bounded provider-backed staging turn for real time-to-first-token and total-answer timing remain pending. No customer state, authenticated session, production environment, marketing site, branding, or Tochi asset was used or changed.
+
+## Current-release refresh
+
+The same credential-free harness ran after Railway admitted exact release
+`a3e66de5a1231aca6df5d150ca7bcd81831dd784`. Six fresh 390×844 Chromium contexts passed with zero
+browser errors, chat requests, or provider calls. Interaction-ready p50/p95 was 1,857/2,128 ms
+unthrottled and 4,804/4,812 ms under the declared weak-4G profile. The ignored report is
+`artifacts/hosted-visitor-performance/a3e66de5a1231aca6df5d150ca7bcd81831dd784.json`; its SHA-256 is
+`20FBF15DF97AB648781B44F4AB82A4B8FE530C334729D93BE42C9E9D38EDDECF`.
+
+This supersedes `723ecc58` only as the current-release measurement. The older report remains valid
+historical evidence. The physical-device, real-radio, approved-media, and provider-backed TTFT
+boundaries remain open.

@@ -43,6 +43,13 @@ The exact staging release profile passed 19/19. Its JSON and Markdown evidence h
 `91F8CE891A34D55FE9BA6192D0506C57029A4047EC062E627906C60594D13F5F` and
 `EBB0D61043D7CEE898B35E150C539EE7378E9A1E09CAAEE343A6CD1313AE2E5A`.
 
+Fresh credential-free browser measurements also bind the public visitor and dashboard shells to
+this exact release. The visitor route passed six mobile samples with interaction-ready p50/p95 of
+1,857/2,128 ms unthrottled and 4,804/4,812 ms under the declared weak-4G emulation; it sent no chat
+request or provider call. The public dashboard sign-in shell passed three samples with zero browser
+errors, 448,499 same-origin transfer bytes, and 223,463 script transfer bytes. These are observations,
+not SLOs, physical-device proof, authenticated-route proof, or provider TTFT proof.
+
 ## Failure and rollback record
 
 Deployment `878c3c4d-71df-404f-9771-fd3bb81aa885` failed closed before migration because the guard

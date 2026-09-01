@@ -44,3 +44,17 @@ The full candidate profile and hosted CI must be run against the final evidence 
 ## Honest boundary
 
 This is not an authenticated product-performance result and it is not an SLO. It does not measure authenticated dashboard route chunks or pixels, representative customer history, database-query latency, a physical device, multiple geographies, cache variation, or sustained load. Those parts of PERF-03 remain pending until authorized authenticated and representative data are available. No production environment was selected or changed.
+
+## Current-release refresh
+
+After Railway admitted `a3e66de5a1231aca6df5d150ca7bcd81831dd784`, the same fail-closed command
+ran again with three fresh contexts. All samples reached `/sign-in` with zero browser errors. The
+nearest-rank results were 1,012/5,084 ms DOM-content-loaded p50/p95, 448,499 same-origin transfer
+bytes, and 223,463 script transfer bytes. The p95 reflects one cold 5,084 ms observation and is
+retained as measured rather than normalized away.
+
+The ignored report is
+`artifacts/hosted-dashboard-assets/a3e66de5a1231aca6df5d150ca7bcd81831dd784.json`; its SHA-256 is
+`D3CB9464F97A31D11138A80E79972354F0F7D22D6EDABCC34BB42585A2BA0F6C`. This refresh remains an
+unauthenticated public-shell observation, not an SLO or proof of authenticated route/database
+performance.
