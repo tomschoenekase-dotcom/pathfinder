@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-08-31",
+  "asOf": "2026-09-01",
   "authority": {
     "purpose": "Machine-readable overlay for current repository capability truth",
     "supersedesHistoricalClaimsIn": [
@@ -9,7 +9,7 @@
       "docs/system-state/TORCHIKO_AUDIT_BACKLOG.md"
     ],
     "doesNotProve": [
-      "hosted staging behavior beyond the bounded 2026-08-31 snapshot",
+      "hosted staging behavior beyond the bounded 2026-09-01 snapshot",
       "production deployment",
       "provider credentials or provider-backed quality",
       "customer contact",
@@ -19,16 +19,16 @@
     ]
   },
   "hostedStagingSnapshot": {
-    "evidence": "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-31.md",
-    "releaseSha": "46e404777f197e53bfb181b9953e25423e72aa54",
+    "evidence": "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md",
+    "releaseSha": "723ecc583a57ac79e56489f4a9a5865cb946d505",
     "services": {
-      "webDeploymentId": "4deb23dc-7ae9-43a0-bd85-f1967a8f63e9",
-      "dashboardDeploymentId": "4bbc1c5c-533d-4ebd-9301-24e87f0ef8fe",
-      "workerDeploymentId": "480bad12-9406-4123-8cab-f00bc70a1202"
+      "webDeploymentId": "9e5d51f6-3a69-47ab-8796-ccc50bbcf5e0",
+      "dashboardDeploymentId": "e2e198a1-84b1-4c5e-8b88-1b9d84ef0688",
+      "workerDeploymentId": "05aee47d-b230-470b-8b56-656e8ba2d393"
     },
     "migrationLedger": {
-      "applied": 206,
-      "expected": 206,
+      "applied": 207,
+      "expected": 207,
       "publicTables": 232,
       "admissionsOpen": 0
     },
@@ -94,7 +94,7 @@
         "packages/db/src/helpers/platform-release-evidence.ts",
         "apps/dashboard/app/api/platform-worker/release-evidence/route.ts"
       ],
-      "remaining": "Persist and inspect the exact candidate in authorized hosted staging; deployment approval remains separate."
+      "remaining": "Repeat exact migration, topology, health, runtime, and hosted-profile verification for every future candidate; production deployment remains separately founder-authorized."
     },
     {
       "id": "golden-venue-lifecycle",
@@ -102,7 +102,7 @@
       "summary": "A disposable end-to-end venue lifecycle and eight failure classes are retained through production domain paths, and the exact Railway release passed a guarded mobile arrival-to-chat smoke for the synthetic venue.",
       "evidence": [
         "docs/golden-venue-runbook.md",
-        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-31.md",
+        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md",
         "scripts/run-disposable-golden-venue.mjs",
         "scripts/golden-venue/fixture.json",
         "apps/dashboard/scripts/hosted-golden-venue-smoke.mjs"
@@ -175,7 +175,7 @@
         "compose.local-staging.yml",
         "docs/local-staging-infrastructure.md",
         "scripts/local-staging-worker.test.mjs",
-        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-08-31.md"
+        "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md"
       ],
       "remaining": "The bounded exact Railway topology is separately proven; local compose still cannot prove future releases, external provider health, production topology, or backup/PITR recovery."
     },
