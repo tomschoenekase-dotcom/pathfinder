@@ -23,8 +23,17 @@
     "releaseSha": "723ecc583a57ac79e56489f4a9a5865cb946d505",
     "services": {
       "webDeploymentId": "9e5d51f6-3a69-47ab-8796-ccc50bbcf5e0",
+      "webDeploymentStatus": "SUCCESS",
+      "webInstanceStatus": "RUNNING",
+      "webImageDigest": "sha256:f4301d851c0e0914dbc32539854c34e3a5d6d71630fe70984a849afc261a83a4",
       "dashboardDeploymentId": "e2e198a1-84b1-4c5e-8b88-1b9d84ef0688",
-      "workerDeploymentId": "05aee47d-b230-470b-8b56-656e8ba2d393"
+      "dashboardDeploymentStatus": "SUCCESS",
+      "dashboardInstanceStatus": "RUNNING",
+      "dashboardImageDigest": "sha256:49b2882ab1880098f17774ca1da3c171762901cecfdeb3cdedaad1f200254e47",
+      "workerDeploymentId": "05aee47d-b230-470b-8b56-656e8ba2d393",
+      "workerDeploymentStatus": "SUCCESS",
+      "workerInstanceStatus": "RUNNING",
+      "workerImageDigest": "sha256:bceadf83c02eae3bcf41a1185d6c7575b7e5d33547100eceb6852d12e692d36e"
     },
     "migrationLedger": {
       "applied": 207,

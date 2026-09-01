@@ -47,6 +47,28 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
 
   const staging = truth.hostedStagingSnapshot
   assert.match(staging.releaseSha, /^[a-f0-9]{40}$/)
+  for (const service of ['web', 'dashboard', 'worker']) {
+    assert.match(
+      staging.services[`${service}DeploymentId`],
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
+      `${service} has an exact Railway deployment ID`,
+    )
+    assert.equal(
+      staging.services[`${service}DeploymentStatus`],
+      'SUCCESS',
+      `${service} deployment is successful`,
+    )
+    assert.equal(
+      staging.services[`${service}InstanceStatus`],
+      'RUNNING',
+      `${service} instance is running`,
+    )
+    assert.match(
+      staging.services[`${service}ImageDigest`],
+      /^sha256:[a-f0-9]{64}$/,
+      `${service} has an immutable image digest`,
+    )
+  }
   assert.equal(staging.migrationLedger.applied, staging.migrationLedger.expected)
   assert.equal(staging.migrationLedger.admissionsOpen, 0)
   assert.equal(staging.stagingProfile.passed, staging.stagingProfile.expected)
