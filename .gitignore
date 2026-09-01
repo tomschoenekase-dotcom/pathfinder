@@ -16,6 +16,7 @@ test-results/
 artifacts/release-verification/
 artifacts/staging-handoff/
 artifacts/hosted-golden-venue/
+artifacts/hosted-dashboard-assets/
 artifacts/ui-proof/
 apps/dashboard/public/characters/
 apps/web/public/characters/

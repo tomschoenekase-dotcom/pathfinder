@@ -17,6 +17,7 @@
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "golden-venue:hosted-smoke": "pnpm --dir apps/dashboard exec node scripts/hosted-golden-venue-smoke.mjs",
+    "dashboard:hosted-assets": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-dashboard-assets.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
     "test:operating-cost:disposable": "node scripts/run-disposable-operating-cost.mjs",
     "test:public-interest-conversion:disposable": "node scripts/run-disposable-public-interest-conversion.mjs",

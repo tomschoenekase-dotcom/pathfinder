@@ -3,6 +3,8 @@
   "staging": {
     "healthUrl": "https://staging-web-staging-bbeb.up.railway.app/api/health",
     "host": "staging-web-staging-bbeb.up.railway.app",
+    "dashboardUrl": "https://staging-dashboard-staging-dc4a.up.railway.app/",
+    "dashboardHost": "staging-dashboard-staging-dc4a.up.railway.app",
     "resources": {
       "database": "7bd81064-588f-48a5-b138-1fc86691a09b",
       "redis": "d53ab235-d403-4d7d-b525-3ace0ef07b92",
