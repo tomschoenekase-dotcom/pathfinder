@@ -52,12 +52,12 @@
       "window": "24h",
       "serviceErrorRows": 0,
       "webDashboardHttp5xxRows": 0,
-      "founderAbsenceRetainedEvents": 4,
+      "founderAbsenceRetainedEvents": 6,
       "founderAbsenceFailedEvents": 0
     },
     "founderAbsenceHistory": {
       "window": "168h",
-      "retainedEvents": 35,
+      "retainedEvents": 37,
       "observedDays": 1,
       "consecutiveCompleteDays": 1,
       "sevenDayReviewReady": false,
