@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "packageId": "physical-launch-review-pending",
+  "physical": true,
+  "syntheticVenue": true,
+  "customerData": false,
+  "targetEnvironment": "railway-staging",
+  "release": {
+    "revision": "0000000000000000000000000000000000000000",
+    "origin": "https://replace-with-reviewed-staging-origin.invalid"
+  },
+  "scopes": ["VIS-01", "VIS-03", "A11Y-01", "PHY-01"],
+  "review": {
+    "status": "PENDING",
+    "reviewerReference": "replace-after-human-review",
+    "reviewedAt": "2026-09-01T00:00:00Z"
+  },
+  "evidence": [],
+  "sessions": []
+}
