@@ -69,6 +69,14 @@ Ask every expected fixture question. Record the assistant answer and source reco
 The disposable runner enforces this contract against the exact checked-in fixture; `golden-venue:validate`
 is also a static release gate so question/proof metadata cannot silently drift.
 
+## Founder-approved topology, media, and update evidence
+
+The checked-in Riverside Aquarium lifecycle fixture intentionally contains no reviewed topology or
+media asset. Before a hosted `VIS-06`, `VIS-07`, `UPD-01`, or `UPD-02` exercise, validate a separately
+founder-approved, non-customer package with `pnpm founder-evidence:validate -- <package.json>` and
+follow `docs/founder-approved-synthetic-evidence-package.md`. A passing receipt is intake evidence
+only: it does not authenticate, upload, mutate staging, call a provider, or authorize publication.
+
 ## Failure injection contract
 
 - Provider outage: disable provider access before dispatch; expect `PROVIDER_UNAVAILABLE` and no ambiguous retry.

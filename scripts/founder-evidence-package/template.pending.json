@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "replace-with-founder-approved-fixture-key",
+  "synthetic": true,
+  "customerData": false,
+  "venue": {
+    "stableKey": "replace-with-synthetic-venue-key",
+    "name": "Replace with approved synthetic venue name"
+  },
+  "approval": {
+    "status": "PENDING",
+    "approvedByReference": "replace-with-founder-review-reference",
+    "approvedAt": "2026-09-01T00:00:00Z",
+    "approvedScopes": ["VIS-06", "VIS-07", "UPD-01", "UPD-02"]
+  },
+  "topology": {
+    "reviewedAt": "2026-09-01T00:00:00Z",
+    "reviewerReference": "replace-with-founder-review-reference",
+    "floors": [{ "stableKey": "main-floor", "name": "Main Floor" }],
+    "locations": [
+      {
+        "stableKey": "entry",
+        "floorStableKey": "main-floor",
+        "kind": "ENTRANCE",
+        "displayName": "Entry"
+      },
+      {
+        "stableKey": "destination",
+        "floorStableKey": "main-floor",
+        "kind": "EXHIBIT",
+        "displayName": "Destination"
+      }
+    ],
+    "connections": [
+      {
+        "from": "entry",
+        "to": "destination",
+        "kind": "WALKWAY",
+        "bidirectional": true,
+        "accessible": true,
+        "directions": "Replace with reviewed synthetic directions.",
+        "reviewedAt": "2026-09-01T00:00:00Z"
+      }
+    ]
+  },
+  "media": [
+    {
+      "stableKey": "orientation-image",
+      "localPath": "REPLACE-WITH-APPROVED-ASSET.png",
+      "mimeType": "image/png",
+      "byteSize": 1,
+      "sha256": "replace-with-lowercase-sha256",
+      "altText": "Replace with approved alt text.",
+      "sourceName": "Replace with approved source name",
+      "reviewedAt": "2026-09-01T00:00:00Z",
+      "rights": {
+        "basis": "VENUE_OWNED",
+        "statement": "Replace with approved rights statement.",
+        "evidenceReference": "replace-with-rights-evidence-reference"
+      }
+    }
+  ],
+  "history": [
+    {
+      "stableKey": "addition-example",
+      "changeClass": "addition",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": null,
+      "after": { "replace": "with reviewed synthetic value" }
+    },
+    {
+      "stableKey": "correction-example",
+      "changeClass": "correction",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": { "replace": "old reviewed synthetic value" },
+      "after": { "replace": "corrected reviewed synthetic value" }
+    },
+    {
+      "stableKey": "supersession-example",
+      "changeClass": "supersession",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": { "replace": "superseded reviewed synthetic value" },
+      "after": { "replace": "current reviewed synthetic value" }
+    },
+    {
+      "stableKey": "temporary-example",
+      "changeClass": "temporary",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "temporaryEndAt": "2026-09-02T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": { "active": false },
+      "after": { "active": true }
+    },
+    {
+      "stableKey": "conflict-example",
+      "changeClass": "conflict",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": { "replace": "reviewed synthetic source A" },
+      "after": { "replace": "reviewed synthetic source B retained as conflict" }
+    },
+    {
+      "stableKey": "duplicate-example",
+      "changeClass": "duplicate-no-op",
+      "effectiveAt": "2026-09-01T00:00:00Z",
+      "sourceReference": "replace-with-source-reference",
+      "before": { "replace": "identical reviewed synthetic value" },
+      "after": { "replace": "identical reviewed synthetic value" }
+    }
+  ],
+  "exercise": {
+    "targetEnvironment": "railway-staging",
+    "publicationAuthority": false,
+    "providerCallsAllowed": false,
+    "requiredLifecycleActions": ["approve", "apply", "revert", "schedule", "deactivate"]
+  }
+}
