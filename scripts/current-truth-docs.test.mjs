@@ -46,6 +46,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.ok(truth.authority.doesNotProve.includes('live billing'))
 
   const staging = truth.hostedStagingSnapshot
+  assert.equal(staging.sourceBranch, 'codex/pathfinder-v2-staging')
   assert.match(staging.releaseSha, /^[a-f0-9]{40}$/)
   for (const service of ['web', 'dashboard', 'worker']) {
     assert.match(
@@ -76,6 +77,16 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.equal(staging.stagingProfile.blocked, 0)
   assert.equal(staging.productionTouched, false)
   assert.ok((await stat(path.resolve(repositoryRoot, staging.evidence))).isFile())
+
+  assert.equal(truth.engineeringSnapshot.sourceBranch, 'codex/staging-runbook-topology-20260830')
+  assert.match(truth.engineeringSnapshot.lastVerifiedCandidateSha, /^[a-f0-9]{40}$/)
+  assert.equal(truth.engineeringSnapshot.lastVerifiedCandidateReadiness, 'ready-for-staging-review')
+  assert.equal(truth.engineeringSnapshot.deployedApplicationSha, staging.releaseSha)
+  assert.notEqual(truth.engineeringSnapshot.lastVerifiedCandidateSha, staging.releaseSha)
+  assert.equal(truth.productionSnapshot.sourceBranch, 'master')
+  assert.match(truth.productionSnapshot.headSha, /^[a-f0-9]{40}$/)
+  assert.notEqual(truth.productionSnapshot.headSha, staging.releaseSha)
+  assert.equal(truth.productionSnapshot.touchedByThisRun, false)
 
   const ids = truth.capabilities.map((capability) => capability.id)
   assert.equal(new Set(ids).size, ids.length)

@@ -19,6 +19,7 @@
     ]
   },
   "hostedStagingSnapshot": {
+    "sourceBranch": "codex/pathfinder-v2-staging",
     "evidence": "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md",
     "releaseSha": "723ecc583a57ac79e56489f4a9a5865cb946d505",
     "services": {
@@ -48,6 +49,17 @@
       "blocked": 0
     },
     "productionTouched": false
+  },
+  "engineeringSnapshot": {
+    "sourceBranch": "codex/staging-runbook-topology-20260830",
+    "lastVerifiedCandidateSha": "ec5f508d09cd4b3bc4b411f65221c5dbd91f0a17",
+    "lastVerifiedCandidateReadiness": "ready-for-staging-review",
+    "deployedApplicationSha": "723ecc583a57ac79e56489f4a9a5865cb946d505"
+  },
+  "productionSnapshot": {
+    "sourceBranch": "master",
+    "headSha": "b00b2c24a0a99f7f4be0f882fa84647921a19c48",
+    "touchedByThisRun": false
   },
   "dynamicFacts": {
     "migrationDirectory": "packages/db/prisma/migrations",
