@@ -21,6 +21,12 @@ const matrixPath = path.join(
   'TORCHIKO_CAPABILITY_MATRIX.md',
 )
 const backlogPath = path.join(repositoryRoot, 'docs', 'system-state', 'TORCHIKO_AUDIT_BACKLOG.md')
+const stagingEvidencePath = path.join(
+  repositoryRoot,
+  'docs',
+  'system-state',
+  'TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md',
+)
 const founderControlRoomPath = path.join(repositoryRoot, 'docs', 'founder-control-room.md')
 const execFileAsync = promisify(execFile)
 
@@ -75,6 +81,18 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.equal(staging.stagingProfile.passed, staging.stagingProfile.expected)
   assert.equal(staging.stagingProfile.failed, 0)
   assert.equal(staging.stagingProfile.blocked, 0)
+  assert.ok(Number.isInteger(staging.runtimeAudit.founderAbsenceRetainedEvents))
+  assert.ok(staging.runtimeAudit.founderAbsenceRetainedEvents >= 0)
+  assert.equal(staging.runtimeAudit.founderAbsenceFailedEvents, 0)
+  assert.ok(Number.isInteger(staging.founderAbsenceHistory.retainedEvents))
+  assert.ok(
+    staging.founderAbsenceHistory.retainedEvents >=
+      staging.runtimeAudit.founderAbsenceRetainedEvents,
+  )
+  assert.equal(staging.founderAbsenceHistory.consecutiveCompleteDays, 1)
+  assert.equal(staging.founderAbsenceHistory.sevenDayReviewReady, false)
+  assert.equal(staging.founderAbsenceHistory.certificationGranted, false)
+  assert.equal(staging.founderAbsenceHistory.launchGate, false)
   assert.equal(staging.productionTouched, false)
   assert.ok((await stat(path.resolve(repositoryRoot, staging.evidence))).isFile())
 
@@ -134,6 +152,26 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
       assert.ok((await stat(evidencePath)).isFile() || (await stat(evidencePath)).isDirectory())
     }
   }
+})
+
+test('staging evidence prose agrees with the machine-readable observer counts', async () => {
+  const truth = await loadTruth()
+  const evidence = await readFile(stagingEvidencePath, 'utf8')
+  const staging = truth.hostedStagingSnapshot
+  assert.match(
+    evidence,
+    new RegExp(
+      `${staging.runtimeAudit.founderAbsenceRetainedEvents} complete founder-absence events with zero failures`,
+    ),
+  )
+  assert.match(
+    evidence,
+    new RegExp(`${staging.founderAbsenceHistory.retainedEvents} complete events with zero failures`),
+  )
+  assert.match(
+    evidence,
+    new RegExp(`one consecutive complete day`),
+  )
 })
 
 test('dynamic repository facts agree with all current-state documents', async () => {

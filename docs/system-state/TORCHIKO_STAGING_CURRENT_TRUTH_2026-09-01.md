@@ -32,9 +32,10 @@ revision and immutable image digest matched the identities above. Public health 
 release and reviewed database, Redis, and storage resource identities with database and queue `up`.
 The exact hosted staging profile passed 19/19 with zero failed or blocked gates.
 
-The final bounded 24-hour runtime audit found zero service error rows and zero web/dashboard HTTP 5xx
-rows. The exact 168-hour reconciliation across the preceding and current worker deployments retained
-32 complete events with zero failures on `2026-09-01`. The release rollover changed the retained
+The latest bounded 24-hour runtime audit found zero service error rows, zero web/dashboard HTTP 5xx
+rows, and 4 complete founder-absence events with zero failures. The exact 168-hour reconciliation
+across the preceding and current worker deployments retained 35 complete events with zero failures
+on `2026-09-01`. The release rollover changed the retained
 release identity, so the exact reconciler reports one consecutive complete day; it remains explicitly
 `sevenDayReviewReady=false`, `certificationGranted=false`, and `launchGate=false` until real retained
 history, private-ledger readback, and human review satisfy the remaining gates.

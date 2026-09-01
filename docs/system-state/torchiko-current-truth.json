@@ -52,11 +52,12 @@
       "window": "24h",
       "serviceErrorRows": 0,
       "webDashboardHttp5xxRows": 0,
+      "founderAbsenceRetainedEvents": 4,
       "founderAbsenceFailedEvents": 0
     },
     "founderAbsenceHistory": {
       "window": "168h",
-      "retainedEvents": 32,
+      "retainedEvents": 35,
       "observedDays": 1,
       "consecutiveCompleteDays": 1,
       "sevenDayReviewReady": false,
@@ -67,10 +68,10 @@
   },
   "engineeringSnapshot": {
     "sourceBranch": "codex/staging-runbook-topology-20260830",
-    "lastVerifiedCandidateSha": "a3e66de5a1231aca6df5d150ca7bcd81831dd784",
+    "lastVerifiedCandidateSha": "c8f235e4dfa691d5ea03d5781c6107a044e0826f",
     "lastVerifiedCandidateReadiness": "ready-for-staging-review",
-    "lastVerifiedCandidateReportSha256": "6B6299617B84BB9E6FEE4F1D913D2C276F8FE38D0DE6F776EDE9392405C39B75",
-    "lastVerifiedCandidateMarkdownSha256": "5D323F21AB86F8BC6AF1DE0740B7CA29F8B310ACA93895A78850889C5DCFE472",
+    "lastVerifiedCandidateReportSha256": "5932C515CEF9437A531C46CFAED53CC359BE37019522E3F5F53C56F67A18D711",
+    "lastVerifiedCandidateMarkdownSha256": "394CC7B72C1E8194C2875521ACC9068AE7ACC70A96F0D20084C31E345F398ED9",
     "deployedApplicationSha": "a3e66de5a1231aca6df5d150ca7bcd81831dd784",
     "stagingReportSha256": "91F8CE891A34D55FE9BA6192D0506C57029A4047EC062E627906C60594D13F5F",
     "stagingMarkdownSha256": "EBB0D61043D7CEE898B35E150C539EE7378E9A1E09CAAEE343A6CD1313AE2E5A"
