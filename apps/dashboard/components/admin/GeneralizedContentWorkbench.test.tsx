@@ -342,6 +342,10 @@ describe('GeneralizedContentWorkbench', () => {
     const button = screen.getByRole('button', { name: 'Publish this version to guests' })
     fireEvent.click(button)
     await waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1))
+    await screen.findByText(
+      'The publication outcome is unknown. Retry only if this exact revision is unchanged.',
+    )
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(button)
     await waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(2))
     expect(mocks.publish.mock.calls[0]?.[0].requestId).toBe(
