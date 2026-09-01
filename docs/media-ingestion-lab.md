@@ -39,9 +39,12 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
 - **Forensic** increases image dimensions and uses high-detail vision input. It is intended for dense
   labels and provenance work.
 
-The model strings are deployment configuration, not product constants. `MEDIA_ANALYSIS_MODEL` and
-`MEDIA_SYNTHESIS_MODEL` default to `gpt-5.6-luna`; `MEDIA_TRANSCRIPTION_MODEL` defaults to
-`gpt-4o-mini-transcribe`. This allows price/quality changes without migrations.
+The reviewed model strings are code-owned contracts. `MEDIA_ANALYSIS_MODEL` and
+`MEDIA_SYNTHESIS_MODEL` default to and currently admit only `gpt-5-mini-2025-08-07`;
+`MEDIA_TRANSCRIPTION_MODEL` defaults to and currently admits only `gpt-4o-mini-transcribe`.
+Deployment configuration may repeat those exact values, but an unreviewed override fails before
+archive processing or provider dispatch. Changing price or quality now requires a code-reviewed,
+versioned model-contract update rather than an arbitrary environment edit.
 
 ## Required deployment configuration
 

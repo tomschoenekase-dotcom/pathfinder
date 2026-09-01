@@ -15,6 +15,10 @@ export { normalizeAiUsageErrorCode, type AiUsageErrorCode } from './usage-error-
 export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from './openai-text'
 export {
   createOpenAiMediaJson,
+  OPENAI_MEDIA_JSON_MODEL,
+  OPENAI_MEDIA_TRANSCRIPTION_MODEL,
+  resolveOpenAiMediaJsonModel,
+  resolveOpenAiMediaTranscriptionModel,
   setOpenAiMediaClientForTesting,
   transcribeOpenAiMedia,
   type OpenAiMediaClient,

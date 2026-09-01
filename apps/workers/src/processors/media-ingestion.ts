@@ -21,7 +21,12 @@ import {
 } from '@pathfinder/contracts'
 
 import { logger } from '@pathfinder/config'
-import { createOpenAiMediaJson, transcribeOpenAiMedia } from '@pathfinder/ai'
+import {
+  createOpenAiMediaJson,
+  resolveOpenAiMediaJsonModel,
+  resolveOpenAiMediaTranscriptionModel,
+  transcribeOpenAiMedia,
+} from '@pathfinder/ai'
 import {
   assertVenueAiAvailable,
   db,
@@ -418,6 +423,7 @@ async function analyzeImage(
   sourceId: string,
   context: string,
   mode: string,
+  model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -433,7 +439,7 @@ async function analyzeImage(
     reserveProviderOperation,
     () =>
       createOpenAiMediaJson({
-        model: process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+        model,
         messages: [
           {
             role: 'system',
@@ -469,6 +475,7 @@ async function transcribe(
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
+  model: ReturnType<typeof resolveOpenAiMediaTranscriptionModel>,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -478,7 +485,7 @@ async function transcribe(
     () =>
       transcribeOpenAiMedia({
         file: createReadStream(filePath),
-        model: process.env.MEDIA_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+        model,
         ...(signal ? { signal } : {}),
       }),
     () => assertMediaJobActive(signal),
@@ -692,6 +699,7 @@ async function synthesize(
   venueName: string,
   context: string,
   analyses: unknown[],
+  model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
   signal?: AbortSignal,
 ) {
   assertMediaJobActive(signal)
@@ -710,10 +718,7 @@ async function synthesize(
         reserveProviderOperation,
         () =>
           createOpenAiMediaJson({
-            model:
-              process.env.MEDIA_SYNTHESIS_MODEL ??
-              process.env.MEDIA_ANALYSIS_MODEL ??
-              'gpt-5.6-luna',
+            model,
             messages: [
               {
                 role: 'system',
@@ -747,8 +752,7 @@ async function synthesize(
     reserveProviderOperation,
     () =>
       createOpenAiMediaJson({
-        model:
-          process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+        model,
         messages: [
           {
             role: 'system',
@@ -838,6 +842,13 @@ export async function processMediaIngestionJob(
     assertMediaJobActive(signal)
     if (!process.env.OPENAI_API_KEY)
       throw new Error('OPENAI_API_KEY is required for media analysis.')
+    const analysisModel = resolveOpenAiMediaJsonModel(process.env.MEDIA_ANALYSIS_MODEL)
+    const synthesisModel = resolveOpenAiMediaJsonModel(
+      process.env.MEDIA_SYNTHESIS_MODEL ?? analysisModel,
+    )
+    const transcriptionModel = resolveOpenAiMediaTranscriptionModel(
+      process.env.MEDIA_TRANSCRIPTION_MODEL,
+    )
     const settings = project.settings as {
       transcribeAudio?: boolean
       detectDuplicates?: boolean
@@ -908,10 +919,17 @@ export async function processMediaIngestionJob(
             sourceId,
             project.context,
             project.mode,
+            analysisModel,
             signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
-          analysis = await transcribe(venueAdmission, reserveProviderOperation, file.path, signal)
+          analysis = await transcribe(
+            venueAdmission,
+            reserveProviderOperation,
+            file.path,
+            transcriptionModel,
+            signal,
+          )
         } else if (mediaType === 'VIDEO') {
           const frameDir = join(workDir, `frames-${index}`)
           analysis = await withMediaGeneratedOutputDirectory(frameDir, async () => {
@@ -933,6 +951,7 @@ export async function processMediaIngestionJob(
                   `${sourceId}/${frame}`,
                   project.context,
                   project.mode,
+                  analysisModel,
                   signal,
                 ),
               )
@@ -943,7 +962,13 @@ export async function processMediaIngestionJob(
               try {
                 await extractVideoAudio(file.path, audioPath, generatedOutputBudget, signal)
                 transcript = (
-                  await transcribe(venueAdmission, reserveProviderOperation, audioPath, signal)
+                  await transcribe(
+                    venueAdmission,
+                    reserveProviderOperation,
+                    audioPath,
+                    transcriptionModel,
+                    signal,
+                  )
                 ).summary
               } catch (error) {
                 assertMediaJobActive(signal)
@@ -1046,6 +1071,7 @@ export async function processMediaIngestionJob(
       project.venue.name,
       project.context,
       analyses,
+      synthesisModel,
       signal,
     )
     assertMediaJobActive(signal)

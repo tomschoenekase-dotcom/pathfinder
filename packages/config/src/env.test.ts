@@ -133,6 +133,33 @@ describe('error monitoring environment', () => {
   })
 })
 
+describe('media provider model contracts', () => {
+  it('accepts only the reviewed media model snapshots', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        MEDIA_ANALYSIS_MODEL: 'gpt-5-mini-2025-08-07',
+        MEDIA_SYNTHESIS_MODEL: 'gpt-5-mini-2025-08-07',
+        MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+      }),
+    ).toMatchObject({
+      MEDIA_ANALYSIS_MODEL: 'gpt-5-mini-2025-08-07',
+      MEDIA_SYNTHESIS_MODEL: 'gpt-5-mini-2025-08-07',
+      MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+    })
+
+    expect(() =>
+      envSchema.parse({ ...requiredEnvironment, MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna' }),
+    ).toThrow()
+    expect(() =>
+      envSchema.parse({ ...requiredEnvironment, MEDIA_SYNTHESIS_MODEL: 'gpt-4o-mini' }),
+    ).toThrow()
+    expect(() =>
+      envSchema.parse({ ...requiredEnvironment, MEDIA_TRANSCRIPTION_MODEL: 'whisper-1' }),
+    ).toThrow()
+  })
+})
+
 describe('WORKER_SCHEDULERS_ENABLED', () => {
   it('never defaults background work on in the shared schema', () => {
     process.env.NODE_ENV = 'production'

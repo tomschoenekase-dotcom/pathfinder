@@ -29,6 +29,7 @@ const mediaGateway = await readFile(
   new URL('../packages/ai/src/openai-media.ts', import.meta.url),
   'utf8',
 )
+const envSchema = await readFile(new URL('../packages/config/src/env.ts', import.meta.url), 'utf8')
 
 test('media provider-operation migration is atomic and database bounded', () => {
   assert.match(migration, /^BEGIN;/u)
@@ -68,6 +69,27 @@ test('every direct media provider dispatch is wrapped by a durable pre-dispatch 
   assert.equal(mediaGateway.match(/chat\.completions\.create\(/gu)?.length, 1)
   assert.equal(mediaGateway.match(/audio\.transcriptions\.create\(/gu)?.length, 1)
   assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
+})
+
+test('media jobs resolve only reviewed model snapshots before source processing', () => {
+  assert.match(mediaGateway, /OPENAI_MEDIA_JSON_MODEL = 'gpt-5-mini-2025-08-07' as const/u)
+  assert.match(
+    mediaGateway,
+    /OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const/u,
+  )
+  assert.match(
+    envSchema,
+    /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5-mini-2025-08-07'\)\.optional\(\)/u,
+  )
+  assert.match(
+    envSchema,
+    /MEDIA_TRANSCRIPTION_MODEL: z\.literal\('gpt-4o-mini-transcribe'\)\.optional\(\)/u,
+  )
+  assert.doesNotMatch(processor, /gpt-5\.6-luna/u)
+
+  const modelResolution = processor.indexOf('const analysisModel = resolveOpenAiMediaJsonModel')
+  const sourceProcessing = processor.indexOf('await downloadAndExtract(')
+  assert.ok(modelResolution >= 0 && sourceProcessing > modelResolution)
 })
 
 test('video scratch output is axis-bounded and cleaned before asset persistence', () => {

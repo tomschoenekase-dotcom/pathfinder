@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   createOpenAiMediaJson,
+  OPENAI_MEDIA_JSON_MODEL,
+  OPENAI_MEDIA_TRANSCRIPTION_MODEL,
+  resolveOpenAiMediaJsonModel,
+  resolveOpenAiMediaTranscriptionModel,
   setOpenAiMediaClientForTesting,
   transcribeOpenAiMedia,
   type OpenAiMediaClient,
@@ -24,6 +28,18 @@ describe('OpenAI media gateway', () => {
     setOpenAiMediaClientForTesting(null)
   })
 
+  it('admits only the reviewed media model contracts', () => {
+    expect(resolveOpenAiMediaJsonModel()).toBe(OPENAI_MEDIA_JSON_MODEL)
+    expect(resolveOpenAiMediaJsonModel(OPENAI_MEDIA_JSON_MODEL)).toBe(OPENAI_MEDIA_JSON_MODEL)
+    expect(() => resolveOpenAiMediaJsonModel('gpt-5.6-luna')).toThrow('reviewed model')
+
+    expect(resolveOpenAiMediaTranscriptionModel()).toBe(OPENAI_MEDIA_TRANSCRIPTION_MODEL)
+    expect(resolveOpenAiMediaTranscriptionModel(OPENAI_MEDIA_TRANSCRIPTION_MODEL)).toBe(
+      OPENAI_MEDIA_TRANSCRIPTION_MODEL,
+    )
+    expect(() => resolveOpenAiMediaTranscriptionModel('whisper-1')).toThrow('reviewed model')
+  })
+
   it('requests bounded JSON chat output and forwards cancellation', async () => {
     createChatCompletion.mockResolvedValueOnce({
       choices: [{ message: { content: '{"summary":"entrance"}' } }],
@@ -32,7 +48,7 @@ describe('OpenAI media gateway', () => {
 
     await expect(
       createOpenAiMediaJson({
-        model: 'test-media-model',
+        model: OPENAI_MEDIA_JSON_MODEL,
         messages: [{ role: 'user', content: 'Inspect this.' }],
         signal: controller.signal,
       }),
@@ -40,7 +56,7 @@ describe('OpenAI media gateway', () => {
 
     expect(createChatCompletion).toHaveBeenCalledWith(
       {
-        model: 'test-media-model',
+        model: OPENAI_MEDIA_JSON_MODEL,
         response_format: { type: 'json_object' },
         messages: [{ role: 'user', content: 'Inspect this.' }],
       },
@@ -52,7 +68,7 @@ describe('OpenAI media gateway', () => {
     createChatCompletion.mockResolvedValueOnce({ choices: [{ message: { content: null } }] })
     await expect(
       createOpenAiMediaJson({
-        model: 'test-media-model',
+        model: OPENAI_MEDIA_JSON_MODEL,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
@@ -60,7 +76,7 @@ describe('OpenAI media gateway', () => {
     createChatCompletion.mockResolvedValueOnce({ choices: [] })
     await expect(
       createOpenAiMediaJson({
-        model: 'test-media-model',
+        model: OPENAI_MEDIA_JSON_MODEL,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
@@ -70,11 +86,11 @@ describe('OpenAI media gateway', () => {
     const file = { stream: true }
     createTranscription.mockResolvedValueOnce({ text: 'Welcome to the north hall.' })
 
-    await expect(transcribeOpenAiMedia({ file, model: 'test-transcription-model' })).resolves.toBe(
-      'Welcome to the north hall.',
-    )
+    await expect(
+      transcribeOpenAiMedia({ file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL }),
+    ).resolves.toBe('Welcome to the north hall.')
     expect(createTranscription).toHaveBeenCalledWith(
-      { file, model: 'test-transcription-model' },
+      { file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL },
       undefined,
     )
   })

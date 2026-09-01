@@ -13,6 +13,27 @@ const chatCompletionSchema = z.object({
 
 const transcriptionSchema = z.object({ text: z.string() })
 
+export const OPENAI_MEDIA_JSON_MODEL = 'gpt-5-mini-2025-08-07' as const
+export const OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const
+
+export function resolveOpenAiMediaJsonModel(value?: string): typeof OPENAI_MEDIA_JSON_MODEL {
+  if (!value) return OPENAI_MEDIA_JSON_MODEL
+  if (value !== OPENAI_MEDIA_JSON_MODEL) {
+    throw new Error('MEDIA_ANALYSIS_MODEL and MEDIA_SYNTHESIS_MODEL must use the reviewed model')
+  }
+  return value
+}
+
+export function resolveOpenAiMediaTranscriptionModel(
+  value?: string,
+): typeof OPENAI_MEDIA_TRANSCRIPTION_MODEL {
+  if (!value) return OPENAI_MEDIA_TRANSCRIPTION_MODEL
+  if (value !== OPENAI_MEDIA_TRANSCRIPTION_MODEL) {
+    throw new Error('MEDIA_TRANSCRIPTION_MODEL must use the reviewed model')
+  }
+  return value
+}
+
 export type OpenAiMediaMessage = {
   role: 'system' | 'user'
   content:
@@ -65,7 +86,7 @@ export function setOpenAiMediaClientForTesting(client: OpenAiMediaClient | null)
 }
 
 export async function createOpenAiMediaJson(params: {
-  model: string
+  model: typeof OPENAI_MEDIA_JSON_MODEL
   messages: OpenAiMediaMessage[]
   signal?: AbortSignal
 }): Promise<string> {
@@ -85,7 +106,7 @@ export async function createOpenAiMediaJson(params: {
 
 export async function transcribeOpenAiMedia(params: {
   file: unknown
-  model: string
+  model: typeof OPENAI_MEDIA_TRANSCRIPTION_MODEL
   signal?: AbortSignal
 }): Promise<string> {
   const raw = await getOpenAiMediaClient().audio.transcriptions.create(
