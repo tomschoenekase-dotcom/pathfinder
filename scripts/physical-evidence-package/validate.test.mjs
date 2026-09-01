@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -282,6 +282,19 @@ test('rejects evidence hash, signature, path, and time drift', async () => {
 
 test('checked-in pending template cannot pass validation', async () => {
   const templatePath = path.join(directory, 'template.pending.json')
+  const template = JSON.parse(await readFile(templatePath, 'utf8'))
+  assert.deepEqual(
+    template.sessions.map((session) => session.platform),
+    ['IOS', 'ANDROID'],
+  )
+  assert.deepEqual(
+    template.sessions[0].checks.map((check) => check.id),
+    REQUIRED_CHECKS,
+  )
+  assert.deepEqual(
+    template.sessions[1].checks.map((check) => check.id),
+    REQUIRED_CHECKS,
+  )
   const result = spawnSync(process.execPath, [path.join(directory, 'validate.mjs'), templatePath], {
     encoding: 'utf8',
     shell: false,
