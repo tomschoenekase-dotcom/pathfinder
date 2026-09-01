@@ -9,9 +9,8 @@ live billing, destructive data work, or deferred marketing, branding, wordmark, 
 ## Active admitted release
 
 - Git revision: `a3e66de5a1231aca6df5d150ca7bcd81831dd784`.
-- Candidate-branch GitHub Actions run `33540059467` passed. Staging-branch run `33543975717`
-  released the Railway CI wait for this exact revision; its final public completion state is retained
-  separately because Railway deployment admission does not substitute for the workflow result.
+- Candidate-branch GitHub Actions run `33540059467` and staging-branch run `33543975717` both passed
+  on this exact revision.
 - Web deployment: `b4d39999-6c42-42a4-9069-53ce5c86e16a`, image
   `sha256:3a11d66fa11f3c43fcd107d08b436e9b39beafec53e62f71d64e1c4804797a86`.
 - Dashboard deployment: `cbba90a2-7e99-40d5-865d-77daf64da717`, image

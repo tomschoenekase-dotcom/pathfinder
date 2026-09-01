@@ -254,7 +254,7 @@ Railway has separate dashboard, web, and worker configurations plus Dockerfiles 
 
 Supabase provides the PostgreSQL target. A password-prompted logical backup script pins PostgreSQL/pgvector client versions, requires SSL, refuses overwrite, uses a consistent snapshot, verifies `pg_restore --list`, and emits a hash/manifest. Older retained documentation records a successful archive and local restore rehearsal. It also records that the Supabase Free plan had no scheduled backups or PITR at that time. Current provider backup settings and a recent restore drill remain unknown.
 
-CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates run a 27-gate assessment and can be projected as immutable platform evidence. Candidate-branch GitHub Actions run `33540059467` completed successfully for the exact active staging revision; staging-branch run `33543975717` is tracked separately through final workflow completion. Local compose pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
+CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates run a 27-gate assessment and can be projected as immutable platform evidence. Candidate-branch GitHub Actions run `33540059467` and staging-branch run `33543975717` both completed successfully for the exact active staging revision. Local compose pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
 
 ## Security / Tenant Isolation
 
