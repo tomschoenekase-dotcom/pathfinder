@@ -158,6 +158,18 @@ test('staging evidence prose agrees with the machine-readable observer counts', 
   const truth = await loadTruth()
   const evidence = await readFile(stagingEvidencePath, 'utf8')
   const staging = truth.hostedStagingSnapshot
+  assert.match(evidence, new RegExp(staging.releaseSha))
+  for (const service of ['web', 'dashboard', 'worker']) {
+    assert.match(evidence, new RegExp(staging.services[`${service}DeploymentId`]))
+    assert.match(evidence, new RegExp(staging.services[`${service}ImageDigest`]))
+  }
+  assert.match(
+    evidence,
+    new RegExp(
+      `exact ${staging.migrationLedger.expected}-file manifest, complete ${staging.migrationLedger.applied}-row`,
+    ),
+  )
+  assert.match(evidence, new RegExp(`${staging.migrationLedger.publicTables} public tables`))
   assert.match(
     evidence,
     new RegExp(
