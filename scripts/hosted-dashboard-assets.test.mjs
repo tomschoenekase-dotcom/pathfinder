@@ -7,6 +7,7 @@ import {
   resolveHostedDashboardAssetReportPath,
   summarizeDashboardAssetSamples,
   validateDashboardAssetPolicy,
+  validateDashboardAssetSamples,
 } from '../apps/dashboard/scripts/measure-hosted-dashboard-assets.mjs'
 
 const revision = 'a'.repeat(40)
@@ -82,4 +83,29 @@ test('keeps reports inside the repository and summarizes nearest-rank distributi
     p95: 240,
     maximum: 240,
   })
+})
+
+test('rejects incomplete, errored, and non-sign-in measurements', () => {
+  const valid = {
+    finalPath: '/sign-in',
+    browserErrors: [],
+    sameOriginRequests: 1,
+    sameOriginTransferBytes: 1,
+    scriptRequests: 1,
+    scriptTransferBytes: 1,
+  }
+  assert.doesNotThrow(() => validateDashboardAssetSamples([valid]))
+  assert.throws(() => validateDashboardAssetSamples([]), /samples-missing/u)
+  assert.throws(
+    () => validateDashboardAssetSamples([{ ...valid, finalPath: '/dashboard' }]),
+    /sign-in-boundary-missing/u,
+  )
+  assert.throws(
+    () => validateDashboardAssetSamples([{ ...valid, browserErrors: [{ kind: 'page-error' }] }]),
+    /browser-errors/u,
+  )
+  assert.throws(
+    () => validateDashboardAssetSamples([{ ...valid, scriptTransferBytes: 0 }]),
+    /transfer-evidence-missing/u,
+  )
 })

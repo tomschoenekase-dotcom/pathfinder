@@ -89,6 +89,24 @@ export function summarizeDashboardAssetSamples(samples) {
   )
 }
 
+export function validateDashboardAssetSamples(samples) {
+  if (samples.length < 1) fail('dashboard-shell-samples-missing')
+  if (samples.some((sample) => sample.finalPath !== '/sign-in'))
+    fail('dashboard-shell-sign-in-boundary-missing')
+  if (samples.some((sample) => sample.browserErrors.length > 0))
+    fail('dashboard-shell-browser-errors')
+  if (
+    samples.some(
+      (sample) =>
+        sample.sameOriginRequests < 1 ||
+        sample.sameOriginTransferBytes < 1 ||
+        sample.scriptRequests < 1 ||
+        sample.scriptTransferBytes < 1,
+    )
+  )
+    fail('dashboard-shell-transfer-evidence-missing')
+}
+
 function fingerprint(kind, message) {
   return {
     kind,
@@ -163,20 +181,7 @@ export async function runHostedDashboardAssetMeasurement(options) {
   } finally {
     await browser.close()
   }
-  if (samples.some((sample) => sample.finalPath !== '/sign-in'))
-    fail('dashboard-shell-sign-in-boundary-missing')
-  if (samples.some((sample) => sample.browserErrors.length > 0))
-    fail('dashboard-shell-browser-errors')
-  if (
-    samples.some(
-      (sample) =>
-        sample.sameOriginRequests < 1 ||
-        sample.sameOriginTransferBytes < 1 ||
-        sample.scriptRequests < 1 ||
-        sample.scriptTransferBytes < 1,
-    )
-  )
-    fail('dashboard-shell-transfer-evidence-missing')
+  validateDashboardAssetSamples(samples)
 
   const report = {
     schemaVersion: 1,
