@@ -117,6 +117,7 @@
     "overrides": {
       "form-data@>=4.0.0 <4.0.6": "4.0.6",
       "@babel/core@<7.29.6": "7.29.6",
+      "browserslist@<4.28.7": "4.28.7",
       "js-yaml@>=4.0.0 <4.3.1": "4.3.1",
       "minimatch@>=3.0.0 <4.0.0>brace-expansion": "1.1.18",
       "minimatch@>=9.0.0 <10.0.0>brace-expansion": "2.1.4",
