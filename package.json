@@ -7,7 +7,7 @@
     "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "pnpm characters:sync && turbo run test && pnpm test:scripts",
+    "test": "pnpm characters:sync && turbo run test --concurrency=2 && pnpm test:scripts",
     "audit:prod": "pnpm audit --prod --audit-level high",
     "test:accessibility": "node scripts/run-packet-2-accessibility.mjs",
     "test:browser-foundation": "node scripts/run-packet-2-browser-foundation.mjs",
