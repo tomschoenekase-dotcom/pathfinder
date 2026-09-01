@@ -108,15 +108,18 @@ export function createWorkerAiBudgetGate(params: {
         reservation: requireReservation(ref),
         settledUnits: actualUnits,
       })
+      reservations.delete(ref.id)
     },
     settleAmbiguous: async (ref) => {
       await settleAiCostAttemptAmbiguous({ db, reservation: requireReservation(ref) })
+      reservations.delete(ref.id)
     },
     releaseUndispatched: async (ref) => {
       await releaseUndispatchedAiCostAttempt({
         db,
         reservation: requireReservation(ref),
       })
+      reservations.delete(ref.id)
     },
   }
 }

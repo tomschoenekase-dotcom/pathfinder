@@ -26,6 +26,7 @@ import {
   resolveOpenAiMediaJsonModel,
   resolveOpenAiMediaTranscriptionModel,
   transcribeOpenAiMedia,
+  type AiBudgetGate,
   type AiUsageSink,
 } from '@pathfinder/ai'
 import {
@@ -70,7 +71,7 @@ import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
 } from '../lib/media-provider-budget'
-import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 
 const MAX_FILES = 10_000
 const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
@@ -427,6 +428,7 @@ async function analyzeImage(
   mode: string,
   model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
   usageSink: AiUsageSink,
+  budgetGate: AiBudgetGate,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -446,6 +448,7 @@ async function analyzeImage(
         capability: 'MEDIA_ANALYSIS',
         parseResponse: parseMediaAnalysisResponse,
         usageSink,
+        budgetGate,
         messages: [
           {
             role: 'system',
@@ -483,6 +486,7 @@ async function transcribe(
   filePath: string,
   model: ReturnType<typeof resolveOpenAiMediaTranscriptionModel>,
   usageSink: AiUsageSink,
+  budgetGate: AiBudgetGate,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
@@ -494,6 +498,7 @@ async function transcribe(
         file: createReadStream(filePath),
         model,
         usageSink,
+        budgetGate,
         ...(signal ? { signal } : {}),
       }),
     () => assertMediaJobActive(signal),
@@ -709,6 +714,7 @@ async function synthesize(
   analyses: unknown[],
   model: ReturnType<typeof resolveOpenAiMediaJsonModel>,
   usageSink: AiUsageSink,
+  budgetGate: AiBudgetGate,
   signal?: AbortSignal,
 ) {
   assertMediaJobActive(signal)
@@ -732,6 +738,7 @@ async function synthesize(
             parseResponse: (text) =>
               parseProviderJson(text, z.record(z.unknown()), 'Media batch-summary provider output'),
             usageSink,
+            budgetGate,
             messages: [
               {
                 role: 'system',
@@ -765,6 +772,7 @@ async function synthesize(
         capability: 'MEDIA_SYNTHESIS',
         parseResponse: parseMediaSynthesisResponse,
         usageSink,
+        budgetGate,
         messages: [
           {
             role: 'system',
@@ -866,6 +874,11 @@ export async function processMediaIngestionJob(
       venueId: payload.venueId,
       feature: 'media-ingestion',
     })
+    const budgetGate = createWorkerAiBudgetGate({
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      feature: 'media-ingestion',
+    })
     const settings = project.settings as {
       transcribeAudio?: boolean
       detectDuplicates?: boolean
@@ -938,6 +951,7 @@ export async function processMediaIngestionJob(
             project.mode,
             analysisModel,
             usageSink,
+            budgetGate,
             signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
@@ -947,6 +961,7 @@ export async function processMediaIngestionJob(
             file.path,
             transcriptionModel,
             usageSink,
+            budgetGate,
             signal,
           )
         } else if (mediaType === 'VIDEO') {
@@ -972,6 +987,7 @@ export async function processMediaIngestionJob(
                   project.mode,
                   analysisModel,
                   usageSink,
+                  budgetGate,
                   signal,
                 ),
               )
@@ -988,6 +1004,7 @@ export async function processMediaIngestionJob(
                     audioPath,
                     transcriptionModel,
                     usageSink,
+                    budgetGate,
                     signal,
                   )
                 ).summary
@@ -1094,6 +1111,7 @@ export async function processMediaIngestionJob(
       analyses,
       synthesisModel,
       usageSink,
+      budgetGate,
       signal,
     )
     assertMediaJobActive(signal)

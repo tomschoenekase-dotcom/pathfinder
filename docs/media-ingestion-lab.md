@@ -58,6 +58,16 @@ when observed input exceeds 272,000 tokens. The project-level `estimatedCostCent
 `actualCostCents` display fields remain legacy scaffolding and are not treated as the canonical
 ledger.
 
+The same dispatches now participate in the existing optional tenant `gateway-v1` hard budget. Each
+attempt reserves the full documented model maximum before provider I/O: Luna uses its 1,050,000
+input-token and 128,000 output-token limits at the dearer long-context rates, while transcription
+uses its 16,000-token context and 2,000-token output limits. A configured budget denial therefore
+stops the call before dispatch. Observed responses settle to exact estimated cost; failures without
+an observed usage envelope conservatively settle at the reserved maximum. The reservation is
+released when provider initialization or the durable dispatch fence fails before provider I/O.
+No budget is invented when the tenant has not configured one, and this technical boundary does not
+choose a commercial media tier or customer price.
+
 ## Required deployment configuration
 
 Set the existing storage credentials plus:
@@ -150,10 +160,9 @@ text extraction is not yet part of the worker.
 
 ## Known follow-ups
 
-- Select and validate a stricter commercial/provider budget below the technical 10,000-operation
-  safety ceiling once pricing and media tier policy are approved.
+- Select and validate any separate commercial media-tier allowance below the existing tenant dollar
+  budget and technical 10,000-operation safety ceiling once pricing policy is approved.
 - Add perceptual (not merely byte-exact) duplicate grouping and cross-batch exhibit reconciliation.
-- Persist token usage and calculate estimated/actual spend from a versioned pricing table.
 - The intake detail screen now polls one narrow tenant/venue/project-scoped status contract while
   work is active, backs off on failure, stops while hidden or terminal, and fetches the complete
   review only after the server reports a draft.

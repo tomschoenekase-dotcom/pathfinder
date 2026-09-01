@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   loggerError: vi.fn(),
+  reserve: vi.fn(),
+  markDispatched: vi.fn(),
+  settleExact: vi.fn(),
+  settleAmbiguous: vi.fn(),
+  releaseUndispatched: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -11,9 +16,14 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   db: { aiUsageEvent: { create: mocks.create } },
+  reserveAiCostAttempt: mocks.reserve,
+  markAiCostAttemptDispatched: mocks.markDispatched,
+  settleAiCostAttemptExact: mocks.settleExact,
+  settleAiCostAttemptAmbiguous: mocks.settleAmbiguous,
+  releaseUndispatchedAiCostAttempt: mocks.releaseUndispatched,
 }))
 
-import { createWorkerAiUsageSink } from './ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from './ai-usage'
 
 const usage = {
   provider: 'anthropic' as const,
@@ -126,5 +136,89 @@ describe('createWorkerAiUsageSink', () => {
     expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain(
       'database host and secret detail',
     )
+  })
+})
+
+describe('createWorkerAiBudgetGate', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  it('forgets a reservation only after an exact terminal settlement succeeds', async () => {
+    const reservation = {
+      id: 'reservation_1',
+      budgetId: 'budget_1',
+      budgetEpoch: 1,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      invocationId: 'invocation_1',
+      attemptNumber: 1,
+      feature: 'media-ingestion',
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      pricingVersion: 'openai-public-2026-09-01',
+      reservedUnits: 65_040_000n,
+    }
+    mocks.reserve.mockResolvedValueOnce(reservation)
+    mocks.settleExact.mockResolvedValueOnce(undefined)
+    const gate = createWorkerAiBudgetGate({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      feature: 'media-ingestion',
+    })
+
+    const ref = await gate.reserve({
+      invocationId: 'invocation_1',
+      attemptNumber: 1,
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      pricingVersion: 'openai-public-2026-09-01',
+      reservedUnits: 65_040_000n,
+    })
+    expect(ref).not.toBeNull()
+    await gate.settleExact(ref!, 5_640n)
+
+    await expect(gate.settleExact(ref!, 5_640n)).rejects.toThrow(
+      'AI cost reservation reference is unavailable',
+    )
+    expect(mocks.settleExact).toHaveBeenCalledOnce()
+  })
+
+  it('retains a reservation when durable settlement fails', async () => {
+    const reservation = {
+      id: 'reservation_2',
+      budgetId: 'budget_1',
+      budgetEpoch: 1,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      invocationId: 'invocation_2',
+      attemptNumber: 1,
+      feature: 'media-ingestion',
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      pricingVersion: 'openai-public-2026-09-01',
+      reservedUnits: 65_040_000n,
+    }
+    mocks.reserve.mockResolvedValueOnce(reservation)
+    mocks.settleAmbiguous
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce(undefined)
+    const gate = createWorkerAiBudgetGate({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      feature: 'media-ingestion',
+    })
+    const ref = await gate.reserve({
+      invocationId: 'invocation_2',
+      attemptNumber: 1,
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      pricingVersion: 'openai-public-2026-09-01',
+      reservedUnits: 65_040_000n,
+    })
+
+    await expect(gate.settleAmbiguous(ref!)).rejects.toThrow('database unavailable')
+    await expect(gate.settleAmbiguous(ref!)).resolves.toBeUndefined()
+    expect(mocks.settleAmbiguous).toHaveBeenCalledTimes(2)
   })
 })

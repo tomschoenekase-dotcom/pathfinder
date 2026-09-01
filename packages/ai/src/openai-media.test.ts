@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   createOpenAiMediaJson,
+  OPENAI_MEDIA_JSON_ATTEMPT_CEILING_UNITS,
   OPENAI_MEDIA_JSON_MODEL,
+  OPENAI_MEDIA_JSON_MAX_OUTPUT_TOKENS,
+  OPENAI_MEDIA_TRANSCRIPTION_ATTEMPT_CEILING_UNITS,
   OPENAI_MEDIA_TRANSCRIPTION_MODEL,
   resolveOpenAiMediaJsonModel,
   resolveOpenAiMediaTranscriptionModel,
@@ -10,10 +13,23 @@ import {
   transcribeOpenAiMedia,
   type OpenAiMediaClient,
 } from './openai-media'
+import type { AiBudgetGate } from './budget'
 
 const createChatCompletion = vi.fn()
 const createTranscription = vi.fn()
 const usageSink = vi.fn()
+const reserve = vi.fn()
+const markDispatched = vi.fn()
+const settleExact = vi.fn()
+const settleAmbiguous = vi.fn()
+const releaseUndispatched = vi.fn()
+const budgetGate: AiBudgetGate = {
+  reserve,
+  markDispatched,
+  settleExact,
+  settleAmbiguous,
+  releaseUndispatched,
+}
 const client = {
   chat: { completions: { create: createChatCompletion } },
   audio: { transcriptions: { create: createTranscription } },
@@ -23,6 +39,11 @@ describe('OpenAI media gateway', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     usageSink.mockResolvedValue(undefined)
+    reserve.mockResolvedValue({ id: 'reservation_1', reservedUnits: 1n })
+    markDispatched.mockResolvedValue(undefined)
+    settleExact.mockResolvedValue(undefined)
+    settleAmbiguous.mockResolvedValue(undefined)
+    releaseUndispatched.mockResolvedValue(undefined)
     setOpenAiMediaClientForTesting(client)
   })
 
@@ -40,6 +61,8 @@ describe('OpenAI media gateway', () => {
       OPENAI_MEDIA_TRANSCRIPTION_MODEL,
     )
     expect(() => resolveOpenAiMediaTranscriptionModel('whisper-1')).toThrow('reviewed model')
+    expect(OPENAI_MEDIA_JSON_ATTEMPT_CEILING_UNITS).toBe(65_040_000n)
+    expect(OPENAI_MEDIA_TRANSCRIPTION_ATTEMPT_CEILING_UNITS).toBe(3_000_000n)
   })
 
   it('requests bounded JSON chat output and forwards cancellation', async () => {
@@ -59,6 +82,7 @@ describe('OpenAI media gateway', () => {
         capability: 'MEDIA_ANALYSIS',
         parseResponse: JSON.parse,
         usageSink,
+        budgetGate,
         messages: [{ role: 'user', content: 'Inspect this.' }],
         signal: controller.signal,
       }),
@@ -68,6 +92,7 @@ describe('OpenAI media gateway', () => {
       {
         model: OPENAI_MEDIA_JSON_MODEL,
         response_format: { type: 'json_object' },
+        max_completion_tokens: OPENAI_MEDIA_JSON_MAX_OUTPUT_TOKENS,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       },
       { signal: controller.signal },
@@ -84,6 +109,15 @@ describe('OpenAI media gateway', () => {
         }),
       }),
     )
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptNumber: 1,
+        model: OPENAI_MEDIA_JSON_MODEL,
+        reservedUnits: OPENAI_MEDIA_JSON_ATTEMPT_CEILING_UNITS,
+      }),
+    )
+    expect(markDispatched).toHaveBeenCalledOnce()
+    expect(settleExact).toHaveBeenCalledWith(expect.anything(), 5_640n)
   })
 
   it('rejects malformed or empty media responses at the gateway', async () => {
@@ -97,6 +131,7 @@ describe('OpenAI media gateway', () => {
         capability: 'MEDIA_ANALYSIS',
         parseResponse: JSON.parse,
         usageSink,
+        budgetGate,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
@@ -119,6 +154,7 @@ describe('OpenAI media gateway', () => {
         capability: 'MEDIA_ANALYSIS',
         parseResponse: JSON.parse,
         usageSink,
+        budgetGate,
         messages: [{ role: 'user', content: 'Inspect this.' }],
       }),
     ).rejects.toThrow('OpenAI media JSON response was empty')
@@ -140,6 +176,7 @@ describe('OpenAI media gateway', () => {
         capability: 'MEDIA_SYNTHESIS',
         parseResponse: JSON.parse,
         usageSink,
+        budgetGate,
         messages: [{ role: 'user', content: 'Synthesize this.' }],
       }),
     ).rejects.toThrow()
@@ -172,6 +209,7 @@ describe('OpenAI media gateway', () => {
       capability: 'MEDIA_SYNTHESIS',
       parseResponse: JSON.parse,
       usageSink,
+      budgetGate,
       messages: [{ role: 'user', content: 'Synthesize this.' }],
     })
 
@@ -193,7 +231,12 @@ describe('OpenAI media gateway', () => {
     })
 
     await expect(
-      transcribeOpenAiMedia({ file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL, usageSink }),
+      transcribeOpenAiMedia({
+        file,
+        model: OPENAI_MEDIA_TRANSCRIPTION_MODEL,
+        usageSink,
+        budgetGate,
+      }),
     ).resolves.toBe('Welcome to the north hall.')
     expect(createTranscription).toHaveBeenCalledWith(
       { file, model: OPENAI_MEDIA_TRANSCRIPTION_MODEL },
@@ -206,5 +249,69 @@ describe('OpenAI media gateway', () => {
         usage: expect.objectContaining({ audioInputTokens: 80, inputTokens: 80, outputTokens: 12 }),
       }),
     )
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: OPENAI_MEDIA_TRANSCRIPTION_MODEL,
+        reservedUnits: OPENAI_MEDIA_TRANSCRIPTION_ATTEMPT_CEILING_UNITS,
+      }),
+    )
+    expect(settleExact).toHaveBeenCalledWith(expect.anything(), 16_000n)
+  })
+
+  it('settles an unobserved provider failure at the conservative ceiling', async () => {
+    createChatCompletion.mockRejectedValueOnce(new Error('connection reset'))
+
+    await expect(
+      createOpenAiMediaJson({
+        model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
+        budgetGate,
+        messages: [{ role: 'user', content: 'Inspect this.' }],
+      }),
+    ).rejects.toThrow('connection reset')
+
+    expect(settleAmbiguous).toHaveBeenCalledOnce()
+    expect(settleExact).not.toHaveBeenCalled()
+  })
+
+  it('releases the reservation when the dispatch fence fails', async () => {
+    markDispatched.mockRejectedValueOnce(new Error('cost fence unavailable'))
+
+    await expect(
+      createOpenAiMediaJson({
+        model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
+        budgetGate,
+        messages: [{ role: 'user', content: 'Inspect this.' }],
+      }),
+    ).rejects.toThrow('cost fence unavailable')
+
+    expect(releaseUndispatched).toHaveBeenCalledOnce()
+    expect(createChatCompletion).not.toHaveBeenCalled()
+    expect(settleAmbiguous).not.toHaveBeenCalled()
+  })
+
+  it('stops before provider I/O when the tenant budget denies the reservation', async () => {
+    reserve.mockRejectedValueOnce(new Error('AI cost budget is exhausted'))
+
+    await expect(
+      createOpenAiMediaJson({
+        model: OPENAI_MEDIA_JSON_MODEL,
+        capability: 'MEDIA_ANALYSIS',
+        parseResponse: JSON.parse,
+        usageSink,
+        budgetGate,
+        messages: [{ role: 'user', content: 'Inspect this.' }],
+      }),
+    ).rejects.toThrow('AI cost budget is exhausted')
+
+    expect(createChatCompletion).not.toHaveBeenCalled()
+    expect(markDispatched).not.toHaveBeenCalled()
+    expect(releaseUndispatched).not.toHaveBeenCalled()
+    expect(settleAmbiguous).not.toHaveBeenCalled()
   })
 })
