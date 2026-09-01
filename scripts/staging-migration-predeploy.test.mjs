@@ -289,6 +289,10 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
     ],
   )
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), [
+    '20260901020000_support_tenant_wide_ai_accounting',
+  ])
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,

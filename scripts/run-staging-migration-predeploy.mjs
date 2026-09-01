@@ -46,6 +46,8 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompletePublicTableCount: 227,
   replyReviewPredecessorCount: 205,
   replyReviewPredecessorPublicTableCount: 231,
+  hostedReleaseCount: 206,
+  hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -62,6 +64,7 @@ const EXPECTED = Object.freeze({
   founderAbsencePredecessorFinalMigration: '20260828155000_allow_fenced_agent_bridge_takeover',
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
+  hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
   finalMigration: '20260901020000_support_tenant_wide_ai_accounting',
   manifestHash: '3c4a0f73e9bc5c40a5b1c32cd7b86a4446c1442269d9df87385dbba0dd23b21a',
   // The reviewed 66-migration suffix after B.5 adds 39 public tables.
@@ -234,6 +237,9 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('reply review predecessor boundary changed')
   }
+  if (manifest.names[EXPECTED.hostedReleaseCount - 1] !== EXPECTED.hostedReleaseFinalMigration) {
+    fail('hosted release boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -254,6 +260,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.founderAbsencePredecessorCount &&
     rows.length !== EXPECTED.founderAbsenceCompleteCount &&
     rows.length !== EXPECTED.replyReviewPredecessorCount &&
+    rows.length !== EXPECTED.hostedReleaseCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -300,6 +307,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.founderAbsencePredecessorCount) return 'founder-absence-predecessor'
   if (rows.length === EXPECTED.founderAbsenceCompleteCount) return 'founder-absence-complete'
   if (rows.length === EXPECTED.replyReviewPredecessorCount) return 'reply-review-predecessor'
+  if (rows.length === EXPECTED.hostedReleaseCount) return 'hosted-release'
   return 'complete'
 }
 
@@ -467,7 +475,9 @@ async function main() {
                                 ? EXPECTED.founderAbsenceCompletePublicTableCount
                                 : initialState === 'reply-review-predecessor'
                                   ? EXPECTED.replyReviewPredecessorPublicTableCount
-                                  : EXPECTED.stagingBaselinePublicTableCount
+                                  : initialState === 'hosted-release'
+                                    ? EXPECTED.hostedReleasePublicTableCount
+                                    : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
