@@ -44,6 +44,13 @@ The exact staging release profile passed 19/19. Its JSON and Markdown evidence h
 `91F8CE891A34D55FE9BA6192D0506C57029A4047EC062E627906C60594D13F5F` and
 `EBB0D61043D7CEE898B35E150C539EE7378E9A1E09CAAEE343A6CD1313AE2E5A`.
 
+The last verified post-candidate evidence-only head is
+`75fe6e5e7ddd89b0e9d3fbbdc136681377c5d565`; hosted CI run `33556482630` passed all 58 steps at
+that exact head. It reconciled and permanently cross-checked this prose snapshot against the
+machine-readable release, deployment, image, migration, table-count, and observer facts. It did not
+deploy application bytes and does not replace the last 27/27 candidate
+`c8f235e4dfa691d5ea03d5781c6107a044e0826f`.
+
 Fresh credential-free browser measurements also bind the public visitor and dashboard shells to
 this exact release. The visitor route passed six mobile samples with interaction-ready p50/p95 of
 1,857/2,128 ms unthrottled and 4,804/4,812 ms under the declared weak-4G emulation; it sent no chat

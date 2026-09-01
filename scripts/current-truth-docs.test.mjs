@@ -97,6 +97,9 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.ok((await stat(path.resolve(repositoryRoot, staging.evidence))).isFile())
 
   assert.equal(truth.engineeringSnapshot.sourceBranch, 'codex/staging-runbook-topology-20260830')
+  assert.match(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadSha, /^[a-f0-9]{40}$/)
+  assert.match(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadCiRun, /^\d+$/)
+  assert.ok(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadCiStepsPassed > 0)
   assert.match(truth.engineeringSnapshot.lastVerifiedCandidateSha, /^[a-f0-9]{40}$/)
   assert.equal(truth.engineeringSnapshot.lastVerifiedCandidateReadiness, 'ready-for-staging-review')
   assert.match(truth.engineeringSnapshot.lastVerifiedCandidateReportSha256, /^[A-F0-9]{64}$/)
@@ -184,6 +187,15 @@ test('staging evidence prose agrees with the machine-readable observer counts', 
     evidence,
     new RegExp(`one consecutive complete day`),
   )
+  assert.match(evidence, new RegExp(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadSha))
+  assert.match(evidence, new RegExp(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadCiRun))
+  assert.match(
+    evidence,
+    new RegExp(
+      `passed all ${truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadCiStepsPassed} steps`,
+    ),
+  )
+  assert.match(evidence, new RegExp(truth.engineeringSnapshot.lastVerifiedCandidateSha))
 })
 
 test('dynamic repository facts agree with all current-state documents', async () => {
