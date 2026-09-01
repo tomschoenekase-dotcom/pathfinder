@@ -8,15 +8,16 @@ live billing, destructive data work, or deferred marketing, branding, wordmark, 
 
 ## Active admitted release
 
-- Git revision: `723ecc583a57ac79e56489f4a9a5865cb946d505`.
-- Candidate-branch GitHub Actions run `33464160442` and staging-branch run `33466345529` passed all
-  58 steps.
-- Web deployment: `9e5d51f6-3a69-47ab-8796-ccc50bbcf5e0`, image
-  `sha256:f4301d851c0e0914dbc32539854c34e3a5d6d71630fe70984a849afc261a83a4`.
-- Dashboard deployment: `e2e198a1-84b1-4c5e-8b88-1b9d84ef0688`, image
-  `sha256:49b2882ab1880098f17774ca1da3c171762901cecfdeb3cdedaad1f200254e47`.
-- Worker deployment: `05aee47d-b230-470b-8b56-656e8ba2d393`, image
-  `sha256:bceadf83c02eae3bcf41a1185d6c7575b7e5d33547100eceb6852d12e692d36e`.
+- Git revision: `a3e66de5a1231aca6df5d150ca7bcd81831dd784`.
+- Candidate-branch GitHub Actions run `33540059467` passed. Staging-branch run `33543975717`
+  released the Railway CI wait for this exact revision; its final public completion state is retained
+  separately because Railway deployment admission does not substitute for the workflow result.
+- Web deployment: `b4d39999-6c42-42a4-9069-53ce5c86e16a`, image
+  `sha256:3a11d66fa11f3c43fcd107d08b436e9b39beafec53e62f71d64e1c4804797a86`.
+- Dashboard deployment: `cbba90a2-7e99-40d5-865d-77daf64da717`, image
+  `sha256:eecf8b2bbc74c4e8d01bb3c28033fae2e0e0e93bfa1e219c86f0c8a637a7b8dc`.
+- Worker deployment: `6c624ba7-1067-4436-a97e-5801c314141f`, image
+  `sha256:572068ddbfd1eb0331d5d1cda04ebe6b2082ef66f876a1952a1f0206711f7c59`.
 
 The guarded migration rollout accepted the immutable 206-row predecessor and applied only
 `20260901020000_support_tenant_wide_ai_accounting`. The exact 207-file manifest, complete 207-row
@@ -32,11 +33,16 @@ revision and immutable image digest matched the identities above. Public health 
 release and reviewed database, Redis, and storage resource identities with database and queue `up`.
 The exact hosted staging profile passed 19/19 with zero failed or blocked gates.
 
-The final bounded runtime audit found zero service error rows and zero web/dashboard HTTP 5xx rows.
-Founder-absence history retained complete observations for five consecutive UTC dates,
-`2026-08-28` through `2026-09-01`, with zero failed observations. It remains explicitly
+The final bounded 24-hour runtime audit found zero service error rows and zero web/dashboard HTTP 5xx
+rows. The exact 168-hour reconciliation across the preceding and current worker deployments retained
+32 complete events with zero failures on `2026-09-01`. The release rollover changed the retained
+release identity, so the exact reconciler reports one consecutive complete day; it remains explicitly
 `sevenDayReviewReady=false`, `certificationGranted=false`, and `launchGate=false` until real retained
 history, private-ledger readback, and human review satisfy the remaining gates.
+
+The exact staging release profile passed 19/19. Its JSON and Markdown evidence hashes are
+`91F8CE891A34D55FE9BA6192D0506C57029A4047EC062E627906C60594D13F5F` and
+`EBB0D61043D7CEE898B35E150C539EE7378E9A1E09CAAEE343A6CD1313AE2E5A`.
 
 ## Failure and rollback record
 

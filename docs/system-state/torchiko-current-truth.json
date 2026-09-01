@@ -21,20 +21,20 @@
   "hostedStagingSnapshot": {
     "sourceBranch": "codex/pathfinder-v2-staging",
     "evidence": "docs/system-state/TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md",
-    "releaseSha": "723ecc583a57ac79e56489f4a9a5865cb946d505",
+    "releaseSha": "a3e66de5a1231aca6df5d150ca7bcd81831dd784",
     "services": {
-      "webDeploymentId": "9e5d51f6-3a69-47ab-8796-ccc50bbcf5e0",
+      "webDeploymentId": "b4d39999-6c42-42a4-9069-53ce5c86e16a",
       "webDeploymentStatus": "SUCCESS",
       "webInstanceStatus": "RUNNING",
-      "webImageDigest": "sha256:f4301d851c0e0914dbc32539854c34e3a5d6d71630fe70984a849afc261a83a4",
-      "dashboardDeploymentId": "e2e198a1-84b1-4c5e-8b88-1b9d84ef0688",
+      "webImageDigest": "sha256:3a11d66fa11f3c43fcd107d08b436e9b39beafec53e62f71d64e1c4804797a86",
+      "dashboardDeploymentId": "cbba90a2-7e99-40d5-865d-77daf64da717",
       "dashboardDeploymentStatus": "SUCCESS",
       "dashboardInstanceStatus": "RUNNING",
-      "dashboardImageDigest": "sha256:49b2882ab1880098f17774ca1da3c171762901cecfdeb3cdedaad1f200254e47",
-      "workerDeploymentId": "05aee47d-b230-470b-8b56-656e8ba2d393",
+      "dashboardImageDigest": "sha256:eecf8b2bbc74c4e8d01bb3c28033fae2e0e0e93bfa1e219c86f0c8a637a7b8dc",
+      "workerDeploymentId": "6c624ba7-1067-4436-a97e-5801c314141f",
       "workerDeploymentStatus": "SUCCESS",
       "workerInstanceStatus": "RUNNING",
-      "workerImageDigest": "sha256:bceadf83c02eae3bcf41a1185d6c7575b7e5d33547100eceb6852d12e692d36e"
+      "workerImageDigest": "sha256:572068ddbfd1eb0331d5d1cda04ebe6b2082ef66f876a1952a1f0206711f7c59"
     },
     "migrationLedger": {
       "applied": 207,
@@ -48,15 +48,32 @@
       "failed": 0,
       "blocked": 0
     },
+    "runtimeAudit": {
+      "window": "24h",
+      "serviceErrorRows": 0,
+      "webDashboardHttp5xxRows": 0,
+      "founderAbsenceFailedEvents": 0
+    },
+    "founderAbsenceHistory": {
+      "window": "168h",
+      "retainedEvents": 32,
+      "observedDays": 1,
+      "consecutiveCompleteDays": 1,
+      "sevenDayReviewReady": false,
+      "certificationGranted": false,
+      "launchGate": false
+    },
     "productionTouched": false
   },
   "engineeringSnapshot": {
     "sourceBranch": "codex/staging-runbook-topology-20260830",
-    "lastVerifiedCandidateSha": "def2969ff2441a5bde21b98207e35828e819803f",
+    "lastVerifiedCandidateSha": "a3e66de5a1231aca6df5d150ca7bcd81831dd784",
     "lastVerifiedCandidateReadiness": "ready-for-staging-review",
-    "lastVerifiedCandidateReportSha256": "1FA9D60DC4D027A6E9FAC55BF59D15FE5B196CB54087168A136555B2FA3D3A76",
-    "lastVerifiedCandidateMarkdownSha256": "F00FFA6DAC15C1143E884A12362AB3D6480716D0DD032D8B8BDDC7C1EC3651EE",
-    "deployedApplicationSha": "723ecc583a57ac79e56489f4a9a5865cb946d505"
+    "lastVerifiedCandidateReportSha256": "6B6299617B84BB9E6FEE4F1D913D2C276F8FE38D0DE6F776EDE9392405C39B75",
+    "lastVerifiedCandidateMarkdownSha256": "5D323F21AB86F8BC6AF1DE0740B7CA29F8B310ACA93895A78850889C5DCFE472",
+    "deployedApplicationSha": "a3e66de5a1231aca6df5d150ca7bcd81831dd784",
+    "stagingReportSha256": "91F8CE891A34D55FE9BA6192D0506C57029A4047EC062E627906C60594D13F5F",
+    "stagingMarkdownSha256": "EBB0D61043D7CEE898B35E150C539EE7378E9A1E09CAAEE343A6CD1313AE2E5A"
   },
   "productionSnapshot": {
     "sourceBranch": "master",

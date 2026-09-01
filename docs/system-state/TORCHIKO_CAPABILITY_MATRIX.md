@@ -11,7 +11,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 | `founder-operating-conversation`   | PROVEN PROVIDER-DARK LOCALLY           | Open-ended reasoning, proactive notification, and hosted provider synthesis remain unproven.                       |
 | `founder-directive-task-handoff`   | PROVEN PROVIDER-DARK LOCALLY           | Approval does not execute; hosted workers and downstream action authority remain separately gated.                 |
 | `guest-prompt-integrity`           | PROVEN PROVIDER-DARK LOCALLY           | Model-specific resistance and hosted staging behavior remain unproven.                                             |
-| `release-evidence`                 | PROVEN LOCALLY                         | Exact hosted staging persistence is proven for `723ecc58`; every later candidate and production remain separate.   |
+| `release-evidence`                 | PROVEN LOCALLY                         | Exact hosted staging persistence is proven for `a3e66de5`; every later candidate and production remain separate.   |
 | `golden-venue-lifecycle`           | PROVIDER-DARK LOCAL + HOSTED READ-ONLY | Exact-revision mobile arrival-to-chat passed; hosted lifecycle writes and provider-backed quality remain unproven. |
 | `native-guest-read`                | PROVEN PROVIDER-DARK LOCALLY           | Activation evidence and compatibility retirement remain hosted/approval gated.                                     |
 | `crm-pipeline`                     | IMPLEMENTED BUT EXTERNAL GATED         | Hosted continuity, credentials, pricing, promises, and customer contact remain gated.                              |

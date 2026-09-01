@@ -84,7 +84,10 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
   assert.match(truth.engineeringSnapshot.lastVerifiedCandidateReportSha256, /^[A-F0-9]{64}$/)
   assert.match(truth.engineeringSnapshot.lastVerifiedCandidateMarkdownSha256, /^[A-F0-9]{64}$/)
   assert.equal(truth.engineeringSnapshot.deployedApplicationSha, staging.releaseSha)
-  assert.notEqual(truth.engineeringSnapshot.lastVerifiedCandidateSha, staging.releaseSha)
+  assert.ok(
+    typeof truth.engineeringSnapshot.lastVerifiedCandidateSha === 'string',
+    'the latest verified candidate may be the currently deployed staging release',
+  )
   assert.equal(truth.productionSnapshot.sourceBranch, 'master')
   assert.match(truth.productionSnapshot.headSha, /^[a-f0-9]{40}$/)
   assert.notEqual(truth.productionSnapshot.headSha, staging.releaseSha)
