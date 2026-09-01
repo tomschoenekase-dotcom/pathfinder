@@ -40,11 +40,13 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
   labels and provenance work.
 
 The reviewed model strings are code-owned contracts. `MEDIA_ANALYSIS_MODEL` and
-`MEDIA_SYNTHESIS_MODEL` default to and currently admit only `gpt-5-mini-2025-08-07`;
+`MEDIA_SYNTHESIS_MODEL` default to and currently admit only `gpt-5.6-luna`;
 `MEDIA_TRANSCRIPTION_MODEL` defaults to and currently admits only `gpt-4o-mini-transcribe`.
 Deployment configuration may repeat those exact values, but an unreviewed override fails before
 archive processing or provider dispatch. Changing price or quality now requires a code-reviewed,
-versioned model-contract update rather than an arbitrary environment edit.
+versioned model-contract update rather than an arbitrary environment edit. OpenAI currently
+publishes `gpt-5.6-luna` as the only stable identifier for this model (no dated snapshot is listed),
+with Chat Completions, structured outputs, and image input supported.
 
 ## Required deployment configuration
 

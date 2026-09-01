@@ -77,10 +77,11 @@ environment exists.
   questions), nightly analytics-enrichment (topic classification, weekly themes, question
   clustering), weekly reports and answer-analysis (Sonnet-generated, Zod-validated with
   truncate-before-validate fallbacks).
-- **2026-09-01 correction:** the media-ingestion lab now defaults to the reviewed public API
-  snapshot `gpt-5-mini-2025-08-07` for image analysis and synthesis and to
-  `gpt-4o-mini-transcribe` for transcription. Unreviewed environment overrides fail before archive
-  processing or provider dispatch. The former unverified `gpt-5.6-luna` fallback is removed.
+- **2026-09-01 correction:** the media-ingestion lab defaults to the reviewed public API model
+  `gpt-5.6-luna` for image analysis and synthesis and to `gpt-4o-mini-transcribe` for transcription.
+  OpenAI's current model contract documents Luna for Chat Completions, structured outputs, and image
+  input, and lists the stable alias as its only snapshot identifier. Unreviewed environment overrides
+  fail before archive processing or provider dispatch.
 - **Built but not load-bearing:** `DataAdapter` table (integration placeholder, unused), feature-flag
   key registry (table + helpers exist, empty registry — nothing gated), PostHog (env var declared,
   no SDK wired).
@@ -525,7 +526,7 @@ asset (vision model for images/video frames, transcription for audio) then synth
 PathFinder import JSON (places, knowledge entries, unresolved questions, coverage). Provider JSON
 is depth-, node-, property-, array-, key-, string-, and byte-bounded before strict Zod validation.
 Per-asset failures are recorded and skipped (fail-open); job-level failures mark the whole project
-FAILED (BullMQ retries ×3). Code-owned model contracts admit `gpt-5-mini-2025-08-07` for
+FAILED (BullMQ retries ×3). Code-owned model contracts admit `gpt-5.6-luna` for
 image/synthesis calls and `gpt-4o-mini-transcribe` for audio. Matching environment values may be
 supplied, but arbitrary overrides fail before archive processing or provider dispatch.
 `estimatedCostCents`/
@@ -544,7 +545,7 @@ assigned anywhere** — dead cost-tracking scaffolding, the only such scaffold i
 | Topic classification                      | Claude Haiku 4.5                | background, nightly      | n/a       | No                             |
 | Weekly theme synthesis                    | Claude Haiku 4.5                | background, weekly       | n/a       | No                             |
 | Embeddings (chat + indexing + clustering) | OpenAI text-embedding-3-small   | mixed sync/async         | n/a       | No                             |
-| Media analysis/synthesis                  | OpenAI `gpt-5-mini-2025-08-07`  | background, long-running | n/a       | No (fields exist, unpopulated) |
+| Media analysis/synthesis                  | OpenAI `gpt-5.6-luna`           | background, long-running | n/a       | No (fields exist, unpopulated) |
 | Media transcription                       | OpenAI `gpt-4o-mini-transcribe` | background               | n/a       | No                             |
 
 **First-message latency** for guest chat is therefore the sum of: rate-limit check + session upsert

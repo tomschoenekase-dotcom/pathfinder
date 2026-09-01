@@ -31,7 +31,7 @@ describe('OpenAI media gateway', () => {
   it('admits only the reviewed media model contracts', () => {
     expect(resolveOpenAiMediaJsonModel()).toBe(OPENAI_MEDIA_JSON_MODEL)
     expect(resolveOpenAiMediaJsonModel(OPENAI_MEDIA_JSON_MODEL)).toBe(OPENAI_MEDIA_JSON_MODEL)
-    expect(() => resolveOpenAiMediaJsonModel('gpt-5.6-luna')).toThrow('reviewed model')
+    expect(() => resolveOpenAiMediaJsonModel('gpt-5-mini-2025-08-07')).toThrow('reviewed model')
 
     expect(resolveOpenAiMediaTranscriptionModel()).toBe(OPENAI_MEDIA_TRANSCRIPTION_MODEL)
     expect(resolveOpenAiMediaTranscriptionModel(OPENAI_MEDIA_TRANSCRIPTION_MODEL)).toBe(

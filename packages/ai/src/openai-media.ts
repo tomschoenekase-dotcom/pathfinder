@@ -13,7 +13,7 @@ const chatCompletionSchema = z.object({
 
 const transcriptionSchema = z.object({ text: z.string() })
 
-export const OPENAI_MEDIA_JSON_MODEL = 'gpt-5-mini-2025-08-07' as const
+export const OPENAI_MEDIA_JSON_MODEL = 'gpt-5.6-luna' as const
 export const OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const
 
 export function resolveOpenAiMediaJsonModel(value?: string): typeof OPENAI_MEDIA_JSON_MODEL {

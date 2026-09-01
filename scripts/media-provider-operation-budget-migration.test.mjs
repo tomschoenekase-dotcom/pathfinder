@@ -71,21 +71,21 @@ test('every direct media provider dispatch is wrapped by a durable pre-dispatch 
   assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
 })
 
-test('media jobs resolve only reviewed model snapshots before source processing', () => {
-  assert.match(mediaGateway, /OPENAI_MEDIA_JSON_MODEL = 'gpt-5-mini-2025-08-07' as const/u)
+test('media jobs resolve only reviewed model identifiers before source processing', () => {
+  assert.match(mediaGateway, /OPENAI_MEDIA_JSON_MODEL = 'gpt-5\.6-luna' as const/u)
   assert.match(
     mediaGateway,
     /OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const/u,
   )
   assert.match(
     envSchema,
-    /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5-mini-2025-08-07'\)\.optional\(\)/u,
+    /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5\.6-luna'\)\.optional\(\)/u,
   )
   assert.match(
     envSchema,
     /MEDIA_TRANSCRIPTION_MODEL: z\.literal\('gpt-4o-mini-transcribe'\)\.optional\(\)/u,
   )
-  assert.doesNotMatch(processor, /gpt-5\.6-luna/u)
+  assert.doesNotMatch(processor, /gpt-5-mini-2025-08-07/u)
 
   const modelResolution = processor.indexOf('const analysisModel = resolveOpenAiMediaJsonModel')
   const sourceProcessing = processor.indexOf('await downloadAndExtract(')

@@ -121,8 +121,8 @@ const rawEnvSchema = z
 
     // Required for RAG / semantic place search
     OPENAI_API_KEY: z.string().min(1).optional(),
-    MEDIA_ANALYSIS_MODEL: z.literal('gpt-5-mini-2025-08-07').optional(),
-    MEDIA_SYNTHESIS_MODEL: z.literal('gpt-5-mini-2025-08-07').optional(),
+    MEDIA_ANALYSIS_MODEL: z.literal('gpt-5.6-luna').optional(),
+    MEDIA_SYNTHESIS_MODEL: z.literal('gpt-5.6-luna').optional(),
     MEDIA_TRANSCRIPTION_MODEL: z.literal('gpt-4o-mini-transcribe').optional(),
 
     // Required from PACKET-12 (integrations) onward

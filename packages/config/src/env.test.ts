@@ -138,18 +138,18 @@ describe('media provider model contracts', () => {
     expect(
       envSchema.parse({
         ...requiredEnvironment,
-        MEDIA_ANALYSIS_MODEL: 'gpt-5-mini-2025-08-07',
-        MEDIA_SYNTHESIS_MODEL: 'gpt-5-mini-2025-08-07',
+        MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna',
+        MEDIA_SYNTHESIS_MODEL: 'gpt-5.6-luna',
         MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
       }),
     ).toMatchObject({
-      MEDIA_ANALYSIS_MODEL: 'gpt-5-mini-2025-08-07',
-      MEDIA_SYNTHESIS_MODEL: 'gpt-5-mini-2025-08-07',
+      MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna',
+      MEDIA_SYNTHESIS_MODEL: 'gpt-5.6-luna',
       MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
     })
 
     expect(() =>
-      envSchema.parse({ ...requiredEnvironment, MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna' }),
+      envSchema.parse({ ...requiredEnvironment, MEDIA_ANALYSIS_MODEL: 'gpt-5-mini-2025-08-07' }),
     ).toThrow()
     expect(() =>
       envSchema.parse({ ...requiredEnvironment, MEDIA_SYNTHESIS_MODEL: 'gpt-4o-mini' }),
