@@ -52,10 +52,10 @@
   },
   "engineeringSnapshot": {
     "sourceBranch": "codex/staging-runbook-topology-20260830",
-    "lastVerifiedCandidateSha": "520afabbdff233bd55cc3faa451682b7830a3b3d",
+    "lastVerifiedCandidateSha": "def2969ff2441a5bde21b98207e35828e819803f",
     "lastVerifiedCandidateReadiness": "ready-for-staging-review",
-    "lastVerifiedCandidateReportSha256": "B7016C82C2A32F56ACC6E26C29896C8C2A9184B47601B257B381FEA7DA4FA9EF",
-    "lastVerifiedCandidateMarkdownSha256": "EF6A6B5F16D5DA4A543280F1227CA98184510131B7FA3037F3C8668938E613D0",
+    "lastVerifiedCandidateReportSha256": "1FA9D60DC4D027A6E9FAC55BF59D15FE5B196CB54087168A136555B2FA3D3A76",
+    "lastVerifiedCandidateMarkdownSha256": "F00FFA6DAC15C1143E884A12362AB3D6480716D0DD032D8B8BDDC7C1EC3651EE",
     "deployedApplicationSha": "723ecc583a57ac79e56489f4a9a5865cb946d505"
   },
   "productionSnapshot": {
