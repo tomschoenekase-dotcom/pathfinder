@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const query = vi.fn()
@@ -24,6 +24,7 @@ import { SemanticUpdatePreview } from './SemanticUpdatePreview'
 describe('SemanticUpdatePreview', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -68,6 +69,7 @@ describe('SemanticUpdatePreview', () => {
         relation: 'CORRECTS',
         desired: expect.objectContaining({ content: 'Open 9–5 daily.' }),
       }),
+      { signal: expect.any(AbortSignal) },
     )
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Create reviewable package DRAFT' }))
@@ -251,5 +253,76 @@ describe('SemanticUpdatePreview', () => {
     expect(
       screen.getByText(/grants no approval, apply, scheduling, or publication authority/),
     ).toBeTruthy()
+  })
+
+  it('aborts a stalled semantic preview and returns fixed retry guidance at the deadline', async () => {
+    vi.useFakeTimers()
+    query.mockImplementation(() => new Promise(() => {}))
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'HOURS' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Museum hours' },
+    })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Open 9–5 daily.' },
+    })
+    const compute = screen.getByRole('button', { name: 'Compute semantic preview' })
+    fireEvent.click(compute)
+    fireEvent.click(compute)
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(query).toHaveBeenCalledOnce()
+    const signal = query.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Semantic preview could not be loaded in time',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Compute semantic preview' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
+  })
+
+  it('aborts an in-flight preview when structured input changes', async () => {
+    let signal: AbortSignal | undefined
+    query.mockImplementation((_input, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    render(
+      <SemanticUpdatePreview
+        tenantId="tenant-a"
+        venueId="venue-a"
+        proposalId="11111111-1111-4111-8111-111111111111"
+        proposalUpdatedAt="2026-08-25T13:00:00.000Z"
+        hasTarget
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build semantic change preview' }))
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'HOURS' } })
+    fireEvent.change(screen.getByLabelText('Visitor-facing title'), {
+      target: { value: 'Museum hours' },
+    })
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Open 9–5 daily.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compute semantic preview' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    fireEvent.change(screen.getByLabelText('Visitor-facing content'), {
+      target: { value: 'Open 10–6 daily.' },
+    })
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByText(/Semantic preview could not/)).toBeNull()
   })
 })

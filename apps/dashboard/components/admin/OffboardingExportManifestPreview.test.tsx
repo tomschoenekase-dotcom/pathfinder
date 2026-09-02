@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const query = vi.fn()
@@ -14,6 +14,7 @@ import { OffboardingExportManifestPreview } from './OffboardingExportManifestPre
 describe('OffboardingExportManifestPreview', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -52,7 +53,10 @@ describe('OffboardingExportManifestPreview', () => {
     fireEvent.click(screen.getByLabelText('Museum'))
     fireEvent.click(screen.getByRole('button', { name: 'Preview manifest metadata' }))
     await waitFor(() =>
-      expect(query).toHaveBeenCalledWith({ tenantId: 'tenant-1', venueIds: ['venue-1'] }),
+      expect(query).toHaveBeenCalledWith(
+        { tenantId: 'tenant-1', venueIds: ['venue-1'] },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
     expect(await screen.findByText(/Privacy boundary/)).toBeTruthy()
     expect(
@@ -73,5 +77,46 @@ describe('OffboardingExportManifestPreview', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain('No export artifact'),
     )
+  })
+
+  it('aborts a stalled preview at its deadline and restores the retry control', async () => {
+    vi.useFakeTimers()
+    query.mockImplementation(() => new Promise(() => {}))
+    render(
+      <OffboardingExportManifestPreview
+        tenantId="tenant-1"
+        venues={[{ id: 'venue-1', name: 'Museum' }]}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Museum'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview manifest metadata' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const signal = query.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be loaded in time')
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Preview manifest metadata' }).disabled,
+    ).toBe(false)
+  })
+
+  it('aborts an in-flight preview when the surface unmounts', async () => {
+    let signal: AbortSignal | undefined
+    query.mockImplementation((_input, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    const view = render(
+      <OffboardingExportManifestPreview
+        tenantId="tenant-1"
+        venues={[{ id: 'venue-1', name: 'Museum' }]}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Museum'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview manifest metadata' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
   })
 })

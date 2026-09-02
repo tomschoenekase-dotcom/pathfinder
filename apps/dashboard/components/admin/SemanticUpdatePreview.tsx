@@ -1,12 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const SEMANTIC_PREVIEW_TIMEOUT_MS = 15_000
 
 type Preview = inferRouterOutputs<AppRouter>['admin']['previewSemanticVenueUpdate']
 type PreviewResult = Pick<
@@ -75,8 +78,42 @@ export function SemanticUpdatePreview({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
+  const requestSequence = useRef(0)
+  const previewRunning = useRef(false)
+  const activeRequest = useRef<AbortController | null>(null)
+  const scope = `${tenantId}:${venueId}:${proposalId}:${new Date(proposalUpdatedAt).toISOString()}`
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+
+  useEffect(() => {
+    requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    previewRunning.current = false
+    setBusy(false)
+    setPreview(null)
+    setDraft(null)
+    setOperationalDraft(null)
+    setConflictQuestion(null)
+    setQuestionAgentIdentityId('')
+    setError(null)
+  }, [scope])
+
+  useEffect(
+    () => () => {
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    },
+    [],
+  )
 
   function invalidatePreview() {
+    requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    previewRunning.current = false
+    setBusy(false)
     setPreview(null)
     setDraft(null)
     setOperationalDraft(null)
@@ -86,41 +123,64 @@ export function SemanticUpdatePreview({
   }
 
   async function inspect() {
+    if (previewRunning.current) return
+    previewRunning.current = true
+    const startedSequence = ++requestSequence.current
+    const startedScope = scope
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setBusy(true)
     setError(null)
     try {
-      const next = await client.admin.previewSemanticVenueUpdate.query({
-        tenantId,
-        venueId,
-        proposalId,
-        expectedUpdatedAt: new Date(proposalUpdatedAt),
-        relation,
-        desired: {
-          title: title.trim(),
-          category: category.trim(),
-          content: content.trim(),
-          isEnabled,
-        },
-        ...(temporal
-          ? {
-              validFrom: new Date(validFrom).toISOString(),
-              validUntil: new Date(validUntil).toISOString(),
-              operationalUpdateType,
-            }
-          : {}),
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SEMANTIC_PREVIEW_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewSemanticVenueUpdate.query(
+            {
+              tenantId,
+              venueId,
+              proposalId,
+              expectedUpdatedAt: new Date(proposalUpdatedAt),
+              relation,
+              desired: {
+                title: title.trim(),
+                category: category.trim(),
+                content: content.trim(),
+                isEnabled,
+              },
+              ...(temporal
+                ? {
+                    validFrom: new Date(validFrom).toISOString(),
+                    validUntil: new Date(validUntil).toISOString(),
+                    operationalUpdateType,
+                  }
+                : {}),
+            },
+            { signal },
+          ),
       })
-      setPreview(next)
-      setDraft(null)
-      setOperationalDraft(null)
-      setConflictQuestion(null)
-      setQuestionAgentIdentityId(
-        next.conflictQuestion?.agentIdentityId ?? next.questionAgentIdentities?.[0]?.id ?? '',
-      )
-    } catch (cause) {
-      setPreview(null)
-      setError(cause instanceof Error ? cause.message : 'Semantic preview is unavailable.')
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setPreview(next)
+        setDraft(null)
+        setOperationalDraft(null)
+        setConflictQuestion(null)
+        setQuestionAgentIdentityId(
+          next.conflictQuestion?.agentIdentityId ?? next.questionAgentIdentities?.[0]?.id ?? '',
+        )
+      }
+    } catch {
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setPreview(null)
+        setError('Semantic preview could not be loaded in time. Retry the unchanged proposal.')
+      }
     } finally {
-      setBusy(false)
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        previewRunning.current = false
+        setBusy(false)
+      }
     }
   }
 
@@ -250,7 +310,10 @@ export function SemanticUpdatePreview({
         </div>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            invalidatePreview()
+            setOpen(false)
+          }}
           className="min-h-11 rounded-lg px-3 text-sm font-medium text-slate-600"
         >
           Close

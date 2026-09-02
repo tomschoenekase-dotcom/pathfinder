@@ -1,10 +1,13 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { OffboardingExportManifestPreview as Preview } from '@pathfinder/contracts/offboarding-export-preview'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const EXPORT_PREVIEW_TIMEOUT_MS = 15_000
 
 export function OffboardingExportManifestPreview({
   tenantId,
@@ -15,33 +18,83 @@ export function OffboardingExportManifestPreview({
 }) {
   const client = useTRPCClient()
   const active = useRef(false)
+  const requestSequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
   const [venueIds, setVenueIds] = useState<string[]>([])
   const [preview, setPreview] = useState<Preview | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const scope = `${tenantId}:${venueIds.join(',')}`
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+
+  useEffect(() => {
+    requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    active.current = false
+    setVenueIds([])
+    setPreview(null)
+    setPending(false)
+    setError(null)
+  }, [tenantId])
+
+  useEffect(
+    () => () => {
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    },
+    [],
+  )
 
   async function loadPreview() {
     if (active.current || venueIds.length === 0) return
+    const startedSequence = ++requestSequence.current
+    const startedScope = scope
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     active.current = true
     setPending(true)
     setError(null)
     try {
-      const result = await client.admin.previewOffboardingExportManifest.query({
-        tenantId,
-        venueIds,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: EXPORT_PREVIEW_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewOffboardingExportManifest.query(
+            {
+              tenantId,
+              venueIds,
+            },
+            { signal },
+          ),
       })
-      setPreview(result)
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setPreview(result)
+      }
     } catch {
-      setError(
-        'The preview could not be loaded. No export artifact or offboarding action was created.',
-      )
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        setError(
+          'The preview could not be loaded in time. No export artifact or offboarding action was created. Retry when ready.',
+        )
+      }
     } finally {
-      active.current = false
-      setPending(false)
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (requestSequence.current === startedSequence && currentScope.current === startedScope) {
+        active.current = false
+        setPending(false)
+      }
     }
   }
 
   function toggle(venueId: string, checked: boolean) {
+    requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    active.current = false
+    setPending(false)
     setVenueIds((current) =>
       checked ? [...current, venueId] : current.filter((id) => id !== venueId),
     )
