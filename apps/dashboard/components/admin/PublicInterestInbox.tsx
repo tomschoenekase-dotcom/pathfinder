@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type Inbox = Awaited<
@@ -10,6 +11,9 @@ type Inbox = Awaited<
 >
 type InboxItem = Inbox['items'][number]
 type Filter = 'ALL' | 'NEW' | 'REVIEWED' | 'ARCHIVED'
+type LoadResult = 'loaded' | 'failed' | 'stale'
+
+const INBOX_READ_TIMEOUT_MS = 15_000
 
 export function PublicInterestInbox() {
   const client = useTRPCClient()
@@ -18,22 +22,51 @@ export function PublicInterestInbox() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ organizationId: string; name: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const readSequence = useRef(0)
+  const activeRead = useRef<AbortController | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<LoadResult> => {
+    const sequence = ++readSequence.current
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
+    setLoading(true)
     setError(null)
     try {
-      setInbox(
-        await client.admin.listPublicInterestSubmissions.query({
-          ...(filter === 'ALL' ? {} : { status: filter }),
-          limit: 100,
-        }),
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load inbound requests.')
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: INBOX_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listPublicInterestSubmissions.query(
+            {
+              ...(filter === 'ALL' ? {} : { status: filter }),
+              limit: 100,
+            },
+            { signal },
+          ),
+      })
+      if (sequence !== readSequence.current) return 'stale'
+      setInbox(next)
+      return 'loaded'
+    } catch {
+      if (sequence !== readSequence.current) return 'stale'
+      setError('Inbound requests could not be loaded in time. Retry to inspect the latest state.')
+      return 'failed'
+    } finally {
+      if (activeRead.current === controller) activeRead.current = null
+      if (sequence === readSequence.current) setLoading(false)
     }
   }, [client, filter])
 
-  useEffect(() => void load(), [load])
+  useEffect(() => {
+    void load()
+    return () => {
+      readSequence.current += 1
+      activeRead.current?.abort()
+      activeRead.current = null
+    }
+  }, [load])
 
   async function review(item: InboxItem, decision: 'MARK_REVIEWED' | 'ARCHIVE' | 'REOPEN') {
     setBusyId(item.id)
@@ -51,9 +84,16 @@ export function PublicInterestInbox() {
               ? 'Reopened for another review.'
               : 'Reviewed in the inbound interest inbox.',
       })
-      await load()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not update the request.')
+      const refresh = await load()
+      if (refresh === 'failed') {
+        setError(
+          'The review decision was saved, but the inbox could not be refreshed. Refresh before taking another action.',
+        )
+      }
+    } catch {
+      setError(
+        'The review decision could not be confirmed. Refresh before retrying to avoid repeating an action that may have succeeded.',
+      )
     } finally {
       setBusyId(null)
     }
@@ -69,13 +109,20 @@ export function PublicInterestInbox() {
         submissionId: item.id,
         reason: 'Converted after human review in the inbound interest inbox.',
       })
-      await load()
+      const refresh = await load()
       setNotice({
         organizationId: converted.organization.id,
         name: converted.organization.canonicalName,
       })
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not create the prospect.')
+      if (refresh === 'failed') {
+        setError(
+          'The prospect was created, but the inbox could not be refreshed. Open the prospect or refresh before taking another action.',
+        )
+      }
+    } catch {
+      setError(
+        'Prospect creation could not be confirmed. Refresh before retrying to avoid repeating an action that may have succeeded.',
+      )
     } finally {
       setBusyId(null)
     }
@@ -103,10 +150,11 @@ export function PublicInterestInbox() {
         </div>
         <button
           type="button"
+          disabled={loading}
           onClick={() => void load()}
-          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm"
+          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm disabled:opacity-50"
         >
-          Refresh
+          {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </header>
 
@@ -152,7 +200,7 @@ export function PublicInterestInbox() {
           </Link>
         </div>
       ) : null}
-      {!inbox && !error ? (
+      {!inbox && loading && !error ? (
         <div
           role="status"
           className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600"
