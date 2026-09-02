@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type SearchItem = {
@@ -43,6 +44,7 @@ const GROUP_META: Record<string, { label: string; icon: LucideIcon }> = {
   packages: { label: 'Venue packages', icon: Box },
   evaluations: { label: 'Evaluation runs', icon: FileSearch },
 }
+const SEARCH_REQUEST_TIMEOUT_MS = 15_000
 
 export function AdminCommandPalette({ compact = false }: { compact?: boolean }) {
   const router = useRouter()
@@ -50,6 +52,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const loadMoreControllerRef = useRef<AbortController | null>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [groups, setGroups] = useState<SearchGroup[]>([])
@@ -74,10 +77,18 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
   useEffect(() => {
     if (open) window.requestAnimationFrame(() => inputRef.current?.focus())
     else {
+      loadMoreControllerRef.current?.abort()
+      loadMoreControllerRef.current = null
       setQuery('')
       setGroups([])
     }
   }, [open])
+  useEffect(
+    () => () => {
+      loadMoreControllerRef.current?.abort()
+    },
+    [],
+  )
   useEffect(() => {
     if (!open) return
     const normalized = query.trim()
@@ -88,11 +99,16 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
       return
     }
     let current = true
+    const controller = new AbortController()
     const timeout = window.setTimeout(() => {
       setLoading(true)
       setLoadError(false)
-      void client.admin.searchAdminOs
-        .query({ query: normalized, limitPerGroup: 5 })
+      void runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.searchAdminOs.query({ query: normalized, limitPerGroup: 5 }, { signal }),
+      })
         .then((result) => {
           if (current) {
             setGroups(result.groups)
@@ -108,6 +124,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
     }, 180)
     return () => {
       current = false
+      controller.abort()
       window.clearTimeout(timeout)
     }
   }, [client, open, query])
@@ -146,22 +163,35 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
   }
   async function loadMore(group: SearchGroup) {
     if (!group.nextCursor || loadingGroup) return
+    const cursor = group.nextCursor
+    loadMoreControllerRef.current?.abort()
+    const controller = new AbortController()
+    loadMoreControllerRef.current = controller
     setLoadingGroup(group.name)
     try {
-      const result = await client.admin.searchAdminOs.query({
-        query: query.trim(),
-        limitPerGroup: 5,
-        group: group.name as
-          | 'clients'
-          | 'venues'
-          | 'content'
-          | 'support'
-          | 'agents'
-          | 'jobs'
-          | 'packages'
-          | 'evaluations',
-        cursor: group.nextCursor,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.searchAdminOs.query(
+            {
+              query: query.trim(),
+              limitPerGroup: 5,
+              group: group.name as
+                | 'clients'
+                | 'venues'
+                | 'content'
+                | 'support'
+                | 'agents'
+                | 'jobs'
+                | 'packages'
+                | 'evaluations',
+              cursor,
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted) return
       const next = result.groups[0]
       if (next)
         setGroups((current) =>
@@ -172,9 +202,12 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
           ),
         )
     } catch {
-      setLoadError(true)
+      if (!controller.signal.aborted) setLoadError(true)
     } finally {
-      setLoadingGroup(null)
+      if (loadMoreControllerRef.current === controller) {
+        loadMoreControllerRef.current = null
+        setLoadingGroup(null)
+      }
     }
   }
   return (

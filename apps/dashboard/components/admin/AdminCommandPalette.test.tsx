@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), push: vi.fn() }))
@@ -74,7 +74,11 @@ describe('AdminCommandPalette', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
     await waitFor(
-      () => expect(mocks.query).toHaveBeenCalledWith({ query: 'museum', limitPerGroup: 5 }),
+      () =>
+        expect(mocks.query).toHaveBeenCalledWith(
+          { query: 'museum', limitPerGroup: 5 },
+          { signal: expect.any(AbortSignal) },
+        ),
       { timeout: 1000 },
     )
   }
@@ -102,5 +106,32 @@ describe('AdminCommandPalette', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Admin OS search is unavailable',
     )
+  })
+  it('aborts an in-flight search when the palette unmounts', async () => {
+    mocks.query.mockImplementation(() => new Promise(() => undefined))
+    const view = render(<AdminCommandPalette />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1), { timeout: 1000 })
+    const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
+  })
+  it('aborts a stalled search at the request deadline and exposes the retry state', async () => {
+    vi.useFakeTimers()
+    mocks.query.mockImplementation(() => new Promise(() => undefined))
+    render(<AdminCommandPalette />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search Admin OS' }))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'museum' } })
+
+    await act(async () => vi.advanceTimersByTimeAsync(180))
+    const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('Admin OS search is unavailable')
+    vi.useRealTimers()
   })
 })
