@@ -77,13 +77,41 @@ describe('IntakeBuilderLifecyclePanel', () => {
 
     expect(await screen.findByRole('heading', { name: 'Research · blocked' })).toBeTruthy()
     expect(screen.getByText(/Run bounded website research before analysis/)).toBeTruthy()
-    expect(query).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
-      venueId: 'venue-a',
-      runId: 'run-a',
-    })
+    expect(query).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(screen.getByRole('button', { name: 'Run bounded research' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('redacts lifecycle transport failures and keeps the exact retry available', async () => {
+    query.mockRejectedValueOnce(new Error('postgres://secret/provider-stack'))
+    render(<IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-a" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/latest retained state/i)
+    expect(document.body.textContent).not.toContain('postgres://secret/provider-stack')
+    expect(screen.getByRole('button', { name: 'Retry Builder status' })).toBeTruthy()
+  })
+
+  it('cancels lifecycle and mapping reads when their authority scope is removed', async () => {
+    const signals: AbortSignal[] = []
+    query.mockImplementationOnce((_input, options: { signal: AbortSignal }) => {
+      signals.push(options.signal)
+      return new Promise(() => undefined)
+    })
+    const rendered = render(
+      <IntakeBuilderLifecyclePanel tenantId="tenant-a" venueId="venue-a" runId="run-a" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
+    await waitFor(() => expect(signals).toHaveLength(1))
+    rendered.unmount()
+    expect(signals[0]?.aborted).toBe(true)
   })
 
   it('reuses one operation identity after an uncertain research failure', async () => {
@@ -264,6 +292,9 @@ describe('IntakeBuilderLifecyclePanel', () => {
     fireEvent.change(await screen.findByLabelText('venue.phone'), { target: { value: 'phone-a' } })
     fireEvent.click(screen.getByRole('button', { name: 'Preview reviewed mapping' }))
     expect(await screen.findByText('Exact DRAFT preview is ready')).toBeTruthy()
+    expect(mappingQuery).toHaveBeenCalledWith(expect.any(Object), {
+      signal: expect.any(AbortSignal),
+    })
     const create = screen.getByRole('button', { name: 'Create linked Venue Package DRAFT' })
     expect((create as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(

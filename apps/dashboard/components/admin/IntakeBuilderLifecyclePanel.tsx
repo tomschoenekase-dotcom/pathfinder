@@ -6,6 +6,9 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const BUILDER_READ_TIMEOUT_MS = 15_000
 
 export type IntakeBuilderLifecycle =
   inferRouterOutputs<AppRouter>['admin']['getIntakeBuilderLifecycle']
@@ -265,6 +268,20 @@ export function IntakeBuilderLifecyclePanel({
   const [mappingBusy, setMappingBusy] = useState(false)
   const [mappingError, setMappingError] = useState<string | null>(null)
   const sequence = useRef(0)
+  const mappingSequence = useRef(0)
+  const loadAbort = useRef<AbortController | null>(null)
+  const mappingAbort = useRef<AbortController | null>(null)
+  const scope = `${tenantId}:${venueId}:${runId}`
+  const renderedScope = useRef(scope)
+  if (renderedScope.current !== scope) {
+    renderedScope.current = scope
+    sequence.current += 1
+    mappingSequence.current += 1
+    loadAbort.current?.abort()
+    mappingAbort.current?.abort()
+    loadAbort.current = null
+    mappingAbort.current = null
+  }
   const researchOperationId = useRef<string | null>(null)
   const extractionOperationId = useRef<string | null>(null)
   const extractionReviewOperationId = useRef<string | null>(null)
@@ -312,15 +329,34 @@ export function IntakeBuilderLifecyclePanel({
     fileResolutionOperationIds.current = {}
   }, [runId, tenantId, venueId])
 
+  useEffect(
+    () => () => {
+      sequence.current += 1
+      mappingSequence.current += 1
+      loadAbort.current?.abort()
+      mappingAbort.current?.abort()
+      loadAbort.current = null
+      mappingAbort.current = null
+    },
+    [],
+  )
+
   async function load() {
     const request = ++sequence.current
+    mappingSequence.current += 1
+    mappingAbort.current?.abort()
+    mappingAbort.current = null
+    loadAbort.current?.abort()
+    const controller = new AbortController()
+    loadAbort.current = controller
     setBusy(true)
     setError(null)
     try {
-      const result = await client.admin.getIntakeBuilderLifecycle.query({
-        tenantId,
-        venueId,
-        runId,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: BUILDER_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getIntakeBuilderLifecycle.query({ tenantId, venueId, runId }, { signal }),
       })
       if (request === sequence.current) {
         setLifecycle(result)
@@ -333,11 +369,12 @@ export function IntakeBuilderLifecyclePanel({
             '',
         )
       }
-    } catch (cause) {
+    } catch {
       if (request === sequence.current) {
-        setError(cause instanceof Error ? cause.message : 'Builder lifecycle is unavailable.')
+        setError('Builder lifecycle is unavailable. Retry to inspect the latest retained state.')
       }
     } finally {
+      if (loadAbort.current === controller) loadAbort.current = null
       if (request === sequence.current) setBusy(false)
     }
   }
@@ -509,21 +546,38 @@ export function IntakeBuilderLifecyclePanel({
     setMappingError(null)
     setMappingPreview(null)
     setMappingReviewed(false)
+    const request = ++mappingSequence.current
+    mappingAbort.current?.abort()
+    const controller = new AbortController()
+    mappingAbort.current = controller
     try {
-      setMappingPreview(
-        await client.admin.previewWebsiteVenuePackageMapping.query({
-          tenantId,
-          venueId,
-          runId,
-          receiptId: review.receiptId,
-          expectedResearchHash: review.researchHash,
-          selections,
-        }),
-      )
-    } catch (cause) {
-      setMappingError(cause instanceof Error ? cause.message : 'Website mapping preview failed.')
+      const preview = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: BUILDER_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewWebsiteVenuePackageMapping.query(
+            {
+              tenantId,
+              venueId,
+              runId,
+              receiptId: review.receiptId,
+              expectedResearchHash: review.researchHash,
+              selections,
+            },
+            { signal },
+          ),
+      })
+      if (request === mappingSequence.current && renderedScope.current === scope)
+        setMappingPreview(preview)
+    } catch {
+      if (request === mappingSequence.current && renderedScope.current === scope)
+        setMappingError(
+          'Website mapping preview is unavailable. No DRAFT was created; retry from the retained citations.',
+        )
     } finally {
-      setMappingBusy(false)
+      if (mappingAbort.current === controller) mappingAbort.current = null
+      if (request === mappingSequence.current && renderedScope.current === scope)
+        setMappingBusy(false)
     }
   }
 
