@@ -26,16 +26,25 @@ for (const stream of [child.stdout, child.stderr]) {
   })
 }
 
-child.once('error', (error) => {
-  tail.push(`Unable to start workspace tests: ${error.message}`)
-})
-
-child.once('exit', (code, signal) => {
-  if (code === 0 && signal === null) return
-
-  const outcome = signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`
+let finalized = false
+function fail(outcome) {
+  if (finalized) return
+  finalized = true
   process.stderr.write(`Workspace test graph failed with ${outcome}. Sanitized final output follows.\n`)
   const annotation = createDiagnosticAnnotation(tail.values())
   process.stderr.write(`::error title=Workspace test graph failed::${annotation}\n`)
   process.exitCode = 1
+}
+
+child.once('error', () => {
+  tail.push('Unable to start workspace tests')
+  fail('startup failure')
+})
+
+child.once('exit', (code, signal) => {
+  if (code === 0 && signal === null) {
+    finalized = true
+    return
+  }
+  fail(signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`)
 })
