@@ -27,13 +27,14 @@ test('every application image starts from the exact reviewed Node image index', 
 
 test('every final application stage runs as the built-in non-root Node account', async () => {
   for (const { name, source } of await sources()) {
-    const runnerIndex = source.lastIndexOf(' AS runner')
-    const userIndex = source.lastIndexOf('\nUSER node\n')
-    const commandIndex = source.lastIndexOf('\nCMD ')
+    const normalizedSource = source.replaceAll('\r\n', '\n')
+    const runnerIndex = normalizedSource.lastIndexOf(' AS runner')
+    const userIndex = normalizedSource.lastIndexOf('\nUSER node\n')
+    const commandIndex = normalizedSource.lastIndexOf('\nCMD ')
     assert.notEqual(runnerIndex, -1, name)
     assert.ok(userIndex > runnerIndex, name)
     assert.ok(commandIndex > userIndex, name)
-    assert.doesNotMatch(source.slice(userIndex), /\nUSER\s+(?:0|root)\b/u, name)
+    assert.doesNotMatch(normalizedSource.slice(userIndex), /\nUSER\s+(?:0|root)\b/u, name)
   }
 })
 
