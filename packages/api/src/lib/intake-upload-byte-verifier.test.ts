@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createBoundedClamAvResponseCollector,
   nextClamAvInputChunk,
   parseClamAvResponse,
   verifyIntakeUploadBytes,
+  withClamAvSocketLifecycle,
 } from './intake-upload-byte-verifier'
 
 async function* chunks(...values: Uint8Array[]) {
@@ -34,6 +35,22 @@ function request(
 }
 
 describe('bounded intake upload byte verification', () => {
+  it('destroys the ClamAV socket after protocol success or failure', async () => {
+    const successfulSocket = { destroy: vi.fn() }
+    await expect(withClamAvSocketLifecycle(successfulSocket, async () => 'clean')).resolves.toBe(
+      'clean',
+    )
+    expect(successfulSocket.destroy).toHaveBeenCalledOnce()
+
+    const failedSocket = { destroy: vi.fn() }
+    await expect(
+      withClamAvSocketLifecycle(failedSocket, async () => {
+        throw new Error('ClamAV scan timed out')
+      }),
+    ).rejects.toThrow('ClamAV scan timed out')
+    expect(failedSocket.destroy).toHaveBeenCalledOnce()
+  })
+
   it('observes scanner failure while the upload byte source is stalled', async () => {
     let rejectSocket!: (error: Error) => void
     const socketError = new Promise<never>((_resolve, reject) => {

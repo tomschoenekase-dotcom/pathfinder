@@ -62,6 +62,21 @@ export function nextClamAvInputChunk(
   return Promise.race([iterator.next(), socketError])
 }
 
+export async function withClamAvSocketLifecycle<T>(
+  socket: { destroy(): unknown },
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } finally {
+    try {
+      socket.destroy()
+    } catch {
+      // Protocol success or failure remains authoritative; socket cleanup is best-effort only.
+    }
+  }
+}
+
 function requestAsyncIteratorClose(iterator: AsyncIterator<Uint8Array>): void {
   try {
     if (!iterator.return) return
@@ -358,63 +373,64 @@ export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScann
     engineVersion: 'daemon',
     async scan(input) {
       const socket = createConnection({ host, port: parsedPort })
-      socket.setTimeout(30 * 60_000)
-      const responseCollector = createBoundedClamAvResponseCollector()
-      socket.on('data', (chunk: Buffer) => {
-        if (!responseCollector.push(chunk))
-          socket.destroy(new Error('ClamAV response exceeded its byte limit'))
-      })
-      const socketError = new Promise<never>((_, reject) => {
-        socket.once('error', reject)
-        socket.once('timeout', () => reject(new Error('ClamAV scan timed out')))
-      })
-      await Promise.race([once(socket, 'connect'), socketError])
-      socket.write(Buffer.from('zINSTREAM\0'))
-      const hash = createHash('sha256')
-      let total = 0
-      const createIterator = input.bytes[Symbol.asyncIterator]
-      const iterator = createIterator.call(input.bytes)
-      try {
-        let next = await nextClamAvInputChunk(iterator, socketError)
-        while (!next.done) {
-          const chunk = next.value
-          total += chunk.byteLength
-          if (total > input.expectedBytes || total > INTAKE_UPLOAD_MAX_BYTES)
-            throw new Error('ClamAV stream exceeded immutable upload size')
-          hash.update(chunk)
-          const size = Buffer.allocUnsafe(4)
-          size.writeUInt32BE(chunk.byteLength)
-          if (!socket.write(size)) await Promise.race([once(socket, 'drain'), socketError])
-          if (!socket.write(chunk)) await Promise.race([once(socket, 'drain'), socketError])
-          next = await nextClamAvInputChunk(iterator, socketError)
+      return withClamAvSocketLifecycle(socket, async () => {
+        socket.setTimeout(30 * 60_000)
+        const responseCollector = createBoundedClamAvResponseCollector()
+        socket.on('data', (chunk: Buffer) => {
+          if (!responseCollector.push(chunk))
+            socket.destroy(new Error('ClamAV response exceeded its byte limit'))
+        })
+        const socketError = new Promise<never>((_, reject) => {
+          socket.once('error', reject)
+          socket.once('timeout', () => reject(new Error('ClamAV scan timed out')))
+        })
+        await Promise.race([once(socket, 'connect'), socketError])
+        socket.write(Buffer.from('zINSTREAM\0'))
+        const hash = createHash('sha256')
+        let total = 0
+        const createIterator = input.bytes[Symbol.asyncIterator]
+        const iterator = createIterator.call(input.bytes)
+        try {
+          let next = await nextClamAvInputChunk(iterator, socketError)
+          while (!next.done) {
+            const chunk = next.value
+            total += chunk.byteLength
+            if (total > input.expectedBytes || total > INTAKE_UPLOAD_MAX_BYTES)
+              throw new Error('ClamAV stream exceeded immutable upload size')
+            hash.update(chunk)
+            const size = Buffer.allocUnsafe(4)
+            size.writeUInt32BE(chunk.byteLength)
+            if (!socket.write(size)) await Promise.race([once(socket, 'drain'), socketError])
+            if (!socket.write(chunk)) await Promise.race([once(socket, 'drain'), socketError])
+            next = await nextClamAvInputChunk(iterator, socketError)
+          }
+        } catch (error) {
+          requestAsyncIteratorClose(iterator)
+          throw error
         }
-      } catch (error) {
-        socket.destroy()
-        requestAsyncIteratorClose(iterator)
-        throw error
-      }
-      socket.end(Buffer.alloc(4))
-      await Promise.race([once(socket, 'close'), socketError])
-      const computedSha256 = hash.digest('hex')
-      if (total !== input.expectedBytes || computedSha256 !== input.expectedSha256)
-        throw new Error('ClamAV stream did not match immutable upload evidence')
-      const { response, verdict } = parseClamAvResponse(responseCollector.value())
-      return {
-        verdict,
-        computedByteSize: total,
-        computedSha256,
-        verdictHash: createHash('sha256')
-          .update(
-            JSON.stringify({
-              domain: 'pathfinder.clamav-verdict.v1',
-              engine: 'clamav-clamd',
-              response,
-              byteSize: total,
-              sha256: computedSha256,
-            }),
-          )
-          .digest('hex'),
-      }
+        socket.end(Buffer.alloc(4))
+        await Promise.race([once(socket, 'close'), socketError])
+        const computedSha256 = hash.digest('hex')
+        if (total !== input.expectedBytes || computedSha256 !== input.expectedSha256)
+          throw new Error('ClamAV stream did not match immutable upload evidence')
+        const { response, verdict } = parseClamAvResponse(responseCollector.value())
+        return {
+          verdict,
+          computedByteSize: total,
+          computedSha256,
+          verdictHash: createHash('sha256')
+            .update(
+              JSON.stringify({
+                domain: 'pathfinder.clamav-verdict.v1',
+                engine: 'clamav-clamd',
+                response,
+                byteSize: total,
+                sha256: computedSha256,
+              }),
+            )
+            .digest('hex'),
+        }
+      })
     },
   }
 }
