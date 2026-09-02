@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const query = vi.fn()
@@ -20,6 +20,7 @@ describe('OnboardingBootstrapReview', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+    vi.useRealTimers()
   })
 
   it('deliberately loads a read-only deterministic candidate and keeps raw input collapsed', async () => {
@@ -40,11 +41,14 @@ describe('OnboardingBootstrapReview', () => {
     expect(screen.queryByLabelText('VenuePackage payload JSON')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Review package candidate' }))
     expect(await screen.findByText(/Candidate from structured onboarding proposal/)).toBeTruthy()
-    expect(query).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      runId: 'run-1',
-    })
+    expect(query).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        runId: 'run-1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(
       (screen.getByLabelText('VenuePackage payload JSON') as HTMLTextAreaElement).readOnly,
     ).toBe(true)
@@ -108,6 +112,55 @@ describe('OnboardingBootstrapReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review package candidate' }))
     expect(await screen.findByText(/Candidate from reviewed file extraction proposal/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /approve|apply|publish/i })).toBeNull()
+  })
+
+  it('cancels a stale candidate read when the review unmounts', async () => {
+    let signal: AbortSignal | undefined
+    query.mockImplementation((_input, options) => {
+      signal = options?.signal
+      return new Promise(() => {})
+    })
+    const view = render(
+      <OnboardingBootstrapReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        run={{
+          id: 'run-1',
+          displayName: 'Initial setup',
+          status: 'AWAITING_REVIEW',
+          structuredBootstrap: {},
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Review package candidate' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(signal?.aborted).toBe(false)
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('recovers with fixed guidance when a candidate read exceeds its deadline', async () => {
+    vi.useFakeTimers()
+    query.mockImplementation(() => new Promise(() => {}))
+    render(
+      <OnboardingBootstrapReview
+        tenantId="tenant-1"
+        venueId="venue-1"
+        run={{
+          id: 'run-1',
+          displayName: 'Initial setup',
+          status: 'AWAITING_REVIEW',
+          structuredBootstrap: {},
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Review package candidate' }))
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be loaded in time/i)
+    expect(
+      (screen.getByRole('button', { name: 'Review package candidate' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
   })
 })
 

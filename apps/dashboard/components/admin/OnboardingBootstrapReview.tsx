@@ -6,8 +6,11 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
+
+const CANDIDATE_READ_TIMEOUT_MS = 15_000
 
 export type OnboardingBootstrapCandidate =
   inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']
@@ -46,33 +49,62 @@ export function OnboardingBootstrapReview({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
+  const scope = `${tenantId}:${venueId}:${run.id}`
+  const currentScope = useRef(scope)
+  currentScope.current = scope
 
   useEffect(() => {
     requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
     setCandidate(fixtureCandidate ?? null)
     setBusy(false)
     setError(null)
   }, [fixtureCandidate, run.id, tenantId, venueId])
 
+  useEffect(
+    () => () => {
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    },
+    [],
+  )
+
   async function loadCandidate() {
     const sequence = ++requestSequence.current
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setBusy(true)
     setError(null)
     try {
       const next =
         fixtureCandidate ??
-        (await client.admin.getIntakeVenuePackageCandidate.query({
-          tenantId,
-          venueId,
-          runId: run.id,
+        (await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: CANDIDATE_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getIntakeVenuePackageCandidate.query(
+              {
+                tenantId,
+                venueId,
+                runId: run.id,
+              },
+              { signal },
+            ),
         }))
-      if (sequence === requestSequence.current) setCandidate(next)
-    } catch (cause) {
-      if (sequence === requestSequence.current) {
-        setError(cause instanceof Error ? cause.message : 'The package candidate is unavailable.')
+      if (sequence === requestSequence.current && currentScope.current === scope) setCandidate(next)
+    } catch {
+      if (sequence === requestSequence.current && currentScope.current === scope) {
+        setError(
+          'The package candidate could not be loaded in time. Retry to inspect the latest retained evidence.',
+        )
       }
     } finally {
-      if (sequence === requestSequence.current) setBusy(false)
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (sequence === requestSequence.current && currentScope.current === scope) setBusy(false)
     }
   }
 
