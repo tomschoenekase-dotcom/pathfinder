@@ -51,30 +51,48 @@ export async function dispatchPendingProspectOutbox(
  * Periodically republishes durable outbox intent. It never calls a provider and
  * remains disabled unless the internal prospect-outreach server flag is on.
  */
-export function startProspectOutboxDispatcher(intervalMs = DEFAULT_INTERVAL_MS): () => void {
+export function startProspectOutboxDispatcher(
+  intervalMs = DEFAULT_INTERVAL_MS,
+): () => Promise<void> {
   if (process.env.CRM_PROSPECT_OUTREACH_ENABLED !== 'true') {
     logger.info({ action: 'workers.prospect-outbox.dispatch.disabled' })
-    return () => undefined
+    return async () => undefined
   }
 
-  let running = false
-  const dispatch = async () => {
-    if (running) return
-    running = true
-    try {
-      await dispatchPendingProspectOutbox()
-    } catch (error) {
-      logger.error({
-        action: 'workers.prospect-outbox.dispatch.failed',
-        error: error instanceof Error ? error.message : 'Unknown outbox dispatcher error',
+  let stopping = false
+  let inFlightDispatch: Promise<void> | undefined
+  const dispatch = () => {
+    if (stopping || inFlightDispatch) return inFlightDispatch ?? Promise.resolve()
+
+    const execution = dispatchPendingProspectOutbox()
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        try {
+          logger.error({
+            action: 'workers.prospect-outbox.dispatch.failed',
+            error: error instanceof Error ? error.message : 'Unknown outbox dispatcher error',
+          })
+        } catch {
+          // Keep a diagnostic failure from escaping the interval task.
+        }
       })
-    } finally {
-      running = false
-    }
+      .finally(() => {
+        if (inFlightDispatch === execution) inFlightDispatch = undefined
+      })
+    inFlightDispatch = execution
+    return execution
   }
 
   void dispatch()
   const timer = setInterval(() => void dispatch(), intervalMs)
   timer.unref()
-  return () => clearInterval(timer)
+  let stopPromise: Promise<void> | undefined
+  return () => {
+    stopPromise ??= (async () => {
+      stopping = true
+      clearInterval(timer)
+      await inFlightDispatch
+    })()
+    return stopPromise
+  }
 }

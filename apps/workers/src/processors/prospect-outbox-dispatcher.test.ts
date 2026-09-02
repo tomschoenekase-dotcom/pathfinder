@@ -17,12 +17,16 @@ vi.mock('@pathfinder/config', () => ({
   logger: { info: vi.fn(), error: vi.fn() },
 }))
 
-import { dispatchPendingProspectOutbox } from './prospect-outbox-dispatcher'
+import {
+  dispatchPendingProspectOutbox,
+  startProspectOutboxDispatcher,
+} from './prospect-outbox-dispatcher'
 
 describe('prospect outbox dispatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = 'true'
+    process.env.CRM_PROSPECT_OUTREACH_ENABLED = 'true'
     findControl.mockResolvedValue({ deliveryEnabled: true })
   })
 
@@ -76,5 +80,47 @@ describe('prospect outbox dispatcher', () => {
       enqueued: 1,
       failed: 1,
     })
+  })
+
+  it('serializes scans and drains the active dispatch before stopping', async () => {
+    vi.useFakeTimers()
+    let resolveScan: ((value: Array<{ id: string }>) => void) | undefined
+    findMany.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveScan = resolve
+      }),
+    )
+    const stop = startProspectOutboxDispatcher(100)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(findMany).toHaveBeenCalledOnce()
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(findMany).toHaveBeenCalledOnce()
+
+    let stopped = false
+    const stopping = stop().then(() => {
+      stopped = true
+    })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+
+    resolveScan?.([])
+    await stopping
+    expect(stopped).toBe(true)
+    await expect(stop()).resolves.toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(findMany).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
+  it('returns an awaitable no-op stop while the dispatcher gate is dark', async () => {
+    process.env.CRM_PROSPECT_OUTREACH_ENABLED = 'false'
+
+    const stop = startProspectOutboxDispatcher(100)
+
+    await expect(stop()).resolves.toBeUndefined()
+    expect(findControl).not.toHaveBeenCalled()
   })
 })
