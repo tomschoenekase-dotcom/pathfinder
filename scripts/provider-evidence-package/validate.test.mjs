@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { validateProviderEvidencePackage } from './validate-lib.mjs'
 
@@ -257,4 +259,20 @@ test('rejects review before run completion or outside authorization', () => {
   const run = validPackage()
   run.runs[0].startedAt = '2026-08-31T23:59:00Z'
   assert.throws(() => validateProviderEvidencePackage(run), /inside the authorization window/)
+})
+
+test('CLI help is bounded and successful', () => {
+  const script = fileURLToPath(new URL('./validate.mjs', import.meta.url))
+  const result = spawnSync(process.execPath, [script, '--help'], { encoding: 'utf8' })
+  assert.equal(result.status, 0)
+  assert.match(result.stderr, /^Usage: pnpm provider-evidence:validate/)
+  assert.equal(result.stdout, '')
+})
+
+test('CLI missing input fails with bounded usage and no stack', () => {
+  const script = fileURLToPath(new URL('./validate.mjs', import.meta.url))
+  const result = spawnSync(process.execPath, [script], { encoding: 'utf8' })
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /^Usage: pnpm provider-evidence:validate/)
+  assert.doesNotMatch(result.stderr, /\n\s+at /)
 })
