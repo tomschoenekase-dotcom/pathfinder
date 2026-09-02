@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -99,7 +99,10 @@ describe('NativeContentShadowComparisonPanel', () => {
       readSwitchContract,
     })
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('compares exact frozen runs and renders raw evidence without a cutover claim', async () => {
     render(<NativeContentShadowComparisonPanel {...props} />)
@@ -107,11 +110,15 @@ describe('NativeContentShadowComparisonPanel', () => {
     await screen.findByLabelText('Legacy baseline run')
     fireEvent.click(screen.getByRole('button', { name: 'Compare frozen evidence' }))
     await screen.findByText('admission-hours')
-    expect(mocks.compare).toHaveBeenCalledWith({
-      ...props,
-      baselineRunId: runs.baselines[0]!.id,
-      candidateRunId: runs.candidates[0]!.id,
-    })
+    expect(mocks.list).toHaveBeenCalledWith(props, { signal: expect.any(AbortSignal) })
+    expect(mocks.compare).toHaveBeenCalledWith(
+      {
+        ...props,
+        baselineRunId: runs.baselines[0]!.id,
+        candidateRunId: runs.candidates[0]!.id,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(screen.getByText(/No pass threshold is inferred/)).toBeTruthy()
     expect(screen.getByText(/does not switch guest retrieval/)).toBeTruthy()
     expect(screen.getByText(/· New failure · score/)).toBeTruthy()
@@ -154,5 +161,35 @@ describe('NativeContentShadowComparisonPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Compare frozen evidence' }))
     await waitFor(() => expect(screen.getByText(/model/)).toBeTruthy())
     expect(screen.queryByText(/Cases/)).toBeNull()
+  })
+
+  it('aborts an obsolete frozen-run read when the panel unmounts', async () => {
+    let signal: AbortSignal | undefined
+    mocks.list.mockImplementation((_input, options) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    const view = render(<NativeContentShadowComparisonPanel {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Choose frozen runs' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('recovers with fixed guidance when comparison exceeds its deadline', async () => {
+    const view = render(<NativeContentShadowComparisonPanel {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Choose frozen runs' }))
+    await screen.findByLabelText('Native candidate run')
+    vi.useFakeTimers()
+    mocks.compare.mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: 'Compare frozen evidence' }))
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be compared/i)
+    expect(screen.queryByText(/secret provider detail/i)).toBeNull()
+    expect(
+      (screen.getByRole('button', { name: 'Compare frozen evidence' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
+    view.unmount()
   })
 })

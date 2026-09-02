@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const SHADOW_READ_TIMEOUT_MS = 15_000
 
 type Run = {
   id: string
@@ -97,9 +100,11 @@ export function NativeContentShadowComparisonPanel({
 }) {
   const client = useTRPCClient()
   const scope = `${tenantId}:${venueId}:${releaseId}`
-  const renderedScope = useRef(scope)
+  const currentScope = useRef(scope)
+  currentScope.current = scope
   const generation = useRef(0)
   const inFlight = useRef(false)
+  const activeRequest = useRef<AbortController | null>(null)
   const [runs, setRuns] = useState<{ baselines: Run[]; candidates: Run[] } | null>(null)
   const [baselineRunId, setBaselineRunId] = useState('')
   const [candidateRunId, setCandidateRunId] = useState('')
@@ -107,13 +112,10 @@ export function NativeContentShadowComparisonPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (renderedScope.current !== scope) {
-    renderedScope.current = scope
-    generation.current += 1
-    inFlight.current = false
-  }
-
   useEffect(() => {
+    generation.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
     setRuns(null)
     setBaselineRunId('')
     setCandidateRunId('')
@@ -121,10 +123,16 @@ export function NativeContentShadowComparisonPanel({
     setBusy(false)
     setError(null)
     inFlight.current = false
+    return () => {
+      generation.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+      inFlight.current = false
+    }
   }, [scope])
 
   function current(startedGeneration: number, startedScope: string) {
-    return generation.current === startedGeneration && renderedScope.current === startedScope
+    return generation.current === startedGeneration && currentScope.current === startedScope
   }
 
   async function loadRuns() {
@@ -132,13 +140,23 @@ export function NativeContentShadowComparisonPanel({
     inFlight.current = true
     const startedGeneration = generation.current
     const startedScope = scope
+    const controller = new AbortController()
+    activeRequest.current = controller
     setBusy(true)
     setError(null)
     try {
-      const result = await client.admin.listNativeContentShadowRuns.query({
-        tenantId,
-        venueId,
-        releaseId,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SHADOW_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listNativeContentShadowRuns.query(
+            {
+              tenantId,
+              venueId,
+              releaseId,
+            },
+            { signal },
+          ),
       })
       if (!current(startedGeneration, startedScope)) return
       setRuns(result)
@@ -148,6 +166,7 @@ export function NativeContentShadowComparisonPanel({
       if (current(startedGeneration, startedScope))
         setError('Frozen shadow-run identities could not be loaded for this exact release.')
     } finally {
+      if (activeRequest.current === controller) activeRequest.current = null
       if (current(startedGeneration, startedScope)) {
         inFlight.current = false
         setBusy(false)
@@ -161,22 +180,33 @@ export function NativeContentShadowComparisonPanel({
     inFlight.current = true
     const startedGeneration = generation.current
     const startedScope = scope
+    const controller = new AbortController()
+    activeRequest.current = controller
     setBusy(true)
     setError(null)
     setComparison(null)
     try {
-      const result = await client.admin.compareNativeContentShadowRuns.query({
-        tenantId,
-        venueId,
-        releaseId,
-        baselineRunId,
-        candidateRunId,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SHADOW_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.compareNativeContentShadowRuns.query(
+            {
+              tenantId,
+              venueId,
+              releaseId,
+              baselineRunId,
+              candidateRunId,
+            },
+            { signal },
+          ),
       })
       if (current(startedGeneration, startedScope)) setComparison(result as Comparison)
     } catch {
       if (current(startedGeneration, startedScope))
         setError('The exact frozen runs could not be compared. No release or guest state changed.')
     } finally {
+      if (activeRequest.current === controller) activeRequest.current = null
       if (current(startedGeneration, startedScope)) {
         inFlight.current = false
         setBusy(false)
