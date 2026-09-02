@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
+  admitHostedHealth,
   assessSyntheticAnswer,
   fingerprintHostedBrowserError,
   hostedSmokeErrorCode,
@@ -12,6 +14,8 @@ import {
 
 const revision = 'a'.repeat(40)
 const policy = {
+  healthUrl: 'https://pathfinder-staging.example.test/api/health',
+  host: 'pathfinder-staging.example.test',
   resources: { database: 'db-staging', redis: 'redis-staging', storage: 'storage-staging' },
 }
 const health = {
@@ -88,6 +92,37 @@ test('hosted health must match staging, revision, dependencies, and reviewed res
       ),
     /staging-storage-identity-mismatch/u,
   )
+})
+
+test('hosted health admission reuses the bounded exact-release verifier', async () => {
+  let request
+  const admitted = await admitHostedHealth(policy, revision, async (...args) => {
+    request = args
+    return new Response(JSON.stringify(health), {
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    })
+  })
+
+  assert.equal(admitted.revision, revision)
+  assert.equal(request[1].cache, 'no-store')
+  assert.equal(request[1].redirect, 'error')
+  assert.ok(request[1].signal instanceof AbortSignal)
+})
+
+test('every hosted evidence consumer uses bounded health admission', async () => {
+  for (const file of [
+    'hosted-golden-venue-smoke.mjs',
+    'measure-hosted-authenticated-surfaces.mjs',
+    'measure-hosted-dashboard-assets.mjs',
+    'measure-hosted-visitor-performance.mjs',
+  ]) {
+    const source = await readFile(
+      new URL(`../apps/dashboard/scripts/${file}`, import.meta.url),
+      'utf8',
+    )
+    assert.match(source, /await admitHostedHealth\(policy, options\.revision\)/u)
+    assert.doesNotMatch(source, /healthResponse\.(?:json|text)\(\)/u)
+  }
 })
 
 test('provider evidence is content-addressed and checks every synthetic expected fact', () => {

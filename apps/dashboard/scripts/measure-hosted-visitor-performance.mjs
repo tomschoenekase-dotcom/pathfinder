@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
 
-import { validateHostedHealth } from './hosted-golden-venue-smoke.mjs'
+import { admitHostedHealth } from './hosted-golden-venue-smoke.mjs'
 
 const scriptPath = fileURLToPath(import.meta.url)
 const repositoryRoot = path.resolve(path.dirname(scriptPath), '../../..')
@@ -190,9 +190,7 @@ export async function runHostedVisitorPerformanceMeasurement(options) {
   const healthUrl = new URL(policy.healthUrl)
   if (healthUrl.protocol !== 'https:' || healthUrl.hostname !== policy.host)
     fail('staging-policy-origin-invalid')
-  const healthResponse = await fetch(healthUrl, { signal: AbortSignal.timeout(30_000) })
-  if (!healthResponse.ok) fail('staging-health-request-failed')
-  validateHostedHealth(await healthResponse.json(), policy, options.revision)
+  await admitHostedHealth(policy, options.revision)
 
   const origin = healthUrl.origin
   const expectedPath = `/${options.venueSlug}/chat`

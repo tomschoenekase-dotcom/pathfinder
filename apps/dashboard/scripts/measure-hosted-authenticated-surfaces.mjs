@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
 
-import { validateHostedHealth } from './hosted-golden-venue-smoke.mjs'
+import { admitHostedHealth } from './hosted-golden-venue-smoke.mjs'
 
 const scriptPath = fileURLToPath(import.meta.url)
 const repositoryRoot = path.resolve(path.dirname(scriptPath), '../../..')
@@ -192,9 +192,7 @@ export async function runHostedAuthenticatedSurfaceMeasurement(options) {
     await readFile(path.join(repositoryRoot, 'scripts/release-verification-policy.json'), 'utf8'),
   ).staging
   const origin = validateAuthenticatedDashboardPolicy(policy)
-  const healthResponse = await fetch(policy.healthUrl, { signal: AbortSignal.timeout(30_000) })
-  if (!healthResponse.ok) fail('staging-health-request-failed')
-  validateHostedHealth(await healthResponse.json(), policy, options.revision)
+  await admitHostedHealth(policy, options.revision)
 
   const outputDirectory = authenticatedSurfaceArtifactDirectory(options.revision)
   await mkdir(outputDirectory, { recursive: true })

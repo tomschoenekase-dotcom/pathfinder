@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
 
+import { verifyStagingHealth } from '../../../scripts/lib/staging-health-admission.mjs'
+
 const scriptPath = fileURLToPath(import.meta.url)
 const repositoryRoot = path.resolve(path.dirname(scriptPath), '../../..')
 const FULL_SHA = /^[0-9a-f]{40}$/u
@@ -46,6 +48,18 @@ export function validateHostedHealth(health, policy, revision) {
   for (const [key, expected] of Object.entries(policy.resources)) {
     if (health.deployment.resources?.[key] !== expected) fail(`staging-${key}-identity-mismatch`)
   }
+}
+
+export async function admitHostedHealth(policy, revision, fetchImpl = globalThis.fetch) {
+  return verifyStagingHealth({
+    healthUrl: policy.healthUrl,
+    expectedRevision: revision,
+    confirmEnvironment: 'staging',
+    confirmHost: policy.host,
+    expectedResources: policy.resources,
+    timeoutMs: 30_000,
+    fetchImpl,
+  })
 }
 
 export function assessSyntheticAnswer(answer, expectedFacts) {
@@ -112,9 +126,7 @@ export async function runHostedGoldenVenueSmoke(options, environment = process.e
   if (healthUrl.protocol !== 'https:' || healthUrl.hostname !== policy.host)
     fail('staging-policy-origin-invalid')
   const origin = healthUrl.origin
-  const healthResponse = await fetch(healthUrl, { signal: AbortSignal.timeout(30_000) })
-  if (!healthResponse.ok) fail('staging-health-request-failed')
-  validateHostedHealth(await healthResponse.json(), policy, options.revision)
+  await admitHostedHealth(policy, options.revision)
 
   const consoleErrors = []
   const browser = await chromium.launch({ headless: true })
