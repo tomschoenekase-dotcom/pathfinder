@@ -2,6 +2,58 @@ import { GmailApiError, type GmailApiClient, type GmailApiMessage } from './gmai
 
 type Fetch = typeof fetch
 type Json = Record<string, unknown>
+const GMAIL_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
+const GMAIL_REQUEST_TIMEOUT_MS = 30_000
+
+async function readBoundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  const declared = response.headers.get('content-length')
+  if (declared && (!/^\d+$/u.test(declared) || Number(declared) > GMAIL_RESPONSE_MAX_BYTES)) {
+    void response.body?.cancel().catch(() => undefined)
+    throw new Error('response-too-large')
+  }
+  if (!response.body) throw new Error('malformed-response')
+
+  const reader = response.body.getReader()
+  const cancelOnAbort = () => void reader.cancel().catch(() => undefined)
+  signal.addEventListener('abort', cancelOnAbort, { once: true })
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  let reading = true
+  try {
+    while (reading) {
+      const { done, value } = await reader.read()
+      if (done) {
+        reading = false
+        continue
+      }
+      totalBytes += value.byteLength
+      if (totalBytes > GMAIL_RESPONSE_MAX_BYTES) {
+        void reader.cancel().catch(() => undefined)
+        throw new Error('response-too-large')
+      }
+      chunks.push(value)
+    }
+  } finally {
+    signal.removeEventListener('abort', cancelOnAbort)
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+function boundedTimeout(value: number | undefined) {
+  const timeoutMs = value ?? GMAIL_REQUEST_TIMEOUT_MS
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+    throw new Error('Gmail request timeout must be an integer from 1 to 60000 milliseconds')
+  }
+  return timeoutMs
+}
 
 function object(value: unknown): Json {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -86,10 +138,11 @@ function errorKind(status: number, history: boolean) {
 }
 
 export function createGmailApiClient(
-  input: { fetch?: Fetch; apiBaseUrl?: string } = {},
+  input: { fetch?: Fetch; apiBaseUrl?: string; requestTimeoutMs?: number } = {},
 ): GmailApiClient {
   const transport = input.fetch ?? fetch
   const base = input.apiBaseUrl ?? 'https://gmail.googleapis.com/gmail/v1'
+  const timeoutMs = boundedTimeout(input.requestTimeoutMs)
 
   async function call(args: {
     accessToken: string
@@ -100,37 +153,56 @@ export function createGmailApiClient(
     mayAccept?: boolean
     history?: boolean
   }): Promise<Json> {
-    let response: Response
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      response = await transport(
-        `${base}/users/${encodeURIComponent(args.mailboxAddress)}/${args.path}`,
-        {
-          method: args.method ?? 'GET',
-          headers: {
-            authorization: `Bearer ${args.accessToken}`,
-            accept: 'application/json',
-            ...(args.body ? { 'content-type': 'application/json' } : {}),
+      let response: Response
+      try {
+        response = await transport(
+          `${base}/users/${encodeURIComponent(args.mailboxAddress)}/${args.path}`,
+          {
+            method: args.method ?? 'GET',
+            headers: {
+              authorization: `Bearer ${args.accessToken}`,
+              accept: 'application/json',
+              ...(args.body ? { 'content-type': 'application/json' } : {}),
+            },
+            ...(args.body ? { body: JSON.stringify(args.body) } : {}),
+            signal: controller.signal,
           },
-          ...(args.body ? { body: JSON.stringify(args.body) } : {}),
-          signal: AbortSignal.timeout(30_000),
-        },
-      )
-    } catch (error) {
-      throw new GmailApiError(
-        'TRANSIENT',
-        error instanceof Error ? error.message : 'Gmail transport failed',
-        args.mayAccept ? 'MAY_HAVE_ACCEPTED' : 'NOT_ACCEPTED',
-      )
+        )
+      } catch {
+        throw new GmailApiError(
+          'TRANSIENT',
+          controller.signal.aborted ? 'Gmail request timed out' : 'Gmail transport failed',
+          args.mayAccept ? 'MAY_HAVE_ACCEPTED' : 'NOT_ACCEPTED',
+        )
+      }
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => undefined)
+        throw new GmailApiError(
+          errorKind(response.status, args.history === true),
+          `Gmail request failed with HTTP ${response.status}`,
+          'NOT_ACCEPTED',
+          retryAfter(response),
+        )
+      }
+      if (response.status === 204) return {}
+      try {
+        return object(await readBoundedJson(response, controller.signal))
+      } catch (error) {
+        if (error instanceof GmailApiError) throw error
+        throw new GmailApiError(
+          controller.signal.aborted ? 'TRANSIENT' : 'PERMANENT',
+          controller.signal.aborted
+            ? 'Gmail request timed out'
+            : 'Gmail returned a malformed response',
+          args.mayAccept ? 'MAY_HAVE_ACCEPTED' : 'NOT_ACCEPTED',
+        )
+      }
+    } finally {
+      clearTimeout(timeout)
     }
-    if (!response.ok) {
-      throw new GmailApiError(
-        errorKind(response.status, args.history === true),
-        `Gmail request failed with HTTP ${response.status}`,
-        'NOT_ACCEPTED',
-        retryAfter(response),
-      )
-    }
-    return response.status === 204 ? {} : object(await response.json())
   }
 
   const getMessage = async (accessToken: string, mailboxAddress: string, messageId: string) =>

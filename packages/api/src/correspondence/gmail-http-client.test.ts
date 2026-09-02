@@ -95,7 +95,15 @@ describe('createGmailApiClient', () => {
   })
 
   it('classifies a missing history cursor separately from a missing message', async () => {
-    const client = createGmailApiClient({ fetch: vi.fn().mockResolvedValue(json({}, 404)) })
+    let canceled = false
+    const body = new ReadableStream({
+      cancel() {
+        canceled = true
+      },
+    })
+    const client = createGmailApiClient({
+      fetch: vi.fn().mockResolvedValue(new Response(body, { status: 404 })),
+    })
     await expect(
       client.listHistory({
         accessToken: 'token',
@@ -104,5 +112,48 @@ describe('createGmailApiClient', () => {
         pageSize: 100,
       }),
     ).rejects.toMatchObject({ kind: 'HISTORY_CURSOR_EXPIRED' })
+    expect(canceled).toBe(true)
+  })
+
+  it('rejects and cancels a response whose declared length exceeds the safety limit', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      cancel() {
+        canceled = true
+      },
+    })
+    const client = createGmailApiClient({
+      fetch: vi.fn().mockResolvedValue(
+        new Response(body, {
+          headers: { 'content-length': String(8 * 1024 * 1024 + 1) },
+        }),
+      ),
+    })
+
+    await expect(
+      client.getProfile({ accessToken: 'token', mailboxAddress: 'outreach@torchiko.com' }),
+    ).rejects.toMatchObject({ kind: 'PERMANENT', message: 'Gmail returned a malformed response' })
+    expect(canceled).toBe(true)
+  })
+
+  it('bounds and cancels a stalled response body', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'))
+      },
+      cancel() {
+        canceled = true
+      },
+    })
+    const client = createGmailApiClient({
+      fetch: vi.fn().mockResolvedValue(new Response(body)),
+      requestTimeoutMs: 10,
+    })
+
+    await expect(
+      client.getProfile({ accessToken: 'token', mailboxAddress: 'outreach@torchiko.com' }),
+    ).rejects.toMatchObject({ kind: 'TRANSIENT', message: 'Gmail request timed out' })
+    expect(canceled).toBe(true)
   })
 })
