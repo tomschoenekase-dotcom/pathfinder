@@ -89,7 +89,7 @@ test('current-truth manifest has unique evidence-backed capabilities', async () 
     staging.founderAbsenceHistory.retainedEvents >=
       staging.runtimeAudit.founderAbsenceRetainedEvents,
   )
-  assert.equal(staging.founderAbsenceHistory.consecutiveCompleteDays, 1)
+  assert.equal(staging.founderAbsenceHistory.consecutiveCompleteDays, 2)
   assert.equal(staging.founderAbsenceHistory.sevenDayReviewReady, false)
   assert.equal(staging.founderAbsenceHistory.certificationGranted, false)
   assert.equal(staging.founderAbsenceHistory.launchGate, false)
@@ -185,7 +185,7 @@ test('staging evidence prose agrees with the machine-readable observer counts', 
   )
   assert.match(
     evidence,
-    new RegExp(`one consecutive complete day`),
+    new RegExp(`${staging.founderAbsenceHistory.consecutiveCompleteDays} consecutive complete`),
   )
   assert.match(evidence, new RegExp(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadSha))
   assert.match(evidence, new RegExp(truth.engineeringSnapshot.lastVerifiedEvidenceOnlyHeadCiRun))

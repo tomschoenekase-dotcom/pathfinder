@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-09-01",
+  "asOf": "2026-09-02",
   "authority": {
     "purpose": "Machine-readable overlay for current repository capability truth",
     "supersedesHistoricalClaimsIn": [
@@ -9,7 +9,7 @@
       "docs/system-state/TORCHIKO_AUDIT_BACKLOG.md"
     ],
     "doesNotProve": [
-      "hosted staging behavior beyond the bounded 2026-09-01 snapshot",
+      "hosted staging behavior beyond the bounded 2026-09-02 snapshot",
       "production deployment",
       "provider credentials or provider-backed quality",
       "customer contact",
@@ -52,14 +52,14 @@
       "window": "24h",
       "serviceErrorRows": 0,
       "webDashboardHttp5xxRows": 0,
-      "founderAbsenceRetainedEvents": 6,
+      "founderAbsenceRetainedEvents": 14,
       "founderAbsenceFailedEvents": 0
     },
     "founderAbsenceHistory": {
       "window": "168h",
-      "retainedEvents": 37,
-      "observedDays": 1,
-      "consecutiveCompleteDays": 1,
+      "retainedEvents": 73,
+      "observedDays": 5,
+      "consecutiveCompleteDays": 2,
       "sevenDayReviewReady": false,
       "certificationGranted": false,
       "launchGate": false

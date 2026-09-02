@@ -1,4 +1,4 @@
-# Torchiko staging current truth — 2026-09-01
+# Torchiko staging current truth — observed through 2026-09-02
 
 > **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
 
@@ -33,10 +33,10 @@ release and reviewed database, Redis, and storage resource identities with datab
 The exact hosted staging profile passed 19/19 with zero failed or blocked gates.
 
 The latest bounded 24-hour runtime audit found zero service error rows, zero web/dashboard HTTP 5xx
-rows, and 6 complete founder-absence events with zero failures. The exact 168-hour reconciliation
-across the preceding and current worker deployments retained 37 complete events with zero failures
-on `2026-09-01`. The release rollover changed the retained
-release identity, so the exact reconciler reports one consecutive complete day; it remains explicitly
+rows, and 14 complete founder-absence events with zero failures. The exact 168-hour reconciliation
+across the preceding and current worker deployments retained 73 complete events with zero failures
+through `2026-09-02`. The release rollover changed the retained release identity; the exact current
+release now has 2 consecutive complete UTC days. It remains explicitly
 `sevenDayReviewReady=false`, `certificationGranted=false`, and `launchGate=false` until real retained
 history, private-ledger readback, and human review satisfy the remaining gates.
 
