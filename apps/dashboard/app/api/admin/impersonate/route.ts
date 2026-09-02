@@ -3,6 +3,11 @@ import { logger } from '@pathfinder/config/logger'
 import { db, writeAuditLogStrict } from '@pathfinder/db'
 import { type NextRequest, NextResponse } from 'next/server'
 
+import {
+  BoundedJsonRequestError,
+  readBoundedJsonRequest,
+} from '../../../../lib/bounded-json-request'
+
 const COOKIE_NAME = 'pf_admin_tenant'
 const COOKIE_MAX_AGE = 60 * 60 * 8
 
@@ -27,8 +32,14 @@ export async function POST(req: NextRequest) {
 
   let body: unknown
   try {
-    body = await req.json()
-  } catch {
+    body = await readBoundedJsonRequest(req, { maxBytes: 4 * 1024 })
+  } catch (error) {
+    if (error instanceof BoundedJsonRequestError && error.code === 'BODY_TOO_LARGE') {
+      return NextResponse.json({ error: 'Request body too large' }, { status: 413 })
+    }
+    if (error instanceof BoundedJsonRequestError && error.code === 'BODY_TIMEOUT') {
+      return NextResponse.json({ error: 'Request body timeout' }, { status: 408 })
+    }
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {

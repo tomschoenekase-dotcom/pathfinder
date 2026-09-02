@@ -3,6 +3,11 @@ import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pat
 import { enqueueGmailSync } from '@pathfinder/jobs'
 import { NextResponse, type NextRequest } from 'next/server'
 
+import {
+  BoundedJsonRequestError,
+  readBoundedJsonRequest,
+} from '../../../../../lib/bounded-json-request'
+
 export async function POST(request: NextRequest) {
   const expectedAudience = process.env.GMAIL_PUBSUB_PUSH_AUDIENCE
   const expectedServiceAccount = process.env.GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT
@@ -21,8 +26,16 @@ export async function POST(request: NextRequest) {
 
   let notification: ReturnType<typeof parseGmailPushEnvelope>
   try {
-    notification = parseGmailPushEnvelope(await request.json())
-  } catch {
+    notification = parseGmailPushEnvelope(
+      await readBoundedJsonRequest(request, { maxBytes: 64 * 1024 }),
+    )
+  } catch (error) {
+    if (error instanceof BoundedJsonRequestError && error.code === 'BODY_TOO_LARGE') {
+      return NextResponse.json({ error: 'Notification too large' }, { status: 413 })
+    }
+    if (error instanceof BoundedJsonRequestError && error.code === 'BODY_TIMEOUT') {
+      return NextResponse.json({ error: 'Notification timeout' }, { status: 408 })
+    }
     return NextResponse.json({ error: 'Invalid notification' }, { status: 400 })
   }
 

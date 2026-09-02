@@ -159,6 +159,21 @@ describe('admin impersonation route', () => {
     expect(mocks.writeAuditLogStrict).not.toHaveBeenCalled()
   })
 
+  it('rejects an oversized body before database or audit work', async () => {
+    const oversized = new NextRequest('https://dashboard.example/api/admin/impersonate', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json', 'content-length': '4097' },
+    })
+
+    const response = await POST(oversized)
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: 'Request body too large' })
+    expect(mocks.findTenant).not.toHaveBeenCalled()
+    expect(mocks.writeAuditLogStrict).not.toHaveBeenCalled()
+  })
+
   it.each([[], 123, 'stop', null])(
     'rejects malformed top-level JSON without stopping impersonation: %j',
     async (body) => {
