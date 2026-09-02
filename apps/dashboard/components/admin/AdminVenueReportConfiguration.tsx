@@ -3,7 +3,10 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const REPORT_CONFIGURATION_READ_TIMEOUT_MS = 15_000
 
 type AdminVenueReportConfigurationProps = {
   tenantId: string
@@ -39,17 +42,22 @@ export function AdminVenueReportConfiguration({
   const scopeGeneration = useRef(0)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeRead = useRef<AbortController | null>(null)
 
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
+      activeRead.current?.abort()
+      activeRead.current = null
       activeAction.current = null
     }
   }, [])
 
   useLayoutEffect(() => {
     scopeGeneration.current += 1
+    activeRead.current?.abort()
+    activeRead.current = null
     activeAction.current = null
     setEnabled(initialEnabled)
     setRevision(updatedAt)
@@ -119,9 +127,17 @@ export function AdminVenueReportConfiguration({
   async function reload() {
     const action = startAction('reload')
     if (!action) return
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     setFeedback(null)
     try {
-      const result = await client.admin.getVenueReportConfiguration.query({ tenantId, venueId })
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: REPORT_CONFIGURATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getVenueReportConfiguration.query({ tenantId, venueId }, { signal }),
+      })
       if (!isCurrentAction(action)) return
       setEnabled(result.enabled)
       setRevision(result.updatedAt?.toISOString() ?? null)
@@ -131,9 +147,10 @@ export function AdminVenueReportConfiguration({
       if (!isCurrentAction(action)) return
       setFeedback({
         kind: 'error',
-        text: 'Report availability could not be reloaded. No further change was attempted.',
+        text: 'Report availability could not be reloaded in time. No further change was attempted. Retry when ready.',
       })
     } finally {
+      if (activeRead.current === controller) activeRead.current = null
       finishAction(action)
     }
   }

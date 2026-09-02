@@ -3,7 +3,10 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const BUDGET_READ_TIMEOUT_MS = 15_000
 
 type BudgetState = {
   configured: boolean
@@ -108,11 +111,14 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
   const scopeGeneration = useRef(0)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeRead = useRef<AbortController | null>(null)
 
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
+      activeRead.current?.abort()
+      activeRead.current = null
       activeAction.current = null
     }
   }, [])
@@ -128,6 +134,8 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
 
   useLayoutEffect(() => {
     scopeGeneration.current += 1
+    activeRead.current?.abort()
+    activeRead.current = null
     activeAction.current = null
     installState(initialState)
     setPending(null)
@@ -285,9 +293,16 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
   async function reloadBudget() {
     const action = startAction('reload')
     if (!action) return
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     setFeedback(null)
     try {
-      const result = await client.admin.getAiCostBudget.query({ tenantId })
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: BUDGET_READ_TIMEOUT_MS,
+        request: (signal) => client.admin.getAiCostBudget.query({ tenantId }, { signal }),
+      })
       if (!isCurrentAction(action)) return
       installState(result.configured ? configuredBudgetState(result) : unconfiguredBudgetState())
       setRequiresReload(false)
@@ -296,9 +311,10 @@ export function AdminAiCostBudgetForm({ tenantId, initialState }: AdminAiCostBud
       if (!isCurrentAction(action)) return
       setFeedback({
         kind: 'error',
-        text: 'The AI cost budget could not be reloaded. No further change was attempted.',
+        text: 'The AI cost budget could not be reloaded in time. No further change was attempted. Retry when ready.',
       })
     } finally {
+      if (activeRead.current === controller) activeRead.current = null
       finishAction(action)
     }
   }

@@ -3,7 +3,10 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const WEEKLY_REPORT_READ_TIMEOUT_MS = 15_000
 
 type WeeklyReportEditorProps = {
   tenantId: string
@@ -50,6 +53,7 @@ export function WeeklyReportEditor({
   const scopeGeneration = useRef(0)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeRead = useRef<AbortController | null>(null)
   const isPublished = currentStatus === 'PUBLISHED'
   const isDraft = currentStatus === 'DRAFT'
 
@@ -57,12 +61,16 @@ export function WeeklyReportEditor({
     mounted.current = true
     return () => {
       mounted.current = false
+      activeRead.current?.abort()
+      activeRead.current = null
       activeAction.current = null
     }
   }, [])
 
   useLayoutEffect(() => {
     scopeGeneration.current += 1
+    activeRead.current?.abort()
+    activeRead.current = null
     activeAction.current = null
     setTitle(initialTitle)
     setContent(initialContent)
@@ -164,9 +172,17 @@ export function WeeklyReportEditor({
   async function reloadReport() {
     const action = startAction('reload')
     if (!action) return
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     setFeedback(null)
     try {
-      const report = await client.admin.getWeeklyReport.query({ tenantId, venueId, reportId })
+      const report = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: WEEKLY_REPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getWeeklyReport.query({ tenantId, venueId, reportId }, { signal }),
+      })
       if (!isCurrentAction(action)) return
       setTitle(report.title)
       setContent(report.content ?? '')
@@ -180,9 +196,10 @@ export function WeeklyReportEditor({
       if (!isCurrentAction(action)) return
       setFeedback({
         kind: 'error',
-        text: 'The report could not be reloaded. No further save or publish was attempted.',
+        text: 'The report could not be reloaded in time. No further save or publish was attempted. Retry when ready.',
       })
     } finally {
+      if (activeRead.current === controller) activeRead.current = null
       finishAction(action)
     }
   }

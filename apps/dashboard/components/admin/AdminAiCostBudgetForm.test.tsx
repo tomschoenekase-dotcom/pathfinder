@@ -81,7 +81,10 @@ describe('AdminAiCostBudgetForm', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('shows exact counters and submits the displayed revision', async () => {
     mocks.mutate.mockResolvedValueOnce(budgetResult())
@@ -299,7 +302,12 @@ describe('AdminAiCostBudgetForm', () => {
     const reload = await screen.findByRole('button', { name: /Reload/ })
 
     fireEvent.click(reload)
-    await waitFor(() => expect(mocks.query).toHaveBeenCalledWith({ tenantId: 'tenant_1' }))
+    await waitFor(() =>
+      expect(mocks.query).toHaveBeenCalledWith(
+        { tenantId: 'tenant_1' },
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
     expect(await screen.findByText(/reloaded/i)).toBeTruthy()
     expect((screen.getByLabelText('Hard limit (USD)') as HTMLInputElement).value).toBe(
       '333.00000000',
@@ -347,6 +355,28 @@ describe('AdminAiCostBudgetForm', () => {
       (screen.getByRole('button', { name: 'Save AI budget' }) as HTMLButtonElement).disabled,
     ).toBe(true)
     expect(screen.getByRole('button', { name: 'Reload AI cost budget' })).toBeTruthy()
+  })
+
+  it('bounds authoritative budget reload and keeps mutations locked after the deadline', async () => {
+    mocks.mutate.mockRejectedValueOnce(new Error('transport unavailable'))
+    render(<AdminAiCostBudgetForm tenantId="tenant_1" initialState={initialState} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save AI budget' }))
+    const reload = await screen.findByRole('button', { name: 'Reload AI cost budget' })
+    vi.useFakeTimers()
+    mocks.query.mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(reload)
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be reloaded in time')
+    expect(
+      (screen.getByRole('button', { name: 'Save AI budget' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Reload AI cost budget' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 
   it('invalidates an old completion synchronously when tenant and snapshot props change', async () => {

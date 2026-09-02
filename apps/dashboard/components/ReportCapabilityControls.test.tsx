@@ -88,6 +88,7 @@ describe('weekly report capability controls', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -363,13 +364,45 @@ describe('weekly report capability controls', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Reload configuration' }))
 
     expect(await screen.findByText('Report availability reloaded.')).toBeTruthy()
-    expect(mocks.getConfiguration).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-    })
+    expect(mocks.getConfiguration).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(screen.getByText('Current state: Enabled')).toBeTruthy()
     expect(
       (screen.getByRole('button', { name: 'Disable Reports' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('bounds authoritative report-configuration reload and keeps changes locked after timeout', async () => {
+    mocks.updateConfiguration.mockRejectedValueOnce(new Error('transport unavailable'))
+    render(
+      <AdminVenueReportConfiguration
+        tenantId="tenant_1"
+        venueId="venue_1"
+        enabled={false}
+        updatedAt="2026-08-08T12:00:00.000Z"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Reports' }))
+    const reload = await screen.findByRole('button', { name: 'Reload configuration' })
+    vi.useFakeTimers()
+    mocks.getConfiguration.mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(reload)
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const signal = mocks.getConfiguration.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be reloaded in time')
+    expect(
+      (screen.getByRole('button', { name: 'Enable Reports' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Reload configuration' }) as HTMLButtonElement).disabled,
     ).toBe(false)
   })
 
@@ -520,11 +553,14 @@ describe('weekly report capability controls', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Reload report' }))
 
     expect(await screen.findByText('Report reloaded.')).toBeTruthy()
-    expect(mocks.getReport).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      reportId: 'report_1',
-    })
+    expect(mocks.getReport).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect((screen.getByRole('textbox', { name: 'Title' }) as HTMLInputElement).value).toBe(
       'Authoritative title',
     )
@@ -534,6 +570,39 @@ describe('weekly report capability controls', () => {
     expect(
       (screen.getByRole('button', { name: 'Publish to Client Dashboard' }) as HTMLButtonElement)
         .disabled,
+    ).toBe(false)
+  })
+
+  it('bounds authoritative report reload while preserving the unconfirmed draft', async () => {
+    mocks.updateReportDraft.mockRejectedValueOnce(new Error('transport unavailable'))
+    render(
+      <WeeklyReportEditor
+        tenantId="tenant_1"
+        venueId="venue_1"
+        reportId="report_1"
+        initialTitle="Report"
+        initialContent="Body"
+        initialUpdatedAt="2026-08-08T12:00:00.000Z"
+        status="DRAFT"
+      />,
+    )
+    const title = screen.getByRole('textbox', { name: 'Title' }) as HTMLInputElement
+    fireEvent.change(title, { target: { value: 'Unconfirmed title' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+    const reload = await screen.findByRole('button', { name: 'Reload report' })
+    vi.useFakeTimers()
+    mocks.getReport.mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(reload)
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const signal = mocks.getReport.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be reloaded in time')
+    expect(title.value).toBe('Unconfirmed title')
+    expect(title.disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Reload report' }) as HTMLButtonElement).disabled,
     ).toBe(false)
   })
 
