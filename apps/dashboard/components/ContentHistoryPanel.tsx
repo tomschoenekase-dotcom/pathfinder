@@ -3,8 +3,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { changedSnapshotFields } from '../lib/content-history-diff'
+
+const HISTORY_LOAD_TIMEOUT_MS = 15_000
 
 type EntityType = 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY' | 'OPERATIONAL_UPDATE'
 type ContentVersion = {
@@ -70,18 +73,23 @@ export function ContentHistoryPanel({
   const scopeGeneration = useRef(0)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeQueryController = useRef<AbortController | null>(null)
 
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
       activeAction.current = null
+      activeQueryController.current?.abort()
+      activeQueryController.current = null
     }
   }, [])
 
   useLayoutEffect(() => {
     scopeGeneration.current += 1
     activeAction.current = null
+    activeQueryController.current?.abort()
+    activeQueryController.current = null
     setIsOpen(false)
     setVersions([])
     setHasMore(false)
@@ -115,13 +123,23 @@ export function ContentHistoryPanel({
   async function loadHistory(beforeSequence?: bigint) {
     const action = startAction({ kind: 'load' })
     if (!action) return
+    const controller = new AbortController()
+    activeQueryController.current = controller
     setFeedback(null)
     try {
-      const result = await client.contentHistory.list.query({
-        entityType,
-        entityId,
-        limit: 50,
-        ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: HISTORY_LOAD_TIMEOUT_MS,
+        request: (signal) =>
+          client.contentHistory.list.query(
+            {
+              entityType,
+              entityId,
+              limit: 50,
+              ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+            },
+            { signal },
+          ),
       })
       if (!isCurrentAction(action)) return
       setVersions((current) =>
@@ -131,8 +149,15 @@ export function ContentHistoryPanel({
       setRequiresReload(false)
     } catch (loadError) {
       if (!isCurrentAction(action)) return
-      setFeedback({ kind: 'error', text: getErrorMessage(loadError) })
+      setFeedback({
+        kind: 'error',
+        text:
+          loadError instanceof BoundedClientRequestError
+            ? 'History could not be loaded in time. Try again.'
+            : getErrorMessage(loadError),
+      })
     } finally {
+      if (activeQueryController.current === controller) activeQueryController.current = null
       finishAction(action)
     }
   }
@@ -168,8 +193,15 @@ export function ContentHistoryPanel({
       if (!isCurrentAction(action)) return
       setVersions((loaded) => mergeVersions(loaded, [applied]))
       router.refresh()
+      const controller = new AbortController()
+      activeQueryController.current = controller
       try {
-        const result = await client.contentHistory.list.query({ entityType, entityId, limit: 50 })
+        const result = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: HISTORY_LOAD_TIMEOUT_MS,
+          request: (signal) =>
+            client.contentHistory.list.query({ entityType, entityId, limit: 50 }, { signal }),
+        })
         if (!isCurrentAction(action)) return
         setVersions(result)
         setHasMore(result.length === 50)
@@ -182,6 +214,8 @@ export function ContentHistoryPanel({
           kind: 'error',
           text: 'The historical state was restored, but history could not be refreshed. Do not repeat the restore; reload the page.',
         })
+      } finally {
+        if (activeQueryController.current === controller) activeQueryController.current = null
       }
     } catch (revertError) {
       if (!isCurrentAction(action)) return

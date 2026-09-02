@@ -241,7 +241,7 @@ describe('content-history portal controls', () => {
       show.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(mocks.list).toHaveBeenCalledOnce()
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledOnce())
     const section = screen.getByRole('heading', { name: 'Version history' }).closest('section')
     expect(section?.getAttribute('aria-busy')).toBe('true')
     expect(
@@ -282,7 +282,7 @@ describe('content-history portal controls', () => {
 
     pendingRestore.resolve(restoredOriginal)
     expect((await screen.findByRole('status')).textContent).toContain('Historical state restored.')
-    expect(mocks.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
     expect(mocks.refresh).toHaveBeenCalledOnce()
     expect(section?.getAttribute('aria-busy')).toBe('false')
   })
@@ -306,7 +306,7 @@ describe('content-history portal controls', () => {
       restore.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(mocks.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
     expect(mocks.revert).not.toHaveBeenCalled()
     expect(window.confirm).not.toHaveBeenCalled()
     expect(loadOlder.disabled).toBe(true)
@@ -338,8 +338,12 @@ describe('content-history portal controls', () => {
     const view = render(<ContentHistoryPanel entityType="PLACE" entityId="place-1" />)
     fireEvent.click(screen.getByRole('button', { name: 'Show history' }))
     await waitFor(() => expect(mocks.list).toHaveBeenCalledOnce())
+    const oldRequestOptions = mocks.list.mock.calls[0]?.[1] as { signal?: AbortSignal }
+    expect(oldRequestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(oldRequestOptions.signal?.aborted).toBe(false)
 
     view.rerender(<ContentHistoryPanel entityType="PLACE" entityId="place-2" />)
+    expect(oldRequestOptions.signal?.aborted).toBe(true)
     oldLoad.resolve([current])
     await act(async () => oldLoad.promise)
     expect(screen.getByRole('button', { name: 'Show history' })).toBeTruthy()
@@ -347,11 +351,14 @@ describe('content-history portal controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show history' }))
     expect(await screen.findByText('Second entity')).toBeTruthy()
-    expect(mocks.list).toHaveBeenLastCalledWith({
-      entityType: 'PLACE',
-      entityId: 'place-2',
-      limit: 50,
-    })
+    expect(mocks.list).toHaveBeenLastCalledWith(
+      {
+        entityType: 'PLACE',
+        entityId: 'place-2',
+        limit: 50,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('ignores an immediately resolved old deleted-content load after venue rerender', async () => {
