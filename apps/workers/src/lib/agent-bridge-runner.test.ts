@@ -422,6 +422,33 @@ describe('desktop agent bridge runner', () => {
     )
   })
 
+  it('removes idle poll abort listeners after each completed delay', async () => {
+    vi.useFakeTimers()
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    const addListener = vi.spyOn(controller.signal, 'addEventListener')
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener')
+    let claims = 0
+    const call = vi.fn(async (method: string) => {
+      if (method === 'claimTask') {
+        claims += 1
+        if (claims === 2) controller.abort()
+        return { task: null }
+      }
+      return {}
+    })
+
+    const running = runAgentBridge(config, controller.signal, { call: call as never })
+    await vi.advanceTimersByTimeAsync(config.pollMs + 1)
+    await running
+
+    expect(addListener).toHaveBeenCalledTimes(1)
+    expect(addListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true })
+    expect(removeListener).toHaveBeenCalledTimes(1)
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function))
+    vi.useRealTimers()
+  })
+
   it('renews session and task leases together and propagates durable cancellation', async () => {
     vi.useFakeTimers()
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })

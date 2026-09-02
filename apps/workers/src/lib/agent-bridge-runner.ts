@@ -515,15 +515,25 @@ type TaskExecutor = typeof executeAgentBridgeTask
 
 const delay = (milliseconds: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, milliseconds)
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      { once: true },
-    )
+    let listening = false
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (listening) signal.removeEventListener('abort', finish)
+      resolve()
+    }
+
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+
+    const timer = setTimeout(finish, milliseconds)
+    signal.addEventListener('abort', finish, { once: true })
+    listening = true
+    if (signal.aborted) finish()
   })
 
 export async function runAgentBridge(
