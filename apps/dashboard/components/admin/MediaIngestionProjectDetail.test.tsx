@@ -137,11 +137,14 @@ describe('media ingestion project detail', () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(3_000))
 
-    expect(mocks.status).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      projectId: 'project_1',
-    })
+    expect(mocks.status).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        projectId: 'project_1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(mocks.get).toHaveBeenCalledOnce()
     expect(screen.getByText('Source evidence')).toBeTruthy()
   })
@@ -159,6 +162,48 @@ describe('media ingestion project detail', () => {
 
     expect(screen.getByText(/last confirmed state is shown/i)).toBeTruthy()
     expect(screen.getByText(/Analysis is running/)).toBeTruthy()
+  })
+
+  it('aborts a stalled status request and retries from the last confirmed state', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | undefined
+    mocks.status.mockImplementation((_input, options: { signal: AbortSignal }) => {
+      requestSignal = options.signal
+      return new Promise<never>(() => undefined)
+    })
+    render(
+      <MediaIngestionProjectDetail
+        initialProject={project({ status: 'ANALYZING', draftJson: null, completedAt: null })}
+      />,
+    )
+
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+    expect(mocks.status).toHaveBeenCalledOnce()
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect(screen.getByText(/last confirmed state is shown/i)).toBeTruthy()
+  })
+
+  it('aborts an in-flight status request when the project page unmounts', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | undefined
+    mocks.status.mockImplementation((_input, options: { signal: AbortSignal }) => {
+      requestSignal = options.signal
+      return new Promise<never>(() => undefined)
+    })
+    const view = render(
+      <MediaIngestionProjectDetail
+        initialProject={project({ status: 'ANALYZING', draftJson: null, completedAt: null })}
+      />,
+    )
+    await act(async () => vi.advanceTimersByTimeAsync(3_000))
+
+    view.unmount()
+
+    expect(requestSignal?.aborted).toBe(true)
+    await act(async () => vi.advanceTimersByTimeAsync(60_000))
+    expect(mocks.status).toHaveBeenCalledOnce()
   })
 })
 

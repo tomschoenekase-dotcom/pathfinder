@@ -47,33 +47,20 @@ export async function runProspectImportRequest<T>(
   request: (signal: AbortSignal) => Promise<T>,
   timeoutMs = 30_000,
 ): Promise<T> {
-  throwIfProspectImportPollingCancelled(parentSignal)
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new RangeError('Request deadline must be a positive safe integer')
-  }
-
-  const controller = new AbortController()
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  let rejectCancellation: ((error: ProspectImportPollingCancelledError) => void) | undefined
-  const cancellation = new Promise<never>((_, reject) => {
-    rejectCancellation = reject
-  })
-  const onParentAbort = () => {
-    controller.abort()
-    rejectCancellation?.(new ProspectImportPollingCancelledError())
-  }
-  parentSignal.addEventListener('abort', onParentAbort, { once: true })
   try {
-    const operation = Promise.resolve().then(() => request(controller.signal))
-    const deadline = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => {
-        controller.abort()
-        reject(new ProspectImportRequestDeadlineError())
-      }, timeoutMs)
+    return await runBoundedClientRequest({
+      parentSignal,
+      timeoutMs,
+      request,
     })
-    return await Promise.race([operation, cancellation, deadline])
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
-    parentSignal.removeEventListener('abort', onParentAbort)
+  } catch (error) {
+    if (error instanceof BoundedClientRequestError && error.code === 'CANCELLED') {
+      throw new ProspectImportPollingCancelledError()
+    }
+    if (error instanceof BoundedClientRequestError && error.code === 'DEADLINE_EXCEEDED') {
+      throw new ProspectImportRequestDeadlineError()
+    }
+    throw error
   }
 }
+import { BoundedClientRequestError, runBoundedClientRequest } from './bounded-client-request'

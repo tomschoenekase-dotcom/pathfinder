@@ -5,6 +5,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 import { MediaIngestionReview } from './MediaIngestionReview'
 
@@ -19,6 +20,7 @@ const ACTIVE_STATUSES = new Set([
 ])
 const BASE_POLL_MS = 3_000
 const MAX_POLL_MS = 30_000
+const REQUEST_TIMEOUT_MS = 15_000
 
 export function MediaIngestionProjectDetail({ initialProject }: { initialProject: MediaProject }) {
   const client = useTRPCClient()
@@ -30,6 +32,7 @@ export function MediaIngestionProjectDetail({ initialProject }: { initialProject
     let disposed = false
     let failures = 0
     let timer: number | undefined
+    const controller = new AbortController()
 
     const schedule = (delay: number) => {
       if (!disposed) timer = window.setTimeout(() => void poll(), delay)
@@ -40,19 +43,35 @@ export function MediaIngestionProjectDetail({ initialProject }: { initialProject
         return
       }
       try {
-        const status = await client.mediaIngestion.status.query({
-          tenantId: project.tenantId,
-          venueId: project.venueId,
-          projectId: project.id,
+        const status = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+          request: (signal) =>
+            client.mediaIngestion.status.query(
+              {
+                tenantId: project.tenantId,
+                venueId: project.venueId,
+                projectId: project.id,
+              },
+              { signal },
+            ),
         })
         if (disposed) return
         failures = 0
         setPollError(null)
         if (status.hasDraft) {
-          const detail = await client.mediaIngestion.get.query({
-            tenantId: project.tenantId,
-            venueId: project.venueId,
-            projectId: project.id,
+          const detail = await runBoundedClientRequest({
+            parentSignal: controller.signal,
+            timeoutMs: REQUEST_TIMEOUT_MS,
+            request: (signal) =>
+              client.mediaIngestion.get.query(
+                {
+                  tenantId: project.tenantId,
+                  venueId: project.venueId,
+                  projectId: project.id,
+                },
+                { signal },
+              ),
           })
           if (!disposed) setProject(detail)
           return
@@ -82,6 +101,7 @@ export function MediaIngestionProjectDetail({ initialProject }: { initialProject
     schedule(BASE_POLL_MS)
     return () => {
       disposed = true
+      controller.abort()
       if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [client, project.id, project.status, project.tenantId, project.venueId])
