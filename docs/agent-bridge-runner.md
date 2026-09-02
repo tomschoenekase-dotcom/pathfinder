@@ -18,9 +18,12 @@ failure code. A session heartbeat expires after two minutes if the process disap
 - Codex runs ephemeral with a read-only sandbox and `never` approval policy. Claude runs in plan
   mode with an empty tool list and no session persistence. Neither adapter can mutate a repository.
 - Stdout, stderr, HTTP responses, task duration, request bodies, artifacts, and retry attempts are
-  bounded. Subscription/local cost is persisted as `UNREPORTED` with a zero numeric placeholder,
-  so unknown is never displayed or reasoned about as a confirmed free run.
-- Process shutdown aborts the current task. A lost heartbeat or lease prevents stale completion.
+  bounded. Every bridge control-plane request is cancelled after at most 30 seconds (or the shorter
+  configured task timeout), and oversized streaming responses are cancelled as soon as they cross
+  the byte ceiling. Subscription/local cost is persisted as `UNREPORTED` with a zero numeric
+  placeholder, so unknown is never displayed or reasoned about as a confirmed free run.
+- Process shutdown prevents new bridge requests and aborts registration, polling, heartbeats, and
+  the current task. A lost heartbeat or lease prevents stale completion.
 - Every claimed task must match the configured venue and provider. The execution prompt includes
   the exact initiating actor, agent identity, access/autonomy snapshot, operation/run references,
   scope, and attempt, while explicitly treating embedded task/scope text as untrusted data that
