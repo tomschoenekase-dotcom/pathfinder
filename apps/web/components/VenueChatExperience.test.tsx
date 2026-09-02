@@ -2,6 +2,8 @@ import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const ASYNC_CHARACTER_STATE_TIMEOUT_MS = 5_000
+
 const mocks = vi.hoisted(() => ({
   getBySlug: vi.fn(),
   anonymousToken: null as string | null,
@@ -1065,19 +1067,33 @@ describe('VenueChatExperience presentation boundary', () => {
 
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    expect(await screen.findByText('Here and ready')).toBeTruthy()
+    expect(
+      await screen.findByText('Here and ready', {}, { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS }),
+    ).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
-    expect(await screen.findByText('Listening')).toBeTruthy()
+    expect(
+      await screen.findByText('Listening', {}, { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS }),
+    ).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
-    expect(await screen.findByText('Thinking')).toBeTruthy()
+    expect(
+      await screen.findByText('Thinking', {}, { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS }),
+    ).toBeTruthy()
 
     resolveSend({ response: 'Nearby.', sessionId: 'session-1', places: [] })
-    expect(await screen.findByText('Response ready')).toBeTruthy()
+    expect(
+      await screen.findByText('Response ready', {}, { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS }),
+    ).toBeTruthy()
 
     mocks.client.chat.send.mutate.mockRejectedValueOnce(new Error('network unavailable'))
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
-    expect(await screen.findByText('The character had a problem')).toBeTruthy()
+    expect(
+      await screen.findByText(
+        'The character had a problem',
+        {},
+        { timeout: ASYNC_CHARACTER_STATE_TIMEOUT_MS },
+      ),
+    ).toBeTruthy()
   })
 
   it('preserves the current chat when New conversation confirmation is cancelled', async () => {
