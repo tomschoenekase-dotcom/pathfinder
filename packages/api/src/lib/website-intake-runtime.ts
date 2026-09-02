@@ -32,6 +32,7 @@ async function pinnedFetch(
   const url = new URL(request.url)
   const address = request.resolvedAddresses[0]
   if (!address) throw new WebsiteIntakePolicyError('Host did not resolve')
+  if (request.signal?.aborted) throw new WebsiteIntakePolicyError('Website intake was cancelled')
   const options: RequestOptions = {
     protocol: url.protocol,
     hostname: address,

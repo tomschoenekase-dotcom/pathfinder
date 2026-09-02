@@ -1,8 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
-import { extractWebsitePage, robotsAllows } from './website-intake-runtime'
+import {
+  createWebsiteIntakeRuntimeDependencies,
+  extractWebsitePage,
+  robotsAllows,
+} from './website-intake-runtime'
 
 describe('website intake runtime', () => {
+  it('rejects an already-cancelled fetch before opening a network request', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const runtime = createWebsiteIntakeRuntimeDependencies({ userAgent: 'TorchikoBuilder/1.0' })
+
+    await expect(
+      runtime.fetchPage({
+        url: 'http://example.invalid/',
+        resolvedAddresses: ['127.0.0.1'],
+        redirectMode: 'MANUAL',
+        maxBytes: 1_024,
+        timeoutMs: 1_000,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow('Website intake was cancelled')
+  })
+
   it('uses the most specific robots group and longest matching rule', () => {
     const robots = `
 User-agent: *
