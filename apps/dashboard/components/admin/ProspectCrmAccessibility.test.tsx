@@ -10,12 +10,27 @@ import { ProspectDirectory } from './ProspectDirectory'
 import { ProspectOutreachCenter } from './ProspectOutreachCenter'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({
-  push: vi.fn(),
-  replace: vi.fn(),
-  history: [] as unknown[],
-  listImports: vi.fn(),
-}))
+const mocks = vi.hoisted(() => {
+  const listImports = vi.fn()
+  return {
+    push: vi.fn(),
+    replace: vi.fn(),
+    history: [] as unknown[],
+    listImports,
+    client: {
+      admin: {
+        createProspect: { mutate: vi.fn() },
+        listProspectImports: { query: listImports },
+        getProspectImport: { query: vi.fn() },
+        beginProspectImport: { mutate: vi.fn() },
+        stageProspectImportRows: { mutate: vi.fn() },
+        resolveProspectImportRow: { mutate: vi.fn() },
+        approveProspectImport: { mutate: vi.fn() },
+        commitProspectImportBatch: { mutate: vi.fn() },
+      },
+    },
+  }
+})
 const AXE_TEST_TIMEOUT_MS = 15_000
 
 vi.mock('next/navigation', () => ({
@@ -31,18 +46,7 @@ vi.mock('next/link', () => ({
   ),
 }))
 vi.mock('../../lib/trpc', () => ({
-  useTRPCClient: () => ({
-    admin: {
-      createProspect: { mutate: vi.fn() },
-      listProspectImports: { query: mocks.listImports },
-      getProspectImport: { query: vi.fn() },
-      beginProspectImport: { mutate: vi.fn() },
-      stageProspectImportRows: { mutate: vi.fn() },
-      resolveProspectImportRow: { mutate: vi.fn() },
-      approveProspectImport: { mutate: vi.fn() },
-      commitProspectImportBatch: { mutate: vi.fn() },
-    },
-  }),
+  useTRPCClient: () => mocks.client,
 }))
 
 describe('prospect CRM accessibility foundation', () => {

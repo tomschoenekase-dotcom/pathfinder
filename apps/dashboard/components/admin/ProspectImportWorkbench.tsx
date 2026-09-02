@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, ShieldCheck } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -178,10 +178,13 @@ export function ProspectImportWorkbench() {
   const [mapping, setMapping] = useState<Mapping>(initialMapping)
   const [detail, setDetail] = useState<ImportDetail | null>(null)
   const [history, setHistory] = useState<ImportHistoryItem[]>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('Choose a CSV or XLSX file to begin.')
   const [error, setError] = useState<string | null>(null)
   const pollingController = useRef<AbortController | null>(null)
+  const historyController = useRef<AbortController | null>(null)
 
   const columns = useMemo(() => {
     const values = new Set<string>()
@@ -204,20 +207,42 @@ export function ProspectImportWorkbench() {
       .map((row) => mappedRow(row, mapping, selectedSheets[0]!))
   }, [mapping, selectedSheets, workbook])
 
-  useEffect(() => {
+  const loadHistory = useCallback(async () => {
+    historyController.current?.abort()
     const controller = new AbortController()
-    void client.admin.listProspectImports
-      .query(undefined, { signal: controller.signal })
-      .then((items) => {
-        if (!controller.signal.aborted) setHistory(items)
-      })
-      .catch(() => undefined)
-    return () => controller.abort()
+    historyController.current = controller
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const items = await runProspectImportRequest(controller.signal, (signal) =>
+        client.admin.listProspectImports.query(undefined, { signal }),
+      )
+      throwIfProspectImportPollingCancelled(controller.signal)
+      setHistory(items)
+    } catch {
+      if (!controller.signal.aborted) {
+        setHistoryError(
+          'Import history could not be loaded in time. Retry before assuming no retained imports exist.',
+        )
+      }
+    } finally {
+      if (historyController.current === controller) historyController.current = null
+      if (!controller.signal.aborted) setHistoryLoading(false)
+    }
   }, [client])
+
+  useEffect(() => {
+    void loadHistory()
+    return () => {
+      historyController.current?.abort()
+      historyController.current = null
+    }
+  }, [loadHistory])
 
   useEffect(
     () => () => {
       pollingController.current?.abort()
+      historyController.current?.abort()
     },
     [],
   )
@@ -233,13 +258,11 @@ export function ProspectImportWorkbench() {
     if (pollingController.current === controller) pollingController.current = null
   }
 
-  async function refreshHistory(signal?: AbortSignal) {
-    const items = signal
-      ? await runProspectImportRequest(signal, (requestSignal) =>
-          client.admin.listProspectImports.query(undefined, { signal: requestSignal }),
-        )
-      : await client.admin.listProspectImports.query()
-    if (signal) throwIfProspectImportPollingCancelled(signal)
+  async function refreshHistory(signal: AbortSignal) {
+    const items = await runProspectImportRequest(signal, (requestSignal) =>
+      client.admin.listProspectImports.query(undefined, { signal: requestSignal }),
+    )
+    throwIfProspectImportPollingCancelled(signal)
     setHistory(items)
   }
 
@@ -301,14 +324,12 @@ export function ProspectImportWorkbench() {
     }
   }
 
-  async function refreshImport(importId: string, signal?: AbortSignal) {
-    const query = <T,>(request: (requestSignal: AbortSignal) => Promise<T>) =>
-      signal ? runProspectImportRequest(signal, request) : request(new AbortController().signal)
-    const summary = await query((requestSignal) =>
+  async function refreshImport(importId: string, signal: AbortSignal) {
+    const summary = await runProspectImportRequest(signal, (requestSignal) =>
       client.admin.getProspectImport.query({ importId, rowLimit: 1 }, { signal: requestSignal }),
     )
     const result = summary.prospectImport.duplicateRows
-      ? await query((requestSignal) =>
+      ? await runProspectImportRequest(signal, (requestSignal) =>
           client.admin.getProspectImport.query(
             {
               importId,
@@ -319,7 +340,7 @@ export function ProspectImportWorkbench() {
           ),
         )
       : summary
-    if (signal) throwIfProspectImportPollingCancelled(signal)
+    throwIfProspectImportPollingCancelled(signal)
     setDetail(result as ImportDetail)
     return result as ImportDetail
   }
@@ -336,26 +357,38 @@ export function ProspectImportWorkbench() {
         : `Record the evidence for the ${decision.toLowerCase().replaceAll('_', ' ')} decision.`,
     )
     if (!note?.trim()) return
+    const controller = beginPollingOperation()
+    const { signal } = controller
     setBusy(true)
     setError(null)
     try {
-      await client.admin.resolveProspectImportRow.mutate({
-        importId: detail.prospectImport.id,
-        rowId,
-        decision,
-        note: note.trim(),
-        ...(targetOrganizationId ? { targetOrganizationId } : {}),
-      })
-      const result = await refreshImport(detail.prospectImport.id)
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.resolveProspectImportRow.mutate(
+          {
+            importId: detail.prospectImport.id,
+            rowId,
+            decision,
+            note: note.trim(),
+            ...(targetOrganizationId ? { targetOrganizationId } : {}),
+          },
+          { signal: requestSignal },
+        ),
+      )
+      const result = await refreshImport(detail.prospectImport.id, signal)
       setProgress(
         result.prospectImport.duplicateRows
           ? `${result.prospectImport.duplicateRows.toLocaleString()} possible duplicate rows remain.`
           : 'Duplicate review complete. The import is ready for approval.',
       )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The review decision could not be saved.')
+    } catch {
+      if (!signal.aborted) {
+        setError(
+          'The duplicate decision could not be confirmed. Reopen the import before retrying; the decision may already be saved.',
+        )
+      }
     } finally {
-      setBusy(false)
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
     }
   }
 
@@ -488,7 +521,7 @@ export function ProspectImportWorkbench() {
         setProgress(
           'Import paused safely. Retry uses the same row identities and will not duplicate completed rows.',
         )
-        await refreshImport(detail.prospectImport.id).catch(() => undefined)
+        await refreshImport(detail.prospectImport.id, signal).catch(() => undefined)
       }
     } finally {
       if (!signal.aborted) setBusy(false)
@@ -502,22 +535,51 @@ export function ProspectImportWorkbench() {
       'Record why this import should be cancelled. Imported rows are retained.',
     )
     if (!reason?.trim()) return
+    const controller = beginPollingOperation()
+    const { signal } = controller
     setBusy(true)
     setError(null)
     try {
-      await client.admin.cancelProspectImport.mutate({
-        importId: detail.prospectImport.id,
-        reason: reason.trim(),
-      })
-      await refreshImport(detail.prospectImport.id)
-      await refreshHistory()
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.cancelProspectImport.mutate(
+          {
+            importId: detail.prospectImport.id,
+            reason: reason.trim(),
+          },
+          { signal: requestSignal },
+        ),
+      )
+      await refreshImport(detail.prospectImport.id, signal)
+      await refreshHistory(signal)
       setProgress(
         'Import cancelled. Completed rows and provenance were retained; pending rows were skipped.',
       )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Import cancellation failed.')
+    } catch {
+      if (!signal.aborted) {
+        setError(
+          'Import cancellation could not be confirmed. Reopen the import before retrying; cancellation may already be recorded.',
+        )
+      }
     } finally {
-      setBusy(false)
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
+    }
+  }
+
+  async function openImport(importId: string) {
+    const controller = beginPollingOperation()
+    const { signal } = controller
+    setBusy(true)
+    setError(null)
+    try {
+      await refreshImport(importId, signal)
+    } catch {
+      if (!signal.aborted) {
+        setError('The retained import could not be loaded in time. Retry from import history.')
+      }
+    } finally {
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
     }
   }
 
@@ -884,14 +946,29 @@ export function ProspectImportWorkbench() {
             traceable.
           </p>
         </div>
-        {history.length ? (
+        {historyLoading ? (
+          <p className="p-8 text-center text-sm text-slate-500" role="status">
+            Loading retained imports…
+          </p>
+        ) : historyError ? (
+          <div className="flex flex-col gap-3 p-6 text-sm text-rose-900 sm:flex-row sm:items-center sm:justify-between">
+            <p role="alert">{historyError}</p>
+            <button
+              type="button"
+              onClick={() => void loadHistory()}
+              className="min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold"
+            >
+              Retry history
+            </button>
+          </div>
+        ) : history.length ? (
           <ul className="divide-y divide-slate-100">
             {history.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void refreshImport(item.id)}
+                  onClick={() => void openImport(item.id)}
                   className="grid w-full gap-2 px-5 py-4 text-left hover:bg-sky-50/40 sm:grid-cols-[minmax(0,1fr)_9rem_10rem]"
                 >
                   <span className="truncate font-semibold text-slate-900">{item.fileName}</span>
