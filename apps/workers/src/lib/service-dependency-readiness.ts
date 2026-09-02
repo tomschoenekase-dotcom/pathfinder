@@ -8,6 +8,17 @@ import {
 } from '@pathfinder/db'
 
 export const SERVICE_DEPENDENCY_PROBE_TIMEOUT_MS = 1_500
+const MALWARE_SCANNER_PROBE_MAX_RESPONSE_BYTES = 128
+
+export function appendBoundedScannerProbeResponse(response: string, chunk: string): string {
+  if (
+    Buffer.byteLength(response, 'utf8') + Buffer.byteLength(chunk, 'utf8') >
+    MALWARE_SCANNER_PROBE_MAX_RESPONSE_BYTES
+  ) {
+    throw new Error('malware scanner probe response exceeded its byte limit')
+  }
+  return response + chunk
+}
 
 type ProbeEnvironment = {
   STORAGE_BUCKET?: string | undefined
@@ -113,7 +124,11 @@ export async function probeWorkerServiceDependencies(
             socket.setEncoding('utf8')
             socket.once('connect', () => socket.write('zPING\0'))
             socket.on('data', (chunk: string) => {
-              response += chunk
+              try {
+                response = appendBoundedScannerProbeResponse(response, chunk)
+              } catch {
+                return finish(new Error('malware scanner probe returned an invalid response'))
+              }
               if (response.includes('\0') || response.includes('\n')) {
                 if (response.replaceAll('\0', '').trim() === 'PONG') finish()
                 else finish(new Error('malware scanner probe returned an invalid response'))

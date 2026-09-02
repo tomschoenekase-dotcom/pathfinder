@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  appendBoundedScannerProbeResponse,
   probeWorkerServiceDependencies,
   recordOperationalReadinessHeartbeat,
 } from './service-dependency-readiness'
@@ -17,6 +18,16 @@ const configured = {
 }
 
 describe('worker service dependency probes', () => {
+  it('bounds malware scanner readiness responses by encoded bytes', () => {
+    expect(appendBoundedScannerProbeResponse('', 'PONG\0')).toBe('PONG\0')
+    expect(() => appendBoundedScannerProbeResponse('', 'x'.repeat(129))).toThrow(
+      'malware scanner probe response exceeded its byte limit',
+    )
+    expect(() => appendBoundedScannerProbeResponse('', 'é'.repeat(65))).toThrow(
+      'malware scanner probe response exceeded its byte limit',
+    )
+  })
+
   it('reports both configured dependencies up without retaining connection material', async () => {
     const objectStorage = vi.fn().mockResolvedValue(undefined)
     const malwareScanner = vi.fn().mockResolvedValue(undefined)
