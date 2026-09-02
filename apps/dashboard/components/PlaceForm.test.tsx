@@ -374,4 +374,21 @@ describe('PlaceForm', () => {
     expect(mocks.remove).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()
   })
+
+  it('bounds the edit load and aborts it when the form unmounts', async () => {
+    const pendingLoad = deferred<never>()
+    mocks.getById.mockReturnValueOnce(pendingLoad.promise)
+    const view = render(
+      <PlaceForm mode="edit" venueId={venueId} venueGuideMode="location_aware" placeId={placeId} />,
+    )
+
+    await waitFor(() => expect(mocks.getById).toHaveBeenCalledOnce())
+    const requestOptions = mocks.getById.mock.calls[0]?.[1] as { signal?: AbortSignal }
+    expect(requestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(requestOptions.signal?.aborted).toBe(false)
+
+    view.unmount()
+
+    expect(requestOptions.signal?.aborted).toBe(true)
+  })
 })

@@ -7,7 +7,10 @@ import { Controller, type Resolver, useForm } from 'react-hook-form'
 
 import { CreateVenueInput, UpdateVenueInput } from '@pathfinder/api/schemas'
 
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
+
+const VENUE_LOAD_TIMEOUT_MS = 15_000
 
 type VenueFormProps = {
   mode: 'create' | 'edit'
@@ -101,6 +104,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
 
   useEffect(() => {
     let disposed = false
+    const controller = new AbortController()
 
     async function loadVenue() {
       if (initialValues) {
@@ -114,7 +118,11 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       setIsLoadingVenue(true)
       setFormError(null)
       try {
-        const venue = await client.venue.getById.query({ id: venueId })
+        const venue = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: VENUE_LOAD_TIMEOUT_MS,
+          request: (signal) => client.venue.getById.query({ id: venueId }, { signal }),
+        })
         if (!disposed) {
           expectedUpdatedAtRef.current = venue.updatedAt
           reset({
@@ -129,7 +137,13 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           })
         }
       } catch (error) {
-        if (!disposed) setFormError(getErrorMessage(error))
+        if (!disposed) {
+          setFormError(
+            error instanceof Error && error.name === 'BoundedClientRequestError'
+              ? 'Venue could not be loaded in time. Refresh to try again.'
+              : getErrorMessage(error),
+          )
+        }
       } finally {
         if (!disposed) setIsLoadingVenue(false)
       }
@@ -138,6 +152,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
     void loadVenue()
     return () => {
       disposed = true
+      controller.abort()
     }
   }, [client, initialValues, mode, venueId, reset])
 

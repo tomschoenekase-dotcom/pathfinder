@@ -8,7 +8,10 @@ import { Controller, type Resolver, useForm } from 'react-hook-form'
 import { CreatePlaceInput, UpdatePlaceInput } from '@pathfinder/api/schemas'
 import type { Place } from '@pathfinder/db'
 
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
+
+const PLACE_LOAD_TIMEOUT_MS = 15_000
 
 type VenueGuideMode = 'location_aware' | 'non_location'
 
@@ -260,6 +263,7 @@ export function PlaceForm({
 
   useEffect(() => {
     let disposed = false
+    const controller = new AbortController()
 
     async function loadPlace() {
       if (initialValues) {
@@ -278,7 +282,11 @@ export function PlaceForm({
       setFormError(null)
 
       try {
-        const place = await client.place.getById.query({ id: placeId })
+        const place = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: PLACE_LOAD_TIMEOUT_MS,
+          request: (signal) => client.place.getById.query({ id: placeId }, { signal }),
+        })
         const nextValues = mapPlaceToValues(place)
 
         if (!disposed) {
@@ -288,7 +296,11 @@ export function PlaceForm({
         }
       } catch (error) {
         if (!disposed) {
-          setFormError(getErrorMessage(error))
+          setFormError(
+            error instanceof Error && error.name === 'BoundedClientRequestError'
+              ? 'Guide item could not be loaded in time. Refresh to try again.'
+              : getErrorMessage(error),
+          )
         }
       } finally {
         if (!disposed) {
@@ -301,6 +313,7 @@ export function PlaceForm({
 
     return () => {
       disposed = true
+      controller.abort()
     }
   }, [client, expectedUpdatedAt, initialValues, mode, placeId, reset, venueGuideMode])
 
