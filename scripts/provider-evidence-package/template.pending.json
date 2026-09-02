@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "packageId": "provider-review-pending",
+  "syntheticVenue": true,
+  "customerData": false,
+  "targetEnvironment": "railway-staging",
+  "release": {
+    "revision": "0000000000000000000000000000000000000000",
+    "origin": "https://replace-with-reviewed-staging-origin.invalid"
+  },
+  "scopes": ["VIS-02", "VIS-04", "VIS-05", "PERF-01", "BLD-05", "AI-01"],
+  "authorization": {
+    "status": "PENDING",
+    "stagingOnly": true,
+    "approverReference": "replace-with-private-founder-approval-reference",
+    "authenticatedAdminSession": false,
+    "isolatedStagingCredential": false,
+    "sessionEvidenceReference": "replace-with-private-admin-session-reference",
+    "credentialEvidenceReference": "replace-with-private-isolated-credential-reference",
+    "approvedAt": "2026-09-01T00:00:00Z",
+    "expiresAt": "2026-09-01T00:30:00Z",
+    "maxUsd": 0.01,
+    "allowedProviders": ["OPENAI"],
+    "productionAccess": false,
+    "customerContact": false,
+    "routingChange": false
+  },
+  "runs": [],
+  "evidence": {
+    "responseDepth": { "samples": [] },
+    "multilingual": { "runKey": "replace-with-run-key", "cases": [] },
+    "voice": {
+      "runKey": "replace-with-run-key",
+      "founderApprovedSyntheticEntitlement": false,
+      "liveProviderSession": false,
+      "permissionGranted": false,
+      "textFallbackVerified": false,
+      "entitlementEvidenceReference": "replace-after-review",
+      "transcriptSha256": "replace-with-lowercase-sha256",
+      "durationSeconds": 0,
+      "observedUsd": 0
+    },
+    "performance": {
+      "runKey": "replace-with-run-key",
+      "founderApprovedSpend": false,
+      "streaming": false,
+      "ttftMs": 0,
+      "totalLatencyMs": 0,
+      "observedUsd": 0,
+      "authoritativeResponseSha256": "replace-with-lowercase-sha256",
+      "measurementEvidenceReference": "replace-after-review"
+    },
+    "goldenCorpus": {
+      "runKey": "replace-with-run-key",
+      "cases": [],
+      "humanReviewComplete": false,
+      "reviewConclusionReference": "replace-after-review"
+    },
+    "modelDiversity": { "observations": [] }
+  },
+  "review": {
+    "status": "PENDING",
+    "reviewerReference": "replace-after-human-review",
+    "reviewedAt": "2026-09-01T00:00:00Z",
+    "launchCertified": false,
+    "routingChangeApproved": false
+  }
+}

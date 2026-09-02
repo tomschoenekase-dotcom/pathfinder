@@ -17,6 +17,7 @@
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "founder-evidence:validate": "node scripts/founder-evidence-package/validate.mjs",
     "physical-evidence:validate": "node scripts/physical-evidence-package/validate.mjs",
+    "provider-evidence:validate": "node scripts/provider-evidence-package/validate.mjs",
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
     "golden-venue:hosted-smoke": "pnpm --dir apps/dashboard exec node scripts/hosted-golden-venue-smoke.mjs",
     "dashboard:hosted-assets": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-dashboard-assets.mjs",
