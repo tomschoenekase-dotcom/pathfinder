@@ -179,36 +179,39 @@ describe('desktop agent bridge runner', () => {
     child.stdout = stdout
     child.stderr = stderr
     child.kill = vi.fn(() => true)
-    child.stdin = {
-      end: vi.fn(),
-      write: vi.fn((value: string) => {
-        const message = JSON.parse(value) as Record<string, unknown>
-        writes.push(message)
-        if (message.id === 1)
-          queueMicrotask(() =>
-            stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })}\n`),
-          )
-        if (message.id === 2)
-          queueMicrotask(() => {
-            stdout.write(
-              `${JSON.stringify({ jsonrpc: '2.0', id: 'permission-1', method: 'session/request_permission', params: {} })}\n`,
-            )
-            stdout.write(
-              `${JSON.stringify({ jsonrpc: '2.0', id: 2, result: { sessionId: 'hermes-session' } })}\n`,
-            )
-          })
-        if (message.id === 3)
-          queueMicrotask(() => {
-            stdout.write(
-              `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'hermes-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hermes result.' } } } })}\n`,
-            )
-            stdout.write(
-              `${JSON.stringify({ jsonrpc: '2.0', id: 3, result: { stopReason: 'end_turn' } })}\n`,
-            )
-          })
-        return true
-      }),
+    const stdin = new EventEmitter() as EventEmitter & {
+      end: () => void
+      write: (value: string) => boolean
     }
+    stdin.end = vi.fn()
+    stdin.write = vi.fn((value: string) => {
+      const message = JSON.parse(value) as Record<string, unknown>
+      writes.push(message)
+      if (message.id === 1)
+        queueMicrotask(() =>
+          stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })}\n`),
+        )
+      if (message.id === 2)
+        queueMicrotask(() => {
+          stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id: 'permission-1', method: 'session/request_permission', params: {} })}\n`,
+          )
+          stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id: 2, result: { sessionId: 'hermes-session' } })}\n`,
+          )
+        })
+      if (message.id === 3)
+        queueMicrotask(() => {
+          stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'hermes-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hermes result.' } } } })}\n`,
+          )
+          stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id: 3, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        })
+      return true
+    })
+    child.stdin = stdin
     vi.mocked(spawn).mockReturnValueOnce(child as never)
     const config = parseAgentBridgeRunnerConfig({
       ...base,
@@ -320,6 +323,28 @@ describe('desktop agent bridge runner', () => {
       costE8Usd: '0',
       costStatus: 'UNREPORTED',
     })
+  })
+
+  it('contains subscription CLI stdin failures as a bounded executor error', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough
+      stdout: PassThrough
+      stderr: PassThrough
+      kill: () => boolean
+    }
+    child.stdin = new PassThrough()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.kill = vi.fn(() => true)
+    vi.mocked(spawn).mockReturnValueOnce(child as never)
+
+    const result = executeAgentBridgeTask(
+      bridgeTask(),
+      parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' }),
+    )
+    child.stdin.emit('error', new Error('EPIPE private detail'))
+
+    await expect(result).rejects.toThrow('TASK_EXECUTOR_FAILED')
   })
 
   it('sends the machine secret only in authorization and bounds response bytes', async () => {

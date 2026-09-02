@@ -213,6 +213,7 @@ function executeHermesAcpTask(
     }
     const timeout = setTimeout(() => finish(new Error('TASK_TIMEOUT')), config.taskTimeoutMs)
     signal?.addEventListener('abort', abort, { once: true })
+    child.stdin.once('error', () => finish(new Error('TASK_EXECUTOR_FAILED')))
     child.stderr.on('data', (chunk: Buffer) => {
       stderrBytes += chunk.byteLength
       if (stderrBytes > 100_000) finish(new Error('TASK_ERROR_OUTPUT_TOO_LARGE'))
@@ -428,6 +429,7 @@ export async function executeAgentBridgeTask(
       finish(new Error('TASK_TIMEOUT'))
     }, config.taskTimeoutMs)
     signal?.addEventListener('abort', abort, { once: true })
+    child.stdin.once('error', () => finish(new Error('TASK_EXECUTOR_FAILED')))
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8')
       if (Buffer.byteLength(stdout) > 100_000) {
