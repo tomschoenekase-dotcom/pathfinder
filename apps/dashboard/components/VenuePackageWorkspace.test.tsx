@@ -662,6 +662,9 @@ describe('venue package workspace', () => {
     view.rerender(
       <VenueJsonImporter venueId="venue-2" venueName="Second Museum" guideMode="non_location" />,
     )
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
+    expect((mocks.list.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(true)
+    expect(mocks.list.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
     venueTwo.resolve([venueTwoDraft])
     expect(await screen.findByText(venueTwoDraft.id)).toBeTruthy()
 
@@ -669,6 +672,19 @@ describe('venue package workspace', () => {
     await act(async () => venueOne.promise)
     expect(screen.queryByText(draft.id)).toBeNull()
     expect(screen.getByText(venueTwoDraft.id)).toBeTruthy()
+  })
+
+  it('cancels a pending package-history transport read on unmount', async () => {
+    mocks.list.mockImplementation(() => new Promise(() => undefined))
+    const view = render(
+      <VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />,
+    )
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledOnce())
+    const signal = mocks.list.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
   })
 
   it.each([

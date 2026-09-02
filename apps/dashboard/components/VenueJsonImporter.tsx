@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { VenuePackagePayload, VenuePackageStoredPreview } from '@pathfinder/api'
 
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { type DashboardTRPCClient, useTRPCClient } from '../lib/trpc'
 
 type Client = DashboardTRPCClient
@@ -11,6 +12,7 @@ type Preview = VenuePackageStoredPreview
 type PackageRecord = Awaited<ReturnType<Client['venuePackage']['list']['query']>>[number]
 
 const MAX_VENUE_PACKAGE_FILE_BYTES = 2 * 1024 * 1024
+const VENUE_PACKAGE_LIST_TIMEOUT_MS = 15_000
 
 type VenueJsonImporterProps = {
   venueId: string
@@ -49,6 +51,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : 'The venue-package action could not be confirmed.'
+}
+
+function packageHistoryErrorMessage(error: unknown): string {
+  if (error instanceof BoundedClientRequestError && error.code === 'DEADLINE_EXCEEDED') {
+    return 'Package history could not be loaded within 15 seconds. No package changed. Reload to try again.'
+  }
+  return errorMessage(error)
 }
 
 function errorCode(error: unknown): string | null {
@@ -95,6 +104,7 @@ export function VenueJsonImporter({
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
   const listRequest = useRef(0)
+  const listRequestController = useRef<AbortController | null>(null)
   const fileRequest = useRef(0)
   const fileReadActive = useRef(false)
 
@@ -132,16 +142,25 @@ export function VenueJsonImporter({
 
   async function loadPackages(scope: number, preferredId?: string) {
     const request = ++listRequest.current
+    listRequestController.current?.abort()
+    const controller = new AbortController()
+    listRequestController.current = controller
     if (isCurrentScope(scope)) setLoadingHistory(true)
     let rows: PackageRecord[]
     try {
-      rows = await client.venuePackage.list.query({ venueId })
+      rows = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: VENUE_PACKAGE_LIST_TIMEOUT_MS,
+        request: (signal) => client.venuePackage.list.query({ venueId }, { signal }),
+      })
     } catch (cause) {
       if (!isCurrentScope(scope) || listRequest.current !== request) {
         return { committed: false, preferred: null as PackageRecord | null }
       }
       setLoadingHistory(false)
       throw cause
+    } finally {
+      if (listRequest.current === request) listRequestController.current = null
     }
     if (!isCurrentScope(scope) || listRequest.current !== request) {
       return { committed: false, preferred: null as PackageRecord | null }
@@ -161,6 +180,8 @@ export function VenueJsonImporter({
       activeAction.current = null
       fileReadActive.current = false
       listRequest.current += 1
+      listRequestController.current?.abort()
+      listRequestController.current = null
       fileRequest.current += 1
     }
   }, [])
@@ -170,6 +191,8 @@ export function VenueJsonImporter({
     activeAction.current = null
     fileReadActive.current = false
     listRequest.current += 1
+    listRequestController.current?.abort()
+    listRequestController.current = null
     fileRequest.current += 1
     commandKeys.current.clear()
     setPackages([])
@@ -187,7 +210,7 @@ export function VenueJsonImporter({
     void loadPackages(scope).catch((cause) => {
       if (!isCurrentScope(scope)) return
       setLoadingHistory(false)
-      setError(errorMessage(cause))
+      setError(packageHistoryErrorMessage(cause))
     })
     // The typed client is stable for this component lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
