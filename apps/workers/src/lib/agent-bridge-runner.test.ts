@@ -353,6 +353,37 @@ describe('desktop agent bridge runner', () => {
     fetcher.mockRestore()
   })
 
+  it('cancels a chunked local-inference response at the byte limit', async () => {
+    let bodyCancelled = false
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(100_001))
+          },
+          cancel() {
+            bodyCancelled = true
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+
+    await expect(
+      executeAgentBridgeTask(
+        bridgeTask({ modelProvider: 'openai-compatible-bridge' }),
+        parseAgentBridgeRunnerConfig({
+          ...base,
+          provider: 'OPENAI_COMPATIBLE',
+          modelName: 'qwen3.5:9b',
+          localInferenceUrl: 'http://localhost:11434/v1',
+        }),
+      ),
+    ).rejects.toThrow('TASK_OUTPUT_TOO_LARGE')
+    expect(bodyCancelled).toBe(true)
+    fetcher.mockRestore()
+  })
+
   it('drains subscription CLI output before accepting the child result', async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()
@@ -424,6 +455,30 @@ describe('desktop agent bridge runner', () => {
       'content-type': 'application/json',
     })
     expect(init.body).not.toContain(base.secret)
+  })
+
+  it('cancels a chunked bridge response at the byte limit', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    let bodyCancelled = false
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(256 * 1024 + 1))
+          },
+          cancel() {
+            bodyCancelled = true
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+    const call = createAgentBridgeHttpClient(config, fetcher)
+
+    await expect(call('claimTask', { venueId: 'venue-1' })).rejects.toThrow(
+      'BRIDGE_RESPONSE_TOO_LARGE',
+    )
+    expect(bodyCancelled).toBe(true)
   })
 
   it('contains malformed bridge envelopes as a bounded protocol error', async () => {
