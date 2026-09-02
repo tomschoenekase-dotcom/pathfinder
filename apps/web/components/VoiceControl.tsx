@@ -19,6 +19,95 @@ type VoiceState =
 export type VoiceTranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: string }
 
 export const MICROPHONE_REQUEST_TIMEOUT_MS = 15_000
+export const REALTIME_SDP_REQUEST_TIMEOUT_MS = 30_000
+export const REALTIME_SDP_RESPONSE_MAX_BYTES = 1024 * 1024
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // Cancellation is best-effort after the response has already failed closed.
+  }
+}
+
+export async function requestRealtimeSdpAnswer({
+  offerSdp,
+  clientSecret,
+  controller,
+  timeoutMs = REALTIME_SDP_REQUEST_TIMEOUT_MS,
+  fetchImpl = fetch,
+}: {
+  offerSdp: string
+  clientSecret: string
+  controller: AbortController
+  timeoutMs?: number
+  fetchImpl?: typeof fetch
+}): Promise<string> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+  let completed = false
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetchImpl('https://api.openai.com/v1/realtime/calls', {
+      method: 'POST',
+      body: offerSdp,
+      headers: {
+        Authorization: `Bearer ${clientSecret}`,
+        'Content-Type': 'application/sdp',
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      await cancelResponseBody(response)
+      throw new Error(`REALTIME_CONNECT_${response.status}`)
+    }
+
+    const declaredLength = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > REALTIME_SDP_RESPONSE_MAX_BYTES) {
+      await cancelResponseBody(response)
+      throw new Error('REALTIME_SDP_RESPONSE_TOO_LARGE')
+    }
+    if (!response.body) throw new Error('REALTIME_SDP_RESPONSE_UNAVAILABLE')
+
+    reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let receivedBytes = 0
+    const cancelReader = () => void reader?.cancel().catch(() => undefined)
+    controller.signal.addEventListener('abort', cancelReader, { once: true })
+    try {
+      for (;;) {
+        const result = await reader.read()
+        if (controller.signal.aborted) throw new Error('REALTIME_SDP_REQUEST_TIMEOUT')
+        if (result.done) break
+        receivedBytes += result.value.byteLength
+        if (receivedBytes > REALTIME_SDP_RESPONSE_MAX_BYTES) {
+          await reader.cancel()
+          throw new Error('REALTIME_SDP_RESPONSE_TOO_LARGE')
+        }
+        chunks.push(result.value)
+      }
+    } finally {
+      controller.signal.removeEventListener('abort', cancelReader)
+    }
+
+    const encodedAnswer = new Uint8Array(receivedBytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      encodedAnswer.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    const answer = new TextDecoder().decode(encodedAnswer)
+    if (!answer.trim()) throw new Error('REALTIME_SDP_RESPONSE_INVALID')
+    completed = true
+    return answer
+  } catch (cause) {
+    if (controller.signal.aborted) throw new Error('REALTIME_SDP_REQUEST_TIMEOUT')
+    throw cause
+  } finally {
+    window.clearTimeout(timeoutId)
+    if (!completed && reader) await reader.cancel().catch(() => undefined)
+  }
+}
 
 function characterStateForVoice(state: VoiceState): CharacterState {
   if (state === 'requesting' || state === 'connecting') return 'attention'
@@ -94,6 +183,7 @@ export function VoiceControl({
   const sessionIdRef = useRef<string | null>(null)
   const sequenceRef = useRef(0)
   const stopTimerRef = useRef<number | null>(null)
+  const realtimeRequestRef = useRef<AbortController | null>(null)
   const endingRef = useRef(false)
 
   const setVoiceState = useCallback(
@@ -107,6 +197,8 @@ export function VoiceControl({
   const releaseBrowserMedia = useCallback(() => {
     if (stopTimerRef.current !== null) window.clearTimeout(stopTimerRef.current)
     stopTimerRef.current = null
+    realtimeRequestRef.current?.abort()
+    realtimeRequestRef.current = null
     channelRef.current?.close()
     peerRef.current?.close()
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -320,16 +412,15 @@ export function VoiceControl({
       const offer = await peer.createOffer()
       await peer.setLocalDescription(offer)
       if (!offer.sdp) throw new Error('VOICE_SDP_UNAVAILABLE')
-      const response = await fetch('https://api.openai.com/v1/realtime/calls', {
-        method: 'POST',
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${authorization.clientSecret}`,
-          'Content-Type': 'application/sdp',
-        },
+      const realtimeController = new AbortController()
+      realtimeRequestRef.current = realtimeController
+      const answerSdp = await requestRealtimeSdpAnswer({
+        offerSdp: offer.sdp,
+        clientSecret: authorization.clientSecret,
+        controller: realtimeController,
       })
-      if (!response.ok) throw new Error(`REALTIME_CONNECT_${response.status}`)
-      await peer.setRemoteDescription({ type: 'answer', sdp: await response.text() })
+      if (realtimeRequestRef.current === realtimeController) realtimeRequestRef.current = null
+      await peer.setRemoteDescription({ type: 'answer', sdp: answerSdp })
       await client.voice.connected.mutate({
         venueId,
         anonymousToken,

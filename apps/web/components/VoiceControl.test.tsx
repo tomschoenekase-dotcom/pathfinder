@@ -26,7 +26,12 @@ vi.mock('../lib/trpc', () => ({
   }),
 }))
 
-import { MICROPHONE_REQUEST_TIMEOUT_MS, VoiceControl } from './VoiceControl'
+import {
+  MICROPHONE_REQUEST_TIMEOUT_MS,
+  REALTIME_SDP_RESPONSE_MAX_BYTES,
+  VoiceControl,
+  requestRealtimeSdpAnswer,
+} from './VoiceControl'
 
 const props = {
   venueId: 'venue-1',
@@ -127,5 +132,123 @@ describe('VoiceControl', () => {
 
     expect(stop).toHaveBeenCalledOnce()
     expect(mocks.start).not.toHaveBeenCalled()
+  })
+})
+
+describe('requestRealtimeSdpAnswer', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns a bounded streamed SDP answer', async () => {
+    const answer = await requestRealtimeSdpAnswer({
+      offerSdp: 'offer',
+      clientSecret: 'secret',
+      controller: new AbortController(),
+      fetchImpl: vi.fn().mockResolvedValue(new Response('answer-sdp')),
+    })
+
+    expect(answer).toBe('answer-sdp')
+  })
+
+  it('cancels rejected response bodies without reading provider content', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const response = {
+      ok: false,
+      status: 503,
+      body: { cancel },
+    } as unknown as Response
+
+    await expect(
+      requestRealtimeSdpAnswer({
+        offerSdp: 'offer',
+        clientSecret: 'secret',
+        controller: new AbortController(),
+        fetchImpl: vi.fn().mockResolvedValue(response),
+      }),
+    ).rejects.toThrow('REALTIME_CONNECT_503')
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('cancels streamed SDP answers that exceed the byte ceiling', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const read = vi.fn().mockResolvedValueOnce({
+      done: false,
+      value: new Uint8Array(REALTIME_SDP_RESPONSE_MAX_BYTES + 1),
+    })
+    const response = {
+      ok: true,
+      headers: new Headers(),
+      body: { getReader: () => ({ read, cancel }) },
+    } as unknown as Response
+
+    await expect(
+      requestRealtimeSdpAnswer({
+        offerSdp: 'offer',
+        clientSecret: 'secret',
+        controller: new AbortController(),
+        fetchImpl: vi.fn().mockResolvedValue(response),
+      }),
+    ).rejects.toThrow('REALTIME_SDP_RESPONSE_TOO_LARGE')
+    expect(cancel).toHaveBeenCalled()
+  })
+
+  it('aborts a realtime request that does not return before its deadline', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        )
+      })
+    }) as typeof fetch
+    const expectation = expect(
+      requestRealtimeSdpAnswer({
+        offerSdp: 'offer',
+        clientSecret: 'secret',
+        controller,
+        timeoutMs: 25,
+        fetchImpl,
+      }),
+    ).rejects.toThrow('REALTIME_SDP_REQUEST_TIMEOUT')
+
+    await vi.advanceTimersByTimeAsync(25)
+    await expectation
+    expect(controller.signal.aborted).toBe(true)
+  })
+
+  it('cancels a realtime response body that stalls after headers', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    let finishRead!: (result: ReadableStreamReadResult<Uint8Array>) => void
+    const read = vi.fn(
+      () =>
+        new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+          finishRead = resolve
+        }),
+    )
+    const cancel = vi.fn().mockImplementation(() => {
+      finishRead({ done: true, value: undefined })
+      return Promise.resolve()
+    })
+    const response = {
+      ok: true,
+      headers: new Headers(),
+      body: { getReader: () => ({ read, cancel }) },
+    } as unknown as Response
+    const expectation = expect(
+      requestRealtimeSdpAnswer({
+        offerSdp: 'offer',
+        clientSecret: 'secret',
+        controller,
+        timeoutMs: 25,
+        fetchImpl: vi.fn().mockResolvedValue(response),
+      }),
+    ).rejects.toThrow('REALTIME_SDP_REQUEST_TIMEOUT')
+
+    await vi.advanceTimersByTimeAsync(25)
+    await expectation
+    expect(cancel).toHaveBeenCalled()
   })
 })
