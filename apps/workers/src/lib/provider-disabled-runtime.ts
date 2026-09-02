@@ -16,19 +16,44 @@ export async function startProviderDisabledRuntime(dependencies: {
     }
     throw error
   }
+  let inFlightCheck: Promise<void> | undefined
+  let stopping = false
+
+  const checkConnection = () => {
+    if (stopping || inFlightCheck) return inFlightCheck
+
+    const execution = Promise.resolve()
+      .then(() => dependencies.checkConnection())
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        try {
+          dependencies.onConnectionError(
+            error instanceof Error ? error : new Error('Unknown Redis connectivity error'),
+          )
+        } catch {
+          // Keep a diagnostic callback failure from escaping the heartbeat task.
+        }
+      })
+      .finally(() => {
+        if (inFlightCheck === execution) inFlightCheck = undefined
+      })
+    inFlightCheck = execution
+    return execution
+  }
+
   const heartbeat = setInterval(() => {
-    void dependencies
-      .checkConnection()
-      .catch((error: unknown) =>
-        dependencies.onConnectionError(
-          error instanceof Error ? error : new Error('Unknown Redis connectivity error'),
-        ),
-      )
+    void checkConnection()
   }, 30_000)
 
-  const shutdown = async () => {
-    clearInterval(heartbeat)
-    await dependencies.closeConnection()
+  let shutdownPromise: Promise<void> | undefined
+  const shutdown = () => {
+    shutdownPromise ??= (async () => {
+      stopping = true
+      clearInterval(heartbeat)
+      await inFlightCheck
+      await dependencies.closeConnection()
+    })()
+    return shutdownPromise
   }
 
   return {
