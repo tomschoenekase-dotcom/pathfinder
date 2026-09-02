@@ -481,6 +481,62 @@ describe('desktop agent bridge runner', () => {
     expect(bodyCancelled).toBe(true)
   })
 
+  it('bounds stalled bridge response bodies and cancels the request', async () => {
+    vi.useFakeTimers()
+    const config = parseAgentBridgeRunnerConfig({
+      ...base,
+      provider: 'CODEX_SUBSCRIPTION',
+      taskTimeoutMs: 10_000,
+    })
+    let requestAborted = false
+    const fetcher = vi.fn(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              requestAborted = true
+              controller.error(new DOMException('aborted', 'AbortError'))
+            },
+            { once: true },
+          )
+        },
+      })
+      return new Response(body, { status: 200 })
+    })
+    const call = createAgentBridgeHttpClient(config, fetcher as typeof fetch)
+
+    const result = expect(call('claimTask', { venueId: 'venue-1' })).rejects.toThrow(
+      'BRIDGE_REQUEST_TIMEOUT',
+    )
+    await vi.advanceTimersByTimeAsync(config.taskTimeoutMs)
+
+    await result
+    expect(requestAborted).toBe(true)
+    vi.useRealTimers()
+  })
+
+  it('propagates shutdown into an in-flight bridge request', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    const fetcher = vi.fn(
+      (_url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true },
+          )
+        }),
+    )
+    const call = createAgentBridgeHttpClient(config, fetcher as typeof fetch)
+
+    const result = call('heartbeatSession', { venueId: 'venue-1' }, controller.signal)
+    controller.abort()
+
+    await expect(result).rejects.toThrow('BRIDGE_REQUEST_ABORTED')
+  })
+
   it('contains malformed bridge envelopes as a bounded protocol error', async () => {
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
     const fetcher = vi.fn().mockResolvedValue(
@@ -516,6 +572,7 @@ describe('desktop agent bridge runner', () => {
     await vi.advanceTimersByTimeAsync(config.pollMs + 1)
     await running
 
+    expect(call).toHaveBeenNthCalledWith(1, 'register', expect.any(Object), controller.signal)
     expect(addListener).toHaveBeenCalledTimes(1)
     expect(addListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true })
     expect(removeListener).toHaveBeenCalledTimes(1)

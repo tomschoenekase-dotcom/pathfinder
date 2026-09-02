@@ -506,23 +506,48 @@ export async function executeAgentBridgeTask(
 }
 
 type Fetch = typeof fetch
+const BRIDGE_REQUEST_TIMEOUT_MS = 30_000
 
 export function createAgentBridgeHttpClient(
   config: AgentBridgeRunnerConfig,
   fetcher: Fetch = fetch,
 ) {
   return async function call(method: string, params: unknown, signal?: AbortSignal) {
-    const response = await fetcher(config.endpoint, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${config.secret}`,
-        'content-type': 'application/json',
+    const requestController = new AbortController()
+    let timedOut = false
+    const abortRequest = () => requestController.abort()
+    const timeout = setTimeout(
+      () => {
+        timedOut = true
+        abortRequest()
       },
-      body: JSON.stringify({ method, params }),
-      cache: 'no-store',
-      ...(signal ? { signal } : {}),
-    })
-    const text = await readBoundedResponseText(response, 256 * 1024, 'BRIDGE_RESPONSE_TOO_LARGE')
+      Math.min(config.taskTimeoutMs, BRIDGE_REQUEST_TIMEOUT_MS),
+    )
+    signal?.addEventListener('abort', abortRequest, { once: true })
+    if (signal?.aborted) abortRequest()
+
+    let response: Response
+    let text: string
+    try {
+      response = await fetcher(config.endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${config.secret}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ method, params }),
+        cache: 'no-store',
+        signal: requestController.signal,
+      })
+      text = await readBoundedResponseText(response, 256 * 1024, 'BRIDGE_RESPONSE_TOO_LARGE')
+    } catch (error) {
+      if (signal?.aborted) throw new Error('BRIDGE_REQUEST_ABORTED')
+      if (timedOut) throw new Error('BRIDGE_REQUEST_TIMEOUT')
+      throw error
+    } finally {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abortRequest)
+    }
     let payload: unknown
     try {
       payload = JSON.parse(text)
@@ -577,13 +602,17 @@ export async function runAgentBridge(
   const call = dependencies.call ?? createAgentBridgeHttpClient(config)
   const execute = dependencies.execute ?? executeAgentBridgeTask
   const session = { sessionId: config.sessionId, venueId: config.venueId }
-  await call('register', {
-    ...session,
-    provider: config.provider,
-    label: config.label,
-    runnerVersion: 'torchiko-desktop-bridge/0.1.0',
-    supportedModels: [config.modelName],
-  })
+  await call(
+    'register',
+    {
+      ...session,
+      provider: config.provider,
+      label: config.label,
+      runnerVersion: 'torchiko-desktop-bridge/0.1.0',
+      supportedModels: [config.modelName],
+    },
+    signal,
+  )
   while (!signal.aborted) {
     await call('heartbeatSession', session, signal)
     const claimed = AgentBridgeClaimResult.parse(await call('claimTask', session, signal))
