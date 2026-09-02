@@ -15,6 +15,9 @@ import {
 } from 'lucide-react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const PROSPECT_READ_TIMEOUT_MS = 15_000
 
 const STAGES = [
   'DISCOVERED',
@@ -97,6 +100,10 @@ export function ProspectDirectory({
   const campaignDialogRef = useRef<HTMLDivElement>(null)
   const campaignNameRef = useRef<HTMLInputElement>(null)
   const campaignTriggerRef = useRef<HTMLButtonElement>(null)
+  const savedViewsReadAbort = useRef<AbortController | null>(null)
+  const directoryReadAbort = useRef<AbortController | null>(null)
+  const loadMoreReadAbort = useRef<AbortController | null>(null)
+  const loadMoreReadInFlight = useRef(false)
 
   const filters = useMemo(
     () => ({
@@ -130,21 +137,44 @@ export function ProspectDirectory({
   }, [emailReadiness, nextAction, pathname, priority, router, search, searchParams, stage, tier])
 
   useEffect(() => {
-    if (!fixture)
-      void client.admin.listProspectSavedViews
-        .query()
-        .then(setSavedViews)
-        .catch(() => undefined)
+    if (fixture) return
+    savedViewsReadAbort.current?.abort()
+    const controller = new AbortController()
+    savedViewsReadAbort.current = controller
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+      request: (signal) => client.admin.listProspectSavedViews.query(undefined, { signal }),
+    })
+      .then(setSavedViews)
+      .catch(() => undefined)
+      .finally(() => {
+        if (savedViewsReadAbort.current === controller) savedViewsReadAbort.current = null
+      })
+    return () => {
+      savedViewsReadAbort.current?.abort()
+    }
   }, [client, fixture])
   useEffect(() => {
     if (fixture) return
+    directoryReadAbort.current?.abort()
+    loadMoreReadAbort.current?.abort()
+    loadMoreReadAbort.current = null
+    loadMoreReadInFlight.current = false
+    setLoadingMore(false)
     let current = true
+    const controller = new AbortController()
+    directoryReadAbort.current = controller
     const timeout = window.setTimeout(
       () => {
         setLoading(true)
         setFailed(false)
-        void client.admin.listProspects
-          .query({ ...filters, limit: 100 })
+        void runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.listProspects.query({ ...filters, limit: 100 }, { signal }),
+        })
           .then((value) => {
             if (current) {
               setResult(value)
@@ -156,6 +186,7 @@ export function ProspectDirectory({
           })
           .finally(() => {
             if (current) setLoading(false)
+            if (directoryReadAbort.current === controller) directoryReadAbort.current = null
           })
       },
       search ? 180 : 0,
@@ -163,6 +194,10 @@ export function ProspectDirectory({
     return () => {
       current = false
       window.clearTimeout(timeout)
+      controller.abort()
+      loadMoreReadAbort.current?.abort()
+      loadMoreReadAbort.current = null
+      loadMoreReadInFlight.current = false
     }
   }, [client, filters, fixture, search])
 
@@ -202,17 +237,30 @@ export function ProspectDirectory({
   }, [campaignOpen])
 
   async function loadMore() {
-    if (!result?.nextCursor) return
+    if (!result?.nextCursor || loadMoreReadInFlight.current) return
+    loadMoreReadInFlight.current = true
+    const controller = new AbortController()
+    loadMoreReadAbort.current = controller
     setLoadingMore(true)
     try {
-      const page = await client.admin.listProspects.query({
-        ...filters,
-        limit: 100,
-        cursor: result.nextCursor,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listProspects.query(
+            { ...filters, limit: 100, cursor: result.nextCursor! },
+            { signal },
+          ),
       })
       setResult({ items: [...result.items, ...page.items], nextCursor: page.nextCursor })
+    } catch {
+      if (!controller.signal.aborted) setFailed(true)
     } finally {
-      setLoadingMore(false)
+      if (loadMoreReadAbort.current === controller) {
+        loadMoreReadAbort.current = null
+        loadMoreReadInFlight.current = false
+        setLoadingMore(false)
+      }
     }
   }
 
@@ -251,8 +299,24 @@ export function ProspectDirectory({
       columns: ['organization', 'venue', 'stage', 'tier', 'next-action'],
       sort: {},
     })
-    setSavedViews(await client.admin.listProspectSavedViews.query())
-    setNotice(`Saved “${name}”`)
+    savedViewsReadAbort.current?.abort()
+    const controller = new AbortController()
+    savedViewsReadAbort.current = controller
+    try {
+      setSavedViews(
+        await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: PROSPECT_READ_TIMEOUT_MS,
+          request: (signal) => client.admin.listProspectSavedViews.query(undefined, { signal }),
+        }),
+      )
+      setNotice(`Saved “${name}”`)
+    } catch {
+      if (!controller.signal.aborted)
+        setNotice('The view may be saved, but its list did not refresh. Refresh before retrying.')
+    } finally {
+      if (savedViewsReadAbort.current === controller) savedViewsReadAbort.current = null
+    }
   }
 
   async function createCampaign() {
