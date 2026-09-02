@@ -4,6 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  createDiagnosticAnnotation,
   createDiagnosticTail,
   sanitizeDiagnosticLine,
 } from './lib/ci-diagnostic-tail.mjs'
@@ -26,9 +27,19 @@ test('workspace CI test graph uses the bounded diagnostic runner', () => {
 })
 
 test('diagnostic tail stays bounded to the newest lines', () => {
-  const tail = createDiagnosticTail(3)
+  const tail = createDiagnosticTail(3, 4)
   for (const line of ['one', 'two', 'three', 'four']) tail.push(line)
-  assert.deepEqual(tail.values(), ['two', 'three', 'four'])
+  assert.deepEqual(tail.values(), ['two', 'hree', 'four'])
+})
+
+test('one visible annotation keeps the newest redacted failure context within bounds', () => {
+  const annotation = createDiagnosticAnnotation(
+    ['old context', 'API_TOKEN=abc123', 'latest failure'],
+    2,
+    1_000,
+  )
+  assert.equal(annotation, 'API_TOKEN=[REDACTED]%0Alatest failure')
+  assert.ok(createDiagnosticAnnotation(['x'.repeat(500)], 1, 80).length <= 80)
 })
 
 test('diagnostic annotations escape commands and redact common credential shapes', () => {

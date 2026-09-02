@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process'
 import readline from 'node:readline'
-import { createDiagnosticTail, sanitizeDiagnosticLine } from './lib/ci-diagnostic-tail.mjs'
+import {
+  createDiagnosticAnnotation,
+  createDiagnosticTail,
+} from './lib/ci-diagnostic-tail.mjs'
 
 const tail = createDiagnosticTail(120)
 const windows = process.platform === 'win32'
@@ -32,10 +35,7 @@ child.once('exit', (code, signal) => {
 
   const outcome = signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`
   process.stderr.write(`Workspace test graph failed with ${outcome}. Sanitized final output follows.\n`)
-  for (const line of tail.values()) {
-    process.stderr.write(
-      `::error title=Workspace test graph failed::${sanitizeDiagnosticLine(line)}\n`,
-    )
-  }
+  const annotation = createDiagnosticAnnotation(tail.values())
+  process.stderr.write(`::error title=Workspace test graph failed::${annotation}\n`)
   process.exitCode = 1
 })
