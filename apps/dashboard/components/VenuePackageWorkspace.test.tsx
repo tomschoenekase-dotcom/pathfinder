@@ -840,4 +840,26 @@ describe('venue package workspace', () => {
       '{"schemaVersion":999}',
     )
   })
+
+  it('rejects oversized venue-package JSON before reading it', async () => {
+    const read = vi.fn(async () => '{"schemaVersion":1}')
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    const fileInput = screen.getByLabelText('Load venue package JSON file')
+    const originalText = (screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement)
+      .value
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [{ size: 2 * 1024 * 1024 + 1, text: read }],
+      },
+    })
+
+    expect((await screen.findByRole('alert')).textContent).toContain('2 MB or smaller')
+    expect(read).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement).value).toBe(
+      originalText,
+    )
+    expect(fileInput.getAttribute('aria-describedby')).toBe('venue-package-file-limit')
+    expect(screen.getByText('JSON files up to 2 MB.')).toBeTruthy()
+  })
 })

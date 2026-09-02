@@ -10,6 +10,8 @@ type Client = DashboardTRPCClient
 type Preview = VenuePackageStoredPreview
 type PackageRecord = Awaited<ReturnType<Client['venuePackage']['list']['query']>>[number]
 
+const MAX_VENUE_PACKAGE_FILE_BYTES = 2 * 1024 * 1024
+
 type VenueJsonImporterProps = {
   venueId: string
   venueName: string
@@ -390,6 +392,11 @@ export function VenueJsonImporter({
   function handleFileChange(file: File | undefined, input: HTMLInputElement) {
     input.value = ''
     if (!file || activeAction.current !== null) return
+    if (file.size > MAX_VENUE_PACKAGE_FILE_BYTES) {
+      setError('Venue package JSON files must be 2 MB or smaller.')
+      setNotice(null)
+      return
+    }
     const request = ++fileRequest.current
     const scope = scopeGeneration.current
     fileReadActive.current = true
@@ -462,12 +469,16 @@ export function VenueJsonImporter({
           accept="application/json,.json"
           className="mt-3 block text-sm text-gray-600"
           aria-label="Load venue package JSON file"
+          aria-describedby="venue-package-file-limit"
           onChange={(event) => {
             const file = event.target.files?.[0]
             handleFileChange(file, event.currentTarget)
           }}
           disabled={interactionBusy}
         />
+        <p id="venue-package-file-limit" className="mt-1 text-xs text-gray-500">
+          JSON files up to 2 MB.
+        </p>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button
