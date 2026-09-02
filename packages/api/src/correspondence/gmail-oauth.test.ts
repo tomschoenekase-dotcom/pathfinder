@@ -157,4 +157,64 @@ describe('createGmailOAuthRuntime', () => {
         .then((lease) => lease.withAccessToken(async (token) => token)),
     ).resolves.toBe('leased-access-token')
   })
+
+  it('bounds and cancels a stalled OAuth token response', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'))
+      },
+      cancel() {
+        canceled = true
+      },
+    })
+    const runtime = createGmailOAuthRuntime({
+      configuration,
+      fetch: vi.fn().mockResolvedValue(new Response(body)),
+      requestTimeoutMs: 10,
+    })
+    const authorization = new URL(await runtime.begin('operator-1'))
+
+    await expect(
+      runtime.complete({
+        state: authorization.searchParams.get('state')!,
+        code: 'one-time-code',
+        requestedBy: 'operator-1',
+      }),
+    ).rejects.toMatchObject({
+      kind: 'TRANSIENT',
+      message: 'Google OAuth token exchange timed out',
+    })
+    expect(canceled).toBe(true)
+  })
+
+  it('cancels an oversized OAuth token response before reading it', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      cancel() {
+        canceled = true
+      },
+    })
+    const runtime = createGmailOAuthRuntime({
+      configuration,
+      fetch: vi
+        .fn()
+        .mockResolvedValue(
+          new Response(body, { headers: { 'content-length': String(1024 * 1024 + 1) } }),
+        ),
+    })
+    const authorization = new URL(await runtime.begin('operator-1'))
+
+    await expect(
+      runtime.complete({
+        state: authorization.searchParams.get('state')!,
+        code: 'one-time-code',
+        requestedBy: 'operator-1',
+      }),
+    ).rejects.toMatchObject({
+      kind: 'PERMANENT',
+      message: 'Google OAuth token exchange failed',
+    })
+    expect(canceled).toBe(true)
+  })
 })
