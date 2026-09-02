@@ -333,6 +333,7 @@ export async function executeAgentBridgeTask(
   if (task.venueId !== config.venueId) throw new Error('TASK_VENUE_MISMATCH')
   if (task.modelProvider !== AGENT_BRIDGE_MODEL_PROVIDER[config.provider])
     throw new Error('TASK_PROVIDER_MISMATCH')
+  if (signal?.aborted) throw new Error('TASK_CANCELLED')
   if (config.provider === 'HERMES') return executeHermesAcpTask(task, config, signal)
   if (config.provider === 'OPENAI_COMPATIBLE') {
     if (!config.localInferenceUrl) throw new Error('LOCAL_INFERENCE_ENDPOINT_REQUIRED')

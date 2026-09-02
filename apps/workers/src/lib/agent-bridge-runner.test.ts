@@ -293,6 +293,25 @@ describe('desktop agent bridge runner', () => {
     ).rejects.toThrow('TASK_EXECUTOR_INVALID_RESULT')
   })
 
+  it('rejects a pre-aborted bridge task before launching a local executor', async () => {
+    vi.mocked(spawn).mockClear()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      executeAgentBridgeTask(
+        bridgeTask({ modelProvider: 'hermes-bridge' }),
+        parseAgentBridgeRunnerConfig({
+          ...base,
+          provider: 'HERMES',
+          hermesProfile: 'pathfinder_architect',
+        }),
+        controller.signal,
+      ),
+    ).rejects.toThrow('TASK_CANCELLED')
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it('executes an OpenAI-compatible local model without exposing its key', async () => {
     const config = parseAgentBridgeRunnerConfig({
       ...base,
