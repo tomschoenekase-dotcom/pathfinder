@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
-import { verifyIntakeUploadBytes } from './intake-upload-byte-verifier'
+import {
+  createBoundedClamAvResponseCollector,
+  parseClamAvResponse,
+  verifyIntakeUploadBytes,
+} from './intake-upload-byte-verifier'
 
 async function* chunks(...values: Uint8Array[]) {
   yield* values
@@ -29,6 +33,29 @@ function request(
 }
 
 describe('bounded intake upload byte verification', () => {
+  it('bounds ClamAV response bytes and keeps malformed response content out of errors', () => {
+    const collector = createBoundedClamAvResponseCollector(5)
+    expect(collector.push(Buffer.from('abcd'))).toBe(true)
+    expect(collector.push(Buffer.from('ef'))).toBe(false)
+    expect(collector.value().toString('utf8')).toBe('abcd')
+    expect(parseClamAvResponse(Buffer.from('stream: OK\0'))).toEqual({
+      response: 'stream: OK',
+      verdict: 'CLEAN',
+    })
+    expect(parseClamAvResponse(Buffer.from('stream: Eicar FOUND\0'))).toEqual({
+      response: 'stream: Eicar FOUND',
+      verdict: 'INFECTED',
+    })
+    expect(() => parseClamAvResponse(Buffer.from('private scanner detail'))).toThrow(
+      'ClamAV returned an unrecognized response',
+    )
+    try {
+      parseClamAvResponse(Buffer.from('private scanner detail'))
+    } catch (error) {
+      expect(String(error)).not.toContain('private scanner detail')
+    }
+  })
+
   it('recognizes a matching signature only after exact streamed size and hash verification', async () => {
     const bytes = Uint8Array.from([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0,

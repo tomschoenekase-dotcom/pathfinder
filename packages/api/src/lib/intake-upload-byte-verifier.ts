@@ -9,6 +9,7 @@ import {
 
 const FORMAT_ENGINE = 'pathfinder-magic-bytes'
 const FORMAT_ENGINE_VERSION = '1'
+const CLAMAV_RESPONSE_MAX_BYTES = 4 * 1024
 export type IntakeUploadByteSource = AsyncIterable<Uint8Array>
 
 export type IntakeUploadPrecheckVerdict = {
@@ -34,6 +35,34 @@ export type IntakeUploadMalwareScanner = {
     computedByteSize: number
     computedSha256: string
   }>
+}
+
+export function createBoundedClamAvResponseCollector(maxBytes = CLAMAV_RESPONSE_MAX_BYTES) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
+    throw new RangeError('ClamAV response limit must be a positive safe integer')
+  const chunks: Buffer[] = []
+  let total = 0
+  return {
+    push(chunk: Uint8Array): boolean {
+      if (chunk.byteLength > maxBytes - total) return false
+      total += chunk.byteLength
+      chunks.push(Buffer.from(chunk))
+      return true
+    },
+    value(): Buffer {
+      return Buffer.concat(chunks, total)
+    },
+  }
+}
+
+export function parseClamAvResponse(bytes: Uint8Array): {
+  response: string
+  verdict: 'CLEAN' | 'INFECTED'
+} {
+  const response = Buffer.from(bytes).toString('utf8').replace(/\0+$/u, '').trim()
+  if (response.endsWith(' OK')) return { response, verdict: 'CLEAN' }
+  if (response.includes(' FOUND')) return { response, verdict: 'INFECTED' }
+  throw new Error('ClamAV returned an unrecognized response')
 }
 
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {
@@ -313,8 +342,11 @@ export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScann
     async scan(input) {
       const socket = createConnection({ host, port: parsedPort })
       socket.setTimeout(30 * 60_000)
-      const responseChunks: Buffer[] = []
-      socket.on('data', (chunk: Buffer) => responseChunks.push(Buffer.from(chunk)))
+      const responseCollector = createBoundedClamAvResponseCollector()
+      socket.on('data', (chunk: Buffer) => {
+        if (!responseCollector.push(chunk))
+          socket.destroy(new Error('ClamAV response exceeded its byte limit'))
+      })
       const socketError = new Promise<never>((_, reject) => {
         socket.once('error', reject)
         socket.once('timeout', () => reject(new Error('ClamAV scan timed out')))
@@ -340,13 +372,7 @@ export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScann
       const computedSha256 = hash.digest('hex')
       if (total !== input.expectedBytes || computedSha256 !== input.expectedSha256)
         throw new Error('ClamAV stream did not match immutable upload evidence')
-      const response = Buffer.concat(responseChunks).toString('utf8').replace(/\0+$/u, '').trim()
-      const verdict = response.endsWith(' OK')
-        ? ('CLEAN' as const)
-        : response.includes(' FOUND')
-          ? ('INFECTED' as const)
-          : null
-      if (!verdict) throw new Error(`ClamAV returned an unrecognized response: ${response}`)
+      const { response, verdict } = parseClamAvResponse(responseCollector.value())
       return {
         verdict,
         computedByteSize: total,
