@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const EVALUATION_READ_TIMEOUT_MS = 15_000
 
 type Case = {
   id: string
@@ -78,6 +81,7 @@ export function NativeReleaseEvaluationPanel({
   const renderedScope = useRef(scope)
   const generation = useRef(0)
   const panelInFlight = useRef(false)
+  const readAbort = useRef<AbortController | null>(null)
   const requestOperation = useRef(crypto.randomUUID())
   const evidenceOperations = useRef(new Map<string, string>())
   const [readyScope, setReadyScope] = useState(scope)
@@ -96,6 +100,8 @@ export function NativeReleaseEvaluationPanel({
   const feedbackHeading = useRef<HTMLHeadingElement>(null)
 
   if (renderedScope.current !== scope) {
+    readAbort.current?.abort()
+    readAbort.current = null
     renderedScope.current = scope
     generation.current += 1
     panelInFlight.current = false
@@ -105,6 +111,9 @@ export function NativeReleaseEvaluationPanel({
   const scopeReady = readyScope === scope
 
   useEffect(() => {
+    readAbort.current?.abort()
+    readAbort.current = null
+    generation.current += 1
     setReadyScope(scope)
     setCases([])
     setCaseCursor(null)
@@ -121,6 +130,12 @@ export function NativeReleaseEvaluationPanel({
     panelInFlight.current = false
     requestOperation.current = crypto.randomUUID()
     evidenceOperations.current.clear()
+    return () => {
+      readAbort.current?.abort()
+      readAbort.current = null
+      generation.current += 1
+      panelInFlight.current = false
+    }
   }, [initialEvidence, scope])
 
   useEffect(() => {
@@ -136,13 +151,19 @@ export function NativeReleaseEvaluationPanel({
     panelInFlight.current = true
     const startedGeneration = generation.current
     const startedScope = scope
+    const controller = new AbortController()
+    readAbort.current = controller
     setBusy('cases')
     setError(null)
     try {
-      const page = await client.admin.listEvaluationCases.query({
-        tenantId,
-        venueId,
-        ...(cursor ? { cursor } : {}),
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: EVALUATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listEvaluationCases.query(
+            { tenantId, venueId, ...(cursor ? { cursor } : {}) },
+            { signal },
+          ),
       })
       if (!current(startedGeneration, startedScope)) return
       setCases((prior) => (cursor ? [...prior, ...page.items] : page.items))
@@ -151,6 +172,7 @@ export function NativeReleaseEvaluationPanel({
       if (current(startedGeneration, startedScope))
         setError('Evaluation cases could not be loaded for this release scope.')
     } finally {
+      if (readAbort.current === controller) readAbort.current = null
       if (current(startedGeneration, startedScope)) {
         panelInFlight.current = false
         setBusy(null)
@@ -286,15 +308,25 @@ export function NativeReleaseEvaluationPanel({
     panelInFlight.current = true
     const startedGeneration = generation.current
     const startedScope = scope
+    const controller = new AbortController()
+    readAbort.current = controller
     setBusy('history')
     setError(null)
     try {
-      const page = await client.admin.listNativeVenueDeploymentEvaluationEvidence.query({
-        tenantId,
-        venueId,
-        releaseId,
-        cursor: { createdAt: new Date(evidenceCursor.createdAt), id: evidenceCursor.id },
-        limit: 10,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: EVALUATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listNativeVenueDeploymentEvaluationEvidence.query(
+            {
+              tenantId,
+              venueId,
+              releaseId,
+              cursor: { createdAt: new Date(evidenceCursor.createdAt), id: evidenceCursor.id },
+              limit: 10,
+            },
+            { signal },
+          ),
       })
       if (!current(startedGeneration, startedScope)) return
       setItems((prior) => [...prior, ...page.items])
@@ -304,6 +336,7 @@ export function NativeReleaseEvaluationPanel({
       if (current(startedGeneration, startedScope))
         setError('Older advisory evidence could not be loaded.')
     } finally {
+      if (readAbort.current === controller) readAbort.current = null
       if (current(startedGeneration, startedScope)) {
         panelInFlight.current = false
         setBusy(null)

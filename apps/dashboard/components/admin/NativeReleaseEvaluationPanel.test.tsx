@@ -252,14 +252,17 @@ describe('NativeReleaseEvaluationPanel', () => {
     const button = screen.getByRole('button', { name: 'Load older evidence' })
     fireEvent.click(button)
     fireEvent.click(button)
-    expect(mocks.evidence).toHaveBeenCalledTimes(1)
-    expect(mocks.evidence).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      releaseId: props.releaseId,
-      cursor,
-      limit: 10,
-    })
+    await waitFor(() => expect(mocks.evidence).toHaveBeenCalledTimes(1))
+    expect(mocks.evidence).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        releaseId: props.releaseId,
+        cursor,
+        limit: 10,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     await act(async () => pending.resolve({ items: [], hasMore: false, nextCursor: null }))
   })
 
@@ -280,7 +283,7 @@ describe('NativeReleaseEvaluationPanel', () => {
     const cases = screen.getByRole('button', { name: 'Choose evaluation cases' })
     fireEvent.click(history)
     fireEvent.click(cases)
-    expect(mocks.evidence).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mocks.evidence).toHaveBeenCalledTimes(1))
     expect(mocks.cases).not.toHaveBeenCalled()
     expect(
       screen
@@ -293,6 +296,21 @@ describe('NativeReleaseEvaluationPanel', () => {
         .getByRole('region', { name: 'Advisory evaluation evidence' })
         .getAttribute('aria-busy'),
     ).toBe('false')
+  })
+
+  it('cancels an in-flight case read when the release panel unmounts', async () => {
+    let signal: AbortSignal | undefined
+    mocks.cases.mockImplementationOnce((_input: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => undefined)
+    })
+    const rendered = render(<NativeReleaseEvaluationPanel {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose evaluation cases' }))
+    await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+    expect(signal?.aborted).toBe(false)
+    rendered.unmount()
+    expect(signal?.aborted).toBe(true)
   })
 
   it('has no automated accessibility violations', async () => {
