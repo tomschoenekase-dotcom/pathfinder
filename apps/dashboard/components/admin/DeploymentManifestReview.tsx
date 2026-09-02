@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type ReviewResult = Awaited<
@@ -23,6 +24,7 @@ const COVERAGE_SECTIONS = [
   'EVALUATION',
 ] as const
 const INITIAL_VISIBLE_ISSUES = 20
+const MANIFEST_READ_TIMEOUT_MS = 15_000
 
 export function DeploymentManifestReview({
   tenantId,
@@ -50,6 +52,8 @@ export function DeploymentManifestReview({
   const [visibleIssueCount, setVisibleIssueCount] = useState(INITIAL_VISIBLE_ISSUES)
   const running = useRef(false)
   const fullPreviewRunning = useRef(false)
+  const reviewRequest = useRef<AbortController | null>(null)
+  const fullPreviewRequest = useRef<AbortController | null>(null)
   const artifactRunning = useRef(false)
   const renderedScope = useRef(scopeKey)
   const scopeGeneration = useRef(0)
@@ -65,6 +69,10 @@ export function DeploymentManifestReview({
   useEffect(() => {
     if (resetScope.current === scopeKey) return
     resetScope.current = scopeKey
+    reviewRequest.current?.abort()
+    reviewRequest.current = null
+    fullPreviewRequest.current?.abort()
+    fullPreviewRequest.current = null
     setManifestJson('')
     setManifestId(crypto.randomUUID())
     setIdempotencyKey(crypto.randomUUID())
@@ -82,6 +90,17 @@ export function DeploymentManifestReview({
     setArtifactBusy(false)
   }, [scopeKey])
 
+  useEffect(
+    () => () => {
+      scopeGeneration.current += 1
+      reviewRequest.current?.abort()
+      reviewRequest.current = null
+      fullPreviewRequest.current?.abort()
+      fullPreviewRequest.current = null
+    },
+    [],
+  )
+
   function scopeIsCurrent(generation: number, key: string) {
     return scopeGeneration.current === generation && renderedScope.current === key
   }
@@ -95,15 +114,26 @@ export function DeploymentManifestReview({
     fullPreviewRunning.current = true
     const generation = scopeGeneration.current
     const key = renderedScope.current
+    fullPreviewRequest.current?.abort()
+    const controller = new AbortController()
+    fullPreviewRequest.current = controller
     setFullPreviewBusy(true)
     setFullPreviewError(null)
     setFullPreview(null)
     try {
-      const next = await client.admin.previewFullVenueDeploymentManifest.query({
-        tenantId,
-        venueId,
-        manifestId,
-        idempotencyKey,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: MANIFEST_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewFullVenueDeploymentManifest.query(
+            {
+              tenantId,
+              venueId,
+              manifestId,
+              idempotencyKey,
+            },
+            { signal },
+          ),
       })
       if (!scopeIsCurrent(generation, key)) return
       setFullPreview(next)
@@ -112,9 +142,10 @@ export function DeploymentManifestReview({
       if (!scopeIsCurrent(generation, key)) return
       setFullPreview(null)
       setFullPreviewError(
-        'The FULL preview could not be generated. No manifest, package, or venue data was changed.',
+        'The FULL preview could not be generated in time. No manifest, package, or venue data was changed. Retry when ready.',
       )
     } finally {
+      if (fullPreviewRequest.current === controller) fullPreviewRequest.current = null
       if (scopeIsCurrent(generation, key)) {
         fullPreviewRunning.current = false
         setFullPreviewBusy(false)
@@ -139,13 +170,24 @@ export function DeploymentManifestReview({
     running.current = true
     const generation = scopeGeneration.current
     const key = renderedScope.current
+    reviewRequest.current?.abort()
+    const controller = new AbortController()
+    reviewRequest.current = controller
     setBusy(true)
     setError(null)
     try {
-      const next = await client.admin.reviewDeploymentManifest.query({
-        tenantId,
-        venueId,
-        manifestJson: scopedManifestJson,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: MANIFEST_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.reviewDeploymentManifest.query(
+            {
+              tenantId,
+              venueId,
+              manifestJson: scopedManifestJson,
+            },
+            { signal },
+          ),
       })
       if (!scopeIsCurrent(generation, key)) return
       setResult(next)
@@ -154,9 +196,10 @@ export function DeploymentManifestReview({
     } catch {
       if (!scopeIsCurrent(generation, key)) return
       setError(
-        'The review could not be completed. The manifest text is preserved; no package or venue data was changed.',
+        'The review could not be completed in time. The manifest text is preserved; no package or venue data was changed. Retry when ready.',
       )
     } finally {
+      if (reviewRequest.current === controller) reviewRequest.current = null
       if (scopeIsCurrent(generation, key)) {
         running.current = false
         setBusy(false)

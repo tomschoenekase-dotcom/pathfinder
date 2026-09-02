@@ -94,6 +94,7 @@ describe('DeploymentManifestReview', () => {
   })
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
   it('submits only bounded review text and renders exact handoff shapes without mutation controls', async () => {
@@ -110,11 +111,14 @@ describe('DeploymentManifestReview', () => {
     fireEvent.change(input, { target: { value: text } })
     fireEvent.click(screen.getByRole('button', { name: 'Review manifest' }))
     await waitFor(() =>
-      expect(mocks.query).toHaveBeenCalledWith({
-        tenantId: 't1',
-        venueId: 'v1',
-        manifestJson: text,
-      }),
+      expect(mocks.query).toHaveBeenCalledWith(
+        {
+          tenantId: 't1',
+          venueId: 'v1',
+          manifestJson: text,
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
     expect(await screen.findByText('Exact venuePackage.preview input')).toBeTruthy()
     expect(screen.getByText('Exact venuePackage.createDraft input')).toBeTruthy()
@@ -206,8 +210,10 @@ describe('DeploymentManifestReview', () => {
     const oldIdempotencyKey = screen.getByLabelText<HTMLInputElement>('FULL idempotency key').value
     fireEvent.click(review)
     fireEvent.click(review)
-    expect(mocks.query).toHaveBeenCalledOnce()
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledOnce())
+    const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
     view.rerender(<DeploymentManifestReview tenantId="t1" venueId="v2" />)
+    expect(signal.aborted).toBe(true)
     expect(screen.getByLabelText<HTMLInputElement>('FULL manifest ID').value).not.toBe(
       oldManifestId,
     )
@@ -246,12 +252,15 @@ describe('DeploymentManifestReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate FULL preview' }))
     await waitFor(() =>
-      expect(mocks.fullPreview).toHaveBeenCalledWith({
-        tenantId: 't1',
-        venueId: 'v1',
-        manifestId: '11111111-1111-4111-8111-111111111111',
-        idempotencyKey: '22222222-2222-4222-8222-222222222222',
-      }),
+      expect(mocks.fullPreview).toHaveBeenCalledWith(
+        {
+          tenantId: 't1',
+          venueId: 'v1',
+          manifestId: '11111111-1111-4111-8111-111111111111',
+          idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
     expect(await screen.findByText('Not ready to apply')).toBeTruthy()
     expect(screen.getByText('GENERALIZED_CONTENT_PUBLICATION_UNAVAILABLE')).toBeTruthy()
@@ -332,5 +341,34 @@ describe('DeploymentManifestReview', () => {
     expect(anchor.download).toBe('venue-deployment-manifest-museum.v2.full.json')
     expect(anchor.href).toContain('blob:reviewed-manifest')
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:reviewed-manifest')
+  })
+
+  it('bounds both manifest evidence reads and restores controls after their deadline', async () => {
+    vi.useFakeTimers()
+    mocks.query.mockImplementation(() => new Promise(() => {}))
+    mocks.fullPreview.mockImplementation(() => new Promise(() => {}))
+    render(<DeploymentManifestReview tenantId="t1" venueId="v1" />)
+    const input = screen.getByLabelText('Manifest JSON') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '{"packageType":"PATCH"}' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review manifest' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Generate FULL preview' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const reviewSignal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
+    const previewSignal = mocks.fullPreview.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(reviewSignal.aborted).toBe(true)
+    expect(previewSignal.aborted).toBe(true)
+    expect(screen.getAllByRole('alert')).toHaveLength(2)
+    expect(document.body.textContent).toContain('could not be completed in time')
+    expect(document.body.textContent).toContain('could not be generated in time')
+    expect(input.value).toBe('{"packageType":"PATCH"}')
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Review manifest' }).disabled,
+    ).toBe(false)
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Generate FULL preview' }).disabled,
+    ).toBe(false)
   })
 })
