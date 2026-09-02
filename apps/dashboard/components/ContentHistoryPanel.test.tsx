@@ -367,8 +367,12 @@ describe('content-history portal controls', () => {
     const view = render(<DeletedContentHistoryPanel venueId="venue-1" />)
     fireEvent.click(screen.getByRole('button', { name: 'Review deleted content' }))
     await waitFor(() => expect(mocks.listForVenue).toHaveBeenCalledOnce())
+    const oldRequestOptions = mocks.listForVenue.mock.calls[0]?.[1] as { signal?: AbortSignal }
+    expect(oldRequestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(oldRequestOptions.signal?.aborted).toBe(false)
 
     view.rerender(<DeletedContentHistoryPanel venueId="venue-2" />)
+    expect(oldRequestOptions.signal?.aborted).toBe(true)
     oldLoad.resolve([deletedPlace])
     await act(async () => oldLoad.promise)
     expect(screen.getByRole('button', { name: 'Review deleted content' })).toBeTruthy()
@@ -376,7 +380,10 @@ describe('content-history portal controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review deleted content' }))
     expect(await screen.findByText('No deleted content in loaded history.')).toBeTruthy()
-    expect(mocks.listForVenue).toHaveBeenLastCalledWith({ venueId: 'venue-2', limit: 100 })
+    expect(mocks.listForVenue).toHaveBeenLastCalledWith(
+      { venueId: 'venue-2', limit: 100 },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('suppresses follow-up history and router refresh when content restore completes after unmount', async () => {
@@ -495,5 +502,23 @@ describe('content-history portal controls', () => {
     expect(await screen.findByRole('status')).toBeTruthy()
     expect(window.confirm).toHaveBeenCalledTimes(2)
     expect(mocks.revert).toHaveBeenCalledOnce()
+  })
+
+  it('aborts a deleted-chatbot history load when the recovery surface unmounts', async () => {
+    const pendingLoad = deferred<never>()
+    mocks.listDeletedVenues.mockReturnValueOnce(pendingLoad.promise)
+    const view = render(<DeletedVenueHistoryPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review deleted chatbots' }))
+    await waitFor(() => expect(mocks.listDeletedVenues).toHaveBeenCalledOnce())
+    const requestOptions = mocks.listDeletedVenues.mock.calls[0]?.[1] as {
+      signal?: AbortSignal
+    }
+    expect(requestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(requestOptions.signal?.aborted).toBe(false)
+
+    view.unmount()
+
+    expect(requestOptions.signal?.aborted).toBe(true)
   })
 })

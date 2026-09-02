@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { currentDeletedVersions } from '../lib/content-history-diff'
 import { useTRPCClient } from '../lib/trpc'
+
+const DELETED_VENUE_LOAD_TIMEOUT_MS = 15_000
 
 type VenueVersion = {
   id: string
@@ -59,6 +62,7 @@ export function DeletedVenueHistoryPanel() {
   const mounted = useRef(false)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeQueryController = useRef<AbortController | null>(null)
   const deleted = currentDeletedVersions(versions)
 
   useEffect(() => {
@@ -66,6 +70,8 @@ export function DeletedVenueHistoryPanel() {
     return () => {
       mounted.current = false
       activeAction.current = null
+      activeQueryController.current?.abort()
+      activeQueryController.current = null
     }
   }, [])
 
@@ -90,11 +96,21 @@ export function DeletedVenueHistoryPanel() {
   async function load(beforeSequence?: bigint) {
     const token = startAction({ kind: 'load' })
     if (token === null) return
+    const controller = new AbortController()
+    activeQueryController.current = controller
     setFeedback(null)
     try {
-      const result = await client.contentHistory.listDeletedVenues.query({
-        limit: 100,
-        ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: DELETED_VENUE_LOAD_TIMEOUT_MS,
+        request: (signal) =>
+          client.contentHistory.listDeletedVenues.query(
+            {
+              limit: 100,
+              ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+            },
+            { signal },
+          ),
       })
       if (!isCurrentAction(token)) return
       setVersions((current) =>
@@ -104,8 +120,15 @@ export function DeletedVenueHistoryPanel() {
       setRequiresReload(false)
     } catch (loadError) {
       if (!isCurrentAction(token)) return
-      setFeedback({ kind: 'error', text: errorMessage(loadError) })
+      setFeedback({
+        kind: 'error',
+        text:
+          loadError instanceof BoundedClientRequestError
+            ? 'Deleted-chatbot history could not be loaded in time. Try again.'
+            : errorMessage(loadError),
+      })
     } finally {
+      if (activeQueryController.current === controller) activeQueryController.current = null
       finishAction(token)
     }
   }

@@ -3,8 +3,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { currentDeletedVersions } from '../lib/content-history-diff'
+
+const DELETED_CONTENT_LOAD_TIMEOUT_MS = 15_000
 
 type VenueVersion = {
   id: string
@@ -63,6 +66,7 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
   const scopeGeneration = useRef(0)
   const actionSequence = useRef(0)
   const activeAction = useRef<number | null>(null)
+  const activeQueryController = useRef<AbortController | null>(null)
   const deleted = currentDeletedVersions(versions).filter(
     (version) => version.entityType !== 'VENUE',
   )
@@ -72,12 +76,16 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
     return () => {
       mounted.current = false
       activeAction.current = null
+      activeQueryController.current?.abort()
+      activeQueryController.current = null
     }
   }, [])
 
   useLayoutEffect(() => {
     scopeGeneration.current += 1
     activeAction.current = null
+    activeQueryController.current?.abort()
+    activeQueryController.current = null
     setVersions([])
     setIsOpen(false)
     setHasMore(false)
@@ -111,12 +119,22 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
   async function load(beforeSequence?: bigint) {
     const action = startAction({ kind: 'load' })
     if (!action) return
+    const controller = new AbortController()
+    activeQueryController.current = controller
     setFeedback(null)
     try {
-      const result = await client.contentHistory.listForVenue.query({
-        venueId,
-        limit: 100,
-        ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: DELETED_CONTENT_LOAD_TIMEOUT_MS,
+        request: (signal) =>
+          client.contentHistory.listForVenue.query(
+            {
+              venueId,
+              limit: 100,
+              ...(beforeSequence !== undefined ? { beforeSequence } : {}),
+            },
+            { signal },
+          ),
       })
       if (!isCurrentAction(action)) return
       setVersions((current) =>
@@ -126,8 +144,15 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
       setRequiresReload(false)
     } catch (loadError) {
       if (!isCurrentAction(action)) return
-      setFeedback({ kind: 'error', text: errorMessage(loadError) })
+      setFeedback({
+        kind: 'error',
+        text:
+          loadError instanceof BoundedClientRequestError
+            ? 'Deleted-content history could not be loaded in time. Try again.'
+            : errorMessage(loadError),
+      })
     } finally {
+      if (activeQueryController.current === controller) activeQueryController.current = null
       finishAction(action)
     }
   }
@@ -149,8 +174,15 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
       if (!isCurrentAction(action)) return
       setVersions((loaded) => mergeVersions(loaded, [applied]))
       router.refresh()
+      const controller = new AbortController()
+      activeQueryController.current = controller
       try {
-        const result = await client.contentHistory.listForVenue.query({ venueId, limit: 100 })
+        const result = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: DELETED_CONTENT_LOAD_TIMEOUT_MS,
+          request: (signal) =>
+            client.contentHistory.listForVenue.query({ venueId, limit: 100 }, { signal }),
+        })
         if (!isCurrentAction(action)) return
         setVersions(result)
         setHasMore(result.length === 100)
@@ -163,6 +195,8 @@ export function DeletedContentHistoryPanel({ venueId }: { venueId: string }) {
           kind: 'error',
           text: 'The content was restored, but deleted-content history could not be refreshed. Do not repeat the restore; reload the page.',
         })
+      } finally {
+        if (activeQueryController.current === controller) activeQueryController.current = null
       }
     } catch (restoreError) {
       if (!isCurrentAction(action)) return
