@@ -285,6 +285,32 @@ describe('operational-update management', () => {
     expect(mocks.refresh).not.toHaveBeenCalled()
   })
 
+  it('aborts venue-dependent place loading when the form unmounts', async () => {
+    mocks.placeList.mockImplementation(() => new Promise(() => undefined))
+    const view = render(<OperationalUpdateForm venues={[{ id: 'venue-1', name: 'City Museum' }]} />)
+    await waitFor(() => expect(mocks.placeList).toHaveBeenCalled())
+    const signal = mocks.placeList.mock.calls.at(-1)?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('bounds stalled place loading and leaves the form operable with retry guidance', async () => {
+    mocks.placeList.mockImplementation(() => new Promise(() => undefined))
+    render(<OperationalUpdateForm venues={[{ id: 'venue-1', name: 'City Museum' }]} />)
+    await waitFor(() => expect(mocks.placeList).toHaveBeenCalled())
+    const signal = mocks.placeList.mock.calls.at(-1)?.[1]?.signal as AbortSignal
+
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Locations could not be loaded. Select the venue again to retry.',
+    )
+    expect((screen.getByLabelText('Title') as HTMLInputElement).disabled).toBe(false)
+  })
+
   it('groups every lifecycle state and refreshes after a publish conflict', async () => {
     const rows = [
       { ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' },

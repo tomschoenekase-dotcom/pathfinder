@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 
 type VenueOption = { id: string; name: string }
@@ -52,6 +53,7 @@ const updateTypes: { value: UpdateType; label: string }[] = [
 
 const fieldClass =
   'min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface disabled:text-pf-deep/50'
+const PLACE_LIST_TIMEOUT_MS = 15_000
 
 function formatDateTimeLocal(value: Date | string) {
   const date = new Date(value)
@@ -134,27 +136,34 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     if (!venueId) {
       setPlaces([])
       return
     }
     setPlacesLoading(true)
-    void client.place.list
-      .query({ venueId })
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: PLACE_LIST_TIMEOUT_MS,
+      request: (signal) => client.place.list.query({ venueId }, { signal }),
+    })
       .then((rows) => {
         if (!cancelled) {
           setPlaces(rows.map((row) => ({ id: row.id, name: row.name })))
           setPlaceId((current) => (rows.some((row) => row.id === current) ? current : ''))
         }
       })
-      .catch((error) => {
-        if (!cancelled) setFormError(errorMessage(error))
+      .catch(() => {
+        if (!cancelled) {
+          setFormError('Locations could not be loaded. Select the venue again to retry.')
+        }
       })
       .finally(() => {
         if (!cancelled) setPlacesLoading(false)
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [client, venueId])
 
