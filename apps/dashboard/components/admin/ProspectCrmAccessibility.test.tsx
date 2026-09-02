@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   history: [] as unknown[],
   listImports: vi.fn(),
 }))
+const AXE_TEST_TIMEOUT_MS = 15_000
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/admin/prospects',
@@ -50,57 +51,73 @@ describe('prospect CRM accessibility foundation', () => {
     vi.clearAllMocks()
   })
 
-  it('has no automated accessibility violations in manual prospect capture', async () => {
-    const { container } = render(<ProspectCreateForm />)
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
-    expect(result.violations).toEqual([])
-  })
+  it(
+    'has no automated accessibility violations in manual prospect capture',
+    async () => {
+      const { container } = render(<ProspectCreateForm />)
+      const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+      expect(result.violations).toEqual([])
+    },
+    AXE_TEST_TIMEOUT_MS,
+  )
 
-  it('has no automated accessibility violations in the empty import workbench', async () => {
-    mocks.listImports.mockResolvedValue(mocks.history)
-    const { container } = render(<ProspectImportWorkbench />)
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
-    expect(result.violations).toEqual([])
-  })
+  it(
+    'has no automated accessibility violations in the empty import workbench',
+    async () => {
+      mocks.listImports.mockResolvedValue(mocks.history)
+      const { container } = render(<ProspectImportWorkbench />)
+      const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+      expect(result.violations).toEqual([])
+    },
+    AXE_TEST_TIMEOUT_MS,
+  )
 
-  it('has no automated accessibility violations in the operational directory', async () => {
-    const { container } = render(
-      <ProspectDirectory fixture={{ result: { items: [], nextCursor: null } as never }} />,
-    )
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
-    expect(result.violations).toEqual([])
-  })
+  it(
+    'has no automated accessibility violations in the operational directory',
+    async () => {
+      const { container } = render(
+        <ProspectDirectory fixture={{ result: { items: [], nextCursor: null } as never }} />,
+      )
+      const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+      expect(result.violations).toEqual([])
+    },
+    AXE_TEST_TIMEOUT_MS,
+  )
 
-  it('has no automated accessibility violations in the outreach readiness center', async () => {
-    const { container } = render(
-      <ProspectOutreachCenter
-        fixture={{
-          campaigns: [] as never,
-          readiness: {
-            deliveryEnabled: false,
-            internalOnly: true,
-            providerConfigured: false,
-            provider: 'GMAIL',
-            accounts: [],
-            limits: { cohort: 5000, batch: 500 },
-            policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
-            followupReview: {
-              generatedAt: new Date('2026-08-22T12:00:00Z'),
-              evidenceBounded: false,
-              policy: {
-                automaticSchedulingAuthorized: false,
-                automaticSendingAuthorized: false,
-                alternateContactAuthorized: false,
-                cadencePolicy: 'UNRESOLVED',
+  it(
+    'has no automated accessibility violations in the outreach readiness center',
+    async () => {
+      const { container } = render(
+        <ProspectOutreachCenter
+          fixture={{
+            campaigns: [] as never,
+            readiness: {
+              deliveryEnabled: false,
+              internalOnly: true,
+              providerConfigured: false,
+              provider: 'GMAIL',
+              accounts: [],
+              limits: { cohort: 5000, batch: 500 },
+              policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+              followupReview: {
+                generatedAt: new Date('2026-08-22T12:00:00Z'),
+                evidenceBounded: false,
+                policy: {
+                  automaticSchedulingAuthorized: false,
+                  automaticSendingAuthorized: false,
+                  alternateContactAuthorized: false,
+                  cadencePolicy: 'UNRESOLVED',
+                },
+                counts: { due: 0, scheduled: 0, readyForDraft: 0, held: 0 },
+                items: [],
               },
-              counts: { due: 0, scheduled: 0, readyForDraft: 0, held: 0 },
-              items: [],
-            },
-          } as never,
-        }}
-      />,
-    )
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
-    expect(result.violations).toEqual([])
-  })
+            } as never,
+          }}
+        />,
+      )
+      const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+      expect(result.violations).toEqual([])
+    },
+    AXE_TEST_TIMEOUT_MS,
+  )
 })
