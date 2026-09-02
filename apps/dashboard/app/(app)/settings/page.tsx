@@ -1,11 +1,17 @@
 'use client'
 
 import type { ElementType, FormEvent } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Building2, Settings, Users } from 'lucide-react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../../../lib/trpc'
+import {
+  BoundedClientRequestError,
+  runBoundedClientRequest,
+} from '../../../lib/bounded-client-request'
 import { ClientTochiPreferenceWorkspace } from '../../../components/ClientTochiPreferenceWorkspace'
+
+const SETTINGS_READ_TIMEOUT_MS = 15_000
 
 type SettingsData = Awaited<ReturnType<DashboardTRPCClient['tenant']['getSettings']['query']>>
 type SettingsMember = SettingsData['members'][number]
@@ -44,6 +50,9 @@ function formatDate(date: Date | string): string {
 }
 
 function getErrorMessage(error: unknown) {
+  if (error instanceof BoundedClientRequestError) {
+    return 'Settings could not be loaded. Please refresh and try again.'
+  }
   if (error instanceof Error && error.message) {
     return error.message
   }
@@ -282,32 +291,65 @@ export default function SettingsPage() {
   const [invitations, setInvitations] = useState<PendingInvitation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const settingsGeneration = useRef(0)
+  const invitationsGeneration = useRef(0)
+  const settingsReadAbort = useRef<AbortController | null>(null)
+  const invitationsReadAbort = useRef<AbortController | null>(null)
 
   async function loadSettings() {
+    const generation = ++settingsGeneration.current
+    settingsReadAbort.current?.abort()
+    const controller = new AbortController()
+    settingsReadAbort.current = controller
     setError(null)
 
     try {
-      const settings = await client.tenant.getSettings.query()
+      const settings = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SETTINGS_READ_TIMEOUT_MS,
+        request: (signal) => client.tenant.getSettings.query(undefined, { signal }),
+      })
+      if (settingsGeneration.current !== generation) return
       setData(settings)
       if (settings.canManageTeam) void loadInvitations()
     } catch (err) {
-      setError(getErrorMessage(err))
+      if (settingsGeneration.current === generation && !controller.signal.aborted)
+        setError(getErrorMessage(err))
     } finally {
-      setLoading(false)
+      if (settingsReadAbort.current === controller) settingsReadAbort.current = null
+      if (settingsGeneration.current === generation) setLoading(false)
     }
   }
 
   async function loadInvitations() {
+    const generation = ++invitationsGeneration.current
+    invitationsReadAbort.current?.abort()
+    const controller = new AbortController()
+    invitationsReadAbort.current = controller
     try {
-      const pending = await client.tenant.listPendingInvitations.query()
-      setInvitations(pending)
+      const pending = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SETTINGS_READ_TIMEOUT_MS,
+        request: (signal) => client.tenant.listPendingInvitations.query(undefined, { signal }),
+      })
+      if (invitationsGeneration.current === generation) setInvitations(pending)
     } catch {
       // Non-critical — the invite form and member list still work without it.
+    } finally {
+      if (invitationsReadAbort.current === controller) invitationsReadAbort.current = null
     }
   }
 
   useEffect(() => {
     void loadSettings()
+    return () => {
+      settingsGeneration.current += 1
+      invitationsGeneration.current += 1
+      settingsReadAbort.current?.abort()
+      invitationsReadAbort.current?.abort()
+      settingsReadAbort.current = null
+      invitationsReadAbort.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
