@@ -578,6 +578,77 @@ describe('client-safe quarantined intake upload', () => {
     )
   })
 
+  it('drains an in-flight lease renewal before a missing-object transition', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveInspection!: (value: { state: 'missing' }) => void
+      let resolveRenewal!: (value: { leaseUntil: Date }) => void
+      mocks.inspect.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInspection = resolve
+        }),
+      )
+      mocks.renew
+        .mockResolvedValueOnce({ leaseUntil: new Date(Date.now() + 600_000) })
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveRenewal = resolve
+          }),
+        )
+
+      const verification = caller
+        .createCaller(context())
+        .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mocks.renew).toHaveBeenCalledTimes(2)
+
+      resolveInspection({ state: 'missing' })
+      await Promise.resolve()
+      expect(mocks.reject).not.toHaveBeenCalled()
+
+      resolveRenewal({ leaseUntil: new Date(Date.now() + 600_000) })
+      await expect(verification).resolves.toMatchObject({ nextAction: 'RESELECT_FILE' })
+      expect(mocks.reject).toHaveBeenCalledWith(
+        expect.objectContaining({ reasonCode: 'OBJECT_MISSING' }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not transition a missing object after an in-flight lease loss', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveInspection!: (value: { state: 'missing' }) => void
+      let rejectRenewal!: (reason: unknown) => void
+      mocks.inspect.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInspection = resolve
+        }),
+      )
+      mocks.renew
+        .mockResolvedValueOnce({ leaseUntil: new Date(Date.now() + 600_000) })
+        .mockReturnValueOnce(
+          new Promise((_, reject) => {
+            rejectRenewal = reject
+          }),
+        )
+
+      const verification = caller
+        .createCaller(context())
+        .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+      await vi.advanceTimersByTimeAsync(60_000)
+      resolveInspection({ state: 'missing' })
+      rejectRenewal(new IntakeUploadActionError('CONFLICT', 'claim lost'))
+
+      await expect(verification).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(mocks.reject).not.toHaveBeenCalled()
+      expect(mocks.release).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('returns a bounded safe list without transport identities', async () => {
     mocks.list.mockResolvedValue({
       items: [

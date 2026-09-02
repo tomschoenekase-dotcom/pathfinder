@@ -458,6 +458,14 @@ export const intakeUploadRouter = router({
         return renewal
       }
       const heartbeat = setInterval(() => void renew().catch(() => undefined), 60_000)
+      const stopHeartbeat = async () => {
+        clearInterval(heartbeat)
+        try {
+          await renewal
+        } catch (error) {
+          mapActionError(error)
+        }
+      }
       try {
         await renew()
       } catch (error) {
@@ -476,7 +484,7 @@ export const intakeUploadRouter = router({
           signal: controller.signal,
         })
       } catch (cause) {
-        clearInterval(heartbeat)
+        await stopHeartbeat()
         if (!ownershipLost) {
           try {
             await releaseIntakeUploadVerificationAction({
@@ -495,7 +503,7 @@ export const intakeUploadRouter = router({
       }
 
       if (inspection.state === 'missing') {
-        clearInterval(heartbeat)
+        await stopHeartbeat()
         try {
           const result = await rejectIntakeUploadAction({
             ...scope,
@@ -513,7 +521,7 @@ export const intakeUploadRouter = router({
 
       if (inspection.state === 'invalid') {
         if (!inspection.versionId || inspection.reason === 'version') {
-          clearInterval(heartbeat)
+          await stopHeartbeat()
           try {
             await releaseIntakeUploadVerificationAction({
               ...scope,
@@ -536,7 +544,7 @@ export const intakeUploadRouter = router({
             signal: controller.signal,
           })
         } catch (cause) {
-          clearInterval(heartbeat)
+          await stopHeartbeat()
           try {
             await releaseIntakeUploadVerificationAction({
               ...scope,
@@ -552,12 +560,12 @@ export const intakeUploadRouter = router({
             cause,
           })
         }
+        await stopHeartbeat()
         try {
           const result = await rejectIntakeUploadAction({
             ...scope,
             reasonCode: rejectionCodeByInspection[inspection.reason],
           })
-          clearInterval(heartbeat)
           return {
             upload: safeUpload(result.upload),
             retryable: false,
@@ -594,6 +602,7 @@ export const intakeUploadRouter = router({
           })
           await renewal
         } catch (cause) {
+          await stopHeartbeat()
           if (!ownershipLost) {
             await releaseIntakeUploadVerificationAction({
               ...scope,
@@ -605,9 +614,8 @@ export const intakeUploadRouter = router({
             message: 'File verification is temporarily unavailable. Retry with the same claim.',
             cause,
           })
-        } finally {
-          clearInterval(heartbeat)
         }
+        await stopHeartbeat()
         if (!format.passed) {
           const reasonCode =
             format.reason === 'SIZE_MISMATCH'
