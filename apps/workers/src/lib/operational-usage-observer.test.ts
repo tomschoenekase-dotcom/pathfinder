@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const moduleMocks = vi.hoisted(() => ({
   inspect: vi.fn(),
@@ -70,6 +70,10 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe('operational usage observer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('records immediately and contains observation failures', async () => {
     vi.useFakeTimers()
     const error = new Error('redis unavailable')
@@ -104,7 +108,107 @@ describe('operational usage observer', () => {
     expect(record).toHaveBeenCalledTimes(1)
     expect(moduleMocks.recordDeclared).toHaveBeenCalledTimes(1)
     expect(moduleMocks.recordQueue).toHaveBeenCalledTimes(1)
-    stop()
+    await stop()
+    vi.useRealTimers()
+  })
+
+  it('serializes snapshots and drains both active observations before stopping', async () => {
+    vi.useFakeTimers()
+    let resolveQueue: ((value: ReturnType<typeof snapshot>) => void) | undefined
+    let resolveDeclared: ((value: Record<string, unknown>) => void) | undefined
+    const inspect = vi
+      .fn()
+      .mockResolvedValueOnce(snapshot())
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveQueue = resolve
+        }),
+      )
+    const declaredSnapshot = {
+      observedAt: new Date('2026-08-25T08:00:00Z'),
+      scopeCount: 0,
+      scopes: [],
+      limitations: {
+        providerInventoryObserved: false,
+        retentionStateObserved: false,
+        transferBytesObserved: false,
+        dollarCostAssigned: false,
+      },
+    }
+    const inspectDeclared = vi
+      .fn()
+      .mockResolvedValueOnce(declaredSnapshot)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDeclared = resolve
+        }),
+      )
+    moduleMocks.recordQueue.mockResolvedValue({ metricsRecorded: 1 })
+    moduleMocks.recordDeclared.mockResolvedValue({ metricsRecorded: 0 })
+
+    const stop = await startOperationalUsageObserver(vi.fn(), {
+      inspect: inspect as never,
+      inspectDeclared: inspectDeclared as never,
+      record: vi.fn(),
+      intervalMs: 100,
+      declaredIntervalMs: 100,
+    })
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(inspectDeclared).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(inspectDeclared).toHaveBeenCalledTimes(2)
+
+    let stopped = false
+    const stopping = stop().then(() => {
+      stopped = true
+    })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+
+    resolveQueue?.(snapshot())
+    resolveDeclared?.(declaredSnapshot)
+    await stopping
+    expect(stopped).toBe(true)
+    await expect(stop()).resolves.toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(inspectDeclared).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('contains failures thrown by the observation error callback', async () => {
+    vi.useFakeTimers()
+    const error = new Error('redis unavailable')
+    const inspect = vi.fn().mockRejectedValue(error)
+    const inspectDeclared = vi.fn().mockResolvedValue({
+      observedAt: new Date('2026-08-25T08:00:00Z'),
+      scopeCount: 0,
+      scopes: [],
+      limitations: {
+        providerInventoryObserved: false,
+        retentionStateObserved: false,
+        transferBytesObserved: false,
+        dollarCostAssigned: false,
+      },
+    })
+    moduleMocks.recordDeclared.mockResolvedValue({ metricsRecorded: 0 })
+    const onError = vi.fn(() => {
+      throw new Error('diagnostic unavailable')
+    })
+
+    const stop = await startOperationalUsageObserver(onError, {
+      inspect: inspect as never,
+      inspectDeclared: inspectDeclared as never,
+      intervalMs: 100,
+    })
+    expect(onError).toHaveBeenCalledWith(error)
+
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(stop()).resolves.toBeUndefined()
     vi.useRealTimers()
   })
 })

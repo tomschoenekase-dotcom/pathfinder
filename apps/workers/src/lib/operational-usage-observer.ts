@@ -25,37 +25,56 @@ export async function startOperationalUsageObserver(
     declaredIntervalMs?: number
   } = {},
 ) {
-  let queueBusy = false
-  let declaredBusy = false
-  const observeQueue = async () => {
-    if (queueBusy) return
-    queueBusy = true
+  let stopping = false
+  let queueInFlight: Promise<void> | undefined
+  let declaredInFlight: Promise<void> | undefined
+
+  const reportError = (error: unknown) => {
     try {
-      const snapshot = await (dependencies.inspect ?? inspectQueueOperationalSnapshot)()
-      await recordQueueOperationalUsageSnapshot(
-        snapshot,
-        dependencies.record ?? recordOperationalUsageEvidenceAction,
-      )
-    } catch (error: unknown) {
       onError(error)
-    } finally {
-      queueBusy = false
+    } catch {
+      // Keep a diagnostic callback failure from escaping an interval task.
     }
   }
-  const observeDeclared = async () => {
-    if (declaredBusy) return
-    declaredBusy = true
-    try {
-      const snapshot = await (dependencies.inspectDeclared ?? inspectDeclaredOperationalUsage)()
-      await recordDeclaredOperationalUsageSnapshot(
-        snapshot,
-        dependencies.record ?? recordOperationalUsageEvidenceAction,
-      )
-    } catch (error: unknown) {
-      onError(error)
-    } finally {
-      declaredBusy = false
-    }
+
+  const observeQueue = () => {
+    if (stopping || queueInFlight) return queueInFlight ?? Promise.resolve()
+
+    const execution = (async () => {
+      try {
+        const snapshot = await (dependencies.inspect ?? inspectQueueOperationalSnapshot)()
+        await recordQueueOperationalUsageSnapshot(
+          snapshot,
+          dependencies.record ?? recordOperationalUsageEvidenceAction,
+        )
+      } catch (error: unknown) {
+        reportError(error)
+      }
+    })().finally(() => {
+      if (queueInFlight === execution) queueInFlight = undefined
+    })
+    queueInFlight = execution
+    return execution
+  }
+
+  const observeDeclared = () => {
+    if (stopping || declaredInFlight) return declaredInFlight ?? Promise.resolve()
+
+    const execution = (async () => {
+      try {
+        const snapshot = await (dependencies.inspectDeclared ?? inspectDeclaredOperationalUsage)()
+        await recordDeclaredOperationalUsageSnapshot(
+          snapshot,
+          dependencies.record ?? recordOperationalUsageEvidenceAction,
+        )
+      } catch (error: unknown) {
+        reportError(error)
+      }
+    })().finally(() => {
+      if (declaredInFlight === execution) declaredInFlight = undefined
+    })
+    declaredInFlight = execution
+    return execution
   }
 
   await Promise.all([observeQueue(), observeDeclared()])
@@ -69,8 +88,14 @@ export async function startOperationalUsageObserver(
   )
   queueTimer.unref()
   declaredTimer.unref()
+  let stopPromise: Promise<void> | undefined
   return () => {
-    clearInterval(queueTimer)
-    clearInterval(declaredTimer)
+    stopPromise ??= (async () => {
+      stopping = true
+      clearInterval(queueTimer)
+      clearInterval(declaredTimer)
+      await Promise.all([queueInFlight, declaredInFlight])
+    })()
+    return stopPromise
   }
 }
