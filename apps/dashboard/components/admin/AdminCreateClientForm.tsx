@@ -4,6 +4,7 @@ import { type FormEvent, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { browserUuid } from '../../lib/browser-uuid'
+import { setAdminImpersonation } from '../../lib/admin-impersonation'
 import { useTRPCClient } from '../../lib/trpc'
 
 function getErrorMessage(error: unknown) {
@@ -64,11 +65,7 @@ export function AdminCreateClientForm() {
 
       // Drop the admin straight into the new client's dashboard (impersonated)
       // so they can keep configuring it right away.
-      await fetch('/api/admin/impersonate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: tenant.id }),
-      })
+      await setAdminImpersonation(tenant.id)
       router.push(`/venues/${encodeURIComponent(venue.id)}/onboarding`)
       router.refresh()
     } catch (error) {

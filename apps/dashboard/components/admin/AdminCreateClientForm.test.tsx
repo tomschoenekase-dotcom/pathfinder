@@ -93,7 +93,9 @@ describe('AdminCreateClientForm', () => {
       ),
     )
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
-    expect(mocks.push).toHaveBeenCalledWith('/venues/venue%20%2F%201/onboarding')
+    await vi.waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith('/venues/venue%20%2F%201/onboarding'),
+    )
     expect(mocks.refresh).toHaveBeenCalledOnce()
     fetchMock.mockRestore()
   })
@@ -132,6 +134,35 @@ describe('AdminCreateClientForm', () => {
       ),
     )
     expect(fetchMock).toHaveBeenCalledOnce()
+    fetchMock.mockRestore()
+  })
+
+  it('does not navigate when the audited client-view transition fails', async () => {
+    mocks.create.mockResolvedValue({
+      tenant: { id: 'tenant_1' },
+      venue: { id: 'venue_1' },
+      invitation: { id: 'invite_1', replayed: false },
+    })
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 503 }))
+    render(<AdminCreateClientForm />)
+    fireEvent.change(screen.getByLabelText('Client name'), { target: { value: 'Northstar' } })
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Lobby' } })
+    fireEvent.change(screen.getByLabelText('Primary client contact'), {
+      target: { value: 'owner@example.com' },
+    })
+
+    fireEvent.submit(screen.getByRole('button', { name: /Create client/ }).closest('form')!)
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Admin view could not be changed. Please try again.',
+    )
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: /Create client/ }) as HTMLButtonElement).disabled,
+    ).toBe(false)
     fetchMock.mockRestore()
   })
 })

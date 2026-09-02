@@ -29,6 +29,7 @@ import { DashboardShell } from './DashboardShell'
 describe('DashboardShell interaction semantics', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     pathname = '/'
     platformRole = undefined
   })
@@ -73,6 +74,27 @@ describe('DashboardShell interaction semantics', () => {
     expect(screen.getByRole('button', { name: 'Open admin console' }).className).toContain(
       'min-h-11',
     )
+  })
+
+  it('does not leave client view when the audited stop transition fails', async () => {
+    platformRole = 'PLATFORM_ADMIN'
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 503 }))
+    render(<DashboardShell impersonatedTenantName="Test venue">Journey</DashboardShell>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open admin console' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Admin view could not be changed. Please try again.',
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/impersonate',
+      expect.objectContaining({ body: JSON.stringify({ tenantId: null }) }),
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Open admin console' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 
   it('shows the Payment tab only when the server-owned billing gate is available', () => {

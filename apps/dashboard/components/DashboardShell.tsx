@@ -25,6 +25,7 @@ import { TorchikoBrand } from '@pathfinder/ui'
 import { ClientTochiWorkspace } from './ClientTochiWorkspace'
 import { ClientTochiBoundary } from './ClientTochiBoundary'
 import { useRouteChangeFocus } from './useRouteChangeFocus'
+import { ADMIN_IMPERSONATION_ERROR, setAdminImpersonation } from '../lib/admin-impersonation'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -63,6 +64,8 @@ export function DashboardShell({
 }: DashboardShellProps) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [adminViewPending, setAdminViewPending] = useState(false)
+  const [adminViewError, setAdminViewError] = useState<string | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
   const mainRef = useRef<HTMLElement>(null)
@@ -128,12 +131,16 @@ export function DashboardShell({
   }, [menuOpen])
 
   async function exitClientView() {
-    await fetch('/api/admin/impersonate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId: null }),
-    })
-    window.location.href = '/admin'
+    if (adminViewPending) return
+    setAdminViewPending(true)
+    setAdminViewError(null)
+    try {
+      await setAdminImpersonation(null)
+      window.location.href = '/admin'
+    } catch {
+      setAdminViewError(ADMIN_IMPERSONATION_ERROR)
+      setAdminViewPending(false)
+    }
   }
 
   const navigation = (
@@ -274,11 +281,18 @@ export function DashboardShell({
               type="button"
               aria-label="Open admin console"
               onClick={exitClientView}
+              disabled={adminViewPending}
+              aria-busy={adminViewPending}
               className="inline-flex min-h-11 shrink-0 items-center gap-1.5 border-l border-amber-300 pl-3 text-xs font-semibold text-amber-800 hover:text-amber-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 sm:text-sm"
             >
               <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               Admin
             </button>
+            {adminViewError ? (
+              <p role="alert" className="text-xs font-medium text-red-800">
+                {adminViewError}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {children}
