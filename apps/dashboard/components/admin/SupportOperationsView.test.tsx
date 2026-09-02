@@ -56,6 +56,7 @@ import { SupportKnowledgeProposalForm } from './SupportKnowledgeProposalForm'
 describe('support operations UI', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.resetAllMocks()
   })
 
@@ -488,6 +489,49 @@ describe('support operations UI', () => {
       (screen.getByRole('button', { name: 'Add internal note' }) as HTMLButtonElement).disabled,
     ).toBe(false)
     expect(screen.getByText('Request version 3')).toBeTruthy()
+    expect(mocks.query).toHaveBeenCalledWith(
+      { tenantId: 'tenant_1', venueId: 'venue_1', requestId: 'req_1' },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('bounds support attachment pagination and preserves the draft after a deadline', async () => {
+    vi.useFakeTimers()
+    mocks.listEligibleAttachments.mockImplementation(() => new Promise(() => {}))
+    render(
+      <SupportMessageComposer
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={2}
+        initialEligibleAttachmentsNextCursor={{
+          createdAt: '2026-08-10T13:00:00.000Z',
+          id: 'upload_1',
+        }}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Keep this draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show more recent files' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(mocks.listEligibleAttachments).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        limit: 20,
+        cursor: { createdAt: '2026-08-10T13:00:00.000Z', id: 'upload_1' },
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    const signal = mocks.listEligibleAttachments.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be loaded in time')
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe('Keep this draft')
+    expect(
+      (screen.getByRole('button', { name: 'Show more recent files' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
   })
 
   it('links only a selected existing draft with exact scope and CAS, once', async () => {

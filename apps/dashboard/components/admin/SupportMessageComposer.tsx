@@ -4,7 +4,10 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const SUPPORT_READ_TIMEOUT_MS = 15_000
 
 type EligibleAttachment = {
   intakeUploadId: string
@@ -58,15 +61,32 @@ export function SupportMessageComposer({
     initialEligibleAttachmentsNextCursor,
   )
   const active = useRef(false)
+  const readSequence = useRef(0)
+  const activeRead = useRef<AbortController | null>(null)
   const operation = useRef<{ id: string; fingerprint: string } | null>(null)
+  const scope = `${tenantId}:${venueId}:${requestId}`
+  const currentScope = useRef(scope)
+  currentScope.current = scope
 
   useEffect(() => {
+    readSequence.current += 1
+    activeRead.current?.abort()
+    activeRead.current = null
     active.current = false
     setRevision(expectedVersion)
     setPending(false)
     setRequiresRefresh(false)
     setFeedback(null)
-  }, [expectedVersion])
+  }, [expectedVersion, requestId, tenantId, venueId])
+
+  useEffect(
+    () => () => {
+      readSequence.current += 1
+      activeRead.current?.abort()
+      activeRead.current = null
+    },
+    [],
+  )
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -125,50 +145,90 @@ export function SupportMessageComposer({
 
   async function loadMoreAttachments() {
     if (active.current || !eligibleAttachmentsNextCursor) return
+    const startedSequence = ++readSequence.current
+    const startedScope = scope
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     active.current = true
     setPending(true)
     setFeedback(null)
     try {
-      const next = await client.admin.listEligibleSupportAttachments.query({
-        tenantId,
-        venueId,
-        limit: 20,
-        cursor: eligibleAttachmentsNextCursor,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listEligibleSupportAttachments.query(
+            {
+              tenantId,
+              venueId,
+              limit: 20,
+              cursor: eligibleAttachmentsNextCursor,
+            },
+            { signal },
+          ),
       })
-      setEligibleAttachments((current) => [
-        ...current,
-        ...next.items.filter(
-          (row) => !current.some((existing) => existing.intakeUploadId === row.intakeUploadId),
-        ),
-      ])
-      setEligibleAttachmentsNextCursor(next.nextCursor)
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        setEligibleAttachments((current) => [
+          ...current,
+          ...next.items.filter(
+            (row) => !current.some((existing) => existing.intakeUploadId === row.intakeUploadId),
+          ),
+        ])
+        setEligibleAttachmentsNextCursor(next.nextCursor)
+      }
     } catch {
-      setFeedback({ kind: 'error', text: 'More files could not be loaded. No draft was changed.' })
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        setFeedback({
+          kind: 'error',
+          text: 'More files could not be loaded in time. No draft was changed. Retry when ready.',
+        })
+      }
     } finally {
-      active.current = false
-      setPending(false)
+      if (activeRead.current === controller) activeRead.current = null
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        active.current = false
+        setPending(false)
+      }
     }
   }
 
   async function reload() {
     if (active.current) return
+    const startedSequence = ++readSequence.current
+    const startedScope = scope
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     active.current = true
     setPending(true)
     setFeedback(null)
     try {
-      const request = await client.admin.getSupportRequest.query({ tenantId, venueId, requestId })
-      setRevision(request.version)
-      setRequiresRefresh(false)
-      setFeedback({ kind: 'success', text: 'Request version refreshed. Your draft is retained.' })
-      router.refresh()
-    } catch {
-      setFeedback({
-        kind: 'error',
-        text: 'The request version could not be refreshed. Your draft is retained and no new write was attempted.',
+      const request = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getSupportRequest.query({ tenantId, venueId, requestId }, { signal }),
       })
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        setRevision(request.version)
+        setRequiresRefresh(false)
+        setFeedback({ kind: 'success', text: 'Request version refreshed. Your draft is retained.' })
+        router.refresh()
+      }
+    } catch {
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        setFeedback({
+          kind: 'error',
+          text: 'The request version could not be refreshed in time. Your draft is retained and no new write was attempted. Retry when ready.',
+        })
+      }
     } finally {
-      active.current = false
-      setPending(false)
+      if (activeRead.current === controller) activeRead.current = null
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        active.current = false
+        setPending(false)
+      }
     }
   }
 

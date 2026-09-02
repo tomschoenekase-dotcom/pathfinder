@@ -1,10 +1,13 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const APPROVAL_READ_TIMEOUT_MS = 15_000
 
 type Props = {
   tenantId: string
@@ -30,6 +33,8 @@ export function ApprovalDecisionForm({
   const client = useTRPCClient()
   const router = useRouter()
   const active = useRef(false)
+  const readSequence = useRef(0)
+  const activeRead = useRef<AbortController | null>(null)
   const [decision, setDecision] = useState<'APPROVED' | 'REJECTED' | 'CANCELLED'>('REJECTED')
   const [reason, setReason] = useState('')
   const [pending, setPending] = useState(false)
@@ -46,6 +51,26 @@ export function ApprovalDecisionForm({
   const isSupportPackageHandoffSupersession =
     proposedAction === 'pathfinder.apply_support_package_handoff_supersession'
   const isFounderDirectiveTask = proposedAction === 'torchiko.founder-directive.materialize-task'
+  const scope = `${tenantId}:${venueId}:${approvalRequestId}`
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+
+  useEffect(() => {
+    readSequence.current += 1
+    activeRead.current?.abort()
+    activeRead.current = null
+    active.current = false
+    setPending(false)
+  }, [approvalRequestId, tenantId, venueId])
+
+  useEffect(
+    () => () => {
+      readSequence.current += 1
+      activeRead.current?.abort()
+      activeRead.current = null
+    },
+    [],
+  )
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -177,14 +202,28 @@ export function ApprovalDecisionForm({
 
   async function refreshState() {
     if (active.current) return
+    const startedSequence = ++readSequence.current
+    const startedScope = scope
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     active.current = true
     setPending(true)
     try {
-      const request = await client.admin.getApprovalRequest.query({
-        tenantId,
-        venueId,
-        approvalRequestId,
+      const request = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: APPROVAL_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getApprovalRequest.query(
+            {
+              tenantId,
+              venueId,
+              approvalRequestId,
+            },
+            { signal },
+          ),
       })
+      if (readSequence.current !== startedSequence || currentScope.current !== startedScope) return
       if (request.state === 'PENDING') {
         setRequiresRefresh(false)
         setFeedback({
@@ -199,13 +238,18 @@ export function ApprovalDecisionForm({
       }
       router.refresh()
     } catch {
-      setFeedback({
-        kind: 'error',
-        text: 'Approval state could not be refreshed. No new decision or execution was attempted.',
-      })
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        setFeedback({
+          kind: 'error',
+          text: 'Approval state could not be refreshed in time. No new decision or execution was attempted. Retry when ready.',
+        })
+      }
     } finally {
-      active.current = false
-      setPending(false)
+      if (activeRead.current === controller) activeRead.current = null
+      if (readSequence.current === startedSequence && currentScope.current === startedScope) {
+        active.current = false
+        setPending(false)
+      }
     }
   }
 

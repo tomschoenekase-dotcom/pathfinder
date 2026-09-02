@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -41,6 +41,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 describe('ApprovalDecisionForm', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.clearAllMocks()
   })
@@ -123,6 +124,44 @@ describe('ApprovalDecisionForm', () => {
       expect(screen.getByRole('alert').textContent).toContain('could not be confirmed'),
     )
     expect(screen.getByRole('button', { name: 'Refresh approval state' })).toBeTruthy()
+  })
+
+  it('bounds approval-state recovery reads and returns control after the deadline', async () => {
+    mocks.mutate.mockRejectedValue(new Error('unknown outcome'))
+    render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="approval_1"
+        proposedAction="publish update"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Record rejected decision' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh approval state' })))
+
+    vi.useFakeTimers()
+    mocks.query.mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh approval state' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(mocks.query).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'approval_1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    const signal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Approval state could not be refreshed in time',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Refresh approval state' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
   })
 
   it('turns an approved triage proposal into exact one-shot authority without executing it', async () => {
