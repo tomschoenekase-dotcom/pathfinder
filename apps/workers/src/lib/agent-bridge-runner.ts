@@ -300,7 +300,7 @@ function executeHermesAcpTask(
       }
     })
     child.once('error', () => finish(new Error('TASK_EXECUTOR_UNAVAILABLE')))
-    child.once('exit', () => {
+    child.once('close', () => {
       if (!settled) finish(new Error('TASK_EXECUTOR_FAILED'))
     })
     send({
@@ -443,7 +443,7 @@ export async function executeAgentBridgeTask(
       }
     })
     child.once('error', () => finish(new Error('TASK_EXECUTOR_UNAVAILABLE')))
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       if (code !== 0) return finish(new Error('TASK_EXECUTOR_FAILED'))
       if (!stdout.trim()) return finish(new Error('TASK_EXECUTOR_EMPTY_RESULT'))
       if (config.provider === 'CLAUDE_SUBSCRIPTION') {

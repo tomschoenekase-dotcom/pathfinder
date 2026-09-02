@@ -289,6 +289,39 @@ describe('desktop agent bridge runner', () => {
     fetcher.mockRestore()
   })
 
+  it('drains subscription CLI output before accepting the child result', async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const stdin = new PassThrough()
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: PassThrough
+      stdout: PassThrough
+      stderr: PassThrough
+      kill: () => boolean
+    }
+    child.stdin = stdin
+    child.stdout = stdout
+    child.stderr = stderr
+    child.kill = vi.fn(() => true)
+    vi.mocked(spawn).mockReturnValueOnce(child as never)
+
+    const result = executeAgentBridgeTask(
+      bridgeTask(),
+      parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' }),
+    )
+    child.emit('exit', 0, null)
+    stdout.end('Drained final result.')
+    stderr.end()
+    child.emit('close', 0, null)
+
+    await expect(result).resolves.toEqual({
+      content: 'Drained final result.',
+      modelName: 'subscription-default',
+      costE8Usd: '0',
+      costStatus: 'UNREPORTED',
+    })
+  })
+
   it('sends the machine secret only in authorization and bounds response bytes', async () => {
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
     const fetcher = vi.fn().mockResolvedValue(
