@@ -50,6 +50,15 @@ test('diagnostic annotations escape commands and redact common credential shapes
   assert.equal(sanitizeDiagnosticLine('line%one\r\ntwo'), 'line%25one%0D%0Atwo')
   assert.equal(sanitizeDiagnosticLine('API_TOKEN=abc123'), 'API_TOKEN=[REDACTED]')
   assert.equal(
+    sanitizeDiagnosticLine('{"API_TOKEN":"abc123","ok":true}'),
+    '{"API_TOKEN":[REDACTED],"ok":true}',
+  )
+  assert.equal(
+    sanitizeDiagnosticLine('Authorization: Basic dXNlcjpwYXNz'),
+    'Authorization: [REDACTED]',
+  )
+  assert.equal(sanitizeDiagnosticLine('COOKIE=session=abc123'), 'COOKIE=[REDACTED]')
+  assert.equal(
     sanitizeDiagnosticLine('DATABASE_URL=postgresql://user:pass@db/test'),
     'DATABASE_URL=[REDACTED]',
   )
