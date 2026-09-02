@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Mail, ShieldCheck } from 'lucide-react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type Campaigns = Awaited<
@@ -13,22 +14,74 @@ type Readiness = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectOutreachReadiness']['query']>
 >
 
+const OUTREACH_READ_TIMEOUT_MS = 15_000
+
 export function ProspectOutreachCenter({
   fixture,
 }: { fixture?: { campaigns: Campaigns; readiness: Readiness } } = {}) {
   const client = useTRPCClient()
   const [campaigns, setCampaigns] = useState<Campaigns>(fixture?.campaigns ?? [])
   const [readiness, setReadiness] = useState<Readiness | null>(fixture?.readiness ?? null)
+  const [loading, setLoading] = useState(!fixture)
+  const [error, setError] = useState<string | null>(null)
+  const requestSequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
+
+  const load = useCallback(async () => {
+    const sequence = ++requestSequence.current
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
+    setLoading(true)
+    setError(null)
+    try {
+      const [nextCampaigns, nextReadiness] = await Promise.all([
+        runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: OUTREACH_READ_TIMEOUT_MS,
+          request: (signal) => client.admin.listProspectCampaigns.query(undefined, { signal }),
+        }),
+        runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: OUTREACH_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getProspectOutreachReadiness.query(undefined, { signal }),
+        }),
+      ])
+      if (sequence !== requestSequence.current) return
+      setCampaigns(nextCampaigns)
+      setReadiness(nextReadiness)
+    } catch {
+      controller.abort()
+      if (sequence === requestSequence.current) {
+        setError(
+          'Outreach readiness could not be loaded in time. Retry before reviewing or releasing any campaign.',
+        )
+      }
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (sequence === requestSequence.current) setLoading(false)
+    }
+  }, [client])
+
   useEffect(() => {
-    if (!fixture)
-      void Promise.all([
-        client.admin.listProspectCampaigns.query(),
-        client.admin.getProspectOutreachReadiness.query(),
-      ]).then(([nextCampaigns, nextReadiness]) => {
-        setCampaigns(nextCampaigns)
-        setReadiness(nextReadiness)
-      })
-  }, [client, fixture])
+    if (fixture) {
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+      setCampaigns(fixture.campaigns)
+      setReadiness(fixture.readiness)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    void load()
+    return () => {
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    }
+  }, [fixture, load])
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -57,40 +110,65 @@ export function ProspectOutreachCenter({
           </Link>
         </div>
       </div>
-      <section className="grid gap-3 md:grid-cols-3" aria-label="Outreach readiness">
-        <ReadinessCard
-          title="Agent boundary"
-          ready={
-            readiness?.policy.agentsMayDraft === true && readiness?.policy.agentsMaySend === false
-          }
-          detail="Draft access only; approve and send tools are absent."
-        />
-        <ReadinessCard
-          title="Outbound provider"
-          ready={readiness?.deliveryEnabled === true && readiness?.providerConfigured === true}
-          detail={
-            readiness?.deliveryEnabled
-              ? 'Server delivery control is active; exact Gmail mailbox health still applies.'
-              : 'Dark by default. No delivery can occur.'
-          }
-        />
-        <ReadinessCard
-          title="Gmail synchronization"
-          ready={
-            readiness?.accounts?.some(
-              (account) =>
-                account.connectionStatus === 'CONNECTED' &&
-                Boolean(account.lastSuccessfulSyncAt) &&
-                !account.healthErrorCode,
-            ) === true
-          }
-          detail={
-            readiness?.accounts?.length
-              ? `${readiness.accounts.length} mailbox account${readiness.accounts.length === 1 ? '' : 's'} registered.`
-              : 'No Gmail mailbox is connected. Provider fixtures do not count as configuration.'
-          }
-        />
-      </section>
+      {loading ? (
+        <p
+          role="status"
+          className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600"
+        >
+          Loading outreach readiness…
+        </p>
+      ) : null}
+      {error ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="min-h-11 rounded-xl border border-rose-300 bg-white px-4 font-semibold text-rose-900"
+          >
+            Retry readiness
+          </button>
+        </div>
+      ) : null}
+      {readiness ? (
+        <section className="grid gap-3 md:grid-cols-3" aria-label="Outreach readiness">
+          <ReadinessCard
+            title="Agent boundary"
+            ready={
+              readiness?.policy.agentsMayDraft === true && readiness?.policy.agentsMaySend === false
+            }
+            detail="Draft access only; approve and send tools are absent."
+          />
+          <ReadinessCard
+            title="Outbound provider"
+            ready={readiness?.deliveryEnabled === true && readiness?.providerConfigured === true}
+            detail={
+              readiness?.deliveryEnabled
+                ? 'Server delivery control is active; exact Gmail mailbox health still applies.'
+                : 'Dark by default. No delivery can occur.'
+            }
+          />
+          <ReadinessCard
+            title="Gmail synchronization"
+            ready={
+              readiness?.accounts?.some(
+                (account) =>
+                  account.connectionStatus === 'CONNECTED' &&
+                  Boolean(account.lastSuccessfulSyncAt) &&
+                  !account.healthErrorCode,
+              ) === true
+            }
+            detail={
+              readiness?.accounts?.length
+                ? `${readiness.accounts.length} mailbox account${readiness.accounts.length === 1 ? '' : 's'} registered.`
+                : 'No Gmail mailbox is connected. Provider fixtures do not count as configuration.'
+            }
+          />
+        </section>
+      ) : null}
       {readiness?.accounts?.length ? (
         <section
           className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -226,42 +304,44 @@ export function ProspectOutreachCenter({
           )}
         </section>
       ) : null}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
-          <Mail className="h-4 w-4 text-sky-700" />
-          <h2 className="font-semibold text-slate-950">Campaigns</h2>
-        </div>
-        {!campaigns.length ? (
-          <div className="p-12 text-center">
-            <p className="font-semibold text-slate-900">No campaigns yet</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Select a filtered cohort in the prospect directory to start one.
-            </p>
+      {!loading && !error ? (
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
+            <Mail className="h-4 w-4 text-sky-700" />
+            <h2 className="font-semibold text-slate-950">Campaigns</h2>
           </div>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {campaigns.map((campaign) => (
-              <li key={campaign.id}>
-                <Link
-                  href={`/admin/prospects/outreach/${campaign.id}`}
-                  className="grid gap-3 px-5 py-4 hover:bg-sky-50/40 sm:grid-cols-[minmax(0,1fr)_auto]"
-                >
-                  <div>
-                    <p className="font-semibold text-slate-950">{campaign.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {campaign._count.members} recipients · {campaign._count.drafts} drafts ·{' '}
-                      {campaign._count.sendBatches} batches
-                    </p>
-                  </div>
-                  <span className="self-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                    {campaign.status}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {!campaigns.length ? (
+            <div className="p-12 text-center">
+              <p className="font-semibold text-slate-900">No campaigns yet</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Select a filtered cohort in the prospect directory to start one.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {campaigns.map((campaign) => (
+                <li key={campaign.id}>
+                  <Link
+                    href={`/admin/prospects/outreach/${campaign.id}`}
+                    className="grid gap-3 px-5 py-4 hover:bg-sky-50/40 sm:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-950">{campaign.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {campaign._count.members} recipients · {campaign._count.drafts} drafts ·{' '}
+                        {campaign._count.sendBatches} batches
+                      </p>
+                    </div>
+                    <span className="self-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                      {campaign.status}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </div>
   )
 }
