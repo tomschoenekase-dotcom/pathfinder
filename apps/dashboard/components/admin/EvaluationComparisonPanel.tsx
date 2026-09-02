@@ -2,7 +2,10 @@
 
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const COMPARISON_READ_TIMEOUT_MS = 15_000
 
 type RunOption = {
   id: string
@@ -206,12 +209,15 @@ export function EvaluationComparisonPanel({
   const [error, setError] = useState<string | null>(null)
   const generation = useRef(0)
   const inFlight = useRef(false)
+  const activeRequest = useRef<AbortController | null>(null)
   const scope = `${tenantId}:${venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
 
   useEffect(() => {
     generation.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
     setBaselineRunId(runs[1]?.id ?? '')
     setCandidateRunId(runs[0]?.id ?? '')
     setComparison(null)
@@ -220,8 +226,19 @@ export function EvaluationComparisonPanel({
     inFlight.current = false
   }, [tenantId, venueId, runs])
 
+  useEffect(
+    () => () => {
+      generation.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    },
+    [],
+  )
+
   function resetComparison() {
     generation.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
     inFlight.current = false
     setComparison(null)
     setError(null)
@@ -235,24 +252,34 @@ export function EvaluationComparisonPanel({
     inFlight.current = true
     const current = ++generation.current
     const submittedScope = scope
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setBusy(true)
     setError(null)
     setComparison(null)
     try {
-      const result = await client.admin.compareEvaluationRuns.query({
-        tenantId,
-        venueId,
-        baselineRunId,
-        candidateRunId,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: COMPARISON_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.compareEvaluationRuns.query(
+            {
+              tenantId,
+              venueId,
+              baselineRunId,
+              candidateRunId,
+            },
+            { signal },
+          ),
       })
       if (current === generation.current && submittedScope === scopeRef.current)
         setComparison(result)
-    } catch (caught) {
+    } catch {
       if (current === generation.current && submittedScope === scopeRef.current)
-        setError(
-          caught instanceof Error ? caught.message : 'Comparison evidence could not be loaded.',
-        )
+        setError('Comparison evidence could not be loaded in time. Retry the frozen run pair.')
     } finally {
+      if (activeRequest.current === controller) activeRequest.current = null
       if (current === generation.current && submittedScope === scopeRef.current) {
         inFlight.current = false
         setBusy(false)

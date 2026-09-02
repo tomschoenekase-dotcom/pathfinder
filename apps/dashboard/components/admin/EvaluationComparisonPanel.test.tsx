@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -94,7 +94,10 @@ describe('EvaluationComparisonPanel', () => {
       value: { randomUUID: vi.fn(() => '55555555-5555-4555-8555-555555555555') },
     })
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('renders explicit INCOMPARABLE evidence and no review controls', async () => {
     mocks.compare.mockResolvedValue({
@@ -216,7 +219,10 @@ describe('EvaluationComparisonPanel', () => {
     render(<EvaluationComparisonPanel tenantId="tenant-1" venueId="venue-1" runs={runs} />)
     fireEvent.click(screen.getByRole('button', { name: 'Compare runs' }))
     expect(screen.getByRole('button', { name: 'Comparing…' })).toBeTruthy()
+    await waitFor(() => expect(mocks.compare).toHaveBeenCalledOnce())
+    const signal = mocks.compare.mock.calls[0]?.[1]?.signal as AbortSignal
     fireEvent.change(screen.getByLabelText('Baseline run'), { target: { value: runs[0]!.id } })
+    expect(signal.aborted).toBe(true)
     expect(screen.getByRole('button', { name: 'Compare runs' })).toBeTruthy()
     resolve(comparable)
     await Promise.resolve()
@@ -230,7 +236,7 @@ describe('EvaluationComparisonPanel', () => {
     const compare = screen.getByRole('button', { name: 'Compare runs' })
     fireEvent.click(compare)
     fireEvent.click(compare)
-    expect(mocks.compare).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mocks.compare).toHaveBeenCalledTimes(1))
     resolveCompare(comparable)
     await screen.findByText('New failure')
 
@@ -266,5 +272,24 @@ describe('EvaluationComparisonPanel', () => {
     resolve({ revision: 1, replayed: false } as never)
     await Promise.resolve()
     expect(screen.queryByText('Conclusion recorded.')).toBeNull()
+  })
+
+  it('aborts stalled comparison reads and contains provider details behind fixed guidance', async () => {
+    vi.useFakeTimers()
+    mocks.compare.mockImplementation(() => new Promise(() => {}))
+    render(<EvaluationComparisonPanel tenantId="tenant-1" venueId="venue-1" runs={runs} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Compare runs' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const signal = mocks.compare.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Comparison evidence could not be loaded in time',
+    )
+    expect(screen.queryByText(/secret provider detail/i)).toBeNull()
+    expect(
+      (screen.getByRole('button', { name: 'Compare runs' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 })
