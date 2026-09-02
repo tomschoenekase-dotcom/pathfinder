@@ -5,8 +5,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { ContentHistoryPanel } from './ContentHistoryPanel'
+
+const UPDATE_LIST_REFRESH_TIMEOUT_MS = 15_000
 
 type OperationalUpdateItem = {
   id: string
@@ -117,6 +120,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   const isMountedRef = useRef(true)
   const mutationInFlightRef = useRef(false)
+  const refreshControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => setUpdates(initialUpdates), [initialUpdates])
   useEffect(() => {
@@ -125,6 +129,8 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
     return () => {
       isMountedRef.current = false
       mutationInFlightRef.current = false
+      refreshControllerRef.current?.abort()
+      refreshControllerRef.current = null
     }
   }, [])
   useEffect(() => {
@@ -133,10 +139,21 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
   }, [])
 
   async function refreshUpdates() {
-    const rows = await client.operationalUpdate.list.query()
-    if (!isMountedRef.current) return
-    setUpdates(rows.map((row) => serializeUpdate(row)))
-    router.refresh()
+    refreshControllerRef.current?.abort()
+    const controller = new AbortController()
+    refreshControllerRef.current = controller
+    try {
+      const rows = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: UPDATE_LIST_REFRESH_TIMEOUT_MS,
+        request: (signal) => client.operationalUpdate.list.query(undefined, { signal }),
+      })
+      if (!isMountedRef.current) return
+      setUpdates(rows.map((row) => serializeUpdate(row)))
+      router.refresh()
+    } finally {
+      if (refreshControllerRef.current === controller) refreshControllerRef.current = null
+    }
   }
 
   async function mutate(id: string, action: 'publish' | 'deactivate') {

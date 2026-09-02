@@ -411,4 +411,23 @@ describe('operational-update management', () => {
     expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.refresh).not.toHaveBeenCalled()
   })
+
+  it('aborts a post-mutation list refresh when the surface unmounts', async () => {
+    const rows = [{ ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' }]
+    const pendingList = deferred<ReturnType<typeof serializedRows>>()
+    mocks.publish.mockResolvedValueOnce(undefined)
+    mocks.list.mockReturnValueOnce(pendingList.promise)
+    const view = render(<OperationalUpdatesList initialUpdates={rows} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledOnce())
+    const requestOptions = mocks.list.mock.calls[0]?.[1] as { signal?: AbortSignal }
+    expect(requestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(requestOptions.signal?.aborted).toBe(false)
+
+    view.unmount()
+
+    expect(requestOptions.signal?.aborted).toBe(true)
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
 })
