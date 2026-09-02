@@ -13,6 +13,9 @@ import {
 } from 'lucide-react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const CAMPAIGN_READ_TIMEOUT_MS = 15_000
 
 type Campaign = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getProspectCampaign']['query']>
@@ -41,6 +44,7 @@ export function ProspectCampaignWorkbench({
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [refreshError, setRefreshError] = useState('')
   const [providerAccountId, setProviderAccountId] = useState('')
   const [confirmation, setConfirmation] = useState<{
     action: 'approve' | 'release'
@@ -48,20 +52,57 @@ export function ProspectCampaignWorkbench({
   } | null>(null)
   const confirmationButtonRef = useRef<HTMLButtonElement>(null)
   const confirmationDialogRef = useRef<HTMLElement>(null)
+  const refreshGeneration = useRef(0)
+  const refreshAbort = useRef<AbortController | null>(null)
 
   const refresh = useCallback(async () => {
     if (fixture) return
-    const [next, ready, noSendRehearsal] = await Promise.all([
-      client.admin.getProspectCampaign.query({ campaignId }),
-      client.admin.getProspectOutreachReadiness.query(),
-      client.admin.getProspectNoSendRehearsal.query({ campaignId }),
-    ])
-    setCampaign(next)
-    setReadiness(ready)
-    setRehearsal(noSendRehearsal)
+    const generation = ++refreshGeneration.current
+    refreshAbort.current?.abort()
+    const controller = new AbortController()
+    refreshAbort.current = controller
+    setRefreshError('')
+    try {
+      const [next, ready, noSendRehearsal] = await Promise.all([
+        runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: CAMPAIGN_READ_TIMEOUT_MS,
+          request: (signal) => client.admin.getProspectCampaign.query({ campaignId }, { signal }),
+        }),
+        runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: CAMPAIGN_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getProspectOutreachReadiness.query(undefined, { signal }),
+        }),
+        runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: CAMPAIGN_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getProspectNoSendRehearsal.query({ campaignId }, { signal }),
+        }),
+      ])
+      if (refreshGeneration.current !== generation) return
+      setCampaign(next)
+      setReadiness(ready)
+      setRehearsal(noSendRehearsal)
+    } catch {
+      controller.abort()
+      if (refreshGeneration.current === generation)
+        setRefreshError(
+          'Campaign evidence could not be refreshed. No draft, approval, batch, or send action was taken.',
+        )
+    } finally {
+      if (refreshAbort.current === controller) refreshAbort.current = null
+    }
   }, [campaignId, client, fixture])
   useEffect(() => {
     void refresh()
+    return () => {
+      refreshGeneration.current += 1
+      refreshAbort.current?.abort()
+      refreshAbort.current = null
+    }
   }, [refresh])
   useEffect(() => {
     if (!providerAccountId && readiness?.accounts?.length === 1)
@@ -109,6 +150,19 @@ export function ProspectCampaignWorkbench({
     !selectedProviderAccount.pausedAt &&
     !selectedProviderAccount.healthErrorCode,
   )
+  if (!campaign && refreshError)
+    return (
+      <div className="border border-rose-200 bg-rose-50 p-6 text-rose-900" role="alert">
+        <p className="text-sm font-semibold">{refreshError}</p>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          className="mt-4 min-h-11 border border-rose-300 bg-white px-4 text-sm font-semibold"
+        >
+          Retry campaign refresh
+        </button>
+      </div>
+    )
   if (!campaign)
     return (
       <p role="status" className="p-10 text-center text-sm text-slate-500">
@@ -240,6 +294,18 @@ export function ProspectCampaignWorkbench({
           className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800"
         >
           {notice}
+        </div>
+      ) : null}
+      {refreshError ? (
+        <div role="alert" className="border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900">
+          <p className="text-sm font-semibold">{refreshError}</p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="mt-2 min-h-11 border border-rose-300 bg-white px-4 text-sm font-semibold"
+          >
+            Retry campaign refresh
+          </button>
         </div>
       ) : null}
 

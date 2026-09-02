@@ -10,6 +10,9 @@ import { ProspectCampaignWorkbench } from './ProspectCampaignWorkbench'
 const mocks = vi.hoisted(() => ({
   approve: vi.fn(),
   queue: vi.fn(),
+  campaign: vi.fn(),
+  readiness: vi.fn(),
+  rehearsal: vi.fn(),
 }))
 
 vi.mock('next/link', () => ({
@@ -19,20 +22,21 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
-vi.mock('../../lib/trpc', () => ({
-  useTRPCClient: () => ({
+vi.mock('../../lib/trpc', () => {
+  const client = {
     admin: {
       approveProspectSendBatch: { mutate: mocks.approve },
       queueProspectSendBatch: { mutate: mocks.queue },
-      getProspectCampaign: { query: vi.fn() },
-      getProspectOutreachReadiness: { query: vi.fn() },
-      getProspectNoSendRehearsal: { query: vi.fn() },
+      getProspectCampaign: { query: mocks.campaign },
+      getProspectOutreachReadiness: { query: mocks.readiness },
+      getProspectNoSendRehearsal: { query: mocks.rehearsal },
       saveProspectOutreachDraft: { mutate: vi.fn() },
       reviewProspectOutreachDraft: { mutate: vi.fn() },
       stageProspectSendBatch: { mutate: vi.fn() },
     },
-  }),
-}))
+  }
+  return { useTRPCClient: () => client }
+})
 
 const frozenItem = {
   id: 'item-1',
@@ -215,5 +219,56 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])
+  })
+
+  it('loads all campaign evidence through cancellable transports', async () => {
+    const state = fixture('STAGED')
+    mocks.campaign.mockResolvedValueOnce(state.campaign)
+    mocks.readiness.mockResolvedValueOnce(state.readiness)
+    mocks.rehearsal.mockResolvedValueOnce(state.rehearsal)
+
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" />)
+    expect(await screen.findByText('Internal fixture campaign')).toBeTruthy()
+    expect(mocks.campaign).toHaveBeenCalledWith(
+      { campaignId: 'campaign-1' },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.readiness).toHaveBeenCalledWith(undefined, {
+      signal: expect.any(AbortSignal),
+    })
+    expect(mocks.rehearsal).toHaveBeenCalledWith(
+      { campaignId: 'campaign-1' },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts every in-flight evidence transport on unmount', async () => {
+    const signals: AbortSignal[] = []
+    const pending = (_input: unknown, options: { signal: AbortSignal }) => {
+      signals.push(options.signal)
+      return new Promise(() => undefined)
+    }
+    mocks.campaign.mockImplementationOnce(pending)
+    mocks.readiness.mockImplementationOnce(pending)
+    mocks.rehearsal.mockImplementationOnce(pending)
+    const rendered = render(<ProspectCampaignWorkbench campaignId="campaign-1" />)
+
+    await waitFor(() => expect(signals).toHaveLength(3))
+    expect(signals.every((signal) => !signal.aborted)).toBe(true)
+    rendered.unmount()
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+  })
+
+  it('fails closed with retry guidance and does not expose provider errors', async () => {
+    mocks.campaign.mockRejectedValueOnce(new Error('provider://secret'))
+    mocks.readiness.mockImplementationOnce(() => new Promise(() => undefined))
+    mocks.rehearsal.mockImplementationOnce(() => new Promise(() => undefined))
+
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" />)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/could not be refreshed/i)
+    expect(screen.getByRole('button', { name: 'Retry campaign refresh' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('provider://secret')
+    expect(mocks.approve).not.toHaveBeenCalled()
+    expect(mocks.queue).not.toHaveBeenCalled()
   })
 })
