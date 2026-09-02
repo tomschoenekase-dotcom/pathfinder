@@ -384,6 +384,37 @@ describe('desktop agent bridge runner', () => {
     fetcher.mockRestore()
   })
 
+  it('cancels a rejected local-inference response without reading its body', async () => {
+    let bodyCancelled = false
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('private provider failure detail'))
+          },
+          cancel() {
+            bodyCancelled = true
+          },
+        }),
+        { status: 503 },
+      ),
+    )
+
+    await expect(
+      executeAgentBridgeTask(
+        bridgeTask({ modelProvider: 'openai-compatible-bridge' }),
+        parseAgentBridgeRunnerConfig({
+          ...base,
+          provider: 'OPENAI_COMPATIBLE',
+          modelName: 'qwen3.5:9b',
+          localInferenceUrl: 'http://localhost:11434/v1',
+        }),
+      ),
+    ).rejects.toThrow('TASK_EXECUTOR_FAILED')
+    expect(bodyCancelled).toBe(true)
+    fetcher.mockRestore()
+  })
+
   it('drains subscription CLI output before accepting the child result', async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()

@@ -412,7 +412,10 @@ export async function executeAgentBridgeTask(
       if (timeout.aborted) throw new Error('TASK_TIMEOUT')
       throw new Error('TASK_EXECUTOR_UNAVAILABLE')
     }
-    if (!response.ok) throw new Error('TASK_EXECUTOR_FAILED')
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new Error('TASK_EXECUTOR_FAILED')
+    }
     const text = await readBoundedResponseText(response, 100_000, 'TASK_OUTPUT_TOO_LARGE')
     try {
       const payload = z
