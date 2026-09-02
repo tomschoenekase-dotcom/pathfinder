@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 
 import { uploadProspectWorkbook } from '../../lib/prospect-workbook-upload'
 import { useTRPCClient } from '../../lib/trpc'
+import { inspectXlsxArchive, XlsxArchivePreflightError } from '../../lib/xlsx-archive-preflight'
 
 const FIELD_DEFINITIONS = [
   ['venueName', 'Venue name', true, 'venue_name'],
@@ -226,6 +227,7 @@ export function ProspectImportWorkbench() {
     setProgress('Reading workbook locally…')
     try {
       const data = await selected.arrayBuffer()
+      if (extension === 'xlsx') inspectXlsxArchive(data)
       const parsed = XLSX.read(data, { cellDates: true, dense: true })
       const metadata = parsed.SheetNames.slice(0, 100).map((name, index) => {
         const sheet = parsed.Sheets[name]
@@ -251,8 +253,14 @@ export function ProspectImportWorkbench() {
         ),
       )
       setProgress(`Detected ${metadata.length} sheets. Confirm selection and mapping.`)
-    } catch {
-      setError('The spreadsheet is malformed, encrypted, or could not be parsed safely.')
+    } catch (cause) {
+      setError(
+        cause instanceof XlsxArchivePreflightError && cause.code === 'EXPANDED_TOO_LARGE'
+          ? 'The XLSX workbook expands beyond the 150 MB safety limit.'
+          : cause instanceof XlsxArchivePreflightError && cause.code === 'TOO_MANY_ENTRIES'
+            ? 'The XLSX workbook contains too many archived parts to inspect safely.'
+            : 'The spreadsheet is malformed, encrypted, or could not be parsed safely.',
+      )
       setProgress('File parsing failed.')
     } finally {
       setBusy(false)
