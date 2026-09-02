@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 
 import { browserUuid } from '../lib/browser-uuid'
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import {
   ClientTochiPanel,
@@ -33,6 +34,8 @@ type BootstrapState = {
         }
   }>
 }
+
+const CLIENT_ASSISTANT_READ_TIMEOUT_MS = 15_000
 
 function mapHistory(history: BootstrapState['history']): ClientTochiMessage[] {
   return history.flatMap((turn) => {
@@ -109,25 +112,43 @@ export function ClientTochiWorkspace() {
   const client = useTRPCClient()
   const pathname = usePathname()
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null)
+  const venueRequestRef = useRef<AbortController | null>(null)
+  const venueRequestGenerationRef = useRef(0)
 
   const routeVenueId = /^\/venues\/([^/]+)(?:\/|$)/u.exec(pathname)?.[1]
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
     if (!client.clientAssistant) return () => undefined
     const queryVenueId = routeVenueId ?? new URLSearchParams(window.location.search).get('venue')
-    void client.clientAssistant.bootstrap
-      .query(queryVenueId ? { venueId: queryVenueId } : {})
+    setBootstrap(null)
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: CLIENT_ASSISTANT_READ_TIMEOUT_MS,
+      request: (signal) =>
+        client.clientAssistant.bootstrap.query(queryVenueId ? { venueId: queryVenueId } : {}, {
+          signal,
+        }),
+    })
       .then((result) => {
-        if (!cancelled) setBootstrap(result as BootstrapState)
+        if (!controller.signal.aborted) setBootstrap(result as BootstrapState)
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (error instanceof BoundedClientRequestError && error.code === 'CANCELLED') return
         // Optional assistance fails closed; normal portal navigation remains.
       })
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [client, routeVenueId])
+
+  useEffect(
+    () => () => {
+      venueRequestGenerationRef.current += 1
+      venueRequestRef.current?.abort()
+    },
+    [],
+  )
 
   const venueId = bootstrap?.selectedVenueId
   const venue = bootstrap?.venues.find((candidate) => candidate.id === venueId)
@@ -165,8 +186,26 @@ export function ClientTochiWorkspace() {
       venues={bootstrap.venues}
       selectedVenueId={venueId}
       onVenueChange={async (nextVenueId) => {
-        const next = await client.clientAssistant.bootstrap.query({ venueId: nextVenueId })
-        setBootstrap(next as BootstrapState)
+        venueRequestRef.current?.abort()
+        const controller = new AbortController()
+        const generation = venueRequestGenerationRef.current + 1
+        venueRequestGenerationRef.current = generation
+        venueRequestRef.current = controller
+        try {
+          const next = await runBoundedClientRequest({
+            parentSignal: controller.signal,
+            timeoutMs: CLIENT_ASSISTANT_READ_TIMEOUT_MS,
+            request: (signal) =>
+              client.clientAssistant.bootstrap.query({ venueId: nextVenueId }, { signal }),
+          })
+          if (venueRequestGenerationRef.current === generation) {
+            setBootstrap(next as BootstrapState)
+          }
+        } finally {
+          if (venueRequestGenerationRef.current === generation) {
+            venueRequestRef.current = null
+          }
+        }
       }}
       onOpened={async () => {
         await client.clientAssistant.opened.mutate({ venueId })

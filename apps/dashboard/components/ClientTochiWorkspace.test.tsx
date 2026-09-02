@@ -66,8 +66,20 @@ describe('ClientTochiWorkspace', () => {
       selectedVenueId: null,
     })
     render(<ClientTochiWorkspace />)
-    await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledWith({}))
+    await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledWith({}, expect.any(Object)))
+    expect(mocks.bootstrap.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
     expect(screen.queryByRole('button', { name: 'Ask Tochi' })).toBeNull()
+  })
+
+  it('cancels the initial assistant read when the workspace unmounts', async () => {
+    mocks.bootstrap.mockImplementation(() => new Promise(() => undefined))
+    const view = render(<ClientTochiWorkspace />)
+    await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledOnce())
+    const signal = mocks.bootstrap.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
   })
 
   it('sends through the bounded tenant API and renders a safe route action', async () => {
@@ -147,6 +159,29 @@ describe('ClientTochiWorkspace', () => {
     })
   })
 
+  it('reports a preference read failure without pretending assistance is unavailable', async () => {
+    mocks.bootstrap.mockRejectedValueOnce(new Error('network unavailable'))
+    render(<ClientTochiPreferenceWorkspace />)
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Assistance preference could not be loaded. Your existing setting was not changed.',
+    )
+    expect(
+      screen.queryByText('This assistance is not enabled for your organization yet.'),
+    ).toBeNull()
+  })
+
+  it('cancels the preference read when the settings surface unmounts', async () => {
+    mocks.bootstrap.mockImplementation(() => new Promise(() => undefined))
+    const view = render(<ClientTochiPreferenceWorkspace />)
+    await waitFor(() => expect(mocks.bootstrap).toHaveBeenCalledOnce())
+    const signal = mocks.bootstrap.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
+  })
+
   it('honors and persists the compact minimized preference without disabling Tochi', async () => {
     mocks.bootstrap.mockResolvedValue({
       ...bootstrap,
@@ -188,7 +223,10 @@ describe('ClientTochiWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Ask Tochi' }))
     await screen.findByRole('dialog', { name: 'Ask Tochi' })
     fireEvent.change(screen.getByLabelText('Venue context'), { target: { value: 'venue-2' } })
-    await waitFor(() => expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-2' }))
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-2' }, expect.any(Object)),
+    )
+    expect(mocks.bootstrap.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal)
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask Tochi' })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Ask Tochi' }))
     expect(await screen.findByText(/Portal guidance for River Museum/)).toBeTruthy()
