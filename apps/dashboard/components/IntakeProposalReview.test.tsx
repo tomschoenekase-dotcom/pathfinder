@@ -92,11 +92,14 @@ describe('privacy-safe interview review', () => {
     render(<IntakeProposalReview adminTenantId="tenant-a" venueId="venue-a" runId="run-1" />)
     fireEvent.click(screen.getByRole('button', { name: 'Review interview evidence' }))
     expect(await screen.findByText(/Candidate from reviewed staff interview/)).toBeTruthy()
-    expect(candidateQuery).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
-      venueId: 'venue-a',
-      runId: 'run-1',
-    })
+    expect(candidateQuery).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(
       (screen.getByLabelText('VenuePackage payload JSON') as HTMLTextAreaElement).readOnly,
     ).toBe(true)
@@ -118,8 +121,12 @@ describe('privacy-safe interview review', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Review interview evidence' }))
     await waitFor(() => expect(candidateQuery).toHaveBeenCalledTimes(1))
+    const oldRequestOptions = candidateQuery.mock.calls[0]?.[1] as { signal?: AbortSignal }
+    expect(oldRequestOptions.signal).toBeInstanceOf(AbortSignal)
+    expect(oldRequestOptions.signal?.aborted).toBe(false)
 
     rerender(<IntakeProposalReview adminTenantId="tenant-a" venueId="venue-a" runId="run-2" />)
+    expect(oldRequestOptions.signal?.aborted).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Review interview evidence' }))
     expect(await screen.findByText(/Candidate from reviewed staff interview/)).toBeTruthy()
     resolveFirst(candidateResult('run-1', 'a'.repeat(64)))
@@ -140,6 +147,26 @@ describe('privacy-safe interview review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry candidate review' }))
     expect(await screen.findByText(/Candidate from reviewed staff interview/)).toBeTruthy()
     expect(candidateQuery).toHaveBeenCalledTimes(2)
+  })
+
+  it('admits one same-tick client review load and passes a cancellable transport signal', async () => {
+    let resolveReview!: (value: ReturnType<typeof reviewResult>) => void
+    query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReview = resolve
+        }),
+    )
+    render(<IntakeProposalReview clientFacing venueId="venue-a" runId="run-1" />)
+    const loadButton = screen.getByRole('button', { name: 'Review what you shared' })
+
+    loadButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    loadButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    await waitFor(() => expect(query).toHaveBeenCalledOnce())
+    expect(query.mock.calls[0]?.[1]).toEqual({ signal: expect.any(AbortSignal) })
+    resolveReview(reviewResult(false))
+    expect(await screen.findByLabelText('Staff answers shared')).toBeTruthy()
   })
 })
 

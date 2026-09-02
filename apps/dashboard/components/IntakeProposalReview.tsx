@@ -5,8 +5,11 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './admin/ReviewedVenuePackageDraftForm'
+
+const INTAKE_REVIEW_LOAD_TIMEOUT_MS = 15_000
 
 type ClientReview = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['intake']['getProposalReview']['query']>
@@ -33,34 +36,65 @@ export function IntakeProposalReview({
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [busy, setBusy] = useState(false)
   const loadSequence = useRef(0)
+  const activeLoad = useRef<number | null>(null)
+  const activeLoadController = useRef<AbortController | null>(null)
 
   useEffect(() => {
     loadSequence.current += 1
+    activeLoad.current = null
+    activeLoadController.current?.abort()
+    activeLoadController.current = null
     setReview(null)
     setCandidate(null)
     setError(null)
     setBusy(false)
   }, [adminTenantId, runId, venueId])
 
+  useEffect(
+    () => () => {
+      activeLoad.current = null
+      activeLoadController.current?.abort()
+      activeLoadController.current = null
+    },
+    [],
+  )
+
   async function load() {
+    if (activeLoad.current !== null) return
     const sequence = ++loadSequence.current
+    const controller = new AbortController()
+    activeLoad.current = sequence
+    activeLoadController.current = controller
     setBusy(true)
     setError(null)
     try {
       const nextReview = adminTenantId
-        ? await client.admin.getIntakeProposalReview.query({
-            tenantId: adminTenantId,
-            venueId,
-            runId,
+        ? await runBoundedClientRequest({
+            parentSignal: controller.signal,
+            timeoutMs: INTAKE_REVIEW_LOAD_TIMEOUT_MS,
+            request: (signal) =>
+              client.admin.getIntakeProposalReview.query(
+                { tenantId: adminTenantId, venueId, runId },
+                { signal },
+              ),
           })
-        : await client.intake.getProposalReview.query({ venueId, runId })
+        : await runBoundedClientRequest({
+            parentSignal: controller.signal,
+            timeoutMs: INTAKE_REVIEW_LOAD_TIMEOUT_MS,
+            request: (signal) =>
+              client.intake.getProposalReview.query({ venueId, runId }, { signal }),
+          })
       if (sequence !== loadSequence.current) return
       setReview(nextReview)
       if (adminTenantId && (nextReview as AdminReview).structuredSummary.handoffReady) {
-        const nextCandidate = await client.admin.getIntakeVenuePackageCandidate.query({
-          tenantId: adminTenantId,
-          venueId,
-          runId,
+        const nextCandidate = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: INTAKE_REVIEW_LOAD_TIMEOUT_MS,
+          request: (signal) =>
+            client.admin.getIntakeVenuePackageCandidate.query(
+              { tenantId: adminTenantId, venueId, runId },
+              { signal },
+            ),
         })
         if (sequence !== loadSequence.current) return
         setCandidate(nextCandidate)
@@ -68,13 +102,19 @@ export function IntakeProposalReview({
     } catch (cause) {
       if (sequence !== loadSequence.current) return
       setError(
-        !clientFacing && cause instanceof Error
-          ? cause.message
-          : clientFacing
-            ? 'Your staff answers are unavailable right now.'
-            : 'Interview review is unavailable.',
+        cause instanceof BoundedClientRequestError
+          ? clientFacing
+            ? 'Your staff answers are taking too long to load. Try again.'
+            : 'Interview review is taking too long to load. Try again.'
+          : !clientFacing && cause instanceof Error
+            ? cause.message
+            : clientFacing
+              ? 'Your staff answers are unavailable right now.'
+              : 'Interview review is unavailable.',
       )
     } finally {
+      if (activeLoad.current === sequence) activeLoad.current = null
+      if (activeLoadController.current === controller) activeLoadController.current = null
       if (sequence === loadSequence.current) setBusy(false)
     }
   }
