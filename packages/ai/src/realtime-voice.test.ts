@@ -18,15 +18,15 @@ describe('realtime voice routing and authorization', () => {
   })
 
   it('creates an ephemeral client secret server-side without sending the standard key in the body', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        value: 'ek_ephemeral_only',
-        expires_at: 1_787_000_000,
-        session: { id: 'sess_provider' },
-      }),
-    })
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          value: 'ek_ephemeral_only',
+          expires_at: 1_787_000_000,
+          session: { id: 'sess_provider' },
+        }),
+      ),
+    )
     const result = await openAiRealtimeVoiceAdapter.authorizeSession({
       route: resolveRealtimeVoiceRoute({ tier: 'ECONOMY' }),
       apiKey: 'server-test-key',
@@ -46,6 +46,52 @@ describe('realtime voice routing and authorization', () => {
     expect(request.headers['OpenAI-Safety-Identifier']).toBe('a'.repeat(64))
     expect(request.body).not.toContain('server-test-key')
     expect(request.body).toContain('gpt-live-transcribe')
+  })
+
+  it('cancels a rejected authorization response without reading provider content', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      cancel() {
+        canceled = true
+      },
+    })
+
+    await expect(
+      openAiRealtimeVoiceAdapter.authorizeSession({
+        route: resolveRealtimeVoiceRoute({ tier: 'ECONOMY' }),
+        apiKey: 'server-test-key',
+        safetyIdentifier: 'a'.repeat(64),
+        instructions: 'Use only trusted venue context.',
+        voice: 'marin',
+        fetchImpl: vi.fn().mockResolvedValue(new Response(body, { status: 503 })),
+      }),
+    ).rejects.toThrow('Realtime voice authorization failed (503)')
+    expect(canceled).toBe(true)
+  })
+
+  it('bounds and cancels a stalled authorization response body', async () => {
+    let canceled = false
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'))
+      },
+      cancel() {
+        canceled = true
+      },
+    })
+
+    await expect(
+      openAiRealtimeVoiceAdapter.authorizeSession({
+        route: resolveRealtimeVoiceRoute({ tier: 'ECONOMY' }),
+        apiKey: 'server-test-key',
+        safetyIdentifier: 'a'.repeat(64),
+        instructions: 'Use only trusted venue context.',
+        voice: 'marin',
+        fetchImpl: vi.fn().mockResolvedValue(new Response(body)),
+        requestTimeoutMs: 10,
+      }),
+    ).rejects.toThrow('Realtime voice authorization timed out')
+    expect(canceled).toBe(true)
   })
 
   it('estimates versioned text and audio token cost only for known models', () => {
