@@ -68,6 +68,41 @@ describe('founder absence observer runtime', () => {
     expect(mocks.capture).toHaveBeenCalledTimes(2)
   })
 
+  it('serializes interval captures and drains the active capture during shutdown', async () => {
+    const runtime = await startFounderAbsenceObserver()
+    let resolveCapture: ((value: unknown) => void) | undefined
+    mocks.capture.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCapture = resolve
+      }),
+    )
+
+    await vi.advanceTimersByTimeAsync(runtime.intervalMs)
+    expect(mocks.capture).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(runtime.intervalMs)
+    expect(mocks.capture).toHaveBeenCalledTimes(2)
+
+    let shutdownComplete = false
+    const shutdown = runtime.shutdown().then(() => {
+      shutdownComplete = true
+    })
+    await Promise.resolve()
+    expect(shutdownComplete).toBe(false)
+
+    resolveCapture?.({
+      id: 'observation_2',
+      observedOn: new Date('2026-08-28T00:30:00.000Z'),
+      releaseSha: mocks.releaseSha,
+      evidenceComplete: true,
+    })
+    await shutdown
+    expect(shutdownComplete).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(runtime.intervalMs)
+    expect(mocks.capture).toHaveBeenCalledTimes(2)
+  })
+
   it('reports interval failures without writing exception text', async () => {
     const runtime = await startFounderAbsenceObserver()
     mocks.capture.mockRejectedValueOnce(new Error('redis://user:secret@private-host'))
@@ -82,5 +117,16 @@ describe('founder absence observer runtime', () => {
     )
     expect(process.stderr.write).not.toHaveBeenCalledWith(expect.stringContaining('secret'))
     await runtime.shutdown()
+  })
+
+  it('contains diagnostic write failures from interval capture errors', async () => {
+    const runtime = await startFounderAbsenceObserver()
+    mocks.capture.mockRejectedValueOnce(new Error('capture unavailable'))
+    vi.mocked(process.stderr.write).mockImplementationOnce(() => {
+      throw new Error('stderr unavailable')
+    })
+
+    await vi.advanceTimersByTimeAsync(runtime.intervalMs)
+    await expect(runtime.shutdown()).resolves.toBeUndefined()
   })
 })
