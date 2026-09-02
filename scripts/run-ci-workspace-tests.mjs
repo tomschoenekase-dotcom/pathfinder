@@ -1,9 +1,6 @@
 import { spawn } from 'node:child_process'
 import readline from 'node:readline'
-import {
-  createDiagnosticAnnotation,
-  createDiagnosticTail,
-} from './lib/ci-diagnostic-tail.mjs'
+import { createDiagnosticAnnotation, createDiagnosticTail } from './lib/ci-diagnostic-tail.mjs'
 
 const tail = createDiagnosticTail(120)
 const windows = process.platform === 'win32'
@@ -30,7 +27,9 @@ let finalized = false
 function fail(outcome) {
   if (finalized) return
   finalized = true
-  process.stderr.write(`Workspace test graph failed with ${outcome}. Sanitized final output follows.\n`)
+  process.stderr.write(
+    `Workspace test graph failed with ${outcome}. Sanitized final output follows.\n`,
+  )
   const annotation = createDiagnosticAnnotation(tail.values())
   process.stderr.write(`::error title=Workspace test graph failed::${annotation}\n`)
   process.exitCode = 1
@@ -41,7 +40,9 @@ child.once('error', () => {
   fail('startup failure')
 })
 
-child.once('exit', (code, signal) => {
+// `exit` can fire before the stdio streams are fully drained. Finalize on `close`
+// so the diagnostic tail includes the child's last assertion or stack line.
+child.once('close', (code, signal) => {
   if (code === 0 && signal === null) {
     finalized = true
     return

@@ -24,6 +24,8 @@ test('workspace CI test graph uses the bounded diagnostic runner', () => {
   assert.match(runner, /createDiagnosticTail\(120\)/u)
   assert.match(runner, /::error title=Workspace test graph failed::/u)
   assert.match(runner, /child\.once\('error',[\s\S]*?fail\('startup failure'\)/u)
+  assert.match(runner, /child\.once\('close',[\s\S]*?fail\(signal/u)
+  assert.doesNotMatch(runner, /child\.once\('exit'/u)
   assert.match(runner, /if \(finalized\) return/u)
   assert.doesNotMatch(runner, /printenv|set\s+-x/iu)
 })
