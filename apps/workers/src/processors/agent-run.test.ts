@@ -187,4 +187,87 @@ describe('agent run processor', () => {
     )
     expect(JSON.stringify(mocks.fail.mock.calls)).not.toContain('UPSTREAM_SECRET_TOKEN')
   })
+
+  it('drains an in-flight lease heartbeat before the terminal completion', async () => {
+    vi.useFakeTimers()
+    let resolveHeartbeat: ((value: { cancelRequested: boolean }) => void) | undefined
+    mocks.heartbeat.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHeartbeat = resolve
+      }),
+    )
+    let resolveGeneration: ((value: Record<string, unknown>) => void) | undefined
+    mocks.generateTextForCapability.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveGeneration = resolve
+      }),
+    )
+
+    const processing = processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' })
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(mocks.heartbeat).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(mocks.heartbeat).toHaveBeenCalledOnce()
+
+    resolveGeneration?.({
+      text: 'Completed result.',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      estimatedCostUsd: 0.001,
+      route: {
+        capability: 'REASONING',
+        workloadId: 'agent-run',
+        modelKey: 'agent-run',
+        fallbackUsed: false,
+      },
+    })
+    await Promise.resolve()
+    expect(mocks.complete).not.toHaveBeenCalled()
+
+    resolveHeartbeat?.({ cancelRequested: false })
+    await expect(processing).resolves.toMatchObject({ status: 'COMPLETED' })
+    expect(mocks.complete).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
+  it('does not complete when the drained heartbeat reports lease cancellation', async () => {
+    vi.useFakeTimers()
+    let resolveHeartbeat: ((value: { cancelRequested: boolean }) => void) | undefined
+    mocks.heartbeat.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHeartbeat = resolve
+      }),
+    )
+    let resolveGeneration: ((value: Record<string, unknown>) => void) | undefined
+    mocks.generateTextForCapability.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveGeneration = resolve
+      }),
+    )
+
+    const processing = processAgentRunJob({ tenantId: 'tenant-1', runId: 'run-1' })
+    await vi.advanceTimersByTimeAsync(20_000)
+    resolveGeneration?.({
+      text: 'Completed result.',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      estimatedCostUsd: 0.001,
+      route: {
+        capability: 'REASONING',
+        workloadId: 'agent-run',
+        modelKey: 'agent-run',
+        fallbackUsed: false,
+      },
+    })
+    await Promise.resolve()
+    expect(mocks.complete).not.toHaveBeenCalled()
+
+    resolveHeartbeat?.({ cancelRequested: true })
+    await expect(processing).resolves.toMatchObject({ status: 'FAILED' })
+    expect(mocks.complete).not.toHaveBeenCalled()
+    expect(mocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'CANCELLED_OR_LEASE_LOST', retryable: false }),
+    )
+    vi.useRealTimers()
+  })
 })

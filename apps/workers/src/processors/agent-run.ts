@@ -100,19 +100,39 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
   const controller = new AbortController()
   const abort = () => controller.abort(signal?.reason ?? new Error('Agent job cancelled'))
   signal?.addEventListener('abort', abort, { once: true })
-  const heartbeat = setInterval(() => {
-    void heartbeatAgentRunExecution({
-      tenantId: payload.tenantId,
-      runId: payload.runId,
-      leaseToken: run.leaseToken,
-      leaseDurationMs: LEASE_DURATION_MS,
-    })
-      .then((state) => {
-        if (state.cancelRequested) controller.abort(new Error('Agent run cancellation requested'))
+
+  let heartbeatStopped = false
+  let heartbeatRenewal = Promise.resolve()
+  const renewHeartbeat = () => {
+    if (heartbeatStopped) return heartbeatRenewal
+
+    heartbeatRenewal = heartbeatRenewal
+      .then(async () => {
+        if (heartbeatStopped) return
+        const state = await heartbeatAgentRunExecution({
+          tenantId: payload.tenantId,
+          runId: payload.runId,
+          leaseToken: run.leaseToken,
+          leaseDurationMs: LEASE_DURATION_MS,
+        })
+        if (state.cancelRequested) {
+          controller.abort(new Error('Agent run cancellation requested'))
+        }
       })
       .catch(() => controller.abort(new Error('Agent execution lease was lost')))
+    return heartbeatRenewal
+  }
+
+  const heartbeat = setInterval(() => {
+    void renewHeartbeat()
   }, HEARTBEAT_INTERVAL_MS)
   heartbeat.unref()
+
+  const stopHeartbeat = async () => {
+    heartbeatStopped = true
+    clearInterval(heartbeat)
+    await heartbeatRenewal
+  }
 
   try {
     if (!run.venueId) throw new Error('Agent execution requires an exact venue scope')
@@ -165,6 +185,10 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       }),
     })
     const costE8Usd = BigInt(Math.max(0, Math.round(result.estimatedCostUsd * 100_000_000)))
+    await stopHeartbeat()
+    if (controller.signal.aborted) {
+      throw controller.signal.reason ?? new Error('Agent execution lease was lost')
+    }
     return await completeAgentRunExecution({
       tenantId: run.tenantId,
       runId: run.id,
@@ -188,6 +212,7 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
       costStatus: 'ESTIMATED',
     })
   } catch (error) {
+    await stopHeartbeat()
     const cancellation = controller.signal.aborted
     const failure = agentRunFailure(error, cancellation)
     const failureState = await failAgentRunExecution({
@@ -202,7 +227,7 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
     if (failureState?.status === 'QUEUED') throw error
     return failureState
   } finally {
-    clearInterval(heartbeat)
+    await stopHeartbeat()
     signal?.removeEventListener('abort', abort)
   }
 }
