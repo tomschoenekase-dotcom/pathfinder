@@ -16,4 +16,14 @@ describe('AI cost decimal arithmetic', () => {
     'rejects invalid or unrepresentable cost %s',
     (value) => expect(() => aiCostDecimalToUnits(value)).toThrow(),
   )
+
+  it('does not reflect rejected cost input into errors', () => {
+    const privateValue = 'PRIVATE_PROVIDER_COST_DETAIL'
+    try {
+      aiCostDecimalToUnits(privateValue)
+    } catch (error) {
+      expect(String(error)).toContain('Invalid nonnegative AI cost')
+      expect(String(error)).not.toContain(privateValue)
+    }
+  })
 })
