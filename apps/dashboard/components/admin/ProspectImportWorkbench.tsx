@@ -1,11 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { ChangeEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, ShieldCheck } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 import { uploadProspectWorkbook } from '../../lib/prospect-workbook-upload'
+import {
+  throwIfProspectImportPollingCancelled,
+  waitForProspectImportPoll,
+} from '../../lib/prospect-import-polling'
 import { useTRPCClient } from '../../lib/trpc'
 import { inspectXlsxArchive, XlsxArchivePreflightError } from '../../lib/xlsx-archive-preflight'
 
@@ -176,6 +180,7 @@ export function ProspectImportWorkbench() {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('Choose a CSV or XLSX file to begin.')
   const [error, setError] = useState<string | null>(null)
+  const pollingController = useRef<AbortController | null>(null)
 
   const columns = useMemo(() => {
     const values = new Set<string>()
@@ -199,14 +204,41 @@ export function ProspectImportWorkbench() {
   }, [mapping, selectedSheets, workbook])
 
   useEffect(() => {
+    const controller = new AbortController()
     void client.admin.listProspectImports
-      .query()
-      .then(setHistory)
+      .query(undefined, { signal: controller.signal })
+      .then((items) => {
+        if (!controller.signal.aborted) setHistory(items)
+      })
       .catch(() => undefined)
+    return () => controller.abort()
   }, [client])
 
-  async function refreshHistory() {
-    setHistory(await client.admin.listProspectImports.query())
+  useEffect(
+    () => () => {
+      pollingController.current?.abort()
+    },
+    [],
+  )
+
+  function beginPollingOperation() {
+    pollingController.current?.abort()
+    const controller = new AbortController()
+    pollingController.current = controller
+    return controller
+  }
+
+  function finishPollingOperation(controller: AbortController) {
+    if (pollingController.current === controller) pollingController.current = null
+  }
+
+  async function refreshHistory(signal?: AbortSignal) {
+    const items = await client.admin.listProspectImports.query(
+      undefined,
+      signal ? { signal } : undefined,
+    )
+    if (signal) throwIfProspectImportPollingCancelled(signal)
+    setHistory(items)
   }
 
   async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
@@ -267,15 +299,20 @@ export function ProspectImportWorkbench() {
     }
   }
 
-  async function refreshImport(importId: string) {
-    const summary = await client.admin.getProspectImport.query({ importId, rowLimit: 1 })
+  async function refreshImport(importId: string, signal?: AbortSignal) {
+    const options = signal ? { signal } : undefined
+    const summary = await client.admin.getProspectImport.query({ importId, rowLimit: 1 }, options)
     const result = summary.prospectImport.duplicateRows
-      ? await client.admin.getProspectImport.query({
-          importId,
-          rowStatus: 'DUPLICATE_REVIEW',
-          rowLimit: 200,
-        })
+      ? await client.admin.getProspectImport.query(
+          {
+            importId,
+            rowStatus: 'DUPLICATE_REVIEW',
+            rowLimit: 200,
+          },
+          options,
+        )
       : summary
+    if (signal) throwIfProspectImportPollingCancelled(signal)
     setDetail(result as ImportDetail)
     return result as ImportDetail
   }
@@ -317,6 +354,8 @@ export function ProspectImportWorkbench() {
 
   async function runDryRun() {
     if (!file || !buffer || !workbook || !selectedSheets.length || !mapping.venueName) return
+    const controller = beginPollingOperation()
+    const { signal } = controller
     setBusy(true)
     setError(null)
     try {
@@ -325,74 +364,95 @@ export function ProspectImportWorkbench() {
         sha256(buffer),
         sha256(stableMapping(mapping, selectedSheets)),
       ])
-      const reserved = await client.admin.reserveProspectImportUpload.mutate({
-        fileName: file.name,
-        fileType: file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx',
-        fileSize: file.size,
-        fileHash,
-      })
+      const reserved = await client.admin.reserveProspectImportUpload.mutate(
+        {
+          fileName: file.name,
+          fileType: file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx',
+          fileSize: file.size,
+          fileHash,
+        },
+        { signal },
+      )
+      throwIfProspectImportPollingCancelled(signal)
       const importId = reserved.importId
       setProgress('Uploading the immutable source workbook…')
       await uploadProspectWorkbook({
         url: reserved.url,
         requiredHeaders: reserved.requiredHeaders,
         file,
+        signal,
       })
-      await client.admin.completeProspectImportUpload.mutate({ importId })
+      throwIfProspectImportPollingCancelled(signal)
+      await client.admin.completeProspectImportUpload.mutate({ importId }, { signal })
+      throwIfProspectImportPollingCancelled(signal)
       setProgress('The durable worker is inspecting workbook structure and safety limits…')
-      let result = await refreshImport(importId)
+      let result = await refreshImport(importId, signal)
       for (
         let poll = 0;
         poll < 150 && result.prospectImport.progressCursor !== 'INSPECTED';
         poll += 1
       ) {
-        await new Promise((resolve) => setTimeout(resolve, 2_000))
-        result = await refreshImport(importId)
+        await waitForProspectImportPoll(signal)
+        result = await refreshImport(importId, signal)
       }
       if (result.prospectImport.progressCursor !== 'INSPECTED') {
         throw new Error(
           'Workbook inspection continues in the background; reopen this import shortly',
         )
       }
-      await client.admin.configureProspectImportMapping.mutate({
-        importId,
-        mappingHash,
-        mapping,
-        selectedSheets,
-      })
+      await client.admin.configureProspectImportMapping.mutate(
+        {
+          importId,
+          mappingHash,
+          mapping,
+          selectedSheets,
+        },
+        { signal },
+      )
+      throwIfProspectImportPollingCancelled(signal)
       setProgress('The durable worker is staging and checking duplicate candidates…')
       for (let poll = 0; poll < 300; poll += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2_000))
-        result = await refreshImport(importId)
+        await waitForProspectImportPoll(signal)
+        result = await refreshImport(importId, signal)
         if (result.prospectImport.status === 'DRY_RUN_READY') break
       }
       if (result.prospectImport.status !== 'DRY_RUN_READY') {
         throw new Error('Dry-run staging continues in the background; reopen this import shortly')
       }
-      await refreshHistory()
+      await refreshHistory(signal)
+      throwIfProspectImportPollingCancelled(signal)
       setProgress(
         `Dry run ready: ${result.prospectImport.totalRows.toLocaleString()} rows reviewed.`,
       )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Dry run failed.')
-      setProgress('Dry run stopped safely. No prospects were imported.')
+      if (!signal.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Dry run failed.')
+        setProgress('Dry run stopped safely. No prospects were imported.')
+      }
     } finally {
-      setBusy(false)
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
     }
   }
 
   async function approveAndImport() {
     if (!detail) return
+    const controller = beginPollingOperation()
+    const { signal } = controller
     setBusy(true)
     setError(null)
     try {
-      await client.admin.approveProspectImport.mutate({ importId: detail.prospectImport.id })
+      await client.admin.approveProspectImport.mutate(
+        { importId: detail.prospectImport.id },
+        { signal },
+      )
+      throwIfProspectImportPollingCancelled(signal)
       setProgress('Approved. The durable import worker is processing rows in the background…')
-      let result = await refreshImport(detail.prospectImport.id)
+      let result = await refreshImport(detail.prospectImport.id, signal)
       for (let poll = 0; poll < 300; poll += 1) {
         if (['COMPLETE', 'PARTIAL', 'CANCELLED'].includes(result.prospectImport.status)) break
-        await new Promise((resolve) => setTimeout(resolve, 2_000))
-        result = await refreshImport(detail.prospectImport.id)
+        await waitForProspectImportPoll(signal)
+        result = await refreshImport(detail.prospectImport.id, signal)
         setProgress(
           `Worker import ${result.prospectImport.status.toLowerCase()}: ${result.prospectImport.importedRows.toLocaleString()} complete`,
         )
@@ -402,18 +462,22 @@ export function ProspectImportWorkbench() {
           'Import continues in the background. Closing this page will not stop the durable job.',
         )
       }
-      await refreshHistory()
+      await refreshHistory(signal)
+      throwIfProspectImportPollingCancelled(signal)
       setProgress(
         `Import ${result.prospectImport.status.toLowerCase()}: ${result.prospectImport.importedRows.toLocaleString()} rows imported.`,
       )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Import stopped.')
-      setProgress(
-        'Import paused safely. Retry uses the same row identities and will not duplicate completed rows.',
-      )
-      await refreshImport(detail.prospectImport.id).catch(() => undefined)
+      if (!signal.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Import stopped.')
+        setProgress(
+          'Import paused safely. Retry uses the same row identities and will not duplicate completed rows.',
+        )
+        await refreshImport(detail.prospectImport.id).catch(() => undefined)
+      }
     } finally {
-      setBusy(false)
+      if (!signal.aborted) setBusy(false)
+      finishPollingOperation(controller)
     }
   }
 

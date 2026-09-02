@@ -9,12 +9,14 @@ export async function uploadProspectWorkbook(input: {
   url: string
   requiredHeaders: HeadersInit
   file: File
+  signal?: AbortSignal
 }): Promise<void> {
   try {
     const response = await putBlobWithDeadline({
       url: input.url,
       headers: input.requiredHeaders,
       body: input.file,
+      ...(input.signal ? { signal: input.signal } : {}),
       timeoutMs: PROSPECT_WORKBOOK_UPLOAD_TIMEOUT_MS,
     })
     if (!response.ok) throw new Error(PROSPECT_WORKBOOK_UPLOAD_ERROR)

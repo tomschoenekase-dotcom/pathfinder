@@ -99,4 +99,26 @@ describe('uploadProspectWorkbook', () => {
 
     expect(cancel).toHaveBeenCalledOnce()
   })
+
+  it('stops immediately when the workbench lifecycle is cancelled', async () => {
+    const controller = new AbortController()
+    let observedSignal: AbortSignal | undefined
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      observedSignal = init?.signal ?? undefined
+      return new Promise<Response>(() => undefined)
+    })
+    const rejection = expect(
+      uploadProspectWorkbook({
+        url: 'https://storage.example.test/reserved',
+        requiredHeaders: {},
+        file: workbookFile(),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(PROSPECT_WORKBOOK_UPLOAD_ERROR)
+
+    controller.abort()
+
+    await rejection
+    expect(observedSignal?.aborted).toBe(true)
+  })
 })
