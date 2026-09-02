@@ -81,6 +81,17 @@ export type GoogleCalendarSourceStore = Readonly<{
   }): Promise<void>
 }>
 
+const MAX_SOURCE_PAGES = 100
+
+function retainNextPageToken(seen: Set<string>, token: string | undefined) {
+  if (!token) return undefined
+  if (seen.size >= MAX_SOURCE_PAGES || seen.has(token)) {
+    throw new GoogleCalendarSourceError('PERMANENT', 'Google source pagination did not converge')
+  }
+  seen.add(token)
+  return token
+}
+
 function eventDate(
   value: { dateTime?: string; date?: string; timeZone?: string } | undefined,
 ): { instant: string; timeZone: string } | null {
@@ -181,6 +192,7 @@ export function createGoogleCalendarSource(dependencies: {
       const timeMax = new Date(startedAt.getTime() + futureDays * 86_400_000).toISOString()
       let pageToken: string | undefined
       let nextSyncToken: string | undefined
+      const pageTokens = new Set<string>()
       let upserted = 0
       let cancelled = 0
 
@@ -216,7 +228,7 @@ export function createGoogleCalendarSource(dependencies: {
             cancelled += 1
           }
         }
-        pageToken = page.nextPageToken
+        pageToken = retainNextPageToken(pageTokens, page.nextPageToken)
         nextSyncToken = page.nextSyncToken ?? nextSyncToken
       } while (pageToken)
 

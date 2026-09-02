@@ -77,4 +77,31 @@ describe('Google Meet transcript source', () => {
     expect(artifact).not.toHaveProperty('recording')
     expect(client).not.toHaveProperty('listRecordings')
   })
+
+  it('fails closed when transcript entry pagination repeats', async () => {
+    const client = {
+      listTranscripts: vi.fn(async () => ({
+        transcripts: [{ name: 'conferenceRecords/record_1/transcripts/transcript_1' }],
+      })),
+      listTranscriptEntries: vi.fn(async () => ({
+        entries: [],
+        nextPageToken: 'repeated-page',
+      })),
+    }
+    const store = {
+      upsertTranscript: vi.fn(),
+      markTranscriptUnavailable: vi.fn(),
+    }
+
+    await expect(
+      createGoogleMeetTranscriptSource({ credentials, client, store }).acquire({
+        providerAccountId: 'account_1',
+        credentialReferenceId: 'credential_1',
+        meetingId: 'meeting_1',
+        conferenceRecordName: 'conferenceRecords/record_1',
+      }),
+    ).rejects.toMatchObject({ code: 'PERMANENT' })
+    expect(client.listTranscriptEntries).toHaveBeenCalledTimes(2)
+    expect(store.upsertTranscript).not.toHaveBeenCalled()
+  })
 })

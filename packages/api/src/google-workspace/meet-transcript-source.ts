@@ -4,7 +4,21 @@ import {
   type GoogleMeetTranscriptArtifact as GoogleMeetTranscriptArtifactType,
 } from '@pathfinder/contracts/google-workspace-source'
 
-import type { GoogleWorkspaceCredentialLeaseProvider } from './calendar-source'
+import {
+  GoogleCalendarSourceError,
+  type GoogleWorkspaceCredentialLeaseProvider,
+} from './calendar-source'
+
+const MAX_SOURCE_PAGES = 100
+
+function retainNextPageToken(seen: Set<string>, token: string | undefined) {
+  if (!token) return undefined
+  if (seen.size >= MAX_SOURCE_PAGES || seen.has(token)) {
+    throw new GoogleCalendarSourceError('PERMANENT', 'Google source pagination did not converge')
+  }
+  seen.add(token)
+  return token
+}
 
 export type GoogleMeetTranscript = Readonly<{ name: string }>
 export type GoogleMeetTranscriptEntry = Readonly<{
@@ -67,6 +81,7 @@ export function createGoogleMeetTranscriptSource(dependencies: {
       const lease = await dependencies.credentials.lease(input.credentialReferenceId)
       let transcriptPageToken: string | undefined
       const transcripts: GoogleMeetTranscript[] = []
+      const transcriptPageTokens = new Set<string>()
       do {
         const page = await lease.withAccessToken((accessToken) =>
           dependencies.client.listTranscripts({
@@ -76,7 +91,7 @@ export function createGoogleMeetTranscriptSource(dependencies: {
           }),
         )
         transcripts.push(...page.transcripts)
-        transcriptPageToken = page.nextPageToken
+        transcriptPageToken = retainNextPageToken(transcriptPageTokens, page.nextPageToken)
       } while (transcriptPageToken)
 
       const acquiredAt = now()
@@ -94,6 +109,7 @@ export function createGoogleMeetTranscriptSource(dependencies: {
       for (const transcript of transcripts) {
         let entryPageToken: string | undefined
         const entries: GoogleMeetTranscriptEntry[] = []
+        const entryPageTokens = new Set<string>()
         do {
           const page = await lease.withAccessToken((accessToken) =>
             dependencies.client.listTranscriptEntries({
@@ -103,7 +119,7 @@ export function createGoogleMeetTranscriptSource(dependencies: {
             }),
           )
           entries.push(...page.entries)
-          entryPageToken = page.nextPageToken
+          entryPageToken = retainNextPageToken(entryPageTokens, page.nextPageToken)
         } while (entryPageToken)
 
         const artifact = GoogleMeetTranscriptArtifact.parse({

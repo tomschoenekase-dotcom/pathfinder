@@ -108,4 +108,25 @@ describe('Google Calendar source', () => {
     expect(client.listEvents.mock.calls[0]![0]).not.toHaveProperty('timeMin')
     expect(client.listEvents.mock.calls[0]![0]).not.toHaveProperty('timeMax')
   })
+
+  it('fails closed when Calendar repeats a page token without advancing the cursor', async () => {
+    const client = {
+      listEvents: vi.fn(async () => ({ events: [], nextPageToken: 'repeated-page' })),
+    }
+    const store = {
+      upsertEvent: vi.fn(),
+      applyCancellation: vi.fn(),
+      commitSyncCursor: vi.fn(async () => undefined),
+    }
+
+    await expect(
+      createGoogleCalendarSource({ credentials, client, store }).synchronize({
+        providerAccountId: 'account_1',
+        credentialReferenceId: 'credential_1',
+        calendarId: 'primary',
+      }),
+    ).rejects.toMatchObject({ code: 'PERMANENT' })
+    expect(client.listEvents).toHaveBeenCalledTimes(2)
+    expect(store.commitSyncCursor).not.toHaveBeenCalled()
+  })
 })
