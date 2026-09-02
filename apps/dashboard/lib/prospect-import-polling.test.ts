@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ProspectImportPollingCancelledError,
+  ProspectImportRequestDeadlineError,
+  runProspectImportRequest,
   throwIfProspectImportPollingCancelled,
   waitForProspectImportPoll,
 } from './prospect-import-polling'
@@ -62,5 +64,61 @@ describe('waitForProspectImportPoll', () => {
     expect(() => throwIfProspectImportPollingCancelled(controller.signal)).toThrow(
       ProspectImportPollingCancelledError,
     )
+  })
+
+  it('returns a completed bounded import request', async () => {
+    const controller = new AbortController()
+
+    await expect(
+      runProspectImportRequest(controller.signal, async (signal) => {
+        expect(signal.aborted).toBe(false)
+        return 'ready'
+      }),
+    ).resolves.toBe('ready')
+  })
+
+  it('aborts and rejects a stalled request at the fixed deadline', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    const result = runProspectImportRequest(
+      controller.signal,
+      (signal) => {
+        requestSignal = signal
+        return new Promise<string>(() => undefined)
+      },
+      30_000,
+    )
+    const rejection = expect(result).rejects.toBeInstanceOf(ProspectImportRequestDeadlineError)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    await rejection
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('rejects immediately on lifecycle cancellation even if transport ignores abort', async () => {
+    const controller = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    const result = runProspectImportRequest(controller.signal, (signal) => {
+      requestSignal = signal
+      return new Promise<string>(() => undefined)
+    })
+    const rejection = expect(result).rejects.toBeInstanceOf(ProspectImportPollingCancelledError)
+
+    await Promise.resolve()
+    controller.abort()
+
+    await rejection
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('rejects invalid request deadlines before invoking transport', async () => {
+    const request = vi.fn(async () => 'unused')
+
+    await expect(
+      runProspectImportRequest(new AbortController().signal, request, 0),
+    ).rejects.toThrow('Request deadline must be a positive safe integer')
+    expect(request).not.toHaveBeenCalled()
   })
 })

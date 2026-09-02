@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 
 import { uploadProspectWorkbook } from '../../lib/prospect-workbook-upload'
 import {
+  runProspectImportRequest,
   throwIfProspectImportPollingCancelled,
   waitForProspectImportPoll,
 } from '../../lib/prospect-import-polling'
@@ -233,10 +234,11 @@ export function ProspectImportWorkbench() {
   }
 
   async function refreshHistory(signal?: AbortSignal) {
-    const items = await client.admin.listProspectImports.query(
-      undefined,
-      signal ? { signal } : undefined,
-    )
+    const items = signal
+      ? await runProspectImportRequest(signal, (requestSignal) =>
+          client.admin.listProspectImports.query(undefined, { signal: requestSignal }),
+        )
+      : await client.admin.listProspectImports.query()
     if (signal) throwIfProspectImportPollingCancelled(signal)
     setHistory(items)
   }
@@ -300,16 +302,21 @@ export function ProspectImportWorkbench() {
   }
 
   async function refreshImport(importId: string, signal?: AbortSignal) {
-    const options = signal ? { signal } : undefined
-    const summary = await client.admin.getProspectImport.query({ importId, rowLimit: 1 }, options)
+    const query = <T,>(request: (requestSignal: AbortSignal) => Promise<T>) =>
+      signal ? runProspectImportRequest(signal, request) : request(new AbortController().signal)
+    const summary = await query((requestSignal) =>
+      client.admin.getProspectImport.query({ importId, rowLimit: 1 }, { signal: requestSignal }),
+    )
     const result = summary.prospectImport.duplicateRows
-      ? await client.admin.getProspectImport.query(
-          {
-            importId,
-            rowStatus: 'DUPLICATE_REVIEW',
-            rowLimit: 200,
-          },
-          options,
+      ? await query((requestSignal) =>
+          client.admin.getProspectImport.query(
+            {
+              importId,
+              rowStatus: 'DUPLICATE_REVIEW',
+              rowLimit: 200,
+            },
+            { signal: requestSignal },
+          ),
         )
       : summary
     if (signal) throwIfProspectImportPollingCancelled(signal)
@@ -364,14 +371,16 @@ export function ProspectImportWorkbench() {
         sha256(buffer),
         sha256(stableMapping(mapping, selectedSheets)),
       ])
-      const reserved = await client.admin.reserveProspectImportUpload.mutate(
-        {
-          fileName: file.name,
-          fileType: file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx',
-          fileSize: file.size,
-          fileHash,
-        },
-        { signal },
+      const reserved = await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.reserveProspectImportUpload.mutate(
+          {
+            fileName: file.name,
+            fileType: file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx',
+            fileSize: file.size,
+            fileHash,
+          },
+          { signal: requestSignal },
+        ),
       )
       throwIfProspectImportPollingCancelled(signal)
       const importId = reserved.importId
@@ -383,7 +392,9 @@ export function ProspectImportWorkbench() {
         signal,
       })
       throwIfProspectImportPollingCancelled(signal)
-      await client.admin.completeProspectImportUpload.mutate({ importId }, { signal })
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.completeProspectImportUpload.mutate({ importId }, { signal: requestSignal }),
+      )
       throwIfProspectImportPollingCancelled(signal)
       setProgress('The durable worker is inspecting workbook structure and safety limits…')
       let result = await refreshImport(importId, signal)
@@ -400,14 +411,16 @@ export function ProspectImportWorkbench() {
           'Workbook inspection continues in the background; reopen this import shortly',
         )
       }
-      await client.admin.configureProspectImportMapping.mutate(
-        {
-          importId,
-          mappingHash,
-          mapping,
-          selectedSheets,
-        },
-        { signal },
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.configureProspectImportMapping.mutate(
+          {
+            importId,
+            mappingHash,
+            mapping,
+            selectedSheets,
+          },
+          { signal: requestSignal },
+        ),
       )
       throwIfProspectImportPollingCancelled(signal)
       setProgress('The durable worker is staging and checking duplicate candidates…')
@@ -442,9 +455,11 @@ export function ProspectImportWorkbench() {
     setBusy(true)
     setError(null)
     try {
-      await client.admin.approveProspectImport.mutate(
-        { importId: detail.prospectImport.id },
-        { signal },
+      await runProspectImportRequest(signal, (requestSignal) =>
+        client.admin.approveProspectImport.mutate(
+          { importId: detail.prospectImport.id },
+          { signal: requestSignal },
+        ),
       )
       throwIfProspectImportPollingCancelled(signal)
       setProgress('Approved. The durable import worker is processing rows in the background…')
