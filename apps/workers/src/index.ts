@@ -155,6 +155,7 @@ import {
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import { recordOperationalReadinessHeartbeat } from './lib/service-dependency-readiness'
 import { startOperationalUsageObserver } from './lib/operational-usage-observer'
+import { startOperationalHeartbeat } from './lib/operational-heartbeat'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   createEscalatingShutdownHandler,
@@ -175,28 +176,6 @@ async function handleAccountSummaryRefreshQueueJob(job: Job<Record<string, never
     throw new Error(`Unsupported account summary refresh job: ${job.name}`)
   }
   await processStaleAccountSummaries({ systemJobId: String(job.id ?? job.name) })
-}
-
-async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-disabled') {
-  const write = async () => {
-    try {
-      await recordOperationalReadinessHeartbeat({
-        mode,
-        schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
-        revision: resolveReleaseRevision(process.env),
-        environment: env,
-      })
-    } catch (error: unknown) {
-      logger.error({
-        action: 'workers.heartbeat.failed',
-        error: error instanceof Error ? error.message : 'Unknown worker heartbeat error',
-      })
-    }
-  }
-  await write()
-  const timer = setInterval(() => void write(), 30_000)
-  timer.unref()
-  return () => clearInterval(timer)
 }
 
 function registerShutdownSignals(shutdown: () => Promise<void>): void {
@@ -1485,7 +1464,20 @@ export async function startWorkers() {
   }
 
   const stopProspectOutboxDispatcher = startProspectOutboxDispatcher()
-  const stopHeartbeat = await startOperationalHeartbeat('provider-enabled')
+  const stopHeartbeat = await startOperationalHeartbeat({
+    write: () =>
+      recordOperationalReadinessHeartbeat({
+        mode: 'provider-enabled',
+        schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
+        revision: resolveReleaseRevision(process.env),
+        environment: env,
+      }),
+    onError: (error) =>
+      logger.error({
+        action: 'workers.heartbeat.failed',
+        error: error instanceof Error ? error.message : 'Unknown worker heartbeat error',
+      }),
+  })
   const stopUsageObserver = await startOperationalUsageObserver((error) =>
     logger.error({
       action: 'workers.operational-usage.failed',
