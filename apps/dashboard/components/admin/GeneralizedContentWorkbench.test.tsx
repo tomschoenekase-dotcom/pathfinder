@@ -114,6 +114,7 @@ describe('GeneralizedContentWorkbench', () => {
     await waitFor(() => expect(mocks.preview).toHaveBeenCalledOnce())
     expect(mocks.preview).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      { signal: expect.any(AbortSignal) },
     )
     expect((await screen.findByRole('status')).textContent).toMatch(
       /guest and client publication remain off/i,
@@ -411,6 +412,45 @@ describe('GeneralizedContentWorkbench', () => {
     expect(screen.queryByText(/guest and client publication remain off/)).toBeNull()
   })
 
+  it('gives preview validation a cancellable transport boundary', async () => {
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Validate and preview' }))
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledOnce())
+    expect(mocks.preview).toHaveBeenCalledWith(expect.any(Object), {
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  it('aborts an in-flight preview when the workbench unmounts', async () => {
+    let signal: AbortSignal | undefined
+    mocks.preview.mockImplementationOnce((_input, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => undefined)
+    })
+    const rendered = render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Validate and preview' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(signal?.aborted).toBe(false)
+    rendered.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
   it('invalidates a pending create synchronously when only the creation key changes', async () => {
     const pending = deferred<{ version: number }>()
     mocks.create.mockReturnValue(pending.promise)
@@ -459,7 +499,7 @@ describe('GeneralizedContentWorkbench', () => {
     const publish = screen.getByRole('button', { name: 'Publish this version to guests' })
     fireEvent.click(preview)
     fireEvent.click(publish)
-    expect(mocks.preview).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledTimes(1))
     expect(mocks.publish).not.toHaveBeenCalled()
     expect(
       screen.getByRole('region', { name: 'Immutable revision editor' }).getAttribute('aria-busy'),

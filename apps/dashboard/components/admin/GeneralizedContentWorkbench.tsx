@@ -4,6 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const CONTENT_PREVIEW_TIMEOUT_MS = 15_000
 
 const kinds = ['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'] as const
 type Kind = (typeof kinds)[number]
@@ -103,6 +106,7 @@ export function GeneralizedContentWorkbench({
   const [retirementBoundary, setRetirementBoundary] = useState('')
   const panelInFlight = useRef(false)
   const publicationRequestKeys = useRef(new Map<string, string>())
+  const previewAbort = useRef<AbortController | null>(null)
   const generation = useRef(0)
   const feedbackHeading = useRef<HTMLHeadingElement>(null)
   const propScope = `${tenantId}:${venueId}:${initialCreationKey}:${modules
@@ -115,6 +119,8 @@ export function GeneralizedContentWorkbench({
   if (renderedScope.current !== propScope) {
     renderedScope.current = propScope
     generation.current += 1
+    previewAbort.current?.abort()
+    previewAbort.current = null
     panelInFlight.current = false
     publicationRequestKeys.current.clear()
   }
@@ -139,6 +145,16 @@ export function GeneralizedContentWorkbench({
     panelInFlight.current = false
     publicationRequestKeys.current.clear()
   }, [initialCreationKey, propScope])
+
+  useEffect(
+    () => () => {
+      generation.current += 1
+      previewAbort.current?.abort()
+      previewAbort.current = null
+      panelInFlight.current = false
+    },
+    [],
+  )
 
   useEffect(() => {
     if (error || notice) feedbackHeading.current?.focus()
@@ -204,12 +220,22 @@ export function GeneralizedContentWorkbench({
   async function preview() {
     const started = begin()
     if (!started) return
+    const controller = new AbortController()
+    previewAbort.current = controller
     try {
-      const result = await client.admin.previewUniversalContent.query({
-        tenantId,
-        venueId,
-        // The server contract is the authoritative JSON validator.
-        draft: parsedDraft() as never,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: CONTENT_PREVIEW_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewUniversalContent.query(
+            {
+              tenantId,
+              venueId,
+              // The server contract is the authoritative JSON validator.
+              draft: parsedDraft() as never,
+            },
+            { signal },
+          ),
       })
       if (!isCurrent(started.generation, started.scope)) return
       setNotice(
@@ -218,6 +244,7 @@ export function GeneralizedContentWorkbench({
     } catch {
       if (isCurrent(started.generation, started.scope)) setError(safeError('preview'))
     } finally {
+      if (previewAbort.current === controller) previewAbort.current = null
       finish(started)
     }
   }
