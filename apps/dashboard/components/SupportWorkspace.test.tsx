@@ -216,7 +216,10 @@ describe('SupportWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
 
     await waitFor(() =>
-      expect(mocks.listRequests).toHaveBeenCalledWith({ venueId: venue.id, cursor }),
+      expect(mocks.listRequests).toHaveBeenCalledWith(
+        { venueId: venue.id, cursor },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
   })
 
@@ -297,10 +300,13 @@ describe('SupportWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() =>
-      expect(mocks.getRequest).toHaveBeenCalledWith({
-        venueId: venue.id,
-        requestId: request.id,
-      }),
+      expect(mocks.getRequest).toHaveBeenCalledWith(
+        {
+          venueId: venue.id,
+          requestId: request.id,
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
     expect((await screen.findByLabelText<HTMLTextAreaElement>('Reply')).value).toBe(
       'The revised wording looks right.',
@@ -642,11 +648,14 @@ describe('SupportWorkspace', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Show more recent files' }))
     await waitFor(() =>
-      expect(mocks.listEligibleAttachments).toHaveBeenCalledWith({
-        venueId: venue.id,
-        limit: 20,
-        cursor: { createdAt: '2026-08-10T13:00:00.000Z', id: 'upload_alpha' },
-      }),
+      expect(mocks.listEligibleAttachments).toHaveBeenCalledWith(
+        {
+          venueId: venue.id,
+          limit: 20,
+          cursor: { createdAt: '2026-08-10T13:00:00.000Z', id: 'upload_alpha' },
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
     )
     expect(await screen.findByRole('option', { name: /map\.png/i })).toBeTruthy()
   })
@@ -837,6 +846,35 @@ describe('SupportWorkspace', () => {
     expect(screen.getByText('You have no support conversations yet.')).toBeTruthy()
   })
 
+  it('cancels a pending conversation read when the venue scope changes', async () => {
+    const pending = deferred<typeof detail>()
+    let signal: AbortSignal | undefined
+    mocks.getRequest.mockImplementationOnce((_input: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return pending.promise
+    })
+    const rendered = renderWorkspace({ venues: [venue, otherVenue] })
+
+    fireEvent.click(screen.getAllByText(request.subject)[0]!.closest('button')!)
+    await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+    expect(signal?.aborted).toBe(false)
+
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue, otherVenue]}
+        activeVenue={otherVenue}
+        initialRequests={[]}
+        initialNextCursor={null}
+        initialDetail={null}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByText('Opening conversation…')).toBeNull()
+  })
+
   it('has no automated accessibility violations for a populated participant thread', async () => {
     const { container } = renderWorkspace({ initialEligibleAttachments: eligible })
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
@@ -892,7 +930,11 @@ describe('SupportWorkspace', () => {
     const manage = screen.getByRole('button', { name: 'Manage team access' })
     fireEvent.click(manage)
     fireEvent.click(manage)
-    expect(mocks.listParticipantCandidates).toHaveBeenCalledOnce()
+    await waitFor(() => expect(mocks.listParticipantCandidates).toHaveBeenCalledOnce())
+    expect(mocks.listParticipantCandidates).toHaveBeenCalledWith(
+      { venueId: venue.id, requestId: request.id, limit: 20 },
+      { signal: expect.any(AbortSignal) },
+    )
 
     const downgraded = {
       ...detail,

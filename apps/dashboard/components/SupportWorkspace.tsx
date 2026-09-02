@@ -15,6 +15,9 @@ import {
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
+
+const SUPPORT_READ_TIMEOUT_MS = 15_000
 
 type VenueOption = { id: string; name: string }
 type EligibleAttachment = {
@@ -275,6 +278,9 @@ export function SupportWorkspace({
   const detailReadGeneration = useRef(0)
   const requestReadGeneration = useRef(0)
   const attachmentReadGeneration = useRef(0)
+  const detailReadAbort = useRef<AbortController | null>(null)
+  const requestReadAbort = useRef<AbortController | null>(null)
+  const attachmentReadAbort = useRef<AbortController | null>(null)
   const messageReadInFlight = useRef(false)
   const requestReadInFlight = useRef(false)
   const attachmentReadInFlight = useRef(false)
@@ -289,6 +295,7 @@ export function SupportWorkspace({
   const [participantNextCursor, setParticipantNextCursor] = useState<string | null>(null)
   const participantReadGeneration = useRef(0)
   const participantReadInFlight = useRef(false)
+  const participantReadAbort = useRef<AbortController | null>(null)
   const participantAuthorityRef = useRef({
     id: detail?.id ?? null,
     clientVersion: detail?.clientVersion ?? null,
@@ -305,6 +312,8 @@ export function SupportWorkspace({
     participantAuthorityRef.current.requesterIsCurrentUser !==
       nextParticipantAuthority.requesterIsCurrentUser
   ) {
+    participantReadAbort.current?.abort()
+    participantReadAbort.current = null
     participantReadGeneration.current += 1
     participantReadInFlight.current = false
     participantAuthorityRef.current = nextParticipantAuthority
@@ -313,6 +322,14 @@ export function SupportWorkspace({
   }
 
   useEffect(() => {
+    detailReadAbort.current?.abort()
+    requestReadAbort.current?.abort()
+    attachmentReadAbort.current?.abort()
+    participantReadAbort.current?.abort()
+    detailReadAbort.current = null
+    requestReadAbort.current = null
+    attachmentReadAbort.current = null
+    participantReadAbort.current = null
     scopeRef.current = activeVenue.id
     detailReadGeneration.current += 1
     requestReadGeneration.current += 1
@@ -347,6 +364,16 @@ export function SupportWorkspace({
     setNotice(null)
     setError(null)
     setConflict(false)
+    return () => {
+      detailReadAbort.current?.abort()
+      requestReadAbort.current?.abort()
+      attachmentReadAbort.current?.abort()
+      participantReadAbort.current?.abort()
+      detailReadGeneration.current += 1
+      requestReadGeneration.current += 1
+      attachmentReadGeneration.current += 1
+      participantReadGeneration.current += 1
+    }
   }, [
     activeVenue.id,
     initialDetail,
@@ -388,7 +415,12 @@ export function SupportWorkspace({
   }
 
   function purgeRequest(requestId: string) {
+    detailReadAbort.current?.abort()
+    participantReadAbort.current?.abort()
+    detailReadAbort.current = null
+    participantReadAbort.current = null
     detailReadGeneration.current += 1
+    participantReadGeneration.current += 1
     detailRequestRef.current = null
     messageReadInFlight.current = false
     setDetail(null)
@@ -405,14 +437,19 @@ export function SupportWorkspace({
     if (writeInFlight.current) return
     const scope = activeVenue.id
     const generation = ++detailReadGeneration.current
+    detailReadAbort.current?.abort()
+    const controller = new AbortController()
+    detailReadAbort.current = controller
     detailRequestRef.current = requestId
     messageReadInFlight.current = false
     clearFeedback()
     const busyOwner = startBusy('detail')
     try {
-      const next = await client.support.getRequest.query({
-        venueId: activeVenue.id,
-        requestId,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.support.getRequest.query({ venueId: activeVenue.id, requestId }, { signal }),
       })
       if (
         scopeRef.current !== scope ||
@@ -446,6 +483,7 @@ export function SupportWorkspace({
         setError(errorText(loadError))
       }
     } finally {
+      if (detailReadAbort.current === controller) detailReadAbort.current = null
       finishBusy(busyOwner)
     }
   }
@@ -456,13 +494,19 @@ export function SupportWorkspace({
     const scope = activeVenue.id
     const cursor = eligibleAttachmentsNextCursor
     const generation = ++attachmentReadGeneration.current
+    const controller = new AbortController()
+    attachmentReadAbort.current = controller
     clearFeedback()
     const busyOwner = startBusy('attachments')
     try {
-      const next = await client.support.listEligibleAttachments.query({
-        venueId: activeVenue.id,
-        limit: 20,
-        cursor,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.support.listEligibleAttachments.query(
+            { venueId: activeVenue.id, limit: 20, cursor },
+            { signal },
+          ),
       })
       if (scopeRef.current !== scope || attachmentReadGeneration.current !== generation) return
       setEligibleAttachments((current) => [
@@ -476,6 +520,7 @@ export function SupportWorkspace({
       if (scopeRef.current === scope && attachmentReadGeneration.current === generation)
         setError(errorText(loadError))
     } finally {
+      if (attachmentReadAbort.current === controller) attachmentReadAbort.current = null
       if (scopeRef.current === scope && attachmentReadGeneration.current === generation)
         attachmentReadInFlight.current = false
       finishBusy(busyOwner)
@@ -488,12 +533,16 @@ export function SupportWorkspace({
     const scope = activeVenue.id
     const cursor = nextCursor
     const generation = ++requestReadGeneration.current
+    const controller = new AbortController()
+    requestReadAbort.current = controller
     const busyOwner = startBusy('requests')
     setError(null)
     try {
-      const page = await client.support.listRequests.query({
-        venueId: activeVenue.id,
-        cursor,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.support.listRequests.query({ venueId: activeVenue.id, cursor }, { signal }),
       })
       if (scopeRef.current !== scope || requestReadGeneration.current !== generation) return
       setRequests((current) => [
@@ -507,6 +556,7 @@ export function SupportWorkspace({
       if (scopeRef.current === scope && requestReadGeneration.current === generation)
         setError(errorText(loadError))
     } finally {
+      if (requestReadAbort.current === controller) requestReadAbort.current = null
       if (scopeRef.current === scope && requestReadGeneration.current === generation) {
         requestReadInFlight.current = false
       }
@@ -521,13 +571,20 @@ export function SupportWorkspace({
     const requestId = detail.id
     const cursor = detail.nextMessageCursor
     const generation = detailReadGeneration.current
+    detailReadAbort.current?.abort()
+    const controller = new AbortController()
+    detailReadAbort.current = controller
     const busyOwner = startBusy('messages')
     setError(null)
     try {
-      const next = (await client.support.getRequest.query({
-        venueId: activeVenue.id,
-        requestId,
-        messageCursor: cursor,
+      const next = (await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.support.getRequest.query(
+            { venueId: activeVenue.id, requestId, messageCursor: cursor },
+            { signal },
+          ),
       })) as RequestDetail
       if (
         scopeRef.current !== scope ||
@@ -559,6 +616,7 @@ export function SupportWorkspace({
         else setError(errorText(loadError))
       }
     } finally {
+      if (detailReadAbort.current === controller) detailReadAbort.current = null
       if (
         scopeRef.current === scope &&
         detailReadGeneration.current === generation &&
@@ -708,13 +766,18 @@ export function SupportWorkspace({
     const requestId = detail.id
     const clientVersion = detail.clientVersion
     const generation = ++participantReadGeneration.current
+    const controller = new AbortController()
+    participantReadAbort.current = controller
     const busyOwner = startBusy('participants')
     try {
-      const result = await client.support.listParticipantCandidates.query({
-        venueId: scope,
-        requestId,
-        limit: 20,
-        ...(cursor ? { cursor } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: SUPPORT_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.support.listParticipantCandidates.query(
+            { venueId: scope, requestId, limit: 20, ...(cursor ? { cursor } : {}) },
+            { signal },
+          ),
       })
       if (
         scopeRef.current !== scope ||
@@ -748,6 +811,7 @@ export function SupportWorkspace({
       if (isNotFound(loadError)) purgeRequest(requestId)
       else setError(errorText(loadError))
     } finally {
+      if (participantReadAbort.current === controller) participantReadAbort.current = null
       if (participantReadGeneration.current === generation) participantReadInFlight.current = false
       finishBusy(busyOwner)
     }
