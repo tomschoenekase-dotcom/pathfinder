@@ -1,30 +1,69 @@
 'use client'
 
 import type { inferRouterOutputs } from '@trpc/server'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type Evidence = inferRouterOutputs<AppRouter>['admin']['guestChatIncidentEvidence']
+const INCIDENT_READ_TIMEOUT_MS = 15_000
 
 export function GuestChatIncidentEvidence({ eventId }: { eventId: string }) {
   const client = useTRPCClient()
   const [evidence, setEvidence] = useState<Evidence | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const sequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
+  const currentEventId = useRef(eventId)
+  currentEventId.current = eventId
+
+  useEffect(() => {
+    sequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    setEvidence(null)
+    setPending(false)
+    setError(null)
+    return () => {
+      sequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    }
+  }, [eventId])
 
   async function inspect() {
+    const startedSequence = ++sequence.current
+    const startedEventId = eventId
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setPending(true)
     setError(null)
     setEvidence(null)
     try {
-      setEvidence(await client.admin.guestChatIncidentEvidence.query({ eventId }))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Incident evidence could not be read.')
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: INCIDENT_READ_TIMEOUT_MS,
+        request: (signal) => client.admin.guestChatIncidentEvidence.query({ eventId }, { signal }),
+      })
+      if (sequence.current === startedSequence && currentEventId.current === startedEventId) {
+        setEvidence(result)
+      }
+    } catch {
+      if (sequence.current === startedSequence && currentEventId.current === startedEventId) {
+        setError(
+          'Incident evidence could not be loaded in time. Retry to inspect current evidence.',
+        )
+      }
     } finally {
-      setPending(false)
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (sequence.current === startedSequence && currentEventId.current === startedEventId) {
+        setPending(false)
+      }
     }
   }
 

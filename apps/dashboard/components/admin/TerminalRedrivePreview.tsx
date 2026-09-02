@@ -1,30 +1,77 @@
 'use client'
 
 import type { inferRouterOutputs } from '@trpc/server'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type Preview = inferRouterOutputs<AppRouter>['admin']['previewTerminalJobRedrive']
+const REDRIVE_READ_TIMEOUT_MS = 15_000
 
 export function TerminalRedrivePreview({ jobRecordId }: { jobRecordId: string }) {
   const client = useTRPCClient()
   const [preview, setPreview] = useState<Preview | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const sequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
+  const currentJobRecordId = useRef(jobRecordId)
+  currentJobRecordId.current = jobRecordId
+
+  useEffect(() => {
+    sequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    setPreview(null)
+    setPending(false)
+    setError(null)
+    return () => {
+      sequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    }
+  }, [jobRecordId])
 
   async function inspect() {
+    const startedSequence = ++sequence.current
+    const startedJobRecordId = jobRecordId
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setPending(true)
     setError(null)
     setPreview(null)
     try {
-      setPreview(await client.admin.previewTerminalJobRedrive.query({ jobRecordId }))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Recovery evidence could not be observed.')
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: REDRIVE_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewTerminalJobRedrive.query({ jobRecordId }, { signal }),
+      })
+      if (
+        sequence.current === startedSequence &&
+        currentJobRecordId.current === startedJobRecordId
+      ) {
+        setPreview(result)
+      }
+    } catch {
+      if (
+        sequence.current === startedSequence &&
+        currentJobRecordId.current === startedJobRecordId
+      ) {
+        setError('Recovery evidence could not be loaded in time. Retry before preparing a redrive.')
+      }
     } finally {
-      setPending(false)
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (
+        sequence.current === startedSequence &&
+        currentJobRecordId.current === startedJobRecordId
+      ) {
+        setPending(false)
+      }
     }
   }
 

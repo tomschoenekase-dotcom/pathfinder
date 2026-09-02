@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const query = vi.fn()
 vi.mock('../../lib/trpc', () => ({
@@ -13,6 +13,10 @@ import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 
 describe('GuestChatIncidentEvidence', () => {
   beforeEach(() => vi.clearAllMocks())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('loads a privacy-safe read-only incident explanation on demand', async () => {
     query.mockResolvedValue({
@@ -68,10 +72,38 @@ describe('GuestChatIncidentEvidence', () => {
     render(<GuestChatIncidentEvidence eventId="event_1" />)
     fireEvent.click(screen.getByRole('button', { name: 'Inspect latest degraded turn' }))
 
-    await waitFor(() => expect(query).toHaveBeenCalledWith({ eventId: 'event_1' }))
+    await waitFor(() =>
+      expect(query).toHaveBeenCalledWith(
+        { eventId: 'event_1' },
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
     expect(screen.getByText(/exact evidence for the latest turn/i)).toBeTruthy()
     expect(screen.getByText(/anthropic \/ claude-test/i)).toBeTruthy()
     expect(screen.getByText(/transcripts, prompts, responses/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /retry|disable|resolve/i })).toBeNull()
+  })
+
+  it('aborts a pending incident read when its alert unmounts', async () => {
+    let signal: AbortSignal | undefined
+    query.mockImplementation((_input, options) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    const view = render(<GuestChatIncidentEvidence eventId="event_1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect latest degraded turn' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('contains stalled or provider failures behind fixed recovery guidance', async () => {
+    vi.useFakeTimers()
+    query.mockImplementation(() => new Promise(() => {}))
+    render(<GuestChatIncidentEvidence eventId="event_1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect latest degraded turn' }))
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be loaded in time/i)
+    expect(screen.queryByText(/secret provider detail/i)).toBeNull()
   })
 })

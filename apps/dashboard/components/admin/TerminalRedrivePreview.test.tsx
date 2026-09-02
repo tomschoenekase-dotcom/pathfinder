@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -41,7 +41,10 @@ describe('TerminalRedrivePreview', () => {
   beforeEach(() => {
     query.mockReset()
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('loads live evidence on demand and makes the no-mutation boundary explicit', async () => {
     query.mockResolvedValue(preview)
@@ -50,19 +53,25 @@ describe('TerminalRedrivePreview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview staging recovery' }))
 
     await screen.findByText('Live failed-set evidence matches the persisted terminal record.')
-    expect(query).toHaveBeenCalledWith({ jobRecordId: 'record_1' })
+    expect(query).toHaveBeenCalledWith(
+      { jobRecordId: 'record_1' },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(screen.getByText('weekly-report-report_1')).toBeTruthy()
     expect(screen.getByText(/No action was taken/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /execute|retry|redrive/i })).toBeNull()
   })
 
   it('shows a compact failure without leaving stale proof visible', async () => {
-    query.mockRejectedValue(new Error('Job is no longer failed'))
+    query.mockRejectedValue(new Error('secret queue detail'))
     render(<TerminalRedrivePreview jobRecordId="record_1" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview staging recovery' }))
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('no longer failed'))
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/could not be loaded in time/i),
+    )
+    expect(screen.queryByText(/secret queue detail/i)).toBeNull()
     expect(screen.queryByText(/Live failed-set evidence matches/)).toBeNull()
   })
 
@@ -75,5 +84,31 @@ describe('TerminalRedrivePreview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview staging recovery' }))
     await screen.findByText('Live failed-set evidence matches the persisted terminal record.')
     expect((await axe.run(container, axeOptions)).violations).toEqual([])
+  })
+
+  it('aborts a pending recovery read when the preview unmounts', async () => {
+    let signal: AbortSignal | undefined
+    query.mockImplementation((_input, options) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    const view = render(<TerminalRedrivePreview jobRecordId="record_1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview staging recovery' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('returns control after the recovery evidence deadline', async () => {
+    vi.useFakeTimers()
+    query.mockImplementation(() => new Promise(() => {}))
+    render(<TerminalRedrivePreview jobRecordId="record_1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview staging recovery' }))
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be loaded in time/i)
+    expect(
+      (screen.getByRole('button', { name: 'Preview staging recovery' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
   })
 })
