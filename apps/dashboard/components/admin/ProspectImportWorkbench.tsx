@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, ShieldCheck } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
+import { uploadProspectWorkbook } from '../../lib/prospect-workbook-upload'
 import { useTRPCClient } from '../../lib/trpc'
 
 const FIELD_DEFINITIONS = [
@@ -324,12 +325,11 @@ export function ProspectImportWorkbench() {
       })
       const importId = reserved.importId
       setProgress('Uploading the immutable source workbook…')
-      const upload = await fetch(reserved.url, {
-        method: 'PUT',
-        headers: reserved.requiredHeaders,
-        body: file,
+      await uploadProspectWorkbook({
+        url: reserved.url,
+        requiredHeaders: reserved.requiredHeaders,
+        file,
       })
-      if (!upload.ok) throw new Error(`Workbook upload failed (${upload.status})`)
       await client.admin.completeProspectImportUpload.mutate({ importId })
       setProgress('The durable worker is inspecting workbook structure and safety limits…')
       let result = await refreshImport(importId)
