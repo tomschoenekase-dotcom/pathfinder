@@ -29,6 +29,7 @@ describe('Google Workspace source HTTP clients', () => {
     expect(transport.mock.calls[0]![1]?.headers).toEqual(
       expect.objectContaining({ authorization: 'Bearer short-lived' }),
     )
+    expect(transport.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('maps Calendar 410 responses to a recoverable stale-token error', async () => {
@@ -79,5 +80,66 @@ describe('Google Workspace source HTTP clients', () => {
     expect(String(transport.mock.calls[0]![0])).toContain('/conferenceRecords/r1/transcripts')
     expect(String(transport.mock.calls[1]![0])).toContain('/transcripts/t1/entries')
     expect(client).not.toHaveProperty('listRecordings')
+  })
+
+  it('cancels oversized source responses before parsing them', async () => {
+    let bodyCancelled = false
+    const client = createGoogleCalendarApiClient({
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
+              },
+              cancel() {
+                bodyCancelled = true
+              },
+            }),
+          ),
+      ),
+    })
+
+    await expect(
+      client.listEvents({
+        accessToken: 'short-lived',
+        calendarId: 'primary',
+        showDeleted: true,
+        singleEvents: true,
+      }),
+    ).rejects.toMatchObject({ code: 'PERMANENT' } satisfies Partial<GoogleCalendarSourceError>)
+    expect(bodyCancelled).toBe(true)
+  })
+
+  it('bounds a stalled source response body with the request deadline', async () => {
+    let requestAborted = false
+    const client = createGoogleMeetApiClient({
+      requestTimeoutMs: 10,
+      fetch: vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                init?.signal?.addEventListener(
+                  'abort',
+                  () => {
+                    requestAborted = true
+                    controller.error(new DOMException('aborted', 'AbortError'))
+                  },
+                  { once: true },
+                )
+              },
+            }),
+          ),
+      ),
+    })
+
+    await expect(
+      client.listTranscripts({
+        accessToken: 'short-lived',
+        conferenceRecordName: 'conferenceRecords/r1',
+      }),
+    ).rejects.toMatchObject({ code: 'TRANSIENT' } satisfies Partial<GoogleCalendarSourceError>)
+    expect(requestAborted).toBe(true)
   })
 })
