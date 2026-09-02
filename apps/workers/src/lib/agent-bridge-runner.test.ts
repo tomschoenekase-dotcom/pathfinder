@@ -464,6 +464,106 @@ describe('desktop agent bridge runner', () => {
     vi.useRealTimers()
   })
 
+  it('drains an in-flight task heartbeat before completing the durable task', async () => {
+    vi.useFakeTimers()
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    let claims = 0
+    let resolveHeartbeat: ((value: { cancelRequested: boolean }) => void) | undefined
+    const call = vi.fn((method: string) => {
+      if (method === 'claimTask')
+        return Promise.resolve({ task: claims++ === 0 ? bridgeTask() : null })
+      if (method === 'heartbeatTask') {
+        return new Promise((resolve) => {
+          resolveHeartbeat = resolve
+        })
+      }
+      if (method === 'completeTask') controller.abort()
+      return Promise.resolve({})
+    })
+    let resolveExecution: ((value: Record<string, unknown>) => void) | undefined
+    const execute = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveExecution = resolve
+        }),
+    )
+
+    const running = runAgentBridge(config, controller.signal, {
+      call: call as never,
+      execute: execute as never,
+      heartbeatMs: 100,
+    })
+    await vi.advanceTimersByTimeAsync(101)
+    expect(call).toHaveBeenCalledWith(
+      'heartbeatTask',
+      expect.objectContaining({ runId: 'run-1' }),
+      expect.anything(),
+    )
+    resolveExecution?.({
+      content: 'Completed result.',
+      modelName: 'subscription-default',
+      costE8Usd: '0',
+      costStatus: 'UNREPORTED',
+    })
+    await Promise.resolve()
+    expect(call.mock.calls.some(([method]) => method === 'completeTask')).toBe(false)
+
+    resolveHeartbeat?.({ cancelRequested: false })
+    await running
+    expect(call.mock.calls.filter(([method]) => method === 'completeTask')).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
+  it('fails instead of completing when the drained task heartbeat reports cancellation', async () => {
+    vi.useFakeTimers()
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    let claims = 0
+    let resolveHeartbeat: ((value: { cancelRequested: boolean }) => void) | undefined
+    const call = vi.fn((method: string) => {
+      if (method === 'claimTask')
+        return Promise.resolve({ task: claims++ === 0 ? bridgeTask() : null })
+      if (method === 'heartbeatTask') {
+        return new Promise((resolve) => {
+          resolveHeartbeat = resolve
+        })
+      }
+      if (method === 'failTask') controller.abort()
+      return Promise.resolve({})
+    })
+    let resolveExecution: ((value: Record<string, unknown>) => void) | undefined
+    const execute = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveExecution = resolve
+        }),
+    )
+
+    const running = runAgentBridge(config, controller.signal, {
+      call: call as never,
+      execute: execute as never,
+      heartbeatMs: 100,
+    })
+    await vi.advanceTimersByTimeAsync(101)
+    resolveExecution?.({
+      content: 'Completed result.',
+      modelName: 'subscription-default',
+      costE8Usd: '0',
+      costStatus: 'UNREPORTED',
+    })
+    await Promise.resolve()
+    resolveHeartbeat?.({ cancelRequested: true })
+    await running
+
+    expect(call.mock.calls.some(([method]) => method === 'completeTask')).toBe(false)
+    expect(call).toHaveBeenCalledWith(
+      'failTask',
+      expect.objectContaining({ errorCode: 'TASK_CANCELLED', retryable: false }),
+    )
+    vi.useRealTimers()
+  })
+
   it('maps untrusted uppercase executor failures to the fixed durable fallback', async () => {
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
     const controller = new AbortController()

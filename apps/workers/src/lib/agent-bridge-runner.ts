@@ -551,33 +551,44 @@ export async function runAgentBridge(
     const taskController = new AbortController()
     const stopTask = () => taskController.abort()
     signal.addEventListener('abort', stopTask, { once: true })
-    let heartbeatBusy = false
-    const heartbeat = setInterval(() => {
-      if (heartbeatBusy) return
-      heartbeatBusy = true
-      void Promise.all([
-        call('heartbeatSession', session, signal),
-        call(
-          'heartbeatTask',
-          {
-            ...session,
-            runId: claimed.task!.id,
-            leaseToken: claimed.task!.leaseToken,
-          },
-          signal,
-        ),
-      ])
-        .then(([, raw]) => {
+    let heartbeatStopped = false
+    let heartbeatRenewal = Promise.resolve()
+    const renewHeartbeat = () => {
+      if (heartbeatStopped) return heartbeatRenewal
+
+      heartbeatRenewal = heartbeatRenewal
+        .then(async () => {
+          if (heartbeatStopped) return
+          const [, raw] = await Promise.all([
+            call('heartbeatSession', session, signal),
+            call(
+              'heartbeatTask',
+              {
+                ...session,
+                runId: claimed.task!.id,
+                leaseToken: claimed.task!.leaseToken,
+              },
+              signal,
+            ),
+          ])
           const state = z.object({ cancelRequested: z.boolean() }).parse(raw)
           if (state.cancelRequested) taskController.abort()
         })
         .catch(() => taskController.abort())
-        .finally(() => {
-          heartbeatBusy = false
-        })
+      return heartbeatRenewal
+    }
+    const heartbeat = setInterval(() => {
+      void renewHeartbeat()
     }, dependencies.heartbeatMs ?? 25_000)
+    const stopHeartbeat = async () => {
+      heartbeatStopped = true
+      clearInterval(heartbeat)
+      await heartbeatRenewal
+    }
     try {
       const result = await execute(claimed.task, config, taskController.signal)
+      await stopHeartbeat()
+      if (taskController.signal.aborted) throw new Error('TASK_CANCELLED')
       await call('completeTask', {
         ...session,
         runId: claimed.task.id,
@@ -589,6 +600,7 @@ export async function runAgentBridge(
         costStatus: result.costStatus,
       })
     } catch (error) {
+      await stopHeartbeat()
       const code = durableTaskFailureCode(error)
       await call('failTask', {
         ...session,
@@ -598,7 +610,7 @@ export async function runAgentBridge(
         retryable: code !== 'TASK_CANCELLED',
       }).catch(() => undefined)
     } finally {
-      clearInterval(heartbeat)
+      await stopHeartbeat()
       signal.removeEventListener('abort', stopTask)
     }
   }
