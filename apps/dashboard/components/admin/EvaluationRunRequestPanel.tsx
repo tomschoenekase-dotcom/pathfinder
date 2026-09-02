@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const EVALUATION_READ_TIMEOUT_MS = 15_000
 
 export type EvaluationCaseListItem = {
   id: string
@@ -121,9 +124,16 @@ export function EvaluationRunRequestPanel(props: {
   const idempotencyKey = useRef(crypto.randomUUID())
   const submitting = useRef(false)
   const generation = useRef(0)
+  const readAbort = useRef<AbortController | null>(null)
   const scope = `${props.tenantId}:${props.venueId}`
   const scopeRef = useRef(scope)
-  scopeRef.current = scope
+  if (scopeRef.current !== scope) {
+    scopeRef.current = scope
+    generation.current += 1
+    readAbort.current?.abort()
+    readAbort.current = null
+    submitting.current = false
+  }
   const selectedPackage = props.reviewablePackages?.find((pkg) => pkg.id === reviewablePackageId)
   const expectedSourceRef = selectedPackage
     ? `venue-package-review:${selectedPackage.id}:${selectedPackage.payloadHash}:${selectedPackage.baseDigest}`
@@ -163,6 +173,8 @@ export function EvaluationRunRequestPanel(props: {
 
   useEffect(() => {
     generation.current += 1
+    readAbort.current?.abort()
+    readAbort.current = null
     setCases(props.initialCases)
     setNextCursor(props.initialNextCursor)
     setSelected(new Set())
@@ -182,17 +194,38 @@ export function EvaluationRunRequestPanel(props: {
     props.reviewablePackages,
   ])
 
+  useEffect(
+    () => () => {
+      generation.current += 1
+      readAbort.current?.abort()
+      readAbort.current = null
+      submitting.current = false
+    },
+    [],
+  )
+
   async function loadMore() {
     if (!nextCursor || busy) return
     setBusy(true)
     setMessage(null)
     const currentGeneration = generation.current
     const requestedScope = scope
+    readAbort.current?.abort()
+    const controller = new AbortController()
+    readAbort.current = controller
     try {
-      const page = await client.admin.listEvaluationCases.query({
-        tenantId: props.tenantId,
-        venueId: props.venueId,
-        cursor: nextCursor,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: EVALUATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listEvaluationCases.query(
+            {
+              tenantId: props.tenantId,
+              venueId: props.venueId,
+              cursor: nextCursor,
+            },
+            { signal },
+          ),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       setCases((current) => [...current, ...page.items])
@@ -201,6 +234,7 @@ export function EvaluationRunRequestPanel(props: {
       if (currentGeneration === generation.current && requestedScope === scopeRef.current)
         setMessage('More cases could not be loaded. Your current selections are preserved.')
     } finally {
+      if (readAbort.current === controller) readAbort.current = null
       if (currentGeneration === generation.current && requestedScope === scopeRef.current)
         setBusy(false)
     }
@@ -246,11 +280,26 @@ export function EvaluationRunRequestPanel(props: {
         return
       }
       try {
-        await client.admin.listEvaluationRuns.query({
-          tenantId: props.tenantId,
-          venueId: props.venueId,
-          limit: 1,
-        })
+        const controller = new AbortController()
+        readAbort.current?.abort()
+        readAbort.current = controller
+        try {
+          await runBoundedClientRequest({
+            parentSignal: controller.signal,
+            timeoutMs: EVALUATION_READ_TIMEOUT_MS,
+            request: (signal) =>
+              client.admin.listEvaluationRuns.query(
+                {
+                  tenantId: props.tenantId,
+                  venueId: props.venueId,
+                  limit: 1,
+                },
+                { signal },
+              ),
+          })
+        } finally {
+          if (readAbort.current === controller) readAbort.current = null
+        }
         if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
         setMessage('Run queued. Refreshing the evidence list…')
       } catch {
@@ -282,11 +331,22 @@ export function EvaluationRunRequestPanel(props: {
     setSourceCoverage(null)
     const currentGeneration = generation.current
     const requestedScope = scope
+    readAbort.current?.abort()
+    const controller = new AbortController()
+    readAbort.current = controller
     try {
-      const result = await client.admin.previewCurrentEvaluationSourceCoverage.query({
-        tenantId: props.tenantId,
-        venueId: props.venueId,
-        caseIds: [...selected],
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: EVALUATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.previewCurrentEvaluationSourceCoverage.query(
+            {
+              tenantId: props.tenantId,
+              venueId: props.venueId,
+              caseIds: [...selected],
+            },
+            { signal },
+          ),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       setSourceCoverage(result)
@@ -294,6 +354,7 @@ export function EvaluationRunRequestPanel(props: {
       if (currentGeneration === generation.current && requestedScope === scopeRef.current)
         setMessage('Current source coverage could not be inspected. No evaluation was started.')
     } finally {
+      if (readAbort.current === controller) readAbort.current = null
       if (currentGeneration === generation.current && requestedScope === scopeRef.current)
         setBusy(false)
     }

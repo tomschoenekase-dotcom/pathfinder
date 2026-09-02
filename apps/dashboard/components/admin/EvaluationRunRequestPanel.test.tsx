@@ -133,6 +133,33 @@ describe('EvaluationRunRequestPanel', () => {
     })
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('modelName')
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('contentSnapshotHash')
+    await waitFor(() => expect(mocks.listRuns).toHaveBeenCalledOnce())
+    expect(mocks.listRuns).toHaveBeenCalledWith(expect.any(Object), {
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  it('bounds case pagination and aborts its transport on unmount', async () => {
+    let signal: AbortSignal | undefined
+    mocks.listCases.mockImplementationOnce((_input, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => undefined)
+    })
+    const rendered = render(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialCases={[item]}
+        initialNextCursor={{ createdAt: new Date().toISOString(), id: item.id }}
+        runnerEnabled
+        maximumCases={50}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more cases' }))
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(signal?.aborted).toBe(false)
+    rendered.unmount()
+    expect(signal?.aborted).toBe(true)
   })
   it('requests the explicit OpenAI provider-diversity candidate', async () => {
     renderPanel()
@@ -152,11 +179,14 @@ describe('EvaluationRunRequestPanel', () => {
 
     expect(await screen.findByText(/1\/2 lexical markers found/)).toBeTruthy()
     expect(screen.getByText(/Not found: location/)).toBeTruthy()
-    expect(mocks.sourceCoverage).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      caseIds: [item.id],
-    })
+    expect(mocks.sourceCoverage).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        caseIds: [item.id],
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
   it('targets the exact reviewable package when onboarding evidence is supplied', async () => {
