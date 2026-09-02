@@ -513,6 +513,7 @@ export function createAgentBridgeHttpClient(
   fetcher: Fetch = fetch,
 ) {
   return async function call(method: string, params: unknown, signal?: AbortSignal) {
+    if (signal?.aborted) throw new Error('BRIDGE_REQUEST_ABORTED')
     const requestController = new AbortController()
     let timedOut = false
     const abortRequest = () => requestController.abort()

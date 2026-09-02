@@ -537,6 +537,19 @@ describe('desktop agent bridge runner', () => {
     await expect(result).rejects.toThrow('BRIDGE_REQUEST_ABORTED')
   })
 
+  it('does not launch a bridge request after shutdown', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const controller = new AbortController()
+    controller.abort()
+    const fetcher = vi.fn()
+    const call = createAgentBridgeHttpClient(config, fetcher as typeof fetch)
+
+    await expect(
+      call('heartbeatSession', { venueId: 'venue-1' }, controller.signal),
+    ).rejects.toThrow('BRIDGE_REQUEST_ABORTED')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it('contains malformed bridge envelopes as a bounded protocol error', async () => {
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
     const fetcher = vi.fn().mockResolvedValue(
