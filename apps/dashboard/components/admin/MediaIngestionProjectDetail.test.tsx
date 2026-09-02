@@ -90,6 +90,14 @@ function project(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 describe('media ingestion project detail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -288,6 +296,28 @@ describe('media ingestion review', () => {
     expect(screen.queryByText('Review saved and ready.')).toBeNull()
   })
 
+  it('synchronously fences duplicate review saves', async () => {
+    const pending = deferred<Awaited<ReturnType<typeof mocks.saveReview>>>()
+    mocks.saveReview.mockReturnValueOnce(pending.promise)
+    render(<MediaIngestionReview initialProject={project()} />)
+    const save = screen.getByRole('button', { name: 'Save review' })
+
+    act(() => {
+      save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      save.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(mocks.saveReview).toHaveBeenCalledOnce()
+    pending.resolve({
+      ok: true,
+      updatedAt: new Date('2026-08-08T18:01:00.000Z'),
+      status: 'READY_FOR_REVIEW',
+      questions: [],
+      findingReviews: [],
+    })
+    await act(async () => pending.promise)
+  })
+
   it('replaces the editable findings page and keeps the form bounded', async () => {
     mocks.listFindings.mockResolvedValueOnce({
       items: [
@@ -307,13 +337,30 @@ describe('media ingestion review', () => {
 
     expect(await screen.findByText('next.jpg')).toBeTruthy()
     expect(screen.queryByText('hall.jpg')).toBeNull()
-    expect(mocks.listFindings).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      projectId: 'project_1',
-      reviewGeneration: generation,
-      cursor: 'S-50',
-    })
+    expect(mocks.listFindings).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        projectId: 'project_1',
+        reviewGeneration: generation,
+        cursor: 'S-50',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts an in-flight findings page read on unmount', async () => {
+    mocks.listFindings.mockImplementation(() => new Promise(() => undefined))
+    const view = render(
+      <MediaIngestionReview initialProject={project({ findingsNextCursor: 'S-50' })} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Next findings' }))
+    await waitFor(() => expect(mocks.listFindings).toHaveBeenCalledOnce())
+    const signal = mocks.listFindings.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    view.unmount()
+
+    expect(signal.aborted).toBe(true)
   })
 
   it('blocks download and save for legacy synthesis JSON that is not a venue package', () => {

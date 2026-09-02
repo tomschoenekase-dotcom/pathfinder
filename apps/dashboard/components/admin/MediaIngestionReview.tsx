@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 
 type MediaProject = inferRouterOutputs<AppRouter>['mediaIngestion']['get']
@@ -33,6 +34,7 @@ type FindingCorrection = {
   uncertainties: string[]
   note: string
 }
+const REVIEW_READ_TIMEOUT_MS = 15_000
 
 function normalizeQuestions(value: unknown): Question[] {
   if (!Array.isArray(value)) return []
@@ -157,6 +159,10 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [loadingFindings, setLoadingFindings] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const saveInFlightRef = useRef(false)
+  const assetRequestRef = useRef<AbortController | null>(null)
+  const findingRequestRef = useRef<AbortController | null>(null)
   const parseError = useMemo(() => {
     try {
       const value = JSON.parse(draftText)
@@ -176,8 +182,18 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     [findings, findingEdits],
   )
 
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+      assetRequestRef.current?.abort()
+      findingRequestRef.current?.abort()
+    },
+    [],
+  )
+
   async function save() {
-    if (parseError) return
+    if (parseError || saveInFlightRef.current) return
+    saveInFlightRef.current = true
     setBusy(true)
     setMessage(null)
     try {
@@ -191,6 +207,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
         findingCorrections: pendingFindingCorrections,
         draftJson: JSON.parse(draftText),
       })
+      if (!mountedRef.current) return
       setUpdatedAt(result.updatedAt)
       const reviewsBySource = new Map(
         result.findingReviews.map((finding) => [finding.sourceId, finding.review]),
@@ -208,60 +225,95 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
           : 'Review saved and ready.',
       )
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save the review.')
+      if (mountedRef.current) {
+        setMessage(error instanceof Error ? error.message : 'Could not save the review.')
+      }
     } finally {
-      setBusy(false)
+      saveInFlightRef.current = false
+      if (mountedRef.current) setBusy(false)
     }
   }
 
   async function loadMoreAssets() {
-    if (!assetNextCursor || loadingAssets) return
+    if (!assetNextCursor || assetRequestRef.current) return
+    const controller = new AbortController()
+    assetRequestRef.current = controller
     setLoadingAssets(true)
     setMessage(null)
     try {
-      const result = await client.mediaIngestion.listAssets.query({
-        tenantId: initialProject.tenantId,
-        venueId: initialProject.venueId,
-        projectId: initialProject.id,
-        reviewGeneration: initialProject.reviewGeneration,
-        cursor: assetNextCursor,
-        limit: 50,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: REVIEW_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.mediaIngestion.listAssets.query(
+            {
+              tenantId: initialProject.tenantId,
+              venueId: initialProject.venueId,
+              projectId: initialProject.id,
+              reviewGeneration: initialProject.reviewGeneration,
+              cursor: assetNextCursor,
+              limit: 50,
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted) return
       setAssets((current) => [...current, ...result.items])
       setAssetNextCursor(result.nextCursor)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load more source evidence.')
+    } catch {
+      if (!controller.signal.aborted) {
+        setMessage('Could not load more source evidence. Retry from the last confirmed page.')
+      }
     } finally {
-      setLoadingAssets(false)
+      if (assetRequestRef.current === controller) {
+        assetRequestRef.current = null
+        if (mountedRef.current) setLoadingAssets(false)
+      }
     }
   }
 
   async function loadFindingPage(cursor: string | null): Promise<boolean> {
-    if (loadingFindings) return false
+    if (findingRequestRef.current) return false
     if (pendingFindingCorrections.length > 0) {
       setMessage('Save or discard this page\u2019s finding edits before changing pages.')
       return false
     }
+    const controller = new AbortController()
+    findingRequestRef.current = controller
     setLoadingFindings(true)
     setMessage(null)
     try {
-      const result = await client.mediaIngestion.listFindings.query({
-        tenantId: initialProject.tenantId,
-        venueId: initialProject.venueId,
-        projectId: initialProject.id,
-        reviewGeneration: initialProject.reviewGeneration,
-        ...(cursor ? { cursor } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: REVIEW_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.mediaIngestion.listFindings.query(
+            {
+              tenantId: initialProject.tenantId,
+              venueId: initialProject.venueId,
+              projectId: initialProject.id,
+              reviewGeneration: initialProject.reviewGeneration,
+              ...(cursor ? { cursor } : {}),
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted) return false
       const page = normalizeFindings(result.items)
       setFindings(page)
       setFindingEdits(initialFindingEdits(page))
       setFindingsNextCursor(result.nextCursor)
       return true
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load source findings.')
+    } catch {
+      if (!controller.signal.aborted) {
+        setMessage('Could not load source findings. Retry from the last confirmed page.')
+      }
       return false
     } finally {
-      setLoadingFindings(false)
+      if (findingRequestRef.current === controller) {
+        findingRequestRef.current = null
+        if (mountedRef.current) setLoadingFindings(false)
+      }
     }
   }
 
