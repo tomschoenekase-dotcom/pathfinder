@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createBoundedClamAvResponseCollector,
+  nextClamAvInputChunk,
   parseClamAvResponse,
   verifyIntakeUploadBytes,
 } from './intake-upload-byte-verifier'
@@ -33,6 +34,21 @@ function request(
 }
 
 describe('bounded intake upload byte verification', () => {
+  it('observes scanner failure while the upload byte source is stalled', async () => {
+    let rejectSocket!: (error: Error) => void
+    const socketError = new Promise<never>((_resolve, reject) => {
+      rejectSocket = reject
+    })
+    const iterator: AsyncIterator<Uint8Array> = {
+      next: () => new Promise<IteratorResult<Uint8Array>>(() => undefined),
+    }
+    const pending = nextClamAvInputChunk(iterator, socketError)
+
+    rejectSocket(new Error('ClamAV scan timed out'))
+
+    await expect(pending).rejects.toThrow('ClamAV scan timed out')
+  })
+
   it('bounds ClamAV response bytes and keeps malformed response content out of errors', () => {
     const collector = createBoundedClamAvResponseCollector(5)
     expect(collector.push(Buffer.from('abcd'))).toBe(true)

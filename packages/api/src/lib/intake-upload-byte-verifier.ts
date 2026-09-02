@@ -55,6 +55,23 @@ export function createBoundedClamAvResponseCollector(maxBytes = CLAMAV_RESPONSE_
   }
 }
 
+export function nextClamAvInputChunk(
+  iterator: AsyncIterator<Uint8Array>,
+  socketError: Promise<never>,
+): Promise<IteratorResult<Uint8Array>> {
+  return Promise.race([iterator.next(), socketError])
+}
+
+function requestAsyncIteratorClose(iterator: AsyncIterator<Uint8Array>): void {
+  try {
+    if (!iterator.return) return
+    const closing = iterator.return()
+    void closing.catch(() => undefined)
+  } catch {
+    // The scanner failure remains authoritative; iterator cleanup is best-effort only.
+  }
+}
+
 export function parseClamAvResponse(bytes: Uint8Array): {
   response: string
   verdict: 'CLEAN' | 'INFECTED'
@@ -355,17 +372,26 @@ export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScann
       socket.write(Buffer.from('zINSTREAM\0'))
       const hash = createHash('sha256')
       let total = 0
-      for await (const chunk of input.bytes) {
-        total += chunk.byteLength
-        if (total > input.expectedBytes || total > INTAKE_UPLOAD_MAX_BYTES) {
-          socket.destroy()
-          throw new Error('ClamAV stream exceeded immutable upload size')
+      const createIterator = input.bytes[Symbol.asyncIterator]
+      const iterator = createIterator.call(input.bytes)
+      try {
+        let next = await nextClamAvInputChunk(iterator, socketError)
+        while (!next.done) {
+          const chunk = next.value
+          total += chunk.byteLength
+          if (total > input.expectedBytes || total > INTAKE_UPLOAD_MAX_BYTES)
+            throw new Error('ClamAV stream exceeded immutable upload size')
+          hash.update(chunk)
+          const size = Buffer.allocUnsafe(4)
+          size.writeUInt32BE(chunk.byteLength)
+          if (!socket.write(size)) await Promise.race([once(socket, 'drain'), socketError])
+          if (!socket.write(chunk)) await Promise.race([once(socket, 'drain'), socketError])
+          next = await nextClamAvInputChunk(iterator, socketError)
         }
-        hash.update(chunk)
-        const size = Buffer.allocUnsafe(4)
-        size.writeUInt32BE(chunk.byteLength)
-        if (!socket.write(size)) await Promise.race([once(socket, 'drain'), socketError])
-        if (!socket.write(chunk)) await Promise.race([once(socket, 'drain'), socketError])
+      } catch (error) {
+        socket.destroy()
+        requestAsyncIteratorClose(iterator)
+        throw error
       }
       socket.end(Buffer.alloc(4))
       await Promise.race([once(socket, 'close'), socketError])
