@@ -1,10 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, ScanSearch } from 'lucide-react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const DUPLICATE_QUEUE_TIMEOUT_MS = 15_000
 
 type Candidate = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['listProspectDuplicates']['query']>
@@ -14,20 +17,67 @@ export function ProspectDuplicateReview() {
   const client = useTRPCClient()
   const [items, setItems] = useState<Candidate[]>([])
   const [busy, setBusy] = useState(false)
+  const [readBusy, setReadBusy] = useState(true)
+  const [loaded, setLoaded] = useState(false)
+  const [readFailed, setReadFailed] = useState(false)
   const [message, setMessage] = useState('Loading duplicate review queue…')
+  const requestSequence = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
+  const mounted = useRef(false)
 
-  async function refresh() {
-    const rows = await client.admin.listProspectDuplicates.query({ status: 'OPEN', limit: 200 })
-    setItems(rows)
-    setMessage(
-      rows.length
-        ? `${rows.length} conservative candidates need review.`
-        : 'No open duplicate candidates.',
-    )
+  async function refresh(successPrefix?: string) {
+    const sequence = ++requestSequence.current
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
+    setReadBusy(true)
+    setReadFailed(false)
+    if (!successPrefix) setMessage('Loading duplicate review queue…')
+    try {
+      const rows = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: DUPLICATE_QUEUE_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listProspectDuplicates.query({ status: 'OPEN', limit: 200 }, { signal }),
+      })
+      if (!mounted.current || requestSequence.current !== sequence) return false
+      setItems(rows)
+      setLoaded(true)
+      setMessage(
+        [
+          successPrefix,
+          rows.length
+            ? `${rows.length} conservative candidates need review.`
+            : 'No open duplicate candidates.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+      return true
+    } catch {
+      if (!mounted.current || requestSequence.current !== sequence) return false
+      setReadFailed(true)
+      setMessage(
+        successPrefix
+          ? `${successPrefix} The review queue could not be reloaded in time. Retry the queue read when ready.`
+          : 'The duplicate review queue could not be loaded in time. Retry when ready.',
+      )
+      return false
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null
+      if (mounted.current && requestSequence.current === sequence) setReadBusy(false)
+    }
   }
 
   useEffect(() => {
-    void refresh().catch(() => setMessage('Duplicate review is unavailable.'))
+    mounted.current = true
+    void refresh()
+    return () => {
+      mounted.current = false
+      requestSequence.current += 1
+      activeRequest.current?.abort()
+      activeRequest.current = null
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function scan() {
@@ -35,14 +85,15 @@ export function ProspectDuplicateReview() {
     setMessage('Scanning exact names, domains, venue names, and contact emails…')
     try {
       const result = await client.admin.scanProspectDuplicates.mutate({ prospectLimit: 20_000 })
-      setMessage(
+      if (!mounted.current) return
+      await refresh(
         `Scanned ${result.organizationsScanned.toLocaleString()} prospects; created ${result.candidatesCreated.toLocaleString()} review candidates.`,
       )
-      await refresh()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Duplicate scan failed.')
+    } catch {
+      if (mounted.current)
+        setMessage('The duplicate scan outcome could not be confirmed. Retry when ready.')
     } finally {
-      setBusy(false)
+      if (mounted.current) setBusy(false)
     }
   }
 
@@ -63,11 +114,12 @@ export function ProspectDuplicateReview() {
         resolution,
         note: note.trim(),
       })
-      await refresh()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Review could not be saved.')
+      if (!mounted.current) return
+      await refresh('Review recorded.')
+    } catch {
+      if (mounted.current) setMessage('The review outcome could not be confirmed. Retry unchanged.')
     } finally {
-      setBusy(false)
+      if (mounted.current) setBusy(false)
     }
   }
 
@@ -97,12 +149,20 @@ export function ProspectDuplicateReview() {
         </button>
       </div>
       <p
-        role="status"
-        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"
+        role={readFailed ? 'alert' : 'status'}
+        className={`rounded-xl border bg-white px-4 py-3 text-sm ${readFailed ? 'border-rose-200 text-rose-700' : 'border-slate-200 text-slate-600'}`}
       >
         {message}
       </p>
-      {!items.length ? (
+      <button
+        type="button"
+        disabled={busy || readBusy}
+        onClick={() => void refresh()}
+        className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-sky-700 disabled:opacity-50"
+      >
+        {readBusy ? 'Refreshing queue…' : 'Refresh queue'}
+      </button>
+      {loaded && !items.length ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
           <ScanSearch className="mx-auto h-8 w-8 text-slate-300" />
           <p className="mt-3 font-semibold text-slate-900">The review queue is clear</p>

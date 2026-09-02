@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { inferRouterOutputs } from '@trpc/server'
@@ -133,7 +133,10 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     vi.clearAllMocks()
     mocks.get.mockResolvedValue(review)
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('requires explicit review and sends exact approval evidence and scope', async () => {
     const approved = { ...review, status: 'APPROVED' } as PackageReview
@@ -154,11 +157,14 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
       acknowledgedWarningDigest: 'c'.repeat(64),
       acknowledgedPayloadHash: 'a'.repeat(64),
     })
-    expect(mocks.get).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      packageId: 'package-1',
-    })
+    expect(mocks.get).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        packageId: 'package-1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(await screen.findByRole('button', { name: 'Apply approved package' })).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
@@ -220,11 +226,14 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     fireEvent.click(screen.getByLabelText(/intend to approve it/i))
     fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed package' }))
     expect(await screen.findByText(/current revision was refreshed/i)).toBeTruthy()
-    expect(mocks.get).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      packageId: 'package-1',
-    })
+    expect(mocks.get).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        packageId: 'package-1',
+      },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(
       (screen.getByRole('button', { name: 'Approve reviewed package' }) as HTMLButtonElement)
         .disabled,
@@ -263,6 +272,25 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     fireEvent.click(approve)
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledTimes(2))
     expect(mocks.approve.mock.calls[1]?.[0].commandKey).toBe(firstKey)
+  })
+
+  it('bounds the authoritative post-action read and preserves the retry identity on timeout', async () => {
+    vi.useFakeTimers()
+    mocks.approve.mockResolvedValue({ ...review, status: 'APPROVED' })
+    mocks.get.mockImplementation(() => new Promise(() => {}))
+    renderControls()
+    fireEvent.click(screen.getByLabelText(/intend to approve it/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed package' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const commandKey = mocks.approve.mock.calls[0]?.[0].commandKey
+    const signal = mocks.get.mock.calls[0]?.[1]?.signal as AbortSignal
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('could not be confirmed')
+    fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed package' }))
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    expect(mocks.approve.mock.calls[1]?.[0].commandKey).toBe(commandKey)
   })
 
   it('fences same-tick duplicate lifecycle submissions', async () => {

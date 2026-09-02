@@ -6,7 +6,10 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const PACKAGE_REVISION_READ_TIMEOUT_MS = 15_000
 
 type PackageReview = inferRouterOutputs<AppRouter>['admin']['getVenuePackageForReview']
 type LifecycleAction = 'approve' | 'apply' | 'revert'
@@ -45,6 +48,7 @@ export function VenuePackageLifecycleControls({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const actionInFlight = useRef(false)
+  const activeRead = useRef<AbortController | null>(null)
   const commandKeys = useRef(new Map<string, string>())
   const scopeGeneration = useRef(0)
   const renderedScope = useRef(scopeKey)
@@ -58,6 +62,8 @@ export function VenuePackageLifecycleControls({
   const scopeReady = currentScope === scopeKey
 
   useEffect(() => {
+    activeRead.current?.abort()
+    activeRead.current = null
     setCurrent(initialPackage)
     setCurrentScope(scopeKey)
     setConfirmed(false)
@@ -71,6 +77,15 @@ export function VenuePackageLifecycleControls({
     actionInFlight.current = false
     commandKeys.current.clear()
   }, [initialPackage, scopeKey, tenantId, venueId])
+
+  useEffect(
+    () => () => {
+      scopeGeneration.current += 1
+      activeRead.current?.abort()
+      activeRead.current = null
+    },
+    [],
+  )
 
   const warningCount = current.validationReport.warnings.length
   const allWarningsVisible = warningCount <= 20 || warningsExpanded
@@ -97,16 +112,24 @@ export function VenuePackageLifecycleControls({
           ? 'Revert applied package'
           : null
 
-  async function loadExactRevision(target: PackageReview) {
-    return client.admin.getVenuePackageForReview.query({
-      tenantId,
-      venueId,
-      packageId: target.id,
+  async function loadExactRevision(target: PackageReview, controller: AbortController) {
+    return runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: PACKAGE_REVISION_READ_TIMEOUT_MS,
+      request: (signal) =>
+        client.admin.getVenuePackageForReview.query(
+          {
+            tenantId,
+            venueId,
+            packageId: target.id,
+          },
+          { signal },
+        ),
     })
   }
 
-  async function refreshAfterConflict(target: PackageReview) {
-    const refreshed = await loadExactRevision(target)
+  async function refreshAfterConflict(target: PackageReview, controller: AbortController) {
+    const refreshed = await loadExactRevision(target, controller)
     setCurrent(refreshed)
     setConfirmed(false)
     setWarningsAcknowledged(false)
@@ -127,6 +150,9 @@ export function VenuePackageLifecycleControls({
     if (action === 'approve' && warningCount > 0 && !warningsAcknowledged) return
     actionInFlight.current = true
     const scope = scopeGeneration.current
+    activeRead.current?.abort()
+    const controller = new AbortController()
+    activeRead.current = controller
     setBusy(action)
     setError(null)
     setNotice(null)
@@ -155,7 +181,7 @@ export function VenuePackageLifecycleControls({
         await client.admin.revertVenuePackage.mutate(input)
       }
       if (scopeGeneration.current !== scope) return
-      const refreshed = await loadExactRevision(target)
+      const refreshed = await loadExactRevision(target, controller)
       if (scopeGeneration.current !== scope) return
       setCurrent(refreshed)
       setConfirmed(false)
@@ -176,7 +202,7 @@ export function VenuePackageLifecycleControls({
       if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED' || code === 'BAD_REQUEST') {
         commandKeys.current.delete(commandIdentity)
         try {
-          await refreshAfterConflict(target)
+          await refreshAfterConflict(target, controller)
           if (scopeGeneration.current !== scope) return
           setError(
             code === 'CONFLICT'
@@ -202,6 +228,7 @@ export function VenuePackageLifecycleControls({
         )
       }
     } finally {
+      if (activeRead.current === controller) activeRead.current = null
       if (scopeGeneration.current === scope) {
         actionInFlight.current = false
         setBusy(null)
