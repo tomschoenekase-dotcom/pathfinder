@@ -9,6 +9,7 @@ import {
 } from '@pathfinder/db'
 
 import { readOperationsReadiness } from '../operations-readiness'
+import { readBoundedJsonBody } from './bounded-json-body'
 
 const MAX_BODY_BYTES = 1024
 const attempts = new Map<string, { at: number; count: number }>()
@@ -32,17 +33,6 @@ function response(status: number, value: unknown, requestId: string) {
       'x-request-id': requestId,
     },
   })
-}
-
-async function body(request: Request) {
-  const declared = request.headers.get('content-length')
-  if (declared && (!/^\d+$/u.test(declared) || Number(declared) > MAX_BODY_BYTES)) {
-    throw new Error('BODY_TOO_LARGE')
-  }
-  if (!request.body) return {}
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.byteLength > MAX_BODY_BYTES) throw new Error('BODY_TOO_LARGE')
-  return JSON.parse(new TextDecoder().decode(bytes)) as unknown
 }
 
 /** Platform-wide, read-only health evidence for an explicitly activated machine credential. */
@@ -83,7 +73,9 @@ export async function handlePlatformWorkerOperationsReadinessRequest(
     )
   }
   try {
-    PlatformWorkerOperationsReadinessRequest.parse(await body(request))
+    PlatformWorkerOperationsReadinessRequest.parse(
+      await readBoundedJsonBody(request, MAX_BODY_BYTES, { emptyValue: {} }),
+    )
   } catch {
     return response(400, { error: 'INVALID_REQUEST' }, requestId)
   }

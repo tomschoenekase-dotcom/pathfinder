@@ -8,6 +8,8 @@ import {
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
+import { readBoundedJsonBody } from './bounded-json-body'
+
 const MAX_BODY_BYTES = 32 * 1024
 const attempts = new Map<string, { at: number; count: number }>()
 
@@ -30,38 +32,6 @@ function response(status: number, body: unknown, requestId: string) {
       'x-request-id': requestId,
     },
   })
-}
-
-async function body(request: Request) {
-  const declared = request.headers.get('content-length')
-  if (declared && (!/^\d+$/u.test(declared) || Number(declared) > MAX_BODY_BYTES)) {
-    throw new Error('BODY_TOO_LARGE')
-  }
-  if (!request.body) throw new Error('INVALID_JSON')
-  const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
-  let length = 0
-  let complete = false
-  while (!complete) {
-    const { done, value } = await reader.read()
-    if (done) {
-      complete = true
-      continue
-    }
-    length += value.byteLength
-    if (length > MAX_BODY_BYTES) {
-      await reader.cancel()
-      throw new Error('BODY_TOO_LARGE')
-    }
-    chunks.push(value)
-  }
-  const bytes = new Uint8Array(length)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return JSON.parse(new TextDecoder().decode(bytes)) as unknown
 }
 
 /** Read-only platform policy endpoint. It is not part of customer MCP and executes no action. */
@@ -100,7 +70,9 @@ export async function handlePlatformWorkerFounderDecisionRequest(
   }
   let parsed
   try {
-    parsed = PlatformWorkerFounderDecisionRequest.parse(await body(request))
+    parsed = PlatformWorkerFounderDecisionRequest.parse(
+      await readBoundedJsonBody(request, MAX_BODY_BYTES),
+    )
   } catch {
     return response(400, { error: 'INVALID_REQUEST' }, requestId)
   }

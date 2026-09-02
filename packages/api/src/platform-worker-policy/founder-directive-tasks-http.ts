@@ -14,6 +14,8 @@ import {
 } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
 
+import { readBoundedJsonBody } from './bounded-json-body'
+
 const MAX_BODY_BYTES = 64 * 1024
 const attempts = new Map<string, { at: number; count: number }>()
 
@@ -36,16 +38,6 @@ function response(status: number, value: unknown, requestId: string) {
       'x-request-id': requestId,
     },
   })
-}
-
-async function body(request: Request) {
-  const declared = request.headers.get('content-length')
-  if (declared && (!/^\d+$/u.test(declared) || Number(declared) > MAX_BODY_BYTES)) {
-    throw new Error('BODY_TOO_LARGE')
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.byteLength > MAX_BODY_BYTES) throw new Error('BODY_TOO_LARGE')
-  return JSON.parse(new TextDecoder().decode(bytes)) as unknown
 }
 
 /**
@@ -77,7 +69,9 @@ export async function handlePlatformWorkerFounderDirectiveTasksRequest(
 
   let parsed
   try {
-    parsed = PlatformWorkerFounderDirectiveTaskRequest.parse(await body(request))
+    parsed = PlatformWorkerFounderDirectiveTaskRequest.parse(
+      await readBoundedJsonBody(request, MAX_BODY_BYTES),
+    )
   } catch {
     return response(400, { error: 'INVALID_REQUEST' }, requestId)
   }
