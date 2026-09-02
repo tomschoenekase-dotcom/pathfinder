@@ -232,7 +232,7 @@ function executeHermesAcpTask(
         } catch {
           return finish(new Error('TASK_EXECUTOR_INVALID_RESULT'))
         }
-        const envelope = z
+        const parsedEnvelope = z
           .object({
             id: z.union([z.number(), z.string()]).optional(),
             method: z.string().optional(),
@@ -241,7 +241,9 @@ function executeHermesAcpTask(
             error: z.unknown().optional(),
           })
           .passthrough()
-          .parse(message)
+          .safeParse(message)
+        if (!parsedEnvelope.success) return finish(new Error('TASK_EXECUTOR_INVALID_RESULT'))
+        const envelope = parsedEnvelope.data
         if (envelope.method && envelope.id !== undefined) {
           send(
             envelope.method === 'session/request_permission'
@@ -285,14 +287,15 @@ function executeHermesAcpTask(
             params: { cwd: config.workdir, mcpServers: [] },
           })
         } else if (envelope.id === 2) {
-          const session = z.object({ sessionId: z.string().min(1) }).parse(envelope.result)
-          acpSessionId = session.sessionId
+          const session = z.object({ sessionId: z.string().min(1) }).safeParse(envelope.result)
+          if (!session.success) return finish(new Error('TASK_EXECUTOR_INVALID_RESULT'))
+          acpSessionId = session.data.sessionId
           send({
             jsonrpc: '2.0',
             id: 3,
             method: 'session/prompt',
             params: {
-              sessionId: session.sessionId,
+              sessionId: session.data.sessionId,
               messageId: randomUUID(),
               prompt: [{ type: 'text', text: buildAgentBridgeExecutionPrompt(task) }],
             },

@@ -251,6 +251,48 @@ describe('desktop agent bridge runner', () => {
     )
   })
 
+  it('contains a malformed Hermes session handshake as an invalid result', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: EventEmitter & { end: () => void; write: (value: string) => boolean }
+      stdout: PassThrough
+      stderr: PassThrough
+      kill: () => boolean
+    }
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.kill = vi.fn(() => true)
+    const stdin = new EventEmitter() as EventEmitter & {
+      end: () => void
+      write: (value: string) => boolean
+    }
+    stdin.end = vi.fn()
+    stdin.write = vi.fn((value: string) => {
+      const message = JSON.parse(value) as Record<string, unknown>
+      if (message.id === 1)
+        queueMicrotask(() =>
+          child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })}\n`),
+        )
+      if (message.id === 2)
+        queueMicrotask(() =>
+          child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, result: {} })}\n`),
+        )
+      return true
+    })
+    child.stdin = stdin
+    vi.mocked(spawn).mockReturnValueOnce(child as never)
+
+    await expect(
+      executeAgentBridgeTask(
+        bridgeTask({ modelProvider: 'hermes-bridge' }),
+        parseAgentBridgeRunnerConfig({
+          ...base,
+          provider: 'HERMES',
+          hermesProfile: 'pathfinder_architect',
+        }),
+      ),
+    ).rejects.toThrow('TASK_EXECUTOR_INVALID_RESULT')
+  })
+
   it('executes an OpenAI-compatible local model without exposing its key', async () => {
     const config = parseAgentBridgeRunnerConfig({
       ...base,
