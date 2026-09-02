@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { recordIntakeFileExtractionReceiptAction } from '@pathfinder/db'
 
-import { executeIntakeFileExtraction } from './intake-file-extraction-service'
+import {
+  createPdfLoadingTaskCleanup,
+  executeIntakeFileExtraction,
+} from './intake-file-extraction-service'
 
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/db')>()
@@ -103,6 +106,16 @@ describe('deterministic intake file extraction', () => {
       autoApplied: false,
       autoPublished: false,
     })
+  })
+
+  it('deduplicates and contains asynchronous PDF loading-task cleanup failures', async () => {
+    const destroy = vi.fn(async () => {
+      throw new Error('private cleanup failure')
+    })
+    const cleanup = createPdfLoadingTaskCleanup({ destroy })
+
+    await expect(Promise.all([cleanup(), cleanup()])).resolves.toEqual([undefined, undefined])
+    expect(destroy).toHaveBeenCalledOnce()
   })
 
   it('rechecks exact bytes and records normalized UTF-8 text without authority', async () => {

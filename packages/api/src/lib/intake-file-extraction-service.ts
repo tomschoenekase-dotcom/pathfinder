@@ -227,6 +227,18 @@ function appendPdfTextItem(line: string, value: string) {
   return `${line} ${value}`
 }
 
+export function createPdfLoadingTaskCleanup(loadingTask: {
+  destroy(): Promise<void>
+}): () => Promise<void> {
+  let cleanup: Promise<void> | undefined
+  return () => {
+    cleanup ??= Promise.resolve()
+      .then(() => loadingTask.destroy())
+      .catch(() => undefined)
+    return cleanup
+  }
+}
+
 async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const loadingTask = getDocument({
@@ -237,10 +249,11 @@ async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
     useWorkerFetch: false,
     verbosity: 0,
   })
+  const destroyLoadingTask = createPdfLoadingTaskCleanup(loadingTask)
   let timedOut = false
   const timeout = setTimeout(() => {
     timedOut = true
-    void loadingTask.destroy()
+    void destroyLoadingTask()
   }, INTAKE_PDF_EXTRACTION_TIMEOUT_MS)
   try {
     const document = await loadingTask.promise
@@ -285,7 +298,7 @@ async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
     }
   } finally {
     clearTimeout(timeout)
-    if (!timedOut) await loadingTask.destroy()
+    await destroyLoadingTask()
   }
 }
 
