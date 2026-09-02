@@ -502,9 +502,11 @@ export function createAgentBridgeHttpClient(
         result: z.unknown().optional(),
         error: z.object({ code: z.string() }).optional(),
       })
-      .parse(payload)
-    if (!response.ok || !envelope.ok) throw new Error(envelope.error?.code ?? 'BRIDGE_REJECTED')
-    return envelope.result
+      .safeParse(payload)
+    if (!envelope.success) throw new Error('BRIDGE_INVALID_RESPONSE')
+    if (!response.ok || !envelope.data.ok)
+      throw new Error(envelope.data.error?.code ?? 'BRIDGE_REJECTED')
+    return envelope.data.result
   }
 }
 

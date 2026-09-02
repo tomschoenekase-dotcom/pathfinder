@@ -407,6 +407,21 @@ describe('desktop agent bridge runner', () => {
     expect(init.body).not.toContain(base.secret)
   })
 
+  it('contains malformed bridge envelopes as a bounded protocol error', async () => {
+    const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: 'private malformed value' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const call = createAgentBridgeHttpClient(config, fetcher)
+
+    await expect(call('claimTask', { venueId: 'venue-1' })).rejects.toThrow(
+      'BRIDGE_INVALID_RESPONSE',
+    )
+  })
+
   it('renews session and task leases together and propagates durable cancellation', async () => {
     vi.useFakeTimers()
     const config = parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' })
