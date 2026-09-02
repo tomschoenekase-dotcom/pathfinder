@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import {
   ClientBillingView,
   type ClientBillingState,
@@ -10,6 +11,8 @@ import {
 } from './ClientBillingView'
 
 type Overview = Awaited<ReturnType<DashboardTRPCClient['billing']['overview']['query']>>
+
+const BILLING_READ_TIMEOUT_MS = 15_000
 
 function dateLabel(value: Date | string | null | undefined) {
   return value
@@ -138,10 +141,21 @@ export function ClientBillingPanel() {
   const cancelDialogRef = useRef<HTMLFormElement>(null)
   const cancelReasonRef = useRef<HTMLTextAreaElement>(null)
   const cancelTriggerRef = useRef<HTMLElement | null>(null)
+  const loadGeneration = useRef(0)
+  const loadAbort = useRef<AbortController | null>(null)
 
   async function load() {
+    const generation = ++loadGeneration.current
+    loadAbort.current?.abort()
+    const controller = new AbortController()
+    loadAbort.current = controller
     try {
-      const next = await client.billing.overview.query()
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: BILLING_READ_TIMEOUT_MS,
+        request: (signal) => client.billing.overview.query(undefined, { signal }),
+      })
+      if (loadGeneration.current !== generation) return
       if (!next.enabled) return setHidden(true)
       setOverview(next)
       setSelectedPlan((current) => current || next.catalog[0]?.key || '')
@@ -149,11 +163,18 @@ export function ClientBillingPanel() {
         current.length ? current : next.venues.map((venue) => venue.id),
       )
     } catch {
-      setHidden(true)
+      if (loadGeneration.current === generation && !controller.signal.aborted) setHidden(true)
+    } finally {
+      if (loadAbort.current === controller) loadAbort.current = null
     }
   }
   useEffect(() => {
     void load()
+    return () => {
+      loadGeneration.current += 1
+      loadAbort.current?.abort()
+      loadAbort.current = null
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!cancelOpen) return

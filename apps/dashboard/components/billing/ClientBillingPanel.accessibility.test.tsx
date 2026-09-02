@@ -90,4 +90,20 @@ describe('ClientBillingPanel cancellation dialog accessibility', () => {
     await waitFor(() => expect(document.activeElement).toBe(opener))
     expect(document.body.style.overflow).toBe('')
   })
+
+  it('uses a cancellable transport for the billing overview and aborts it on unmount', async () => {
+    let signal: AbortSignal | undefined
+    mocks.overview.mockImplementationOnce((_input: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => undefined)
+    })
+    const rendered = render(<ClientBillingPanel />)
+
+    await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+    expect(signal?.aborted).toBe(false)
+    expect(screen.getByRole('status').textContent).toContain('Loading billing')
+
+    rendered.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
 })
