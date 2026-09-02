@@ -28,6 +28,7 @@ import { resolveIntakeUploadClientRecovery } from '@pathfinder/contracts/intake-
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
+import { putBlobWithDeadline, UploadDeadlineError } from '../lib/bounded-upload'
 import {
   identifyIntakeFile,
   intakeFileFingerprint,
@@ -565,11 +566,12 @@ export function IntakeFileUpload({
           generation,
         )
         if (reserved.uploadRequest.kind === 'single') {
-          const response = await fetch(reserved.uploadRequest.url, {
-            method: 'PUT',
+          const response = await putBlobWithDeadline({
+            url: reserved.uploadRequest.url,
             headers: reserved.uploadRequest.requiredHeaders,
             body: item.file,
             signal: controller.signal,
+            timeoutMs: 2 * 60 * 1000,
           })
           // A lost successful PUT can replay as precondition-failed because the immutable object now
           // exists. Reconcile it through server-side generation/checksum verification; never infer
@@ -605,11 +607,12 @@ export function IntakeFileUpload({
               partNumber,
               checksumSha256,
             })
-            const response = await fetch(signed.url, {
-              method: 'PUT',
+            const response = await putBlobWithDeadline({
+              url: signed.url,
               headers: signed.requiredHeaders,
               body: part,
               signal: controller.signal,
+              timeoutMs: 2 * 60 * 1000,
             })
             if (!response.ok)
               throw new ClientIntakeFileError(
@@ -666,9 +669,11 @@ export function IntakeFileUpload({
               ? 'Upload cancelled.'
               : error instanceof DOMException && error.name === 'AbortError'
                 ? 'Upload paused. Retry to continue from the saved parts.'
-                : error instanceof ClientIntakeFileError
-                  ? error.message
-                  : 'Torchiko could not confirm this file. Please try again.',
+                : error instanceof UploadDeadlineError
+                  ? 'Upload paused after waiting two minutes for storage. Retry to continue safely.'
+                  : error instanceof ClientIntakeFileError
+                    ? error.message
+                    : 'Torchiko could not confirm this file. Please try again.',
           },
           submittedScope,
           generation,

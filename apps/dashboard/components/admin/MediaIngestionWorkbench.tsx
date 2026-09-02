@@ -6,6 +6,7 @@ import Link from 'next/link'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { planMediaUploadResume } from '../../lib/media-upload-resume'
+import { putBlobWithDeadline, UploadDeadlineError } from '../../lib/bounded-upload'
 import {
   fingerprintMediaSource,
   MAX_MEDIA_SOURCE_BYTES,
@@ -163,7 +164,19 @@ export function MediaIngestionWorkbench({
           partNumber,
         })
         throwIfTransferAborted(options.signal)
-        const response = await fetch(url, { method: 'PUT', body, signal: options.signal })
+        const response = await putBlobWithDeadline({
+          url,
+          body,
+          signal: options.signal,
+          timeoutMs: 10 * 60 * 1000,
+        }).catch((error) => {
+          if (error instanceof UploadDeadlineError) {
+            throw new Error(
+              `Upload part ${partNumber} timed out. Retry to continue from completed parts.`,
+            )
+          }
+          throw error
+        })
         if (!response.ok) throw new Error(`Upload part ${partNumber} failed (${response.status}).`)
         const etag = response.headers.get('etag')
         if (!etag) throw new Error('Storage CORS must expose the ETag response header.')
