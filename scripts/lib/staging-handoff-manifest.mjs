@@ -151,14 +151,19 @@ export function buildStagingHandoffManifest({
         expectedMigration.approval,
         candidate,
       ),
+      variableUpdateDeploymentPolicy: {
+        suppressAutomaticDeploys: true,
+        railwayCliFlag: '--skip-deploys',
+        reason: 'Stage every exact rollout prerequisite before creating any deployment.',
+      },
     },
     admission: {
       status: 'ready-for-owner-staging-integration',
       requiredActions: [
         'Review and integrate this exact candidate into the owner staging branch.',
-        'Set PATHFINDER_RELEASE_SHA=<candidate.revision> on Railway web, dashboard, and workers; it must match provider release metadata on every service.',
-        'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable; image ENV alone does not reach pre-deploy.',
-        'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web immediately before deployment; the pre-deploy migration rejects a closed or missing one-run gate.',
+        'Set PATHFINDER_RELEASE_SHA=<candidate.revision> on Railway web, dashboard, and workers with --skip-deploys; it must match provider release metadata on every service and must not trigger a partial rollout.',
+        'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
+        'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before deployment; the pre-deploy migration rejects a closed or missing one-run gate.',
         'Deploy the resulting immutable staging revision with provider release metadata intact; Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
