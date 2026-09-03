@@ -1,4 +1,5 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+const FULL_SHA = /^[a-f0-9]{40}$/u
 const MAX_LOG_BYTES = 1_048_576
 const MAX_LINES = 200
 
@@ -25,7 +26,7 @@ function isRecord(value) {
 }
 
 export function parseStagingRuntimeArgs(args) {
-  if (args.length !== 8) fail('invalid-options')
+  if (args.length !== 10) fail('invalid-options')
   const deployments = {}
   for (let index = 0; index < SERVICE_OPTIONS.length; index += 1) {
     const [option, service] = SERVICE_OPTIONS[index]
@@ -33,8 +34,11 @@ export function parseStagingRuntimeArgs(args) {
     if (args[offset] !== option || !UUID.test(args[offset + 1] ?? '')) fail('invalid-options')
     deployments[service] = args[offset + 1]
   }
-  if (args[6] !== '--since' || args[7] !== '24h') fail('invalid-options')
-  return { deployments, since: '24h' }
+  if (args[6] !== '--expected-revision' || !FULL_SHA.test(args[7] ?? '')) {
+    fail('invalid-options')
+  }
+  if (args[8] !== '--since' || args[9] !== '24h') fail('invalid-options')
+  return { deployments, expectedRevision: args[7], since: '24h' }
 }
 
 export function buildRuntimeLogQueries({ deployments, since }) {
@@ -126,6 +130,7 @@ export function parseBoundedLogLines(text) {
 
 export function auditStagingRuntime(options, runRailway) {
   if (typeof runRailway !== 'function') fail('invalid-runner')
+  if (!FULL_SHA.test(options?.expectedRevision ?? '')) fail('invalid-options')
   const queryResults = new Map()
   for (const query of buildRuntimeLogQueries(options)) {
     const result = runRailway(query.args)
@@ -143,12 +148,39 @@ export function auditStagingRuntime(options, runRailway) {
   services['staging-dashboard'].http5xxRows = queryResults.get('staging-dashboard:http5xx').length
 
   const workerEvents = queryResults.get('staging-workers:events')
+  const releaseAdmissions = workerEvents.filter(
+    (row) => row.action === 'workers.release-identity.admitted',
+  )
   const retained = workerEvents.filter(
     (row) => row.action === 'workers.founder-absence-observation.retained',
   )
   const failed = workerEvents.filter(
     (row) => row.action === 'workers.founder-absence-observation.failed',
   )
+  if (releaseAdmissions.length === 0) fail('worker-release-identity-missing')
+  if (
+    releaseAdmissions.some(
+      (row) => typeof row.revision !== 'string' || !FULL_SHA.test(row.revision),
+    )
+  ) {
+    fail('worker-release-identity-invalid')
+  }
+  if (releaseAdmissions.some((row) => row.revision !== options.expectedRevision)) {
+    fail('worker-release-identity-mismatch')
+  }
+  if (retained.length === 0) fail('founder-absence-observation-missing')
+  if (
+    retained.some(
+      (row) =>
+        typeof row.observedOn !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/u.test(row.observedOn) ||
+        row.evidenceComplete !== true ||
+        typeof row.releaseSha !== 'string' ||
+        !FULL_SHA.test(row.releaseSha),
+    )
+  ) {
+    fail('founder-absence-observation-invalid')
+  }
   const latest = retained.at(-1) ?? null
   const founderAbsence = {
     retainedEvents: retained.length,
@@ -156,6 +188,7 @@ export function auditStagingRuntime(options, runRailway) {
     latestObservedOn:
       latest && /^\d{4}-\d{2}-\d{2}$/u.test(latest.observedOn) ? latest.observedOn : null,
     latestEvidenceComplete: latest?.evidenceComplete === true,
+    latestSnapshotReleaseSha: latest?.releaseSha ?? null,
   }
 
   if (Object.values(services).some((service) => service.errorRows > 0)) {
@@ -166,5 +199,12 @@ export function auditStagingRuntime(options, runRailway) {
   }
   if (failed.length > 0) fail('founder-absence-capture-failed')
 
-  return { ok: true, environment: 'staging', window: '24h', services, founderAbsence }
+  return {
+    ok: true,
+    environment: 'staging',
+    expectedRevision: options.expectedRevision,
+    window: '24h',
+    services,
+    founderAbsence,
+  }
 }

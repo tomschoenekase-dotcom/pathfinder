@@ -17,6 +17,8 @@ const IDS = {
   'staging-dashboard': '22222222-2222-4222-8222-222222222222',
   'staging-workers': '33333333-3333-4333-8333-333333333333',
 }
+const SHA = 'a'.repeat(40)
+const SNAPSHOT_SHA = 'c'.repeat(40)
 
 const ARGS = [
   '--web-deployment',
@@ -25,12 +27,18 @@ const ARGS = [
   IDS['staging-dashboard'],
   '--workers-deployment',
   IDS['staging-workers'],
+  '--expected-revision',
+  SHA,
   '--since',
   '24h',
 ]
 
-test('requires exact service deployment identities and a bounded 24-hour window', () => {
-  assert.deepEqual(parseStagingRuntimeArgs(ARGS), { deployments: IDS, since: '24h' })
+test('requires exact service deployment identities, release identity, and a bounded 24-hour window', () => {
+  assert.deepEqual(parseStagingRuntimeArgs(ARGS), {
+    deployments: IDS,
+    expectedRevision: SHA,
+    since: '24h',
+  })
   for (const args of [ARGS.slice(0, -1), [...ARGS.slice(0, -1), '7d'], ['--help']]) {
     assert.throws(() => parseStagingRuntimeArgs(args), /invalid-options/u)
   }
@@ -54,18 +62,25 @@ test('binds every Railway query to both the exact deployment and exact staging s
 
 test('admits successful empty error and 5xx queries while reporting bounded worker continuity', () => {
   const workerRows = [
-    { action: 'workers.started' },
+    { action: 'workers.release-identity.admitted', revision: SHA },
     {
       action: 'workers.founder-absence-observation.retained',
       observedOn: '2026-08-31',
       evidenceComplete: true,
+      releaseSha: SNAPSHOT_SHA,
     },
   ]
   let call = 0
-  const result = auditStagingRuntime({ deployments: IDS, since: '24h' }, () => {
-    call += 1
-    return { status: 0, stdout: call === 6 ? `${workerRows.map(JSON.stringify).join('\n')}\n` : '' }
-  })
+  const result = auditStagingRuntime(
+    { deployments: IDS, expectedRevision: SHA, since: '24h' },
+    () => {
+      call += 1
+      return {
+        status: 0,
+        stdout: call === 6 ? `${workerRows.map(JSON.stringify).join('\n')}\n` : '',
+      }
+    },
+  )
   assert.equal(result.ok, true)
   assert.equal(result.services['staging-web'].http5xxRows, 0)
   assert.deepEqual(result.founderAbsence, {
@@ -73,13 +88,82 @@ test('admits successful empty error and 5xx queries while reporting bounded work
     failedEvents: 0,
     latestObservedOn: '2026-08-31',
     latestEvidenceComplete: true,
+    latestSnapshotReleaseSha: SNAPSHOT_SHA,
   })
+  assert.equal(result.expectedRevision, SHA)
+})
+
+test('fails closed when worker runtime identity is missing, malformed, or differs from the release', () => {
+  for (const admission of [
+    null,
+    { action: 'workers.release-identity.admitted' },
+    { action: 'workers.release-identity.admitted', revision: 'b'.repeat(40) },
+  ]) {
+    let call = 0
+    assert.throws(() =>
+      auditStagingRuntime({ deployments: IDS, expectedRevision: SHA, since: '24h' }, () => {
+        call += 1
+        const rows = [
+          ...(admission ? [admission] : []),
+          {
+            action: 'workers.founder-absence-observation.retained',
+            observedOn: '2026-08-31',
+            evidenceComplete: true,
+            releaseSha: SHA,
+          },
+        ]
+        return {
+          status: 0,
+          stdout: call === 6 ? `${rows.map(JSON.stringify).join('\n')}\n` : '',
+        }
+      }),
+    )
+  }
+})
+
+test('fails closed when founder-absence evidence is missing or malformed', () => {
+  for (const row of [
+    null,
+    {
+      action: 'workers.founder-absence-observation.retained',
+      observedOn: '2026-08-31',
+      evidenceComplete: true,
+    },
+    {
+      action: 'workers.founder-absence-observation.retained',
+      observedOn: '2026-08-31',
+      evidenceComplete: true,
+      releaseSha: 'invalid',
+    },
+  ]) {
+    let call = 0
+    assert.throws(() =>
+      auditStagingRuntime({ deployments: IDS, expectedRevision: SHA, since: '24h' }, () => {
+        call += 1
+        return {
+          status: 0,
+          stdout:
+            call === 6
+              ? `${[
+                  { action: 'workers.release-identity.admitted', revision: SHA },
+                  ...(row ? [row] : []),
+                ]
+                  .map(JSON.stringify)
+                  .join('\n')}\n`
+              : '',
+        }
+      }),
+    )
+  }
 })
 
 test('fails closed on provider refusal, malformed or oversized output, and runtime failures', () => {
   assert.throws(
     () =>
-      auditStagingRuntime({ deployments: IDS, since: '24h' }, () => ({ status: 1, stdout: '' })),
+      auditStagingRuntime({ deployments: IDS, expectedRevision: SHA, since: '24h' }, () => ({
+        status: 1,
+        stdout: '',
+      })),
     /railway-query-failed/u,
   )
   assert.throws(() => parseBoundedLogLines('{private malformed detail'), /invalid-log-json/u)
@@ -91,7 +175,7 @@ test('fails closed on provider refusal, malformed or oversized output, and runti
   ]) {
     let call = 0
     assert.throws(() =>
-      auditStagingRuntime({ deployments: IDS, since: '24h' }, () => {
+      auditStagingRuntime({ deployments: IDS, expectedRevision: SHA, since: '24h' }, () => {
         call += 1
         const target = row.level === 'error' ? 1 : 6
         return { status: 0, stdout: call === target ? `${JSON.stringify(row)}\n` : '' }

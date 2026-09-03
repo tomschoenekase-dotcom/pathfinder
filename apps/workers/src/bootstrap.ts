@@ -27,7 +27,15 @@ function registerShutdown(shutdown: () => Promise<void>): void {
 }
 
 export async function bootstrapWorkers() {
-  assertStagingWorkerReleaseIdentity(process.env)
+  const stagingRevision = assertStagingWorkerReleaseIdentity(process.env)
+  if (stagingRevision) {
+    process.stdout.write(
+      `${JSON.stringify({
+        action: 'workers.release-identity.admitted',
+        revision: stagingRevision,
+      })}\n`,
+    )
+  }
   const policy = resolveWorkerStartupPolicy(process.env as WorkerStartupEnvironment)
   assertRequiredEnvironment(policy.requiredEnvironmentKeys)
 

@@ -38,6 +38,8 @@ describe('provider-disabled worker registration boundary', () => {
 
     expect(entryPoint).toBeGreaterThanOrEqual(0)
     expect(identity).toBeGreaterThan(entryPoint)
+    expect(bootstrap).toContain("action: 'workers.release-identity.admitted'")
+    expect(bootstrap).toContain('revision: stagingRevision')
     expect(policy).toBeGreaterThan(identity)
     expect(assertion).toBeGreaterThan(policy)
     expect(disabledBranch).toBeGreaterThan(assertion)

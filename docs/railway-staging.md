@@ -326,13 +326,18 @@ at 200 rows and 1 MiB, and emits counts rather than raw logs or request metadata
 pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> \
   --dashboard-deployment <staging-dashboard-deployment-id> \
   --workers-deployment <staging-workers-deployment-id> \
+  --expected-revision "$RELEASE_SHA" \
   --since 24h
 ```
 
 The audit fails closed on an unlinked/refused Railway query, malformed or oversized JSON, any
-error-level row, any web/dashboard HTTP 5xx row, or a founder-absence capture-failure event. A
-successful empty query is accepted only after Railway itself exits successfully. The worker summary
-is recent process evidence only; it does not certify a consecutive-day founder-absence window.
+error-level row, any web/dashboard HTTP 5xx row, a missing or mismatched worker runtime release
+admission, or a founder-absence capture-failure event. A successful empty error or HTTP query is
+accepted only after Railway itself exits successfully; the worker event query must contain both the
+exact runtime release admission and a complete founder-absence observation. A same-day immutable
+founder-absence row may retain the release that first wrote that day's snapshot, so it is reported
+separately and is not substituted for the runtime release identity. The worker summary is recent
+process evidence only; it does not certify a consecutive-day founder-absence window.
 
 To reconcile an exact founder-absence window across active and removed worker deployments, run the
 bounded historical auditor with one to eight reviewed deployment IDs and a supported 24-hour through

@@ -68,6 +68,7 @@ if (
 
 if (
   !runbook.includes('pnpm verify:staging-runtime --web-deployment') ||
+  !runbook.includes('--expected-revision "$RELEASE_SHA"') ||
   runbook.includes('verify:staging-runtime -- --web-deployment') ||
   !runbook.includes('both the deployment ID and its exact staging') ||
   !runbook.includes('checks the provider process exit status')

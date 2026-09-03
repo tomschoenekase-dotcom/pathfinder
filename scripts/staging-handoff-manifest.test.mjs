@@ -73,8 +73,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   })
   assert.deepEqual(first.rolloutSafety.runtimeAudit, {
     deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
-    commandTemplate:
-      'pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --since 24h',
+    commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${CANDIDATE} --since 24h`,
     services: ['staging-web', 'staging-dashboard', 'staging-workers'],
     requiresProviderExitSuccess: true,
     rawLogsRetained: false,
