@@ -29,7 +29,10 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    filename, and up to 12,000 characters of project operator context cross the Google provider
    boundary before opt-in. An extracted video above Google's 2,000,000,000-byte Files API per-file
    limit never crosses the Google boundary and instead uses the disclosed OpenAI sampled fallback
-   with an explicit review limitation. Each FFmpeg invocation has stdin disabled, a 15-minute
+   with an explicit review limitation. Each retained video finding identifies whether it came from
+   Google complete-video analysis, ordinary sampled analysis, or sampled analysis after a Google
+   fallback so reviewers do not have to infer provider provenance from generated prose. Each FFmpeg
+   invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
    process, without a shell. Generated frame dimensions are bounded on both axes. Frame JPEGs and
    audio MP3 are streamed through one attempt-wide byte budget before crossing bytes can reach a

@@ -285,6 +285,39 @@ describe('media ingestion review', () => {
     expect(mocks.saveReview.mock.calls[1]?.[0]).toMatchObject({ findingCorrections: [] })
   })
 
+  it('shows the retained analysis route for each video finding', () => {
+    render(
+      <MediaIngestionReview
+        initialProject={project({
+          findings: [
+            {
+              sourceId: 'S-1',
+              filename: 'walkthrough.mp4',
+              mediaType: 'VIDEO',
+              videoAnalysisMethod: 'GOOGLE_COMPLETE_VIDEO',
+              summary: 'Complete walkthrough summary',
+              uncertainties: [],
+            },
+          ],
+          assets: [
+            {
+              id: 'asset_1',
+              sourceId: 'S-1',
+              filename: 'walkthrough.mp4',
+              mediaType: 'VIDEO',
+              bytes: 2048,
+              status: 'COMPLETE',
+              error: null,
+              updatedAt,
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Google complete-video analysis')).toBeTruthy()
+  })
+
   it('surfaces optimistic-concurrency conflicts without claiming a save', async () => {
     mocks.saveReview.mockRejectedValueOnce(
       new Error('This review changed in another session. Reload before saving again.'),

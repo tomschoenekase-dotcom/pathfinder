@@ -10,6 +10,9 @@ export const mediaFindingSchema = z
     sourceId: z.string().min(1).max(500),
     filename: z.string().min(1).max(MEDIA_SOURCE_FILENAME_LIMIT),
     mediaType: z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT']),
+    videoAnalysisMethod: z
+      .enum(['GOOGLE_COMPLETE_VIDEO', 'SAMPLED_VIDEO', 'SAMPLED_VIDEO_FALLBACK'])
+      .optional(),
     summary: z.string().max(50_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
     review: z

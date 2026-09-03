@@ -72,7 +72,10 @@ import {
   MediaJobCancelledError,
   normalizeMediaJobError,
 } from '../lib/media-job-cancellation'
-import { runOptionalFullVideoAnalysis } from '../lib/video-analysis-routing'
+import {
+  runOptionalFullVideoAnalysis,
+  type VideoAnalysisMethod,
+} from '../lib/video-analysis-routing'
 import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
@@ -160,6 +163,7 @@ type Analysis = {
   objects: Array<{ name: string; confidence: 'confirmed' | 'probable' | 'unverified' }>
   spatialClues: string[]
   uncertainties: string[]
+  videoAnalysisMethod?: VideoAnalysisMethod
 }
 
 const analysisSchema = z
@@ -1161,7 +1165,7 @@ export async function processMediaIngestionJob(
               budgetGate,
               signal,
             )
-          analysis = await runOptionalFullVideoAnalysis({
+          const videoResult = await runOptionalFullVideoAnalysis({
             enabled: settings.useGeminiVideoUnderstanding === true,
             analyzeFullVideo: () =>
               analyzeVideoWithGemini(
@@ -1179,6 +1183,10 @@ export async function processMediaIngestionJob(
             analyzeFallback,
             shouldPropagate: (error) => shouldPropagateFullVideoFailure(error, signal),
           })
+          analysis = {
+            ...videoResult.analysis,
+            videoAnalysisMethod: videoResult.method,
+          }
         } else if (
           mediaType === 'DOCUMENT' &&
           textExtensions.has(extname(file.filename).toLowerCase())
@@ -1293,6 +1301,9 @@ export async function processMediaIngestionJob(
             mediaType: item.mediaType,
             summary: item.analysis.summary,
             uncertainties: item.analysis.uncertainties,
+            ...(item.analysis.videoAnalysisMethod
+              ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
+              : {}),
           })),
           draftJson: draft,
           coverage: {

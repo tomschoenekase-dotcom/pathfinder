@@ -23,6 +23,7 @@ type Finding = {
   sourceId: string
   filename: string
   mediaType: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
+  videoAnalysisMethod?: 'GOOGLE_COMPLETE_VIDEO' | 'SAMPLED_VIDEO' | 'SAMPLED_VIDEO_FALLBACK'
   summary: string
   uncertainties: string[]
   review?: FindingReview
@@ -67,6 +68,13 @@ function normalizeFindings(value: unknown): Finding[] {
     ) {
       return []
     }
+    const videoAnalysisMethod = [
+      'GOOGLE_COMPLETE_VIDEO',
+      'SAMPLED_VIDEO',
+      'SAMPLED_VIDEO_FALLBACK',
+    ].includes(String(finding.videoAnalysisMethod))
+      ? (finding.videoAnalysisMethod as Finding['videoAnalysisMethod'])
+      : undefined
     const rawReview = finding.review
     let review: FindingReview | undefined
     if (rawReview && typeof rawReview === 'object') {
@@ -87,6 +95,7 @@ function normalizeFindings(value: unknown): Finding[] {
         sourceId: finding.sourceId,
         filename: finding.filename,
         mediaType: finding.mediaType as Finding['mediaType'],
+        ...(videoAnalysisMethod ? { videoAnalysisMethod } : {}),
         summary: finding.summary,
         uncertainties: finding.uncertainties as string[],
         ...(review ? { review } : {}),
@@ -407,6 +416,15 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
                           ? ` · ${humanBytes(asset.bytes)} · ${asset.status.toLowerCase()}`
                           : ''}
                       </p>
+                      {finding.videoAnalysisMethod ? (
+                        <p className="mt-1 text-xs text-pf-deep/55">
+                          {finding.videoAnalysisMethod === 'GOOGLE_COMPLETE_VIDEO'
+                            ? 'Google complete-video analysis'
+                            : finding.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+                              ? 'Sampled analysis after Google fallback'
+                              : 'Sampled video analysis'}
+                        </p>
+                      ) : null}
                     </div>
                     {finding.review ? (
                       <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">

@@ -19,7 +19,7 @@ describe('optional full-video analysis routing', () => {
         analyzeFallback: vi.fn(async () => sampled),
         shouldPropagate: () => false,
       }),
-    ).resolves.toEqual(sampled)
+    ).resolves.toEqual({ analysis: sampled, method: 'SAMPLED_VIDEO' })
     expect(analyzeFullVideo).not.toHaveBeenCalled()
   })
 
@@ -33,7 +33,7 @@ describe('optional full-video analysis routing', () => {
         analyzeFallback,
         shouldPropagate: () => false,
       }),
-    ).resolves.toEqual(full)
+    ).resolves.toEqual({ analysis: full, method: 'GOOGLE_COMPLETE_VIDEO' })
     expect(analyzeFallback).not.toHaveBeenCalled()
   })
 
@@ -48,8 +48,11 @@ describe('optional full-video analysis routing', () => {
         shouldPropagate: () => false,
       }),
     ).resolves.toEqual({
-      summary: 'sampled frames',
-      uncertainties: [FULL_VIDEO_FALLBACK_UNCERTAINTY, 'Frames were sampled.'],
+      analysis: {
+        summary: 'sampled frames',
+        uncertainties: [FULL_VIDEO_FALLBACK_UNCERTAINTY, 'Frames were sampled.'],
+      },
+      method: 'SAMPLED_VIDEO_FALLBACK',
     })
   })
 
