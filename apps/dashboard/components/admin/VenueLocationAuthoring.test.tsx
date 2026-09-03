@@ -174,7 +174,8 @@ describe('VenueLocationAuthoring', () => {
         }),
       ),
     )
-    expect(screen.getByText(/still requires separate activation review/)).toBeTruthy()
+    expect(await screen.findByText(/still requires separate activation review/)).toBeTruthy()
+    expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 
   it('shows agent proposals as review-only and separately applies human approval', async () => {
