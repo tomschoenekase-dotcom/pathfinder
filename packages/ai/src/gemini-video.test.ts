@@ -44,13 +44,16 @@ function client(options?: {
   deleteFailure?: Error
   uploadFailure?: Error
   uploadWithoutName?: boolean
+  uploadName?: string
 }): GeminiVideoClient {
   return {
     files: {
       upload: vi.fn(async () => {
         if (options?.uploadFailure) throw options.uploadFailure
         return {
-          ...(!options?.uploadWithoutName ? { name: 'files/client-tour' } : {}),
+          ...(!options?.uploadWithoutName
+            ? { name: options?.uploadName ?? 'files/client-tour' }
+            : {}),
           uri: 'https://generativelanguage.googleapis.com/v1beta/files/client-tour',
           mimeType: 'video/mp4',
           state: 'ACTIVE' as const,
@@ -215,6 +218,30 @@ describe('Gemini video understanding', () => {
       config: { abortSignal: expect.any(AbortSignal) },
     })
     expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: false }))
+  })
+
+  it('retains the preselected cleanup identity when the upload response name is blank', async () => {
+    const fakeClient = client({ uploadName: '   ' })
+    const { budgetGate } = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate,
+      }),
+    ).resolves.toEqual({ summary: 'A venue tour' })
+
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: expect.stringMatching(/^files\/torchiko-/u),
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
   })
 
   it('settles conservatively when a provider upload fails after dispatch begins', async () => {

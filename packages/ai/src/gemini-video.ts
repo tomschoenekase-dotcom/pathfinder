@@ -269,7 +269,9 @@ export async function analyzeGeminiVideo<TParsed>(params: {
         abortSignal: signal,
       },
     })
-    uploadedName = uploaded.name ?? uploadedName
+    // Treat an empty or whitespace-only SDK response name like an omitted
+    // name. The preselected identity is still the only safe cleanup target.
+    uploadedName = uploaded.name?.trim() || uploadedName
     const active = await waitForActiveFile(client, uploaded, signal)
 
     const response = await client.models.generateContent({
