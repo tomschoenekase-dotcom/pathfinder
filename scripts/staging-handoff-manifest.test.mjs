@@ -106,6 +106,11 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   const deployAction = first.admission.requiredActions.findIndex((action) =>
     action.includes('Deploy the resulting immutable staging revision'),
   )
+  const migrationPredeployAction = first.admission.requiredActions.findIndex(
+    (action) =>
+      action.includes('checked-in staging migration predeploy') &&
+      action.includes('before service startup'),
+  )
   const migrationOptInAction = first.admission.requiredActions.findIndex((action) =>
     action.includes('PATHFINDER_ALLOW_STAGING_MIGRATIONS=1'),
   )
@@ -119,6 +124,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.ok(migrationOptInAction >= 0)
   assert.ok(migrationApprovalAction >= 0)
   assert.ok(deployAction >= 0)
+  assert.equal(migrationPredeployAction, deployAction)
   assert.ok(migrationCloseAction >= 0)
   assert.ok(releaseVariableAction < deployAction)
   assert.ok(migrationOptInAction < deployAction)
