@@ -339,6 +339,11 @@ founder-absence row may retain the release that first wrote that day's snapshot,
 separately and is not substituted for the runtime release identity. The worker summary is recent
 process evidence only; it does not certify a consecutive-day founder-absence window.
 
+The worker repeats its already-guarded release admission after each successful 30-minute founder-
+absence observation. This keeps the bounded 24-hour runtime proof live after a healthy worker has
+run longer than one day; it does not re-run admission, change the immutable daily snapshot, or grant
+launch authority.
+
 To reconcile an exact founder-absence window across active and removed worker deployments, run the
 bounded historical auditor with one to eight reviewed deployment IDs and a supported 24-hour through
 168-hour window:

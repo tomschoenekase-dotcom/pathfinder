@@ -20,12 +20,19 @@ function reportFounderAbsenceObservationFailure() {
 }
 
 export async function captureCurrentFounderAbsenceObservation(now = new Date()) {
+  const runtimeRevision = resolveReleaseRevision(process.env)
   const readiness = await readFounderAbsenceCurrentReadiness(now)
   const observation = await captureFounderAbsenceObservation({
     readiness,
-    releaseSha: resolveReleaseRevision(process.env),
+    releaseSha: runtimeRevision,
     now,
   })
+  process.stdout.write(
+    `${JSON.stringify({
+      action: 'workers.release-identity.admitted',
+      revision: runtimeRevision,
+    })}\n`,
+  )
   process.stdout.write(
     `${JSON.stringify({
       action: 'workers.founder-absence-observation.retained',

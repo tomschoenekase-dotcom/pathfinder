@@ -54,6 +54,12 @@ describe('founder absence observer runtime', () => {
     expect(process.stdout.write).toHaveBeenCalledWith(
       expect.stringContaining('workers.founder-absence-observation.retained'),
     )
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      `${JSON.stringify({
+        action: 'workers.release-identity.admitted',
+        revision: mocks.releaseSha,
+      })}\n`,
+    )
   })
 
   it('retries on the bounded interval and stops cleanly', async () => {
@@ -62,6 +68,13 @@ describe('founder absence observer runtime', () => {
 
     await vi.advanceTimersByTimeAsync(runtime.intervalMs)
     expect(mocks.capture).toHaveBeenCalledTimes(2)
+    expect(
+      vi
+        .mocked(process.stdout.write)
+        .mock.calls.filter(([value]) =>
+          String(value).includes('workers.release-identity.admitted'),
+        ),
+    ).toHaveLength(2)
 
     await runtime.shutdown()
     await vi.advanceTimersByTimeAsync(runtime.intervalMs)
