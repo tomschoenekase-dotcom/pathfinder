@@ -36,6 +36,11 @@ function gate() {
 
 function client(options?: {
   responseText?: string
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+    cachedContentTokenCount?: number
+  }
   deleteFailure?: Error
   uploadFailure?: Error
   uploadWithoutName?: boolean
@@ -62,7 +67,7 @@ function client(options?: {
         async () =>
           ({
             text: options?.responseText ?? '{"summary":"A venue tour"}',
-            usageMetadata: {
+            usageMetadata: options?.usageMetadata ?? {
               promptTokenCount: 1_200,
               candidatesTokenCount: 100,
               cachedContentTokenCount: 200,
@@ -237,6 +242,39 @@ describe('Gemini video understanding', () => {
       name: expect.stringMatching(/^files\/torchiko-/u),
       config: { abortSignal: expect.any(AbortSignal) },
     })
+  })
+
+  it('settles conservatively when provider usage metadata is incomplete or impossible', async () => {
+    const fakeClient = client({
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: -1,
+        cachedContentTokenCount: 200,
+      },
+    })
+    const { budgetGate, reservation } = gate()
+    const usageSink = vi.fn(async () => undefined)
+    setGeminiVideoClientForTesting(fakeClient)
+
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink,
+        budgetGate,
+      }),
+    ).rejects.toThrow('invalid usage metadata')
+
+    expect(budgetGate.settleExact).not.toHaveBeenCalled()
+    expect(budgetGate.settleAmbiguous).toHaveBeenCalledWith(reservation)
+    expect(fakeClient.files.delete).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'provider-error', success: false }),
+    )
   })
 
   it('releases an undispatched reservation when the provider key is absent', async () => {

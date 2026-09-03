@@ -110,10 +110,26 @@ function emptyUsage(): AiTokenUsage {
 }
 
 function usageFromResponse(response: GeminiGenerateContentResponse): AiTokenUsage {
-  const cached = response.usageMetadata?.cachedContentTokenCount ?? 0
+  const metadata = response.usageMetadata
+  const prompt = metadata?.promptTokenCount
+  const output = metadata?.candidatesTokenCount
+  const cached = metadata?.cachedContentTokenCount ?? 0
+  if (
+    !Number.isSafeInteger(prompt) ||
+    !Number.isSafeInteger(output) ||
+    !Number.isSafeInteger(cached) ||
+    prompt! < 0 ||
+    output! < 0 ||
+    cached < 0 ||
+    cached > prompt! ||
+    prompt! > GEMINI_VIDEO_MAX_INPUT_TOKENS ||
+    output! > GEMINI_VIDEO_MAX_OUTPUT_TOKENS
+  ) {
+    throw new Error('Gemini video response returned invalid usage metadata')
+  }
   return {
-    inputTokens: Math.max(0, (response.usageMetadata?.promptTokenCount ?? 0) - cached),
-    outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+    inputTokens: prompt! - cached,
+    outputTokens: output!,
     cacheCreationInputTokens: 0,
     cacheReadInputTokens: cached,
   }
