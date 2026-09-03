@@ -106,9 +106,24 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   const deployAction = first.admission.requiredActions.findIndex((action) =>
     action.includes('Deploy the resulting immutable staging revision'),
   )
+  const migrationOptInAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('PATHFINDER_ALLOW_STAGING_MIGRATIONS=1'),
+  )
+  const migrationApprovalAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('PATHFINDER_STAGING_MIGRATION_APPROVAL'),
+  )
+  const migrationCloseAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('PATHFINDER_ALLOW_STAGING_MIGRATIONS=0'),
+  )
   assert.ok(releaseVariableAction >= 0)
+  assert.ok(migrationOptInAction >= 0)
+  assert.ok(migrationApprovalAction >= 0)
   assert.ok(deployAction >= 0)
+  assert.ok(migrationCloseAction >= 0)
   assert.ok(releaseVariableAction < deployAction)
+  assert.ok(migrationOptInAction < deployAction)
+  assert.ok(migrationApprovalAction < deployAction)
+  assert.ok(deployAction < migrationCloseAction)
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
