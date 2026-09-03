@@ -17,6 +17,7 @@ import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
 import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
 import { browserUuid } from '../lib/browser-uuid'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
@@ -66,6 +67,8 @@ type PendingTurn = {
   venueId: string
   anonymousToken: string
 }
+
+const VISITOR_READ_TIMEOUT_MS = 15_000
 
 const EXPANSION_REQUEST_MESSAGES: Record<SupportedChatLanguage, string> = {
   English: 'Tell me more about that.',
@@ -129,6 +132,7 @@ export function VenueChatExperience({
   const sendingEpochRef = useRef<number | null>(null)
   const activeOperationRef = useRef<string | null>(null)
   const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
+  const reconciliationAbortRef = useRef<AbortController | null>(null)
   const pendingTurnRef = useRef<PendingTurn | null>(null)
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
@@ -192,6 +196,8 @@ export function VenueChatExperience({
     () => () => {
       activeStreamRef.current?.unsubscribe()
       activeStreamRef.current = null
+      reconciliationAbortRef.current?.abort()
+      reconciliationAbortRef.current = null
     },
     [],
   )
@@ -203,6 +209,7 @@ export function VenueChatExperience({
 
   useEffect(() => {
     let disposed = false
+    const controller = new AbortController()
     const epoch = ++conversationEpochRef.current
     async function boot() {
       if (!venueSlug) return
@@ -216,15 +223,25 @@ export function VenueChatExperience({
       setIsSending(false)
       activeStreamRef.current?.unsubscribe()
       activeStreamRef.current = null
+      reconciliationAbortRef.current?.abort()
+      reconciliationAbortRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
       sendingEpochRef.current = null
       lastSyncedPosRef.current = null
       resetAnalytics()
       try {
-        const result = await client.venue.getBySlug.query({
-          slug: venueSlug,
-          ...(secondLayerKey ? { secondLayerKey } : {}),
+        const result = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: VISITOR_READ_TIMEOUT_MS,
+          request: (signal) =>
+            client.venue.getBySlug.query(
+              {
+                slug: venueSlug,
+                ...(secondLayerKey ? { secondLayerKey } : {}),
+              },
+              { signal },
+            ),
         })
         if (disposed || conversationEpochRef.current !== epoch) return
         setVenueState({ slug: venueSlug, venue: result })
@@ -241,10 +258,18 @@ export function VenueChatExperience({
         }
         if (token) {
           try {
-            const history = await client.chat.history.query({
-              venueId: result.id,
-              anonymousToken: token,
-              ...(secondLayerKey ? { secondLayerKey } : {}),
+            const history = await runBoundedClientRequest({
+              parentSignal: controller.signal,
+              timeoutMs: VISITOR_READ_TIMEOUT_MS,
+              request: (signal) =>
+                client.chat.history.query(
+                  {
+                    venueId: result.id,
+                    anonymousToken: token,
+                    ...(secondLayerKey ? { secondLayerKey } : {}),
+                  },
+                  { signal },
+                ),
             })
             if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
               setMessages(history.messages as ChatMessage[])
@@ -270,6 +295,7 @@ export function VenueChatExperience({
     void boot()
     return () => {
       disposed = true
+      controller.abort()
     }
   }, [
     client,
@@ -397,11 +423,22 @@ export function VenueChatExperience({
   }
 
   async function reconcileTurn(turn: PendingTurn): Promise<boolean> {
+    reconciliationAbortRef.current?.abort()
+    const controller = new AbortController()
+    reconciliationAbortRef.current = controller
     try {
-      const history = await client.chat.history.query({
-        venueId: turn.venueId,
-        anonymousToken: turn.anonymousToken,
-        ...(secondLayerKey ? { secondLayerKey } : {}),
+      const history = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: VISITOR_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.chat.history.query(
+            {
+              venueId: turn.venueId,
+              anonymousToken: turn.anonymousToken,
+              ...(secondLayerKey ? { secondLayerKey } : {}),
+            },
+            { signal },
+          ),
       })
       if (!turnIsCurrent(turn)) return false
       setMessages(history.messages as ChatMessage[])
@@ -410,6 +447,8 @@ export function VenueChatExperience({
     } catch {
       // Retain the frozen operation. A failed reconciliation must not invent an empty history.
       return false
+    } finally {
+      if (reconciliationAbortRef.current === controller) reconciliationAbortRef.current = null
     }
   }
 

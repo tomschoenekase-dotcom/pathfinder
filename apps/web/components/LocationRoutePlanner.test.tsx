@@ -81,13 +81,16 @@ describe('LocationRoutePlanner', () => {
     await screen.findByText('Take the lift to the upper floor.')
     expect(screen.getByText('Main entrance to Sky gallery')).toBeTruthy()
     expect(screen.getByText('Venue-reviewed route')).toBeTruthy()
-    expect(routeQuery).toHaveBeenCalledWith({
-      venueId: 'venue-1',
-      anonymousToken: '123e4567-e89b-42d3-a456-426614174000',
-      fromLocationId: 'entrance-id',
-      toLocationId: 'gallery-id',
-      accessibleOnly: true,
-    })
+    expect(routeQuery).toHaveBeenCalledWith(
+      {
+        venueId: 'venue-1',
+        anonymousToken: '123e4567-e89b-42d3-a456-426614174000',
+        fromLocationId: 'entrance-id',
+        toLocationId: 'gallery-id',
+        accessibleOnly: true,
+      },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('stays absent when the catalog is unavailable or not entitled', async () => {

@@ -776,10 +776,39 @@ describe('quarantined intake file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load more files' }))
 
     expect(await screen.findByText('walkthrough.mp4')).toBeTruthy()
-    expect(loadMore).toHaveBeenCalledWith({
-      createdAt: '2026-08-18T12:00:00.000Z',
-      id: 'cursor-a',
-    })
+    expect(loadMore).toHaveBeenCalledWith(
+      {
+        createdAt: '2026-08-18T12:00:00.000Z',
+        id: 'cursor-a',
+      },
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('keeps pagination retryable when older files are temporarily unavailable', async () => {
+    const loadMore = vi.fn().mockRejectedValueOnce(new Error('private provider detail'))
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[]}
+        categoryCounts={{ VIDEO_AUDIO: 1 }}
+        nextCursor={{ createdAt: '2026-08-18T12:00:00.000Z', id: 'cursor-a' }}
+        loadMore={loadMore}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Videos or audio 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more files' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Older files could not be loaded. Try again.',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Load more files' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+    expect(screen.queryByText('private provider detail')).toBeNull()
   })
 
   it('can resume an authoritative security check for a saved prechecked upload', async () => {

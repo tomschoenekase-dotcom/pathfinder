@@ -1,11 +1,12 @@
 'use client'
 
-import React, { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import React, { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
 
@@ -14,17 +15,25 @@ type LocationCatalog = RouterOutputs['location']['catalog']['locations']
 type LocationRoute = RouterOutputs['location']['route']
 
 export type LocationRoutePlannerDataSource = {
-  catalog: (input: { venueId: string; anonymousToken: string }) => Promise<{
+  catalog: (
+    input: { venueId: string; anonymousToken: string },
+    signal: AbortSignal,
+  ) => Promise<{
     locations: LocationCatalog
   }>
-  route: (input: {
-    venueId: string
-    anonymousToken: string
-    fromLocationId: string
-    toLocationId: string
-    accessibleOnly: boolean
-  }) => Promise<LocationRoute>
+  route: (
+    input: {
+      venueId: string
+      anonymousToken: string
+      fromLocationId: string
+      toLocationId: string
+      accessibleOnly: boolean
+    },
+    signal: AbortSignal,
+  ) => Promise<LocationRoute>
 }
+
+const LOCATION_READ_TIMEOUT_MS = 15_000
 
 function connectionLabel(kind: string) {
   return kind.toLowerCase().replaceAll('_', ' ')
@@ -62,15 +71,8 @@ export function LocationRoutePlanner({
   ] = copy
   const presentation = getChatLanguagePresentation(language)
   const client = useTRPCClient()
-  const source = useMemo<LocationRoutePlannerDataSource>(
-    () =>
-      dataSource ?? {
-        catalog: (input) => client.location.catalog.query(input),
-        route: (input) => client.location.route.query(input),
-      },
-    [client, dataSource],
-  )
   const requestGeneration = useRef(0)
+  const activeRequest = useRef<AbortController | null>(null)
   const [locations, setLocations] = useState<LocationCatalog | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [fromLocationId, setFromLocationId] = useState('')
@@ -81,15 +83,27 @@ export function LocationRoutePlanner({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     const generation = ++requestGeneration.current
     setLocations(null)
     setExpanded(false)
     setRoute(null)
     setError(null)
-    if (!anonymousToken) return
+    if (!anonymousToken) {
+      activeRequest.current = null
+      return
+    }
 
-    void source
-      .catalog({ venueId, anonymousToken })
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: LOCATION_READ_TIMEOUT_MS,
+      request: (signal) =>
+        dataSource
+          ? dataSource.catalog({ venueId, anonymousToken }, signal)
+          : client.location.catalog.query({ venueId, anonymousToken }, { signal }),
+    })
       .then((result) => {
         if (generation !== requestGeneration.current) return
         setLocations(result.locations)
@@ -100,11 +114,15 @@ export function LocationRoutePlanner({
         // A missing entitlement and an unavailable catalog are both deliberately non-disclosing.
         if (generation === requestGeneration.current) setLocations([])
       })
+      .finally(() => {
+        if (activeRequest.current === controller) activeRequest.current = null
+      })
 
     return () => {
+      controller.abort()
       requestGeneration.current += 1
     }
-  }, [anonymousToken, source, venueId])
+  }, [anonymousToken, client, dataSource, venueId])
 
   if (!anonymousToken || !locations || locations.length < 2) return null
 
@@ -113,16 +131,26 @@ export function LocationRoutePlanner({
     if (!anonymousToken || !fromLocationId || !toLocationId || fromLocationId === toLocationId)
       return
     const generation = ++requestGeneration.current
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
     setIsRouting(true)
     setRoute(null)
     setError(null)
     try {
-      const result = await source.route({
-        venueId,
-        anonymousToken,
-        fromLocationId,
-        toLocationId,
-        accessibleOnly,
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: LOCATION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          dataSource
+            ? dataSource.route(
+                { venueId, anonymousToken, fromLocationId, toLocationId, accessibleOnly },
+                signal,
+              )
+            : client.location.route.query(
+                { venueId, anonymousToken, fromLocationId, toLocationId, accessibleOnly },
+                { signal },
+              ),
       })
       if (generation === requestGeneration.current) setRoute(result)
     } catch {
@@ -130,6 +158,7 @@ export function LocationRoutePlanner({
         setError(accessibleOnly ? noAccessibleRouteMessage : noRouteMessage)
     } finally {
       if (generation === requestGeneration.current) setIsRouting(false)
+      if (activeRequest.current === controller) activeRequest.current = null
     }
   }
 

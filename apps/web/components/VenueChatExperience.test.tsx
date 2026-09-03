@@ -489,10 +489,13 @@ describe('VenueChatExperience presentation boundary', () => {
       await screen.findByRole('heading', { name: 'Museum Guide' })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
       expect(await screen.findByText('Messages: 2')).toBeTruthy()
-      expect(mocks.client.chat.history.query).toHaveBeenCalledWith({
-        venueId: activeVenue.id,
-        anonymousToken: mocks.anonymousToken,
-      })
+      expect(mocks.client.chat.history.query).toHaveBeenCalledWith(
+        {
+          venueId: activeVenue.id,
+          anonymousToken: mocks.anonymousToken,
+        },
+        { signal: expect.any(AbortSignal) },
+      )
       expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
     },
   )

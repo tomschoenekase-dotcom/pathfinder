@@ -29,6 +29,7 @@ import { resolveIntakeUploadClientRecovery } from '@pathfinder/contracts/intake-
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { putBlobWithDeadline, UploadDeadlineError } from '../lib/bounded-upload'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import {
   identifyIntakeFile,
   intakeFileFingerprint,
@@ -49,6 +50,8 @@ type SafeUpload = {
   rejectionCode?: string | null
   clientVerification?: IntakeUploadClientVerification
 }
+
+const INTAKE_UPLOAD_LIST_TIMEOUT_MS = 15_000
 
 export function IntakeFileUploadWorkspace({
   venueId,
@@ -88,7 +91,17 @@ export function IntakeFileUploadWorkspace({
       signMultipartPart={(input) => client.intakeUpload.signMultipartPart.mutate(input)}
       completeMultipart={(input) => client.intakeUpload.completeMultipart.mutate(input)}
       cancelMultipart={(input) => client.intakeUpload.cancelMultipart.mutate(input)}
-      loadMore={(cursor) => client.intakeUpload.list.query({ venueId, cursor, limit: 50 })}
+      loadMore={(cursor, signal) =>
+        runBoundedClientRequest({
+          parentSignal: signal,
+          timeoutMs: INTAKE_UPLOAD_LIST_TIMEOUT_MS,
+          request: (requestSignal) =>
+            client.intakeUpload.list.query(
+              { venueId, cursor, limit: 50 },
+              { signal: requestSignal },
+            ),
+        })
+      }
       onCommitted={() => router.refresh()}
     />
   )
@@ -311,7 +324,10 @@ export function IntakeFileUpload({
   }) => Promise<{ url: string; requiredHeaders: Record<string, string> }>
   completeMultipart?: (input: { venueId: string; uploadId: string }) => Promise<unknown>
   cancelMultipart?: (input: { venueId: string; uploadId: string }) => Promise<unknown>
-  loadMore?: (cursor: { createdAt: string; id: string }) => Promise<{
+  loadMore?: (
+    cursor: { createdAt: string; id: string },
+    signal: AbortSignal,
+  ) => Promise<{
     items: SafeUpload[]
     nextCursor: { createdAt: string; id: string } | null
   }>
@@ -335,6 +351,7 @@ export function IntakeFileUpload({
   const [savedUploads, setSavedUploads] = useState(uploads)
   const [savedNextCursor, setSavedNextCursor] = useState(nextCursor)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
   const [savedChecks, setSavedChecks] = useState<Record<string, 'busy' | 'error'>>({})
   const identitiesRef = useRef(
     new Map<string, { fingerprint: string; requestId: string; claimId: string }>(),
@@ -345,10 +362,13 @@ export function IntakeFileUpload({
   const cancelRequestedRef = useRef(new Set<string>())
   const scopeRef = useRef(venueId)
   const generationRef = useRef(0)
+  const paginationControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     setSavedUploads(uploads)
     setSavedNextCursor(nextCursor)
+    setLoadingMore(false)
+    setLoadMoreError(null)
   }, [uploads, nextCursor, venueId])
 
   if (scopeRef.current !== venueId) {
@@ -358,6 +378,8 @@ export function IntakeFileUpload({
     inFlightRef.current.clear()
     for (const controller of abortControllersRef.current.values()) controller.abort()
     abortControllersRef.current.clear()
+    paginationControllerRef.current?.abort()
+    paginationControllerRef.current = null
     cancelRequestedRef.current.clear()
   }
 
@@ -387,18 +409,56 @@ export function IntakeFileUpload({
   const hasMaterialAttention =
     resolvedAttentionCount + resolvedCheckActionCount + resolvedCheckWaitingCount > 0
 
+  useEffect(
+    () => () => {
+      paginationControllerRef.current?.abort()
+      for (const controller of abortControllersRef.current.values()) controller.abort()
+    },
+    [],
+  )
+
   async function loadMoreUploads() {
     if (!loadMore || !savedNextCursor || loadingMore) return
+    paginationControllerRef.current?.abort()
+    const controller = new AbortController()
+    paginationControllerRef.current = controller
+    const generation = generationRef.current
+    const scope = venueId
+    const cursor = savedNextCursor
     setLoadingMore(true)
+    setLoadMoreError(null)
     try {
-      const page = await loadMore(savedNextCursor)
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: INTAKE_UPLOAD_LIST_TIMEOUT_MS,
+        request: (signal) => loadMore(cursor, signal),
+      })
+      if (
+        controller.signal.aborted ||
+        generationRef.current !== generation ||
+        scopeRef.current !== scope
+      )
+        return
       setSavedUploads((current) => {
         const known = new Set(current.map((upload) => upload.id))
         return [...current, ...page.items.filter((upload) => !known.has(upload.id))]
       })
       setSavedNextCursor(page.nextCursor)
+    } catch {
+      if (
+        !controller.signal.aborted &&
+        generationRef.current === generation &&
+        scopeRef.current === scope
+      )
+        setLoadMoreError('Older files could not be loaded. Try again.')
     } finally {
-      setLoadingMore(false)
+      if (paginationControllerRef.current === controller) paginationControllerRef.current = null
+      if (
+        !controller.signal.aborted &&
+        generationRef.current === generation &&
+        scopeRef.current === scope
+      )
+        setLoadingMore(false)
     }
   }
 
@@ -958,6 +1018,11 @@ export function IntakeFileUpload({
       {visibleSelectionError ? (
         <p className={styles.inlineError} role="alert">
           <AlertTriangle aria-hidden="true" /> {visibleSelectionError}
+        </p>
+      ) : null}
+      {loadMoreError ? (
+        <p className={styles.inlineError} role="alert">
+          <AlertTriangle aria-hidden="true" /> {loadMoreError}
         </p>
       ) : null}
 

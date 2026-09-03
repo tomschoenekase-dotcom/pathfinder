@@ -6,6 +6,7 @@ import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { getChatLanguagePresentation } from './LanguagePicker'
 
 type VoiceState =
@@ -21,6 +22,7 @@ export type VoiceTranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: stri
 export const MICROPHONE_REQUEST_TIMEOUT_MS = 15_000
 export const REALTIME_SDP_REQUEST_TIMEOUT_MS = 30_000
 export const REALTIME_SDP_RESPONSE_MAX_BYTES = 1024 * 1024
+export const VOICE_AVAILABILITY_TIMEOUT_MS = 15_000
 
 async function cancelResponseBody(response: Response): Promise<void> {
   try {
@@ -238,19 +240,22 @@ export function VoiceControl({
       setAvailable(false)
       return
     }
-    let current = true
-    void client.voice.availability
-      .query({ venueId, anonymousToken })
+    const controller = new AbortController()
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: VOICE_AVAILABILITY_TIMEOUT_MS,
+      request: (signal) => client.voice.availability.query({ venueId, anonymousToken }, { signal }),
+    })
       .then((result) => {
-        if (!current) return
+        if (controller.signal.aborted) return
         setAvailable(result.enabled)
         setPremiumAvailable(result.enabled && result.premiumAvailable)
       })
       .catch(() => {
-        if (current) setAvailable(false)
+        if (!controller.signal.aborted) setAvailable(false)
       })
     return () => {
-      current = false
+      controller.abort()
     }
   }, [anonymousToken, client.voice.availability, venueId])
 
