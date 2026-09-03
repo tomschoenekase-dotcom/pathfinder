@@ -223,7 +223,11 @@ describe('media ingestion finalization recovery', () => {
       name: /Analyze complete videos with Google Gemini/,
     }) as HTMLInputElement
     expect(consent.checked).toBe(false)
-    expect(screen.getByText(/Sends each client video to Google/)).toBeTruthy()
+    expect(
+      screen.getByText(
+        /Sends each client video, its filename, and up to 12,000 characters of this project's operator context to Google/,
+      ),
+    ).toBeTruthy()
 
     fireEvent.click(consent)
     const archive = new File([new Uint8Array([1, 2, 3])], 'visit.zip', {

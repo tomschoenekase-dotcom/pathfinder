@@ -444,11 +444,12 @@ export function MediaIngestionWorkbench({
                 Analyze complete videos with Google Gemini
               </span>
               <span className="mt-1 block leading-6">
-                Sends each client video to Google so Torchiko can connect motion, narration, visible
-                text, and timestamped events. Torchiko requests deletion immediately after analysis;
-                Google API logs may still follow the project&apos;s configured retention policy. If
-                this path is unavailable, Torchiko falls back to bounded frame sampling and records
-                that limitation for review.
+                Sends each client video, its filename, and up to 12,000 characters of this
+                project&apos;s operator context to Google so Torchiko can connect motion, narration,
+                visible text, and timestamped events. Torchiko requests deletion immediately after
+                analysis; Google API logs may still follow the project&apos;s configured retention
+                policy. If this path is unavailable, Torchiko falls back to bounded frame sampling
+                and records that limitation for review.
               </span>
             </span>
           </label>
