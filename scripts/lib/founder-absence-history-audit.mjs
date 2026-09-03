@@ -47,6 +47,7 @@ function parseFounderAbsenceLogLines(text) {
 export function parseFounderAbsenceHistoryArgs(args) {
   const deployments = []
   let since = null
+  let expectedRevision = null
   for (let index = 0; index < args.length; index += 2) {
     const option = args[index]
     const value = args[index + 1]
@@ -59,26 +60,32 @@ export function parseFounderAbsenceHistoryArgs(args) {
       since = value
       continue
     }
+    if (option === '--expected-revision' && SHA.test(value) && expectedRevision === null) {
+      expectedRevision = value
+      continue
+    }
     fail('invalid-options')
   }
   if (
     deployments.length === 0 ||
     deployments.length > MAX_DEPLOYMENTS ||
     new Set(deployments).size !== deployments.length ||
-    since === null
+    since === null ||
+    expectedRevision === null
   ) {
     fail('invalid-options')
   }
-  return { deployments, since }
+  return { deployments, expectedRevision, since }
 }
 
-export function buildFounderAbsenceHistoryQueries({ deployments, since }) {
+export function buildFounderAbsenceHistoryQueries({ deployments, expectedRevision, since }) {
   if (
     !Array.isArray(deployments) ||
     deployments.length === 0 ||
     deployments.length > MAX_DEPLOYMENTS ||
     new Set(deployments).size !== deployments.length ||
     deployments.some((deployment) => !UUID.test(deployment)) ||
+    !SHA.test(expectedRevision ?? '') ||
     !WINDOWS.has(since)
   ) {
     fail('invalid-options')
@@ -169,6 +176,7 @@ export function auditFounderAbsenceHistory(options, runRailway) {
   )
   const latestDay = ordered.at(-1)
   const streakReleaseSha = latestDay.evidenceComplete ? latestDay.releaseSha : null
+  const streakMatchesExpectedRevision = streakReleaseSha === options.expectedRevision
   let consecutiveCompleteDays = streakReleaseSha === null ? 0 : 1
   for (let index = ordered.length - 1; consecutiveCompleteDays > 0 && index > 0; index -= 1) {
     const current = ordered[index]
@@ -186,6 +194,7 @@ export function auditFounderAbsenceHistory(options, runRailway) {
     ok: true,
     environment: 'staging',
     window: options.since,
+    expectedRevision: options.expectedRevision,
     deployments: options.deployments,
     retainedEvents: relevant.length,
     failedEvents: 0,
@@ -197,8 +206,9 @@ export function auditFounderAbsenceHistory(options, runRailway) {
       deployments: [...day.deployments].sort(),
     })),
     streakReleaseSha,
+    streakMatchesExpectedRevision,
     consecutiveCompleteDays,
-    sevenDayReviewReady: consecutiveCompleteDays >= 7,
+    sevenDayReviewReady: streakMatchesExpectedRevision && consecutiveCompleteDays >= 7,
     certificationGranted: false,
     launchGate: false,
   }

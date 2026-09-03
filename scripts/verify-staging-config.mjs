@@ -76,6 +76,19 @@ if (
   throw new Error('docs/railway-staging.md: bounded runtime-log audit is incomplete')
 }
 
+const founderHistoryCommandStart = runbook.indexOf('pnpm verify:founder-absence-history')
+const founderHistoryCommand =
+  founderHistoryCommandStart >= 0
+    ? runbook.slice(founderHistoryCommandStart, founderHistoryCommandStart + 500)
+    : ''
+if (
+  !founderHistoryCommand.includes('--expected-revision "$RELEASE_SHA"') ||
+  !founderHistoryCommand.includes('--since 168h') ||
+  !runbook.includes('old-release streak')
+) {
+  throw new Error('docs/railway-staging.md: release-bound history audit is incomplete')
+}
+
 if (
   !runbook.includes('railway-iac-migration.md') ||
   !iacRunbook.includes('2026-12-01') ||
