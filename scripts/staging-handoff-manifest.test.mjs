@@ -100,6 +100,15 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     ),
     true,
   )
+  const releaseVariableAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('PATHFINDER_RELEASE_SHA'),
+  )
+  const deployAction = first.admission.requiredActions.findIndex((action) =>
+    action.includes('Deploy the resulting immutable staging revision'),
+  )
+  assert.ok(releaseVariableAction >= 0)
+  assert.ok(deployAction >= 0)
+  assert.ok(releaseVariableAction < deployAction)
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
