@@ -352,7 +352,9 @@ pnpm verify:founder-absence-history \
 
 The command pins the Railway CLI, queries only `staging-workers` in `staging`, rejects provider or
 capture failures, rejects malformed or drifting daily identities, and emits only dates, immutable
-release identities, bounded counts, and the latest complete streak. `sevenDayReviewReady` is evidence
+release identities, bounded counts, and the latest complete streak for one exact release SHA.
+`streakReleaseSha` names that identity, and a release change resets `consecutiveCompleteDays` even
+when adjacent UTC dates are otherwise complete. `sevenDayReviewReady` is evidence
 for human review only: the command always returns `certificationGranted=false` and `launchGate=false`.
 It never reads variables, connects to the database, creates an SSH key, deploys, or changes config.
 

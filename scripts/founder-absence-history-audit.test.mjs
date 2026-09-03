@@ -13,12 +13,12 @@ const FIRST = '11111111-1111-4111-8111-111111111111'
 const SECOND = '22222222-2222-4222-8222-222222222222'
 const SHA = 'a'.repeat(40)
 
-function row(observedOn, evidenceComplete = true) {
+function row(observedOn, evidenceComplete = true, releaseSha = SHA) {
   return {
     action: 'workers.founder-absence-observation.retained',
     observedOn,
     evidenceComplete,
-    releaseSha: SHA,
+    releaseSha,
   }
 }
 
@@ -73,6 +73,7 @@ test('deduplicates immutable daily identity and reports the latest complete stre
   assert.equal(result.retainedEvents, 5)
   assert.equal(result.observedDays.length, 4)
   assert.equal(result.observedDays[1].events, 2)
+  assert.equal(result.streakReleaseSha, SHA)
   assert.equal(result.consecutiveCompleteDays, 4)
   assert.equal(result.sevenDayReviewReady, false)
   assert.equal(result.certificationGranted, false)
@@ -90,6 +91,25 @@ test('stops a streak at an incomplete or missing day', () => {
     }))
     assert.equal(result.consecutiveCompleteDays, 1)
   }
+})
+
+test('counts only consecutive complete days for the latest exact release identity', () => {
+  const previousSha = 'b'.repeat(40)
+  const result = auditFounderAbsenceHistory({ deployments: [FIRST], since: '96h' }, () => ({
+    status: 0,
+    stdout: [
+      row('2026-08-28', true, previousSha),
+      row('2026-08-29', true, previousSha),
+      row('2026-08-30'),
+      row('2026-08-31'),
+    ]
+      .map(JSON.stringify)
+      .join('\n'),
+  }))
+
+  assert.equal(result.streakReleaseSha, SHA)
+  assert.equal(result.consecutiveCompleteDays, 2)
+  assert.equal(result.sevenDayReviewReady, false)
 })
 
 test('fails closed on provider errors, failed captures, malformed rows, and identity drift', () => {

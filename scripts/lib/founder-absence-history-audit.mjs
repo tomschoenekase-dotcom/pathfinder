@@ -167,11 +167,17 @@ export function auditFounderAbsenceHistory(options, runRailway) {
   const ordered = [...days.values()].sort((left, right) =>
     left.observedOn.localeCompare(right.observedOn),
   )
-  let consecutiveCompleteDays = ordered.at(-1).evidenceComplete ? 1 : 0
+  const latestDay = ordered.at(-1)
+  const streakReleaseSha = latestDay.evidenceComplete ? latestDay.releaseSha : null
+  let consecutiveCompleteDays = streakReleaseSha === null ? 0 : 1
   for (let index = ordered.length - 1; consecutiveCompleteDays > 0 && index > 0; index -= 1) {
     const current = ordered[index]
     const previous = ordered[index - 1]
-    if (!previous.evidenceComplete || previous.observedOn !== previousUtcDay(current.observedOn))
+    if (
+      !previous.evidenceComplete ||
+      previous.releaseSha !== streakReleaseSha ||
+      previous.observedOn !== previousUtcDay(current.observedOn)
+    )
       break
     consecutiveCompleteDays += 1
   }
@@ -190,6 +196,7 @@ export function auditFounderAbsenceHistory(options, runRailway) {
       events: day.events,
       deployments: [...day.deployments].sort(),
     })),
+    streakReleaseSha,
     consecutiveCompleteDays,
     sevenDayReviewReady: consecutiveCompleteDays >= 7,
     certificationGranted: false,
