@@ -102,6 +102,13 @@ describe('Gemini video understanding', () => {
       }),
     )
     expect(budgetGate.markDispatched).toHaveBeenCalledWith(reservation)
+    expect(fakeClient.files.upload).toHaveBeenCalledWith({
+      file: 'C:\\fixtures\\tour.mp4',
+      config: expect.objectContaining({
+        name: expect.stringMatching(/^files\/torchiko-/u),
+        abortSignal: expect.any(AbortSignal),
+      }),
+    })
     expect(budgetGate.settleExact).toHaveBeenCalledWith(reservation, 114_000n)
     expect(fakeClient.models.generateContent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -179,7 +186,7 @@ describe('Gemini video understanding', () => {
     )
   })
 
-  it('fails closed when an uploaded file has no deletable provider identity', async () => {
+  it('deletes the preselected provider identity when the upload response omits it', async () => {
     const fakeClient = client({ uploadWithoutName: true })
     const { budgetGate } = gate()
     const usageSink = vi.fn(async () => undefined)
@@ -196,12 +203,13 @@ describe('Gemini video understanding', () => {
         usageSink,
         budgetGate,
       }),
-    ).rejects.toThrow('Gemini video file deletion could not be confirmed')
+    ).rejects.toThrow('Gemini video upload returned incomplete file identity')
 
-    expect(fakeClient.files.delete).not.toHaveBeenCalled()
-    expect(usageSink).toHaveBeenCalledWith(
-      expect.objectContaining({ errorCode: 'provider-file-delete-unconfirmed', success: false }),
-    )
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: expect.stringMatching(/^files\/torchiko-/u),
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
+    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: false }))
   })
 
   it('settles conservatively when a provider upload fails after dispatch begins', async () => {
@@ -225,6 +233,10 @@ describe('Gemini video understanding', () => {
     expect(budgetGate.markDispatched).toHaveBeenCalledWith(reservation)
     expect(budgetGate.settleAmbiguous).toHaveBeenCalledWith(reservation)
     expect(budgetGate.releaseUndispatched).not.toHaveBeenCalled()
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: expect.stringMatching(/^files\/torchiko-/u),
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
   })
 
   it('releases an undispatched reservation when the provider key is absent', async () => {

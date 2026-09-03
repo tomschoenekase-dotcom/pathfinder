@@ -52,7 +52,7 @@ export type GeminiVideoClient = {
   files: {
     upload(params: {
       file: string
-      config: { mimeType: string; displayName: string; abortSignal: AbortSignal }
+      config: { name: string; mimeType: string; displayName: string; abortSignal: AbortSignal }
     }): Promise<GeminiFile>
     get(params: { name: string; config: { abortSignal: AbortSignal } }): Promise<GeminiFile>
     delete(params: { name: string; config: { abortSignal: AbortSignal } }): Promise<unknown>
@@ -196,6 +196,8 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   signal?: AbortSignal
 }): Promise<TParsed> {
   const startedAt = performance.now()
+  const invocationId = params.invocationId ?? createAiInvocationId()
+  const providerFileId = createAiInvocationId()
   const deadline = AbortSignal.timeout(GEMINI_VIDEO_PROCESSING_TIMEOUT_MS)
   const signal = params.signal ? AbortSignal.any([params.signal, deadline]) : deadline
   let usage = emptyUsage()
@@ -204,12 +206,11 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   let usageObserved = false
   let outputObserved = false
   let uploadedName: string | null = null
-  let uploadCompleted = false
   let outcome: { ok: true; value: TParsed } | { ok: false; error: unknown }
 
   try {
     reservation = await params.budgetGate.reserve({
-      invocationId: params.invocationId ?? createAiInvocationId(),
+      invocationId,
       attemptNumber: 1,
       provider: 'google',
       model: params.model,
@@ -239,16 +240,20 @@ export async function analyzeGeminiVideo<TParsed>(params: {
       }
     }
     dispatched = true
+    // Preselect the provider resource name before upload. Even if the client
+    // loses the upload response after the service accepts bytes, cleanup still
+    // has an exact identity to delete and cannot silently abandon client media.
+    uploadedName = `files/torchiko-${providerFileId}`
     const uploaded = await client.files.upload({
       file: params.filePath,
       config: {
+        name: uploadedName,
         mimeType: params.mimeType,
         displayName: params.filename.slice(0, 512),
         abortSignal: signal,
       },
     })
-    uploadCompleted = true
-    uploadedName = uploaded.name ?? null
+    uploadedName = uploaded.name ?? uploadedName
     const active = await waitForActiveFile(client, uploaded, signal)
 
     const response = await client.models.generateContent({
@@ -293,8 +298,6 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     } catch (error) {
       cleanupError = error
     }
-  } else if (uploadCompleted) {
-    cleanupError = new Error('Gemini video upload returned no deletable file identity')
   }
 
   if (reservation && dispatched && !usageObserved) {
