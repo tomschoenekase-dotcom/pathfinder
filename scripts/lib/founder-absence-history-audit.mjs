@@ -46,6 +46,7 @@ function parseFounderAbsenceLogLines(text) {
 
 export function parseFounderAbsenceHistoryArgs(args) {
   const deployments = []
+  let currentDeployment = null
   let since = null
   let expectedRevision = null
   for (let index = 0; index < args.length; index += 2) {
@@ -54,6 +55,10 @@ export function parseFounderAbsenceHistoryArgs(args) {
     if (typeof value !== 'string') fail('invalid-options')
     if (option === '--deployment' && UUID.test(value)) {
       deployments.push(value)
+      continue
+    }
+    if (option === '--current-deployment' && UUID.test(value) && currentDeployment === null) {
+      currentDeployment = value
       continue
     }
     if (option === '--since' && WINDOWS.has(value) && since === null) {
@@ -70,21 +75,30 @@ export function parseFounderAbsenceHistoryArgs(args) {
     deployments.length === 0 ||
     deployments.length > MAX_DEPLOYMENTS ||
     new Set(deployments).size !== deployments.length ||
+    currentDeployment === null ||
+    !deployments.includes(currentDeployment) ||
     since === null ||
     expectedRevision === null
   ) {
     fail('invalid-options')
   }
-  return { deployments, expectedRevision, since }
+  return { currentDeployment, deployments, expectedRevision, since }
 }
 
-export function buildFounderAbsenceHistoryQueries({ deployments, expectedRevision, since }) {
+export function buildFounderAbsenceHistoryQueries({
+  currentDeployment,
+  deployments,
+  expectedRevision,
+  since,
+}) {
   if (
     !Array.isArray(deployments) ||
     deployments.length === 0 ||
     deployments.length > MAX_DEPLOYMENTS ||
     new Set(deployments).size !== deployments.length ||
     deployments.some((deployment) => !UUID.test(deployment)) ||
+    !UUID.test(currentDeployment ?? '') ||
+    !deployments.includes(currentDeployment) ||
     !SHA.test(expectedRevision ?? '') ||
     !WINDOWS.has(since)
   ) {
@@ -111,6 +125,7 @@ export function buildFounderAbsenceHistoryQueries({ deployments, expectedRevisio
 export function auditFounderAbsenceHistory(options, runRailway) {
   if (typeof runRailway !== 'function') fail('invalid-runner')
   const relevant = []
+  const currentReleaseAdmissions = []
   for (const query of buildFounderAbsenceHistoryQueries(options)) {
     const result = runRailway(query.args)
     if (
@@ -123,12 +138,30 @@ export function auditFounderAbsenceHistory(options, runRailway) {
     }
     for (const row of parseFounderAbsenceLogLines(result.stdout)) {
       if (
+        query.deployment === options.currentDeployment &&
+        row.action === 'workers.release-identity.admitted'
+      ) {
+        currentReleaseAdmissions.push(row)
+      }
+      if (
         row.action === 'workers.founder-absence-observation.retained' ||
         row.action === 'workers.founder-absence-observation.failed'
       ) {
         relevant.push({ deployment: query.deployment, row })
       }
     }
+  }
+
+  if (currentReleaseAdmissions.length === 0) fail('worker-release-identity-missing')
+  if (
+    currentReleaseAdmissions.some(
+      (row) => typeof row.revision !== 'string' || !SHA.test(row.revision),
+    )
+  ) {
+    fail('worker-release-identity-invalid')
+  }
+  if (currentReleaseAdmissions.some((row) => row.revision !== options.expectedRevision)) {
+    fail('worker-release-identity-mismatch')
   }
 
   const failedEvents = relevant.filter(
@@ -195,6 +228,8 @@ export function auditFounderAbsenceHistory(options, runRailway) {
     environment: 'staging',
     window: options.since,
     expectedRevision: options.expectedRevision,
+    currentDeployment: options.currentDeployment,
+    currentReleaseAdmissions: currentReleaseAdmissions.length,
     deployments: options.deployments,
     retainedEvents: relevant.length,
     failedEvents: 0,

@@ -82,6 +82,7 @@ const founderHistoryCommand =
     ? runbook.slice(founderHistoryCommandStart, founderHistoryCommandStart + 500)
     : ''
 if (
+  !founderHistoryCommand.includes('--current-deployment <current-staging-workers-deployment-id>') ||
   !founderHistoryCommand.includes('--expected-revision "$RELEASE_SHA"') ||
   !founderHistoryCommand.includes('--since 168h') ||
   !runbook.includes('old-release streak')

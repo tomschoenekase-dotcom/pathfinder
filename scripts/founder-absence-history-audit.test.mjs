@@ -22,11 +22,17 @@ function row(observedOn, evidenceComplete = true, releaseSha = SHA) {
   }
 }
 
+function admission(revision = SHA) {
+  return { action: 'workers.release-identity.admitted', revision }
+}
+
 test('accepts one to eight unique deployment IDs and an exact bounded window', () => {
   const args = [
     '--deployment',
     FIRST,
     '--deployment',
+    SECOND,
+    '--current-deployment',
     SECOND,
     '--expected-revision',
     SHA,
@@ -34,16 +40,65 @@ test('accepts one to eight unique deployment IDs and an exact bounded window', (
     '168h',
   ]
   assert.deepEqual(parseFounderAbsenceHistoryArgs(args), {
+    currentDeployment: SECOND,
     deployments: [FIRST, SECOND],
     expectedRevision: SHA,
     since: '168h',
   })
   for (const invalid of [
     ['--since', '168h'],
-    ['--deployment', FIRST, '--expected-revision', SHA, '--since', '7d'],
-    ['--deployment', FIRST, '--deployment', FIRST, '--expected-revision', SHA, '--since', '24h'],
-    ['--deployment', 'not-a-uuid', '--expected-revision', SHA, '--since', '24h'],
-    ['--deployment', FIRST, '--expected-revision', 'short', '--since', '24h'],
+    [
+      '--deployment',
+      FIRST,
+      '--current-deployment',
+      SECOND,
+      '--expected-revision',
+      SHA,
+      '--since',
+      '24h',
+    ],
+    [
+      '--deployment',
+      FIRST,
+      '--current-deployment',
+      FIRST,
+      '--expected-revision',
+      SHA,
+      '--since',
+      '7d',
+    ],
+    [
+      '--deployment',
+      FIRST,
+      '--deployment',
+      FIRST,
+      '--current-deployment',
+      FIRST,
+      '--expected-revision',
+      SHA,
+      '--since',
+      '24h',
+    ],
+    [
+      '--deployment',
+      'not-a-uuid',
+      '--current-deployment',
+      FIRST,
+      '--expected-revision',
+      SHA,
+      '--since',
+      '24h',
+    ],
+    [
+      '--deployment',
+      FIRST,
+      '--current-deployment',
+      FIRST,
+      '--expected-revision',
+      'short',
+      '--since',
+      '24h',
+    ],
   ]) {
     assert.throws(() => parseFounderAbsenceHistoryArgs(invalid), /invalid-options/u)
   }
@@ -51,6 +106,7 @@ test('accepts one to eight unique deployment IDs and an exact bounded window', (
 
 test('binds every query to the exact deployment and staging worker service', () => {
   const queries = buildFounderAbsenceHistoryQueries({
+    currentDeployment: SECOND,
     deployments: [FIRST, SECOND],
     expectedRevision: SHA,
     since: '120h',
@@ -75,14 +131,21 @@ test('binds every query to the exact deployment and staging worker service', () 
 test('deduplicates immutable daily identity and reports the latest complete streak without authority', () => {
   const batches = [
     [row('2026-08-28'), row('2026-08-29'), row('2026-08-29')],
-    [row('2026-08-30'), row('2026-08-31')],
+    [admission(), row('2026-08-30'), row('2026-08-31')],
   ]
   let call = 0
   const result = auditFounderAbsenceHistory(
-    { deployments: [FIRST, SECOND], expectedRevision: SHA, since: '168h' },
+    {
+      currentDeployment: SECOND,
+      deployments: [FIRST, SECOND],
+      expectedRevision: SHA,
+      since: '168h',
+    },
     () => ({ status: 0, stdout: batches[call++].map(JSON.stringify).join('\n') }),
   )
   assert.equal(result.retainedEvents, 5)
+  assert.equal(result.currentDeployment, SECOND)
+  assert.equal(result.currentReleaseAdmissions, 1)
   assert.equal(result.observedDays.length, 4)
   assert.equal(result.observedDays[1].events, 2)
   assert.equal(result.streakReleaseSha, SHA)
@@ -99,10 +162,10 @@ test('stops a streak at an incomplete or missing day', () => {
     [row('2026-08-28'), row('2026-08-30')],
   ]) {
     const result = auditFounderAbsenceHistory(
-      { deployments: [FIRST], expectedRevision: SHA, since: '72h' },
+      { currentDeployment: FIRST, deployments: [FIRST], expectedRevision: SHA, since: '72h' },
       () => ({
         status: 0,
-        stdout: rows.map(JSON.stringify).join('\n'),
+        stdout: [admission(), ...rows].map(JSON.stringify).join('\n'),
       }),
     )
     assert.equal(result.consecutiveCompleteDays, 1)
@@ -112,10 +175,11 @@ test('stops a streak at an incomplete or missing day', () => {
 test('counts only consecutive complete days for the latest exact release identity', () => {
   const previousSha = 'b'.repeat(40)
   const result = auditFounderAbsenceHistory(
-    { deployments: [FIRST], expectedRevision: SHA, since: '96h' },
+    { currentDeployment: FIRST, deployments: [FIRST], expectedRevision: SHA, since: '96h' },
     () => ({
       status: 0,
       stdout: [
+        admission(),
         row('2026-08-28', true, previousSha),
         row('2026-08-29', true, previousSha),
         row('2026-08-30'),
@@ -137,8 +201,8 @@ test('never marks an old release streak review-ready for a different expected re
     row(`2026-08-${String(25 + index).padStart(2, '0')}`, true, oldSha),
   )
   const result = auditFounderAbsenceHistory(
-    { deployments: [FIRST], expectedRevision: SHA, since: '168h' },
-    () => ({ status: 0, stdout: rows.map(JSON.stringify).join('\n') }),
+    { currentDeployment: FIRST, deployments: [FIRST], expectedRevision: SHA, since: '168h' },
+    () => ({ status: 0, stdout: [admission(), ...rows].map(JSON.stringify).join('\n') }),
   )
   assert.equal(result.consecutiveCompleteDays, 7)
   assert.equal(result.streakReleaseSha, oldSha)
@@ -146,8 +210,46 @@ test('never marks an old release streak review-ready for a different expected re
   assert.equal(result.sevenDayReviewReady, false)
 })
 
+test('fails closed when the current worker runtime does not admit the expected revision', () => {
+  const options = {
+    currentDeployment: FIRST,
+    deployments: [FIRST],
+    expectedRevision: SHA,
+    since: '24h',
+  }
+  assert.throws(
+    () =>
+      auditFounderAbsenceHistory(options, () => ({
+        status: 0,
+        stdout: JSON.stringify(row('2026-08-31')),
+      })),
+    /worker-release-identity-missing/u,
+  )
+  assert.throws(
+    () =>
+      auditFounderAbsenceHistory(options, () => ({
+        status: 0,
+        stdout: [admission('private detail'), row('2026-08-31')].map(JSON.stringify).join('\n'),
+      })),
+    /worker-release-identity-invalid/u,
+  )
+  assert.throws(
+    () =>
+      auditFounderAbsenceHistory(options, () => ({
+        status: 0,
+        stdout: [admission('b'.repeat(40)), row('2026-08-31')].map(JSON.stringify).join('\n'),
+      })),
+    /worker-release-identity-mismatch/u,
+  )
+})
+
 test('fails closed on provider errors, failed captures, malformed rows, and identity drift', () => {
-  const options = { deployments: [FIRST], expectedRevision: SHA, since: '24h' }
+  const options = {
+    currentDeployment: FIRST,
+    deployments: [FIRST],
+    expectedRevision: SHA,
+    since: '24h',
+  }
   assert.throws(
     () => auditFounderAbsenceHistory(options, () => ({ status: 1, stdout: '' })),
     /railway-query-failed/u,
@@ -156,7 +258,9 @@ test('fails closed on provider errors, failed captures, malformed rows, and iden
     () =>
       auditFounderAbsenceHistory(options, () => ({
         status: 0,
-        stdout: JSON.stringify({ action: 'workers.founder-absence-observation.failed' }),
+        stdout: [admission(), { action: 'workers.founder-absence-observation.failed' }]
+          .map(JSON.stringify)
+          .join('\n'),
       })),
     /founder-absence-capture-failed/u,
   )
@@ -164,7 +268,9 @@ test('fails closed on provider errors, failed captures, malformed rows, and iden
     () =>
       auditFounderAbsenceHistory(options, () => ({
         status: 0,
-        stdout: JSON.stringify({ ...row('2026-08-31'), releaseSha: 'private detail' }),
+        stdout: [admission(), { ...row('2026-08-31'), releaseSha: 'private detail' }]
+          .map(JSON.stringify)
+          .join('\n'),
       })),
     /invalid-observation-row/u,
   )
@@ -172,7 +278,11 @@ test('fails closed on provider errors, failed captures, malformed rows, and iden
     () =>
       auditFounderAbsenceHistory(options, () => ({
         status: 0,
-        stdout: [row('2026-08-31'), { ...row('2026-08-31'), releaseSha: 'b'.repeat(40) }]
+        stdout: [
+          admission(),
+          row('2026-08-31'),
+          { ...row('2026-08-31'), releaseSha: 'b'.repeat(40) },
+        ]
           .map(JSON.stringify)
           .join('\n'),
       })),
@@ -181,7 +291,12 @@ test('fails closed on provider errors, failed captures, malformed rows, and iden
 })
 
 test('fails closed when Railway output exceeds the local row or byte ceiling', () => {
-  const options = { deployments: [FIRST], expectedRevision: SHA, since: '168h' }
+  const options = {
+    currentDeployment: FIRST,
+    deployments: [FIRST],
+    expectedRevision: SHA,
+    since: '168h',
+  }
   assert.throws(
     () =>
       auditFounderAbsenceHistory(options, () => ({

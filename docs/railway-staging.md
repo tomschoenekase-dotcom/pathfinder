@@ -347,6 +347,7 @@ bounded historical auditor with one to eight reviewed deployment IDs and a suppo
 pnpm verify:founder-absence-history \
   --deployment <older-staging-workers-deployment-id> \
   --deployment <current-staging-workers-deployment-id> \
+  --current-deployment <current-staging-workers-deployment-id> \
   --expected-revision "$RELEASE_SHA" \
   --since 168h
 ```
@@ -356,8 +357,9 @@ capture failures, rejects malformed or drifting daily identities, and emits only
 release identities, bounded counts, and the latest complete streak for one exact release SHA.
 `streakReleaseSha` names that identity, and a release change resets `consecutiveCompleteDays` even
 when adjacent UTC dates are otherwise complete. The command also requires the full intended release
-SHA, reports whether the observed streak matches it, and keeps `sevenDayReviewReady=false` for an
-old-release streak. `sevenDayReviewReady` is evidence
+SHA, requires the explicitly named current worker deployment to contain a post-guard admission for
+that SHA, reports whether the observed streak matches it, and keeps `sevenDayReviewReady=false` for
+an old-release streak. `sevenDayReviewReady` is evidence
 for human review only: the command always returns `certificationGranted=false` and `launchGate=false`.
 It never reads variables, connects to the database, creates an SSH key, deploys, or changes config.
 
