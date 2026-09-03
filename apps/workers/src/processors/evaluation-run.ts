@@ -92,6 +92,56 @@ export function detectEvaluationRegression(input: {
   return { currentRate, previousRate, drop }
 }
 
+type RegressionResultEvidence = {
+  caseId: string
+  caseRevision: number
+  caseHash: string
+  outcome: string
+  passed: boolean | null
+}
+
+/**
+ * Quality rates are meaningful only when every frozen case has exactly one scored result with
+ * matching immutable evidence. Operational, budget, cancellation, missing, duplicate, or stale
+ * evidence keeps automatic quality alerts dark; those outcomes belong to operational reporting.
+ */
+export function summarizeCompleteScoredEvaluation(
+  caseManifestSnapshot: unknown,
+  results: readonly RegressionResultEvidence[],
+): { passed: number; scored: number } | null {
+  const manifest = EvalCaseManifestSchema.safeParse(caseManifestSnapshot)
+  if (
+    !manifest.success ||
+    manifest.data.length === 0 ||
+    manifest.data.length > EVALUATION_RUN_MAX_CASES
+  )
+    return null
+  if (results.length !== manifest.data.length) return null
+
+  const expectedByCaseId = new Map(
+    manifest.data.map((item) => [item.caseId, `${item.revision}:${item.caseHash}`]),
+  )
+  if (expectedByCaseId.size !== manifest.data.length) return null
+
+  const seen = new Set<string>()
+  let passed = 0
+  for (const result of results) {
+    const expected = expectedByCaseId.get(result.caseId)
+    if (
+      expected === undefined ||
+      seen.has(result.caseId) ||
+      expected !== `${result.caseRevision}:${result.caseHash}` ||
+      result.outcome !== 'SCORED' ||
+      typeof result.passed !== 'boolean'
+    )
+      return null
+    seen.add(result.caseId)
+    if (result.passed) passed += 1
+  }
+
+  return seen.size === manifest.data.length ? { passed, scored: results.length } : null
+}
+
 async function publishEvaluationRegressionIfPresent(
   payload: EvaluationRunJobPayload,
 ): Promise<void> {
@@ -110,7 +160,16 @@ async function publishEvaluationRegressionIfPresent(
         corpusHash: true,
         modelProvider: true,
         modelName: true,
-        results: { where: { outcome: 'SCORED' }, select: { passed: true } },
+        caseManifestSnapshot: true,
+        results: {
+          select: {
+            caseId: true,
+            caseRevision: true,
+            caseHash: true,
+            outcome: true,
+            passed: true,
+          },
+        },
       },
     })
     if (!current) return
@@ -127,15 +186,33 @@ async function publishEvaluationRegressionIfPresent(
         id: true,
         modelProvider: true,
         modelName: true,
-        results: { where: { outcome: 'SCORED' }, select: { passed: true } },
+        caseManifestSnapshot: true,
+        results: {
+          select: {
+            caseId: true,
+            caseRevision: true,
+            caseHash: true,
+            outcome: true,
+            passed: true,
+          },
+        },
       },
     })
     if (!previous) return
+    const currentSummary = summarizeCompleteScoredEvaluation(
+      current.caseManifestSnapshot,
+      current.results,
+    )
+    const previousSummary = summarizeCompleteScoredEvaluation(
+      previous.caseManifestSnapshot,
+      previous.results,
+    )
+    if (!currentSummary || !previousSummary) return
     const regression = detectEvaluationRegression({
-      currentPassed: current.results.filter((result) => result.passed === true).length,
-      currentScored: current.results.length,
-      previousPassed: previous.results.filter((result) => result.passed === true).length,
-      previousScored: previous.results.length,
+      currentPassed: currentSummary.passed,
+      currentScored: currentSummary.scored,
+      previousPassed: previousSummary.passed,
+      previousScored: previousSummary.scored,
       minimumDrop: policy.minimumPassRateDrop,
     })
     if (!regression) return

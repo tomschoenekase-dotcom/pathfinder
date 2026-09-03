@@ -58,6 +58,12 @@ record must explicitly provide both `minimumPassRateDrop` and `errorPassRateDrop
 must be at least the minimum alert drop. The evaluation console reports whether this durable policy
 is configured and, when it is, displays the exact thresholds.
 
+Automatic quality comparison also requires both the current run and the immediately preceding
+completed same-corpus run to contain exactly one identity-matched `SCORED` result for every frozen
+case. Missing, duplicate, stale, operational-failure, budget-blocked, or cancelled evidence keeps
+the quality alert dark; those outcomes remain visible as operational evidence and are never folded
+into a partial pass rate.
+
 Torchiko does not supply fallback percentages or infer a severity boundary. Stored runs remain
 available for explicit human comparison when automatic alerts are dark. This preserves the
 regression-detection capability without turning an unresolved product-quality judgment into policy.

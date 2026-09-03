@@ -52,6 +52,7 @@ import {
   frozenEvaluationModelKey,
   frozenContent,
   processEvaluationRunJob,
+  summarizeCompleteScoredEvaluation,
   type EvaluationRunnerDependencies,
 } from './evaluation-run'
 
@@ -86,6 +87,70 @@ describe('evaluation regression detection', () => {
         previousScored: 5,
         minimumDrop: 0.05,
       }),
+    ).toBeNull()
+  })
+
+  it('summarizes only complete identity-matched scored evidence', () => {
+    const caseA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const caseB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const manifest = [
+      { caseId: caseA, revision: 1, caseHash: 'a'.repeat(64) },
+      { caseId: caseB, revision: 2, caseHash: 'b'.repeat(64) },
+    ]
+    const results = [
+      {
+        caseId: caseA,
+        caseRevision: 1,
+        caseHash: 'a'.repeat(64),
+        outcome: 'SCORED',
+        passed: true,
+      },
+      {
+        caseId: caseB,
+        caseRevision: 2,
+        caseHash: 'b'.repeat(64),
+        outcome: 'SCORED',
+        passed: false,
+      },
+    ]
+
+    expect(summarizeCompleteScoredEvaluation(manifest, results)).toEqual({ passed: 1, scored: 2 })
+  })
+
+  it.each([
+    {
+      name: 'operational evidence',
+      results: [
+        {
+          caseId: 'case-a',
+          caseRevision: 1,
+          caseHash: 'a'.repeat(64),
+          outcome: 'OPERATIONAL_FAILURE',
+          passed: null,
+        },
+      ],
+    },
+    { name: 'missing evidence', results: [] },
+    {
+      name: 'stale evidence identity',
+      results: [
+        {
+          caseId: 'case-a',
+          caseRevision: 2,
+          caseHash: 'a'.repeat(64),
+          outcome: 'SCORED',
+          passed: true,
+        },
+      ],
+    },
+  ])('keeps automatic quality inference dark for $name', ({ results }) => {
+    const caseA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const manifest = [{ caseId: caseA, revision: 1, caseHash: 'a'.repeat(64) }]
+    expect(
+      summarizeCompleteScoredEvaluation(
+        manifest,
+        results.map((result) => ({ ...result, caseId: caseA })),
+      ),
     ).toBeNull()
   })
 })
