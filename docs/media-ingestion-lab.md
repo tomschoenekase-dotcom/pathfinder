@@ -31,8 +31,10 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    limit never crosses the Google boundary and instead uses the disclosed OpenAI sampled fallback
    with an explicit review limitation. Each retained video finding identifies whether it came from
    Google complete-video analysis, ordinary sampled analysis, or sampled analysis after a Google
-   fallback so reviewers do not have to infer provider provenance from generated prose. Each FFmpeg
-   invocation has stdin disabled, a 15-minute
+   fallback so reviewers do not have to infer provider provenance from generated prose. A route
+   marker is valid only on a video finding; inconsistent persisted media/provenance pairs fail
+   schema validation instead of presenting a provider claim on an image, audio file, or document.
+   Each FFmpeg invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
    process, without a shell. Generated frame dimensions are bounded on both axes. Frame JPEGs and
    audio MP3 are streamed through one attempt-wide byte budget before crossing bytes can reach a

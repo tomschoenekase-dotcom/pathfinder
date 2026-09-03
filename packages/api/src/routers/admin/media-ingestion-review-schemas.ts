@@ -27,6 +27,15 @@ export const mediaFindingSchema = z
       .optional(),
   })
   .passthrough()
+  .superRefine((finding, context) => {
+    if (finding.videoAnalysisMethod && finding.mediaType !== 'VIDEO') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['videoAnalysisMethod'],
+        message: 'Video analysis provenance is only valid for video findings.',
+      })
+    }
+  })
 
 export const mediaFindingsSchema = z.array(mediaFindingSchema).max(MEDIA_FINDING_LIMIT)
 
