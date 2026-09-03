@@ -75,7 +75,7 @@ export type AiTextResult<TParsed = string> = {
 }
 
 export type AiUsageRecord = {
-  provider: 'anthropic' | 'openai'
+  provider: 'anthropic' | 'openai' | 'google'
   model: string
   pricingVersion: string
   usage: AiTokenUsage

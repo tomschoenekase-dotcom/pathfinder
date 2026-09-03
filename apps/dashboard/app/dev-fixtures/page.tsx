@@ -176,6 +176,15 @@ export default function VisualFixtureIndex() {
           Upload interaction
         </h2>
         <ul className="mt-4 divide-y divide-pf-light border-y border-pf-light">
+          <li>
+            <Link
+              href="/dev-fixtures/media-ingestion"
+              className="flex min-h-12 items-center justify-between py-3 font-medium text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+            >
+              Venue Media Lab
+              <span aria-hidden="true">→</span>
+            </Link>
+          </li>
           {uploadStates.map((state) => (
             <li key={state}>
               <Link

@@ -242,6 +242,7 @@ export const mediaIngestionProjectsRouter = router({
             detectDuplicates: z.boolean().default(true),
             requireEveryImage: z.boolean().default(true),
             videoSecondsPerSample: z.number().int().min(1).max(60).default(8),
+            useGeminiVideoUnderstanding: z.boolean().default(false),
           })
           .default({}),
       }),

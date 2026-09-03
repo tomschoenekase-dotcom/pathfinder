@@ -124,6 +124,8 @@ const rawEnvSchema = z
     MEDIA_ANALYSIS_MODEL: z.literal('gpt-5.6-luna').optional(),
     MEDIA_SYNTHESIS_MODEL: z.literal('gpt-5.6-luna').optional(),
     MEDIA_TRANSCRIPTION_MODEL: z.literal('gpt-4o-mini-transcribe').optional(),
+    GEMINI_API_KEY: z.string().min(1).optional(),
+    MEDIA_VIDEO_ANALYSIS_MODEL: z.literal('gemini-3.7-flash').optional(),
 
     // Required from PACKET-12 (integrations) onward
     INTEGRATION_ENCRYPTION_KEY: z.string().optional(),

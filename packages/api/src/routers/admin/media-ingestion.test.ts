@@ -132,6 +132,7 @@ describe('media ingestion router', () => {
     mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
     mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
     mocks.writeAuditLog.mockResolvedValue(undefined)
+    mocks.createMediaIngestionProjectAction.mockResolvedValue({ id: 'project_new' })
     mocks.claimMediaUploadFinalizationAction.mockImplementation(async (input) => {
       const changed = await mocks.projectUpdateMany({
         where: {
@@ -278,6 +279,35 @@ describe('media ingestion router', () => {
       await mocks.writeAuditLog({ action: input.auditAction, targetId: input.projectId })
       return { ok: true }
     })
+  })
+
+  it('keeps full-video provider analysis off by default and accepts explicit opt-in', async () => {
+    const caller = testRouter.createCaller(context(true))
+
+    await caller.mediaIngestion.create({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      name: 'Default intake',
+    })
+    await caller.mediaIngestion.create({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      name: 'Gemini intake',
+      settings: { useGeminiVideoUnderstanding: true },
+    })
+
+    expect(mocks.createMediaIngestionProjectAction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        settings: expect.objectContaining({ useGeminiVideoUnderstanding: false }),
+      }),
+    )
+    expect(mocks.createMediaIngestionProjectAction).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        settings: expect.objectContaining({ useGeminiVideoUnderstanding: true }),
+      }),
+    )
   })
 
   it('returns only current-generation source evidence without exposing storage identity', async () => {

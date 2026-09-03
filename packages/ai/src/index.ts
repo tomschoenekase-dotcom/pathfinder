@@ -12,6 +12,20 @@ export {
   type AnthropicMessagesClient,
 } from './anthropic'
 export { normalizeAiUsageErrorCode, type AiUsageErrorCode } from './usage-error-code'
+export {
+  analyzeGeminiVideo,
+  GeminiVideoDeletionUnconfirmedError,
+  GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
+  GEMINI_VIDEO_DELETE_TIMEOUT_MS,
+  GEMINI_VIDEO_MAX_INPUT_TOKENS,
+  GEMINI_VIDEO_MAX_OUTPUT_TOKENS,
+  GEMINI_VIDEO_MODEL,
+  GEMINI_VIDEO_PRICING_VERSION,
+  GEMINI_VIDEO_PROCESSING_TIMEOUT_MS,
+  resolveGeminiVideoModel,
+  setGeminiVideoClientForTesting,
+  type GeminiVideoClient,
+} from './gemini-video'
 export { setOpenAiResponsesClientForTesting, type OpenAiResponsesClient } from './openai-text'
 export {
   createOpenAiMediaJson,

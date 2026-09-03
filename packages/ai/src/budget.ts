@@ -12,7 +12,7 @@ export type AiBudgetReservationRef = {
 export type AiBudgetAttempt = {
   invocationId: string
   attemptNumber: number
-  provider: 'anthropic' | 'openai'
+  provider: 'anthropic' | 'openai' | 'google'
   model: string
   pricingVersion: string
   reservedUnits: bigint

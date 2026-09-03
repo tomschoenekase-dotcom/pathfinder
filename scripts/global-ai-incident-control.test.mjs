@@ -160,7 +160,7 @@ test('direct provider calls admit before budget reservation or dispatch', async 
     budget,
     /await admit\(\)\s*await reserve\(\)\s*assertActive\?\.\(\)\s*[\s\S]*?await admit\(\)\s*assertActive\?\.\(\)\s*return operation\(\)/u,
   )
-  assert.equal([...media.matchAll(/executeMediaProviderOperation\(\s*admissionGuard/gu)].length, 4)
+  assert.equal([...media.matchAll(/executeMediaProviderOperation\(\s*admissionGuard/gu)].length, 5)
   assert.match(
     media,
     /const venueAdmission = \(\) =>\s*assertVenueAiAvailable\(db, \{\s*tenantId: payload\.tenantId,\s*venueId: payload\.venueId/u,

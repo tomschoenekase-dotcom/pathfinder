@@ -8,6 +8,9 @@ describe('normalizeAiUsageErrorCode', () => {
       'provider-connection-timeout',
     )
     expect(normalizeAiUsageErrorCode('provider-http-503')).toBe('provider-http-503')
+    expect(normalizeAiUsageErrorCode('provider-file-delete-unconfirmed')).toBe(
+      'provider-file-delete-unconfirmed',
+    )
     expect(normalizeAiUsageErrorCode(undefined)).toBeUndefined()
   })
 

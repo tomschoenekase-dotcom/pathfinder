@@ -141,11 +141,13 @@ describe('media provider model contracts', () => {
         MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna',
         MEDIA_SYNTHESIS_MODEL: 'gpt-5.6-luna',
         MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+        MEDIA_VIDEO_ANALYSIS_MODEL: 'gemini-3.7-flash',
       }),
     ).toMatchObject({
       MEDIA_ANALYSIS_MODEL: 'gpt-5.6-luna',
       MEDIA_SYNTHESIS_MODEL: 'gpt-5.6-luna',
       MEDIA_TRANSCRIPTION_MODEL: 'gpt-4o-mini-transcribe',
+      MEDIA_VIDEO_ANALYSIS_MODEL: 'gemini-3.7-flash',
     })
 
     expect(() =>
@@ -156,6 +158,12 @@ describe('media provider model contracts', () => {
     ).toThrow()
     expect(() =>
       envSchema.parse({ ...requiredEnvironment, MEDIA_TRANSCRIPTION_MODEL: 'whisper-1' }),
+    ).toThrow()
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        MEDIA_VIDEO_ANALYSIS_MODEL: 'gemini-flash-latest',
+      }),
     ).toThrow()
   })
 })

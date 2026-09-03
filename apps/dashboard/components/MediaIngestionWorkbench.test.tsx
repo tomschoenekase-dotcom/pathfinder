@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import axe from 'axe-core'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -207,6 +208,55 @@ describe('media ingestion finalization recovery', () => {
         },
       }),
     )
+  })
+
+  it('requires explicit consent before requesting complete-video analysis', async () => {
+    render(
+      <MediaIngestionWorkbench
+        tenantId="tenant_1"
+        venueId="venue_1"
+        venueName="Museum"
+        initialProjects={[]}
+      />,
+    )
+    const consent = screen.getByRole('checkbox', {
+      name: /Analyze complete videos with Google Gemini/,
+    }) as HTMLInputElement
+    expect(consent.checked).toBe(false)
+    expect(screen.getByText(/Sends each client video to Google/)).toBeTruthy()
+
+    fireEvent.click(consent)
+    const archive = new File([new Uint8Array([1, 2, 3])], 'visit.zip', {
+      type: 'application/zip',
+      lastModified: 123,
+    })
+    fireEvent.change(screen.getByLabelText(/Source ZIP/), { target: { files: [archive] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and analyze' }))
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce())
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({ useGeminiVideoUnderstanding: true }),
+      }),
+    )
+  })
+
+  it('has no automated accessibility violations with video-provider disclosure visible', async () => {
+    render(
+      <main>
+        <MediaIngestionWorkbench
+          tenantId="tenant_1"
+          venueId="venue_1"
+          venueName="Museum"
+          initialProjects={[]}
+        />
+      </main>,
+    )
+
+    const results = await axe.run(document.body, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(results.violations).toEqual([])
   })
 
   it('retains metadata-only resume only for a persisted legacy upload', async () => {

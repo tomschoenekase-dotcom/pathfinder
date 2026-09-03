@@ -40,6 +40,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('OPENAI_API_KEY'),
     value: `sk-proj-${canary('OPENAI_API_KEY')}`,
   },
+  GEMINI_API_KEY: {
+    marker: canary('GEMINI_API_KEY'),
+    value: `AIza${canary('GEMINI_API_KEY')}`,
+  },
   INTEGRATION_ENCRYPTION_KEY: {
     marker: canary('INTEGRATION_ENCRYPTION_KEY'),
     value: canary('INTEGRATION_ENCRYPTION_KEY'),
@@ -72,6 +76,7 @@ const prerenderExtensions = new Set(['.body', '.html', '.json', '.meta', '.rsc',
 const hardcodedSecretPatterns = [
   ['anthropic-api-key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/gu],
   ['openai-api-key', /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b/gu],
+  ['google-api-key', /\bAIza[A-Za-z0-9_-]{30,}\b/gu],
   ['clerk-or-stripe-secret-key', /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/gu],
   ['webhook-signing-secret', /\bwhsec_[A-Za-z0-9]{16,}\b/gu],
   ['aws-access-key-id', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/gu],

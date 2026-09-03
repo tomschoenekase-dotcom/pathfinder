@@ -19,7 +19,10 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    before it reaches disk.
 5. Every supported image is inventoried and analyzed by default. Exact SHA-256 duplicates reuse an
    existing analysis while retaining their own source row. Videos are sampled at the configured
-   interval with a 120-frame ceiling. Each FFmpeg invocation has stdin disabled, a 15-minute
+   interval with a 120-frame ceiling by default. An operator may explicitly opt a new intake into
+   Google Gemini complete-video understanding so motion, narration, visible text, and timestamped
+   events are analyzed together; the UI discloses the external transfer before opt-in. Each FFmpeg
+   invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
    process, without a shell. Generated frame dimensions are bounded on both axes. Frame JPEGs and
    audio MP3 are streamed through one attempt-wide byte budget before crossing bytes can reach a
@@ -42,6 +45,10 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
 The reviewed model strings are code-owned contracts. `MEDIA_ANALYSIS_MODEL` and
 `MEDIA_SYNTHESIS_MODEL` default to and currently admit only `gpt-5.6-luna`;
 `MEDIA_TRANSCRIPTION_MODEL` defaults to and currently admits only `gpt-4o-mini-transcribe`.
+The optional complete-video route currently admits only `gemini-3.7-flash`; it is never selected by
+an environment variable alone because every intake must persist the explicit
+`useGeminiVideoUnderstanding` choice. Provider SDK retries are disabled so one durable reservation
+maps to one request attempt.
 Deployment configuration may repeat those exact values, but an unreviewed override fails before
 archive processing or provider dispatch. Changing price or quality now requires a code-reviewed,
 versioned model-contract update rather than an arbitrary environment edit. OpenAI currently
@@ -79,6 +86,9 @@ STORAGE_ENDPOINT=        # optional, for R2/MinIO/S3-compatible storage
 STORAGE_ACCESS_KEY_ID=
 STORAGE_SECRET_ACCESS_KEY=
 OPENAI_API_KEY=
+# Optional. Required only for explicitly opted-in Google complete-video analysis.
+GEMINI_API_KEY=
+MEDIA_VIDEO_ANALYSIS_MODEL=gemini-3.7-flash
 ```
 
 The bucket CORS policy must permit `PUT` from the dashboard origin and expose the `ETag` response
@@ -93,6 +103,15 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
 - Every extracted asset receives a stable source ID and its own database row, including failures.
 - Raw media remains private in object storage. Database and logs hold IDs and analysis state, not
   image bytes or prompt payloads.
+- An opted-in complete video is uploaded through Google's Files API, analyzed under a 15-minute
+  attempt deadline, and deleted immediately in a separate bounded cleanup step. A deletion that
+  cannot be confirmed fails closed. Google's separate API-log retention policy still applies, as
+  disclosed in the intake UI. An ordinary Google provider failure falls back to bounded frame
+  sampling and optional narration transcription, with that limitation inserted into review evidence.
+- The Google call uses the shared tenant budget gate and a conservative reservation based on the
+  documented post-introductory model price; observed usage settles against the versioned current
+  price schedule. A live provider canary still requires separate spending and synthetic-data
+  authorization.
 - Multipart completion is claimed atomically before storage is touched. A concurrent completion
   loser cannot complete, delete, enqueue, or overwrite the winner's state.
 - Empty, oversized, or declared-size-mismatched completed objects are removed by exact database-

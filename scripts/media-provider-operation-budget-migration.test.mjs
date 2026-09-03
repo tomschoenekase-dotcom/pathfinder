@@ -29,6 +29,10 @@ const mediaGateway = await readFile(
   new URL('../packages/ai/src/openai-media.ts', import.meta.url),
   'utf8',
 )
+const geminiVideoGateway = await readFile(
+  new URL('../packages/ai/src/gemini-video.ts', import.meta.url),
+  'utf8',
+)
 const costBudgetApi = await readFile(
   new URL('../packages/api/src/routers/admin/cost-budget.ts', import.meta.url),
   'utf8',
@@ -69,11 +73,13 @@ test('every direct media provider dispatch is wrapped by a durable pre-dispatch 
   )
   assert.match(budget, /MAX_MEDIA_PROVIDER_OPERATIONS = 10_000/u)
   assert.match(processor, /const MAX_FILES = 10_000/u)
-  assert.equal(processor.match(/executeMediaProviderOperation\(/gu)?.length, 4)
+  assert.equal(processor.match(/executeMediaProviderOperation\(/gu)?.length, 5)
   assert.equal(processor.match(/createOpenAiMediaJson\(\{/gu)?.length, 3)
   assert.equal(processor.match(/transcribeOpenAiMedia\(\{/gu)?.length, 1)
+  assert.equal(processor.match(/analyzeGeminiVideo\(\{/gu)?.length, 1)
   assert.doesNotMatch(processor, /from ['"]openai['"]/u)
   assert.match(mediaGateway, /new OpenAI\(\{ apiKey, maxRetries: 0 \}\)/u)
+  assert.match(geminiVideoGateway, /retryOptions: \{ attempts: 1 \}/u)
   assert.equal(mediaGateway.match(/chat\.completions\.create\(/gu)?.length, 1)
   assert.equal(mediaGateway.match(/audio\.transcriptions\.create\(/gu)?.length, 1)
   assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
@@ -85,16 +91,21 @@ test('media jobs resolve only reviewed model identifiers before source processin
     mediaGateway,
     /OPENAI_MEDIA_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe' as const/u,
   )
+  assert.match(geminiVideoGateway, /GEMINI_VIDEO_MODEL = 'gemini-3\.7-flash' as const/u)
   assert.match(envSchema, /MEDIA_ANALYSIS_MODEL: z\.literal\('gpt-5\.6-luna'\)\.optional\(\)/u)
   assert.match(
     envSchema,
     /MEDIA_TRANSCRIPTION_MODEL: z\.literal\('gpt-4o-mini-transcribe'\)\.optional\(\)/u,
   )
+  assert.match(
+    envSchema,
+    /MEDIA_VIDEO_ANALYSIS_MODEL: z\.literal\('gemini-3\.7-flash'\)\.optional\(\)/u,
+  )
   assert.doesNotMatch(processor, /gpt-5-mini-2025-08-07/u)
   assert.equal(processor.match(/createWorkerAiUsageSink\(\{/gu)?.length, 1)
-  assert.equal(processor.match(/usageSink,/gu)?.length, 9)
+  assert.equal(processor.match(/usageSink,/gu)?.length, 12)
   assert.equal(processor.match(/createWorkerAiBudgetGate\(\{/gu)?.length, 1)
-  assert.equal(processor.match(/budgetGate,/gu)?.length, 9)
+  assert.equal(processor.match(/budgetGate,/gu)?.length, 12)
   assert.match(mediaGateway, /OPENAI_MEDIA_PRICING_VERSION = 'openai-public-2026-09-01'/u)
   assert.match(mediaGateway, /OPENAI_MEDIA_JSON_ATTEMPT_CEILING_UNITS/u)
   assert.match(mediaGateway, /OPENAI_MEDIA_TRANSCRIPTION_ATTEMPT_CEILING_UNITS/u)
@@ -102,6 +113,10 @@ test('media jobs resolve only reviewed model identifiers before source processin
   assert.equal(mediaGateway.match(/budgetGate\.markDispatched\(reservation\)/gu)?.length, 2)
   assert.equal(mediaGateway.match(/budgetGate\.settleExact\(/gu)?.length, 2)
   assert.equal(mediaGateway.match(/budgetGate\.settleAmbiguous\(reservation\)/gu)?.length, 2)
+  assert.equal(geminiVideoGateway.match(/budgetGate\.reserve\(\{/gu)?.length, 1)
+  assert.equal(geminiVideoGateway.match(/budgetGate\.markDispatched\(reservation\)/gu)?.length, 1)
+  assert.equal(geminiVideoGateway.match(/budgetGate\s*\.settleExact\(/gu)?.length, 1)
+  assert.equal(geminiVideoGateway.match(/budgetGate\.settleAmbiguous\(reservation\)/gu)?.length, 1)
   assert.match(mediaGateway, /max_completion_tokens: OPENAI_MEDIA_JSON_MAX_OUTPUT_TOKENS/u)
   assert.match(mediaGateway, /success: false/gu)
   assert.match(costBudgetApi, /excludedProviderPaths: \[\] as const/u)

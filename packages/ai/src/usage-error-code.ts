@@ -10,6 +10,7 @@ const exactAiUsageErrorCodes = new Set([
   'provider-connection-error',
   'provider-connection-timeout',
   'provider-error',
+  'provider-file-delete-unconfirmed',
   'provider-incomplete-response',
   'provider-not-configured',
   'provider-timeout',

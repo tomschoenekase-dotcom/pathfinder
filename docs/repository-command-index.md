@@ -133,6 +133,7 @@ The names below come from `.env.example`, including commented examples. No confi
 | `GMAIL_RECONCILIATION_ENABLED`               | policy/feature gate  |
 | `GMAIL_WATCH_RENEWAL_ENABLED`                | policy/feature gate  |
 | `GOOGLE_CLOUD_PROJECT_ID`                    | server configuration |
+| `GEMINI_API_KEY`                             | secret/server-only   |
 | `GOOGLE_OAUTH_CLIENT_ID`                     | server configuration |
 | `GOOGLE_OAUTH_CLIENT_SECRET`                 | secret/server-only   |
 | `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED` | policy/feature gate  |
@@ -140,6 +141,7 @@ The names below come from `.env.example`, including commented examples. No confi
 | `MEDIA_ANALYSIS_MODEL`                       | server configuration |
 | `MEDIA_SYNTHESIS_MODEL`                      | server configuration |
 | `MEDIA_TRANSCRIPTION_MODEL`                  | server configuration |
+| `MEDIA_VIDEO_ANALYSIS_MODEL`                 | server configuration |
 | `NATIVE_GUEST_CONTENT_READ_ENABLED`          | policy/feature gate  |
 | `NEXT_PUBLIC_PWA_ENABLED`                    | browser-visible      |
 | `NEXT_PUBLIC_SENTRY_DSN`                     | browser-visible      |

@@ -90,6 +90,7 @@ export function MediaIngestionWorkbench({
   const [detectDuplicates, setDetectDuplicates] = useState(true)
   const [requireEveryImage, setRequireEveryImage] = useState(true)
   const [videoSecondsPerSample, setVideoSecondsPerSample] = useState(8)
+  const [useGeminiVideoUnderstanding, setUseGeminiVideoUnderstanding] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -340,6 +341,7 @@ export function MediaIngestionWorkbench({
           detectDuplicates,
           requireEveryImage,
           videoSecondsPerSample,
+          useGeminiVideoUnderstanding,
         },
       })
       throwIfTransferAborted(controller.signal)
@@ -430,6 +432,26 @@ export function MediaIngestionWorkbench({
               </button>
             ))}
           </div>
+          <label className="mt-5 flex items-start gap-3 border-t border-pf-light pt-5 text-sm text-pf-deep/70">
+            <input
+              type="checkbox"
+              checked={useGeminiVideoUnderstanding}
+              onChange={(event) => setUseGeminiVideoUnderstanding(event.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0 accent-pf-accent"
+            />
+            <span>
+              <span className="block font-semibold text-pf-deep">
+                Analyze complete videos with Google Gemini
+              </span>
+              <span className="mt-1 block leading-6">
+                Sends each client video to Google so Torchiko can connect motion, narration, visible
+                text, and timestamped events. Torchiko requests deletion immediately after analysis;
+                Google API logs may still follow the project&apos;s configured retention policy. If
+                this path is unavailable, Torchiko falls back to bounded frame sampling and records
+                that limitation for review.
+              </span>
+            </span>
+          </label>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {[

@@ -22,7 +22,10 @@ import {
 
 import { logger } from '@pathfinder/config'
 import {
+  analyzeGeminiVideo,
+  GeminiVideoDeletionUnconfirmedError,
   createOpenAiMediaJson,
+  resolveGeminiVideoModel,
   resolveOpenAiMediaJsonModel,
   resolveOpenAiMediaTranscriptionModel,
   transcribeOpenAiMedia,
@@ -67,6 +70,7 @@ import {
   MediaJobCancelledError,
   normalizeMediaJobError,
 } from '../lib/media-job-cancellation'
+import { runOptionalFullVideoAnalysis } from '../lib/video-analysis-routing'
 import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
@@ -507,6 +511,84 @@ async function transcribe(
   return emptyAnalysis(result)
 }
 
+const GEMINI_VIDEO_RESPONSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties'],
+  properties: {
+    summary: { type: 'string' },
+    visibleText: { type: 'array', items: { type: 'string' } },
+    objects: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'confidence'],
+        properties: {
+          name: { type: 'string' },
+          confidence: { type: 'string', enum: ['confirmed', 'probable', 'unverified'] },
+        },
+      },
+    },
+    spatialClues: { type: 'array', items: { type: 'string' } },
+    uncertainties: { type: 'array', items: { type: 'string' } },
+  },
+} as const
+
+function videoMimeType(filename: string): string {
+  switch (extname(filename).toLowerCase()) {
+    case '.mp4':
+    case '.m4v':
+      return 'video/mp4'
+    case '.mov':
+      return 'video/quicktime'
+    case '.avi':
+      return 'video/x-msvideo'
+    case '.webm':
+      return 'video/webm'
+    default:
+      throw new Error('Unsupported Gemini video format.')
+  }
+}
+
+async function analyzeVideoWithGemini(
+  admissionGuard: MediaAdmissionGuard,
+  reserveProviderOperation: ReserveProviderOperation,
+  filePath: string,
+  filename: string,
+  sourceId: string,
+  context: string,
+  usageSink: AiUsageSink,
+  budgetGate: AiBudgetGate,
+  signal?: AbortSignal,
+): Promise<Analysis> {
+  const model = resolveGeminiVideoModel(process.env.MEDIA_VIDEO_ANALYSIS_MODEL)
+  return executeMediaProviderOperation(
+    admissionGuard,
+    reserveProviderOperation,
+    () =>
+      analyzeGeminiVideo({
+        filePath,
+        filename,
+        mimeType: videoMimeType(filename),
+        model,
+        prompt:
+          `Source ${sourceId}. Analyze this complete client-supplied venue video using both its visual and audio streams. ` +
+          'Report only evidence the video supports. Put a concise timestamped sequence of salient events in summary. ' +
+          'Transcribe readable labels verbatim with timestamps in visibleText. Record navigational relationships, movement, adjacency, entrances, exits, levels, landmarks, and accessibility evidence in spatialClues with timestamps. ' +
+          'Never infer an identity from shape alone. Separate confirmed, probable, and unverified objects. Keep contradictions, unreadable details, sampling limitations, and missing coverage explicit in uncertainties. ' +
+          'Return JSON with exactly summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]). ' +
+          `Operator context follows and is context, not video evidence:\n${context.slice(0, 12_000)}`,
+        responseJsonSchema: GEMINI_VIDEO_RESPONSE_SCHEMA,
+        parseResponse: parseMediaAnalysisResponse,
+        usageSink,
+        budgetGate,
+        ...(signal ? { signal } : {}),
+      }),
+    () => assertMediaJobActive(signal),
+  )
+}
+
 async function extractVideoFrames(
   filePath: string,
   outputDir: string,
@@ -600,6 +682,82 @@ async function extractVideoAudio(
     },
   )
   assertMediaJobActive(signal)
+}
+
+async function analyzeVideoBySampling(
+  admissionGuard: MediaAdmissionGuard,
+  reserveProviderOperation: ReserveProviderOperation,
+  generatedOutputBudget: MediaGeneratedOutputBudget,
+  filePath: string,
+  frameDir: string,
+  sourceId: string,
+  context: string,
+  mode: string,
+  secondsPerSample: number,
+  transcribeAudio: boolean,
+  analysisModel: ReturnType<typeof resolveOpenAiMediaJsonModel>,
+  transcriptionModel: ReturnType<typeof resolveOpenAiMediaTranscriptionModel>,
+  usageSink: AiUsageSink,
+  budgetGate: AiBudgetGate,
+  signal?: AbortSignal,
+): Promise<Analysis> {
+  return withMediaGeneratedOutputDirectory(frameDir, async () => {
+    const frames = await extractVideoFrames(
+      filePath,
+      frameDir,
+      secondsPerSample,
+      generatedOutputBudget,
+      signal,
+    )
+    const frameAnalyses: Analysis[] = []
+    for (const frame of frames) {
+      frameAnalyses.push(
+        await analyzeImage(
+          admissionGuard,
+          reserveProviderOperation,
+          generatedOutputBudget,
+          join(frameDir, frame),
+          `${sourceId}/${frame}`,
+          context,
+          mode,
+          analysisModel,
+          usageSink,
+          budgetGate,
+          signal,
+        ),
+      )
+    }
+    let transcript = ''
+    if (transcribeAudio) {
+      const audioPath = join(frameDir, 'audio.mp3')
+      try {
+        await extractVideoAudio(filePath, audioPath, generatedOutputBudget, signal)
+        transcript = (
+          await transcribe(
+            admissionGuard,
+            reserveProviderOperation,
+            audioPath,
+            transcriptionModel,
+            usageSink,
+            budgetGate,
+            signal,
+          )
+        ).summary
+      } catch (error) {
+        assertMediaJobActive(signal)
+        if (isAiAdmissionControlError(error)) throw error
+        if (error instanceof UnrecoverableError) throw error
+        transcript = ''
+      }
+    }
+    return {
+      summary: `Video sampled in ${frames.length} frames.${transcript ? ` Narration transcript: ${transcript}` : ''}`,
+      visibleText: frameAnalyses.flatMap((item) => item.visibleText),
+      objects: frameAnalyses.flatMap((item) => item.objects),
+      spatialClues: frameAnalyses.flatMap((item) => item.spatialClues),
+      uncertainties: frameAnalyses.flatMap((item) => item.uncertainties),
+    }
+  })
 }
 
 async function sha256File(filePath: string, signal?: AbortSignal) {
@@ -883,6 +1041,7 @@ export async function processMediaIngestionJob(
       transcribeAudio?: boolean
       detectDuplicates?: boolean
       videoSecondsPerSample?: number
+      useGeminiVideoUnderstanding?: boolean
     }
     const files = assignMediaSourceIds(
       await downloadAndExtract(project.sourceObjectKey, workDir, signal),
@@ -966,62 +1125,47 @@ export async function processMediaIngestionJob(
           )
         } else if (mediaType === 'VIDEO') {
           const frameDir = join(workDir, `frames-${index}`)
-          analysis = await withMediaGeneratedOutputDirectory(frameDir, async () => {
-            const frames = await extractVideoFrames(
+          const analyzeFallback = () =>
+            analyzeVideoBySampling(
+              venueAdmission,
+              reserveProviderOperation,
+              generatedOutputBudget,
               file.path,
               frameDir,
+              sourceId,
+              project.context,
+              project.mode,
               settings.videoSecondsPerSample ?? 8,
-              generatedOutputBudget,
+              settings.transcribeAudio !== false,
+              analysisModel,
+              transcriptionModel,
+              usageSink,
+              budgetGate,
               signal,
             )
-            const frameAnalyses: Analysis[] = []
-            for (const frame of frames) {
-              frameAnalyses.push(
-                await analyzeImage(
-                  venueAdmission,
-                  reserveProviderOperation,
-                  generatedOutputBudget,
-                  join(frameDir, frame),
-                  `${sourceId}/${frame}`,
-                  project.context,
-                  project.mode,
-                  analysisModel,
-                  usageSink,
-                  budgetGate,
-                  signal,
-                ),
+          analysis = await runOptionalFullVideoAnalysis({
+            enabled: settings.useGeminiVideoUnderstanding === true,
+            analyzeFullVideo: () =>
+              analyzeVideoWithGemini(
+                venueAdmission,
+                reserveProviderOperation,
+                file.path,
+                file.filename,
+                sourceId,
+                project.context,
+                usageSink,
+                budgetGate,
+                signal,
+              ),
+            analyzeFallback,
+            shouldPropagate: (error) => {
+              assertMediaJobActive(signal)
+              return (
+                isAiAdmissionControlError(error) ||
+                error instanceof GeminiVideoDeletionUnconfirmedError ||
+                error instanceof UnrecoverableError
               )
-            }
-            let transcript = ''
-            if (settings.transcribeAudio !== false) {
-              const audioPath = join(frameDir, 'audio.mp3')
-              try {
-                await extractVideoAudio(file.path, audioPath, generatedOutputBudget, signal)
-                transcript = (
-                  await transcribe(
-                    venueAdmission,
-                    reserveProviderOperation,
-                    audioPath,
-                    transcriptionModel,
-                    usageSink,
-                    budgetGate,
-                    signal,
-                  )
-                ).summary
-              } catch (error) {
-                assertMediaJobActive(signal)
-                if (isAiAdmissionControlError(error)) throw error
-                if (error instanceof UnrecoverableError) throw error
-                transcript = ''
-              }
-            }
-            return {
-              summary: `Video sampled in ${frames.length} frames.${transcript ? ` Narration transcript: ${transcript}` : ''}`,
-              visibleText: frameAnalyses.flatMap((item) => item.visibleText),
-              objects: frameAnalyses.flatMap((item) => item.objects),
-              spatialClues: frameAnalyses.flatMap((item) => item.spatialClues),
-              uncertainties: frameAnalyses.flatMap((item) => item.uncertainties),
-            }
+            },
           })
         } else if (
           mediaType === 'DOCUMENT' &&
