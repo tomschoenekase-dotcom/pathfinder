@@ -23,6 +23,7 @@ import {
 import { logger } from '@pathfinder/config'
 import {
   analyzeGeminiVideo,
+  assertGeminiVideoFileSize,
   AiRequestBudgetCeilingExceededError,
   GeminiVideoDeletionUnconfirmedError,
   createOpenAiMediaJson,
@@ -566,6 +567,7 @@ async function analyzeVideoWithGemini(
   admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
+  fileSizeBytes: number,
   filename: string,
   sourceId: string,
   context: string,
@@ -573,6 +575,10 @@ async function analyzeVideoWithGemini(
   budgetGate: AiBudgetGate,
   signal?: AbortSignal,
 ): Promise<Analysis> {
+  // Reject a provider-known unsupported size before admission accounting or a
+  // provider-operation reservation. The caller will retain an explicit sampled
+  // fallback limitation instead of attempting an upload Google cannot accept.
+  assertGeminiVideoFileSize(fileSizeBytes)
   const model = resolveGeminiVideoModel(process.env.MEDIA_VIDEO_ANALYSIS_MODEL)
   return executeMediaProviderOperation(
     admissionGuard,
@@ -580,6 +586,7 @@ async function analyzeVideoWithGemini(
     () =>
       analyzeGeminiVideo({
         filePath,
+        fileSizeBytes,
         filename,
         mimeType: videoMimeType(filename),
         model,
@@ -1161,6 +1168,7 @@ export async function processMediaIngestionJob(
                 venueAdmission,
                 reserveProviderOperation,
                 file.path,
+                file.bytes,
                 file.filename,
                 sourceId,
                 project.context,

@@ -14,6 +14,8 @@ export {
 export { normalizeAiUsageErrorCode, type AiUsageErrorCode } from './usage-error-code'
 export {
   analyzeGeminiVideo,
+  assertGeminiVideoFileSize,
+  GEMINI_VIDEO_FILE_MAX_BYTES,
   GeminiVideoDeletionUnconfirmedError,
   GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   GEMINI_VIDEO_DELETE_TIMEOUT_MS,

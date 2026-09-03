@@ -7,6 +7,7 @@ import {
 } from './budget'
 
 export const GEMINI_VIDEO_MODEL = 'gemini-3.7-flash' as const
+export const GEMINI_VIDEO_FILE_MAX_BYTES = 2_000_000_000
 export const GEMINI_VIDEO_PRICING_VERSION = 'google-gemini-public-2026-09-01' as const
 export const GEMINI_VIDEO_MAX_INPUT_TOKENS = 1_048_576
 export const GEMINI_VIDEO_MAX_OUTPUT_TOKENS = 8_192
@@ -80,6 +81,15 @@ export function resolveGeminiVideoModel(value?: string): typeof GEMINI_VIDEO_MOD
     throw new Error('MEDIA_VIDEO_ANALYSIS_MODEL must use the reviewed model')
   }
   return value
+}
+
+export function assertGeminiVideoFileSize(fileSizeBytes: number): void {
+  if (!Number.isSafeInteger(fileSizeBytes) || fileSizeBytes < 1) {
+    throw new Error('Gemini video file size must be a positive safe integer')
+  }
+  if (fileSizeBytes > GEMINI_VIDEO_FILE_MAX_BYTES) {
+    throw new Error('Gemini video file exceeds the Google Files API per-file limit')
+  }
 }
 
 export function setGeminiVideoClientForTesting(client: GeminiVideoClient | null): void {
@@ -200,6 +210,7 @@ async function waitForActiveFile(
 
 export async function analyzeGeminiVideo<TParsed>(params: {
   filePath: string
+  fileSizeBytes: number
   filename: string
   mimeType: string
   model: typeof GEMINI_VIDEO_MODEL
@@ -225,6 +236,7 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   let outcome: { ok: true; value: TParsed } | { ok: false; error: unknown }
 
   try {
+    assertGeminiVideoFileSize(params.fileSizeBytes)
     reservation = await params.budgetGate.reserve({
       invocationId,
       attemptNumber: 1,
@@ -272,7 +284,7 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     // Treat an empty or whitespace-only SDK response name like an omitted
     // name. The preselected identity is still the only safe cleanup target.
     uploadedName = uploaded.name?.trim() || uploadedName
-    const active = await waitForActiveFile(client, uploaded, signal)
+    const active = await waitForActiveFile(client, { ...uploaded, name: uploadedName }, signal)
 
     const response = await client.models.generateContent({
       model: params.model,

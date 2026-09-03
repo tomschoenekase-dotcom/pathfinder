@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   analyzeGeminiVideo,
+  GEMINI_VIDEO_FILE_MAX_BYTES,
   GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   GEMINI_VIDEO_MODEL,
   GEMINI_VIDEO_PRICING_VERSION,
@@ -13,6 +14,7 @@ import type { AiBudgetGate, AiBudgetReservationRef } from './budget'
 const originalKey = process.env.GEMINI_API_KEY
 
 afterEach(() => {
+  vi.useRealTimers()
   setGeminiVideoClientForTesting(null)
   if (originalKey === undefined) delete process.env.GEMINI_API_KEY
   else process.env.GEMINI_API_KEY = originalKey
@@ -45,6 +47,7 @@ function client(options?: {
   uploadFailure?: Error
   uploadWithoutName?: boolean
   uploadName?: string
+  uploadState?: 'ACTIVE' | 'PROCESSING'
 }): GeminiVideoClient {
   return {
     files: {
@@ -56,10 +59,15 @@ function client(options?: {
             : {}),
           uri: 'https://generativelanguage.googleapis.com/v1beta/files/client-tour',
           mimeType: 'video/mp4',
-          state: 'ACTIVE' as const,
+          state: options?.uploadState ?? ('ACTIVE' as const),
         }
       }),
-      get: vi.fn(),
+      get: vi.fn(async ({ name }: { name: string }) => ({
+        name,
+        uri: 'https://generativelanguage.googleapis.com/v1beta/files/client-tour',
+        mimeType: 'video/mp4',
+        state: 'ACTIVE' as const,
+      })),
       delete: vi.fn(async () => {
         if (options?.deleteFailure) throw options.deleteFailure
         return {}
@@ -91,6 +99,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'C:\\fixtures\\tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -154,6 +163,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -176,6 +186,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -194,7 +205,7 @@ describe('Gemini video understanding', () => {
     )
   })
 
-  it('deletes the preselected provider identity when the upload response omits it', async () => {
+  it('uses and deletes the preselected provider identity when the upload response omits it', async () => {
     const fakeClient = client({ uploadWithoutName: true })
     const { budgetGate } = gate()
     const usageSink = vi.fn(async () => undefined)
@@ -203,6 +214,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -211,37 +223,69 @@ describe('Gemini video understanding', () => {
         usageSink,
         budgetGate,
       }),
-    ).rejects.toThrow('Gemini video upload returned incomplete file identity')
-
-    expect(fakeClient.files.delete).toHaveBeenCalledWith({
-      name: expect.stringMatching(/^files\/torchiko-/u),
-      config: { abortSignal: expect.any(AbortSignal) },
-    })
-    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: false }))
-  })
-
-  it('retains the preselected cleanup identity when the upload response name is blank', async () => {
-    const fakeClient = client({ uploadName: '   ' })
-    const { budgetGate } = gate()
-    setGeminiVideoClientForTesting(fakeClient)
-
-    await expect(
-      analyzeGeminiVideo({
-        filePath: 'tour.mp4',
-        filename: 'tour.mp4',
-        mimeType: 'video/mp4',
-        model: GEMINI_VIDEO_MODEL,
-        prompt: 'Return JSON.',
-        parseResponse: JSON.parse,
-        usageSink: vi.fn(async () => undefined),
-        budgetGate,
-      }),
     ).resolves.toEqual({ summary: 'A venue tour' })
 
     expect(fakeClient.files.delete).toHaveBeenCalledWith({
       name: expect.stringMatching(/^files\/torchiko-/u),
       config: { abortSignal: expect.any(AbortSignal) },
     })
+    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: true }))
+  })
+
+  it('uses the preselected identity to poll and clean up when the upload response name is blank', async () => {
+    vi.useFakeTimers()
+    const fakeClient = client({ uploadName: '   ', uploadState: 'PROCESSING' })
+    const { budgetGate } = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+
+    const result = analyzeGeminiVideo({
+      filePath: 'tour.mp4',
+      fileSizeBytes: 1_000_000,
+      filename: 'tour.mp4',
+      mimeType: 'video/mp4',
+      model: GEMINI_VIDEO_MODEL,
+      prompt: 'Return JSON.',
+      parseResponse: JSON.parse,
+      usageSink: vi.fn(async () => undefined),
+      budgetGate,
+    })
+    await vi.advanceTimersByTimeAsync(2_000)
+    await expect(result).resolves.toEqual({ summary: 'A venue tour' })
+
+    expect(fakeClient.files.get).toHaveBeenCalledWith({
+      name: expect.stringMatching(/^files\/torchiko-/u),
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: expect.stringMatching(/^files\/torchiko-/u),
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
+    vi.useRealTimers()
+  })
+
+  it('refuses a known-oversize video before budget or provider dispatch', async () => {
+    const fakeClient = client()
+    const { budgetGate } = gate()
+    const usageSink = vi.fn(async () => undefined)
+    setGeminiVideoClientForTesting(fakeClient)
+
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: GEMINI_VIDEO_FILE_MAX_BYTES + 1,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink,
+        budgetGate,
+      }),
+    ).rejects.toThrow('Google Files API per-file limit')
+
+    expect(budgetGate.reserve).not.toHaveBeenCalled()
+    expect(fakeClient.files.upload).not.toHaveBeenCalled()
+    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ attempts: 0, success: false }))
   })
 
   it('settles conservatively when a provider upload fails after dispatch begins', async () => {
@@ -252,6 +296,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -286,6 +331,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,
@@ -311,6 +357,7 @@ describe('Gemini video understanding', () => {
     await expect(
       analyzeGeminiVideo({
         filePath: 'tour.mp4',
+        fileSizeBytes: 1_000_000,
         filename: 'tour.mp4',
         mimeType: 'video/mp4',
         model: GEMINI_VIDEO_MODEL,

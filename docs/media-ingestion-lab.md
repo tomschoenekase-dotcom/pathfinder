@@ -21,7 +21,9 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    existing analysis while retaining their own source row. Videos are sampled at the configured
    interval with a 120-frame ceiling by default. An operator may explicitly opt a new intake into
    Google Gemini complete-video understanding so motion, narration, visible text, and timestamped
-   events are analyzed together; the UI discloses the external transfer before opt-in. Each FFmpeg
+   events are analyzed together; the UI discloses the external transfer before opt-in. An extracted
+   video above Google's 2,000,000,000-byte Files API per-file limit never crosses the provider
+   boundary and instead uses the sampled fallback with an explicit review limitation. Each FFmpeg
    invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
    process, without a shell. Generated frame dimensions are bounded on both axes. Frame JPEGs and
@@ -108,6 +110,8 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   cannot be confirmed fails closed. Google's separate API-log retention policy still applies, as
   disclosed in the intake UI. An ordinary Google provider failure falls back to bounded frame
   sampling and optional narration transcription, with that limitation inserted into review evidence.
+  The known 2,000,000,000-byte per-file ceiling is enforced before AI admission, operation
+  reservation, budget reservation, or upload.
 - The Google call uses the shared tenant budget gate and a conservative reservation based on the
   documented post-introductory model price; observed usage settles against the versioned current
   price schedule. A live provider canary still requires separate spending and synthetic-data
