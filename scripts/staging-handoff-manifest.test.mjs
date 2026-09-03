@@ -96,7 +96,8 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.deepEqual(first.rolloutSafety.variableUpdateDeploymentPolicy, {
     suppressAutomaticDeploys: true,
     railwayCliFlag: '--skip-deploys',
-    reason: 'Stage every exact rollout prerequisite before creating any deployment.',
+    reason:
+      'Stage every exact rollout prerequisite before deployment and close one-run gates without replacing the admitted revision.',
   })
   assert.equal(
     first.admission.requiredActions.some(
@@ -131,6 +132,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.ok(deployAction >= 0)
   assert.equal(migrationPredeployAction, deployAction)
   assert.ok(migrationCloseAction >= 0)
+  assert.match(first.admission.requiredActions[migrationCloseAction], /--skip-deploys/u)
   assert.equal(
     first.admission.requiredActions
       .slice(releaseVariableAction, deployAction)

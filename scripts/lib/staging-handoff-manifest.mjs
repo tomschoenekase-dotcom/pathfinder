@@ -154,7 +154,8 @@ export function buildStagingHandoffManifest({
       variableUpdateDeploymentPolicy: {
         suppressAutomaticDeploys: true,
         railwayCliFlag: '--skip-deploys',
-        reason: 'Stage every exact rollout prerequisite before creating any deployment.',
+        reason:
+          'Stage every exact rollout prerequisite before deployment and close one-run gates without replacing the admitted revision.',
       },
     },
     admission: {
@@ -165,7 +166,7 @@ export function buildStagingHandoffManifest({
         'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
         'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before deployment; the pre-deploy migration rejects a closed or missing one-run gate.',
         'Deploy the resulting immutable staging revision with provider release metadata intact; Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
-        'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 without replacing the admitted active revision.',
+        'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 with --skip-deploys so closing the one-run gate does not replace the admitted active revision.',
         'Run verify:release with the staging profile against that exact hosted revision.',
         `Pipe ${RAILWAY_STATUS_COMMAND} into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.`,
         'Run verify:staging-runtime with the exact deployment IDs emitted by verify:staging-topology; retain only its bounded counts and never treat a refused empty provider query as clean evidence.',
