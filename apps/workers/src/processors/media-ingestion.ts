@@ -23,6 +23,7 @@ import {
 import { logger } from '@pathfinder/config'
 import {
   analyzeGeminiVideo,
+  AiRequestBudgetCeilingExceededError,
   GeminiVideoDeletionUnconfirmedError,
   createOpenAiMediaJson,
   resolveGeminiVideoModel,
@@ -549,6 +550,16 @@ function videoMimeType(filename: string): string {
     default:
       throw new Error('Unsupported Gemini video format.')
   }
+}
+
+export function shouldPropagateFullVideoFailure(error: unknown, signal?: AbortSignal): boolean {
+  assertMediaJobActive(signal)
+  return (
+    isAiAdmissionControlError(error) ||
+    error instanceof AiRequestBudgetCeilingExceededError ||
+    error instanceof GeminiVideoDeletionUnconfirmedError ||
+    error instanceof UnrecoverableError
+  )
 }
 
 async function analyzeVideoWithGemini(
@@ -1158,14 +1169,7 @@ export async function processMediaIngestionJob(
                 signal,
               ),
             analyzeFallback,
-            shouldPropagate: (error) => {
-              assertMediaJobActive(signal)
-              return (
-                isAiAdmissionControlError(error) ||
-                error instanceof GeminiVideoDeletionUnconfirmedError ||
-                error instanceof UnrecoverableError
-              )
-            },
+            shouldPropagate: (error) => shouldPropagateFullVideoFailure(error, signal),
           })
         } else if (
           mediaType === 'DOCUMENT' &&

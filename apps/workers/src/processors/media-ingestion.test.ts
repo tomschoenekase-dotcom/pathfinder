@@ -78,9 +78,11 @@ import {
   parseMediaSynthesisResponse,
   persistMediaIngestionAsset,
   processMediaIngestionJob,
+  shouldPropagateFullVideoFailure,
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import { AiRequestBudgetCeilingExceededError } from '@pathfinder/ai'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -100,6 +102,13 @@ const project = {
 }
 
 describe('media ingestion provider output validation', () => {
+  it('never falls back around the invocation budget ceiling', () => {
+    expect(shouldPropagateFullVideoFailure(new AiRequestBudgetCeilingExceededError(10n, 11n))).toBe(
+      true,
+    )
+    expect(shouldPropagateFullVideoFailure(new Error('ordinary provider failure'))).toBe(false)
+  })
+
   it('uses code-owned asset failure findings without exception detail', () => {
     const secret = 'postgres://operator:secret@example.test/torchiko'
     const analysis = failedMediaAssetAnalysis()
