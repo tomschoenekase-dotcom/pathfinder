@@ -19,9 +19,11 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    before it reaches disk.
 5. Every supported image is inventoried and analyzed by default. Exact SHA-256 duplicates reuse an
    existing analysis while retaining their own source row. Videos are sampled at the configured
-   interval with a 120-frame ceiling by default. Before upload, the UI discloses that supported
-   photos, sampled video frames, optional audio, and up to 12,000 characters of operator context are
-   sent to OpenAI while the source ZIP itself is not. An operator may explicitly opt a new intake
+   interval with a 120-frame ceiling by default. Before upload, the UI discloses that the venue name,
+   supported photos, sampled video frames, optional audio, extracted supported text, generated
+   evidence summaries (including Google analysis when enabled), and up to 12,000 characters of
+   operator context are sent to OpenAI for analysis and draft synthesis, while the source ZIP itself
+   is not sent as an archive. An operator may explicitly opt a new intake
    into Google Gemini complete-video understanding so motion, narration, visible text, and
    timestamped events are analyzed together; the UI separately discloses that the video, its
    filename, and up to 12,000 characters of project operator context cross the Google provider

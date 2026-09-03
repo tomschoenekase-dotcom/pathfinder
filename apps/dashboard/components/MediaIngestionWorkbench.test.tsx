@@ -225,9 +225,10 @@ describe('media ingestion finalization recovery', () => {
     expect(consent.checked).toBe(false)
     expect(
       screen.getByText(
-        /Torchiko sends supported photos, sampled video frames, optional audio, and up to 12,000 characters of operator context to OpenAI/,
+        /Torchiko sends the venue name, supported photos, sampled video frames, optional audio, extracted supported text, generated evidence summaries \(including Google analysis when enabled\), and up to 12,000 characters of operator context to OpenAI/,
       ),
     ).toBeTruthy()
+    expect(screen.getByText(/not sent to OpenAI as an archive/)).toBeTruthy()
     expect(
       screen.getByText(
         /Sends each client video, its filename, and up to 12,000 characters of this project's operator context to Google/,

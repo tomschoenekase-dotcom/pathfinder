@@ -415,9 +415,11 @@ export function MediaIngestionWorkbench({
           </label>
           <p className="mt-4 rounded-xl border border-pf-light bg-pf-surface px-4 py-3 text-sm leading-6 text-pf-deep/70">
             <span className="font-semibold text-pf-deep">Provider processing.</span> Torchiko sends
-            supported photos, sampled video frames, optional audio, and up to 12,000 characters of
-            operator context to OpenAI for analysis. The source ZIP itself is not sent to OpenAI;
-            the configured OpenAI API data controls still apply.
+            the venue name, supported photos, sampled video frames, optional audio, extracted
+            supported text, generated evidence summaries (including Google analysis when enabled),
+            and up to 12,000 characters of operator context to OpenAI for analysis and draft
+            synthesis. The source ZIP itself is not sent to OpenAI as an archive; the configured
+            OpenAI API data controls still apply.
           </p>
         </section>
 
