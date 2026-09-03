@@ -226,6 +226,15 @@ test('rejects missing live voice, fallback, and provider performance proof', () 
   assert.throws(() => validateProviderEvidencePackage(performance), /streaming proof/)
 })
 
+test('rejects credential material hidden inside otherwise permitted evidence strings', () => {
+  const value = validPackage()
+  value.runs[0].evidenceReference = ['sk', 'proj', 'A'.repeat(32)].join('-')
+  assert.throws(
+    () => validateProviderEvidencePackage(value),
+    /package\.runs\.0\.evidenceReference contains forbidden credential material/u,
+  )
+})
+
 test('accepts the 100–300 Golden Venue range and rejects incomplete or oversized corpora', () => {
   const expanded = validPackage()
   expanded.evidence.goldenCorpus.cases.push(

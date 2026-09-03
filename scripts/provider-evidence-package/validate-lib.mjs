@@ -31,6 +31,21 @@ const FULL_SHA = /^[a-f0-9]{40}$/
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
 const PROVIDERS = ['OPENAI', 'ANTHROPIC']
 const OUTCOMES = ['PASS', 'FAIL', 'OPERATIONAL_FAILURE']
+const SENSITIVE_VALUE_PATTERNS = [
+  /\bsk-ant-[A-Za-z0-9_-]{20,}\b/u,
+  /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b/u,
+  /\bAIza[A-Za-z0-9_-]{30,}\b/u,
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/u,
+  /\bwhsec_[A-Za-z0-9]{16,}\b/u,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/u,
+  /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/u,
+  /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/u,
+  /\bsb_secret_[A-Za-z0-9_-]{20,}\b/u,
+  /\bre_[A-Za-z0-9]{20,}\b/u,
+  /-----BEGIN (?:EC |OPENSSH |RSA )?PRIVATE KEY-----/u,
+  /\bBearer\s+[A-Za-z0-9._~+/-]{12,}={0,2}\b/iu,
+  /\b(?:postgres(?:ql)?:\/\/[^\s/:@]+:[^\s/@]+@[^\s/]+|redis(?:s)?:\/\/(?:[^\s/:@]+)?:[^\s/@]+@[^\s/]+)/iu,
+]
 
 function fail(message) {
   throw new Error(`Provider evidence package rejected: ${message}`)
@@ -101,6 +116,12 @@ function stableStringify(value) {
 }
 
 function assertNoSensitiveMaterial(value, trail = 'package') {
+  if (typeof value === 'string') {
+    if (SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
+      fail(`${trail} contains forbidden credential material`)
+    }
+    return
+  }
   if (!value || typeof value !== 'object') return
   for (const [key, child] of Object.entries(value)) {
     const normalizedKey = key.replace(/[-_]/gu, '')
