@@ -67,12 +67,37 @@ export const EvalLocationContextSchema = z.enum([
   'offsite',
 ])
 
+export const EvalFamilySchema = z.enum([
+  'practical-utilities',
+  'hours',
+  'admissions-rules',
+  'exhibit-questions',
+  'deeper-interpretation',
+  'recommendations',
+  'what-should-i-do-next',
+  'location-navigation',
+  'accessibility',
+  'closed-unavailable-place',
+  'temporal-update',
+  'contradictory-source',
+  'missing-answer',
+  'vague-query',
+  'typo',
+  'multilingual',
+  'multi-turn-context',
+  'adversarial-prompt-injection',
+  'staff-private-separation',
+])
+
 export const EvalCoverageDimensionsSchema = z
   .object({
     intent: EvalIntentSchema,
     risk: EvalRiskSchema,
     language: EvalLanguageSchema,
     locationContext: EvalLocationContextSchema,
+    // Optional for pathfinder-eval-v1 compatibility. Representative corpora should name the
+    // packet-level failure families they exercise so numerical size cannot mask duplicate shapes.
+    families: z.array(EvalFamilySchema).min(1).max(EvalFamilySchema.options.length).optional(),
   })
   .strict()
 
@@ -470,6 +495,7 @@ export const EvalAggregateSchema = z
 
 export type EvalCase = z.infer<typeof EvalCaseSchema>
 export type EvalCoverageDimensions = z.infer<typeof EvalCoverageDimensionsSchema>
+export type EvalFamily = z.infer<typeof EvalFamilySchema>
 export type EvalLanguage = z.infer<typeof EvalLanguageSchema>
 export type EvalObservationInput = z.infer<typeof EvalObservationInputSchema>
 export type EvalObservation = z.infer<typeof EvalObservationSchema>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { SUPPORTED_CHAT_LANGUAGES } from '../../schemas/chat'
-import { EvalCaseSchema } from './contracts'
+import { EvalCaseSchema, EvalFamilySchema } from './contracts'
 import { evaluateCorpus } from './scoring'
 import {
   GOLDEN_VENUE_BASELINE_INPUTS,
@@ -12,10 +12,16 @@ import {
 } from './golden-venue-corpus'
 
 describe('Golden Venue representative evaluation corpus', () => {
-  it('pins a unique 100-case stratified matrix with explicit coverage dimensions', () => {
-    expect(GOLDEN_VENUE_EVAL_CASES).toHaveLength(100)
-    expect(new Set(GOLDEN_VENUE_EVAL_CASES.map((item) => item.caseId))).toHaveLength(100)
+  it('pins a unique 100–300 case matrix with every required failure family', () => {
+    expect(GOLDEN_VENUE_EVAL_CASES).toHaveLength(107)
+    expect(new Set(GOLDEN_VENUE_EVAL_CASES.map((item) => item.caseId))).toHaveLength(107)
     expect(GOLDEN_VENUE_EVAL_CASES.every((item) => item.dimensions !== undefined)).toBe(true)
+    expect(GOLDEN_VENUE_EVAL_CASES.every((item) => item.dimensions!.families !== undefined)).toBe(
+      true,
+    )
+    expect(new Set(GOLDEN_VENUE_EVAL_CASES.flatMap((item) => item.dimensions!.families!))).toEqual(
+      new Set(EvalFamilySchema.options),
+    )
 
     const supportedLanguages = SUPPORTED_CHAT_LANGUAGES.map((language) => language.code)
     const corpusLanguages = new Set(
@@ -23,9 +29,10 @@ describe('Golden Venue representative evaluation corpus', () => {
     )
     expect(corpusLanguages).toEqual(new Set(supportedLanguages))
     for (const language of supportedLanguages) {
+      const expectedCount = language === 'en' ? 17 : 10
       expect(
         GOLDEN_VENUE_EVAL_CASES.filter((item) => item.dimensions!.language === language),
-      ).toHaveLength(10)
+      ).toHaveLength(expectedCount)
     }
 
     expect(new Set(GOLDEN_VENUE_EVAL_CASES.map((item) => item.venue.fixtureId)).size).toBe(4)
@@ -42,11 +49,20 @@ describe('Golden Venue representative evaluation corpus', () => {
       new Set(['low', 'moderate', 'high']),
     )
     expect(new Set(GOLDEN_VENUE_EVAL_CASES.map((item) => item.dimensions!.intent))).toEqual(
-      new Set(['directions', 'policy', 'availability', 'privacy', 'accessibility']),
+      new Set([
+        'directions',
+        'policy',
+        'availability',
+        'privacy',
+        'accessibility',
+        'schedule',
+        'general-information',
+        'recommendation',
+      ]),
     )
     expect(
       new Set(GOLDEN_VENUE_EVAL_CASES.map((item) => item.dimensions!.locationContext)),
-    ).toEqual(new Set(['exhibit', 'arrival', 'whole-venue', 'offsite']))
+    ).toEqual(new Set(['exhibit', 'amenity', 'arrival', 'whole-venue', 'offsite']))
   })
 
   it('keeps coverage dimensions strict while preserving legacy v1 cases', () => {
@@ -71,8 +87,8 @@ describe('Golden Venue representative evaluation corpus', () => {
 
     expect(evaluated.aggregate).toMatchObject({
       passed: true,
-      caseCount: 100,
-      passedCaseCount: 100,
+      caseCount: 107,
+      passedCaseCount: 107,
       casePassRate: 1,
       checkPassRate: 1,
     })

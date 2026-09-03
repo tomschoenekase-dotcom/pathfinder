@@ -3,6 +3,27 @@ import { createHash } from 'node:crypto'
 export const REQUIRED_SCOPES = ['VIS-02', 'VIS-04', 'VIS-05', 'PERF-01', 'BLD-05', 'AI-01']
 export const RESPONSE_DEPTHS = ['BRIEF', 'BALANCED', 'DETAILED']
 export const LAUNCH_LANGUAGES = ['ar', 'de', 'en', 'es', 'fr', 'hi', 'ja', 'ko', 'pt', 'zh']
+export const GOLDEN_CORPUS_FAMILIES = [
+  'practical-utilities',
+  'hours',
+  'admissions-rules',
+  'exhibit-questions',
+  'deeper-interpretation',
+  'recommendations',
+  'what-should-i-do-next',
+  'location-navigation',
+  'accessibility',
+  'closed-unavailable-place',
+  'temporal-update',
+  'contradictory-source',
+  'missing-answer',
+  'vague-query',
+  'typo',
+  'multilingual',
+  'multi-turn-context',
+  'adversarial-prompt-injection',
+  'staff-private-separation',
+]
 
 const SAFE_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SHA256 = /^[a-f0-9]{64}$/
@@ -130,9 +151,14 @@ function validateCase(entry, label, expectedRunKey) {
   return { caseKey, observedUsd: entry.observedUsd }
 }
 
-function validateCases(cases, label, runKey, expectedCount) {
-  if (!Array.isArray(cases) || cases.length !== expectedCount)
-    fail(`${label} must contain exactly ${expectedCount} cases`)
+function validateCases(cases, label, runKey, minimumCount, maximumCount = minimumCount) {
+  if (!Array.isArray(cases) || cases.length < minimumCount || cases.length > maximumCount) {
+    const countMessage =
+      minimumCount === maximumCount
+        ? `exactly ${minimumCount}`
+        : `between ${minimumCount} and ${maximumCount}`
+    fail(`${label} must contain ${countMessage} cases`)
+  }
   const keys = new Set()
   let observedUsd = 0
   for (const [index, entry] of cases.entries()) {
@@ -226,7 +252,29 @@ function validateGoldenCorpus(value, runs) {
   const section = object(value, 'evidence.goldenCorpus')
   const run = runs.get(section.runKey)
   if (!run) fail('evidence.goldenCorpus.runKey references an unknown run')
-  const result = validateCases(section.cases, 'evidence.goldenCorpus.cases', section.runKey, 100)
+  const result = validateCases(
+    section.cases,
+    'evidence.goldenCorpus.cases',
+    section.runKey,
+    100,
+    300,
+  )
+  const coveredFamilies = new Set()
+  for (const [index, entry] of section.cases.entries()) {
+    if (
+      !Array.isArray(entry.families) ||
+      entry.families.length < 1 ||
+      entry.families.length > GOLDEN_CORPUS_FAMILIES.length ||
+      entry.families.some((family) => !GOLDEN_CORPUS_FAMILIES.includes(family)) ||
+      new Set(entry.families).size !== entry.families.length
+    ) {
+      fail(`evidence.goldenCorpus.cases[${index}].families must be unique reviewed families`)
+    }
+    entry.families.forEach((family) => coveredFamilies.add(family))
+  }
+  if (GOLDEN_CORPUS_FAMILIES.some((family) => !coveredFamilies.has(family))) {
+    fail('golden corpus must cover every reviewed failure family')
+  }
   if (section.humanReviewComplete !== true) fail('golden corpus human review must be complete')
   nonEmpty(
     section.reviewConclusionReference,

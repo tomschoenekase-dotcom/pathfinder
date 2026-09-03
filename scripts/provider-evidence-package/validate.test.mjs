@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { validateProviderEvidencePackage } from './validate-lib.mjs'
+import { GOLDEN_CORPUS_FAMILIES, validateProviderEvidencePackage } from './validate-lib.mjs'
 
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
@@ -55,7 +55,9 @@ function validPackage() {
     ),
   )
   const goldenCases = Array.from({ length: 100 }, (_, index) =>
-    makeCase(`golden-case-${String(index + 1).padStart(3, '0')}`, 'golden-run'),
+    makeCase(`golden-case-${String(index + 1).padStart(3, '0')}`, 'golden-run', {
+      families: [GOLDEN_CORPUS_FAMILIES[index % GOLDEN_CORPUS_FAMILIES.length]],
+    }),
   )
   return {
     schemaVersion: 1,
@@ -224,10 +226,46 @@ test('rejects missing live voice, fallback, and provider performance proof', () 
   assert.throws(() => validateProviderEvidencePackage(performance), /streaming proof/)
 })
 
-test('rejects incomplete Golden Venue corpus and incomplete human review', () => {
+test('accepts the 100–300 Golden Venue range and rejects incomplete or oversized corpora', () => {
+  const expanded = validPackage()
+  expanded.evidence.goldenCorpus.cases.push(
+    ...Array.from({ length: 7 }, (_, index) =>
+      makeCase(`golden-expanded-${index + 1}`, 'golden-run', {
+        families: [GOLDEN_CORPUS_FAMILIES[index]],
+      }),
+    ),
+  )
+  const expandedRun = expanded.runs.find((entry) => entry.runKey === 'golden-run')
+  expandedRun.observedUsd = 0.107
+  expandedRun.reservedUsd = 0.107
+  assert.doesNotThrow(() => validateProviderEvidencePackage(expanded))
+
   const corpus = validPackage()
   corpus.evidence.goldenCorpus.cases.pop()
-  assert.throws(() => validateProviderEvidencePackage(corpus), /exactly 100 cases/)
+  assert.throws(() => validateProviderEvidencePackage(corpus), /between 100 and 300 cases/)
+
+  const oversized = validPackage()
+  oversized.evidence.goldenCorpus.cases.push(
+    ...Array.from({ length: 201 }, (_, index) =>
+      makeCase(`golden-oversized-${index + 1}`, 'golden-run', {
+        families: [GOLDEN_CORPUS_FAMILIES[index % GOLDEN_CORPUS_FAMILIES.length]],
+      }),
+    ),
+  )
+  assert.throws(() => validateProviderEvidencePackage(oversized), /between 100 and 300 cases/)
+
+  const missingFamily = validPackage()
+  for (const entry of missingFamily.evidence.goldenCorpus.cases) {
+    entry.families = entry.families.filter(
+      (family) => family !== GOLDEN_CORPUS_FAMILIES[GOLDEN_CORPUS_FAMILIES.length - 1],
+    )
+    if (entry.families.length === 0) entry.families = [GOLDEN_CORPUS_FAMILIES[0]]
+  }
+  assert.throws(
+    () => validateProviderEvidencePackage(missingFamily),
+    /cover every reviewed failure family/,
+  )
+
   const review = validPackage()
   review.evidence.goldenCorpus.humanReviewComplete = false
   assert.throws(() => validateProviderEvidencePackage(review), /human review must be complete/)

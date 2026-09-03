@@ -12,8 +12,11 @@ list, authenticated administrator session, isolated staging credential, expiry, 
 The package requires exact release identity; a synthetic non-customer venue; retained run, prompt,
 corpus, provider, model, reservation, observed-cost, and timing facts; BRIEF/BALANCED/DETAILED review;
 the exact 20-case ten-language run; a founder-approved live voice canary and text fallback; streaming
-TTFT evidence; 100 Golden Venue observations with completed human review; and an OpenAI same-corpus
-model-diversity observation. Anthropic evidence is optional and cannot authorize a routing change.
+TTFT evidence; 100–300 Golden Venue observations with completed human review; and an OpenAI
+same-corpus model-diversity observation. The repository corpus labels and tests every packet-required
+failure family, and each retained Golden Venue result carries its reviewed family labels, so repeated
+scenario shapes cannot satisfy coverage by count alone. Anthropic evidence is optional and cannot
+authorize a routing change.
 
 The receipt contains only exact release identity, scope, observed provider names, aggregate counts and
 costs, false launch/routing authority, and a stable package hash. It omits private review references,
