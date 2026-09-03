@@ -413,6 +413,12 @@ export function MediaIngestionWorkbench({
               className="mt-2 w-full rounded-lg border border-pf-light bg-pf-surface px-4 py-3 text-sm leading-6 outline-none focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
             />
           </label>
+          <p className="mt-4 rounded-xl border border-pf-light bg-pf-surface px-4 py-3 text-sm leading-6 text-pf-deep/70">
+            <span className="font-semibold text-pf-deep">Provider processing.</span> Torchiko sends
+            supported photos, sampled video frames, optional audio, and up to 12,000 characters of
+            operator context to OpenAI for analysis. The source ZIP itself is not sent to OpenAI;
+            the configured OpenAI API data controls still apply.
+          </p>
         </section>
 
         <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
@@ -447,9 +453,9 @@ export function MediaIngestionWorkbench({
                 Sends each client video, its filename, and up to 12,000 characters of this
                 project&apos;s operator context to Google so Torchiko can connect motion, narration,
                 visible text, and timestamped events. Torchiko requests deletion immediately after
-                analysis; Google API logs may still follow the project&apos;s configured retention
-                policy. If this path is unavailable, Torchiko falls back to bounded frame sampling
-                and records that limitation for review.
+                analysis; Google API logs may still follow the configured Google API project&apos;s
+                retention policy. If this path is unavailable, Torchiko uses the OpenAI processing
+                described above and records that limitation for review.
               </span>
             </span>
           </label>

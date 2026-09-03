@@ -225,9 +225,15 @@ describe('media ingestion finalization recovery', () => {
     expect(consent.checked).toBe(false)
     expect(
       screen.getByText(
+        /Torchiko sends supported photos, sampled video frames, optional audio, and up to 12,000 characters of operator context to OpenAI/,
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(
         /Sends each client video, its filename, and up to 12,000 characters of this project's operator context to Google/,
       ),
     ).toBeTruthy()
+    expect(screen.getByText(/uses the OpenAI processing described above/)).toBeTruthy()
 
     fireEvent.click(consent)
     const archive = new File([new Uint8Array([1, 2, 3])], 'visit.zip', {
