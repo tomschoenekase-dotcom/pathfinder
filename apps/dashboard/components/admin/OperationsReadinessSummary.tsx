@@ -13,7 +13,19 @@ function state(ready: boolean) {
 function duration(value: number | null) {
   if (value === null) return 'Not observed'
   if (value < 1_000) return `${value.toLocaleString('en-US')} ms`
-  return `${(value / 1_000).toLocaleString('en-US', { maximumFractionDigits: 1 })} s`
+  const seconds = value / 1_000
+  if (seconds < 60) {
+    return `${seconds.toLocaleString('en-US', { maximumFractionDigits: 1 })} s`
+  }
+  const minutes = seconds / 60
+  if (minutes < 60) {
+    return `${minutes.toLocaleString('en-US', { maximumFractionDigits: 1 })} min`
+  }
+  const hours = minutes / 60
+  if (hours < 24) {
+    return `${hours.toLocaleString('en-US', { maximumFractionDigits: 1 })} h`
+  }
+  return `${(hours / 24).toLocaleString('en-US', { maximumFractionDigits: 1 })} d`
 }
 
 function estimatedCost(value: string) {
@@ -34,7 +46,7 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
     ['Schedulers', readiness.requirements.schedulersEnabled],
     ['Provider work', readiness.requirements.providerWorkEnabled],
     ['Queue observation', readiness.requirements.allQueuesObserved],
-    ['Queue flow', readiness.requirements.noQueuesPaused],
+    ['Queue pause state', readiness.requirements.noQueuesPaused],
     ['Long-running work', readiness.requirements.noStuckCriticalJobs],
     ['Intake verification', readiness.requirements.intakeVerificationEnabled],
     ['Object storage', readiness.requirements.objectStorageConnected],
@@ -215,7 +227,8 @@ export function OperationsReadinessSummary({ readiness }: { readiness: Readiness
       <p className="mt-4 text-xs leading-5 text-slate-600">
         Storage and malware state comes from bounded, read-only worker probes and expires after 90
         seconds. This view does not prove AI-provider execution, email delivery, an SLO, or external
-        alert delivery. Those remain separate evidence gates.
+        alert delivery. An unpaused queue may still contain old work; the oldest observed age is
+        shown above without inventing an age threshold. Those remain separate evidence gates.
       </p>
     </section>
   )

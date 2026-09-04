@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import axe from 'axe-core'
 import { describe, expect, it } from 'vitest'
 
@@ -71,14 +71,17 @@ const readiness = {
     },
   },
   boundaries: {},
-} as never
+} as const
 
 describe('operations readiness summary', () => {
   it('surfaces false-green blockers in a compact founder view', () => {
-    render(<OperationsReadinessSummary readiness={readiness} />)
+    render(<OperationsReadinessSummary readiness={readiness as never} />)
 
     expect(screen.getByRole('heading', { name: 'Core operations need attention' })).toBeTruthy()
     expect(screen.getByText('Provider work').parentElement?.textContent).toContain(
+      'Needs attention',
+    )
+    expect(screen.getByText('Queue pause state').parentElement?.textContent).toContain(
       'Needs attention',
     )
     expect(screen.getByText('Paused queues').parentElement?.textContent).toContain('1')
@@ -91,10 +94,31 @@ describe('operations readiness summary', () => {
     expect(screen.getByText('Estimated provider cost').parentElement?.textContent).toContain(
       '$0.12345678',
     )
+    expect(screen.getByText(/an unpaused queue may still contain old work/i)).toBeTruthy()
+  })
+
+  it('formats old queue age for human review without inventing a threshold', () => {
+    const { container } = render(
+      <OperationsReadinessSummary
+        readiness={
+          {
+            ...readiness,
+            queue: {
+              ...readiness.queue,
+              live: { ...readiness.queue.live, oldestAgeMs: 753_493_700 },
+            },
+          } as never
+        }
+      />,
+    )
+
+    expect(within(container).getByText('Live queue').parentElement?.textContent).toContain(
+      'Oldest 8.7 d',
+    )
   })
 
   it('has no automated accessibility violations', async () => {
-    const { container } = render(<OperationsReadinessSummary readiness={readiness} />)
+    const { container } = render(<OperationsReadinessSummary readiness={readiness as never} />)
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])
