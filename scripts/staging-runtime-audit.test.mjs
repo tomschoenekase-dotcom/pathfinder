@@ -8,6 +8,7 @@ import { RAILWAY_CLI_PACKAGE, RAILWAY_STATUS_COMMAND } from './lib/railway-cli-c
 import {
   auditStagingRuntime,
   buildRuntimeLogQueries,
+  classifyRuntimeErrorRows,
   parseBoundedLogLines,
   parseStagingRuntimeArgs,
 } from './lib/staging-runtime-audit.mjs'
@@ -184,6 +185,32 @@ test('fails closed on provider refusal, malformed or oversized output, and runti
   }
 })
 
+test('ignores only the complete known AWS Node support warning family and retains other errors', () => {
+  const warningRows = [
+    { level: 'error', message: '' },
+    {
+      level: 'error',
+      message: '(node:1) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript (v3)',
+    },
+    {
+      level: 'error',
+      message: 'will require node >=22. You are running node v20.20.2.',
+    },
+  ]
+  assert.deepEqual(classifyRuntimeErrorRows(warningRows), {
+    errorRows: 0,
+    ignoredCompatibilityWarningRows: 3,
+  })
+  assert.deepEqual(
+    classifyRuntimeErrorRows([...warningRows, { level: 'error', message: 'real failure' }]),
+    { errorRows: 1, ignoredCompatibilityWarningRows: 3 },
+  )
+  assert.deepEqual(classifyRuntimeErrorRows([{ level: 'error', message: '' }]), {
+    errorRows: 1,
+    ignoredCompatibilityWarningRows: 0,
+  })
+})
+
 test('CLI contains option and provider failures without echoing private content', () => {
   const invalid = spawnSync(process.execPath, ['scripts/verify-staging-runtime.mjs', '--help'], {
     encoding: 'utf8',
@@ -193,17 +220,20 @@ test('CLI contains option and provider failures without echoing private content'
   assert.equal(invalid.stderr, 'Staging runtime audit failed: invalid-options\n')
 })
 
-test('Windows reaches the npm shim through Node without a command shell', () => {
+test('runtime verification reaches the invoking pnpm through Node without a command shell', () => {
   const source = readFileSync('scripts/verify-staging-runtime.mjs', 'utf8')
   assert.match(source, /process\.execPath/u)
-  assert.match(source, /node_modules\/npm\/bin\/npx-cli\.js/u)
+  assert.match(source, /process\.env\.npm_execpath/u)
+  assert.match(source, /process\.env\.APPDATA/u)
+  assert.match(source, /existsSync/u)
+  assert.match(source, /'dlx'/u)
   assert.match(source, /shell: false/u)
-  assert.doesNotMatch(source, /ComSpec|cmd\.exe|shell: true/u)
+  assert.doesNotMatch(source, /ComSpec|cmd\.exe|npx-cli|shell: true/u)
 })
 
 test('Railway provider reads use one exact CLI package identity', () => {
   assert.match(RAILWAY_CLI_PACKAGE, /^@railway\/cli@\d+\.\d+\.\d+$/u)
-  assert.equal(RAILWAY_STATUS_COMMAND, `npx --yes ${RAILWAY_CLI_PACKAGE} status --json`)
+  assert.equal(RAILWAY_STATUS_COMMAND, `pnpm dlx ${RAILWAY_CLI_PACKAGE} status --json`)
   const runtimeSource = readFileSync('scripts/verify-staging-runtime.mjs', 'utf8')
   const handoffSource = readFileSync('scripts/lib/staging-handoff-manifest.mjs', 'utf8')
   assert.match(runtimeSource, /RAILWAY_CLI_PACKAGE/u)

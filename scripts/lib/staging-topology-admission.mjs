@@ -3,6 +3,22 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/u
 const REQUIRED_SERVICES = ['staging-web', 'staging-dashboard', 'staging-workers']
 const MAX_STATUS_BYTES = 1_048_576
+export const REVIEWED_LOCAL_UPLOAD_APPROVAL = 'reviewed-exact-source-upload-v1'
+
+const LOCAL_UPLOAD_CONTRACTS = {
+  'staging-web': {
+    configFile: '/railway.staging.web.json',
+    messageSuffix: 'staging web',
+  },
+  'staging-dashboard': {
+    configFile: '/railway.staging.dashboard.json',
+    messageSuffix: 'staging dashboard',
+  },
+  'staging-workers': {
+    configFile: '/railway.staging.workers.json',
+    messageSuffix: 'staging workers',
+  },
+}
 
 export class StagingTopologyAdmissionError extends Error {
   constructor(code) {
@@ -29,10 +45,17 @@ function edgeNodes(container) {
 }
 
 export function parseStagingTopologyArgs(args) {
-  if (args.length !== 2 || args[0] !== '--expected-revision') fail('invalid-options')
+  if (
+    ![2, 4].includes(args.length) ||
+    args[0] !== '--expected-revision' ||
+    (args.length === 4 &&
+      (args[2] !== '--reviewed-local-upload' || args[3] !== REVIEWED_LOCAL_UPLOAD_APPROVAL))
+  ) {
+    fail('invalid-options')
+  }
   const expectedRevision = args[1]
   if (!FULL_GIT_SHA.test(expectedRevision)) fail('invalid-expected-revision')
-  return { expectedRevision }
+  return { expectedRevision, reviewedLocalUpload: args.length === 4 }
 }
 
 export function parseBoundedTopologyJson(text) {
@@ -46,7 +69,27 @@ export function parseBoundedTopologyJson(text) {
   }
 }
 
-export function validateStagingTopology(payload, expectedRevision) {
+function deploymentRevisionSource(serviceName, deployment, expectedRevision, reviewedLocalUpload) {
+  if (deployment.meta.commitHash === expectedRevision) return 'git'
+  if (deployment.meta.commitHash != null || !reviewedLocalUpload) fail('deployment-revision-mismatch')
+
+  const contract = LOCAL_UPLOAD_CONTRACTS[serviceName]
+  if (
+    deployment.meta.reason !== 'deploy' ||
+    deployment.meta.cliCaller !== 'codex' ||
+    deployment.meta.configFile !== contract.configFile ||
+    deployment.meta.cliMessage !== `Torchiko exact ${expectedRevision} ${contract.messageSuffix}`
+  ) {
+    fail('local-upload-attestation-mismatch')
+  }
+  return 'reviewed-local-upload'
+}
+
+export function validateStagingTopology(
+  payload,
+  expectedRevision,
+  { reviewedLocalUpload = false } = {},
+) {
   if (!FULL_GIT_SHA.test(expectedRevision)) fail('invalid-expected-revision')
   if (!isRecord(payload)) fail('invalid-topology-shape')
 
@@ -66,7 +109,12 @@ export function validateStagingTopology(payload, expectedRevision) {
     if (deployment.status !== 'SUCCESS' || deployment.deploymentStopped !== false) {
       fail('deployment-not-active')
     }
-    if (deployment.meta.commitHash !== expectedRevision) fail('deployment-revision-mismatch')
+    const revisionSource = deploymentRevisionSource(
+      serviceName,
+      deployment,
+      expectedRevision,
+      reviewedLocalUpload,
+    )
     if (!IMAGE_DIGEST.test(deployment.meta.imageDigest)) fail('invalid-image-digest')
     if (!Array.isArray(deployment.instances) || deployment.instances.length === 0) {
       fail('missing-deployment-instance')
@@ -89,6 +137,7 @@ export function validateStagingTopology(payload, expectedRevision) {
       deploymentStatus: 'SUCCESS',
       instanceStatus: 'RUNNING',
       revision: expectedRevision,
+      revisionSource,
       imageDigest: deployment.meta.imageDigest,
     }
   }

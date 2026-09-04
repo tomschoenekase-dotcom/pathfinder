@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   parseBoundedTopologyJson,
   parseStagingTopologyArgs,
+  REVIEWED_LOCAL_UPLOAD_APPROVAL,
   validateStagingTopology,
 } from './lib/staging-topology-admission.mjs'
 
@@ -110,7 +111,25 @@ test('rejects revision drift, inactive deployments, missing running instances, a
 test('parses one exact revision option and bounded JSON only', () => {
   assert.deepEqual(parseStagingTopologyArgs(['--expected-revision', SHA]), {
     expectedRevision: SHA,
+    reviewedLocalUpload: false,
   })
+  assert.deepEqual(
+    parseStagingTopologyArgs([
+      '--expected-revision',
+      SHA,
+      '--reviewed-local-upload',
+      REVIEWED_LOCAL_UPLOAD_APPROVAL,
+    ]),
+    { expectedRevision: SHA, reviewedLocalUpload: true },
+  )
+  assert.throws(() =>
+    parseStagingTopologyArgs([
+      '--expected-revision',
+      SHA,
+      '--reviewed-local-upload',
+      'yes',
+    ]),
+  )
   for (const args of [
     [],
     ['--revision', SHA],
@@ -123,6 +142,34 @@ test('parses one exact revision option and bounded JSON only', () => {
   assert.throws(() => parseBoundedTopologyJson(''))
   assert.throws(() => parseBoundedTopologyJson('{invalid'))
   assert.throws(() => parseBoundedTopologyJson('x'.repeat(1_048_577)))
+})
+
+test('admits a reviewed local upload only with exact full-SHA service attestations', () => {
+  const payload = topology()
+  for (const edge of payload.environments.edges[0].node.serviceInstances.edges) {
+    const serviceName = edge.node.serviceName
+    if (!IDS[serviceName]) continue
+    const suffix = serviceName.replace('staging-', 'staging ')
+    edge.node.latestDeployment.meta = {
+      commitHash: null,
+      imageDigest: DIGEST,
+      reason: 'deploy',
+      cliCaller: 'codex',
+      cliMessage: `Torchiko exact ${SHA} ${suffix}`,
+      configFile: `/railway.staging.${serviceName.replace('staging-', '')}.json`,
+    }
+  }
+
+  assert.throws(() => validateStagingTopology(payload, SHA), /revision-mismatch/u)
+  const result = validateStagingTopology(payload, SHA, { reviewedLocalUpload: true })
+  assert.equal(result.services['staging-web'].revisionSource, 'reviewed-local-upload')
+
+  payload.environments.edges[0].node.serviceInstances.edges[0].node.latestDeployment.meta.cliMessage =
+    `Torchiko exact ${OTHER_SHA} staging web`
+  assert.throws(
+    () => validateStagingTopology(payload, SHA, { reviewedLocalUpload: true }),
+    /local-upload-attestation-mismatch/u,
+  )
 })
 
 test('CLI emits only bounded admitted topology and contains malformed input', () => {

@@ -3,6 +3,17 @@ const FULL_SHA = /^[a-f0-9]{40}$/u
 const MAX_LOG_BYTES = 1_048_576
 const MAX_LINES = 200
 
+const AWS_NODE_SUPPORT_WARNING_LINES = [
+  /^$/u,
+  /^To continue receiving updates to AWS services, bug fixes,$/u,
+  /^and security updates please upgrade to node >=22\.$/u,
+  /^More information can be found at: https:\/\/a\.co\/c895JFp$/u,
+  /^\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)$/u,
+  /^\(node:\d+\) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript \(v3\)$/u,
+  /^versions published after the first week of January 2027$/u,
+  /^will require node >=22\. You are running node v20\.\d+\.\d+\.$/u,
+]
+
 const SERVICE_OPTIONS = [
   ['--web-deployment', 'staging-web'],
   ['--dashboard-deployment', 'staging-dashboard'],
@@ -128,6 +139,33 @@ export function parseBoundedLogLines(text) {
     })
 }
 
+export function classifyRuntimeErrorRows(rows) {
+  if (!Array.isArray(rows)) fail('invalid-log-output')
+  const containsKnownWarningAnchor = rows.some(
+    (row) =>
+      isRecord(row) &&
+      typeof row.message === 'string' &&
+      /Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript \(v3\)/u.test(row.message),
+  )
+  if (!containsKnownWarningAnchor) {
+    return { errorRows: rows.length, ignoredCompatibilityWarningRows: 0 }
+  }
+
+  let ignoredCompatibilityWarningRows = 0
+  let errorRows = 0
+  for (const row of rows) {
+    const isKnownWarningLine =
+      isRecord(row) &&
+      row.level === 'error' &&
+      row.action == null &&
+      typeof row.message === 'string' &&
+      AWS_NODE_SUPPORT_WARNING_LINES.some((pattern) => pattern.test(row.message))
+    if (isKnownWarningLine) ignoredCompatibilityWarningRows += 1
+    else errorRows += 1
+  }
+  return { errorRows, ignoredCompatibilityWarningRows }
+}
+
 export function auditStagingRuntime(options, runRailway) {
   if (typeof runRailway !== 'function') fail('invalid-runner')
   if (!FULL_SHA.test(options?.expectedRevision ?? '')) fail('invalid-options')
@@ -142,7 +180,7 @@ export function auditStagingRuntime(options, runRailway) {
 
   const services = {}
   for (const [, service] of SERVICE_OPTIONS) {
-    services[service] = { errorRows: queryResults.get(`${service}:errors`).length }
+    services[service] = classifyRuntimeErrorRows(queryResults.get(`${service}:errors`))
   }
   services['staging-web'].http5xxRows = queryResults.get('staging-web:http5xx').length
   services['staging-dashboard'].http5xxRows = queryResults.get('staging-dashboard:http5xx').length

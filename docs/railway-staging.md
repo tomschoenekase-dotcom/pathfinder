@@ -305,8 +305,16 @@ operator invocation performs a live request. Passing proves the public web healt
 Immediately pair it with the read-only Railway topology admission from the linked staging project:
 
 ```bash
-npx --yes @railway/cli@5.45.10 status --json | pnpm verify:staging-topology --expected-revision "$RELEASE_SHA"
+pnpm dlx @railway/cli@5.45.10 status --json | pnpm verify:staging-topology --expected-revision "$RELEASE_SHA"
 ```
+
+For an explicitly reviewed local source upload, give each service deployment the exact message
+`Torchiko exact <full-release-sha> staging <web|dashboard|workers>`, use its checked-in staging
+Railway config, and add
+`--reviewed-local-upload reviewed-exact-source-upload-v1`. This path refuses abbreviated SHAs,
+wrong callers, wrong config files, partial service matches, or an unrecognized attestation. The
+result labels each service's revision source so local-upload evidence cannot be mistaken for provider
+Git metadata.
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
 emits only the three application deployment IDs, immutable image digests, expected revision, and
@@ -331,13 +339,16 @@ pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> \
 ```
 
 The audit fails closed on an unlinked/refused Railway query, malformed or oversized JSON, any
-error-level row, any web/dashboard HTTP 5xx row, a missing or mismatched worker runtime release
+actionable error-level row, any web/dashboard HTTP 5xx row, a missing or mismatched worker runtime release
 admission, or a founder-absence capture-failure event. A successful empty error or HTTP query is
 accepted only after Railway itself exits successfully; the worker event query must contain both the
 exact runtime release admission and a complete founder-absence observation. A same-day immutable
 founder-absence row may retain the release that first wrote that day's snapshot, so it is reported
 separately and is not substituted for the runtime release identity. The worker summary is recent
-process evidence only; it does not certify a consecutive-day founder-absence window.
+process evidence only; it does not certify a consecutive-day founder-absence window. Railway can
+classify the AWS SDK's multi-line Node 20 support notice as error-level stderr. The audit ignores
+only that exact anchored warning family, reports the ignored-row count, and continues to fail if any
+unrecognized row is mixed into the same result.
 
 The worker repeats its already-guarded release admission after each successful 30-minute founder-
 absence observation. This keeps the bounded 24-hour runtime proof live after a healthy worker has
