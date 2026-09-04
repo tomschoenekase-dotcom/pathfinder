@@ -321,6 +321,14 @@ wrong callers, wrong config files, partial service matches, or an unrecognized a
 result labels each service's revision source so local-upload evidence cannot be mistaken for provider
 Git metadata.
 
+The candidate SHA and deployable owner SHA are not interchangeable. If the owner branch uses a
+merge commit, integrate the reviewed candidate locally without pushing, run `git rev-parse HEAD` to
+capture the resulting owner revision, and use that full SHA for `PATHFINDER_RELEASE_SHA`, local-
+upload messages, topology admission, runtime audit, and hosted verification. Stage every required
+Railway variable with `--skip-deploys` before pushing the owner branch because that push may
+immediately create Git-backed deployments. Require owner CI success before waiting services are
+released.
+
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
 emits only the three application deployment IDs, immutable image digests, expected revision, and
 bounded success/running states. It requires exactly one `staging-web`, `staging-dashboard`, and

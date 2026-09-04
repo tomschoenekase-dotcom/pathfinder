@@ -13,6 +13,7 @@ import { buildStagingPredeployServiceContract } from './staging-predeploy-servic
 const execFileAsync = promisify(execFile)
 const FULL_SHA = /^[0-9a-f]{40}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
+const OWNER_REVISION = '<owner-staging-revision>'
 
 function fail(code) {
   throw new Error(code)
@@ -131,13 +132,25 @@ export function buildStagingHandoffManifest({
       valuableDataDestructionAuthorized: false,
       applicationReleaseIdentity: {
         variable: 'PATHFINDER_RELEASE_SHA',
-        value: candidate,
+        candidateRevision: candidate,
+        deploymentValue: OWNER_REVISION,
+        deploymentValueSource: 'ownerIntegration.resultingRevision',
         services: ['web', 'dashboard', 'workers'],
+        mustResolveBeforeOwnerPush: true,
         mustMatchProviderRelease: true,
+      },
+      ownerIntegration: {
+        candidateRevision: candidate,
+        localIntegrationRequired: true,
+        pushBeforePrerequisitesAuthorized: false,
+        resultingRevision: OWNER_REVISION,
+        resultingRevisionCommand: 'git rev-parse HEAD',
+        resultingRevisionMustBeFullSha: true,
+        candidateMustBeAncestorOfResult: true,
       },
       topologyAdmission: {
         input: RAILWAY_STATUS_COMMAND,
-        command: `pnpm verify:staging-topology --expected-revision ${candidate}`,
+        command: `pnpm verify:staging-topology --expected-revision ${OWNER_REVISION}`,
         services: ['staging-web', 'staging-dashboard', 'staging-workers'],
         requiresSuccessfulDeployment: true,
         requiresRunningInstance: true,
@@ -150,26 +163,31 @@ export function buildStagingHandoffManifest({
           closedValue: '',
         },
         exactCliMessages: {
-          'staging-web': `Torchiko exact ${candidate} staging web`,
-          'staging-dashboard': `Torchiko exact ${candidate} staging dashboard`,
-          'staging-workers': `Torchiko exact ${candidate} staging workers`,
+          'staging-web': `Torchiko exact ${OWNER_REVISION} staging web`,
+          'staging-dashboard': `Torchiko exact ${OWNER_REVISION} staging dashboard`,
+          'staging-workers': `Torchiko exact ${OWNER_REVISION} staging workers`,
         },
         topologyAdmissionCommand:
-          `pnpm verify:staging-topology --expected-revision ${candidate} ` +
+          `pnpm verify:staging-topology --expected-revision ${OWNER_REVISION} ` +
           `--reviewed-local-upload ${REVIEWED_LOCAL_UPLOAD_APPROVAL}`,
         requiresCheckedInServiceConfig: true,
       },
       runtimeAudit: {
         deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
-        commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${candidate} --since 24h`,
+        commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${OWNER_REVISION} --since 24h`,
         services: ['staging-web', 'staging-dashboard', 'staging-workers'],
         requiresProviderExitSuccess: true,
         rawLogsRetained: false,
       },
-      stagingPredeployServiceEnvironment: buildStagingPredeployServiceContract(
-        expectedMigration.approval,
-        candidate,
-      ),
+      stagingPredeployServiceEnvironment: {
+        ...buildStagingPredeployServiceContract(expectedMigration.approval),
+        releaseIdentityVariable: {
+          name: 'PATHFINDER_RELEASE_SHA',
+          value: OWNER_REVISION,
+          valueSource: 'rolloutSafety.ownerIntegration.resultingRevision',
+          requiredOnServices: ['web', 'dashboard', 'workers'],
+        },
+      },
       variableUpdateDeploymentPolicy: {
         suppressAutomaticDeploys: true,
         railwayCliFlag: '--skip-deploys',
@@ -180,12 +198,12 @@ export function buildStagingHandoffManifest({
     admission: {
       status: 'ready-for-owner-staging-integration',
       requiredActions: [
-        'Review and integrate this exact candidate into the owner staging branch.',
-        'Set PATHFINDER_RELEASE_SHA=<candidate.revision> on Railway web, dashboard, and workers with --skip-deploys; it must match provider release metadata on every service and must not trigger a partial rollout.',
+        'Review and integrate this exact candidate into the local owner staging branch without pushing; resolve rolloutSafety.ownerIntegration.resultingRevision from the resulting owner HEAD and verify the candidate is its ancestor.',
+        'Set PATHFINDER_RELEASE_SHA=<owner-staging-revision> on Railway web, dashboard, and workers with --skip-deploys before pushing the owner branch; it must match provider release metadata on every service and must not trigger a partial rollout.',
         'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
-        'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before deployment; the pre-deploy migration rejects a closed or missing one-run gate.',
+        'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before pushing the prepared owner revision; the pre-deploy migration rejects a closed or missing one-run gate.',
         'If and only if provider Git metadata cannot be preserved and a reviewed local upload is required, set PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL to the exact checked-in admitted value on Railway web with --skip-deploys before upload, and use the exact per-service CLI messages in rolloutSafety.reviewedLocalUploadFallback.',
-        'Deploy the resulting immutable staging revision with provider release metadata intact, or use only the exact reviewed-local-upload fallback contract when provider metadata is unavailable; Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
+        'Push the prepared exact owner staging revision only after every required Railway variable is staged with --skip-deploys; require owner CI success before Railway releases waiting services, or use only the exact reviewed-local-upload fallback contract when provider Git metadata is unavailable. Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 with --skip-deploys so closing the one-run gate does not replace the admitted active revision.',
         'After any reviewed local upload succeeds, blank PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL on Railway web with --skip-deploys and use rolloutSafety.reviewedLocalUploadFallback.topologyAdmissionCommand for admission.',
         'Run verify:release with the staging profile against that exact hosted revision.',
