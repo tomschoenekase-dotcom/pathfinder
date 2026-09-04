@@ -142,6 +142,25 @@ export function summarizeCompleteScoredEvaluation(
   return seen.size === manifest.data.length ? { passed, scored: results.length } : null
 }
 
+export function completedRunPredecessorBoundary(current: {
+  id: string
+  completedAt: Date | null
+  createdAt: Date
+}) {
+  if (!current.completedAt) return null
+  return {
+    OR: [
+      { completedAt: { lt: current.completedAt } },
+      { completedAt: current.completedAt, createdAt: { lt: current.createdAt } },
+      {
+        completedAt: current.completedAt,
+        createdAt: current.createdAt,
+        id: { lt: current.id },
+      },
+    ],
+  }
+}
+
 async function publishEvaluationRegressionIfPresent(
   payload: EvaluationRunJobPayload,
 ): Promise<void> {
@@ -160,6 +179,8 @@ async function publishEvaluationRegressionIfPresent(
         corpusHash: true,
         modelProvider: true,
         modelName: true,
+        completedAt: true,
+        createdAt: true,
         caseManifestSnapshot: true,
         results: {
           select: {
@@ -173,6 +194,8 @@ async function publishEvaluationRegressionIfPresent(
       },
     })
     if (!current) return
+    const predecessorBoundary = completedRunPredecessorBoundary(current)
+    if (!predecessorBoundary) return
     const previous = await db.evalRun.findFirst({
       where: {
         tenantId: payload.tenantId,
@@ -180,8 +203,9 @@ async function publishEvaluationRegressionIfPresent(
         corpusHash: current.corpusHash,
         status: 'COMPLETED',
         id: { not: current.id },
+        ...predecessorBoundary,
       },
-      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         modelProvider: true,

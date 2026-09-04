@@ -62,7 +62,9 @@ Automatic quality comparison also requires both the current run and the immediat
 completed same-corpus run to contain exactly one identity-matched `SCORED` result for every frozen
 case. Missing, duplicate, stale, operational-failure, budget-blocked, or cancelled evidence keeps
 the quality alert dark; those outcomes remain visible as operational evidence and are never folded
-into a partial pass rate.
+into a partial pass rate. The predecessor is ordered strictly before the current completion, with
+created-at and immutable-ID tie breakers, so overlapping runs that finish out of order cannot reverse
+the baseline and candidate.
 
 Torchiko does not supply fallback percentages or infer a severity boundary. Stored runs remain
 available for explicit human comparison when automatic alerts are dark. This preserves the

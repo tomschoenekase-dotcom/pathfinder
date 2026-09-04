@@ -45,6 +45,7 @@ vi.mock('@pathfinder/config', () => ({
 
 import {
   assertFinalEvaluationProviderAdmission,
+  completedRunPredecessorBoundary,
   detectEvaluationRegression,
   executeFrozenEvaluationRun,
   evaluationPrompt,
@@ -151,6 +152,35 @@ describe('evaluation regression detection', () => {
         manifest,
         results.map((result) => ({ ...result, caseId: caseA })),
       ),
+    ).toBeNull()
+  })
+
+  it('selects only a deterministically earlier completed run as the baseline', () => {
+    const completedAt = new Date('2026-09-04T00:00:00.000Z')
+    const createdAt = new Date('2026-09-03T23:55:00.000Z')
+    expect(
+      completedRunPredecessorBoundary({
+        id: '22222222-2222-4222-8222-222222222222',
+        completedAt,
+        createdAt,
+      }),
+    ).toEqual({
+      OR: [
+        { completedAt: { lt: completedAt } },
+        { completedAt, createdAt: { lt: createdAt } },
+        {
+          completedAt,
+          createdAt,
+          id: { lt: '22222222-2222-4222-8222-222222222222' },
+        },
+      ],
+    })
+    expect(
+      completedRunPredecessorBoundary({
+        id: '22222222-2222-4222-8222-222222222222',
+        completedAt: null,
+        createdAt,
+      }),
     ).toBeNull()
   })
 })
