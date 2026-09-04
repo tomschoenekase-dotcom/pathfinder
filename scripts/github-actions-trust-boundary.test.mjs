@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url'
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const workflowRoot = path.join(repositoryRoot, '.github', 'workflows')
 const immutableActionReference = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[a-f0-9]{40}$/u
+const node24ActionReferences = new Map([
+  ['actions/checkout', 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'],
+  ['actions/setup-node', 'actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444'],
+  ['pnpm/action-setup', 'pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996'],
+])
 
 async function workflows() {
   const entries = await readdir(workflowRoot, { withFileTypes: true })
@@ -40,6 +45,16 @@ test('third-party actions use immutable commit references', async () => {
   for (const { name, source } of await workflows()) {
     for (const reference of externalActionReferences(source)) {
       assert.match(reference, immutableActionReference, `${name}: ${reference}`)
+    }
+  }
+})
+
+test('core JavaScript actions stay pinned to reviewed Node 24 releases', async () => {
+  for (const { name, source } of await workflows()) {
+    for (const reference of externalActionReferences(source)) {
+      const action = reference.slice(0, reference.indexOf('@'))
+      const expected = node24ActionReferences.get(action)
+      if (expected) assert.equal(reference, expected, `${name}: ${reference}`)
     }
   }
 })
