@@ -5,6 +5,7 @@ node_modules/
 .pnpm-store/
 .corepack/
 .corepack-bin/
+.railway/
 
 # Build artifacts / caches
 .next/
