@@ -7,6 +7,8 @@ import {
   validateFeatureFlagDefaults,
   validateReleaseReport,
 } from './lib/staging-handoff-manifest.mjs'
+import { STAGING_LOCAL_UPLOAD_APPROVAL } from './lib/staging-migration-admission.mjs'
+import { REVIEWED_LOCAL_UPLOAD_APPROVAL } from './lib/staging-topology-admission.mjs'
 import { RAILWAY_STATUS_COMMAND } from './lib/railway-cli-contract.mjs'
 
 const BASE = 'a'.repeat(40)
@@ -71,6 +73,23 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     requiresSuccessfulDeployment: true,
     requiresRunningInstance: true,
   })
+  assert.deepEqual(first.rolloutSafety.reviewedLocalUploadFallback, {
+    approvalService: 'staging-web',
+    approvalVariable: {
+      name: 'PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
+      admittedValue: STAGING_LOCAL_UPLOAD_APPROVAL,
+      closedValue: '',
+    },
+    exactCliMessages: {
+      'staging-web': `Torchiko exact ${CANDIDATE} staging web`,
+      'staging-dashboard': `Torchiko exact ${CANDIDATE} staging dashboard`,
+      'staging-workers': `Torchiko exact ${CANDIDATE} staging workers`,
+    },
+    topologyAdmissionCommand:
+      `pnpm verify:staging-topology --expected-revision ${CANDIDATE} ` +
+      `--reviewed-local-upload ${REVIEWED_LOCAL_UPLOAD_APPROVAL}`,
+    requiresCheckedInServiceConfig: true,
+  })
   assert.deepEqual(first.rolloutSafety.runtimeAudit, {
     deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
     commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${CANDIDATE} --since 24h`,
@@ -126,12 +145,24 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   const migrationCloseAction = first.admission.requiredActions.findIndex((action) =>
     action.includes('PATHFINDER_ALLOW_STAGING_MIGRATIONS=0'),
   )
+  const localUploadOpenAction = first.admission.requiredActions.findIndex(
+    (action) =>
+      action.includes('PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL') &&
+      action.includes('before upload'),
+  )
+  const localUploadCloseAction = first.admission.requiredActions.findIndex(
+    (action) =>
+      action.includes('blank PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL') &&
+      action.includes('topologyAdmissionCommand'),
+  )
   assert.ok(releaseVariableAction >= 0)
   assert.ok(migrationOptInAction >= 0)
   assert.ok(migrationApprovalAction >= 0)
   assert.ok(deployAction >= 0)
   assert.equal(migrationPredeployAction, deployAction)
   assert.ok(migrationCloseAction >= 0)
+  assert.ok(localUploadOpenAction >= 0)
+  assert.ok(localUploadCloseAction >= 0)
   assert.match(first.admission.requiredActions[migrationCloseAction], /--skip-deploys/u)
   assert.equal(
     first.admission.requiredActions
@@ -142,7 +173,11 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.ok(releaseVariableAction < deployAction)
   assert.ok(migrationOptInAction < deployAction)
   assert.ok(migrationApprovalAction < deployAction)
+  assert.ok(localUploadOpenAction < deployAction)
   assert.ok(deployAction < migrationCloseAction)
+  assert.ok(deployAction < localUploadCloseAction)
+  assert.match(first.admission.requiredActions[localUploadOpenAction], /--skip-deploys/u)
+  assert.match(first.admission.requiredActions[localUploadCloseAction], /--skip-deploys/u)
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
