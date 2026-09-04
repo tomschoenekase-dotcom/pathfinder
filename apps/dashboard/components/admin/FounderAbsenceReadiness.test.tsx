@@ -26,6 +26,8 @@ const data = {
     latestObservedOn: null,
     latestCapturedAt: null,
     latestReleaseSha: null,
+    currentReleaseSha: null,
+    latestReleaseMatchesCurrent: false,
     stale: false,
     incompleteSamples: 0,
     immutableDailySamples: true as const,
@@ -118,6 +120,8 @@ describe('FounderAbsenceReadiness', () => {
             latestObservedOn: '2026-08-28',
             latestCapturedAt: new Date('2026-08-28T04:00:00.000Z'),
             latestReleaseSha: 'a'.repeat(40),
+            currentReleaseSha: 'a'.repeat(40),
+            latestReleaseMatchesCurrent: true,
           },
           evidenceWindow: { ...data.evidenceWindow, historicalContinuityVerified: true },
         }}
@@ -125,5 +129,28 @@ describe('FounderAbsenceReadiness', () => {
     )
 
     expect(screen.getByText('Ready for review — not certified')).toBeTruthy()
+  })
+
+  it('excludes a prior-release sample from current-release progress', () => {
+    render(
+      <FounderAbsenceReadiness
+        data={{
+          ...data,
+          observationHistory: {
+            ...data.observationHistory,
+            retainedDays: 7,
+            latestObservedOn: '2026-08-28',
+            latestCapturedAt: new Date('2026-08-28T04:00:00.000Z'),
+            latestReleaseSha: 'a'.repeat(40),
+            currentReleaseSha: 'b'.repeat(40),
+            latestReleaseMatchesCurrent: false,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Not started')).toBeTruthy()
+    expect(screen.queryByText(/ready for review/i)).toBeNull()
+    expect(screen.getByText(/latest sample belongs to another release/i)).toBeTruthy()
   })
 })

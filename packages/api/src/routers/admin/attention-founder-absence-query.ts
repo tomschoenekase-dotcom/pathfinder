@@ -1,3 +1,5 @@
+import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
+
 import {
   applyFounderAbsenceObservationHistory,
   listFounderAbsenceObservations,
@@ -10,5 +12,10 @@ export async function readFounderAbsenceReadinessWithHistory(
 ) {
   const current = deriveFounderAbsenceReadiness(input)
   const observations = await listFounderAbsenceObservations()
-  return applyFounderAbsenceObservationHistory(current, observations, now)
+  return applyFounderAbsenceObservationHistory(
+    current,
+    observations,
+    resolveReleaseRevision(process.env),
+    now,
+  )
 }

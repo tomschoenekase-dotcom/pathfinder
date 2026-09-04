@@ -59,6 +59,8 @@ type ObservedReadiness<T extends CurrentReadiness> = Omit<
     latestObservedOn: string | null
     latestCapturedAt: Date | null
     latestReleaseSha: string | null
+    currentReleaseSha: string | null
+    latestReleaseMatchesCurrent: boolean
     stale: boolean
     incompleteSamples: number
     immutableDailySamples: true
@@ -98,6 +100,7 @@ function hashSnapshot(snapshot: FounderAbsenceObservationSnapshot) {
 export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness>(
   current: T,
   rows: ObservationRow[],
+  currentReleaseSha: string,
   now = new Date(),
 ): ObservedReadiness<T> {
   const observations = [...rows]
@@ -106,14 +109,21 @@ export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness
       (row, index, values) =>
         index === 0 || dateKey(row.observedOn) !== dateKey(values[index - 1]!.observedOn),
     )
-  let consecutiveDays = observations.at(-1)?.evidenceComplete ? 1 : 0
+  const exactCurrentRelease = /^[0-9a-f]{40}$/u.test(currentReleaseSha) ? currentReleaseSha : null
+  const latest = observations.at(-1) ?? null
+  const latestReleaseMatchesCurrent =
+    exactCurrentRelease !== null && latest?.releaseSha === exactCurrentRelease
+  let consecutiveDays = latest?.evidenceComplete && latestReleaseMatchesCurrent ? 1 : 0
   for (let index = observations.length - 1; consecutiveDays > 0 && index > 0; index -= 1) {
-    if (!observations[index - 1]!.evidenceComplete) break
+    if (
+      !observations[index - 1]!.evidenceComplete ||
+      observations[index - 1]!.releaseSha !== exactCurrentRelease
+    )
+      break
     if (daysBetween(observations[index - 1]!.observedOn, observations[index]!.observedOn) !== 1)
       break
     consecutiveDays += 1
   }
-  const latest = observations.at(-1) ?? null
   const observedDays = Math.min(consecutiveDays, 7)
   const observationState =
     observedDays === 0
@@ -122,11 +132,17 @@ export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness
         ? ('READY_FOR_REVIEW' as const)
         : ('IN_PROGRESS' as const)
   const explanation =
-    observationState === 'NOT_STARTED'
-      ? 'A representative uninterrupted week has not been recorded. The daily observer has not retained its first sample.'
-      : observationState === 'READY_FOR_REVIEW'
-        ? 'Seven consecutive daily samples are retained. This is ready for human review, not automatically certified maturity.'
-        : `${observedDays} of 7 consecutive daily samples are retained. Missing days reset the uninterrupted streak.`
+    exactCurrentRelease === null
+      ? 'The exact current application release is unavailable, so retained daily samples cannot be admitted into a current-release streak.'
+      : latest === null
+        ? 'A representative uninterrupted week has not been recorded. The daily observer has not retained its first sample.'
+        : !latestReleaseMatchesCurrent
+          ? 'The latest daily sample belongs to an earlier application release. The exact current release needs a complete sample before its uninterrupted streak can begin.'
+          : !latest.evidenceComplete
+            ? 'The latest daily sample for the exact current release is incomplete, so its uninterrupted streak has not begun.'
+            : observationState === 'READY_FOR_REVIEW'
+              ? 'Seven consecutive daily samples for the exact current release are retained. This is ready for human review, not automatically certified maturity.'
+              : `${observedDays} of 7 consecutive daily samples for the exact current release are retained. Missing days, incomplete samples, or release changes reset the uninterrupted streak.`
 
   return {
     ...current,
@@ -145,6 +161,8 @@ export function applyFounderAbsenceObservationHistory<T extends CurrentReadiness
       latestObservedOn: latest ? dateKey(latest.observedOn) : null,
       latestCapturedAt: latest?.capturedAt ?? null,
       latestReleaseSha: latest?.releaseSha ?? null,
+      currentReleaseSha: exactCurrentRelease,
+      latestReleaseMatchesCurrent,
       stale: latest ? daysBetween(latest.observedOn, now) > 1 : false,
       incompleteSamples: observations.filter((row) => !row.evidenceComplete).length,
       immutableDailySamples: true as const,

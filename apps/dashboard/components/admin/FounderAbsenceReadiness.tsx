@@ -83,6 +83,10 @@ export function FounderAbsenceReadiness({ data }: { data: Readiness }) {
           ? 'No daily samples are retained yet.'
           : `${data.observationHistory.retainedDays} daily samples are retained; ${data.observationHistory.incompleteSamples} ${data.observationHistory.incompleteSamples === 1 ? 'is' : 'are'} incomplete. The latest retained UTC date is ${data.observationHistory.latestObservedOn}.`}{' '}
         Missing dates and incomplete samples reset the uninterrupted streak.{' '}
+        {!data.observationHistory.latestReleaseMatchesCurrent &&
+        data.observationHistory.retainedDays > 0
+          ? 'The latest sample belongs to another release and is excluded from the current-release streak. '
+          : ''}
         {data.observationHistory.stale ? 'The retained history is stale. ' : ''}
         Current-state evidence is{' '}
         {data.evidenceWindow.complete ? 'complete for the bounded reads' : 'bounded and incomplete'}

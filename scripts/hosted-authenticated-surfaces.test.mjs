@@ -4,9 +4,12 @@ import path from 'node:path'
 
 import {
   authenticatedSurfaceArtifactDirectory,
+  authenticatedSurfaceAttemptDirectory,
   parseHostedAuthenticatedSurfaceArgs,
   resolveSessionStatePath,
   validateAuthenticatedDashboardPolicy,
+  validateAuthenticatedRouteEvidence,
+  validateAuthenticatedSurfaceDestination,
   validateAuthenticatedSurfaceRoute,
   validateAuthenticatedSurfaceSamples,
 } from '../apps/dashboard/scripts/measure-hosted-authenticated-surfaces.mjs'
@@ -69,6 +72,14 @@ test('keeps sensitive artifacts in the gitignored revision directory', () => {
   assert.equal(path.basename(directory), revision)
   assert.match(directory.replaceAll('\\', '/'), /artifacts\/hosted-authenticated-surfaces/u)
   assert.throws(() => authenticatedSurfaceArtifactDirectory('short'), /exact-revision/u)
+  const attemptId = '11111111-1111-4111-8111-111111111111'
+  const attemptDirectory = authenticatedSurfaceAttemptDirectory(revision, attemptId)
+  assert.equal(path.basename(attemptDirectory), attemptId)
+  assert.equal(path.dirname(attemptDirectory), directory)
+  assert.throws(
+    () => authenticatedSurfaceAttemptDirectory(revision, '../latest'),
+    /invalid-authenticated-surface-attempt-id/u,
+  )
 })
 
 test('rejects unauthenticated redirects, browser failures, and missing screenshots', () => {
@@ -78,6 +89,10 @@ test('rejects unauthenticated redirects, browser failures, and missing screensho
     finalOrigin: origin,
     finalPath: '/admin/operations',
     mainLandmarkPresent: true,
+    routeEvidence: [
+      { id: 'founder-control-room-heading', visible: true },
+      { id: 'queue-pause-state', visible: true },
+    ],
     browserErrors: [],
     screenshotBytes: 100,
     screenshotSha256: 'b'.repeat(64),
@@ -99,5 +114,65 @@ test('rejects unauthenticated redirects, browser failures, and missing screensho
   assert.throws(
     () => validateAuthenticatedSurfaceSamples([{ ...valid, screenshotBytes: 0 }], origin, 1),
     /screenshot-missing/u,
+  )
+})
+
+test('requires route-specific rendered evidence rather than a generic authenticated shell', () => {
+  assert.doesNotThrow(() =>
+    validateAuthenticatedRouteEvidence('/admin/directory', [
+      { id: 'clients-heading', visible: true },
+      { id: 'client-directory-search', visible: true },
+    ]),
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedRouteEvidence('/admin/prospects/outreach', [
+        { id: 'outreach-center-heading', visible: true },
+        { id: 'outreach-readiness', visible: false },
+      ]),
+    /route-evidence-missing/u,
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedRouteEvidence('/admin/operations', [
+        { id: 'founder-control-room-heading', visible: true },
+        { id: 'wrong-marker', visible: true },
+      ]),
+    /route-evidence-missing/u,
+  )
+  assert.doesNotThrow(() =>
+    validateAuthenticatedRouteEvidence('/admin/reviewed-custom-surface', [
+      { id: 'main-landmark', visible: true },
+    ]),
+  )
+})
+
+test('rejects a redirected or unauthenticated destination before pixel capture', () => {
+  const origin = 'https://dashboard.example.test'
+  assert.doesNotThrow(() =>
+    validateAuthenticatedSurfaceDestination(
+      origin,
+      '/admin/operations',
+      origin,
+      '/admin/operations',
+    ),
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedSurfaceDestination(
+        origin,
+        '/admin/operations',
+        'https://identity.example.test',
+        '/sign-in',
+      ),
+    /cross-origin-redirect/u,
+  )
+  assert.throws(
+    () => validateAuthenticatedSurfaceDestination(origin, '/admin/operations', origin, '/sign-in'),
+    /session-unavailable/u,
+  )
+  assert.throws(
+    () => validateAuthenticatedSurfaceDestination(origin, '/admin/operations', origin, '/admin'),
+    /route-mismatch/u,
   )
 })
