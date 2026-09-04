@@ -698,7 +698,16 @@ export type {
 } from './helpers/evaluation-run-lifecycle'
 export {
   EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
+  EVALUATION_AUTHORIZED_PROVIDERS,
+  MAX_EVALUATION_AUTHORIZATION_BUDGET_E8_USD,
+  evaluationRuntimeAuthorizationAllowsRun,
+  getEvaluationRuntimeAuthorization,
   isEvaluationRuntimeDurablyEnabled,
+  parseEvaluationRuntimeAuthorization,
+} from './helpers/evaluation-runtime-admission'
+export type {
+  EvaluationAuthorizedProvider,
+  EvaluationRuntimeAuthorization,
 } from './helpers/evaluation-runtime-admission'
 export {
   EVALUATION_REGRESSION_ALERT_POLICY_KEY,

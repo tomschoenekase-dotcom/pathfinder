@@ -8,6 +8,11 @@ The command is read-only. It never reads a credential, calls a provider, runs an
 routing, deploys, contacts a customer, or certifies launch. The provider work must already have been
 performed through the governed staging product surfaces under an explicit founder-approved provider
 list, authenticated administrator session, isolated staging credential, expiry, and dollar ceiling.
+The runtime control records that scope as an expiring version 2 authorization, and each evaluation
+run freezes its authorization identity. The worker rejects expired/replaced authorizations,
+providers outside the recorded set, and a declared per-run budget above the recorded ceiling. These
+controls bound execution but do not create founder approval; all gates stay off until the explicit
+provider-run decision is recorded.
 
 The package requires exact release identity; a synthetic non-customer venue; retained run, prompt,
 corpus, provider, model, reservation, observed-cost, and timing facts; BRIEF/BALANCED/DETAILED review;

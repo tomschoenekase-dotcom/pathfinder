@@ -12,7 +12,7 @@ import {
   createVenueContentSnapshot,
   db,
   evaluationSnapshotHash,
-  isEvaluationRuntimeDurablyEnabled,
+  getEvaluationRuntimeAuthorization,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { TRPCError } from '@trpc/server'
@@ -21,13 +21,12 @@ import { z } from 'zod'
 import { router } from '../../core'
 import { loadReviewableVenuePackageEvaluationPreview } from '../../lib/reviewable-package-evaluation'
 import { adminProcedure } from '../../trpc'
+import { authorizeEvaluation, EVALUATION_RUNNER_FLAG } from './evaluation-runtime-authorization'
 import {
   EVALUATION_MODEL_KEYS,
   MAX_EVALUATION_RUN_BUDGET_E8_USD,
   MAX_EVALUATION_RUN_CASES,
 } from './evaluation-policy'
-
-const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
 
 export const adminEvaluationOperationActionsRouter = router({
   requestEvaluationRun: adminProcedure
@@ -73,6 +72,7 @@ export const adminEvaluationOperationActionsRouter = router({
           code: 'PRECONDITION_FAILED',
           message: 'Evaluation execution is not enabled for this API process',
         })
+      const model = getAiModelSpec(input.modelKey)
       const frozen = await withTenantIsolationBypass(() =>
         db.$transaction(async (tx) => {
           const [
@@ -82,7 +82,7 @@ export const adminEvaluationOperationActionsRouter = router({
             reviewablePackage,
             cases,
             flag,
-            durableGlobalEnabled,
+            durableAuthorization,
           ] = await Promise.all([
             input.nativeReleaseId || input.approvedPackageId || input.reviewablePackageId
               ? Promise.resolve(null)
@@ -154,13 +154,18 @@ export const adminEvaluationOperationActionsRouter = router({
               },
               select: { enabled: true },
             }),
-            isEvaluationRuntimeDurablyEnabled(tx),
+            getEvaluationRuntimeAuthorization(tx),
           ])
-          if (!durableGlobalEnabled || flag?.enabled !== true)
+          if (!durableAuthorization || flag?.enabled !== true)
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
               message: 'Evaluation execution is not durably enabled for this tenant',
             })
+          const authorizationSnapshot = authorizeEvaluation(
+            durableAuthorization,
+            model.provider,
+            budget,
+          )
           if (cases.length !== input.caseIds.length)
             throw new TRPCError({
               code: 'NOT_FOUND',
@@ -200,7 +205,6 @@ export const adminEvaluationOperationActionsRouter = router({
             const item = byId.get(caseId)!
             return { caseId: item.id, revision: item.revision, caseHash: item.caseHash }
           })
-          const model = getAiModelSpec(input.modelKey)
           const nativePlan = nativeRelease
             ? (nativeRelease.plan as {
                 desired?: unknown
@@ -357,6 +361,7 @@ export const adminEvaluationOperationActionsRouter = router({
                 maximumCases: MAX_EVALUATION_RUN_CASES,
                 requestedCases: manifest.length,
                 modelKey: input.modelKey,
+                authorization: authorizationSnapshot,
                 contentSnapshotSchemaVersion: snapshot.schemaVersion,
                 contentComponentCounts: snapshot.componentCounts,
                 contentSnapshot: snapshot.manifest,

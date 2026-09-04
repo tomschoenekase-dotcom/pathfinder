@@ -1,17 +1,20 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { AI_CENTRAL_MODEL_REGISTRY } from '@pathfinder/ai'
 import { env } from '@pathfinder/config'
 import { GuestAnswerClaimInputSchema } from '@pathfinder/contracts/guest-answer-attribution'
 import {
   db,
   GuestAnswerAttributionActionError,
   GuestAnswerAttributionEvaluationError,
+  getEvaluationRuntimeAuthorization,
   isEvaluationRuntimeDurablyEnabled,
   prepareGuestAnswerAttributionEvaluationRequestAction,
   queueGuestAnswerAttributionEvaluationRequestAction,
   readGuestAnswerAttributionAgreement,
   recordHumanReviewedGuestAnswerAttributionAction,
+  resolveRuntimeAiWorkloadConfiguration,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { enqueueGuestAnswerAttributionEvaluation } from '@pathfinder/jobs'
@@ -158,9 +161,9 @@ export const adminGuestAnswerAttributionsRouter = router({
           message: 'Evaluation execution is not enabled for this API process',
         })
       try {
-        const [durableGlobalEnabled, tenantFlag] = await withTenantIsolationBypass(() =>
+        const [authorization, tenantFlag, configuration] = await withTenantIsolationBypass(() =>
           Promise.all([
-            isEvaluationRuntimeDurablyEnabled(db),
+            getEvaluationRuntimeAuthorization(db),
             db.tenantFeatureFlag.findUnique({
               where: {
                 tenantId_flagKey: {
@@ -170,12 +173,44 @@ export const adminGuestAnswerAttributionsRouter = router({
               },
               select: { enabled: true },
             }),
+            resolveRuntimeAiWorkloadConfiguration(
+              {
+                workloadId: 'guest-answer-attribution-evaluation',
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+              },
+              db,
+            ),
           ]),
         )
-        if (!durableGlobalEnabled || tenantFlag?.enabled !== true)
+        if (!authorization || tenantFlag?.enabled !== true)
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: 'Evaluation execution is not durably enabled for this tenant',
+          })
+        const providers = [
+          AI_CENTRAL_MODEL_REGISTRY[configuration.primaryModelKey].provider,
+          ...(configuration.fallback.enabled
+            ? configuration.fallback.modelKeys.map(
+                (modelKey) => AI_CENTRAL_MODEL_REGISTRY[modelKey].provider,
+              )
+            : []),
+        ]
+        if (
+          providers.some((provider) => !authorization.allowedProviders.includes(provider as never))
+        )
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Evaluation provider is outside the active authorization',
+          })
+        if (
+          configuration.requestBudgetCeilingE8Usd === null ||
+          !/^\d+$/u.test(configuration.requestBudgetCeilingE8Usd) ||
+          BigInt(configuration.requestBudgetCeilingE8Usd) > authorization.maxBudgetE8Usd
+        )
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Evaluation budget exceeds the active authorization ceiling',
           })
         const queued = await withTenantIsolationBypass(() =>
           queueGuestAnswerAttributionEvaluationRequestAction({

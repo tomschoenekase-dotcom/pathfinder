@@ -201,6 +201,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     auditLog: { create: auditLogCreate },
   }
   return {
+    ...weeklyReportActions,
     PROSPECT_OUTREACH_RELEASE_POLICY: weeklyReportActions.PROSPECT_OUTREACH_RELEASE_POLICY,
     SUPPORT_TRIAGE_MISSING_INFORMATION_MAX: 30,
     SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX: 500,

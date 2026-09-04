@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   findEvaluationRequests: vi.fn(),
   tenantFlag: vi.fn(),
   durableEnabled: vi.fn(),
+  durableAuthorization: vi.fn(),
+  resolveConfiguration: vi.fn(),
   prepareEvaluation: vi.fn(),
   queueEvaluation: vi.fn(),
   enqueueEvaluation: vi.fn(),
@@ -15,6 +17,12 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: mocks.env }))
+vi.mock('@pathfinder/ai', () => ({
+  AI_CENTRAL_MODEL_REGISTRY: {
+    'guest-answer-attribution-evaluation': { provider: 'anthropic' },
+    'answer-analysis': { provider: 'openai' },
+  },
+}))
 vi.mock('@pathfinder/jobs', () => ({
   enqueueGuestAnswerAttributionEvaluation: mocks.enqueueEvaluation,
 }))
@@ -42,10 +50,12 @@ vi.mock('@pathfinder/db', () => ({
     }
   },
   isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  getEvaluationRuntimeAuthorization: mocks.durableAuthorization,
   prepareGuestAnswerAttributionEvaluationRequestAction: mocks.prepareEvaluation,
   queueGuestAnswerAttributionEvaluationRequestAction: mocks.queueEvaluation,
   recordHumanReviewedGuestAnswerAttributionAction: mocks.record,
   readGuestAnswerAttributionAgreement: mocks.readAgreement,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
   withTenantIsolationBypass: mocks.bypass,
 }))
 
@@ -69,6 +79,15 @@ describe('admin guest answer attributions', () => {
     mocks.findEvaluationRequests.mockResolvedValue([])
     mocks.tenantFlag.mockResolvedValue({ enabled: true })
     mocks.durableEnabled.mockResolvedValue(true)
+    mocks.durableAuthorization.mockResolvedValue({
+      maxBudgetE8Usd: 105000000n,
+      allowedProviders: ['anthropic'],
+    })
+    mocks.resolveConfiguration.mockResolvedValue({
+      primaryModelKey: 'guest-answer-attribution-evaluation',
+      fallback: { enabled: false, modelKeys: [] },
+      requestBudgetCeilingE8Usd: '105000000',
+    })
     mocks.prepareEvaluation.mockResolvedValue({ request: { id: 'request-1' }, replayed: false })
     mocks.queueEvaluation.mockResolvedValue({
       request: { id: 'request-1', answerHash: 'a'.repeat(64), evidenceSetHash: 'b'.repeat(64) },
@@ -175,6 +194,23 @@ describe('admin guest answer attributions', () => {
 
   it('fails closed before queue mutation when the process gate is off', async () => {
     mocks.env.EVALUATION_RUNNER_ENABLED = false
+    await expect(
+      caller.queueGuestAnswerAttributionEvaluation({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.queueEvaluation).not.toHaveBeenCalled()
+    expect(mocks.enqueueEvaluation).not.toHaveBeenCalled()
+  })
+
+  it('fails closed before queue mutation when routing exceeds the authorization', async () => {
+    mocks.resolveConfiguration.mockResolvedValue({
+      primaryModelKey: 'guest-answer-attribution-evaluation',
+      fallback: { enabled: true, modelKeys: ['answer-analysis'] },
+      requestBudgetCeilingE8Usd: '105000000',
+    })
     await expect(
       caller.queueGuestAnswerAttributionEvaluation({
         tenantId: 'tenant-1',

@@ -7,7 +7,7 @@ PathFinder has a local implementation of the bounded evaluation runtime. It is n
 All three gates must be explicitly true before the API creates a run identity:
 
 1. The workers process must start with server-only `EVALUATION_RUNNER_ENABLED=true`. The default is `false` in production, staging, preview, development, and tests. When false, the evaluation BullMQ consumer is not constructed.
-2. `PlatformConfig[evaluation-runner-v1-global]` must contain the exact JSON `{ "version": 1, "enabled": true }`. This is the durable, cross-service rollout intent shared by the API and worker. Missing, malformed, or unreadable state is disabled.
+2. `PlatformConfig[evaluation-runner-v1-global]` must contain a valid version 2 authorization with a UUID, authorization and expiry timestamps, a positive per-run budget ceiling, and an allow-listed provider set. The expiry must still be in the future. This is the durable, cross-service rollout intent shared by the API and worker. Missing, malformed, legacy-version, expired, or unreadable state is disabled.
 3. The exact tenant must have the `evaluation-runner-v1` `TenantFeatureFlag` enabled. The admin request checks it before enqueueing, and the worker rechecks it before each case and immediately before provider dispatch.
 
 When `EVALUATION_RUNNER_ENABLED=true` and `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, the worker
@@ -19,7 +19,9 @@ embedding, generation, media, email, reporting, billing, or other outbound-provi
 Anthropic candidate remains unavailable in this isolated deployment unless a separate reviewed
 credential and provider-admission change is made.
 
-Disabling the process gate stops new consumer registration. Disabling either durable scope gate while a run is active causes remaining cases to receive `CANCELLED` operational evidence. Neither condition changes content or publishes a package. A process-env mismatch cannot be proven away by application code: the durable global record is the operator's cross-service coordination source, while every process-local gate still fails closed. A worker deployed with its local gate false consumes nothing even if another service is misconfigured true.
+The platform-admin control creates an authorization for 5–120 minutes, requires the exact confirmation phrase, accepts only registered evaluation providers, and caps each run at both the authorization ceiling and the hard-coded $4.10 maximum. Enabling creates a new authorization UUID; the API freezes that UUID, expiry, provider set, and ceiling into every run. The worker admits provider I/O only while that same authorization remains active. A later re-enable cannot revive a run from an older window.
+
+Disabling the process gate stops new consumer registration. Disabling either durable scope gate while a run is active causes remaining cases to receive `CANCELLED` operational evidence. Expiry has the same fail-closed effect at the final provider boundary. Neither condition changes content or publishes a package. A process-env mismatch cannot be proven away by application code: the durable global record is the operator's cross-service coordination source, while every process-local gate still fails closed. A worker deployed with its local gate false consumes nothing even if another service is misconfigured true.
 
 New identities begin `STAGED`, and the API never publishes execution work directly. A default-off worker scheduler scans a bounded batch after rechecking the durable global and tenant gates. It CASes the exact identity to `QUEUED` before deterministic BullMQ publication. Every scan also republishes `QUEUED` identities idempotently, repairing a crash between the database transition and queue add. The execution consumer refuses `STAGED`, so it never treats an early or malformed publication as complete or calls a provider. Pre-migration rows become `LEGACY`, never `QUEUED`; no historical completion state is inferred without an authorized database assessment.
 
@@ -100,11 +102,13 @@ truncation remain visible. The output is content-addressed and returns no answer
 reviewer identity. It makes no correctness, pass/fail, severity, threshold, release, publication, or
 permission decision and performs no provider call.
 
-A separate provider-backed evaluator core can now produce the same exact-span attribution contract
-from one frozen answer/evidence identity. It is centrally routed, admission- and budget-gated,
-content-hash verified before dispatch, and strict about spans and source IDs. It is not connected to
-the evaluation queue, admin API, persistence action, scheduler, release policy, or visitor UI, so no
-automatic review occurs merely because the code exists.
+A separate provider-backed evaluator can produce the same exact-span attribution contract from one
+frozen answer/evidence identity. It is connected only to its explicit platform-admin staging,
+queue, worker, and immutable evidence lifecycle; it has no release-policy or visitor-UI effect. The
+worker rechecks process, tenant, venue-AI, authorization-expiry, per-run budget, and every possible
+primary/fallback provider immediately before provider I/O. The request's durable `queuedAt` must be
+inside the current authorization window, so recovery cannot revive work under a replacement
+authorization. Content hashes and provider dispatch fencing remain mandatory.
 
 ## Lifecycle and failure semantics
 
@@ -145,4 +149,4 @@ Cancellation cannot guarantee recall of a provider request already dispatched. N
 
 The conversation-case preparation path requires no schema migration and does not connect to Redis, enable either feature gate, or call a provider. Tests use injected persistence and evaluation adapters; worker tests assert that no provider facade was invoked.
 
-Before any authorized staging rollout, an owner must separately approve the exact environment, migration rehearsal/application, server gate, tenant flags, cost ceiling, and synthetic evaluation corpus. Staging proof for two venues and an intentional regression remains outstanding under the active database-incident boundary.
+Before any provider-backed staging run, an owner must separately approve the exact environment, provider set, authorization duration, per-run cost ceiling, and synthetic evaluation corpus. The durable controls do not grant that approval and remain off after deployment. Production activation remains separately prohibited without explicit authorization.

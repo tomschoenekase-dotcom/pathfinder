@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   env: { EVALUATION_RUNNER_ENABLED: true },
   durableEnabled: vi.fn(),
+  runtimeAuthorization: vi.fn(),
   tenantFlag: vi.fn(),
   ownedRequest: vi.fn(),
   queuedRequests: vi.fn(),
@@ -22,6 +23,10 @@ vi.mock('@pathfinder/config', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 vi.mock('@pathfinder/ai', () => ({
+  AI_CENTRAL_MODEL_REGISTRY: {
+    'guest-answer-attribution-evaluation': { provider: 'anthropic' },
+    'answer-analysis': { provider: 'openai' },
+  },
   AiGatewayError: class AiGatewayError extends Error {
     readonly code: string
 
@@ -50,6 +55,7 @@ vi.mock('@pathfinder/db', () => ({
   },
   failGuestAnswerAttributionEvaluationRequestAction: mocks.fail,
   isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  getEvaluationRuntimeAuthorization: mocks.runtimeAuthorization,
   markGuestAnswerAttributionEvaluationDispatchedAction: mocks.markDispatched,
   recoverStaleGuestAnswerAttributionEvaluationRequestsAction: mocks.recover,
   resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
@@ -80,13 +86,25 @@ const payload = {
   evidenceSetHash: 'b'.repeat(64),
 }
 
+const authorization = {
+  authorizationId: '22222222-2222-4222-8222-222222222222',
+  authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
+  expiresAt: new Date('2099-09-04T18:00:00.000Z'),
+  maxBudgetE8Usd: 105000000n,
+  allowedProviders: ['anthropic'],
+}
+
 describe('guest answer attribution evaluator worker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.env.EVALUATION_RUNNER_ENABLED = true
     mocks.durableEnabled.mockResolvedValue(true)
+    mocks.runtimeAuthorization.mockResolvedValue(authorization)
     mocks.tenantFlag.mockResolvedValue({ enabled: true })
-    mocks.ownedRequest.mockResolvedValue({ id: payload.requestId })
+    mocks.ownedRequest.mockResolvedValue({
+      id: payload.requestId,
+      queuedAt: new Date('2026-09-04T17:00:00.000Z'),
+    })
     mocks.queuedRequests.mockResolvedValue([])
     mocks.assertVenue.mockResolvedValue(undefined)
     mocks.claim.mockResolvedValue({
@@ -102,6 +120,9 @@ describe('guest answer attribution evaluator worker', () => {
     mocks.resolveConfiguration.mockResolvedValue({
       workloadId: 'guest-answer-attribution-evaluation',
       configurationVersion: 'ai-workload-config-v1',
+      primaryModelKey: 'guest-answer-attribution-evaluation',
+      fallback: { enabled: false, modelKeys: [] },
+      requestBudgetCeilingE8Usd: '105000000',
     })
     mocks.evaluate.mockImplementation(async (input) => {
       await input.admissionGuard()
@@ -146,6 +167,33 @@ describe('guest answer attribution evaluator worker', () => {
         errorCode: 'GUEST_ANSWER_ATTRIBUTION_EVALUATION_FAILED',
       }),
     )
+  })
+
+  it('blocks provider admission when a replacement authorization cannot own the queued request', async () => {
+    mocks.runtimeAuthorization.mockResolvedValue({
+      ...authorization,
+      authorizedAt: new Date('2099-09-04T17:30:00.000Z'),
+      expiresAt: new Date('2099-09-04T18:00:00.000Z'),
+    })
+    await expect(processGuestAnswerAttributionEvaluationJob(payload)).rejects.toThrow(
+      'not queued in the active authorization window',
+    )
+    expect(mocks.markDispatched).not.toHaveBeenCalled()
+    expect(mocks.fail).toHaveBeenCalled()
+  })
+
+  it('blocks configured fallback providers outside the active authorization', async () => {
+    mocks.resolveConfiguration.mockResolvedValue({
+      workloadId: 'guest-answer-attribution-evaluation',
+      configurationVersion: 'ai-workload-config-v1',
+      primaryModelKey: 'guest-answer-attribution-evaluation',
+      fallback: { enabled: true, modelKeys: ['answer-analysis'] },
+      requestBudgetCeilingE8Usd: '105000000',
+    })
+    await expect(processGuestAnswerAttributionEvaluationJob(payload)).rejects.toThrow(
+      'outside the active authorization',
+    )
+    expect(mocks.markDispatched).not.toHaveBeenCalled()
   })
 
   it('maps provider codes into a finite durable failure vocabulary', async () => {
@@ -194,5 +242,15 @@ describe('guest answer attribution evaluator worker', () => {
       enabled: true,
       dispatchKey: 'recovery-1',
     })
+    expect(mocks.queuedRequests).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          queuedAt: {
+            gte: authorization.authorizedAt,
+            lte: authorization.expiresAt,
+          },
+        }),
+      }),
+    )
   })
 })

@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 
-import { AiGatewayError, AiRequestBudgetCeilingExceededError, AiRoutingError } from '@pathfinder/ai'
+import {
+  AiGatewayError,
+  AiRequestBudgetCeilingExceededError,
+  AiRoutingError,
+  AI_CENTRAL_MODEL_REGISTRY,
+} from '@pathfinder/ai'
 import { env, logger } from '@pathfinder/config'
 import {
   assertVenueAiAvailable,
@@ -9,6 +14,7 @@ import {
   db,
   failGuestAnswerAttributionEvaluationRequestAction,
   type GuestAnswerAttributionEvaluationFailureCode,
+  getEvaluationRuntimeAuthorization,
   isEvaluationRuntimeDurablyEnabled,
   markGuestAnswerAttributionEvaluationDispatchedAction,
   recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
@@ -44,13 +50,30 @@ async function assertExecutionAllowed(input: {
   venueId: string
   requestId: string
   leaseToken: string
+  providerCandidates: string[]
+  requestBudgetCeilingE8Usd: string | null
 }) {
   if (!env.EVALUATION_RUNNER_ENABLED) throw new Error('Evaluation runtime is disabled')
-  const [durableEnabled, enabled] = await Promise.all([
-    isEvaluationRuntimeDurablyEnabled(db),
+  const [authorization, enabled] = await Promise.all([
+    getEvaluationRuntimeAuthorization(db),
     tenantEnabled(input.tenantId),
   ])
-  if (!durableEnabled || !enabled) throw new Error('Evaluation policy gate is disabled')
+  if (!authorization || !enabled) throw new Error('Evaluation policy gate is disabled')
+  if (
+    input.providerCandidates.length === 0 ||
+    input.providerCandidates.some(
+      (provider) => !authorization.allowedProviders.includes(provider as never),
+    )
+  ) {
+    throw new Error('Evaluation provider is outside the active authorization')
+  }
+  if (
+    input.requestBudgetCeilingE8Usd === null ||
+    !/^\d+$/u.test(input.requestBudgetCeilingE8Usd) ||
+    BigInt(input.requestBudgetCeilingE8Usd) > authorization.maxBudgetE8Usd
+  ) {
+    throw new Error('Evaluation budget exceeds the active authorization ceiling')
+  }
   await assertVenueAiAvailable(db, { tenantId: input.tenantId, venueId: input.venueId })
   const owned = await withTenantIsolationBypass(() =>
     db.guestAnswerAttributionEvaluationRequest.findFirst({
@@ -62,10 +85,17 @@ async function assertExecutionAllowed(input: {
         leaseToken: input.leaseToken,
         leaseExpiresAt: { gt: new Date() },
       },
-      select: { id: true },
+      select: { id: true, queuedAt: true },
     }),
   )
   if (!owned) throw new Error('Guest answer evaluation lease is unavailable')
+  if (
+    !owned.queuedAt ||
+    owned.queuedAt < authorization.authorizedAt ||
+    owned.queuedAt > authorization.expiresAt
+  ) {
+    throw new Error('Guest answer evaluation was not queued in the active authorization window')
+  }
 }
 
 function boundedErrorCode(error: unknown): GuestAnswerAttributionEvaluationFailureCode {
@@ -129,13 +159,27 @@ export async function processGuestAnswerAttributionEvaluationJob(
       },
       db,
     )
+    const providerCandidates = [
+      AI_CENTRAL_MODEL_REGISTRY[configuration.primaryModelKey].provider,
+      ...(configuration.fallback.enabled
+        ? configuration.fallback.modelKeys.map(
+            (modelKey) => AI_CENTRAL_MODEL_REGISTRY[modelKey].provider,
+          )
+        : []),
+    ]
     const evaluated = await runProviderBackedGuestAnswerAttributionEvaluation({
       answer: claim.answer,
       evidence: claim.evidence,
       configuration,
       invocationId: claim.request.id,
       ...(signal ? { signal } : {}),
-      admissionGuard: () => assertExecutionAllowed({ ...payload, leaseToken }),
+      admissionGuard: () =>
+        assertExecutionAllowed({
+          ...payload,
+          leaseToken,
+          providerCandidates: [...new Set(providerCandidates)],
+          requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+        }),
       onBeforeFirstDispatch: () =>
         withTenantIsolationBypass(() =>
           markGuestAnswerAttributionEvaluationDispatchedAction({ ...payload, leaseToken }),
@@ -181,7 +225,8 @@ export async function processGuestAnswerAttributionEvaluationJob(
 /** Recovers only jobs that provably never crossed the provider fence. A lost post-dispatch job
  * becomes AMBIGUOUS and is never automatically sent again. */
 export async function recoverGuestAnswerAttributionEvaluations() {
-  if (!env.EVALUATION_RUNNER_ENABLED || !(await isEvaluationRuntimeDurablyEnabled(db))) {
+  const authorization = await getEvaluationRuntimeAuthorization(db)
+  if (!env.EVALUATION_RUNNER_ENABLED || !authorization) {
     return { recovered: 0, published: 0 }
   }
   const recovered = await withTenantIsolationBypass(() =>
@@ -189,7 +234,11 @@ export async function recoverGuestAnswerAttributionEvaluations() {
   )
   const candidates = await withTenantIsolationBypass(() =>
     db.guestAnswerAttributionEvaluationRequest.findMany({
-      where: { status: 'QUEUED', providerDispatchedAt: null },
+      where: {
+        status: 'QUEUED',
+        providerDispatchedAt: null,
+        queuedAt: { gte: authorization.authorizedAt, lte: authorization.expiresAt },
+      },
       orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }],
       take: 100,
       select: {
