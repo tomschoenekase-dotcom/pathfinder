@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import {
   authenticatedSurfaceArtifactDirectory,
+  authenticatedSurfaceAttemptDirectory,
   parseHostedAuthenticatedSurfaceArgs,
   resolveSessionStatePath,
   validateAuthenticatedDashboardPolicy,
@@ -71,6 +72,14 @@ test('keeps sensitive artifacts in the gitignored revision directory', () => {
   assert.equal(path.basename(directory), revision)
   assert.match(directory.replaceAll('\\', '/'), /artifacts\/hosted-authenticated-surfaces/u)
   assert.throws(() => authenticatedSurfaceArtifactDirectory('short'), /exact-revision/u)
+  const attemptId = '11111111-1111-4111-8111-111111111111'
+  const attemptDirectory = authenticatedSurfaceAttemptDirectory(revision, attemptId)
+  assert.equal(path.basename(attemptDirectory), attemptId)
+  assert.equal(path.dirname(attemptDirectory), directory)
+  assert.throws(
+    () => authenticatedSurfaceAttemptDirectory(revision, '../latest'),
+    /invalid-authenticated-surface-attempt-id/u,
+  )
 })
 
 test('rejects unauthenticated redirects, browser failures, and missing screenshots', () => {

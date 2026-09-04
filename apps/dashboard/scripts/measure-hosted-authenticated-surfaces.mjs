@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { access, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,7 @@ const scriptPath = fileURLToPath(import.meta.url)
 const repositoryRoot = path.resolve(path.dirname(scriptPath), '../../..')
 const FULL_SHA = /^[0-9a-f]{40}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
 const SAFE_ROUTE = /^\/admin(?:\/[a-z0-9-]+)*\/?$/u
 const DEFAULT_ROUTES = ['/admin/operations', '/admin/directory', '/admin/prospects/outreach']
 const VIEWPORTS = [
@@ -104,6 +105,11 @@ export function validateAuthenticatedDashboardPolicy(policy) {
 export function authenticatedSurfaceArtifactDirectory(revision) {
   if (!FULL_SHA.test(revision)) fail('exact-revision-required')
   return path.join(repositoryRoot, 'artifacts', 'hosted-authenticated-surfaces', revision)
+}
+
+export function authenticatedSurfaceAttemptDirectory(revision, attemptId) {
+  if (!UUID_V4.test(attemptId ?? '')) fail('invalid-authenticated-surface-attempt-id')
+  return path.join(authenticatedSurfaceArtifactDirectory(revision), attemptId)
 }
 
 function fingerprint(kind, message) {
@@ -288,7 +294,8 @@ export async function runHostedAuthenticatedSurfaceMeasurement(options) {
   const origin = validateAuthenticatedDashboardPolicy(policy)
   await admitHostedHealth(policy, options.revision)
 
-  const outputDirectory = authenticatedSurfaceArtifactDirectory(options.revision)
+  const attemptId = randomUUID()
+  const outputDirectory = authenticatedSurfaceAttemptDirectory(options.revision, attemptId)
   await mkdir(outputDirectory, { recursive: true })
   const browser = await chromium.launch({ headless: true })
   const samples = []
@@ -315,6 +322,7 @@ export async function runHostedAuthenticatedSurfaceMeasurement(options) {
     schemaVersion: 1,
     kind: 'torchiko-hosted-authenticated-surface-pixels',
     generatedAt: new Date().toISOString(),
+    attemptId,
     revision: options.revision,
     origin,
     authenticatedRouteObserved: true,
