@@ -49,6 +49,21 @@ function identityHash(email: string): string {
   return createHash('sha256').update(email.toLowerCase()).digest('hex')
 }
 
+function deliveryControlAllowsRecipient(
+  control:
+    | { deliveryEnabled: boolean; internalOnly: boolean; internalAllowlist: string[] }
+    | null
+    | undefined,
+  recipient: string,
+): boolean {
+  if (!control?.deliveryEnabled) return false
+  if (!control.internalOnly) return true
+  const normalizedRecipient = recipient.toLowerCase()
+  return control.internalAllowlist.some(
+    (allowedRecipient) => allowedRecipient.toLowerCase() === normalizedRecipient,
+  )
+}
+
 export async function finalizeProspectSendBatch(
   batchId: string,
   client: Client = db,
@@ -235,7 +250,7 @@ export async function claimProspectSendOutboxAction(
     const { providerAccount, sendItem } = operation
     const control = await tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } })
     if (
-      !control?.deliveryEnabled ||
+      !deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
       !providerAccount.deliveryEnabled ||
       providerAccount.pausedAt ||
       providerAccount.connectionStatus !== 'CONNECTED' ||
@@ -379,7 +394,7 @@ export async function revalidateProspectSendOutboxClaimAction(
     }
     const { providerAccount, sendItem } = operation
     if (
-      !control?.deliveryEnabled ||
+      !deliveryControlAllowsRecipient(control, sendItem.recipientEmailSnapshot) ||
       providerAccount.provider === 'RESEND' ||
       !providerAccount.capabilities.includes('SEND') ||
       !providerAccount.deliveryEnabled ||

@@ -92,9 +92,185 @@ describe('prospect last-mile delivery authority', () => {
     ).resolves.toBe(false)
     expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
   })
+
+  it('cancels a claimed operation when the internal allowlist tightened after release', async () => {
+    const tx = {
+      prospectDeliveryControl: {
+        findUnique: vi.fn().mockResolvedValue({
+          deliveryEnabled: true,
+          internalOnly: true,
+          internalAllowlist: ['reviewer@torchiko.test'],
+        }),
+      },
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          status: 'CLAIMED',
+          claimOwner: 'worker-1',
+          claimExpiresAt: new Date('2026-08-22T16:05:00.000Z'),
+          providerAccount: {
+            provider: 'GMAIL',
+            capabilities: ['SEND'],
+            deliveryEnabled: true,
+            pausedAt: null,
+            connectionStatus: 'CONNECTED',
+          },
+          sendItem: {
+            id: 'item-1',
+            recipientEmailSnapshot: 'removed@torchiko.test',
+            batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+          },
+        }),
+        update: vi.fn(),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'worker-1',
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'CANCELLED',
+          lastErrorCode: 'DELIVERY_STOPPED_BEFORE_PROVIDER',
+        }),
+      }),
+    )
+  })
+
+  it('retains a claimed operation for an exact case-insensitive internal allowlist match', async () => {
+    const tx = {
+      prospectDeliveryControl: {
+        findUnique: vi.fn().mockResolvedValue({
+          deliveryEnabled: true,
+          internalOnly: true,
+          internalAllowlist: ['Reviewer@Torchiko.Test'],
+        }),
+      },
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          status: 'CLAIMED',
+          claimOwner: 'worker-1',
+          claimExpiresAt: new Date('2026-08-22T16:05:00.000Z'),
+          providerAccount: {
+            provider: 'GMAIL',
+            capabilities: ['SEND'],
+            deliveryEnabled: true,
+            pausedAt: null,
+            connectionStatus: 'CONNECTED',
+          },
+          sendItem: {
+            id: 'item-1',
+            recipientEmailSnapshot: 'reviewer@torchiko.test',
+            batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+          },
+        }),
+        update: vi.fn(),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'worker-1',
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).resolves.toBe(true)
+    expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
+  })
 })
 
 describe('prospect send claim rate reservation', () => {
+  it('cancels a newly claimed operation when the current internal allowlist excludes it', async () => {
+    const operation = {
+      id: 'outbox-1',
+      operationId: '00000000-0000-0000-0000-000000000001',
+      providerAccountId: 'mailbox-1',
+      status: 'PENDING',
+      availableAt: new Date('2026-08-22T15:00:00.000Z'),
+      claimOwner: null,
+      claimExpiresAt: null,
+      providerAccount: {
+        dailySendCap: 100,
+        perDomainDailyCap: 10,
+        minimumDelaySeconds: 0,
+        jitterSeconds: 0,
+        deliveryEnabled: true,
+        pausedAt: null,
+        connectionStatus: 'CONNECTED',
+      },
+      sendItem: {
+        id: 'item-1',
+        batchId: 'batch-1',
+        recipientEmailSnapshot: 'removed@torchiko.test',
+        recipientIdentityHash: 'unused-after-control-rejection',
+        batch: {
+          campaignId: 'campaign-1',
+          campaign: { dailySendCap: 100, pausedAt: null, status: 'ACTIVE' },
+        },
+        member: { contact: null },
+      },
+    }
+    const claimedOperation = { ...operation, status: 'CLAIMED', claimOwner: 'worker-1' }
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      prospectDeliveryControl: {
+        findUnique: vi.fn().mockResolvedValue({
+          deliveryEnabled: true,
+          internalOnly: true,
+          internalAllowlist: ['reviewer@torchiko.test'],
+        }),
+      },
+      prospectSendOutbox: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce(operation)
+          .mockResolvedValueOnce(claimedOperation),
+        count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn(),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = {
+      $transaction: vi.fn((work) => work(tx)),
+      prospectSendBatch: { findUnique: vi.fn(), update: vi.fn() },
+      prospectSendItem: { count: vi.fn() },
+    }
+
+    await expect(
+      claimProspectSendOutboxAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'worker-1',
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).resolves.toBeNull()
+    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'CANCELLED', lastErrorCode: 'DELIVERY_DISABLED' }),
+      }),
+    )
+  })
+
   it('serializes the send lane and defers an operation when a configured cap is exhausted', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 })
     const tx = {
