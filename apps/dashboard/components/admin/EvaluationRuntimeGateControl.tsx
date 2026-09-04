@@ -13,6 +13,7 @@ type Readiness = {
   tenantEnabled: boolean
   authorization?: {
     authorizationId: string
+    tenantId: string
     expiresAt: string
     maxBudgetE8Usd: string
     allowedProviders: Array<'openai' | 'anthropic'>
@@ -53,7 +54,9 @@ export function EvaluationRuntimeGateControl(props: {
   const [allowAnthropic, setAllowAnthropic] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const durableEnabled = props.readiness.durableGlobalEnabled && props.readiness.tenantEnabled
+  const tenantAuthorized = props.readiness.authorization?.tenantId === props.tenantId
+  const durableEnabled =
+    props.readiness.durableGlobalEnabled && props.readiness.tenantEnabled && tenantAuthorized
   const maximumBudgetE8Usd = budgetToE8Usd(maximumBudget)
   const canEnable =
     !durableEnabled &&
@@ -127,7 +130,10 @@ export function EvaluationRuntimeGateControl(props: {
               label="Durable global intent"
               enabled={props.readiness.durableGlobalEnabled}
             />
-            <GateStatus label="This tenant" enabled={props.readiness.tenantEnabled} />
+            <GateStatus
+              label="This tenant"
+              enabled={props.readiness.tenantEnabled && tenantAuthorized}
+            />
           </ul>
         </div>
 
@@ -177,8 +183,8 @@ export function EvaluationRuntimeGateControl(props: {
             <>
               <h4 className="font-semibold text-pf-deep">Open a bounded evaluation window</h4>
               <p className="mt-2 text-sm leading-6 text-pf-deep/70">
-                Type the exact phrase below. Other tenants remain off unless separately enabled. The
-                global gate is shared platform intent and expires automatically.
+                Type the exact phrase below. This window is bound to this tenant; opening one for a
+                different tenant replaces it. The global gate expires automatically.
               </p>
               <label className="mt-4 block text-sm font-semibold text-pf-deep">
                 Window duration

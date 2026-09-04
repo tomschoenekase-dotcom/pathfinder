@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   findEvaluationRequests: vi.fn(),
   tenantFlag: vi.fn(),
-  durableEnabled: vi.fn(),
   durableAuthorization: vi.fn(),
   resolveConfiguration: vi.fn(),
   prepareEvaluation: vi.fn(),
@@ -49,7 +48,6 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
-  isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
   getEvaluationRuntimeAuthorization: mocks.durableAuthorization,
   prepareGuestAnswerAttributionEvaluationRequestAction: mocks.prepareEvaluation,
   queueGuestAnswerAttributionEvaluationRequestAction: mocks.queueEvaluation,
@@ -78,8 +76,8 @@ describe('admin guest answer attributions', () => {
     mocks.findMany.mockResolvedValue([])
     mocks.findEvaluationRequests.mockResolvedValue([])
     mocks.tenantFlag.mockResolvedValue({ enabled: true })
-    mocks.durableEnabled.mockResolvedValue(true)
     mocks.durableAuthorization.mockResolvedValue({
+      tenantId: 'tenant-1',
       maxBudgetE8Usd: 105000000n,
       allowedProviders: ['anthropic'],
     })
@@ -194,6 +192,23 @@ describe('admin guest answer attributions', () => {
 
   it('fails closed before queue mutation when the process gate is off', async () => {
     mocks.env.EVALUATION_RUNNER_ENABLED = false
+    await expect(
+      caller.queueGuestAnswerAttributionEvaluation({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.queueEvaluation).not.toHaveBeenCalled()
+    expect(mocks.enqueueEvaluation).not.toHaveBeenCalled()
+  })
+
+  it('fails closed before queue mutation when the authorization belongs to another tenant', async () => {
+    mocks.durableAuthorization.mockResolvedValue({
+      tenantId: 'tenant-other',
+      maxBudgetE8Usd: 105000000n,
+      allowedProviders: ['anthropic'],
+    })
     await expect(
       caller.queueGuestAnswerAttributionEvaluation({
         tenantId: 'tenant-1',

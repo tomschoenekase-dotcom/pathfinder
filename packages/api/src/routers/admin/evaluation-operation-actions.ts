@@ -21,7 +21,7 @@ import { z } from 'zod'
 import { router } from '../../core'
 import { loadReviewableVenuePackageEvaluationPreview } from '../../lib/reviewable-package-evaluation'
 import { adminProcedure } from '../../trpc'
-import { authorizeEvaluation, EVALUATION_RUNNER_FLAG } from './evaluation-runtime-authorization'
+import { authorizeRun, EVALUATION_RUNNER_FLAG } from './evaluation-runtime-authorization'
 import {
   EVALUATION_MODEL_KEYS,
   MAX_EVALUATION_RUN_BUDGET_E8_USD,
@@ -61,6 +61,7 @@ export const adminEvaluationOperationActionsRouter = router({
         }),
     )
     .mutation(async ({ input, ctx }) => {
+      const { tenantId } = input
       const budget = BigInt(input.budgetCeilingE8Usd)
       if (budget > MAX_EVALUATION_RUN_BUDGET_E8_USD)
         throw new TRPCError({
@@ -161,11 +162,9 @@ export const adminEvaluationOperationActionsRouter = router({
               code: 'PRECONDITION_FAILED',
               message: 'Evaluation execution is not durably enabled for this tenant',
             })
-          const authorizationSnapshot = authorizeEvaluation(
-            durableAuthorization,
-            model.provider,
-            budget,
-          )
+          const provider = model.provider
+          const gate = durableAuthorization
+          const authorization = authorizeRun(gate, tenantId, provider, budget)
           if (cases.length !== input.caseIds.length)
             throw new TRPCError({
               code: 'NOT_FOUND',
@@ -361,7 +360,7 @@ export const adminEvaluationOperationActionsRouter = router({
                 maximumCases: MAX_EVALUATION_RUN_CASES,
                 requestedCases: manifest.length,
                 modelKey: input.modelKey,
-                authorization: authorizationSnapshot,
+                authorization,
                 contentSnapshotSchemaVersion: snapshot.schemaVersion,
                 contentComponentCounts: snapshot.componentCounts,
                 contentSnapshot: snapshot.manifest,

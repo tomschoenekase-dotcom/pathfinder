@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   env: { EVALUATION_RUNNER_ENABLED: true },
-  durableEnabled: vi.fn(),
   runtimeAuthorization: vi.fn(),
   tenantFlag: vi.fn(),
   ownedRequest: vi.fn(),
@@ -54,7 +53,6 @@ vi.mock('@pathfinder/db', () => ({
     },
   },
   failGuestAnswerAttributionEvaluationRequestAction: mocks.fail,
-  isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
   getEvaluationRuntimeAuthorization: mocks.runtimeAuthorization,
   markGuestAnswerAttributionEvaluationDispatchedAction: mocks.markDispatched,
   recoverStaleGuestAnswerAttributionEvaluationRequestsAction: mocks.recover,
@@ -87,7 +85,10 @@ const payload = {
 }
 
 const authorization = {
+  version: 3,
+  enabled: true,
   authorizationId: '22222222-2222-4222-8222-222222222222',
+  tenantId: payload.tenantId,
   authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
   expiresAt: new Date('2099-09-04T18:00:00.000Z'),
   maxBudgetE8Usd: 105000000n,
@@ -98,7 +99,6 @@ describe('guest answer attribution evaluator worker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.env.EVALUATION_RUNNER_ENABLED = true
-    mocks.durableEnabled.mockResolvedValue(true)
     mocks.runtimeAuthorization.mockResolvedValue(authorization)
     mocks.tenantFlag.mockResolvedValue({ enabled: true })
     mocks.ownedRequest.mockResolvedValue({
@@ -150,7 +150,7 @@ describe('guest answer attribution evaluator worker', () => {
   })
 
   it('does not claim or dispatch when any default-off admission layer is disabled', async () => {
-    mocks.durableEnabled.mockResolvedValue(false)
+    mocks.runtimeAuthorization.mockResolvedValue(null)
     await expect(processGuestAnswerAttributionEvaluationJob(payload)).resolves.toEqual({
       state: 'disabled',
     })
@@ -180,6 +180,16 @@ describe('guest answer attribution evaluator worker', () => {
     )
     expect(mocks.markDispatched).not.toHaveBeenCalled()
     expect(mocks.fail).toHaveBeenCalled()
+  })
+
+  it('blocks provider admission when the active authorization belongs to another tenant', async () => {
+    mocks.runtimeAuthorization.mockResolvedValue({ ...authorization, tenantId: 'tenant-2' })
+    await expect(processGuestAnswerAttributionEvaluationJob(payload)).resolves.toEqual({
+      state: 'disabled',
+    })
+    expect(mocks.claim).not.toHaveBeenCalled()
+    expect(mocks.markDispatched).not.toHaveBeenCalled()
+    expect(mocks.fail).not.toHaveBeenCalled()
   })
 
   it('blocks configured fallback providers outside the active authorization', async () => {
@@ -245,6 +255,7 @@ describe('guest answer attribution evaluator worker', () => {
     expect(mocks.queuedRequests).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          tenantId: authorization.tenantId,
           queuedAt: {
             gte: authorization.authorizedAt,
             lte: authorization.expiresAt,

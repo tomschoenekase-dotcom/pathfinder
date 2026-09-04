@@ -1060,6 +1060,7 @@ function defaultDependencies(
                 globalEnabled: () =>
                   evaluationRuntimeAuthorizationAllowsRun(
                     run.runConfigSnapshot,
+                    run.tenantId,
                     run.modelProvider,
                     db,
                   ),
