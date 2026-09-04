@@ -8,7 +8,7 @@ describe('useGeolocation', () => {
     vi.restoreAllMocks()
   })
 
-  it('does not query or watch location while disabled', async () => {
+  it('does not query or watch location unless a caller explicitly enables it', async () => {
     const query = vi.fn()
     const watchPosition = vi.fn()
     const clearWatch = vi.fn()
@@ -22,7 +22,7 @@ describe('useGeolocation', () => {
       value: { clearWatch, watchPosition },
     })
 
-    const { result } = renderHook(() => useGeolocation(false))
+    const { result } = renderHook(() => useGeolocation())
 
     await waitFor(() => expect(result.current.permission).toBe('prompt'))
     act(() => result.current.refresh())
@@ -98,7 +98,7 @@ describe('useGeolocation', () => {
       value: { clearWatch: vi.fn(), watchPosition },
     })
 
-    const { result } = renderHook(() => useGeolocation())
+    const { result } = renderHook(() => useGeolocation(true))
     await waitFor(() => expect(watchPosition).toHaveBeenCalledTimes(1))
 
     act(() => result.current.refresh())
@@ -150,7 +150,7 @@ describe('useGeolocation', () => {
       },
     })
 
-    const { result } = renderHook(() => useGeolocation())
+    const { result } = renderHook(() => useGeolocation(true))
 
     await waitFor(() => {
       expect(result.current.permission).toBe('prompt')
@@ -195,7 +195,7 @@ describe('useGeolocation', () => {
       },
     })
 
-    const { result } = renderHook(() => useGeolocation())
+    const { result } = renderHook(() => useGeolocation(true))
     await waitFor(() => expect(onSuccess).not.toBeNull())
 
     act(() => {

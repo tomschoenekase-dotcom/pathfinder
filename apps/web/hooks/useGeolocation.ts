@@ -18,7 +18,7 @@ const WATCH_OPTIONS = {
   maximumAge: 30_000,
 } as const
 
-export function useGeolocation(enabled = true): GeolocationState {
+export function useGeolocation(enabled = false): GeolocationState {
   const [lat, setLat] = useState<number | null>(null)
   const [lng, setLng] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
