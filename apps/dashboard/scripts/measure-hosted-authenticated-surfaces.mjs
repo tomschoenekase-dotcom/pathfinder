@@ -121,16 +121,30 @@ function routeSlug(route) {
 export function validateAuthenticatedSurfaceSamples(samples, expectedOrigin, expectedCount) {
   if (samples.length !== expectedCount) fail('authenticated-surface-sample-count-mismatch')
   for (const sample of samples) {
-    if (sample.finalOrigin !== expectedOrigin) fail('authenticated-surface-cross-origin-redirect')
-    if (sample.finalPath === '/sign-in' || sample.finalPath.startsWith('/sign-in/'))
-      fail('authenticated-session-unavailable')
-    if (sample.finalPath !== sample.requestedRoute) fail('authenticated-surface-route-mismatch')
+    validateAuthenticatedSurfaceDestination(
+      expectedOrigin,
+      sample.requestedRoute,
+      sample.finalOrigin,
+      sample.finalPath,
+    )
     if (!sample.mainLandmarkPresent) fail('authenticated-surface-main-landmark-missing')
     validateAuthenticatedRouteEvidence(sample.requestedRoute, sample.routeEvidence)
     if (sample.browserErrors.length > 0) fail('authenticated-surface-browser-errors')
     if (!SHA256.test(sample.screenshotSha256) || sample.screenshotBytes < 1)
       fail('authenticated-surface-screenshot-missing')
   }
+}
+
+export function validateAuthenticatedSurfaceDestination(
+  expectedOrigin,
+  requestedRoute,
+  finalOrigin,
+  finalPath,
+) {
+  if (finalOrigin !== expectedOrigin) fail('authenticated-surface-cross-origin-redirect')
+  if (finalPath === '/sign-in' || finalPath.startsWith('/sign-in/'))
+    fail('authenticated-session-unavailable')
+  if (finalPath !== requestedRoute) fail('authenticated-surface-route-mismatch')
 }
 
 export function validateAuthenticatedRouteEvidence(route, evidence) {
@@ -230,8 +244,11 @@ async function measureSurface(browser, origin, sessionState, route, viewport, ou
     await page.waitForLoadState('load', { timeout: 60_000 })
     await page.waitForTimeout(2_000)
     const location = new URL(page.url())
+    validateAuthenticatedSurfaceDestination(origin, route, location.origin, location.pathname)
     const mainLandmarkPresent = (await page.locator('main').count()) > 0
+    if (!mainLandmarkPresent) fail('authenticated-surface-main-landmark-missing')
     const routeEvidence = await observeRouteEvidence(page, route)
+    if (browserErrors.length > 0) fail('authenticated-surface-browser-errors')
     const screenshotName = `${routeSlug(route)}--${viewport.name}.png`
     const screenshotPath = path.join(outputDirectory, screenshotName)
     await page.screenshot({ path: screenshotPath, fullPage: true })

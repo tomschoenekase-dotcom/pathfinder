@@ -16,6 +16,9 @@ does not create an identity, bypass Clerk, mutate product state, or authorize pr
   readiness. A generic authenticated shell, loading-only render, or wrong route cannot pass merely by
   containing a `main` landmark. Explicit additional routes retain the generic authenticated-route
   contract unless a product-specific marker set is added in code.
+- Cross-origin, sign-in, wrong-route, missing-landmark, marker-incomplete, and browser-error states
+  fail before a screenshot is written, so a rejected page is not retained as authenticated pixel
+  evidence.
 - The route allowlist accepts only explicit `/admin/...` paths without query strings, fragments, or
   dynamic identifiers. The default set is `/admin/operations`, `/admin/directory`, and
   `/admin/prospects/outreach`.

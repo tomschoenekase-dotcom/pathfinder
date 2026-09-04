@@ -8,6 +8,7 @@ import {
   resolveSessionStatePath,
   validateAuthenticatedDashboardPolicy,
   validateAuthenticatedRouteEvidence,
+  validateAuthenticatedSurfaceDestination,
   validateAuthenticatedSurfaceRoute,
   validateAuthenticatedSurfaceSamples,
 } from '../apps/dashboard/scripts/measure-hosted-authenticated-surfaces.mjs'
@@ -134,5 +135,35 @@ test('requires route-specific rendered evidence rather than a generic authentica
     validateAuthenticatedRouteEvidence('/admin/reviewed-custom-surface', [
       { id: 'main-landmark', visible: true },
     ]),
+  )
+})
+
+test('rejects a redirected or unauthenticated destination before pixel capture', () => {
+  const origin = 'https://dashboard.example.test'
+  assert.doesNotThrow(() =>
+    validateAuthenticatedSurfaceDestination(
+      origin,
+      '/admin/operations',
+      origin,
+      '/admin/operations',
+    ),
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedSurfaceDestination(
+        origin,
+        '/admin/operations',
+        'https://identity.example.test',
+        '/sign-in',
+      ),
+    /cross-origin-redirect/u,
+  )
+  assert.throws(
+    () => validateAuthenticatedSurfaceDestination(origin, '/admin/operations', origin, '/sign-in'),
+    /session-unavailable/u,
+  )
+  assert.throws(
+    () => validateAuthenticatedSurfaceDestination(origin, '/admin/operations', origin, '/admin'),
+    /route-mismatch/u,
   )
 })
