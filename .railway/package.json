@@ -1,0 +1,18 @@
+{
+  "name": "@torchiko/railway-iac",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node ../scripts/verify-live-railway-iac-plan.mjs",
+    "plan": "node ../scripts/verify-live-railway-iac-plan.mjs"
+  },
+  "dependencies": {
+    "railway": "3.11.0"
+  },
+  "devDependencies": {
+    "@railway/cli": "5.45.10"
+  }
+}

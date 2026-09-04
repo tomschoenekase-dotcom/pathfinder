@@ -36,6 +36,26 @@ files. Exit `2` means the graph is valid but still omits one or more required Co
 Exit `1` means the input/provider result could not be admitted. Exit `0` is necessary but not sufficient
 for migration.
 
+The checked-in proposal can be validated against the authenticated live project without printing the
+full graph:
+
+```powershell
+pnpm verify:railway-iac-plan:live
+```
+
+This pins Railway CLI `5.45.10` and SDK `3.11.0` in the isolated `.railway` workspace, requires Node 22
+or newer for the authoring tool only, validates the exact staging project and source branch, accepts
+only the 13 expected safe legacy-setting updates, and rejects literal variable values or any destructive,
+unrelated, production, or resource-topology change. It does not apply the plan.
+
+CI uses a separate Node 22 job to compile and audit the checked-in source without Railway credentials:
+
+```powershell
+pnpm verify:railway-iac-source
+```
+
+The application test job remains on Node 20; the IaC SDK does not become an application runtime dependency.
+
 ## Cutover gate
 
 Before any apply:

@@ -30,6 +30,10 @@ test('README workspace parser is section-bounded and rejects malformed entries',
   ].join('\n')
 
   assert.deepEqual(parseReadmeWorkspaceInventory(markdown), ['apps/web', 'packages/api'])
+  assert.deepEqual(
+    parseReadmeWorkspaceInventory('## Workspaces\n\n- `.railway` — infrastructure\n'),
+    ['.railway'],
+  )
   assert.throws(
     () => parseReadmeWorkspaceInventory('## Workspaces\n\n- apps/web\n'),
     /Malformed README workspace entry/u,
@@ -84,7 +88,7 @@ test('README lists every current workspace manifest exactly once and no removed 
   const workspacePatterns = parsePnpmWorkspacePackagePatterns(workspaceYaml)
   const result = auditReadmeWorkspaceInventory(documentedPaths, manifestPaths)
 
-  assert.deepEqual(workspacePatterns, ['apps/*', 'packages/*'])
+  assert.deepEqual(workspacePatterns, ['.railway', 'apps/*', 'packages/*'])
   assert.equal(packageJson.scripts['test:scripts'], 'node scripts/run-script-tests.mjs')
   assert.deepEqual(result.duplicates, [])
   assert.deepEqual(result.missing, [])

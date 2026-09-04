@@ -4,6 +4,7 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant da
 
 ## Workspaces
 
+- `.railway` — isolated Node 22 Railway infrastructure-as-code authoring toolchain
 - `apps/dashboard` — tenant dashboard and platform-admin console
 - `apps/web` — public guest chat and controlled embeds
 - `apps/workers` — background and scheduled jobs
@@ -19,7 +20,7 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant da
 - `packages/intake-engine` — source-adapter orchestration, evidence reconciliation, and draft handoff
 - `packages/ui` — shared React components and guest-chat theming
 
-The inventory above is checked against every `apps/*/package.json` and `packages/*/package.json` by the repository script tests.
+The inventory above is checked against every configured workspace manifest by the repository script tests.
 
 ## Start here
 

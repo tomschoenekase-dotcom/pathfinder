@@ -2,6 +2,7 @@ import { access, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 const WORKSPACE_GROUPS = ['apps', 'packages']
+const WORKSPACE_ROOTS = ['.railway']
 
 export function parsePnpmWorkspacePackagePatterns(yaml) {
   const packagesHeading = /^packages:\s*$/mu.exec(yaml)
@@ -42,7 +43,9 @@ export function parseReadmeWorkspaceInventory(markdown) {
     if (!line.startsWith('- ')) {
       throw new Error(`Malformed README workspace entry: ${line}`)
     }
-    const workspacePath = line.match(/^- `((?:apps|packages)\/[^`]+)`(?:\s+—\s+.+)?$/u)?.[1]
+    const workspacePath = line.match(
+      /^- `((?:\.railway|(?:apps|packages)\/[^`]+))`(?:\s+—\s+.+)?$/u,
+    )?.[1]
     if (!workspacePath || workspacePath !== workspacePath.trim()) {
       throw new Error(`Malformed README workspace entry: ${line}`)
     }
@@ -54,6 +57,15 @@ export function parseReadmeWorkspaceInventory(markdown) {
 
 export async function discoverWorkspaceManifestPaths(repositoryRoot) {
   const paths = []
+
+  for (const workspaceRoot of WORKSPACE_ROOTS) {
+    try {
+      await access(path.join(repositoryRoot, workspaceRoot, 'package.json'))
+      paths.push(workspaceRoot)
+    } catch {
+      // Optional root-level workspaces are omitted when their manifest does not exist.
+    }
+  }
 
   for (const group of WORKSPACE_GROUPS) {
     const groupPath = path.join(repositoryRoot, group)
