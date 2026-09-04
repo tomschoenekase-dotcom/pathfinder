@@ -34,6 +34,22 @@ function externalActionReferences(source) {
     .filter((reference) => !reference.startsWith('./') && !reference.startsWith('docker://'))
 }
 
+function workflowJobBlocks(source) {
+  const jobsStart = source.search(/^jobs:\s*$/mu)
+  assert.notEqual(jobsStart, -1, 'workflow must declare jobs')
+  const jobsSource = source.slice(jobsStart + source.slice(jobsStart).indexOf('\n') + 1)
+  const jobs = []
+  for (const line of jobsSource.split(/\r?\n/u)) {
+    const heading = line.match(/^  ([A-Za-z0-9_-]+):\s*$/u)
+    if (heading) {
+      jobs.push({ name: heading[1], source: '' })
+      continue
+    }
+    if (jobs.length > 0) jobs.at(-1).source += `${line}\n`
+  }
+  return jobs
+}
+
 test('every workflow has an explicit read-only repository token ceiling', async () => {
   for (const { name, source } of await workflows()) {
     assert.match(source, /^permissions:\r?\n  contents: read\r?$/mu, name)
@@ -55,6 +71,18 @@ test('core JavaScript actions stay pinned to reviewed Node 24 releases', async (
       const action = reference.slice(0, reference.indexOf('@'))
       const expected = node24ActionReferences.get(action)
       if (expected) assert.equal(reference, expected, `${name}: ${reference}`)
+    }
+  }
+})
+
+test('every workflow job has a finite runtime ceiling of at most 60 minutes', async () => {
+  for (const { name: workflowName, source } of await workflows()) {
+    const jobs = workflowJobBlocks(source)
+    assert.ok(jobs.length > 0, workflowName)
+    for (const job of jobs) {
+      const match = job.source.match(/^    timeout-minutes:\s+([1-9][0-9]*)\s*$/mu)
+      assert.ok(match, `${workflowName}: ${job.name}`)
+      assert.ok(Number(match[1]) <= 60, `${workflowName}: ${job.name}: ${match[1]}`)
     }
   }
 })
