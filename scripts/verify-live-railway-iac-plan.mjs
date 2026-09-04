@@ -34,6 +34,7 @@ try {
       encoding: 'utf8',
       env: { ...process.env, _: cliExecutable },
       maxBuffer: 2 * 1024 * 1024,
+      timeout: 60_000,
       windowsHide: true,
     },
   )
