@@ -17,6 +17,11 @@ const VIEWPORTS = [
   { name: 'phone-390x844', width: 390, height: 844 },
   { name: 'desktop-1440x1000', width: 1440, height: 1000 },
 ]
+const ROUTE_EVIDENCE_MARKER_IDS = {
+  '/admin/operations': ['founder-control-room-heading', 'queue-pause-state'],
+  '/admin/directory': ['clients-heading', 'client-directory-search'],
+  '/admin/prospects/outreach': ['outreach-center-heading', 'outreach-readiness'],
+}
 
 function fail(code) {
   throw new Error(code)
@@ -121,10 +126,80 @@ export function validateAuthenticatedSurfaceSamples(samples, expectedOrigin, exp
       fail('authenticated-session-unavailable')
     if (sample.finalPath !== sample.requestedRoute) fail('authenticated-surface-route-mismatch')
     if (!sample.mainLandmarkPresent) fail('authenticated-surface-main-landmark-missing')
+    validateAuthenticatedRouteEvidence(sample.requestedRoute, sample.routeEvidence)
     if (sample.browserErrors.length > 0) fail('authenticated-surface-browser-errors')
     if (!SHA256.test(sample.screenshotSha256) || sample.screenshotBytes < 1)
       fail('authenticated-surface-screenshot-missing')
   }
+}
+
+export function validateAuthenticatedRouteEvidence(route, evidence) {
+  const expected = ROUTE_EVIDENCE_MARKER_IDS[route] ?? ['main-landmark']
+  if (!Array.isArray(evidence) || evidence.length !== expected.length)
+    fail('authenticated-surface-route-evidence-missing')
+  if (evidence.some((marker, index) => marker?.id !== expected[index] || marker?.visible !== true))
+    fail('authenticated-surface-route-evidence-missing')
+}
+
+async function observeRouteEvidence(page, route) {
+  const markers =
+    route === '/admin/operations'
+      ? [
+          {
+            id: 'founder-control-room-heading',
+            locator: page.getByRole('heading', {
+              level: 1,
+              name: 'Founder Control Room',
+              exact: true,
+            }),
+          },
+          {
+            id: 'queue-pause-state',
+            locator: page.getByText('Queue pause state', { exact: true }),
+          },
+        ]
+      : route === '/admin/directory'
+        ? [
+            {
+              id: 'clients-heading',
+              locator: page.getByRole('heading', { level: 1, name: 'Clients', exact: true }),
+            },
+            {
+              id: 'client-directory-search',
+              locator: page.getByLabel('Search clients by name or slug', { exact: true }),
+            },
+          ]
+        : route === '/admin/prospects/outreach'
+          ? [
+              {
+                id: 'outreach-center-heading',
+                locator: page.getByRole('heading', {
+                  level: 1,
+                  name: 'Outreach center',
+                  exact: true,
+                }),
+              },
+              {
+                id: 'outreach-readiness',
+                locator: page.getByRole('region', { name: 'Outreach readiness', exact: true }),
+              },
+            ]
+          : [
+              {
+                id: 'main-landmark',
+                locator: page.locator('main'),
+              },
+            ]
+  await Promise.all(
+    markers.map(({ locator }) =>
+      locator.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+    ),
+  )
+  const evidence = await Promise.all(
+    markers.map(async ({ id, locator }) => ({ id, visible: await locator.isVisible() })),
+  )
+  validateAuthenticatedRouteEvidence(route, evidence)
+  return evidence
 }
 
 async function measureSurface(browser, origin, sessionState, route, viewport, outputDirectory) {
@@ -156,6 +231,7 @@ async function measureSurface(browser, origin, sessionState, route, viewport, ou
     await page.waitForTimeout(2_000)
     const location = new URL(page.url())
     const mainLandmarkPresent = (await page.locator('main').count()) > 0
+    const routeEvidence = await observeRouteEvidence(page, route)
     const screenshotName = `${routeSlug(route)}--${viewport.name}.png`
     const screenshotPath = path.join(outputDirectory, screenshotName)
     await page.screenshot({ path: screenshotPath, fullPage: true })
@@ -166,6 +242,7 @@ async function measureSurface(browser, origin, sessionState, route, viewport, ou
       finalOrigin: location.origin,
       finalPath: location.pathname,
       mainLandmarkPresent,
+      routeEvidence,
       browserErrors,
       requestMethods: Object.fromEntries(
         [...requestMethods].sort(([left], [right]) => left.localeCompare(right)),

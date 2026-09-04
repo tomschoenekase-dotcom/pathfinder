@@ -7,6 +7,7 @@ import {
   parseHostedAuthenticatedSurfaceArgs,
   resolveSessionStatePath,
   validateAuthenticatedDashboardPolicy,
+  validateAuthenticatedRouteEvidence,
   validateAuthenticatedSurfaceRoute,
   validateAuthenticatedSurfaceSamples,
 } from '../apps/dashboard/scripts/measure-hosted-authenticated-surfaces.mjs'
@@ -78,6 +79,10 @@ test('rejects unauthenticated redirects, browser failures, and missing screensho
     finalOrigin: origin,
     finalPath: '/admin/operations',
     mainLandmarkPresent: true,
+    routeEvidence: [
+      { id: 'founder-control-room-heading', visible: true },
+      { id: 'queue-pause-state', visible: true },
+    ],
     browserErrors: [],
     screenshotBytes: 100,
     screenshotSha256: 'b'.repeat(64),
@@ -99,5 +104,35 @@ test('rejects unauthenticated redirects, browser failures, and missing screensho
   assert.throws(
     () => validateAuthenticatedSurfaceSamples([{ ...valid, screenshotBytes: 0 }], origin, 1),
     /screenshot-missing/u,
+  )
+})
+
+test('requires route-specific rendered evidence rather than a generic authenticated shell', () => {
+  assert.doesNotThrow(() =>
+    validateAuthenticatedRouteEvidence('/admin/directory', [
+      { id: 'clients-heading', visible: true },
+      { id: 'client-directory-search', visible: true },
+    ]),
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedRouteEvidence('/admin/prospects/outreach', [
+        { id: 'outreach-center-heading', visible: true },
+        { id: 'outreach-readiness', visible: false },
+      ]),
+    /route-evidence-missing/u,
+  )
+  assert.throws(
+    () =>
+      validateAuthenticatedRouteEvidence('/admin/operations', [
+        { id: 'founder-control-room-heading', visible: true },
+        { id: 'wrong-marker', visible: true },
+      ]),
+    /route-evidence-missing/u,
+  )
+  assert.doesNotThrow(() =>
+    validateAuthenticatedRouteEvidence('/admin/reviewed-custom-surface', [
+      { id: 'main-landmark', visible: true },
+    ]),
   )
 })

@@ -10,7 +10,12 @@ does not create an identity, bypass Clerk, mutate product state, or authorize pr
 - Keep the Playwright storage-state JSON outside the repository. The harness rejects repository
   paths and symbolic links, and it never copies or names the session file in its report.
 - Treat every screenshot as potentially sensitive. Output stays under the gitignored
-  `artifacts/hosted-authenticated-surfaces/<revision>/` directory and must not be committed.
+  `artifacts/hosted-authenticated-surfaces/<revision>/` directory and must not be committed. A route
+  passes only when its fixed product-specific evidence markers are visible: Founder Control Room plus
+  queue pause state, Clients plus its labeled search input, or Outreach center plus loaded outreach
+  readiness. A generic authenticated shell, loading-only render, or wrong route cannot pass merely by
+  containing a `main` landmark. Explicit additional routes retain the generic authenticated-route
+  contract unless a product-specific marker set is added in code.
 - The route allowlist accepts only explicit `/admin/...` paths without query strings, fragments, or
   dynamic identifiers. The default set is `/admin/operations`, `/admin/directory`, and
   `/admin/prospects/outreach`.
