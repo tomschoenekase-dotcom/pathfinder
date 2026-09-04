@@ -88,8 +88,20 @@ function fixture(batchStatus: 'STAGED' | 'APPROVED') {
           healthErrorSummary: null,
         },
       ],
-      limits: { cohort: 5000, batch: 500 },
-      policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+      limits: { cohort: 5000, technicalBatch: 500, activeRelease: 50 },
+      policy: {
+        agentsMayDraft: true,
+        agentsMayApprove: false,
+        agentsMaySend: false,
+        release: {
+          phase: 'INITIAL_CANARY',
+          maxRecipients: 50,
+          nextPhase: 'EVALUATED_CANARY',
+          nextPhaseMaxRecipients: 100,
+          promotionStatus: 'NOT_AUTHORIZED',
+          promotionRequirement: 'REVIEWED_EVIDENCE_AND_CODE_CHANGE',
+        },
+      },
     } as never,
     rehearsal: {
       campaignId: 'campaign-1',
@@ -110,11 +122,21 @@ function fixture(batchStatus: 'STAGED' | 'APPROVED') {
         providerCallsMade: 0,
         estimatedProviderCostUsd: 0,
       },
+      releasePolicy: {
+        phase: 'INITIAL_CANARY',
+        maxRecipients: 50,
+        nextPhase: 'EVALUATED_CANARY',
+        nextPhaseMaxRecipients: 100,
+        promotionStatus: 'NOT_AUTHORIZED',
+        promotionRequirement: 'REVIEWED_EVIDENCE_AND_CODE_CHANGE',
+      },
       cohort: {
         memberCount: 1,
         maxCohort: 5000,
-        maxBatch: 500,
+        technicalMaxBatch: 500,
+        activeReleaseLimit: 50,
         bounded: true,
+        withinActiveReleaseLimit: true,
         unsafeMemberCount: 0,
         missingProvenanceCount: 0,
         duplicateMemberEmailCount: 0,
@@ -174,6 +196,8 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(screen.getByText('Ready for human review — never ready to send')).toBeTruthy()
     expect(screen.getByText(/made 0 provider calls and cost \$0.00/i)).toBeTruthy()
     expect(screen.getByText(/Emergency stop: disable only/i)).toBeTruthy()
+    expect(screen.getByText(/Initial canary: at most 50 recipients/i)).toBeTruthy()
+    expect(screen.getByText(/moving to 100 requires reviewed evidence/i)).toBeTruthy()
   })
 
   it('moves focus into the confirmation, traps it, and closes on Escape', async () => {

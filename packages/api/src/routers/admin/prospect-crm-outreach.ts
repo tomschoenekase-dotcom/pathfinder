@@ -11,6 +11,7 @@ import {
   evaluateProspectFollowupReadinessAction,
   getProspectOutreachAnalyticsAction,
   ProspectOutreachError,
+  PROSPECT_OUTREACH_RELEASE_POLICY,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
@@ -218,7 +219,7 @@ export const adminProspectCrmOutreachRouter = router({
       z
         .object({
           campaignId: id,
-          draftIds: z.array(id).min(1).max(500),
+          draftIds: z.array(id).min(1).max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
         })
         .strict(),
     )
@@ -236,7 +237,11 @@ export const adminProspectCrmOutreachRouter = router({
       z
         .object({
           batchId: id,
-          expectedRecipientCount: z.number().int().min(1).max(500),
+          expectedRecipientCount: z
+            .number()
+            .int()
+            .min(1)
+            .max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
           expectedSnapshotHash: z.string().length(64),
         })
         .strict(),
@@ -266,7 +271,11 @@ export const adminProspectCrmOutreachRouter = router({
       z
         .object({
           batchId: id,
-          expectedRecipientCount: z.number().int().min(1).max(500),
+          expectedRecipientCount: z
+            .number()
+            .int()
+            .min(1)
+            .max(PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients),
           expectedSnapshotHash: z.string().length(64),
           providerAccountId: id,
         })

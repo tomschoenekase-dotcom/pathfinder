@@ -6,6 +6,14 @@ import { writeAuditLogStrict } from './audit'
 export const PROSPECT_PLAYBOOK_VERSION = 'torchiko-email-playbook-2026-08-18'
 export const PROSPECT_OUTREACH_MAX_COHORT = 5_000
 export const PROSPECT_OUTREACH_MAX_BATCH = 500
+export const PROSPECT_OUTREACH_RELEASE_POLICY = Object.freeze({
+  phase: 'INITIAL_CANARY' as const,
+  maxRecipients: 50,
+  nextPhase: 'EVALUATED_CANARY' as const,
+  nextPhaseMaxRecipients: 100,
+  promotionStatus: 'NOT_AUTHORIZED' as const,
+  promotionRequirement: 'REVIEWED_EVIDENCE_AND_CODE_CHANGE' as const,
+})
 
 type HumanActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 type DraftActor = HumanActor | { type: 'AGENT'; id: string; capabilities: readonly string[] }
@@ -34,6 +42,19 @@ function requireHuman(actor: HumanActor): void {
     throw new ProspectOutreachError(
       'APPROVAL_REQUIRED',
       'A human platform administrator is required',
+    )
+  }
+}
+
+export function requireProspectOutreachReleasePolicy(recipientCount: number): void {
+  if (
+    !Number.isInteger(recipientCount) ||
+    recipientCount < 1 ||
+    recipientCount > PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients
+  ) {
+    throw new ProspectOutreachError(
+      'INVALID_INPUT',
+      `The ${PROSPECT_OUTREACH_RELEASE_POLICY.phase.toLowerCase().replaceAll('_', ' ')} permits 1–${PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients} recipients; promotion requires reviewed evidence and a code change`,
     )
   }
 }
@@ -316,9 +337,7 @@ export async function stageProspectSendBatchAction(
 ) {
   requireHuman(input.actor)
   const ids = [...new Set(input.draftIds)]
-  if (ids.length < 1 || ids.length > PROSPECT_OUTREACH_MAX_BATCH) {
-    throw new ProspectOutreachError('INVALID_INPUT', 'A batch must contain 1–500 approved drafts')
-  }
+  requireProspectOutreachReleasePolicy(ids.length)
   return client.$transaction(async (tx) => {
     const drafts = await tx.prospectOutreachDraft.findMany({
       where: { id: { in: ids }, campaignId: input.campaignId, status: 'APPROVED' },
@@ -404,6 +423,7 @@ export async function approveProspectSendBatchAction(
     if (!batch) throw new ProspectOutreachError('NOT_FOUND', 'Send batch not found')
     if (batch.status !== 'STAGED')
       throw new ProspectOutreachError('CONFLICT', 'Only staged batches can be approved')
+    requireProspectOutreachReleasePolicy(batch.recipientCount)
     if (
       batch.recipientCount !== input.expectedRecipientCount ||
       batch.snapshotHash !== input.expectedSnapshotHash ||
@@ -501,6 +521,7 @@ export async function releaseProspectSendBatchAction(
     if (!batch || batch.status !== 'APPROVED') {
       throw new ProspectOutreachError('CONFLICT', 'Batch is not approved for release')
     }
+    requireProspectOutreachReleasePolicy(batch.recipientCount)
     if (batch.campaign.pausedAt || batch.campaign.status === 'CANCELLED') {
       throw new ProspectOutreachError('CONFLICT', 'Campaign is paused or cancelled')
     }

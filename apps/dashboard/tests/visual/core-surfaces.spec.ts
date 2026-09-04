@@ -205,10 +205,17 @@ test('prospect rehearsal stays visibly no-send across real browser widths', asyn
   ).toBeVisible()
   await expect(rehearsal.getByText('Dark', { exact: true })).toBeVisible()
   await expect(rehearsal.getByText('Internal only', { exact: true })).toBeVisible()
+  await expect(rehearsal.getByText('initial canary · 50 max', { exact: true })).toBeVisible()
   await expect(rehearsal.getByText('Unsafe contacts').locator('..').getByText('0')).toBeVisible()
   await expect(rehearsal.getByText('Missing provenance').locator('..').getByText('0')).toBeVisible()
   await expect(
     rehearsal.getByText('Duplicate identities').locator('..').getByText('0'),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Initial canary: at most 50 recipients per frozen batch/),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Moving to 100 requires reviewed evidence and a code change/),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Send now' })).toBeDisabled()
 

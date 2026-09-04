@@ -143,4 +143,39 @@ describe('projectProspectNoSendRehearsal', () => {
       expect.arrayContaining(['ORGANIZATION_DUPLICATE_UNRESOLVED', 'APPROVAL_EVIDENCE_MISSING']),
     )
   })
+
+  it('blocks a legacy 51-recipient batch until canary promotion is separately reviewed', () => {
+    const input = fixture()
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      recipientEmailSnapshot: `recipient-${index}@example.com`,
+      recipientIdentityHash: index.toString(16).padStart(64, '0'),
+      contentHashSnapshot: (index + 100).toString(16).padStart(64, '0'),
+      status: 'STAGED',
+      providerAccountId: null,
+      providerMessageId: null,
+    }))
+    const result = projectProspectNoSendRehearsal({
+      ...input,
+      batches: [
+        {
+          id: 'batch-legacy-51',
+          status: 'STAGED',
+          recipientCount: items.length,
+          snapshotHash: 'a'.repeat(64),
+          items,
+        },
+      ],
+    })
+
+    expect(result.blockers).toContain('CANARY_RELEASE_LIMIT_EXCEEDED')
+    expect(result.cohort).toMatchObject({
+      activeReleaseLimit: 50,
+      withinActiveReleaseLimit: false,
+    })
+    expect(result.releasePolicy).toMatchObject({
+      phase: 'INITIAL_CANARY',
+      nextPhaseMaxRecipients: 100,
+      promotionStatus: 'NOT_AUTHORIZED',
+    })
+  })
 })

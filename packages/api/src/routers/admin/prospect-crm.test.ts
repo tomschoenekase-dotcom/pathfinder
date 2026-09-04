@@ -15,6 +15,16 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  PROSPECT_OUTREACH_MAX_BATCH: 500,
+  PROSPECT_OUTREACH_MAX_COHORT: 5_000,
+  PROSPECT_OUTREACH_RELEASE_POLICY: {
+    phase: 'INITIAL_CANARY',
+    maxRecipients: 50,
+    nextPhase: 'EVALUATED_CANARY',
+    nextPhaseMaxRecipients: 100,
+    promotionStatus: 'NOT_AUTHORIZED',
+    promotionRequirement: 'REVIEWED_EVIDENCE_AND_CODE_CHANGE',
+  },
   ProspectActionError: class ProspectActionError extends Error {
     constructor(
       readonly code: string,

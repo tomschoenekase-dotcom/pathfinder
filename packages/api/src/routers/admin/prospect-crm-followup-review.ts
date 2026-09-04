@@ -1,4 +1,9 @@
-import { db } from '@pathfinder/db'
+import {
+  db,
+  PROSPECT_OUTREACH_MAX_BATCH,
+  PROSPECT_OUTREACH_MAX_COHORT,
+  PROSPECT_OUTREACH_RELEASE_POLICY,
+} from '@pathfinder/db'
 
 export async function getProspectOutreachReadinessProjection() {
   const now = new Date()
@@ -56,8 +61,17 @@ export async function getProspectOutreachReadinessProjection() {
     ),
     provider: 'GMAIL' as const,
     accounts,
-    limits: { cohort: 5000, batch: 500 },
-    policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+    limits: {
+      cohort: PROSPECT_OUTREACH_MAX_COHORT,
+      technicalBatch: PROSPECT_OUTREACH_MAX_BATCH,
+      activeRelease: PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients,
+    },
+    policy: {
+      agentsMayDraft: true,
+      agentsMayApprove: false,
+      agentsMaySend: false,
+      release: PROSPECT_OUTREACH_RELEASE_POLICY,
+    },
     followupReview: {
       generatedAt: now,
       evidenceBounded: followupRows.length > 100,

@@ -1,7 +1,9 @@
-import { db } from '@pathfinder/db'
-
-const MAX_COHORT = 5_000
-const MAX_BATCH = 500
+import {
+  db,
+  PROSPECT_OUTREACH_MAX_BATCH,
+  PROSPECT_OUTREACH_MAX_COHORT,
+  PROSPECT_OUTREACH_RELEASE_POLICY,
+} from '@pathfinder/db'
 
 type RehearsalMember = {
   id: string
@@ -123,7 +125,7 @@ export function projectProspectNoSendRehearsal(input: ProspectNoSendRehearsalInp
   const invalidFrozenBatches = activeBatches.filter(
     (batch) =>
       batch.recipientCount < 1 ||
-      batch.recipientCount > MAX_BATCH ||
+      batch.recipientCount > PROSPECT_OUTREACH_MAX_BATCH ||
       batch.recipientCount !== batch.items.length ||
       batch.snapshotHash.length !== 64 ||
       batch.items.some(
@@ -138,13 +140,17 @@ export function projectProspectNoSendRehearsal(input: ProspectNoSendRehearsalInp
   const deliveryDark = !input.processDeliveryEnabled && !input.globalDeliveryEnabled
   const bounded =
     input.members.length > 0 &&
-    input.members.length <= MAX_COHORT &&
-    activeBatches.every((batch) => batch.recipientCount <= MAX_BATCH)
+    input.members.length <= PROSPECT_OUTREACH_MAX_COHORT &&
+    activeBatches.every((batch) => batch.recipientCount <= PROSPECT_OUTREACH_MAX_BATCH)
+  const withinActiveReleaseLimit = activeBatches.every(
+    (batch) => batch.recipientCount <= PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients,
+  )
 
   const blockers = [
     ...(!deliveryDark ? ['DELIVERY_NOT_DARK'] : []),
     ...(!input.internalOnly ? ['INTERNAL_ONLY_DISABLED'] : []),
     ...(!bounded ? ['COHORT_NOT_BOUNDED'] : []),
+    ...(!withinActiveReleaseLimit ? ['CANARY_RELEASE_LIMIT_EXCEEDED'] : []),
     ...(unsafeMembers.length ? ['CONTACT_SAFETY_FAILED'] : []),
     ...(membersWithoutProvenance.length ? ['CONTACT_PROVENANCE_MISSING'] : []),
     ...(memberDuplicateEmails.length ? ['DUPLICATE_MEMBER_EMAIL'] : []),
@@ -176,11 +182,14 @@ export function projectProspectNoSendRehearsal(input: ProspectNoSendRehearsalInp
       providerCallsMade: 0,
       estimatedProviderCostUsd: 0,
     },
+    releasePolicy: PROSPECT_OUTREACH_RELEASE_POLICY,
     cohort: {
       memberCount: input.members.length,
-      maxCohort: MAX_COHORT,
-      maxBatch: MAX_BATCH,
+      maxCohort: PROSPECT_OUTREACH_MAX_COHORT,
+      technicalMaxBatch: PROSPECT_OUTREACH_MAX_BATCH,
+      activeReleaseLimit: PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients,
       bounded,
+      withinActiveReleaseLimit,
       unsafeMemberCount: unsafeMembers.length,
       missingProvenanceCount: membersWithoutProvenance.length,
       duplicateMemberEmailCount: memberDuplicateEmails.length,

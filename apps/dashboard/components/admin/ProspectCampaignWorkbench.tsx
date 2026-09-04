@@ -150,6 +150,9 @@ export function ProspectCampaignWorkbench({
     !selectedProviderAccount.pausedAt &&
     !selectedProviderAccount.healthErrorCode,
   )
+  const activeReleaseLimit =
+    readiness?.limits.activeRelease ?? rehearsal?.cohort.activeReleaseLimit ?? 0
+  const selectionAtLimit = activeReleaseLimit > 0 && selectedDrafts.size >= activeReleaseLimit
   if (!campaign && refreshError)
     return (
       <div className="border border-rose-200 bg-rose-50 p-6 text-rose-900" role="alert">
@@ -357,6 +360,10 @@ export function ProspectCampaignWorkbench({
               ['Delivery', rehearsal.safety.deliveryDark ? 'Dark' : 'Enabled'],
               ['Scope', rehearsal.safety.internalOnly ? 'Internal only' : 'External allowed'],
               ['Contacts', `${rehearsal.cohort.memberCount} of ${rehearsal.cohort.maxCohort}`],
+              [
+                'Active release phase',
+                `${rehearsal.releasePolicy.phase.replaceAll('_', ' ').toLowerCase()} · ${rehearsal.cohort.activeReleaseLimit} max`,
+              ],
               ['Frozen recipients', String(rehearsal.frozenSnapshots.recipientCount)],
               ['Unsafe contacts', String(rehearsal.cohort.unsafeMemberCount)],
               ['Missing provenance', String(rehearsal.cohort.missingProvenanceCount)],
@@ -408,6 +415,13 @@ export function ProspectCampaignWorkbench({
           Approval never sends. Final release remains unavailable unless the server kill switch,
           global control, and a healthy Gmail mailbox all allow delivery.
         </p>
+        {readiness ? (
+          <p className="mt-3 border-l-2 border-amber-500 pl-3 text-sm font-semibold leading-6 text-amber-950">
+            Initial canary: at most {readiness.limits.activeRelease} recipients per frozen batch.
+            Moving to {readiness.policy.release.nextPhaseMaxRecipients} requires reviewed evidence
+            and a code change; it cannot happen through this screen.
+          </p>
+        ) : null}
         <label className="mt-4 block max-w-xl text-xs font-bold text-slate-800">
           Gmail mailbox for final release
           <select
@@ -471,7 +485,7 @@ export function ProspectCampaignWorkbench({
             </p>
           </div>
           <button
-            disabled={!selectedDrafts.size || busy}
+            disabled={!selectedDrafts.size || busy || selectedDrafts.size > activeReleaseLimit}
             onClick={() => void stageBatch()}
             className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
           >
@@ -509,11 +523,19 @@ export function ProspectCampaignWorkbench({
                         <input
                           type="checkbox"
                           checked={selectedDrafts.has(draft.id)}
+                          disabled={busy || (selectionAtLimit && !selectedDrafts.has(draft.id))}
                           onChange={(event) =>
                             setSelectedDrafts((current) => {
                               const next = new Set(current)
-                              if (event.target.checked) next.add(draft.id)
-                              else next.delete(draft.id)
+                              if (event.target.checked) {
+                                if (activeReleaseLimit > 0 && next.size >= activeReleaseLimit) {
+                                  setNotice(
+                                    `Initial canary is capped at ${activeReleaseLimit} recipients`,
+                                  )
+                                  return next
+                                }
+                                next.add(draft.id)
+                              } else next.delete(draft.id)
                               return next
                             })
                           }
@@ -664,6 +686,7 @@ export function ProspectCampaignWorkbench({
                       <button
                         disabled={
                           busy ||
+                          batch.recipientCount > activeReleaseLimit ||
                           !readiness?.deliveryEnabled ||
                           !readiness.providerConfigured ||
                           !selectedProviderReady
@@ -672,9 +695,11 @@ export function ProspectCampaignWorkbench({
                         title={
                           !readiness?.deliveryEnabled
                             ? 'Delivery is disabled by configuration'
-                            : !selectedProviderReady
-                              ? 'Choose a connected, unpaused, healthy Gmail mailbox'
-                              : undefined
+                            : batch.recipientCount > activeReleaseLimit
+                              ? `This batch exceeds the active ${activeReleaseLimit}-recipient canary`
+                              : !selectedProviderReady
+                                ? 'Choose a connected, unpaused, healthy Gmail mailbox'
+                                : undefined
                         }
                         className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
