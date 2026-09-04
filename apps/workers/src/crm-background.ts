@@ -20,6 +20,7 @@ import {
 import { processStaleAccountSummaries } from './processors/account-summary-refresh'
 import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import { queueSafeJobProcessor } from './lib/job-execution'
+import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -97,7 +98,11 @@ export async function startCrmBackgroundRuntime() {
         })}\n`,
       )
     })
+  const stopOperationalHeartbeat = await startIsolatedRuntimeReadinessHeartbeat({
+    schedulersEnabled: true,
+  })
   const shutdown = async () => {
+    await stopOperationalHeartbeat()
     await Promise.all(workers.map((worker) => worker.close()))
     await accountSummaryQueue.close()
     await prospectImportQueue.close()

@@ -1,6 +1,5 @@
 import { Worker, type Job } from 'bullmq'
 
-import { resolveReleaseRevision } from '@pathfinder/config/release-identity'
 import {
   closeBullMQConnection,
   getBullMQConnection,
@@ -13,11 +12,7 @@ import {
 import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
 import { queueSafeJobProcessor } from './lib/job-execution'
-import { startOperationalHeartbeat } from './lib/operational-heartbeat'
-import {
-  recordOperationalReadinessHeartbeat,
-  resolveServiceDependencyProbeEnvironment,
-} from './lib/service-dependency-readiness'
+import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 import { processVenueMediaDerivativeJob } from './processors/venue-media-derivative'
 import { startFounderAbsenceObserver } from './founder-absence-observer-runtime'
 
@@ -61,21 +56,8 @@ export async function startVenueMediaDerivativeRuntime() {
     process.env.FOUNDER_ABSENCE_OBSERVER_ENABLED === 'true'
       ? await startFounderAbsenceObserver()
       : null
-  const stopOperationalHeartbeat = await startOperationalHeartbeat({
-    write: () =>
-      recordOperationalReadinessHeartbeat({
-        mode: 'provider-disabled',
-        schedulersEnabled: false,
-        revision: resolveReleaseRevision(process.env),
-        environment: resolveServiceDependencyProbeEnvironment(process.env),
-      }),
-    onError: () =>
-      process.stderr.write(
-        `${JSON.stringify({
-          action: 'workers.heartbeat.failed',
-          errorCode: 'operational-readiness-heartbeat-failed',
-        })}\n`,
-      ),
+  const stopOperationalHeartbeat = await startIsolatedRuntimeReadinessHeartbeat({
+    schedulersEnabled: false,
   })
   const shutdown = async () => {
     await stopOperationalHeartbeat()

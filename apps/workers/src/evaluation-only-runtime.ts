@@ -17,6 +17,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { getJobExecutionMetadata, queueSafeJobProcessor } from './lib/job-execution'
+import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 import { runAiJobWithIncidentControl } from './lib/global-ai-deferral'
 import { createShutdownCoordinator, runStartupWithCleanup } from './lib/worker-lifecycle'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
@@ -202,9 +203,16 @@ export async function startEvaluationOnlyRuntime() {
     queues: [EVALUATION_RUN_QUEUE, GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE],
   })
 
+  const stopOperationalHeartbeat = await startIsolatedRuntimeReadinessHeartbeat({
+    schedulersEnabled: true,
+  })
+
   return {
     mode: 'evaluation-only' as const,
     queues: [EVALUATION_RUN_QUEUE, GUEST_ANSWER_ATTRIBUTION_EVALUATION_QUEUE] as const,
-    shutdown,
+    shutdown: async () => {
+      await stopOperationalHeartbeat()
+      await shutdown()
+    },
   }
 }

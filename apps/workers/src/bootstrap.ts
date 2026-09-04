@@ -63,7 +63,9 @@ export async function bootstrapWorkers() {
 
   if (policy.mode === 'crm-only') {
     const { startCrmBackgroundRuntime } = await import('./crm-background.js')
-    return startCrmBackgroundRuntime()
+    const runtime = await startCrmBackgroundRuntime()
+    registerShutdown(runtime.shutdown)
+    return runtime
   }
 
   if (policy.mode === 'intake-upload-verification-only') {

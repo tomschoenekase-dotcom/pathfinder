@@ -16,6 +16,7 @@ import {
   reconcileIntakeUploadVerificationJobs,
 } from './processors/intake-upload-verification'
 import { queueSafeJobProcessor } from './lib/job-execution'
+import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 
 async function handleVerification(
   job: Job<IntakeUploadVerificationJobPayload | Record<string, never>>,
@@ -78,7 +79,11 @@ export type IntakeUploadVerificationResources = Awaited<
 export async function startIntakeUploadVerificationRuntime() {
   await checkBullMQConnection(5_000)
   const resources = await createIntakeUploadVerificationResources()
+  const stopOperationalHeartbeat = await startIsolatedRuntimeReadinessHeartbeat({
+    schedulersEnabled: true,
+  })
   const shutdown = async () => {
+    await stopOperationalHeartbeat()
     await resources.close()
     await closeJobQueues()
     await closeBullMQConnection()

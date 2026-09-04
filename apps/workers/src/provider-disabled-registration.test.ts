@@ -9,7 +9,17 @@ const derivativeRuntime = readFileSync(
   'utf8',
 )
 const founderAbsenceRuntime = readFileSync(
-  resolve(__dirname, 'founder-absence-observer-runtime.ts'),
+  resolve(__dirname, 'founder-absence-observer-only-runtime.ts'),
+  'utf8',
+)
+const crmRuntime = readFileSync(resolve(__dirname, 'crm-background.ts'), 'utf8')
+const intakeRuntime = readFileSync(
+  resolve(__dirname, 'intake-upload-verification-runtime.ts'),
+  'utf8',
+)
+const evaluationRuntime = readFileSync(resolve(__dirname, 'evaluation-only-runtime.ts'), 'utf8')
+const isolatedReadiness = readFileSync(
+  resolve(__dirname, 'lib/isolated-runtime-readiness.ts'),
   'utf8',
 )
 
@@ -67,11 +77,31 @@ describe('provider-disabled worker registration boundary', () => {
     expect(derivativeReturn).toBeGreaterThan(derivativeImport)
     expect(providerImport).toBeGreaterThan(derivativeReturn)
     expect(derivativeRuntime).toContain('VENUE_MEDIA_DERIVATIVE_QUEUE')
-    expect(derivativeRuntime).toContain('startOperationalHeartbeat')
-    expect(derivativeRuntime).toContain('recordOperationalReadinessHeartbeat')
-    expect(derivativeRuntime).toContain("mode: 'provider-disabled'")
+    expect(derivativeRuntime).toContain('startIsolatedRuntimeReadinessHeartbeat')
     expect(derivativeRuntime).toContain('schedulersEnabled: false')
+    expect(isolatedReadiness).toContain('startOperationalHeartbeat')
+    expect(isolatedReadiness).toContain('recordOperationalReadinessHeartbeat')
+    expect(isolatedReadiness).toContain("mode: 'provider-disabled'")
     expect(derivativeRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
     expect(founderAbsenceRuntime).not.toMatch(/@pathfinder\/ai|openai|anthropic/iu)
+  })
+
+  it('keeps every database-backed isolated mode visible and gracefully stoppable', () => {
+    for (const runtime of [
+      derivativeRuntime,
+      founderAbsenceRuntime,
+      crmRuntime,
+      intakeRuntime,
+      evaluationRuntime,
+    ]) {
+      expect(runtime).toContain('startIsolatedRuntimeReadinessHeartbeat')
+      expect(runtime).toContain('await stopOperationalHeartbeat()')
+    }
+    const crmBranch = bootstrap.indexOf("if (policy.mode === 'crm-only')")
+    const nextBranch = bootstrap.indexOf(
+      "if (policy.mode === 'intake-upload-verification-only')",
+      crmBranch,
+    )
+    expect(bootstrap.slice(crmBranch, nextBranch)).toContain('registerShutdown(runtime.shutdown)')
   })
 })

@@ -1,6 +1,7 @@
 import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
 import { startFounderAbsenceObserver } from './founder-absence-observer-runtime'
+import { startIsolatedRuntimeReadinessHeartbeat } from './lib/isolated-runtime-readiness'
 
 export async function startFounderAbsenceObserverOnlyRuntime() {
   const redisUrl = process.env.REDIS_URL!
@@ -13,10 +14,14 @@ export async function startFounderAbsenceObserverOnlyRuntime() {
       ),
   })
   const observer = await startFounderAbsenceObserver()
+  const stopOperationalHeartbeat = await startIsolatedRuntimeReadinessHeartbeat({
+    schedulersEnabled: false,
+  })
   return {
     mode: 'founder-absence-observer-only' as const,
     queues: [] as const,
     shutdown: async () => {
+      await stopOperationalHeartbeat()
       await observer.shutdown()
       await connectivity.shutdown()
     },
