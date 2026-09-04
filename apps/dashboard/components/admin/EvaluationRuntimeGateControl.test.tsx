@@ -99,7 +99,18 @@ describe('EvaluationRuntimeGateControl', () => {
       <EvaluationRuntimeGateControl
         tenantId="tenant_1"
         venueId="venue_1"
-        readiness={{ apiProcessEnabled: true, durableGlobalEnabled: true, tenantEnabled: true }}
+        readiness={{
+          apiProcessEnabled: true,
+          durableGlobalEnabled: true,
+          tenantEnabled: true,
+          authorization: {
+            authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+            tenantId: 'tenant_1',
+            expiresAt: '2099-09-04T17:00:00.000Z',
+            maxBudgetE8Usd: '105000000',
+            allowedProviders: ['openai'],
+          },
+        }}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Disable durable gates' }))
@@ -113,5 +124,27 @@ describe('EvaluationRuntimeGateControl', () => {
       }),
     )
     expect(screen.getByText(/New evaluation execution is closed/)).toBeTruthy()
+  })
+
+  it('does not present a stale flag as enabled under another tenant authorization', () => {
+    render(
+      <EvaluationRuntimeGateControl
+        tenantId="tenant_1"
+        venueId="venue_1"
+        readiness={{
+          apiProcessEnabled: true,
+          durableGlobalEnabled: true,
+          tenantEnabled: true,
+          authorization: {
+            authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+            tenantId: 'tenant_2',
+            expiresAt: '2099-09-04T17:00:00.000Z',
+            maxBudgetE8Usd: '105000000',
+            allowedProviders: ['openai'],
+          },
+        }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Enable durable gates' })).toBeTruthy()
   })
 })

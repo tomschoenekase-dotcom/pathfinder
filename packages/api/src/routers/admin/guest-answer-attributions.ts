@@ -9,7 +9,6 @@ import {
   GuestAnswerAttributionActionError,
   GuestAnswerAttributionEvaluationError,
   getEvaluationRuntimeAuthorization,
-  isEvaluationRuntimeDurablyEnabled,
   prepareGuestAnswerAttributionEvaluationRequestAction,
   queueGuestAnswerAttributionEvaluationRequestAction,
   readGuestAnswerAttributionAgreement,
@@ -85,7 +84,7 @@ export const adminGuestAnswerAttributionsRouter = router({
     .input(scopeSchema.extend({ limit: z.number().int().min(1).max(100).default(25) }).strict())
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {
-        const [items, durableGlobalEnabled, tenantFlag] = await Promise.all([
+        const [items, durableAuthorization, tenantFlag] = await Promise.all([
           db.guestAnswerAttributionEvaluationRequest.findMany({
             where: { tenantId: input.tenantId, venueId: input.venueId },
             orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -108,7 +107,7 @@ export const adminGuestAnswerAttributionsRouter = router({
               createdAt: true,
             },
           }),
-          isEvaluationRuntimeDurablyEnabled(db),
+          getEvaluationRuntimeAuthorization(db),
           db.tenantFeatureFlag.findUnique({
             where: {
               tenantId_flagKey: {
@@ -121,7 +120,7 @@ export const adminGuestAnswerAttributionsRouter = router({
         ])
         const readiness = {
           processEnabled: env.EVALUATION_RUNNER_ENABLED,
-          durableGlobalEnabled,
+          durableGlobalEnabled: durableAuthorization?.tenantId === input.tenantId,
           tenantEnabled: tenantFlag?.enabled === true,
         }
         return {
@@ -183,7 +182,11 @@ export const adminGuestAnswerAttributionsRouter = router({
             ),
           ]),
         )
-        if (!authorization || tenantFlag?.enabled !== true)
+        if (
+          !authorization ||
+          authorization.tenantId !== input.tenantId ||
+          tenantFlag?.enabled !== true
+        )
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: 'Evaluation execution is not durably enabled for this tenant',

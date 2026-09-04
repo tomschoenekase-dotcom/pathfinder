@@ -85,9 +85,10 @@ vi.mock('@pathfinder/db', () => ({
     if (typeof input !== 'object' || input === null || Array.isArray(input)) return null
     const value = input as Record<string, unknown>
     if (
-      value.version !== 2 ||
+      value.version !== 3 ||
       value.enabled !== true ||
       typeof value.authorizationId !== 'string' ||
+      typeof value.tenantId !== 'string' ||
       typeof value.authorizedAt !== 'string' ||
       typeof value.expiresAt !== 'string' ||
       typeof value.maxBudgetE8Usd !== 'string' ||
@@ -166,9 +167,10 @@ describe('admin evaluation operations router', () => {
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
     mocks.durableAuthorization.mockResolvedValue({
-      version: 2,
+      version: 3,
       enabled: true,
       authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+      tenantId: 'tenant_1',
       authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
       expiresAt: new Date('2099-09-04T17:00:00.000Z'),
       maxBudgetE8Usd: 410_000_000n,
@@ -216,8 +218,9 @@ describe('admin evaluation operations router', () => {
         where: { key: 'evaluation-runner-v1-global' },
         update: expect.objectContaining({
           value: expect.objectContaining({
-            version: 2,
+            version: 3,
             enabled: true,
+            tenantId: 'tenant_1',
             maxBudgetE8Usd: '105000000',
             allowedProviders: ['openai'],
           }),
@@ -251,9 +254,10 @@ describe('admin evaluation operations router', () => {
   it('fails closed on stale durable readiness without writing either gate', async () => {
     mocks.platformConfigFind.mockResolvedValue({
       value: {
-        version: 2,
+        version: 3,
         enabled: true,
         authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+        tenantId: 'tenant_1',
         authorizedAt: '2026-09-04T16:00:00.000Z',
         expiresAt: '2099-09-04T17:00:00.000Z',
         maxBudgetE8Usd: '105000000',
@@ -296,9 +300,10 @@ describe('admin evaluation operations router', () => {
 
     mocks.platformConfigFind.mockResolvedValue({
       value: {
-        version: 2,
+        version: 3,
         enabled: true,
         authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+        tenantId: 'tenant_1',
         authorizedAt: '2026-09-04T16:00:00.000Z',
         expiresAt: '2099-09-04T17:00:00.000Z',
         maxBudgetE8Usd: '105000000',
@@ -607,9 +612,10 @@ describe('admin evaluation operations router', () => {
   it('rejects providers and budgets outside the active expiring authorization', async () => {
     mocks.featureEnabled.mockResolvedValue({ enabled: true })
     mocks.durableAuthorization.mockResolvedValue({
-      version: 2,
+      version: 3,
       enabled: true,
       authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+      tenantId: 'tenant_1',
       authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
       expiresAt: new Date('2099-09-04T17:00:00.000Z'),
       maxBudgetE8Usd: 1_000n,
@@ -635,6 +641,34 @@ describe('admin evaluation operations router', () => {
     ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'Evaluation budget exceeds the active authorization ceiling',
+    })
+    expect(mocks.createRun).not.toHaveBeenCalled()
+  })
+
+  it('rejects an authorization issued for another tenant before creating a run', async () => {
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.durableAuthorization.mockResolvedValue({
+      version: 3,
+      enabled: true,
+      authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+      tenantId: 'tenant_other',
+      authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
+      expiresAt: new Date('2099-09-04T17:00:00.000Z'),
+      maxBudgetE8Usd: 105_000_000n,
+      allowedProviders: ['openai'],
+    })
+    await expect(
+      testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        idempotencyKey: 'cross-tenant-authorization',
+        caseIds: ['11111111-1111-4111-8111-111111111111'],
+        budgetCeilingE8Usd: '1000',
+        modelKey: 'guest-chat-openai',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'The active evaluation authorization belongs to a different tenant',
     })
     expect(mocks.createRun).not.toHaveBeenCalled()
   })

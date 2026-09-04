@@ -15,7 +15,7 @@ import {
 } from '@pathfinder/db'
 import { TRPCError } from '@trpc/server'
 
-import { authorizeEvaluation } from './evaluation-runtime-authorization'
+import { authorizeRun } from './evaluation-runtime-authorization'
 
 export const NATIVE_EVALUATION_MAX_CASES = 50
 export const NATIVE_EVALUATION_MAX_BUDGET_E8_USD = 100_000_000n
@@ -97,8 +97,9 @@ export async function requestNativeDeploymentEvaluation(params: {
           code: 'PRECONDITION_FAILED',
           message: 'Evaluation execution is not durably enabled for this tenant',
         })
-      const authorizationSnapshot = authorizeEvaluation(
+      const authorizationSnapshot = authorizeRun(
         durableAuthorization,
+        params.tenantId,
         model.provider,
         params.budgetCeilingE8Usd,
       )

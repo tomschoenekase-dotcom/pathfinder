@@ -3,11 +3,17 @@ import { TRPCError } from '@trpc/server'
 
 export const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
 
-export function authorizeEvaluation(
+export function authorizeRun(
   authorization: EvaluationRuntimeAuthorization,
+  tenantId: string,
   provider: string,
   budgetE8Usd: bigint,
 ) {
+  if (authorization.tenantId !== tenantId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'The active evaluation authorization belongs to a different tenant',
+    })
   if (!authorization.allowedProviders.includes(provider as never))
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -20,6 +26,7 @@ export function authorizeEvaluation(
     })
   return {
     authorizationId: authorization.authorizationId,
+    tenantId: authorization.tenantId,
     authorizedAt: authorization.authorizedAt.toISOString(),
     expiresAt: authorization.expiresAt.toISOString(),
     maxBudgetE8Usd: authorization.maxBudgetE8Usd.toString(),

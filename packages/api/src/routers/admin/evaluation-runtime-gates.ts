@@ -115,15 +115,16 @@ export const adminEvaluationRuntimeGatesRouter = router({
               : null
             const durableValue = input.enabled
               ? {
-                  version: 2,
+                  version: 3,
                   enabled: true,
                   authorizationId: authorizationId!,
+                  tenantId: input.tenantId,
                   authorizedAt: changedAt.toISOString(),
                   expiresAt: expiresAt!.toISOString(),
                   maxBudgetE8Usd: maximumBudget.toString(),
                   allowedProviders: [...new Set(input.allowedProviders!)],
                 }
-              : { version: 2, enabled: false, disabledAt: changedAt.toISOString() }
+              : { version: 3, enabled: false, disabledAt: changedAt.toISOString() }
             await transaction.platformConfig.upsert({
               where: { key: EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY },
               create: {
@@ -192,6 +193,7 @@ export const adminEvaluationRuntimeGatesRouter = router({
                   processGateChanged: false,
                   globalScope: true,
                   authorizationIsExpiring: input.enabled,
+                  authorizationTenantBound: input.enabled,
                 },
                 beforeState: before,
                 afterState: after,

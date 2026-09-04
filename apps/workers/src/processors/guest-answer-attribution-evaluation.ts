@@ -15,7 +15,6 @@ import {
   failGuestAnswerAttributionEvaluationRequestAction,
   type GuestAnswerAttributionEvaluationFailureCode,
   getEvaluationRuntimeAuthorization,
-  isEvaluationRuntimeDurablyEnabled,
   markGuestAnswerAttributionEvaluationDispatchedAction,
   recoverStaleGuestAnswerAttributionEvaluationRequestsAction,
   resolveRuntimeAiWorkloadConfiguration,
@@ -58,7 +57,8 @@ async function assertExecutionAllowed(input: {
     getEvaluationRuntimeAuthorization(db),
     tenantEnabled(input.tenantId),
   ])
-  if (!authorization || !enabled) throw new Error('Evaluation policy gate is disabled')
+  if (!authorization || authorization.tenantId !== input.tenantId || !enabled)
+    throw new Error('Evaluation policy gate is disabled')
   if (
     input.providerCandidates.length === 0 ||
     input.providerCandidates.some(
@@ -135,7 +135,11 @@ export async function processGuestAnswerAttributionEvaluationJob(
   signal?: AbortSignal,
 ) {
   if (!env.EVALUATION_RUNNER_ENABLED) return { state: 'disabled' as const }
-  if (!(await isEvaluationRuntimeDurablyEnabled(db)) || !(await tenantEnabled(payload.tenantId))) {
+  const initialAuthorization = await getEvaluationRuntimeAuthorization(db)
+  if (
+    initialAuthorization?.tenantId !== payload.tenantId ||
+    !(await tenantEnabled(payload.tenantId))
+  ) {
     return { state: 'disabled' as const }
   }
   const leaseToken = randomUUID()
@@ -235,6 +239,7 @@ export async function recoverGuestAnswerAttributionEvaluations() {
   const candidates = await withTenantIsolationBypass(() =>
     db.guestAnswerAttributionEvaluationRequest.findMany({
       where: {
+        tenantId: authorization.tenantId,
         status: 'QUEUED',
         providerDispatchedAt: null,
         queuedAt: { gte: authorization.authorizedAt, lte: authorization.expiresAt },

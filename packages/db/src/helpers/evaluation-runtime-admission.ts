@@ -9,9 +9,10 @@ export const MAX_EVALUATION_AUTHORIZATION_BUDGET_E8_USD = 410_000_000n
 export type EvaluationAuthorizedProvider = (typeof EVALUATION_AUTHORIZED_PROVIDERS)[number]
 
 export type EvaluationRuntimeAuthorization = {
-  version: 2
+  version: 3
   enabled: true
   authorizationId: string
+  tenantId: string
   authorizedAt: Date
   expiresAt: Date
   maxBudgetE8Usd: bigint
@@ -25,12 +26,15 @@ export function parseEvaluationRuntimeAuthorization(
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return null
   const value = input as Record<string, unknown>
   if (
-    value.version !== 2 ||
+    value.version !== 3 ||
     value.enabled !== true ||
     typeof value.authorizationId !== 'string' ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
       value.authorizationId,
     ) ||
+    typeof value.tenantId !== 'string' ||
+    value.tenantId.length === 0 ||
+    value.tenantId.length > 191 ||
     typeof value.authorizedAt !== 'string' ||
     typeof value.expiresAt !== 'string' ||
     typeof value.maxBudgetE8Usd !== 'string' ||
@@ -59,9 +63,10 @@ export function parseEvaluationRuntimeAuthorization(
   )
     return null
   return {
-    version: 2,
+    version: 3,
     enabled: true,
     authorizationId: value.authorizationId,
+    tenantId: value.tenantId,
     authorizedAt,
     expiresAt,
     maxBudgetE8Usd: BigInt(value.maxBudgetE8Usd),
@@ -96,11 +101,16 @@ export async function isEvaluationRuntimeDurablyEnabled(
  * into the run. Re-enabling later cannot revive work from an older window. */
 export async function evaluationRuntimeAuthorizationAllowsRun(
   runConfigSnapshot: unknown,
+  tenantId: string,
   modelProvider: string,
   client: PlatformConfigClient = db,
 ): Promise<boolean> {
   const current = await getEvaluationRuntimeAuthorization(client)
-  if (!current || !current.allowedProviders.includes(modelProvider as EvaluationAuthorizedProvider))
+  if (
+    !current ||
+    current.tenantId !== tenantId ||
+    !current.allowedProviders.includes(modelProvider as EvaluationAuthorizedProvider)
+  )
     return false
   if (
     typeof runConfigSnapshot !== 'object' ||
@@ -114,6 +124,7 @@ export async function evaluationRuntimeAuthorizationAllowsRun(
   const frozenProviders = record.allowedProviders
   return (
     record.authorizationId === current.authorizationId &&
+    record.tenantId === current.tenantId &&
     record.authorizedAt === current.authorizedAt.toISOString() &&
     record.expiresAt === current.expiresAt.toISOString() &&
     record.maxBudgetE8Usd === current.maxBudgetE8Usd.toString() &&

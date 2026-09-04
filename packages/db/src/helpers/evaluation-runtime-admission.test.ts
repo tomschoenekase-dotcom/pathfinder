@@ -10,9 +10,10 @@ import {
 describe('evaluation runtime durable admission', () => {
   const now = new Date('2026-09-04T17:00:00.000Z')
   const active = {
-    version: 2,
+    version: 3,
     enabled: true,
     authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+    tenantId: 'tenant-1',
     authorizedAt: '2026-09-04T16:55:00.000Z',
     expiresAt: '2099-09-04T17:30:00.000Z',
     maxBudgetE8Usd: '105000000',
@@ -24,9 +25,10 @@ describe('evaluation runtime durable admission', () => {
     await expect(
       getEvaluationRuntimeAuthorization({ platformConfig: { findUnique } } as never, now),
     ).resolves.toEqual({
-      version: 2,
+      version: 3,
       enabled: true,
       authorizationId: active.authorizationId,
+      tenantId: active.tenantId,
       authorizedAt: new Date(active.authorizedAt),
       expiresAt: new Date(active.expiresAt),
       maxBudgetE8Usd: 105000000n,
@@ -45,6 +47,8 @@ describe('evaluation runtime durable admission', () => {
     null,
     {},
     { version: 1, enabled: true },
+    { ...active, version: 2 },
+    { ...active, tenantId: '' },
     { ...active, enabled: false },
     { ...active, authorizationId: 'not-a-uuid' },
     { ...active, maxBudgetE8Usd: '-1' },
@@ -74,6 +78,7 @@ describe('evaluation runtime durable admission', () => {
     const snapshot = {
       authorization: {
         authorizationId: active.authorizationId,
+        tenantId: active.tenantId,
         authorizedAt: active.authorizedAt,
         expiresAt: active.expiresAt,
         maxBudgetE8Usd: active.maxBudgetE8Usd,
@@ -81,10 +86,13 @@ describe('evaluation runtime durable admission', () => {
       },
     }
     await expect(
-      evaluationRuntimeAuthorizationAllowsRun(snapshot, 'openai', client as never),
+      evaluationRuntimeAuthorizationAllowsRun(snapshot, 'tenant-1', 'openai', client as never),
     ).resolves.toBe(true)
     await expect(
-      evaluationRuntimeAuthorizationAllowsRun(snapshot, 'anthropic', client as never),
+      evaluationRuntimeAuthorizationAllowsRun(snapshot, 'tenant-1', 'anthropic', client as never),
+    ).resolves.toBe(false)
+    await expect(
+      evaluationRuntimeAuthorizationAllowsRun(snapshot, 'tenant-2', 'openai', client as never),
     ).resolves.toBe(false)
     await expect(
       evaluationRuntimeAuthorizationAllowsRun(
@@ -94,6 +102,7 @@ describe('evaluation runtime durable admission', () => {
             authorizationId: '11111111-1111-4111-8111-111111111111',
           },
         },
+        'tenant-1',
         'openai',
         client as never,
       ),

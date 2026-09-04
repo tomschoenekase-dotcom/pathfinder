@@ -166,13 +166,13 @@ const adminEvaluationOperationReadsRouter = router({
         getEvaluationRegressionAlertPolicy(db),
       ])
       const durableGlobalEnabled = durableAuthorization !== null
+      const tenantAuthorized = durableAuthorization?.tenantId === input.tenantId
       const hasMore = rows.length > input.limit
       const items = rows.slice(0, input.limit)
       const last = items.at(-1)
       return {
         items,
-        runnerEnabled:
-          env.EVALUATION_RUNNER_ENABLED && durableGlobalEnabled && flag?.enabled === true,
+        runnerEnabled: env.EVALUATION_RUNNER_ENABLED && tenantAuthorized && flag?.enabled === true,
         readiness: {
           apiProcessEnabled: env.EVALUATION_RUNNER_ENABLED,
           durableGlobalEnabled,
@@ -180,6 +180,7 @@ const adminEvaluationOperationReadsRouter = router({
           authorization: durableAuthorization
             ? {
                 authorizationId: durableAuthorization.authorizationId,
+                tenantId: durableAuthorization.tenantId,
                 expiresAt: durableAuthorization.expiresAt.toISOString(),
                 maxBudgetE8Usd: durableAuthorization.maxBudgetE8Usd.toString(),
                 allowedProviders: durableAuthorization.allowedProviders,
