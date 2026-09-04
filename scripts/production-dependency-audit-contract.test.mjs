@@ -10,7 +10,7 @@ test('production dependency audit remains an enforced CI gate', async () => {
   const rootPackage = await readJson('package.json')
   const workflow = await readFile('.github/workflows/ci.yml', 'utf8')
 
-  assert.equal(rootPackage.scripts['audit:prod'], 'pnpm audit --prod --audit-level high')
+  assert.equal(rootPackage.scripts['audit:prod'], 'node scripts/audit-production-dependencies.mjs')
   assert.match(workflow, /^\s+run: pnpm audit:prod$/mu)
 })
 
