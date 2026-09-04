@@ -248,6 +248,8 @@ const empty: Data = {
       latestObservedOn: null,
       latestCapturedAt: null,
       latestReleaseSha: null,
+      currentReleaseSha: null,
+      latestReleaseMatchesCurrent: false,
       stale: false,
       incompleteSamples: 0,
       immutableDailySamples: true,
