@@ -4,6 +4,7 @@ import {
   appendBoundedScannerProbeResponse,
   probeWorkerServiceDependencies,
   recordOperationalReadinessHeartbeat,
+  resolveServiceDependencyProbeEnvironment,
 } from './service-dependency-readiness'
 
 const configured = {
@@ -18,6 +19,39 @@ const configured = {
 }
 
 describe('worker service dependency probes', () => {
+  it('normalizes raw isolated-runtime environment without widening execution flags', () => {
+    expect(
+      resolveServiceDependencyProbeEnvironment({
+        STORAGE_BUCKET: 'bucket',
+        STORAGE_REGION: 'us-east-1',
+        STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+        STORAGE_ACCESS_KEY_ID: 'access',
+        STORAGE_SECRET_ACCESS_KEY: 'secret',
+        INTAKE_CLAMAV_HOST: 'clamav.internal',
+        INTAKE_CLAMAV_PORT: '3310',
+        INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+      }),
+    ).toEqual({
+      STORAGE_BUCKET: 'bucket',
+      STORAGE_REGION: 'us-east-1',
+      STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      STORAGE_ACCESS_KEY_ID: 'access',
+      STORAGE_SECRET_ACCESS_KEY: 'secret',
+      INTAKE_CLAMAV_HOST: 'clamav.internal',
+      INTAKE_CLAMAV_PORT: 3310,
+      INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: false,
+    })
+    expect(
+      resolveServiceDependencyProbeEnvironment({
+        INTAKE_CLAMAV_PORT: 'invalid',
+        INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'TRUE',
+      }),
+    ).toMatchObject({
+      INTAKE_CLAMAV_PORT: undefined,
+      INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: false,
+    })
+  })
+
   it('bounds malware scanner readiness responses by encoded bytes', () => {
     expect(appendBoundedScannerProbeResponse('', 'PONG\0')).toBe('PONG\0')
     expect(() => appendBoundedScannerProbeResponse('', 'x'.repeat(129))).toThrow(

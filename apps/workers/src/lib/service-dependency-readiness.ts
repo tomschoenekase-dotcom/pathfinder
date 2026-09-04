@@ -20,7 +20,7 @@ export function appendBoundedScannerProbeResponse(response: string, chunk: strin
   return response + chunk
 }
 
-type ProbeEnvironment = {
+export type ProbeEnvironment = {
   STORAGE_BUCKET?: string | undefined
   STORAGE_REGION?: string | undefined
   STORAGE_ENDPOINT?: string | undefined
@@ -29,6 +29,31 @@ type ProbeEnvironment = {
   INTAKE_CLAMAV_HOST?: string | undefined
   INTAKE_CLAMAV_PORT?: number | undefined
   INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: boolean
+}
+
+export function resolveServiceDependencyProbeEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+): ProbeEnvironment {
+  const rawScannerPort = environment.INTAKE_CLAMAV_PORT
+  const scannerPort =
+    rawScannerPort && /^\d+$/u.test(rawScannerPort)
+      ? Number.parseInt(rawScannerPort, 10)
+      : undefined
+
+  return {
+    STORAGE_BUCKET: environment.STORAGE_BUCKET,
+    STORAGE_REGION: environment.STORAGE_REGION,
+    STORAGE_ENDPOINT: environment.STORAGE_ENDPOINT,
+    STORAGE_ACCESS_KEY_ID: environment.STORAGE_ACCESS_KEY_ID,
+    STORAGE_SECRET_ACCESS_KEY: environment.STORAGE_SECRET_ACCESS_KEY,
+    INTAKE_CLAMAV_HOST: environment.INTAKE_CLAMAV_HOST,
+    INTAKE_CLAMAV_PORT:
+      scannerPort !== undefined && scannerPort >= 1 && scannerPort <= 65_535
+        ? scannerPort
+        : undefined,
+    INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED:
+      environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true',
+  }
 }
 
 type Probe = (signal: AbortSignal) => Promise<void>
