@@ -62,13 +62,25 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(first.rolloutSafety.customerContactAuthorized, false)
   assert.deepEqual(first.rolloutSafety.applicationReleaseIdentity, {
     variable: 'PATHFINDER_RELEASE_SHA',
-    value: CANDIDATE,
+    candidateRevision: CANDIDATE,
+    deploymentValue: '<owner-staging-revision>',
+    deploymentValueSource: 'ownerIntegration.resultingRevision',
     services: ['web', 'dashboard', 'workers'],
+    mustResolveBeforeOwnerPush: true,
     mustMatchProviderRelease: true,
+  })
+  assert.deepEqual(first.rolloutSafety.ownerIntegration, {
+    candidateRevision: CANDIDATE,
+    localIntegrationRequired: true,
+    pushBeforePrerequisitesAuthorized: false,
+    resultingRevision: '<owner-staging-revision>',
+    resultingRevisionCommand: 'git rev-parse HEAD',
+    resultingRevisionMustBeFullSha: true,
+    candidateMustBeAncestorOfResult: true,
   })
   assert.deepEqual(first.rolloutSafety.topologyAdmission, {
     input: RAILWAY_STATUS_COMMAND,
-    command: `pnpm verify:staging-topology --expected-revision ${CANDIDATE}`,
+    command: 'pnpm verify:staging-topology --expected-revision <owner-staging-revision>',
     services: ['staging-web', 'staging-dashboard', 'staging-workers'],
     requiresSuccessfulDeployment: true,
     requiresRunningInstance: true,
@@ -81,18 +93,19 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
       closedValue: '',
     },
     exactCliMessages: {
-      'staging-web': `Torchiko exact ${CANDIDATE} staging web`,
-      'staging-dashboard': `Torchiko exact ${CANDIDATE} staging dashboard`,
-      'staging-workers': `Torchiko exact ${CANDIDATE} staging workers`,
+      'staging-web': 'Torchiko exact <owner-staging-revision> staging web',
+      'staging-dashboard': 'Torchiko exact <owner-staging-revision> staging dashboard',
+      'staging-workers': 'Torchiko exact <owner-staging-revision> staging workers',
     },
     topologyAdmissionCommand:
-      `pnpm verify:staging-topology --expected-revision ${CANDIDATE} ` +
+      'pnpm verify:staging-topology --expected-revision <owner-staging-revision> ' +
       `--reviewed-local-upload ${REVIEWED_LOCAL_UPLOAD_APPROVAL}`,
     requiresCheckedInServiceConfig: true,
   })
   assert.deepEqual(first.rolloutSafety.runtimeAudit, {
     deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
-    commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${CANDIDATE} --since 24h`,
+    commandTemplate:
+      'pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision <owner-staging-revision> --since 24h',
     services: ['staging-web', 'staging-dashboard', 'staging-workers'],
     requiresProviderExitSuccess: true,
     rawLogsRetained: false,
@@ -105,8 +118,14 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.equal(
     first.rolloutSafety.stagingPredeployServiceEnvironment.requiredExactServiceVariables
       .PATHFINDER_RELEASE_SHA,
-    CANDIDATE,
+    undefined,
   )
+  assert.deepEqual(first.rolloutSafety.stagingPredeployServiceEnvironment.releaseIdentityVariable, {
+    name: 'PATHFINDER_RELEASE_SHA',
+    value: '<owner-staging-revision>',
+    valueSource: 'rolloutSafety.ownerIntegration.resultingRevision',
+    requiredOnServices: ['web', 'dashboard', 'workers'],
+  })
   assert.deepEqual(first.rolloutSafety.stagingPredeployServiceEnvironment.oneRunServiceVariable, {
     name: 'PATHFINDER_ALLOW_STAGING_MIGRATIONS',
     admittedValue: '1',
@@ -129,7 +148,7 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
     action.includes('PATHFINDER_RELEASE_SHA'),
   )
   const deployAction = first.admission.requiredActions.findIndex((action) =>
-    action.includes('Deploy the resulting immutable staging revision'),
+    action.includes('Push the prepared exact owner staging revision'),
   )
   const migrationPredeployAction = first.admission.requiredActions.findIndex(
     (action) =>
@@ -156,6 +175,13 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
       action.includes('topologyAdmissionCommand'),
   )
   assert.ok(releaseVariableAction >= 0)
+  assert.match(first.admission.requiredActions[0], /without pushing/u)
+  assert.match(first.admission.requiredActions[0], /resulting owner HEAD/u)
+  assert.match(first.admission.requiredActions[releaseVariableAction], /before pushing/u)
+  assert.doesNotMatch(
+    first.admission.requiredActions[releaseVariableAction],
+    /candidate\.revision/u,
+  )
   assert.ok(migrationOptInAction >= 0)
   assert.ok(migrationApprovalAction >= 0)
   assert.ok(deployAction >= 0)
@@ -178,6 +204,13 @@ test('builds a deterministic secret-free owner handoff with retained boundaries'
   assert.ok(deployAction < localUploadCloseAction)
   assert.match(first.admission.requiredActions[localUploadOpenAction], /--skip-deploys/u)
   assert.match(first.admission.requiredActions[localUploadCloseAction], /--skip-deploys/u)
+  assert.equal(
+    first.admission.requiredActions
+      .slice(1, deployAction)
+      .filter((action) => action.includes('Railway') || action.includes('PATHFINDER_'))
+      .every((action) => action.includes('--skip-deploys')),
+    true,
+  )
   assert.equal(
     first.admission.requiredActions.some(
       (action) => action.includes(RAILWAY_STATUS_COMMAND) && action.includes('three-service'),
