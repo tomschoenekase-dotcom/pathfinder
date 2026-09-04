@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { OperationsAttentionConsole } from '../../../../components/admin/OperationsAttentionConsole'
 import { FounderOperatingConversation } from '../../../../components/admin/FounderOperatingConversation'
 import { OperationsReadinessSummary } from '../../../../components/admin/OperationsReadinessSummary'
+import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
 
@@ -125,6 +126,8 @@ export default async function AdminOperationsPage({
       <OperationsReadinessSummary readiness={readiness} />
 
       <ReleaseEvidenceSummary evidence={releaseEvidence} />
+
+      {releaseEvidence.current ? null : <ReleaseEvidenceRecorder />}
 
       <OperationsAttentionConsole data={data} />
     </div>

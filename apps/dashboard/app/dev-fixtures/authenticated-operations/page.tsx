@@ -4,6 +4,7 @@ import { AdminSectionShell } from '../../../components/admin/AdminSectionShell'
 import { AnswerAttributionAgreementCard } from '../../../components/admin/AnswerAttributionAgreementCard'
 import { GuestAnswerEvaluationPanel } from '../../../components/admin/GuestAnswerEvaluationPanel'
 import { ClientWorkspaceShell } from '../../../components/admin/ClientWorkspaceShell'
+import { ReleaseEvidenceRecorder } from '../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../components/admin/ReleaseEvidenceSummary'
 import { OperationsReadinessSummary } from '../../../components/admin/OperationsReadinessSummary'
 import { VenueFeatureAccessControl } from '../../../components/admin/VenueFeatureAccessControl'
@@ -365,10 +366,39 @@ function FeatureAccessFixture() {
   )
 }
 
+function EmptyReleaseEvidenceFixture() {
+  return (
+    <TRPCProvider scopeKey="empty-release-evidence-visual-fixture">
+      <AdminSectionShell routePathname="/admin/operations">
+        <div
+          className="space-y-5"
+          data-fixture="authenticated-operations"
+          data-fixture-surface="release-evidence-empty"
+        >
+          <header className="border-b border-slate-200 pb-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Release evidence
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+              Record verified operational truth
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Synthetic visual fixture only. Validation stays local and no record is submitted.
+            </p>
+          </header>
+          <ReleaseEvidenceSummary evidence={{ current: null, items: [] } as never} />
+          <ReleaseEvidenceRecorder />
+        </div>
+      </AdminSectionShell>
+    </TRPCProvider>
+  )
+}
+
 export default async function AuthenticatedOperationsFixturePage({ searchParams }: Props) {
   if (process.env.NODE_ENV !== 'development') notFound()
   const surface = (await searchParams).surface
   if (surface === 'workspace') return <WorkspaceFixture />
   if (surface === 'feature-access') return <FeatureAccessFixture />
+  if (surface === 'release-evidence-empty') return <EmptyReleaseEvidenceFixture />
   return <AdminFixture />
 }

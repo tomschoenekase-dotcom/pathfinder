@@ -303,6 +303,62 @@ test('Founder Control Room shell is responsive and restores mobile navigation fo
   expect(runtimeErrors).toEqual([])
 })
 
+test('verified release evidence import stays explicit and fail-closed across real browser widths', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(
+    `${dashboardBaseUrl}/dev-fixtures/authenticated-operations?surface=release-evidence-empty`,
+  )
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator(
+      '[data-fixture="authenticated-operations"][data-fixture-surface="release-evidence-empty"]',
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'No release assessment is recorded' }),
+  ).toBeVisible()
+  await page.getByText('Record a verified release assessment', { exact: true }).click()
+  const payload = {
+    operationId: '379f85e4-d011-53d4-8cc4-209537af0175',
+    assessment: {
+      schemaVersion: 1,
+      generatedAt: '2026-09-04T09:21:32.954Z',
+      revision: 'e56f17b4bcfc57109f214900a74fedeb6968958d',
+      profile: 'candidate',
+      readiness: 'ready-for-staging-review',
+      repository: { clean: true },
+      summary: { passed: 1, failed: 0, blocked: 0 },
+      gates: [{ id: 'visual-browser', status: 'pass', durationMs: 100 }],
+      limitations: ['Synthetic visual fixture only.'],
+      rollback: {
+        application: 'Redeploy the last admitted staging revision.',
+        database: 'Repair forward.',
+        runbook: 'docs/staging-release-workflow.md',
+      },
+    },
+    stagingHandoff: null,
+    sourceReference: 'artifacts/release-verification/exact-candidate.json',
+  }
+  await page.getByLabel('Prepared release-evidence JSON').fill(JSON.stringify(payload, null, 2))
+  await page.getByRole('button', { name: 'Check payload' }).click()
+  await expect(page.getByText(/Validated candidate assessment for e56f17b4/)).toBeVisible()
+  const acknowledgement = page.getByRole('checkbox', {
+    name: /Record it as immutable evidence only/,
+  })
+  await acknowledgement.focus()
+  await expect(acknowledgement).toBeFocused()
+  await acknowledgement.check()
+  await expect(page.getByRole('button', { name: 'Record immutable evidence' })).toBeEnabled()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'release-evidence-recorder')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('Founder trust evidence remains readable and truthful across real browser widths', async ({
   page,
 }, testInfo) => {

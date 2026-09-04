@@ -20,6 +20,12 @@ a release request, approval, deployment, migration, customer communication, or b
    `release-evidence:record` capability.
 5. Founder Control Room and a `release-evidence:read` worker read the same bounded canonical rows.
 
+When no assessment exists yet, the Founder Control Room exposes a collapsed platform-admin import
+control. It validates the complete projected JSON in the browser, requires an explicit
+evidence-only acknowledgement, and then calls the same immutable `admin.recordReleaseEvidence`
+mutation. It does not accept partial fields, create an operation identity, or expose deployment,
+migration, billing, customer-contact, or production controls.
+
 The projection command is read-only and prints JSON. It rejects repository-external paths,
 revision/cleanliness/readiness/count mismatches, and a handoff whose embedded assessment SHA-256
 does not match the exact assessment bytes. Its UUID is deterministic for the two artifact hashes
