@@ -5,7 +5,7 @@ import {
   db,
   EvaluationRunComparisonError,
   getEvaluationRegressionAlertPolicy,
-  isEvaluationRuntimeDurablyEnabled,
+  getEvaluationRuntimeAuthorization,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { TRPCError } from '@trpc/server'
@@ -125,7 +125,7 @@ const adminEvaluationOperationReadsRouter = router({
   listEvaluationCases: adminProcedure.input(caseListInputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const cursorDate = input.cursor ? new Date(input.cursor.createdAt) : null
-      const [rows, flag, durableGlobalEnabled, regressionAlertPolicy] = await Promise.all([
+      const [rows, flag, durableAuthorization, regressionAlertPolicy] = await Promise.all([
         db.evalCase.findMany({
           where: {
             tenantId: input.tenantId,
@@ -162,9 +162,10 @@ const adminEvaluationOperationReadsRouter = router({
           },
           select: { enabled: true },
         }),
-        isEvaluationRuntimeDurablyEnabled(db),
+        getEvaluationRuntimeAuthorization(db),
         getEvaluationRegressionAlertPolicy(db),
       ])
+      const durableGlobalEnabled = durableAuthorization !== null
       const hasMore = rows.length > input.limit
       const items = rows.slice(0, input.limit)
       const last = items.at(-1)
@@ -176,6 +177,14 @@ const adminEvaluationOperationReadsRouter = router({
           apiProcessEnabled: env.EVALUATION_RUNNER_ENABLED,
           durableGlobalEnabled,
           tenantEnabled: flag?.enabled === true,
+          authorization: durableAuthorization
+            ? {
+                authorizationId: durableAuthorization.authorizationId,
+                expiresAt: durableAuthorization.expiresAt.toISOString(),
+                maxBudgetE8Usd: durableAuthorization.maxBudgetE8Usd.toString(),
+                allowedProviders: durableAuthorization.allowedProviders,
+              }
+            : null,
         },
         regressionAlerts: regressionAlertPolicy
           ? {

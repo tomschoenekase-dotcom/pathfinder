@@ -1,7 +1,12 @@
+import { randomUUID } from 'node:crypto'
+
 import { env } from '@pathfinder/config'
 import {
   db,
+  EVALUATION_AUTHORIZED_PROVIDERS,
   EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
+  MAX_EVALUATION_AUTHORIZATION_BUDGET_E8_USD,
+  parseEvaluationRuntimeAuthorization,
   setContentVersionContext,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -14,16 +19,6 @@ import { adminProcedure } from '../../trpc'
 const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
 const EVALUATION_ENABLE_CONFIRMATION = 'ENABLE EVALUATION RUNNER'
 
-function durableGlobalValueEnabled(value: unknown) {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    (value as Record<string, unknown>).version === 1 &&
-    (value as Record<string, unknown>).enabled === true
-  )
-}
-
 export const adminEvaluationRuntimeGatesRouter = router({
   setEvaluationRuntimeDurableGates: adminProcedure
     .input(
@@ -35,8 +30,24 @@ export const adminEvaluationRuntimeGatesRouter = router({
           expectedGlobalEnabled: z.boolean(),
           expectedTenantEnabled: z.boolean(),
           confirmation: z.string().max(64).optional(),
+          durationMinutes: z.number().int().min(5).max(120).optional(),
+          maxBudgetE8Usd: z.string().regex(/^\d+$/u).optional(),
+          allowedProviders: z
+            .array(z.enum(EVALUATION_AUTHORIZED_PROVIDERS))
+            .min(1)
+            .max(2)
+            .optional(),
         })
-        .strict(),
+        .strict()
+        .superRefine((value, context) => {
+          if (!value.enabled) return
+          if (value.durationMinutes === undefined)
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration is required' })
+          if (value.maxBudgetE8Usd === undefined)
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'Budget is required' })
+          if (value.allowedProviders === undefined)
+            context.addIssue({ code: z.ZodIssueCode.custom, message: 'Provider scope is required' })
+        }),
     )
     .mutation(({ input, ctx }) =>
       withTenantIsolationBypass(() =>
@@ -46,6 +57,15 @@ export const adminEvaluationRuntimeGatesRouter = router({
               throw new TRPCError({
                 code: 'BAD_REQUEST',
                 message: `Type ${EVALUATION_ENABLE_CONFIRMATION} to enable evaluation execution`,
+              })
+            const maximumBudget = input.maxBudgetE8Usd ? BigInt(input.maxBudgetE8Usd) : 0n
+            if (
+              input.enabled &&
+              (maximumBudget <= 0n || maximumBudget > MAX_EVALUATION_AUTHORIZATION_BUDGET_E8_USD)
+            )
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: 'Authorization budget must be within the evaluation hard limit',
               })
 
             await setContentVersionContext(transaction, { actorId: ctx.session.userId })
@@ -75,7 +95,8 @@ export const adminEvaluationRuntimeGatesRouter = router({
               })
 
             const before = {
-              durableGlobalEnabled: durableGlobalValueEnabled(globalRow?.value),
+              durableGlobalEnabled:
+                parseEvaluationRuntimeAuthorization(globalRow?.value, new Date()) !== null,
               tenantEnabled: tenantRow?.enabled === true,
             }
             if (
@@ -88,15 +109,30 @@ export const adminEvaluationRuntimeGatesRouter = router({
               })
 
             const changedAt = new Date()
+            const authorizationId = input.enabled ? randomUUID() : null
+            const expiresAt = input.enabled
+              ? new Date(changedAt.getTime() + input.durationMinutes! * 60_000)
+              : null
+            const durableValue = input.enabled
+              ? {
+                  version: 2,
+                  enabled: true,
+                  authorizationId: authorizationId!,
+                  authorizedAt: changedAt.toISOString(),
+                  expiresAt: expiresAt!.toISOString(),
+                  maxBudgetE8Usd: maximumBudget.toString(),
+                  allowedProviders: [...new Set(input.allowedProviders!)],
+                }
+              : { version: 2, enabled: false, disabledAt: changedAt.toISOString() }
             await transaction.platformConfig.upsert({
               where: { key: EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY },
               create: {
                 key: EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
-                value: { version: 1, enabled: input.enabled },
+                value: durableValue,
                 updatedBy: ctx.session.userId,
               },
               update: {
-                value: { version: 1, enabled: input.enabled },
+                value: durableValue,
                 updatedBy: ctx.session.userId,
               },
             })
@@ -112,18 +148,34 @@ export const adminEvaluationRuntimeGatesRouter = router({
                 flagKey: EVALUATION_RUNNER_FLAG,
                 enabled: input.enabled,
                 setBy: ctx.session.userId,
-                metadata: { source: 'platform-admin', system: 'evaluation-operations' },
+                metadata: {
+                  source: 'platform-admin',
+                  system: 'evaluation-operations',
+                  ...(authorizationId
+                    ? { authorizationId, expiresAt: expiresAt!.toISOString() }
+                    : {}),
+                },
               },
               update: {
                 enabled: input.enabled,
                 setBy: ctx.session.userId,
                 setAt: changedAt,
-                metadata: { source: 'platform-admin', system: 'evaluation-operations' },
+                metadata: {
+                  source: 'platform-admin',
+                  system: 'evaluation-operations',
+                  ...(authorizationId
+                    ? { authorizationId, expiresAt: expiresAt!.toISOString() }
+                    : {}),
+                },
               },
             })
             const after = {
               durableGlobalEnabled: input.enabled,
               tenantEnabled: input.enabled,
+              authorizationId,
+              expiresAt: expiresAt?.toISOString() ?? null,
+              maxBudgetE8Usd: input.enabled ? maximumBudget.toString() : null,
+              allowedProviders: input.enabled ? [...new Set(input.allowedProviders!)] : [],
             }
             await transaction.auditLog.create({
               data: {
@@ -139,6 +191,7 @@ export const adminEvaluationRuntimeGatesRouter = router({
                   venueId: input.venueId,
                   processGateChanged: false,
                   globalScope: true,
+                  authorizationIsExpiring: input.enabled,
                 },
                 beforeState: before,
                 afterState: after,

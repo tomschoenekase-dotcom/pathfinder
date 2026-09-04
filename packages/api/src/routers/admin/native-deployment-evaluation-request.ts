@@ -10,10 +10,12 @@ import {
 import {
   createOrReplayEvaluationRun,
   db,
-  isEvaluationRuntimeDurablyEnabled,
+  getEvaluationRuntimeAuthorization,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { TRPCError } from '@trpc/server'
+
+import { authorizeEvaluation } from './evaluation-runtime-authorization'
 
 export const NATIVE_EVALUATION_MAX_CASES = 50
 export const NATIVE_EVALUATION_MAX_BUDGET_E8_USD = 100_000_000n
@@ -45,9 +47,10 @@ export async function requestNativeDeploymentEvaluation(params: {
       code: 'PRECONDITION_FAILED',
       message: 'Evaluation execution is not enabled for this API process',
     })
+  const model = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
   return withTenantIsolationBypass(() =>
     db.$transaction(async (tx) => {
-      const [release, cases, flag, durableGlobalEnabled] = await Promise.all([
+      const [release, cases, flag, durableAuthorization] = await Promise.all([
         tx.nativeVenueDeploymentRelease.findFirst({
           where: {
             id: params.releaseId,
@@ -80,7 +83,7 @@ export async function requestNativeDeploymentEvaluation(params: {
           },
           select: { enabled: true },
         }),
-        isEvaluationRuntimeDurablyEnabled(tx),
+        getEvaluationRuntimeAuthorization(tx),
       ])
       if (!release)
         throw new TRPCError({
@@ -89,11 +92,16 @@ export async function requestNativeDeploymentEvaluation(params: {
         })
       if (release.updatedAt.getTime() !== params.expectedReleaseUpdatedAt.getTime())
         throw new TRPCError({ code: 'CONFLICT', message: 'Native deployment release changed' })
-      if (!durableGlobalEnabled || flag?.enabled !== true)
+      if (!durableAuthorization || flag?.enabled !== true)
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: 'Evaluation execution is not durably enabled for this tenant',
         })
+      const authorizationSnapshot = authorizeEvaluation(
+        durableAuthorization,
+        model.provider,
+        params.budgetCeilingE8Usd,
+      )
       if (cases.length !== params.caseIds.length)
         throw new TRPCError({
           code: 'NOT_FOUND',
@@ -118,7 +126,6 @@ export async function requestNativeDeploymentEvaluation(params: {
         const item = byId.get(caseId)!
         return { caseId: item.id, revision: item.revision, caseHash: item.caseHash }
       })
-      const model = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
       const created = await createOrReplayEvaluationRun({
         db: tx,
         runId: randomUUID(),
@@ -142,6 +149,7 @@ export async function requestNativeDeploymentEvaluation(params: {
             version: 'pathfinder-native-evaluation-run-config-v1',
             maximumCases: NATIVE_EVALUATION_MAX_CASES,
             requestedCases: manifest.length,
+            authorization: authorizationSnapshot,
             contentSnapshotSchemaVersion: 'pathfinder-native-evaluation-content-v1',
             contentComponentCounts: {
               places: state.places.length,

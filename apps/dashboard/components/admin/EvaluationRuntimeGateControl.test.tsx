@@ -51,10 +51,46 @@ describe('EvaluationRuntimeGateControl', () => {
         expectedGlobalEnabled: false,
         expectedTenantEnabled: false,
         confirmation: 'ENABLE EVALUATION RUNNER',
+        durationMinutes: 30,
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
       }),
     )
     expect(screen.getByText(/Railway process gate remains off/)).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalled()
+  })
+
+  it('requires a bounded budget and can explicitly add Anthropic to the provider scope', async () => {
+    render(
+      <EvaluationRuntimeGateControl
+        tenantId="tenant_1"
+        venueId="venue_1"
+        readiness={{
+          apiProcessEnabled: false,
+          durableGlobalEnabled: false,
+          tenantEnabled: false,
+        }}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Type ENABLE EVALUATION RUNNER'), {
+      target: { value: 'ENABLE EVALUATION RUNNER' },
+    })
+    fireEvent.change(screen.getByLabelText('Evaluation authorization budget'), {
+      target: { value: '4.11' },
+    })
+    expect(
+      screen.getByRole('button', { name: 'Enable durable gates' }).hasAttribute('disabled'),
+    ).toBe(true)
+    fireEvent.change(screen.getByLabelText('Evaluation authorization budget'), {
+      target: { value: '1.05' },
+    })
+    fireEvent.click(screen.getByLabelText('Also allow Anthropic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable durable gates' }))
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ allowedProviders: ['openai', 'anthropic'] }),
+      ),
+    )
   })
 
   it('permits an immediate durable shutdown with current-state compare-and-set values', async () => {

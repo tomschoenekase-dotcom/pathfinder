@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   enqueueRun: vi.fn(),
   cancelRun: vi.fn(),
   durableEnabled: vi.fn(),
+  durableAuthorization: vi.fn(),
   regressionPolicy: vi.fn(),
   markQueued: vi.fn(),
   compareRuns: vi.fn(),
@@ -79,6 +80,25 @@ vi.mock('@pathfinder/db', () => ({
   createOrReplayEvaluationRun: mocks.createRun,
   requestEvaluationRunCancellation: mocks.cancelRun,
   isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  getEvaluationRuntimeAuthorization: mocks.durableAuthorization,
+  parseEvaluationRuntimeAuthorization: (input: unknown) => {
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) return null
+    const value = input as Record<string, unknown>
+    if (
+      value.version !== 2 ||
+      value.enabled !== true ||
+      typeof value.authorizationId !== 'string' ||
+      typeof value.authorizedAt !== 'string' ||
+      typeof value.expiresAt !== 'string' ||
+      typeof value.maxBudgetE8Usd !== 'string' ||
+      !Array.isArray(value.allowedProviders) ||
+      new Date(value.expiresAt) <= new Date()
+    )
+      return null
+    return value
+  },
+  EVALUATION_AUTHORIZED_PROVIDERS: ['openai', 'anthropic'],
+  MAX_EVALUATION_AUTHORIZATION_BUDGET_E8_USD: 410_000_000n,
   EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY: 'evaluation-runner-v1-global',
   setContentVersionContext: mocks.contentVersionContext,
   getEvaluationRegressionAlertPolicy: mocks.regressionPolicy,
@@ -145,6 +165,15 @@ describe('admin evaluation operations router', () => {
     mocks.enqueueRun.mockResolvedValue({ enqueued: false })
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
+    mocks.durableAuthorization.mockResolvedValue({
+      version: 2,
+      enabled: true,
+      authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+      authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
+      expiresAt: new Date('2099-09-04T17:00:00.000Z'),
+      maxBudgetE8Usd: 410_000_000n,
+      allowedProviders: ['openai', 'anthropic'],
+    })
     mocks.regressionPolicy.mockResolvedValue(null)
     mocks.markQueued.mockResolvedValue(true)
     mocks.venueFind.mockResolvedValue({ id: 'venue_1' })
@@ -167,18 +196,32 @@ describe('admin evaluation operations router', () => {
         expectedGlobalEnabled: false,
         expectedTenantEnabled: false,
         confirmation: 'ENABLE EVALUATION RUNNER',
+        durationMinutes: 30,
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
       })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       apiProcessEnabled: true,
       durableGlobalEnabled: true,
       tenantEnabled: true,
       executionEnabled: true,
+      authorizationId: expect.any(String),
+      expiresAt: expect.any(String),
+      maxBudgetE8Usd: '105000000',
+      allowedProviders: ['openai'],
     })
     expect(mocks.platformConfigUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { key: 'evaluation-runner-v1-global' },
-        update: expect.objectContaining({ value: { version: 1, enabled: true } }),
+        update: expect.objectContaining({
+          value: expect.objectContaining({
+            version: 2,
+            enabled: true,
+            maxBudgetE8Usd: '105000000',
+            allowedProviders: ['openai'],
+          }),
+        }),
       }),
     )
     expect(mocks.tenantFlagUpsert).toHaveBeenCalledWith(
@@ -195,13 +238,28 @@ describe('admin evaluation operations router', () => {
         action: 'admin.evaluation-runtime.enabled',
         targetId: 'tenant_1:venue_1',
         beforeState: { durableGlobalEnabled: false, tenantEnabled: false },
-        afterState: { durableGlobalEnabled: true, tenantEnabled: true },
+        afterState: expect.objectContaining({
+          durableGlobalEnabled: true,
+          tenantEnabled: true,
+          maxBudgetE8Usd: '105000000',
+          allowedProviders: ['openai'],
+        }),
       }),
     })
   })
 
   it('fails closed on stale durable readiness without writing either gate', async () => {
-    mocks.platformConfigFind.mockResolvedValue({ value: { version: 1, enabled: true } })
+    mocks.platformConfigFind.mockResolvedValue({
+      value: {
+        version: 2,
+        enabled: true,
+        authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+        authorizedAt: '2026-09-04T16:00:00.000Z',
+        expiresAt: '2099-09-04T17:00:00.000Z',
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
+      },
+    })
 
     await expect(
       testRouter.createCaller(context()).evaluations.setEvaluationRuntimeDurableGates({
@@ -211,6 +269,9 @@ describe('admin evaluation operations router', () => {
         expectedGlobalEnabled: false,
         expectedTenantEnabled: false,
         confirmation: 'ENABLE EVALUATION RUNNER',
+        durationMinutes: 30,
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.platformConfigUpsert).not.toHaveBeenCalled()
@@ -227,10 +288,23 @@ describe('admin evaluation operations router', () => {
         expectedGlobalEnabled: false,
         expectedTenantEnabled: false,
         confirmation: 'enable',
+        durationMinutes: 30,
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
 
-    mocks.platformConfigFind.mockResolvedValue({ value: { version: 1, enabled: true } })
+    mocks.platformConfigFind.mockResolvedValue({
+      value: {
+        version: 2,
+        enabled: true,
+        authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+        authorizedAt: '2026-09-04T16:00:00.000Z',
+        expiresAt: '2099-09-04T17:00:00.000Z',
+        maxBudgetE8Usd: '105000000',
+        allowedProviders: ['openai'],
+      },
+    })
     mocks.featureEnabled.mockResolvedValue({ enabled: true })
     const disabled = await testRouter
       .createCaller(context())
@@ -528,6 +602,41 @@ describe('admin evaluation operations router', () => {
         }),
       }),
     )
+  })
+
+  it('rejects providers and budgets outside the active expiring authorization', async () => {
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.durableAuthorization.mockResolvedValue({
+      version: 2,
+      enabled: true,
+      authorizationId: '865ec669-825c-44e1-b09d-a5db8323c1ba',
+      authorizedAt: new Date('2026-09-04T16:00:00.000Z'),
+      expiresAt: new Date('2099-09-04T17:00:00.000Z'),
+      maxBudgetE8Usd: 1_000n,
+      allowedProviders: ['openai'],
+    })
+    const request = {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      idempotencyKey: 'authorization-bound-request',
+      caseIds: ['11111111-1111-4111-8111-111111111111'],
+      budgetCeilingE8Usd: '1001',
+    }
+    await expect(
+      testRouter.createCaller(context()).evaluations.requestEvaluationRun(request),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'The selected provider is outside the active evaluation authorization',
+    })
+    await expect(
+      testRouter
+        .createCaller(context())
+        .evaluations.requestEvaluationRun({ ...request, modelKey: 'guest-chat-openai' }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Evaluation budget exceeds the active authorization ceiling',
+    })
+    expect(mocks.createRun).not.toHaveBeenCalled()
   })
 
   it('freezes an exact prospective native release snapshot without reading current venue content', async () => {

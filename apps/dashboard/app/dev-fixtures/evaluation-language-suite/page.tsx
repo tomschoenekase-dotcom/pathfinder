@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { EvaluationRunRequestPanel } from '../../../components/admin/EvaluationRunRequestPanel'
+import { EvaluationRuntimeGateControl } from '../../../components/admin/EvaluationRuntimeGateControl'
 import { OnboardingEvaluationSuitePanel } from '../../../components/admin/OnboardingEvaluationSuitePanel'
 import { TRPCProvider } from '../../../lib/trpc'
 
@@ -53,6 +54,16 @@ export default function EvaluationLanguageSuiteVisualFixture() {
             </p>
           </header>
           <h2 className="sr-only">Evaluation controls</h2>
+          <EvaluationRuntimeGateControl
+            tenantId="fixture-tenant"
+            venueId="fixture-venue"
+            readiness={{
+              apiProcessEnabled: true,
+              durableGlobalEnabled: false,
+              tenantEnabled: false,
+              authorization: null,
+            }}
+          />
           <OnboardingEvaluationSuitePanel
             tenantId="fixture-tenant"
             venueId="fixture-venue"

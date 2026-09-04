@@ -11,6 +11,18 @@ type Readiness = {
   apiProcessEnabled: boolean
   durableGlobalEnabled: boolean
   tenantEnabled: boolean
+  authorization?: {
+    authorizationId: string
+    expiresAt: string
+    maxBudgetE8Usd: string
+    allowedProviders: Array<'openai' | 'anthropic'>
+  } | null
+}
+
+function budgetToE8Usd(value: string) {
+  const match = /^(\d+)(?:\.(\d{1,8}))?$/u.exec(value.trim())
+  if (!match) return null
+  return (BigInt(match[1]!) * 100_000_000n + BigInt((match[2] ?? '').padEnd(8, '0'))).toString()
 }
 
 function GateStatus({ label, enabled }: { label: string; enabled: boolean }) {
@@ -36,10 +48,20 @@ export function EvaluationRuntimeGateControl(props: {
   const client = useTRPCClient()
   const router = useRouter()
   const [confirmation, setConfirmation] = useState('')
+  const [durationMinutes, setDurationMinutes] = useState(30)
+  const [maximumBudget, setMaximumBudget] = useState('1.05')
+  const [allowAnthropic, setAllowAnthropic] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const durableEnabled = props.readiness.durableGlobalEnabled && props.readiness.tenantEnabled
-  const canEnable = !durableEnabled && confirmation === ENABLE_CONFIRMATION && !busy
+  const maximumBudgetE8Usd = budgetToE8Usd(maximumBudget)
+  const canEnable =
+    !durableEnabled &&
+    confirmation === ENABLE_CONFIRMATION &&
+    maximumBudgetE8Usd !== null &&
+    BigInt(maximumBudgetE8Usd) > 0n &&
+    BigInt(maximumBudgetE8Usd) <= 410_000_000n &&
+    !busy
 
   async function setDurableGates(enabled: boolean) {
     if (busy || (enabled && confirmation !== ENABLE_CONFIRMATION)) return
@@ -52,7 +74,16 @@ export function EvaluationRuntimeGateControl(props: {
         enabled,
         expectedGlobalEnabled: props.readiness.durableGlobalEnabled,
         expectedTenantEnabled: props.readiness.tenantEnabled,
-        ...(enabled ? { confirmation } : {}),
+        ...(enabled
+          ? {
+              confirmation,
+              durationMinutes,
+              maxBudgetE8Usd: maximumBudgetE8Usd!,
+              allowedProviders: allowAnthropic
+                ? (['openai', 'anthropic'] as const)
+                : (['openai'] as const),
+            }
+          : {}),
       })
       setConfirmation('')
       setMessage(
@@ -108,6 +139,31 @@ export function EvaluationRuntimeGateControl(props: {
                 This turns off this tenant and the shared durable global gate. Running work still
                 rechecks cancellation and budget controls.
               </p>
+              {props.readiness.authorization ? (
+                <dl className="mt-3 space-y-1 text-xs text-pf-deep/70">
+                  <div>
+                    <dt className="inline font-semibold">Expires:</dt>{' '}
+                    <dd className="inline">
+                      {new Date(props.readiness.authorization.expiresAt).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-semibold">Provider scope:</dt>{' '}
+                    <dd className="inline">
+                      {props.readiness.authorization.allowedProviders.join(', ')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-semibold">Per-run ceiling:</dt>{' '}
+                    <dd className="inline">
+                      $
+                      {(Number(props.readiness.authorization.maxBudgetE8Usd) / 100_000_000).toFixed(
+                        2,
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
               <button
                 type="button"
                 disabled={busy}
@@ -122,8 +178,43 @@ export function EvaluationRuntimeGateControl(props: {
               <h4 className="font-semibold text-pf-deep">Open a bounded evaluation window</h4>
               <p className="mt-2 text-sm leading-6 text-pf-deep/70">
                 Type the exact phrase below. Other tenants remain off unless separately enabled. The
-                global gate is shared platform intent.
+                global gate is shared platform intent and expires automatically.
               </p>
+              <label className="mt-4 block text-sm font-semibold text-pf-deep">
+                Window duration
+                <select
+                  aria-label="Evaluation window duration"
+                  value={durationMinutes}
+                  onChange={(event) => setDurationMinutes(Number(event.target.value))}
+                  className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3"
+                >
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>60 minutes</option>
+                </select>
+              </label>
+              <label className="mt-4 block text-sm font-semibold text-pf-deep">
+                Maximum budget per run (USD)
+                <input
+                  aria-label="Evaluation authorization budget"
+                  value={maximumBudget}
+                  onChange={(event) => setMaximumBudget(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3"
+                />
+              </label>
+              <label className="mt-4 flex min-h-11 items-center gap-3 text-sm font-semibold text-pf-deep">
+                <input type="checkbox" checked disabled />
+                OpenAI allowed
+              </label>
+              <label className="flex min-h-11 items-center gap-3 text-sm font-semibold text-pf-deep">
+                <input
+                  type="checkbox"
+                  checked={allowAnthropic}
+                  onChange={(event) => setAllowAnthropic(event.target.checked)}
+                />
+                Also allow Anthropic
+              </label>
               <label
                 className="mt-4 block text-sm font-semibold text-pf-deep"
                 htmlFor="gate-confirmation"

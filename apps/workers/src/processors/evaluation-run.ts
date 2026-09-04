@@ -42,6 +42,7 @@ import {
   failEvaluationRunAttempt,
   finishEvaluationRunAttempt,
   isEvaluationRunCancellationRequested,
+  evaluationRuntimeAuthorizationAllowsRun,
   isEvaluationRuntimeDurablyEnabled,
   isVerifiedEvaluationRunIdentity,
   persistEvaluationResultWithCostReservation,
@@ -1056,7 +1057,12 @@ function defaultDependencies(
             admissionGuard: async () => {
               await assertFinalEvaluationProviderAdmission({
                 signalAborted: providerSignal.aborted,
-                globalEnabled: () => isEvaluationRuntimeDurablyEnabled(db),
+                globalEnabled: () =>
+                  evaluationRuntimeAuthorizationAllowsRun(
+                    run.runConfigSnapshot,
+                    run.modelProvider,
+                    db,
+                  ),
                 renewLease,
                 venueAvailable: () =>
                   assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId }),
