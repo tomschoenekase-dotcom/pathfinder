@@ -5,6 +5,8 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { EXPECTED as expectedMigration } from '../run-staging-migration-predeploy.mjs'
+import { STAGING_LOCAL_UPLOAD_APPROVAL } from './staging-migration-admission.mjs'
+import { REVIEWED_LOCAL_UPLOAD_APPROVAL } from './staging-topology-admission.mjs'
 import { RAILWAY_STATUS_COMMAND } from './railway-cli-contract.mjs'
 import { buildStagingPredeployServiceContract } from './staging-predeploy-service-contract.mjs'
 
@@ -140,6 +142,23 @@ export function buildStagingHandoffManifest({
         requiresSuccessfulDeployment: true,
         requiresRunningInstance: true,
       },
+      reviewedLocalUploadFallback: {
+        approvalService: 'staging-web',
+        approvalVariable: {
+          name: 'PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
+          admittedValue: STAGING_LOCAL_UPLOAD_APPROVAL,
+          closedValue: '',
+        },
+        exactCliMessages: {
+          'staging-web': `Torchiko exact ${candidate} staging web`,
+          'staging-dashboard': `Torchiko exact ${candidate} staging dashboard`,
+          'staging-workers': `Torchiko exact ${candidate} staging workers`,
+        },
+        topologyAdmissionCommand:
+          `pnpm verify:staging-topology --expected-revision ${candidate} ` +
+          `--reviewed-local-upload ${REVIEWED_LOCAL_UPLOAD_APPROVAL}`,
+        requiresCheckedInServiceConfig: true,
+      },
       runtimeAudit: {
         deploymentIdentitySource: 'rolloutSafety.topologyAdmission',
         commandTemplate: `pnpm verify:staging-runtime --web-deployment <staging-web-deployment-id> --dashboard-deployment <staging-dashboard-deployment-id> --workers-deployment <staging-workers-deployment-id> --expected-revision ${candidate} --since 24h`,
@@ -165,8 +184,10 @@ export function buildStagingHandoffManifest({
         'Set PATHFINDER_RELEASE_SHA=<candidate.revision> on Railway web, dashboard, and workers with --skip-deploys; it must match provider release metadata on every service and must not trigger a partial rollout.',
         'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
         'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before deployment; the pre-deploy migration rejects a closed or missing one-run gate.',
-        'Deploy the resulting immutable staging revision with provider release metadata intact; Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
+        'If and only if provider Git metadata cannot be preserved and a reviewed local upload is required, set PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL to the exact checked-in admitted value on Railway web with --skip-deploys before upload, and use the exact per-service CLI messages in rolloutSafety.reviewedLocalUploadFallback.',
+        'Deploy the resulting immutable staging revision with provider release metadata intact, or use only the exact reviewed-local-upload fallback contract when provider metadata is unavailable; Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 with --skip-deploys so closing the one-run gate does not replace the admitted active revision.',
+        'After any reviewed local upload succeeds, blank PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL on Railway web with --skip-deploys and use rolloutSafety.reviewedLocalUploadFallback.topologyAdmissionCommand for admission.',
         'Run verify:release with the staging profile against that exact hosted revision.',
         `Pipe ${RAILWAY_STATUS_COMMAND} into verify:staging-topology for the exact hosted revision and retain only its bounded three-service result.`,
         'Run verify:staging-runtime with the exact deployment IDs emitted by verify:staging-topology; retain only its bounded counts and never treat a refused empty provider query as clean evidence.',

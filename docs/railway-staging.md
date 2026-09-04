@@ -310,7 +310,12 @@ pnpm dlx @railway/cli@5.45.10 status --json | pnpm verify:staging-topology --exp
 
 For an explicitly reviewed local source upload, give each service deployment the exact message
 `Torchiko exact <full-release-sha> staging <web|dashboard|workers>`, use its checked-in staging
-Railway config, and add
+Railway config, and set the exact checked-in
+`PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL` value on `staging-web` with `--skip-deploys` before the
+upload. This extra one-time value is required because a local upload has no
+`RAILWAY_GIT_COMMIT_SHA` for the migration predeploy to compare. After the admitted web deployment
+succeeds, blank that approval with `--skip-deploys`; do not delete it through a command that could
+trigger another deployment. Add
 `--reviewed-local-upload reviewed-exact-source-upload-v1`. This path refuses abbreviated SHAs,
 wrong callers, wrong config files, partial service matches, or an unrecognized attestation. The
 result labels each service's revision source so local-upload evidence cannot be mistaken for provider

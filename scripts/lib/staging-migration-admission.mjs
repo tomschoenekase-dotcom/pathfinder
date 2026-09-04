@@ -1,6 +1,6 @@
 const PRODUCTION_PROJECT_REFS = Object.freeze(['zpacmfkomonxeqdiadtz'])
 const MAX_APPROVED_STAGING_SPEND_USD = 10
-const LOCAL_UPLOAD_APPROVAL = 'torchiko-stripe-billing-local-upload-20260820'
+export const STAGING_LOCAL_UPLOAD_APPROVAL = 'torchiko-stripe-billing-local-upload-20260820'
 const MAX_PRESERVATION_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1_000
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1_000
 
@@ -135,7 +135,9 @@ export function assertStagingMigrationAdmission(environment, now = new Date()) {
     if (releaseSha !== providerReleaseSha) {
       throw new Error('PATHFINDER_RELEASE_SHA must equal the full Railway release commit SHA')
     }
-  } else if (environment.PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL !== LOCAL_UPLOAD_APPROVAL) {
+  } else if (
+    environment.PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL !== STAGING_LOCAL_UPLOAD_APPROVAL
+  ) {
     throw new Error(
       'Local staging uploads require the exact one-time PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
     )
