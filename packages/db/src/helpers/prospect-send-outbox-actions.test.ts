@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 import {
   claimProspectSendOutboxAction,
@@ -148,6 +149,7 @@ describe('prospect last-mile delivery authority', () => {
   })
 
   it('retains a claimed operation for an exact case-insensitive internal allowlist match', async () => {
+    const normalizedEmail = 'reviewer@torchiko.test'
     const tx = {
       prospectDeliveryControl: {
         findUnique: vi.fn().mockResolvedValue({
@@ -171,7 +173,19 @@ describe('prospect last-mile delivery authority', () => {
           },
           sendItem: {
             id: 'item-1',
-            recipientEmailSnapshot: 'reviewer@torchiko.test',
+            recipientEmailSnapshot: normalizedEmail,
+            recipientIdentityHash: createHash('sha256').update(normalizedEmail).digest('hex'),
+            member: {
+              contact: {
+                normalizedEmail,
+                archivedAt: null,
+                doNotContact: false,
+                emailReadiness: 'VALID',
+                permissionState: 'UNKNOWN',
+                suppressedAt: null,
+                unsubscribedAt: null,
+              },
+            },
             batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
           },
         }),
@@ -192,6 +206,78 @@ describe('prospect last-mile delivery authority', () => {
       ),
     ).resolves.toBe(true)
     expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
+  })
+
+  it('suppresses a claimed operation when the contact opts out before the provider call', async () => {
+    const normalizedEmail = 'reviewer@torchiko.test'
+    const tx = {
+      prospectDeliveryControl: {
+        findUnique: vi.fn().mockResolvedValue({
+          deliveryEnabled: true,
+          internalOnly: false,
+          internalAllowlist: [],
+        }),
+      },
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          status: 'CLAIMED',
+          claimOwner: 'worker-1',
+          claimExpiresAt: new Date('2026-08-22T16:05:00.000Z'),
+          providerAccount: {
+            provider: 'GMAIL',
+            capabilities: ['SEND'],
+            deliveryEnabled: true,
+            pausedAt: null,
+            connectionStatus: 'CONNECTED',
+          },
+          sendItem: {
+            id: 'item-1',
+            recipientEmailSnapshot: normalizedEmail,
+            recipientIdentityHash: createHash('sha256').update(normalizedEmail).digest('hex'),
+            member: {
+              contact: {
+                normalizedEmail,
+                archivedAt: null,
+                doNotContact: false,
+                emailReadiness: 'VALID',
+                permissionState: 'OPTED_OUT',
+                suppressedAt: null,
+                unsubscribedAt: new Date('2026-08-22T15:59:00.000Z'),
+              },
+            },
+            batch: { campaign: { pausedAt: null, status: 'ACTIVE' } },
+          },
+        }),
+        update: vi.fn(),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'worker-1',
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendOutbox.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'SUPPRESSED',
+          lastErrorCode: 'CONTACT_SUPPRESSED',
+        }),
+      }),
+    )
+    expect(tx.prospectSendItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'SUPPRESSED' }),
+      }),
+    )
   })
 })
 

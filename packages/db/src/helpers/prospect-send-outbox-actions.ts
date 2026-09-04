@@ -64,6 +64,41 @@ function deliveryControlAllowsRecipient(
   )
 }
 
+function recipientEligibility(
+  contact:
+    | {
+        normalizedEmail: string | null
+        archivedAt: Date | null
+        doNotContact: boolean
+        emailReadiness: string
+        permissionState: string
+        suppressedAt: Date | null
+        unsubscribedAt: Date | null
+      }
+    | null
+    | undefined,
+  expectedIdentityHash: string,
+) {
+  const currentIdentityHash = contact?.normalizedEmail
+    ? identityHash(contact.normalizedEmail)
+    : null
+  const identityChanged = Boolean(
+    currentIdentityHash && currentIdentityHash !== expectedIdentityHash,
+  )
+  const eligible = Boolean(
+    contact &&
+    !contact.archivedAt &&
+    !contact.doNotContact &&
+    contact.emailReadiness === 'VALID' &&
+    contact.permissionState !== 'OPTED_OUT' &&
+    contact.permissionState !== 'PROHIBITED' &&
+    !contact.suppressedAt &&
+    !contact.unsubscribedAt &&
+    currentIdentityHash === expectedIdentityHash,
+  )
+  return { eligible, identityChanged }
+}
+
 export async function finalizeProspectSendBatch(
   batchId: string,
   client: Client = db,
@@ -276,19 +311,8 @@ export async function claimProspectSendOutboxAction(
       return { send: null, terminalBatchId: sendItem.batchId }
     }
     const contact = sendItem.member.contact
-    const contactHash = contact?.normalizedEmail ? identityHash(contact.normalizedEmail) : null
-    if (
-      !contact ||
-      contact.archivedAt ||
-      contact.doNotContact ||
-      contact.emailReadiness !== 'VALID' ||
-      contact.permissionState === 'OPTED_OUT' ||
-      contact.permissionState === 'PROHIBITED' ||
-      contact.suppressedAt ||
-      contact.unsubscribedAt ||
-      contactHash !== sendItem.recipientIdentityHash
-    ) {
-      const identityChanged = Boolean(contactHash && contactHash !== sendItem.recipientIdentityHash)
+    const eligibility = recipientEligibility(contact, sendItem.recipientIdentityHash)
+    if (!eligibility.eligible) {
       await tx.prospectSendOutbox.update({
         where: { id: operation.id },
         data: {
@@ -296,7 +320,9 @@ export async function claimProspectSendOutboxAction(
           terminalAt: now,
           claimOwner: null,
           claimExpiresAt: null,
-          lastErrorCode: identityChanged ? 'RECIPIENT_IDENTITY_CHANGED' : 'CONTACT_SUPPRESSED',
+          lastErrorCode: eligibility.identityChanged
+            ? 'RECIPIENT_IDENTITY_CHANGED'
+            : 'CONTACT_SUPPRESSED',
           lastErrorMessage:
             'Recipient eligibility changed after approval; no provider call occurred',
           lastErrorRetryable: false,
@@ -305,8 +331,10 @@ export async function claimProspectSendOutboxAction(
       await tx.prospectSendItem.update({
         where: { id: sendItem.id },
         data: {
-          status: identityChanged ? 'SKIPPED_IDENTITY_CHANGED' : 'SUPPRESSED',
-          lastErrorCode: identityChanged ? 'RECIPIENT_IDENTITY_CHANGED' : 'CONTACT_SUPPRESSED',
+          status: eligibility.identityChanged ? 'SKIPPED_IDENTITY_CHANGED' : 'SUPPRESSED',
+          lastErrorCode: eligibility.identityChanged
+            ? 'RECIPIENT_IDENTITY_CHANGED'
+            : 'CONTACT_SUPPRESSED',
           lastErrorMessage:
             'Recipient eligibility changed after approval; no provider call occurred',
         },
@@ -379,7 +407,26 @@ export async function revalidateProspectSendOutboxClaimAction(
         where: { id: input.outboxId },
         include: {
           providerAccount: true,
-          sendItem: { include: { batch: { include: { campaign: true } } } },
+          sendItem: {
+            include: {
+              batch: { include: { campaign: true } },
+              member: {
+                include: {
+                  contact: {
+                    select: {
+                      normalizedEmail: true,
+                      doNotContact: true,
+                      archivedAt: true,
+                      emailReadiness: true,
+                      permissionState: true,
+                      suppressedAt: true,
+                      unsubscribedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
     ])
@@ -418,6 +465,37 @@ export async function revalidateProspectSendOutboxClaimAction(
       await tx.prospectSendItem.update({
         where: { id: sendItem.id },
         data: { status: 'CANCELLED', lastErrorCode: 'DELIVERY_STOPPED_BEFORE_PROVIDER' },
+      })
+      return false
+    }
+    const eligibility = recipientEligibility(
+      sendItem.member.contact,
+      sendItem.recipientIdentityHash,
+    )
+    if (!eligibility.eligible) {
+      await tx.prospectSendOutbox.update({
+        where: { id: operation.id },
+        data: {
+          status: 'SUPPRESSED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: eligibility.identityChanged
+            ? 'RECIPIENT_IDENTITY_CHANGED'
+            : 'CONTACT_SUPPRESSED',
+          lastErrorMessage: 'Recipient eligibility changed after claim and before provider call',
+          lastErrorRetryable: false,
+        },
+      })
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: {
+          status: eligibility.identityChanged ? 'SKIPPED_IDENTITY_CHANGED' : 'SUPPRESSED',
+          lastErrorCode: eligibility.identityChanged
+            ? 'RECIPIENT_IDENTITY_CHANGED'
+            : 'CONTACT_SUPPRESSED',
+          lastErrorMessage: 'Recipient eligibility changed after claim and before provider call',
+        },
       })
       return false
     }
