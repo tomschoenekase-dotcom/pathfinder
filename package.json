@@ -89,6 +89,7 @@
     "verify:release": "node scripts/verify-release.mjs",
     "release:evidence:prepare": "node scripts/prepare-release-evidence.mjs",
     "staging:handoff": "node scripts/create-staging-handoff.mjs",
+    "staging:handoff:finalize": "node scripts/finalize-staging-handoff.mjs",
     "verify:public-surfaces": "node scripts/verify-public-surface-boundary.mjs",
     "verify:agent-tools": "node scripts/torchiko.mjs tools coverage --json",
     "verify:agent-scenarios": "node scripts/torchiko.mjs scenarios validate --json",

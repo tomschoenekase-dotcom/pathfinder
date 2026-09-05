@@ -3,7 +3,9 @@ import test from 'node:test'
 
 import {
   buildStagingHandoffManifest,
+  finalizeStagingHandoffManifest,
   parseStagingHandoffArgs,
+  parseStagingHandoffFinalizeArgs,
   validateFeatureFlagDefaults,
   validateReleaseReport,
 } from './lib/staging-handoff-manifest.mjs'
@@ -293,4 +295,69 @@ test('parses bounded options and requires the candidate report', () => {
     /duplicate-option/u,
   )
   assert.throws(() => parseStagingHandoffArgs(['--unsafe', 'x']), /unknown-option/u)
+})
+
+test('finalizes the owner revision deterministically only after exact lineage proof', () => {
+  const ownerRevision = 'd'.repeat(40)
+  const resolved = finalizeStagingHandoffManifest({
+    manifest: buildStagingHandoffManifest(input()),
+    ownerRevision,
+    candidateIsAncestorOfOwner: true,
+    baseIsAncestorOfOwner: true,
+  })
+  assert.equal(resolved.admission.status, 'ready-for-railway-prerequisite-staging')
+  assert.equal(resolved.admission.ownerRevision, ownerRevision)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.resultingRevision, ownerRevision)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.resultingRevisionResolved, true)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.candidateIsAncestorOfResult, true)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.baseIsAncestorOfResult, true)
+  assert.equal(resolved.rolloutSafety.applicationReleaseIdentity.deploymentValue, ownerRevision)
+  assert.match(resolved.rolloutSafety.topologyAdmission.command, new RegExp(ownerRevision, 'u'))
+  assert.equal(resolved.admission.completedActions.length, 1)
+  assert.match(resolved.admission.completedActions[0], new RegExp(CANDIDATE, 'u'))
+  assert.match(resolved.admission.completedActions[0], new RegExp(ownerRevision, 'u'))
+  assert.doesNotMatch(resolved.admission.requiredActions[0], /integrate this exact candidate/u)
+  assert.match(resolved.admission.requiredActions[0], new RegExp(ownerRevision, 'u'))
+  assert.equal(JSON.stringify(resolved).includes('<owner-staging-revision>'), false)
+})
+
+test('finalization fails closed on invalid owner identity, lineage, or source state', () => {
+  const manifest = buildStagingHandoffManifest(input())
+  const ownerRevision = 'd'.repeat(40)
+  for (const invalid of [
+    { ownerRevision: CANDIDATE, candidateIsAncestorOfOwner: true, baseIsAncestorOfOwner: true },
+    { ownerRevision, candidateIsAncestorOfOwner: false, baseIsAncestorOfOwner: true },
+    { ownerRevision, candidateIsAncestorOfOwner: true, baseIsAncestorOfOwner: false },
+  ]) {
+    assert.throws(() => finalizeStagingHandoffManifest({ manifest, ...invalid }), /not-admissible/u)
+  }
+  assert.throws(
+    () =>
+      finalizeStagingHandoffManifest({
+        manifest: { ...manifest, admission: { ...manifest.admission, status: 'already-used' } },
+        ownerRevision,
+        candidateIsAncestorOfOwner: true,
+        baseIsAncestorOfOwner: true,
+      }),
+    /not-admissible/u,
+  )
+})
+
+test('parses bounded finalization options and requires an exact owner SHA', () => {
+  const ownerRevision = 'd'.repeat(40)
+  assert.deepEqual(
+    parseStagingHandoffFinalizeArgs([
+      '--manifest',
+      'handoff.json',
+      '--owner-revision',
+      ownerRevision,
+    ]),
+    { manifest: 'handoff.json', ownerRevision, report: undefined },
+  )
+  assert.throws(() => parseStagingHandoffFinalizeArgs([]), /required/u)
+  assert.throws(
+    () =>
+      parseStagingHandoffFinalizeArgs(['--manifest', 'handoff.json', '--owner-revision', 'HEAD']),
+    /full-sha/u,
+  )
 })
