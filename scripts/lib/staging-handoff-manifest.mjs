@@ -252,6 +252,9 @@ function replaceOwnerRevision(value, ownerRevision) {
 export function finalizeStagingHandoffManifest({
   manifest,
   ownerRevision,
+  currentRevision,
+  currentBaseRevision,
+  clean,
   candidateIsAncestorOfOwner,
   baseIsAncestorOfOwner,
 }) {
@@ -267,18 +270,24 @@ export function finalizeStagingHandoffManifest({
   if (!FULL_SHA.test(ownerRevision) || ownerRevision === manifest.candidate.revision) {
     fail('owner-revision-not-admissible')
   }
+  if (!clean) fail('owner-worktree-dirty')
+  if (currentRevision !== ownerRevision) fail('owner-revision-not-current-head')
+  if (currentBaseRevision !== manifest.base.revision) fail('owner-base-ref-advanced')
   if (!candidateIsAncestorOfOwner || !baseIsAncestorOfOwner) fail('owner-lineage-not-admissible')
 
   const source = JSON.stringify(manifest)
   if (!source.includes(OWNER_REVISION)) fail('owner-revision-placeholder-missing')
   const resolved = replaceOwnerRevision(manifest, ownerRevision)
   resolved.rolloutSafety.ownerIntegration.resultingRevisionResolved = true
+  resolved.rolloutSafety.ownerIntegration.localHeadMatchesResult = true
+  resolved.rolloutSafety.ownerIntegration.recordedBaseRefUnchanged = true
+  resolved.rolloutSafety.ownerIntegration.worktreeClean = true
   resolved.rolloutSafety.ownerIntegration.candidateIsAncestorOfResult = true
   resolved.rolloutSafety.ownerIntegration.baseIsAncestorOfResult = true
   resolved.admission.status = 'ready-for-railway-prerequisite-staging'
   resolved.admission.ownerRevision = ownerRevision
   resolved.admission.completedActions = [
-    `Integrated candidate ${manifest.candidate.revision} into exact local owner revision ${ownerRevision}; candidate and recorded base ancestry verified without pushing.`,
+    `Verified clean local owner HEAD ${ownerRevision} while ${manifest.base.ref} still resolved to recorded base ${manifest.base.revision}; candidate ${manifest.candidate.revision} and recorded base ancestry confirmed.`,
   ]
   resolved.admission.requiredActions = resolved.admission.requiredActions.slice(1)
   if (JSON.stringify(resolved).includes(OWNER_REVISION)) fail('owner-revision-placeholder-retained')
@@ -403,9 +412,13 @@ export async function finalizeStagingHandoff({ root, options }) {
   if (!FULL_SHA.test(candidate ?? '') || !FULL_SHA.test(baseRevision ?? '')) {
     fail('handoff-manifest-not-admissible')
   }
-  const ownerRevision = (
-    await git(root, ['rev-parse', `${options.ownerRevision}^{commit}`])
-  ).stdout.trim()
+  const [ownerResult, headResult, baseRefResult, statusResult] = await Promise.all([
+    git(root, ['rev-parse', `${options.ownerRevision}^{commit}`]),
+    git(root, ['rev-parse', 'HEAD']),
+    git(root, ['rev-parse', `${manifest.base.ref}^{commit}`]),
+    git(root, ['status', '--short']),
+  ])
+  const ownerRevision = ownerResult.stdout.trim()
   if (ownerRevision !== options.ownerRevision) fail('owner-revision-not-exact')
   const [candidateAncestry, baseAncestry] = await Promise.all([
     git(root, ['merge-base', '--is-ancestor', candidate, ownerRevision], true),
@@ -414,6 +427,9 @@ export async function finalizeStagingHandoff({ root, options }) {
   const resolved = finalizeStagingHandoffManifest({
     manifest,
     ownerRevision,
+    currentRevision: headResult.stdout.trim(),
+    currentBaseRevision: baseRefResult.stdout.trim(),
+    clean: statusResult.stdout.trim() === '',
     candidateIsAncestorOfOwner: candidateAncestry.code === 0,
     baseIsAncestorOfOwner: baseAncestry.code === 0,
   })

@@ -332,13 +332,15 @@ pnpm staging:handoff:finalize \
   --owner-revision <full-owner-sha>
 ```
 
-The finalizer accepts only a literal 40-character owner SHA, verifies that both the candidate and its
-recorded base are ancestors of that exact commit, rejects a reused or malformed handoff, replaces
-every owner-revision placeholder, and emits a deterministic resolved manifest. Use only the exact
-commands and identity in that resolved manifest for `PATHFINDER_RELEASE_SHA`, local-upload messages,
-topology admission, runtime audit, and hosted verification. Stage every required Railway variable
-with `--skip-deploys` before pushing the owner branch because that push may immediately create
-Git-backed deployments. Require owner CI success before waiting services are released.
+The finalizer accepts only a literal 40-character owner SHA. It requires that SHA to be the clean
+current local `HEAD`, requires the manifest's recorded remote-tracking base to remain unchanged, and
+verifies that both the candidate and recorded base are ancestors of the owner commit. It rejects a
+reused, malformed, dirty, stale, or already-pushed handoff, replaces every owner-revision placeholder,
+and emits a deterministic resolved manifest. Use only the exact commands and identity in that
+resolved manifest for `PATHFINDER_RELEASE_SHA`, local-upload messages, topology admission, runtime
+audit, and hosted verification. Stage every required Railway variable with `--skip-deploys` before
+pushing the owner branch because that push may immediately create Git-backed deployments. Require
+owner CI success before waiting services are released.
 
 The topology verifier reads at most 1 MiB from standard input, retains no raw provider payload, and
 emits only the three application deployment IDs, immutable image digests, expected revision, and
