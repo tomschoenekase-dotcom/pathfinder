@@ -302,6 +302,9 @@ test('finalizes the owner revision deterministically only after exact lineage pr
   const resolved = finalizeStagingHandoffManifest({
     manifest: buildStagingHandoffManifest(input()),
     ownerRevision,
+    currentRevision: ownerRevision,
+    currentBaseRevision: BASE,
+    clean: true,
     candidateIsAncestorOfOwner: true,
     baseIsAncestorOfOwner: true,
   })
@@ -309,6 +312,9 @@ test('finalizes the owner revision deterministically only after exact lineage pr
   assert.equal(resolved.admission.ownerRevision, ownerRevision)
   assert.equal(resolved.rolloutSafety.ownerIntegration.resultingRevision, ownerRevision)
   assert.equal(resolved.rolloutSafety.ownerIntegration.resultingRevisionResolved, true)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.localHeadMatchesResult, true)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.recordedBaseRefUnchanged, true)
+  assert.equal(resolved.rolloutSafety.ownerIntegration.worktreeClean, true)
   assert.equal(resolved.rolloutSafety.ownerIntegration.candidateIsAncestorOfResult, true)
   assert.equal(resolved.rolloutSafety.ownerIntegration.baseIsAncestorOfResult, true)
   assert.equal(resolved.rolloutSafety.applicationReleaseIdentity.deploymentValue, ownerRevision)
@@ -325,17 +331,36 @@ test('finalization fails closed on invalid owner identity, lineage, or source st
   const manifest = buildStagingHandoffManifest(input())
   const ownerRevision = 'd'.repeat(40)
   for (const invalid of [
-    { ownerRevision: CANDIDATE, candidateIsAncestorOfOwner: true, baseIsAncestorOfOwner: true },
-    { ownerRevision, candidateIsAncestorOfOwner: false, baseIsAncestorOfOwner: true },
-    { ownerRevision, candidateIsAncestorOfOwner: true, baseIsAncestorOfOwner: false },
+    { ownerRevision: CANDIDATE, currentRevision: CANDIDATE },
+    { clean: false },
+    { currentRevision: 'e'.repeat(40) },
+    { currentBaseRevision: 'e'.repeat(40) },
+    { candidateIsAncestorOfOwner: false },
+    { baseIsAncestorOfOwner: false },
   ]) {
-    assert.throws(() => finalizeStagingHandoffManifest({ manifest, ...invalid }), /not-admissible/u)
+    assert.throws(
+      () =>
+        finalizeStagingHandoffManifest({
+          manifest,
+          ownerRevision,
+          currentRevision: ownerRevision,
+          currentBaseRevision: BASE,
+          clean: true,
+          candidateIsAncestorOfOwner: true,
+          baseIsAncestorOfOwner: true,
+          ...invalid,
+        }),
+      /not-admissible|dirty|current-head|advanced/u,
+    )
   }
   assert.throws(
     () =>
       finalizeStagingHandoffManifest({
         manifest: { ...manifest, admission: { ...manifest.admission, status: 'already-used' } },
         ownerRevision,
+        currentRevision: ownerRevision,
+        currentBaseRevision: BASE,
+        clean: true,
         candidateIsAncestorOfOwner: true,
         baseIsAncestorOfOwner: true,
       }),
