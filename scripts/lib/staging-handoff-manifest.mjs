@@ -52,6 +52,24 @@ export function parseStagingHandoffArgs(args) {
   }
 }
 
+export function parseStagingHandoffFinalizeArgs(args) {
+  const allowed = new Set(['--manifest', '--owner-revision', '--report'])
+  const values = new Map()
+  for (let index = 0; index < args.length; index += 2) {
+    const option = args[index]
+    const value = args[index + 1]
+    if (!allowed.has(option)) fail('unknown-option')
+    if (values.has(option)) fail('duplicate-option')
+    if (value === undefined || value.startsWith('--')) fail('missing-option-value')
+    values.set(option, value)
+  }
+  const manifest = values.get('--manifest')
+  const ownerRevision = values.get('--owner-revision')
+  if (!manifest || !ownerRevision) fail('manifest-and-owner-revision-required')
+  if (!FULL_SHA.test(ownerRevision)) fail('owner-revision-must-be-full-sha')
+  return { manifest, ownerRevision, report: values.get('--report') }
+}
+
 export function validateFeatureFlagDefaults(source) {
   const matches = [
     ...source.matchAll(/environmentVariable:\s*'([^']+)'[\s\S]*?defaultEnabled:\s*(true|false)/gu),
@@ -220,6 +238,53 @@ export function buildStagingHandoffManifest({
   }
 }
 
+function replaceOwnerRevision(value, ownerRevision) {
+  if (typeof value === 'string') return value.replaceAll(OWNER_REVISION, ownerRevision)
+  if (Array.isArray(value)) return value.map((item) => replaceOwnerRevision(item, ownerRevision))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, replaceOwnerRevision(item, ownerRevision)]),
+    )
+  }
+  return value
+}
+
+export function finalizeStagingHandoffManifest({
+  manifest,
+  ownerRevision,
+  candidateIsAncestorOfOwner,
+  baseIsAncestorOfOwner,
+}) {
+  if (
+    manifest?.schemaVersion !== 1 ||
+    manifest?.kind !== 'torchiko-staging-handoff' ||
+    manifest?.admission?.status !== 'ready-for-owner-staging-integration' ||
+    !FULL_SHA.test(manifest?.base?.revision ?? '') ||
+    !FULL_SHA.test(manifest?.candidate?.revision ?? '')
+  ) {
+    fail('handoff-manifest-not-admissible')
+  }
+  if (!FULL_SHA.test(ownerRevision) || ownerRevision === manifest.candidate.revision) {
+    fail('owner-revision-not-admissible')
+  }
+  if (!candidateIsAncestorOfOwner || !baseIsAncestorOfOwner) fail('owner-lineage-not-admissible')
+
+  const source = JSON.stringify(manifest)
+  if (!source.includes(OWNER_REVISION)) fail('owner-revision-placeholder-missing')
+  const resolved = replaceOwnerRevision(manifest, ownerRevision)
+  resolved.rolloutSafety.ownerIntegration.resultingRevisionResolved = true
+  resolved.rolloutSafety.ownerIntegration.candidateIsAncestorOfResult = true
+  resolved.rolloutSafety.ownerIntegration.baseIsAncestorOfResult = true
+  resolved.admission.status = 'ready-for-railway-prerequisite-staging'
+  resolved.admission.ownerRevision = ownerRevision
+  resolved.admission.completedActions = [
+    `Integrated candidate ${manifest.candidate.revision} into exact local owner revision ${ownerRevision}; candidate and recorded base ancestry verified without pushing.`,
+  ]
+  resolved.admission.requiredActions = resolved.admission.requiredActions.slice(1)
+  if (JSON.stringify(resolved).includes(OWNER_REVISION)) fail('owner-revision-placeholder-retained')
+  return resolved
+}
+
 async function git(root, args, allowExitOne = false) {
   try {
     const { stdout } = await execFileAsync('git', args, {
@@ -328,4 +393,37 @@ export async function createStagingHandoffManifest({ root, options }) {
   await mkdir(path.dirname(outputPath), { recursive: true })
   await writeFile(outputPath, source, { flag: 'w' })
   return { manifest, outputPath, sha256: sha256(source) }
+}
+
+export async function finalizeStagingHandoff({ root, options }) {
+  const manifestPath = safeJsonPath(root, options.manifest)
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  const candidate = manifest?.candidate?.revision
+  const baseRevision = manifest?.base?.revision
+  if (!FULL_SHA.test(candidate ?? '') || !FULL_SHA.test(baseRevision ?? '')) {
+    fail('handoff-manifest-not-admissible')
+  }
+  const ownerRevision = (
+    await git(root, ['rev-parse', `${options.ownerRevision}^{commit}`])
+  ).stdout.trim()
+  if (ownerRevision !== options.ownerRevision) fail('owner-revision-not-exact')
+  const [candidateAncestry, baseAncestry] = await Promise.all([
+    git(root, ['merge-base', '--is-ancestor', candidate, ownerRevision], true),
+    git(root, ['merge-base', '--is-ancestor', baseRevision, ownerRevision], true),
+  ])
+  const resolved = finalizeStagingHandoffManifest({
+    manifest,
+    ownerRevision,
+    candidateIsAncestorOfOwner: candidateAncestry.code === 0,
+    baseIsAncestorOfOwner: baseAncestry.code === 0,
+  })
+  const outputPath = safeJsonPath(
+    root,
+    options.report,
+    `artifacts/staging-handoff/${candidate}-to-${ownerRevision}.json`,
+  )
+  const source = `${JSON.stringify(resolved, null, 2)}\n`
+  await mkdir(path.dirname(outputPath), { recursive: true })
+  await writeFile(outputPath, source, { flag: 'w' })
+  return { manifest: resolved, outputPath, sha256: sha256(source) }
 }
