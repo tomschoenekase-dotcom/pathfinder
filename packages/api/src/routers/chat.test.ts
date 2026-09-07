@@ -1143,7 +1143,15 @@ describe('chat router', () => {
     it('records a first-session character start only after every trusted rollout gate passes', async () => {
       setupHappyPath('Welcome.')
       messageFindMany.mockReset()
-      messageFindMany.mockResolvedValueOnce([{ role: 'user', content: sendInput.message }])
+      messageFindMany.mockResolvedValueOnce([
+        {
+          id: 'first-message',
+          role: 'user',
+          content: sendInput.message,
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-07T16:00:00.000Z'),
+        },
+      ])
       dbQueryRaw.mockReset()
       dbQueryRaw.mockResolvedValueOnce([
         {
@@ -1902,8 +1910,20 @@ describe('chat router', () => {
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce([])
       messageFindMany.mockResolvedValueOnce([
-        { role: 'assistant', content: 'Second message' },
-        { role: 'user', content: 'First message' },
+        {
+          id: 'second-message',
+          role: 'assistant',
+          content: 'Second message',
+          sessionSequence: 2,
+          createdAt: new Date('2026-09-07T16:02:00.000Z'),
+        },
+        {
+          id: 'first-message',
+          role: 'user',
+          content: 'First message',
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-07T16:01:00.000Z'),
+        },
       ])
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Reply.' }],
@@ -1917,6 +1937,71 @@ describe('chat router', () => {
       // First two messages are history (reversed), third is new user message
       expect(callArgs.messages[0]).toMatchObject({ role: 'user', content: 'First message' })
       expect(callArgs.messages[1]).toMatchObject({ role: 'assistant', content: 'Second message' })
+      expect(callArgs.messages[2]).toMatchObject({ role: 'user', content: sendInput.message })
+    })
+
+    it('passes exact scoped persisted voice context with explicit delivery uncertainty', async () => {
+      setupHappyPath('Follow-up reply.')
+      messageFindMany.mockReset().mockResolvedValueOnce([])
+      voiceTranscriptSegmentFindMany.mockResolvedValueOnce([
+        {
+          id: 'voice-2',
+          voiceSessionId: '11111111-1111-4111-8111-111111111111',
+          providerEventId: 'voice-event-2',
+          sequence: 2,
+          speaker: 'ASSISTANT',
+          text: '[Interrupted] Continue past the family lounge.',
+          createdAt: new Date('2026-09-07T16:01:00.000Z'),
+        },
+        {
+          id: 'voice-1',
+          voiceSessionId: '11111111-1111-4111-8111-111111111111',
+          providerEventId: 'voice-event-1',
+          sequence: 1,
+          speaker: 'VISITOR',
+          text: 'Which route is quieter?',
+          createdAt: new Date('2026-09-07T16:02:00.000Z'),
+        },
+      ])
+
+      await caller.chat.send(sendInput)
+
+      expect(voiceTranscriptSegmentFindMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          voiceSession: {
+            visitorSessionId: SESSION_ID,
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 10,
+        select: {
+          id: true,
+          voiceSessionId: true,
+          providerEventId: true,
+          sequence: true,
+          speaker: true,
+          text: true,
+          createdAt: true,
+        },
+      })
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      expect(callArgs.messages).toEqual([
+        {
+          role: 'user',
+          content:
+            '[Voice transcript data: visitor speech captured by the browser; transcription is unverified]\nWhich route is quieter?',
+        },
+        {
+          role: 'assistant',
+          content:
+            '[Voice transcript data: assistant output was interrupted, may be incomplete, and may not have been heard by the visitor]\nContinue past the family lounge.',
+        },
+        { role: 'user', content: sendInput.message },
+      ])
     })
 
     it('uses cache_control ephemeral only on the static system prompt block', async () => {
@@ -2543,6 +2628,8 @@ describe('chat router', () => {
           id: 'assistant-1',
           role: 'assistant',
           content: 'Visit the Elephants habitat.',
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-07T16:00:00.000Z'),
           guestChatTurn: {
             replayMetadata: {
               places: [],

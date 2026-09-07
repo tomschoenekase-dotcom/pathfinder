@@ -10,6 +10,10 @@ import {
 } from './venue-context'
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
 import { hashGuestChatPromptManifest } from './guest-chat-prompt-contract'
+import {
+  mergeGuestConversationEntries,
+  projectGuestModelHistory,
+} from './guest-conversation-history'
 
 const venue = {
   name: 'City Zoo',
@@ -63,11 +67,36 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v12')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v13')
   })
 
   it('matches the broad production prompt contract manifest', () => {
     const prompts = [
+      {
+        id: 'persisted-voice-context-qualified-newest-ten',
+        prompt: JSON.stringify(
+          projectGuestModelHistory(
+            mergeGuestConversationEntries({
+              textRows: [],
+              voiceRows: Array.from({ length: 12 }, (_, index) => ({
+                id: `voice-row-${index}`,
+                voiceSessionId: 'same-authorized-visitor-session',
+                providerEventId: `event-${index}`,
+                sequence: index,
+                speaker: index % 3 === 0 ? ('VISITOR' as const) : ('ASSISTANT' as const),
+                text:
+                  index === 11
+                    ? 'Long captured transcript. '.repeat(120)
+                    : index % 3 === 2
+                      ? '[Interrupted] The accessible lift is'
+                      : 'Use the east corridor.',
+                createdAt: new Date(Date.UTC(2026, 8, 7, 0, 0, index)),
+              })),
+              limit: 10,
+            }),
+          ),
+        ),
+      },
       {
         id: 'location-aware-core',
         prompt: buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 40.7, userLng: -74 }),

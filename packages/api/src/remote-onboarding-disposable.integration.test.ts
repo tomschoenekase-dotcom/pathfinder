@@ -1288,6 +1288,48 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           select: { status: true, fallbackToText: true, errorCode: true },
         }),
       ).resolves.toEqual({ status: 'ENDED', fallbackToText: true, errorCode: null })
+      const crossModeQuestion = 'Can you continue that route?'
+      const crossModeAnswer = 'Continue along the east corridor toward the family lounge.'
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: crossModeAnswer }],
+        usage: {
+          input_tokens: 24,
+          output_tokens: 11,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      })
+      await expect(
+        publicCaller.chat.send({
+          operationId: randomUUID(),
+          venueId,
+          anonymousToken,
+          message: crossModeQuestion,
+        }),
+      ).resolves.toMatchObject({
+        response: crossModeAnswer,
+        sessionId: guestTurn.sessionId,
+        replayed: false,
+      })
+      const crossModeProviderMessages = (
+        anthropicCreate.mock.calls.at(-1)?.[0] as {
+          messages: Array<{ role: string; content: string }>
+        }
+      ).messages
+      expect(crossModeProviderMessages.slice(-3)).toEqual([
+        {
+          role: 'user',
+          content:
+            '[Voice transcript data: visitor speech captured by the browser; transcription is unverified]\n' +
+            primaryExpected.question,
+        },
+        {
+          role: 'assistant',
+          content:
+            '[Voice transcript data: assistant output was interrupted, may be incomplete, and may not have been heard by the visitor]\nContinue past the family lounge.',
+        },
+        { role: 'user', content: crossModeQuestion },
+      ])
       await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
         messages: expect.arrayContaining([
           expect.objectContaining({
@@ -1567,7 +1609,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           title: 'Synthetic Golden Venue report',
           content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
           generatedAt: new Date(),
-          answerCount: guestProofs.length,
+          answerCount: guestProofs.length + 1,
           sessionCount: guestProofs.length,
           createdBy: operatorId,
         },
@@ -1742,7 +1784,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         replayed: true,
       })
       expect(openAiCreate).toHaveBeenCalledTimes(embeddingCallsBeforeReplay)
-      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length)
+      expect(anthropicCreate).toHaveBeenCalledTimes(goldenVenueFixture.expectedQuestions.length + 1)
 
       // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
       // requests in the fixed window and rejects the next request without another write.
