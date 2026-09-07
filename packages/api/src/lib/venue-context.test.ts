@@ -43,7 +43,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v9')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v10')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -234,9 +234,19 @@ describe('formatDistance', () => {
     expect(formatDistance(100)).toBe('about 325 feet away') // 100m = ~328ft → rounds to 325
   })
 
-  it('returns minutes walk for distances over 500ft', () => {
-    expect(formatDistance(400)).toBe('about a 5-minute walk') // 400m / 80 = 5min
-    expect(formatDistance(160)).toBe('about a 2-minute walk') // 160m / 80 = 2min
+  it('keeps longer GPS distances approximate without inventing walking time', () => {
+    expect(formatDistance(400)).toBe('about 1300 feet away')
+    expect(formatDistance(160)).toBe('about 500 feet away')
+  })
+
+  it('cannot turn GPS proximity or visual adjacency into a traversable route', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 40.7, userLng: -74 })
+    expect(prompt).toContain('(straight-line proximity; route unknown)')
+    expect(prompt).toContain(
+      'Never infer walking time, a doorway, a traversable path, floor access, or accessibility',
+    )
+    expect(prompt).toContain('Do not call it the nearest reachable option')
+    expect(prompt).not.toContain('minute walk')
   })
 })
 

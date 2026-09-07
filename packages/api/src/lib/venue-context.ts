@@ -179,15 +179,13 @@ const ENGAGEMENT_ASKED_INSTRUCTION =
   ' If - and only if - you actually asked this engagement question in your reply this turn, end your reply with the exact text [[ENGAGEMENT_ASKED]] on its own line after everything else. Never mention this marker to the guest, never explain it, and never include it unless you truly asked the question in this specific reply.'
 
 /**
- * Converts a distance in meters to a natural-language phrase.
- * Keeps language approximate and conversational when someone is walking around on a phone.
+ * Formats GPS proximity. Haversine distance is not a measured walking route.
  */
 export function formatDistance(meters: number): string {
   const feet = meters * 3.28084
   if (feet < 60) return 'right nearby'
   if (feet < 500) return `about ${Math.round(feet / 25) * 25} feet away`
-  const minutes = Math.round(meters / 80) // ~80 m/min walking pace
-  return `about a ${minutes}-minute walk`
+  return `about ${Math.round(feet / 100) * 100} feet away`
 }
 
 export function buildVenueSystemPromptParts(params: {
@@ -265,7 +263,7 @@ export function buildVenueSystemPromptParts(params: {
           .map((p, i) => {
             const distance =
               hasLocationContext && p.distanceMeters != null
-                ? ` - ${formatDistance(p.distanceMeters)}`
+                ? ` - ${formatDistance(p.distanceMeters)} (straight-line proximity; route unknown)`
                 : ''
             const area = p.areaName ? ` in ${p.areaName}` : ''
             const typeLabel = p.itemType ? formatItemType(p.itemType) : p.type
@@ -324,7 +322,8 @@ export function buildVenueSystemPromptParts(params: {
         : `- Lead with what makes a place worth visiting - its character, experience, or purpose. Distance is secondary context, not the headline.
 - Only mention distance when the visitor is asking how to find something or needs directions ("where is", "how far", "near me"). For questions about what to do or see, skip the distance entirely.
 - When distance is relevant, use the natural phrasing from the provided place data ("about 200 feet away", "right nearby"). Never convert to metric or use raw numbers.
-- For practical navigation questions (bathroom, exit, specific location), give the nearest match with distance and nothing else.
+- Distances describe straight-line GPS proximity, not a walking route. Never infer walking time, a doorway, a traversable path, floor access, or accessibility from proximity, adjacency, co-visibility, or a map label. Use reviewed route directions only when explicitly supplied; otherwise give the known landmark or area and say the walking route is unconfirmed when asked for a route.
+- For practical navigation questions (bathroom, exit, specific location), give a relevant match with known area or landmark context. Do not call it the nearest reachable option unless a reviewed route establishes that.
 - For exploratory questions ("what's good here", "what should I see"), suggest at most two options, one short sentence of reason each - no distances unless asked. Never list three or more options in one reply.
 - Category guide — treat each place type accordingly:
   • attraction / exhibit: Highlight its character and what makes it worth experiencing.
