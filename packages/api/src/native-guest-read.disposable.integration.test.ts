@@ -76,6 +76,90 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
     await db.$disconnect()
   })
 
+  it('refreshes corrected and withdrawn knowledge across a thousand-row public corpus', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const tenantId = `tenant-fresh-${suffix}`
+      const venueId = `venue-fresh-${suffix}`
+      const siblingVenueId = `venue-fresh-sibling-${suffix}`
+      const knowledgeId = randomUUID()
+      await db.tenant.create({
+        data: { id: tenantId, name: 'Fresh grounding fixture', slug: tenantId },
+      })
+      await db.venue.createMany({
+        data: [venueId, siblingVenueId].map((id) => ({
+          id,
+          tenantId,
+          name: id,
+          slug: id,
+        })),
+      })
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          ...Array.from({ length: 1_000 }, (_, index) => ({
+            tenantId,
+            venueId,
+            title: `Gallery exhibit ${index}`,
+            category: 'GENERAL' as const,
+            content: `Gallery exhibit information number ${index}.`,
+            visibility: 'PUBLIC' as const,
+          })),
+          {
+            id: knowledgeId,
+            tenantId,
+            venueId,
+            title: 'North gallery capacity',
+            category: 'GENERAL' as const,
+            content: 'The north gallery capacity is 137 visitors.',
+            visibility: 'PUBLIC' as const,
+            updatedAt: new Date('2020-01-01T00:00:00Z'),
+          },
+          {
+            tenantId,
+            venueId: siblingVenueId,
+            title: 'North gallery capacity',
+            category: 'GENERAL' as const,
+            content: 'Sibling venue secret capacity is 999.',
+            visibility: 'PUBLIC' as const,
+          },
+        ],
+      })
+      const read = (query: string) =>
+        buildVoiceGroundingContext({ reader: db as never, tenantId, venueId, query })
+      for (const query of ['north gallery capacity', 'aforo galería norte']) {
+        const result = await read(query)
+        expect(result.context).toContain('137 visitors')
+        expect(result.context).not.toContain('999')
+        expect(result.sourceIds).toContain(knowledgeId)
+        expect(
+          result.trace.preOverlayKnowledgeRetrieval.candidateCounts.strict,
+        ).toBeLessThanOrEqual(20)
+        expect(result.trace.preOverlayKnowledgeRetrieval.candidateCounts.broad).toBeLessThanOrEqual(
+          60,
+        )
+        expect(result.context.length).toBeLessThanOrEqual(12_000)
+      }
+      await db.venueKnowledgeEntry.update({
+        where: { id: knowledgeId },
+        data: {
+          content: 'The north gallery capacity is now 83 visitors.',
+        },
+      })
+      const corrected = await read('north gallery capacity')
+      expect(corrected.context).toContain('83 visitors')
+      expect(corrected.context).not.toContain('137 visitors')
+      await db.venueKnowledgeEntry.update({
+        where: { id: knowledgeId },
+        data: { visibility: 'SECOND_LAYER' },
+      })
+      const withdrawn = await read('north gallery capacity')
+      expect(withdrawn.sourceIds).not.toContain(knowledgeId)
+      expect(withdrawn.context).not.toContain('83 visitors')
+      expect(withdrawn.context).not.toContain('999')
+      expect(withdrawn.provider).toEqual({ called: false, qualityVerified: false })
+    })
+  })
+
   it('rehearses active, dark, authorization, fallback, isolation, and kill-switch behavior', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)

@@ -35,11 +35,12 @@ async function run() {
         'mcp-capability-scope',
         'mcp-preflight-secret-boundary',
         'voice-per-turn-native-place-knowledge-current-update-grounding',
+        'thousand-row-lexical-correction-and-public-withdrawal',
       ],
       integration: {
         packageDirectory: 'packages/api',
         testFile: 'src/native-guest-read.disposable.integration.test.ts',
-        expectedPassed: 1,
+        expectedPassed: 2,
         environment: {
           RUN_NATIVE_GUEST_READ_DB_INTEGRATION: '1',
           NATIVE_GUEST_CONTENT_READ_ENABLED: 'true',
