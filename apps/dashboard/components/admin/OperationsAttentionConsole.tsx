@@ -115,6 +115,14 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
   const change = data.totals.changePercent
   const represented = data.nonAi.categories.filter((category) => category.represented)
   const measuredUsage = data.operationalUsage.metrics.filter((metric) => metric.represented)
+  const aiHasRecordedUsage = data.ai.requestCount > 0
+  const aiCoverageComplete = data.ai.observationCompleteness === 'COMPLETE_RECORDED_USAGE'
+  const aiCostLabel = !aiHasRecordedUsage
+    ? 'No recorded AI usage'
+    : aiCoverageComplete
+      ? 'Observed AI estimate'
+      : 'Partial observed AI estimate'
+  const aiCostValue = aiHasRecordedUsage ? usd(data.ai.observedEstimatedCostUsd) : 'Not recorded'
   return (
     <section
       id="cost-coverage"
@@ -135,14 +143,19 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
           </p>
         </div>
         <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-bold text-cyan-950 ring-1 ring-cyan-200">
-          {data.coverage.complete ? 'Coverage complete' : 'Coverage incomplete'}
+          {data.coverage.complete && aiCoverageComplete
+            ? 'Coverage complete'
+            : 'Coverage incomplete'}
         </span>
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
         {[
-          ['Known total', usd(data.totals.knownOperatingCostUsd)],
-          ['AI estimate', usd(data.ai.estimatedCostUsd)],
+          [
+            aiCoverageComplete ? 'Recorded total' : 'Partial recorded total',
+            usd(data.totals.knownOperatingCostUsd),
+          ],
+          [aiCostLabel, aiCostValue],
           ['Non-AI evidence', usd(data.nonAi.evidencedCostUsd)],
           ['Platform unallocated', usd(data.nonAi.platformUnallocatedUsd)],
         ].map(([label, value]) => (
@@ -154,6 +167,16 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
           </div>
         ))}
       </dl>
+
+      <p
+        className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${aiCoverageComplete ? 'border-cyan-100 bg-white text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-950'}`}
+      >
+        {!aiHasRecordedUsage
+          ? 'No AI usage events were recorded in this window. This is missing evidence, not a known zero cost.'
+          : aiCoverageComplete
+            ? `${data.ai.usageCoverage.observedRequestCount.toLocaleString()} dispatched AI requests include observed usage metadata; ${data.ai.usageCoverage.notDispatchedRequestCount.toLocaleString()} were not dispatched and carry no provider usage.`
+            : `${data.ai.usageCoverage.observedRequestCount.toLocaleString()} recorded requests include observed usage; ${data.ai.usageCoverage.unknownRequestCount.toLocaleString()} have unknown usage, ${data.ai.usageCoverage.notDispatchedRequestCount.toLocaleString()} were not dispatched, and ${data.ai.usageCoverage.legacyUnclassifiedRequestCount.toLocaleString()} are legacy unclassified records. Totals are partial; the recorded total also retains earlier unclassified estimates.`}
+      </p>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="rounded-xl border border-cyan-100 bg-white p-4">

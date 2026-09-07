@@ -70,8 +70,16 @@ const empty: Data = {
     },
     ai: {
       estimatedCostUsd: '0.00000000',
+      observedEstimatedCostUsd: '0.00000000',
       requestCount: 0,
       attributedTenantCount: 0,
+      usageCoverage: {
+        observedRequestCount: 0,
+        unknownRequestCount: 0,
+        notDispatchedRequestCount: 0,
+        legacyUnclassifiedRequestCount: 0,
+      },
+      observationCompleteness: 'NO_RECORDED_USAGE',
       completeness: 'PROVIDER_PRICING_ESTIMATE',
     },
     nonAi: {
@@ -362,10 +370,76 @@ describe('operations attention console', () => {
     expect(screen.getByRole('heading', { name: 'Measured operational load' })).toBeTruthy()
     expect(screen.getByText(/No recent queue or declared-byte observations/)).toBeTruthy()
     expect(screen.getByText('Coverage incomplete')).toBeTruthy()
+    expect(screen.getByText('No recorded AI usage')).toBeTruthy()
+    expect(screen.getByText(/missing evidence, not a known zero cost/i)).toBeTruthy()
     expect(screen.getByText(/No anomaly threshold is settled/)).toBeTruthy()
     expect(
       screen.getByText(/No reliability score, trend claim, or permission change is inferred/),
     ).toBeTruthy()
+  })
+
+  it('labels partial and fully observed AI cost evidence without overstating coverage', () => {
+    const { rerender } = render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          unitEconomics: {
+            ...empty.unitEconomics,
+            ai: {
+              ...empty.unitEconomics.ai,
+              estimatedCostUsd: '8.50000000',
+              observedEstimatedCostUsd: '6.25000000',
+              requestCount: 12,
+              attributedTenantCount: 2,
+              usageCoverage: {
+                observedRequestCount: 8,
+                unknownRequestCount: 2,
+                notDispatchedRequestCount: 1,
+                legacyUnclassifiedRequestCount: 1,
+              },
+              observationCompleteness: 'PARTIAL_RECORDED_USAGE',
+            },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('Partial observed AI estimate')).toBeTruthy()
+    expect(screen.getByText('$6.25')).toBeTruthy()
+    expect(screen.getByText(/Totals are partial/)).toBeTruthy()
+    expect(screen.getByText('Coverage incomplete')).toBeTruthy()
+
+    rerender(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          unitEconomics: {
+            ...empty.unitEconomics,
+            coverage: { ...empty.unitEconomics.coverage, complete: true },
+            ai: {
+              ...empty.unitEconomics.ai,
+              estimatedCostUsd: '6.25000000',
+              observedEstimatedCostUsd: '6.25000000',
+              requestCount: 10,
+              attributedTenantCount: 2,
+              usageCoverage: {
+                observedRequestCount: 8,
+                unknownRequestCount: 0,
+                notDispatchedRequestCount: 2,
+                legacyUnclassifiedRequestCount: 0,
+              },
+              observationCompleteness: 'COMPLETE_RECORDED_USAGE',
+            },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText('Observed AI estimate')).toBeTruthy()
+    expect(
+      screen.getByText(
+        /8 dispatched AI requests include observed usage metadata; 2 were not dispatched/,
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText('Coverage complete')).toBeTruthy()
   })
 
   it('surfaces negative trust evidence without recommending broader authority and passes axe', async () => {

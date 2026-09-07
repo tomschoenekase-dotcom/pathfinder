@@ -1,10 +1,13 @@
 import type { inferRouterOutputs } from '@trpc/server'
+import type { Metadata } from 'next'
 
 import type { AppRouter } from '@pathfinder/api'
 import { OperationsAttentionConsole } from '../../../components/admin/OperationsAttentionConsole'
 import { TRPCProvider } from '../../../lib/trpc'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
+
+export const metadata: Metadata = { title: 'Agent trust evidence fixture' }
 
 const emptyPage = { items: [], nextCursor: null }
 const data: Data = {
@@ -40,8 +43,16 @@ const data: Data = {
     },
     ai: {
       estimatedCostUsd: '86.50000000',
+      observedEstimatedCostUsd: '74.25000000',
       requestCount: 1240,
       attributedTenantCount: 5,
+      usageCoverage: {
+        observedRequestCount: 1180,
+        unknownRequestCount: 40,
+        notDispatchedRequestCount: 12,
+        legacyUnclassifiedRequestCount: 8,
+      },
+      observationCompleteness: 'PARTIAL_RECORDED_USAGE',
       completeness: 'PROVIDER_PRICING_ESTIMATE',
     },
     nonAi: {
