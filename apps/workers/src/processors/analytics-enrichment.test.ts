@@ -299,6 +299,9 @@ describe('processAnalyticsEnrichmentJob', () => {
             tenantId: 'tenant_1',
             venueId: 'venue_1',
             userMessageId: { not: null },
+            session: {
+              is: { tenantId: 'tenant_1', venueId: 'venue_1', experienceScope: 'PUBLIC' },
+            },
             userMessage: { is: { role: 'user' } },
           }),
           select: { userMessage: { select: { content: true } } },

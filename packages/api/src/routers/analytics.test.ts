@@ -29,6 +29,7 @@ const weeklyReportFindMany = vi.fn()
 const weeklyReportFindFirst = vi.fn()
 const venueReportConfigurationFindMany = vi.fn()
 const venueReportConfigurationFindFirst = vi.fn()
+const venueWeeklyThemeFindFirst = vi.fn()
 const dbQueryRaw = vi.fn()
 
 const mockDb = {
@@ -43,6 +44,9 @@ const mockDb = {
   venueReportConfiguration: {
     findMany: venueReportConfigurationFindMany,
     findFirst: venueReportConfigurationFindFirst,
+  },
+  venueWeeklyTheme: {
+    findFirst: venueWeeklyThemeFindFirst,
   },
   venue: {
     findFirst: venueFindFirst,
@@ -1071,5 +1075,87 @@ describe('analytics router', () => {
       orderBy: { venueId: 'asc' },
       select: { venueId: true },
     })
+  })
+
+  it('analytics.getWeeklyThemes keeps same-tenant venues isolated', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' }).mockResolvedValueOnce({ id: 'venue_2' })
+    venueWeeklyThemeFindFirst.mockResolvedValueOnce({
+      weekStart: new Date('2026-04-06T00:00:00.000Z'),
+      weekEnd: new Date('2026-04-12T23:59:59.999Z'),
+      generatedAt: new Date('2026-04-13T04:00:00.000Z'),
+      themes: [{ title: 'Entrance', explanation: 'Visitors asked about the entrance.' }],
+    })
+    venueWeeklyThemeFindFirst.mockResolvedValueOnce({
+      weekStart: new Date('2026-04-06T00:00:00.000Z'),
+      weekEnd: new Date('2026-04-12T23:59:59.999Z'),
+      generatedAt: new Date('2026-04-13T05:00:00.000Z'),
+      themes: [{ title: 'Parking', explanation: 'Visitors asked about parking.' }],
+    })
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const first = await caller.analytics.getWeeklyThemes({ venueId: 'venue_1' })
+    const second = await caller.analytics.getWeeklyThemes({ venueId: 'venue_2' })
+
+    expect(first.themes[0]?.title).toBe('Entrance')
+    expect(second.themes[0]?.title).toBe('Parking')
+    for (const [index, venueId] of ['venue_1', 'venue_2'].entries()) {
+      expect(venueFindFirst).toHaveBeenNthCalledWith(index + 1, {
+        where: { id: venueId, tenantId: 'tenant_1', isActive: true },
+        select: { id: true },
+      })
+    }
+    expect(venueWeeklyThemeFindFirst).toHaveBeenNthCalledWith(1, {
+      where: { tenantId: 'tenant_1', venueId: 'venue_1' },
+      orderBy: [{ weekStart: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
+      select: { weekStart: true, weekEnd: true, generatedAt: true, themes: true },
+    })
+    expect(venueWeeklyThemeFindFirst).toHaveBeenNthCalledWith(2, {
+      where: { tenantId: 'tenant_1', venueId: 'venue_2' },
+      orderBy: [{ weekStart: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
+      select: { weekStart: true, weekEnd: true, generatedAt: true, themes: true },
+    })
+  })
+
+  it('analytics.getWeeklyThemes rejects a missing venue before reading themes', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter
+        .createCaller(tenantCtx('tenant_1'))
+        .analytics.getWeeklyThemes({ venueId: 'missing_venue' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(venueWeeklyThemeFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('analytics.getWeeklyThemes rejects a foreign-tenant venue before reading themes', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter
+        .createCaller(tenantCtx('tenant_2'))
+        .analytics.getWeeklyThemes({ venueId: 'venue_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_1', tenantId: 'tenant_2', isActive: true },
+      select: { id: true },
+    })
+    expect(venueWeeklyThemeFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('analytics.getWeeklyThemes returns an explicit empty result for an active venue with no theme', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueWeeklyThemeFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(tenantCtx()).analytics.getWeeklyThemes({ venueId: 'venue_1' }),
+    ).resolves.toEqual({ venueId: 'venue_1', weekStart: null, weekEnd: null, themes: [] })
+  })
+
+  it('analytics.getWeeklyThemes rejects malformed venue IDs', async () => {
+    await expect(
+      testRouter.createCaller(tenantCtx()).analytics.getWeeklyThemes({ venueId: '' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(venueWeeklyThemeFindFirst).not.toHaveBeenCalled()
   })
 })

@@ -687,36 +687,48 @@ export const analyticsRouter = router({
   /**
    * Top 3 guest-question themes, refreshed weekly by the analytics-enrichment
    * job. Replaces the old raw "top questions" / "topics" lists with a short
-   * title + explanation per theme. Merges across venues, most recently
-   * generated venue's themes win when a tenant has more than one.
+   * title + explanation per theme, scoped to the requested venue.
    */
-  getWeeklyThemes: tenantProcedure.query(async ({ ctx }) => {
-    const latest = await ctx.db.venueWeeklyTheme.findFirst({
-      where: { tenantId: ctx.session.activeTenantId },
-      orderBy: [{ weekStart: 'desc' }, { generatedAt: 'desc' }],
-      select: { weekStart: true, weekEnd: true, generatedAt: true, themes: true },
-    })
+  getWeeklyThemes: tenantProcedure
+    .input(z.object({ venueId: publicEntityId }).strict())
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      const latest = await ctx.db.venueWeeklyTheme.findFirst({
+        where: { tenantId: ctx.session.activeTenantId, venueId: input.venueId },
+        orderBy: [{ weekStart: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
+        select: { weekStart: true, weekEnd: true, generatedAt: true, themes: true },
+      })
 
-    if (!latest) {
-      return {
-        weekStart: null,
-        weekEnd: null,
-        themes: [] as { title: string; explanation: string }[],
+      if (!latest) {
+        return {
+          venueId: input.venueId,
+          weekStart: null,
+          weekEnd: null,
+          themes: [] as { title: string; explanation: string }[],
+        }
       }
-    }
 
-    const themes = Array.isArray(latest.themes)
-      ? latest.themes.filter(
-          (theme): theme is { title: string; explanation: string } =>
-            typeof theme === 'object' &&
-            theme !== null &&
-            typeof (theme as { title?: unknown }).title === 'string' &&
-            typeof (theme as { explanation?: unknown }).explanation === 'string',
-        )
-      : []
+      const themes = Array.isArray(latest.themes)
+        ? latest.themes.filter(
+            (theme): theme is { title: string; explanation: string } =>
+              typeof theme === 'object' &&
+              theme !== null &&
+              typeof (theme as { title?: unknown }).title === 'string' &&
+              typeof (theme as { explanation?: unknown }).explanation === 'string',
+          )
+        : []
 
-    return { weekStart: latest.weekStart, weekEnd: latest.weekEnd, themes }
-  }),
+      return {
+        venueId: input.venueId,
+        weekStart: latest.weekStart,
+        weekEnd: latest.weekEnd,
+        themes,
+      }
+    }),
 
   /**
    * Place-interest ranking for a venue — a weighted sum of mentions, card views,
