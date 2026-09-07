@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
+import { CHAT_FONT_OPTIONS } from '@pathfinder/ui/theme'
 
 import {
   VenueChatFixture,
@@ -51,6 +52,7 @@ export default async function VisitorChatVisualFixture({
     language?: string | string[]
     surface?: string | string[]
     theme?: string | string[]
+    font?: string | string[]
     accent?: string | string[]
     branding?: string | string[]
   }>
@@ -106,6 +108,11 @@ export default async function VisitorChatVisualFixture({
       route={route satisfies VisitorFixtureRoute}
       language={language}
       theme={first(params.theme)}
+      font={oneOf(
+        params.font,
+        CHAT_FONT_OPTIONS.map((font) => font.value),
+        'jakarta',
+      )}
       accent={first(params.accent)}
       branding={branding satisfies VisitorFixtureBranding}
     />

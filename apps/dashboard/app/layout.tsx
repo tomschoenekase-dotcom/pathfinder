@@ -20,12 +20,14 @@ const jakarta = Plus_Jakarta_Sans({
 })
 
 const inter = Inter({
+  preload: false,
   subsets: ['latin'],
   variable: '--font-inter',
   display: 'swap',
 })
 
 const poppins = Poppins({
+  preload: false,
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-poppins',
@@ -33,18 +35,21 @@ const poppins = Poppins({
 })
 
 const spaceGrotesk = Space_Grotesk({
+  preload: false,
   subsets: ['latin'],
   variable: '--font-space-grotesk',
   display: 'swap',
 })
 
 const dmSans = DM_Sans({
+  preload: false,
   subsets: ['latin'],
   variable: '--font-dm-sans',
   display: 'swap',
 })
 
 const playfair = Playfair_Display({
+  preload: false,
   subsets: ['latin'],
   variable: '--font-playfair',
   display: 'swap',

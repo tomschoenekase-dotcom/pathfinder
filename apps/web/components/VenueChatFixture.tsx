@@ -242,6 +242,7 @@ export function VenueChatFixture({
   route = 'none',
   language = 'English',
   theme,
+  font,
   accent,
   branding = 'none',
 }: {
@@ -255,6 +256,7 @@ export function VenueChatFixture({
   route?: VisitorFixtureRoute
   language?: SupportedChatLanguage
   theme?: string | undefined
+  font?: string | undefined
   accent?: string | undefined
   branding?: VisitorFixtureBranding
 }) {
@@ -275,6 +277,7 @@ export function VenueChatFixture({
           venue={{
             ...fixtureVenue(mode, asset),
             ...(theme ? { chatTheme: theme } : {}),
+            ...(font ? { chatFont: font } : {}),
             ...(accent ? { chatAccentColor: accent } : {}),
             ...(branding === 'approved'
               ? {
