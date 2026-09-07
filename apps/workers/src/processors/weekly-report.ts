@@ -28,6 +28,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import { redactCommonIdentifiers } from '../lib/common-identifier-redaction'
 import {
   ExecutionLeaseOwnershipLostError,
   withExecutionLeaseHeartbeat,
@@ -40,9 +41,6 @@ import {
 
 const MAX_GENERAL_MESSAGES = 400
 const MESSAGE_CONTENT_LIMIT = 500
-const EMAIL_ADDRESS = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu
-const PHONE_NUMBER = /(?<!\d)(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/gu
-const WEB_ADDRESS = /\bhttps?:\/\/[^\s<>()]+/giu
 const WEEKLY_REPORT_EXECUTION_LEASED_ERROR =
   'Weekly report generation is already in progress. Retry this job later.'
 
@@ -50,15 +48,6 @@ function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
     ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
     : content
-}
-
-// This is deliberately a bounded common-identifier filter, not an anonymity guarantee.
-// Private/internal sources are excluded separately at query time.
-function redactCommonIdentifiers(content: string): string {
-  return content
-    .replace(EMAIL_ADDRESS, '[email removed]')
-    .replace(PHONE_NUMBER, '[phone removed]')
-    .replace(WEB_ADDRESS, '[link removed]')
 }
 
 const weeklyReportResponseSchema = z.object({

@@ -28,6 +28,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import { redactCommonIdentifiers } from '../lib/common-identifier-redaction'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -219,7 +220,8 @@ async function classifyTopicBatch(params: {
     '',
     'Questions:',
     ...questions.map(
-      (question, index) => `${index}. ${question.replace(/\s+/g, ' ').slice(0, 300)}`,
+      (question, index) =>
+        `${index}. ${redactCommonIdentifiers(question).replace(/\s+/g, ' ').slice(0, 300)}`,
     ),
   ].join('\n')
 
@@ -285,7 +287,7 @@ async function synthesizeWeeklyThemes(params: {
   venueId: string
 }): Promise<WeeklyTheme[]> {
   const { questions, tenantId, venueId } = params
-  const trimmed = questions.slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
+  const trimmed = questions.map(redactCommonIdentifiers).slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
 
   const prompt = [
     'You are analyzing a week of guest questions asked to a venue guide chatbot.',
@@ -407,7 +409,7 @@ async function buildClusters(params: {
 }): Promise<QuestionCluster[]> {
   const { questions, tenantId, venueId } = params
   const trimmed = questions
-    .map((question) => question.trim())
+    .map((question) => redactCommonIdentifiers(question).trim())
     .filter((question) => question.length > 0)
     .slice(0, CLUSTER_MAX_QUESTIONS)
 

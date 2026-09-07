@@ -323,6 +323,63 @@ describe('processAnalyticsEnrichmentJob', () => {
     })
   })
 
+  it('redacts common identifiers from classifier, theme, embedding, and cluster inputs', async () => {
+    const rawQuestions = [
+      'Where is the north gallery? Email jane@example.test',
+      'Call 312-555-0101 for accessibility help',
+      'More details at https://example.test/visit',
+      'Where is the north gallery?',
+      'Where is the north gallery?',
+    ].map((content) => ({ userMessage: { content } }))
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce(rawQuestions)
+      .mockResolvedValueOnce(rawQuestions)
+      .mockResolvedValueOnce(rawQuestions)
+    mocks.messageFindMany.mockResolvedValue([
+      {
+        id: 'm1',
+        content:
+          'ordinary venue question jane@example.test 312-555-0101 https://example.test/visit',
+      },
+    ])
+    anthropicCreate
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '[{"index":0,"topic":"other"}]' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"title":"Gallery access","explanation":"Guests ask where to enter."}]',
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+
+    await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
+
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.generateEmbeddings).toHaveBeenCalledTimes(2)
+    expect(mocks.clusterCreateMany).toHaveBeenCalledOnce()
+    const providerText = anthropicCreate.mock.calls
+      .map((call) => JSON.stringify(call[0]))
+      .join('\n')
+    const embeddingText = mocks.generateEmbeddings.mock.calls
+      .map((call) => JSON.stringify(call[0]?.texts))
+      .join('\n')
+    const clusterText = JSON.stringify(mocks.clusterCreateMany.mock.calls)
+    for (const raw of ['jane@example.test', '312-555-0101', 'https://example.test/visit']) {
+      expect(providerText).not.toContain(raw)
+      expect(embeddingText).not.toContain(raw)
+      expect(clusterText).not.toContain(raw)
+    }
+    expect(providerText).toContain('ordinary venue question')
+    expect(embeddingText).toContain('Where is the north gallery?')
+    expect(rawQuestions[0]?.userMessage.content).toContain('jane@example.test')
+  })
+
   it('emits bounded sanitized stale-fact signals once per content review revision', async () => {
     const reviewedAt = new Date('2026-04-01T12:00:00.000Z')
     mocks.placeFindMany.mockResolvedValue([{ id: 'place_1', lastReviewedAt: reviewedAt }])
