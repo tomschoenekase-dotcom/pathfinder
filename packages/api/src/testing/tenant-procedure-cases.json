@@ -49,7 +49,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "weeklyDigest.findFirst",
-    "input": { "id": "" }
+    "input": {
+      "id": ""
+    }
   },
   {
     "path": "analytics.getWeeklyReportAvailability",
@@ -63,7 +65,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "analytics.getPublishedWeeklyReport",
@@ -122,9 +126,10 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "dailyRollup.findMany",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
-
   {
     "path": "engagementQuestion.list",
     "kind": "query",
@@ -137,7 +142,10 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "engagementQuestion.create",
-    "input": { "questionType": "OPEN_ENDED", "prompt": "How was your visit?" }
+    "input": {
+      "questionType": "OPEN_ENDED",
+      "prompt": "How was your visit?"
+    }
   },
   {
     "path": "engagementQuestion.update",
@@ -159,13 +167,14 @@
       "expectedUpdatedAt": "2026-08-09T18:00:00.000Z"
     }
   },
-
   {
     "path": "knowledge.list",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "knowledge.create",
@@ -184,7 +193,10 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "entries": [] }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "entries": []
+    }
   },
   {
     "path": "knowledge.update",
@@ -208,7 +220,6 @@
       "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
     }
   },
-
   {
     "path": "operationalUpdate.list",
     "kind": "query",
@@ -221,7 +232,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "operationalUpdate.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012"
+    }
   },
   {
     "path": "operationalUpdate.create",
@@ -234,8 +247,12 @@
       "severity": "INFO",
       "priority": "NORMAL",
       "title": "Notice",
-      "startsAt": { "$futureMinutes": 5 },
-      "expiresAt": { "$futureMinutes": 30 },
+      "startsAt": {
+        "$futureMinutes": 5
+      },
+      "expiresAt": {
+        "$futureMinutes": 30
+      },
       "publish": false
     }
   },
@@ -246,14 +263,20 @@
     "firstTouch": "operationalUpdate.findFirst",
     "input": {
       "id": "cvenueabc123456789012",
-      "expectedUpdatedAt": { "$futureMinutes": 0 },
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      },
       "venueId": "cvenueabc123456789012",
       "updateType": "GENERAL_NOTICE",
       "severity": "INFO",
       "priority": "NORMAL",
       "title": "Notice",
-      "startsAt": { "$futureMinutes": 5 },
-      "expiresAt": { "$futureMinutes": 30 }
+      "startsAt": {
+        "$futureMinutes": 5
+      },
+      "expiresAt": {
+        "$futureMinutes": 30
+      }
     }
   },
   {
@@ -263,7 +286,9 @@
     "firstTouch": "operationalUpdate.findFirst",
     "input": {
       "id": "cvenueabc123456789012",
-      "expectedUpdatedAt": { "$futureMinutes": 0 }
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      }
     }
   },
   {
@@ -273,30 +298,39 @@
     "firstTouch": "operationalUpdate.findFirst",
     "input": {
       "id": "cvenueabc123456789012",
-      "expectedUpdatedAt": { "$futureMinutes": 0 }
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      }
     }
   },
-
   {
     "path": "place.list",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "place.getById",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "place.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012"
+    }
   },
   {
     "path": "place.create",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "name": "Lobby", "type": "room" }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "name": "Lobby",
+      "type": "room"
+    }
   },
   {
     "path": "place.update",
@@ -325,9 +359,11 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "places": [] }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "places": []
+    }
   },
-
   {
     "path": "tenant.getSettings",
     "kind": "query",
@@ -340,7 +376,10 @@
     "kind": "mutation",
     "minimumRole": "OWNER",
     "firstTouch": "external.inviteOrganizationMember",
-    "input": { "emailAddress": "guest@example.com", "role": "org:admin" }
+    "input": {
+      "emailAddress": "guest@example.com",
+      "role": "org:admin"
+    }
   },
   {
     "path": "tenant.listPendingInvitations",
@@ -354,9 +393,11 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "tenant.findUnique",
-    "input": { "mode": "STOIC", "expectedUpdatedAt": "2026-08-11T15:00:00.000Z" }
+    "input": {
+      "mode": "STOIC",
+      "expectedUpdatedAt": "2026-08-11T15:00:00.000Z"
+    }
   },
-
   {
     "path": "contentHistory.listDeletedVenues",
     "kind": "query",
@@ -383,7 +424,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "portal.getClientPreview",
@@ -449,7 +492,13 @@
       "payload": {
         "schemaVersion": 1,
         "places": [],
-        "knowledgeEntries": [{ "title": "Policy", "category": "FAQ", "content": "Details" }]
+        "knowledgeEntries": [
+          {
+            "title": "Policy",
+            "category": "FAQ",
+            "content": "Details"
+          }
+        ]
       }
     }
   },
@@ -458,14 +507,18 @@
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "venuePackageRead.getById",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venuePackage.findFirst",
-    "input": { "id": "cpackageabc1234567890" }
+    "input": {
+      "id": "cpackageabc1234567890"
+    }
   },
   {
     "path": "venuePackageCreate.createDraft",
@@ -478,7 +531,13 @@
       "payload": {
         "schemaVersion": 1,
         "places": [],
-        "knowledgeEntries": [{ "title": "Policy", "category": "FAQ", "content": "Details" }]
+        "knowledgeEntries": [
+          {
+            "title": "Policy",
+            "category": "FAQ",
+            "content": "Details"
+          }
+        ]
       }
     }
   },
@@ -489,7 +548,9 @@
     "firstTouch": "venuePackage.findFirst",
     "input": {
       "id": "cpackageabc1234567890",
-      "expectedUpdatedAt": { "$futureMinutes": 0 },
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      },
       "commandKey": "22222222-2222-4222-8222-222222222222",
       "acknowledgedWarningDigest": "0000000000000000000000000000000000000000000000000000000000000000",
       "acknowledgedPayloadHash": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -502,7 +563,9 @@
     "firstTouch": "venuePackage.findFirst",
     "input": {
       "id": "cpackageabc1234567890",
-      "expectedUpdatedAt": { "$futureMinutes": 0 },
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      },
       "commandKey": "33333333-3333-4333-8333-333333333333"
     }
   },
@@ -513,7 +576,9 @@
     "firstTouch": "venuePackage.findFirst",
     "input": {
       "id": "cpackageabc1234567890",
-      "expectedUpdatedAt": { "$futureMinutes": 0 },
+      "expectedUpdatedAt": {
+        "$futureMinutes": 0
+      },
       "commandKey": "44444444-4444-4444-8444-444444444444"
     }
   },
@@ -522,7 +587,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "tenantMembership.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "support.listParticipantCandidates",
@@ -539,7 +606,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "supportRequest.findMany",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "support.getRequest",
@@ -656,14 +725,18 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "intakeRun.findFirst",
-    "input": { "requestId": "5d1a79a1-93e0-4af2-88f7-f6cb974a92a4" }
+    "input": {
+      "requestId": "5d1a79a1-93e0-4af2-88f7-f6cb974a92a4"
+    }
   },
   {
     "path": "intake.listProposals",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "intake.getProposalReview",
@@ -739,35 +812,46 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "limit": 25
+    }
   },
   {
     "path": "venue.getById",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012"
+    }
   },
   {
     "path": "venue.getAiConfig",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "clientAssistant.bootstrap",
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "tenantFeatureFlag.findUnique",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "clientAssistant.opened",
     "kind": "mutation",
     "minimumRole": "STAFF",
     "firstTouch": "tenantFeatureFlag.findUnique",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "clientAssistant.setPreference",
@@ -811,7 +895,9 @@
     "kind": "mutation",
     "minimumRole": "OWNER",
     "firstTouch": "venue.findFirst",
-    "input": { "name": "New Venue" }
+    "input": {
+      "name": "New Venue"
+    }
   },
   {
     "path": "venue.update",
@@ -844,7 +930,13 @@
       "venueId": "cvenueabc123456789012",
       "idempotencyKey": "11111111-1111-4111-8111-111111111111",
       "places": [],
-      "knowledgeEntries": [{ "title": "Policy", "category": "FAQ", "content": "Details" }]
+      "knowledgeEntries": [
+        {
+          "title": "Policy",
+          "category": "FAQ",
+          "content": "Details"
+        }
+      ]
     }
   },
   {
@@ -862,7 +954,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venueBotConfiguration.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "venue.updateBotConfiguration",
@@ -880,7 +974,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "personalityProfile.findMany",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "venue.createPersonalityProfile",
@@ -891,7 +987,12 @@
       "venueId": "cvenueabc123456789012",
       "profile": {
         "name": "Warm and concise",
-        "bounds": { "warmth": 0.8, "brevity": 0.8, "energy": 0.5, "formality": 0.5 }
+        "bounds": {
+          "warmth": 0.8,
+          "brevity": 0.8,
+          "energy": 0.5,
+          "formality": 0.5
+        }
       }
     }
   },
@@ -906,7 +1007,12 @@
       "expectedRevision": 1,
       "profile": {
         "name": "Warm and concise",
-        "bounds": { "warmth": 0.8, "brevity": 0.8, "energy": 0.5, "formality": 0.5 }
+        "bounds": {
+          "warmth": 0.8,
+          "brevity": 0.8,
+          "energy": 0.5,
+          "formality": 0.5
+        }
       }
     }
   },
@@ -947,7 +1053,9 @@
     "kind": "query",
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
-    "input": { "venueId": "cvenueabc123456789012" }
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "venue.updateSecondLayer",
@@ -1004,6 +1112,31 @@
     "input": {
       "operationId": "33333333-3333-4333-8333-333333333333",
       "featureKey": "premium-voice"
+    }
+  },
+  {
+    "path": "intake.getSubmissionDraft",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "intakeSubmissionDraft.findUnique",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "sourceKind": "NOTES"
+    }
+  },
+  {
+    "path": "intake.saveSubmissionDraft",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "intakeSubmissionDraft.findUnique",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "sourceKind": "NOTES",
+      "content": {
+        "kind": "NOTES",
+        "notes": "Synthetic scoped draft"
+      },
+      "expectedRevision": 0
     }
   }
 ]

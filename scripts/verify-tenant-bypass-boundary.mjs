@@ -183,7 +183,13 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 16],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 13],
+  // Platform-admin CRM reads are split for bounded campaign/member/delivery pagination.
+  // Exact campaign/member predicates remain mandatory; no customer procedure receives bypass.
+  ['packages/api/src/routers/admin/prospect-crm-outreach-read.ts', 6],
+  // Platform-admin factory operations bind explicit tenant+venue and canonical job/lease
+  // predicates. Durable composite foreign keys and storage verification enforce that scope.
+  ['packages/api/src/routers/admin/character-factory.ts', 7],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.

@@ -56,6 +56,7 @@ type LegacyHarnessClient = {
 
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
+  const draftActions = await vi.importActual<typeof import('@pathfinder/db')>('@pathfinder/db')
   const intakeTouch = async (client: LegacyHarnessClient, args: unknown) => {
     try {
       return await (
@@ -71,6 +72,10 @@ vi.mock('@pathfinder/db', async () => {
     }
   }
   return {
+    getIntakeSubmissionDraft: draftActions.getIntakeSubmissionDraft,
+    saveIntakeSubmissionDraft: draftActions.saveIntakeSubmissionDraft,
+    intakeSubmissionDraftContent: draftActions.intakeSubmissionDraftContent,
+    IntakeSubmissionDraftError: draftActions.IntakeSubmissionDraftError,
     IntakeUploadActionError: class IntakeUploadActionError extends Error {},
     reserveIntakeUploadAction: vi.fn(
       (input: { tenantId: string; venueId: string; client: LegacyHarnessClient }) =>
@@ -709,6 +714,7 @@ function authoritativeTenant(touch: {
           id?: unknown
           tenantId?: unknown
           tenantId_flagKey?: { tenantId?: unknown }
+          tenantId_venueId_ownerUserId_sourceKind?: { tenantId?: unknown }
         }
         data?: { tenantId?: unknown }
       }
@@ -717,6 +723,7 @@ function authoritativeTenant(touch: {
   return (
     operation?.where?.tenantId ??
     operation?.where?.tenantId_flagKey?.tenantId ??
+    operation?.where?.tenantId_venueId_ownerUserId_sourceKind?.tenantId ??
     operation?.data?.tenantId
   )
 }
