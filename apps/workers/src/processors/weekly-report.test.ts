@@ -189,6 +189,60 @@ describe('processWeeklyReportJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
+  it('excludes private notes and invented answers and redacts common identifiers', async () => {
+    mocks.noteFindMany.mockResolvedValueOnce([
+      { note: 'Employee concern: private.staff@example.test called 312-555-0199.' },
+    ])
+    mocks.responseFindMany.mockResolvedValueOnce([
+      {
+        questionText: 'Contact guest@example.test?',
+        answerText: 'Call 312-555-0101 or visit https://private.example.test/path',
+        isAiInvented: false,
+      },
+    ])
+    mocks.questionFindMany.mockResolvedValueOnce([
+      { prompt: 'Send feedback to research@example.test', questionType: 'TEXT' },
+    ])
+    mocks.messageFindMany.mockResolvedValueOnce([
+      { content: `${'x'.repeat(488)} guest@example.test then call 3125550101 or (312)555-1212.` },
+    ])
+    anthropicCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...validReport,
+            overview: 'Contact guest@example.test, 3125550101, or (312)555-1212.',
+          }),
+        },
+      ],
+      usage: { input_tokens: 120, output_tokens: 50 },
+    })
+
+    await processWeeklyReportJob(payload)
+
+    expect(mocks.responseFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ isAiInvented: false }) }),
+    )
+    expect(mocks.noteFindMany).not.toHaveBeenCalled()
+    const providerInput = JSON.stringify(anthropicCreate.mock.calls)
+    expect(providerInput).not.toContain('private.staff@example.test')
+    expect(providerInput).not.toContain('guest@example.test')
+    expect(providerInput).not.toContain('research@example.test')
+    expect(providerInput).not.toContain('312-555-0101')
+    expect(providerInput).not.toContain('3125550101')
+    expect(providerInput).not.toContain('(312)555-1212')
+    expect(providerInput).not.toContain('https://private.example.test/path')
+    expect(providerInput).toContain('[email removed]')
+    const saved = JSON.stringify(mocks.reportUpdateMany.mock.calls.at(-1))
+    expect(saved).not.toContain('guest@example.test')
+    expect(saved).not.toContain('312-555-0101')
+    expect(saved).not.toContain('3125550101')
+    expect(saved).not.toContain('(312)555-1212')
+    expect(saved).toContain('[email removed]')
+    expect(saved).toContain('[phone removed]')
+  })
+
   it('fenced-releases its execution lease without recording failure when admission pauses', async () => {
     const pause = new GlobalAiAdmissionError('global-ai-paused')
     mocks.assertGlobalAiAvailable.mockRejectedValueOnce(pause)

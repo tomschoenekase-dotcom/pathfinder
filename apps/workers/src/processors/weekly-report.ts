@@ -40,6 +40,9 @@ import {
 
 const MAX_GENERAL_MESSAGES = 400
 const MESSAGE_CONTENT_LIMIT = 500
+const EMAIL_ADDRESS = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu
+const PHONE_NUMBER = /(?<!\d)(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/gu
+const WEB_ADDRESS = /\bhttps?:\/\/[^\s<>()]+/giu
 const WEEKLY_REPORT_EXECUTION_LEASED_ERROR =
   'Weekly report generation is already in progress. Retry this job later.'
 
@@ -47,6 +50,26 @@ function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
     ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
     : content
+}
+
+// This is deliberately a bounded common-identifier filter, not an anonymity guarantee.
+// Private/internal sources are excluded separately at query time.
+function redactCommonIdentifiers(content: string): string {
+  return content
+    .replace(EMAIL_ADDRESS, '[email removed]')
+    .replace(PHONE_NUMBER, '[phone removed]')
+    .replace(WEB_ADDRESS, '[link removed]')
+}
+
+function redactReportResponse(response: WeeklyReportResponse): WeeklyReportResponse {
+  return {
+    overview: redactCommonIdentifiers(response.overview),
+    visitorQuestionsAndInterests: redactCommonIdentifiers(response.visitorQuestionsAndInterests),
+    specificAnalytics: redactCommonIdentifiers(response.specificAnalytics),
+    notableInsight: redactCommonIdentifiers(response.notableInsight),
+    quotes: response.quotes.map(redactCommonIdentifiers),
+    nextSteps: response.nextSteps.map(redactCommonIdentifiers),
+  }
 }
 
 const weeklyReportResponseSchema = z.object({
@@ -111,9 +134,10 @@ function formatReportContent(params: {
   weekLabel: string
   sessionCount: number
   messageCount: number
+  answerCount: number
   parsed: WeeklyReportResponse
 }): string {
-  const { title, venueName, weekLabel, sessionCount, messageCount, parsed } = params
+  const { title, venueName, weekLabel, sessionCount, messageCount, answerCount, parsed } = params
   const quotesBlock =
     parsed.quotes.length > 0
       ? parsed.quotes.map((quote) => `- "${quote}"`).join('\n')
@@ -128,6 +152,7 @@ function formatReportContent(params: {
     // in prose — Claude would sometimes describe this as "0 messages" when it meant zero
     // captured engagement answers, which are a different, often-empty metric.
     `Sessions: ${sessionCount} · Messages: ${messageCount}`,
+    `Captured answers: ${answerCount}`,
     '',
     'Overview',
     parsed.overview,
@@ -188,74 +213,58 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
   const weekEnd = new Date(payload.weekEnd)
 
   return withTenantIsolationBypass(async () => {
-    const [
-      venue,
-      sessionCount,
-      messageCount,
-      responses,
-      activeQuestions,
-      notableNotes,
-      generalMessages,
-    ] = await Promise.all([
-      db.venue.findFirst({
-        where: { id: payload.venueId, tenantId: payload.tenantId },
-        select: { name: true, category: true },
-      }),
-      db.visitorSession.count({
-        where: {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          experienceScope: 'PUBLIC',
-          messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
-        },
-      }),
-      db.message.count({
-        where: {
-          tenantId: payload.tenantId,
-          createdAt: { gte: weekStart, lte: weekEnd },
-          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
-        },
-      }),
-      db.engagementQuestionResponse.findMany({
-        where: {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          answeredAt: { gte: weekStart, lte: weekEnd },
-          session: { experienceScope: 'PUBLIC' },
-        },
-        orderBy: { answeredAt: 'asc' },
-        select: { questionText: true, answerText: true, isAiInvented: true },
-      }),
-      db.engagementQuestion.findMany({
-        where: { tenantId: payload.tenantId, isActive: true },
-        orderBy: { createdAt: 'asc' },
-        select: { prompt: true, questionType: true },
-      }),
-      db.adminChatlogNote.findMany({
-        where: {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          createdAt: { gte: weekStart, lte: weekEnd },
-          session: { isNotable: true, experienceScope: 'PUBLIC' },
-        },
-        orderBy: { createdAt: 'asc' },
-        select: { note: true },
-      }),
-      // Ordinary guest chat, not tied to any configured/invented engagement question — this
-      // is what makes "Visitor Questions & Interests" reflect real conversation content
-      // instead of just session/message counts.
-      db.message.findMany({
-        where: {
-          tenantId: payload.tenantId,
-          role: 'user',
-          createdAt: { gte: weekStart, lte: weekEnd },
-          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
-        },
-        orderBy: { createdAt: 'asc' },
-        take: MAX_GENERAL_MESSAGES,
-        select: { content: true },
-      }),
-    ])
+    const [venue, sessionCount, messageCount, responses, activeQuestions, generalMessages] =
+      await Promise.all([
+        db.venue.findFirst({
+          where: { id: payload.venueId, tenantId: payload.tenantId },
+          select: { name: true, category: true },
+        }),
+        db.visitorSession.count({
+          where: {
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            experienceScope: 'PUBLIC',
+            messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
+          },
+        }),
+        db.message.count({
+          where: {
+            tenantId: payload.tenantId,
+            createdAt: { gte: weekStart, lte: weekEnd },
+            session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+          },
+        }),
+        db.engagementQuestionResponse.findMany({
+          where: {
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            answeredAt: { gte: weekStart, lte: weekEnd },
+            isAiInvented: false,
+            session: { experienceScope: 'PUBLIC' },
+          },
+          orderBy: { answeredAt: 'asc' },
+          select: { questionText: true, answerText: true, isAiInvented: true },
+        }),
+        db.engagementQuestion.findMany({
+          where: { tenantId: payload.tenantId, isActive: true },
+          orderBy: { createdAt: 'asc' },
+          select: { prompt: true, questionType: true },
+        }),
+        // Ordinary guest chat, not tied to any configured/invented engagement question — this
+        // is what makes "Visitor Questions & Interests" reflect real conversation content
+        // instead of just session/message counts.
+        db.message.findMany({
+          where: {
+            tenantId: payload.tenantId,
+            role: 'user',
+            createdAt: { gte: weekStart, lte: weekEnd },
+            session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+          },
+          orderBy: { createdAt: 'asc' },
+          take: MAX_GENERAL_MESSAGES,
+          select: { content: true },
+        }),
+      ])
 
     if (!venue) {
       throw new Error(`Venue ${payload.venueId} not found`)
@@ -265,10 +274,18 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
       venue,
       sessionCount,
       messageCount,
-      responses,
-      activeQuestions,
-      notableNotes,
-      generalMessages: generalMessages.map((message) => trimMessageContent(message.content)),
+      responses: responses.map((response) => ({
+        ...response,
+        questionText: redactCommonIdentifiers(response.questionText),
+        answerText: redactCommonIdentifiers(response.answerText),
+      })),
+      activeQuestions: activeQuestions.map((question) => ({
+        ...question,
+        prompt: redactCommonIdentifiers(question.prompt),
+      })),
+      generalMessages: generalMessages.map((message) =>
+        trimMessageContent(redactCommonIdentifiers(message.content)),
+      ),
     }
   })
 }
@@ -282,7 +299,6 @@ function buildReportPrompt(params: {
   messageCount: number
   responses: Awaited<ReturnType<typeof loadReportData>>['responses']
   activeQuestions: Awaited<ReturnType<typeof loadReportData>>['activeQuestions']
-  notableNotes: Awaited<ReturnType<typeof loadReportData>>['notableNotes']
   generalMessages: string[]
 }): string {
   return [
@@ -313,12 +329,7 @@ function buildReportPrompt(params: {
     'Ordinary guest chat messages JSON (not tied to any specific question):',
     JSON.stringify(params.generalMessages, null, 2),
     '',
-    'Admin notes from notable conversations JSON:',
-    JSON.stringify(
-      params.notableNotes.map((note) => note.note),
-      null,
-      2,
-    ),
+    'Evidence scope: public visitor sessions and non-invented captured answers in this venue and UTC week only. Private staff notes are excluded.',
   ].join('\n')
 }
 
@@ -384,7 +395,6 @@ export async function processWeeklyReportJob(
       messageCount: data.messageCount,
       responses: data.responses,
       activeQuestions: data.activeQuestions,
-      notableNotes: data.notableNotes,
       generalMessages: data.generalMessages,
     })
 
@@ -420,7 +430,7 @@ export async function processWeeklyReportJob(
         }),
     })
 
-    const parsed = response.parsed
+    const parsed = redactReportResponse(response.parsed)
     const title = 'Torchiko Weekly Report'
     const content = formatReportContent({
       title,
@@ -428,6 +438,7 @@ export async function processWeeklyReportJob(
       weekLabel: `${payload.weekStart.slice(0, 10)} to ${payload.weekEnd.slice(0, 10)}`,
       sessionCount: data.sessionCount,
       messageCount: data.messageCount,
+      answerCount: data.responses.length,
       parsed,
     })
 
