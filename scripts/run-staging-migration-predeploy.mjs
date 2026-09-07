@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-224-20260907',
+  approval: 'torchiko-staging-lineage-to-225-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 224,
+  migrationCount: 225,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -79,6 +79,9 @@ const EXPECTED = Object.freeze({
   promotionAssessmentPredecessorPublicTableCount: 245,
   promotionAssessmentPredecessorFinalMigration:
     '20260907022200_add_agent_workflow_promotion_assessments',
+  intakeSubmissionPredecessorCount: 224,
+  intakeSubmissionPredecessorPublicTableCount: 251,
+  intakeSubmissionPredecessorFinalMigration: '20260907022400_add_intake_v1_submissions',
   workflowActivationPredecessorCount: 223,
   workflowActivationPredecessorPublicTableCount: 248,
   workflowActivationPredecessorFinalMigration: '20260907022300_add_agent_workflow_activations',
@@ -101,10 +104,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907022400_add_intake_v1_submissions',
-  manifestHash: '8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532',
-  // Measured on native disposable PostgreSQL 16.15 in UTC; retained V1 fixture evidence.
-  finalPublicTableCount: 251,
+  finalMigration: '20260907022500_add_intake_v1_processing_dispatches',
+  manifestHash: 'd5d5aed3c06ccb48b045d66a5cd35b940269abfba289603f355e9232746d843e',
+  // Measured native UTC PostgreSQL225 processing fixture passed; data/logs retained.
+  finalPublicTableCount: 252,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -371,6 +374,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.usageObservationPredecessorCount &&
     rows.length !== EXPECTED.promotionAssessmentPredecessorCount &&
     rows.length !== EXPECTED.workflowActivationPredecessorCount &&
+    rows.length !== EXPECTED.intakeSubmissionPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -434,6 +438,7 @@ function ledgerState(rows, manifest) {
     return 'promotion-assessment-predecessor'
   if (rows.length === EXPECTED.workflowActivationPredecessorCount)
     return 'workflow-activation-predecessor'
+  if (rows.length === EXPECTED.intakeSubmissionPredecessorCount) return 'intake-submission-predecessor'
   return 'complete'
 }
 
@@ -621,6 +626,7 @@ export function expectedPublicTableCount(state) {
     'promotion-assessment-predecessor': EXPECTED.promotionAssessmentPredecessorPublicTableCount,
     'staging-baseline': EXPECTED.stagingBaselinePublicTableCount,
     'workflow-activation-predecessor': EXPECTED.workflowActivationPredecessorPublicTableCount,
+    'intake-submission-predecessor': EXPECTED.intakeSubmissionPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
