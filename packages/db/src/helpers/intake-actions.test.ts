@@ -205,7 +205,7 @@ describe('canonical intake actions', () => {
     })
     expect(runFindMany.mock.calls[0]![0].select).not.toHaveProperty('structuredBootstrap')
     expect(queryRaw).toHaveBeenCalledOnce()
-    expect(queryRaw.mock.calls[0]![0].strings.join(' ')).toContain(
+    expect(queryRaw.mock.calls[0]![0].join(' ')).toContain(
       "COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'",
     )
     expect(result[0]!.structuredBootstrap).toEqual({

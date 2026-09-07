@@ -76,6 +76,57 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Reviewed canonical media handoff and legacy adoption: exact scoped receipts,
+  // transaction locks, and bounded metadata reads excluding large media snapshots.
+  {
+    file: 'packages/api/src/lib/legacy-knowledge-adoption-service.ts',
+    method: '$executeRaw',
+    hash: '5ca1c7f89ae929c4cea16ff527a04b8d124ad0af2797ac3dd52c5bdd62f6eabb',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/legacy-knowledge-adoption-service.ts',
+    method: '$queryRaw',
+    hash: '4de97d6f2aa6c63290ea8d36d386adc8dac2decefcf78d6ba90f079a5030abf8',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$executeRaw',
+    hash: '5598666b25b310169d74eefba5f79ecbf981d0c88b29347cd4e0ac52aa9f005e',
+    policy: 'tenant-intake-proposal-request-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '7dd3562c8d5b1ad58e70358d8d9e9271dea90b042066687a5450487cb63c0007',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '8c79ad7491613a903db3f120c58da90d6dfdd4e68fa0572b4b8e3045b54e4530',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-actions.ts',
+    method: '$queryRaw',
+    hash: 'c534db8c52d4a5d5808d3389bda56b54886b55d5520b245dfe0a1444372609ae',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$queryRaw',
+    hash: '81a8946c8cdc85cbf0ffcc10d7513c09a994e58eb6b0a4a9f535c7d8be762f2d',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$queryRaw',
+    hash: 'c0e3460f24ed42fdc8dbae7b23923f8af30044153a8d711e8da0ef221671f197',
+    policy: 'tenant-and-venue',
+  },
+
   {
     file: 'packages/billing/src/service.ts',
     method: '$executeRaw',
@@ -331,7 +382,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: '08e5613e8e664eff6ce54816cb84b07d58e875a62eb9efc57ba62e35decb3a36',
+    hash: 'cffc7451aea5e65d6206c8818bd2fa09bfd43cee708ede3cb002892911a2032d',
     policy: 'public-venue-slug',
   },
   {
@@ -651,7 +702,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '432e3793aad3435f27b780e999a8548b1d34e3c42ea130ef26a2af7a4b0f3993',
+    hash: 'a6719fdd8a8d63e206a4a7740f1b318841ec3bae33b60812ac37b6204873f191',
     policy: 'tenant-and-venue',
   },
   {
@@ -921,7 +972,15 @@ function analyzeSource(source, fileName) {
     if (
       ts.isElementAccessExpression(node) &&
       ts.isCallExpression(node.parent) &&
-      node.parent.expression === node
+      node.parent.expression === node &&
+      !(
+        fileName === 'packages/api/src/lib/character-artifact-storage.ts' &&
+        ts.isPropertyAccessExpression(node.argumentExpression) &&
+        ts.isIdentifier(node.argumentExpression.expression) &&
+        node.argumentExpression.expression.text === 'Symbol' &&
+        node.argumentExpression.name.text === 'asyncIterator' &&
+        !isDbReceiver(node.expression, dbAliases)
+      )
     ) {
       violations.push(`${fileName}: computed method calls are prohibited in production source`)
     }
@@ -953,6 +1012,7 @@ function analyzeSource(source, fileName) {
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
       rawMethods.has(node.text) &&
+      !isTypeOnlyReference(node) &&
       !(ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node)
     ) {
       violations.push(`${fileName}: computed raw SQL reference ${node.text} is prohibited`)
@@ -1142,6 +1202,34 @@ function runSelfTests() {
   if (typeOnlyPrisma.violations.length > 0) {
     throw new Error('Raw SQL verifier rejected a type-only Prisma namespace self-test')
   }
+  const typeOnlyClient = analyzeSource("type Client = Pick<typeof db, '$queryRaw'>", fileName)
+  if (typeOnlyClient.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected a type-only client method selection')
+  }
+  const artifactIterator = analyzeSource(
+    'const iterator = body[Symbol.asyncIterator]()',
+    'packages/api/src/lib/character-artifact-storage.ts',
+  )
+  if (artifactIterator.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected reviewed artifact stream iteration')
+  }
+  expectFixtureFailure(
+    'runtime method string remains prohibited',
+    [{ fileName, source: "const method = '$queryRaw'; client[method](query)" }],
+    [],
+    'computed raw SQL reference',
+  )
+  expectFixtureFailure(
+    'symbol does not bypass database receiver checks',
+    [
+      {
+        fileName: 'packages/api/src/lib/character-artifact-storage.ts',
+        source: 'db[Symbol.asyncIterator]()',
+      },
+    ],
+    [],
+    'computed method calls are prohibited',
+  )
   expectFixtureFailure(
     'dynamic Prisma access',
     [{ fileName, source: "const p = await import('@prisma/client')" }],

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
@@ -503,15 +502,15 @@ export async function listIntakeProposals(input: {
     .filter((row) => row.sourceKind === 'STRUCTURED_BOOTSTRAP')
     .map((row) => row.id)
   const details = structuredIds.length
-    ? await input.db.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>(Prisma.sql`
+    ? await input.db.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>`
         SELECT id, structured_bootstrap AS "structuredBootstrap"
           FROM intake_runs
          WHERE tenant_id = ${input.tenantId}
            AND venue_id = ${input.venueId}
            AND source_kind = 'STRUCTURED_BOOTSTRAP'::"IntakeSourceKind"
-           AND id IN (${Prisma.join(structuredIds)})
+           AND id = ANY(${structuredIds}::text[])
            AND COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'
-      `)
+      `
     : []
   const detailsById = new Map(details.map((detail) => [detail.id, detail.structuredBootstrap]))
   return rows.map((row) => ({

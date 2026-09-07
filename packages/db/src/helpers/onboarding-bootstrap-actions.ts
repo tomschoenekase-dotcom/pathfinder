@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 import { db } from '../client'
@@ -370,13 +369,13 @@ export async function listOnboardingBootstrapDetails(input: {
       createdAt: Date
       evidenceCount: bigint
     }>
-  >(Prisma.sql`
+  >`
     SELECT run.id,
            run.venue_id AS "venueId",
            run.status::text AS status,
            run.display_name AS "displayName",
            run.created_at AS "createdAt",
-           (SELECT COUNT(*) FROM intake_evidence evidence WHERE evidence.run_id = run.id) AS "evidenceCount"
+           (SELECT COUNT(*) FROM intake_evidence evidence WHERE evidence.run_id = run.id AND evidence.tenant_id = run.tenant_id AND evidence.venue_id = run.venue_id) AS "evidenceCount"
       FROM intake_runs run
      WHERE run.tenant_id = ${input.tenantId}
        AND run.venue_id = ${input.venueId}
@@ -384,17 +383,17 @@ export async function listOnboardingBootstrapDetails(input: {
        AND COALESCE(run.structured_bootstrap->>'kind', '') <> 'OPTIONAL_NOTES'
      ORDER BY run.created_at DESC, run.id DESC
      LIMIT ${input.limit}
-  `)
+  `
   const details = rows.length
-    ? await client.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>(Prisma.sql`
+    ? await client.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>`
         SELECT id, structured_bootstrap AS "structuredBootstrap"
           FROM intake_runs
          WHERE tenant_id = ${input.tenantId}
            AND venue_id = ${input.venueId}
            AND source_kind = 'STRUCTURED_BOOTSTRAP'::"IntakeSourceKind"
-           AND id IN (${Prisma.join(rows.map((row) => row.id))})
+           AND id = ANY(${rows.map((row) => row.id)}::text[])
            AND COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'
-      `)
+      `
     : []
   const detailsById = new Map(details.map((detail) => [detail.id, detail.structuredBootstrap]))
   return rows.map((row) => ({

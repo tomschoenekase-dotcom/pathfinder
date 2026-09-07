@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
@@ -62,8 +63,7 @@ export async function prepareMediaProviderOperation(input: MediaProviderOperatio
       try {
         row = await db.mediaProviderOperation.create({ data: input })
       } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
-          throw error
+        if (!(error instanceof PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
         row = await findOperation(input)
       }
     }

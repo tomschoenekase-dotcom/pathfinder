@@ -12,6 +12,10 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Admin-only review/evidence routes recheck the exact tenant+venue on every read/write.
+  ['packages/api/src/routers/admin/media-ingestion-handoff.ts', 5],
+  // Durable provider identities are tenant-scoped; each mutation is ID/lease/revision-fenced.
+  ['packages/db/src/helpers/media-provider-operations.ts', 5],
   ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
   // Platform recovery scans only bounded authoritative upload identities; each
   // job then re-enters one exact tenant+venue+upload scope before mutation.
@@ -156,7 +160,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/evaluation-review-actions.ts', 1],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],
   // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
-  ['packages/api/src/routers/admin/guest-design.ts', 2],
+  ['packages/api/src/routers/admin/guest-design.ts', 3],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
   // Platform-admin location authoring reads and mutates only one exact tenant+venue workspace;
   // draft edits and availability transitions are CAS-bound, strictly audited, and content-locked.

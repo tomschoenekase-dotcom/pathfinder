@@ -263,10 +263,10 @@ describe('onboarding bootstrap intake action', () => {
       limit: 50,
       client: client as never,
     })
-    expect(queryRaw.mock.calls[0]![0].strings.join(' ')).toContain(
+    expect(queryRaw.mock.calls[0]![0].join(' ')).toContain(
       "COALESCE(run.structured_bootstrap->>'kind', '') <> 'OPTIONAL_NOTES'",
     )
-    expect(queryRaw.mock.calls[1]![0].strings.join(' ')).toContain(
+    expect(queryRaw.mock.calls[1]![0].join(' ')).toContain(
       "COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'",
     )
     expect(result[0]!.structuredBootstrap).toEqual({
