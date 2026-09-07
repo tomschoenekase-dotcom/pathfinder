@@ -1,11 +1,12 @@
 import { expect, test, type Browser } from '@playwright/test'
+import { assertVisitorLocalFixturePerformanceBudget } from '../performance/local-fixture-performance-budgets'
 
 const fixturePath =
   '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English'
 const visitorPath = process.env.PLAYWRIGHT_VISITOR_PATH ?? fixturePath
 const requestedSamples = Number.parseInt(process.env.VISITOR_PERFORMANCE_SAMPLES ?? '3', 10)
 const sampleCount = Number.isSafeInteger(requestedSamples)
-  ? Math.min(10, Math.max(1, requestedSamples))
+  ? Math.min(10, Math.max(3, requestedSamples))
   : 3
 
 type LongTaskEntry = { duration: number; startTime: number }
@@ -156,7 +157,12 @@ test('records visitor readiness distributions without sending chat', async ({
     body,
     contentType: 'application/json',
   })
+  // eslint-disable-next-line no-console -- CI consumes this machine-readable measurement artifact.
   console.log(`VISITOR_PERFORMANCE_METRICS=${JSON.stringify(metrics)}`)
+
+  if (!process.env.PLAYWRIGHT_VISITOR_PATH) {
+    assertVisitorLocalFixturePerformanceBudget(samples)
+  }
 
   expect(samples).toHaveLength(sampleCount)
   expect(samples.every((sample) => sample.allResources.requests > 0)).toBe(true)

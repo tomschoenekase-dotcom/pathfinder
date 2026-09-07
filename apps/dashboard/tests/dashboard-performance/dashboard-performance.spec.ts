@@ -1,10 +1,11 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { assertDashboardLocalFixturePerformanceBudget } from '../performance/local-fixture-performance-budgets'
 
 const fixturePath = '/dev-fixtures/dashboard-performance'
 const dashboardPath = process.env.PLAYWRIGHT_DASHBOARD_PATH ?? fixturePath
 const requestedSamples = Number.parseInt(process.env.DASHBOARD_PERFORMANCE_SAMPLES ?? '3', 10)
 const sampleCount = Number.isSafeInteger(requestedSamples)
-  ? Math.min(10, Math.max(1, requestedSamples))
+  ? Math.min(10, Math.max(3, requestedSamples))
   : 3
 
 type View = 'directory' | 'venues' | 'analytics' | 'transcript'
@@ -171,7 +172,12 @@ test('records bounded high-volume dashboard readiness and switching distribution
     body: Buffer.from(`${JSON.stringify(metrics, null, 2)}\n`),
     contentType: 'application/json',
   })
+  // eslint-disable-next-line no-console -- CI consumes this machine-readable measurement artifact.
   console.log(`DASHBOARD_PERFORMANCE_METRICS=${JSON.stringify(metrics)}`)
+
+  if (!process.env.PLAYWRIGHT_DASHBOARD_PATH) {
+    assertDashboardLocalFixturePerformanceBudget(samples)
+  }
 
   expect(samples).toHaveLength(sampleCount)
   expect(samples.every((sample) => sample.counts.venues === 60)).toBe(true)
