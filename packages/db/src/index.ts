@@ -877,6 +877,7 @@ export type {
 } from './helpers/operational-update-actions'
 export {
   createIntakeProposal,
+  createIntakeProposalInTransaction,
   getIntakeProposalReview,
   IntakeActionError,
   intakeProposalInput,
@@ -888,6 +889,7 @@ export {
 } from './helpers/intake-actions'
 export type {
   IntakeActionClient,
+  CreateIntakeProposalInput,
   IntakeActionErrorCode,
   IntakeProposalInput,
 } from './helpers/intake-actions'
@@ -1361,6 +1363,15 @@ export {
   intakeSubmissionDraftContent,
   intakeSubmissionDraftSourceKind,
 } from './helpers/intake-submission-draft-actions'
+export {
+  getIntakeV1SubmissionAction,
+  getLatestIntakeV1SubmissionAction,
+  IntakeV1SubmissionError,
+  intakeV1SubmissionSelection,
+  listIntakeV1CandidatesAction,
+  listIntakeV1UploadCandidatesAction,
+  submitIntakeV1Action,
+} from './helpers/intake-v1-submission-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

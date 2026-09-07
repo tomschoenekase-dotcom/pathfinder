@@ -6,16 +6,23 @@ import {
   OnboardingBootstrapError,
   createIntakeProposal,
   getIntakeSubmissionDraft,
+  getIntakeV1SubmissionAction,
+  getLatestIntakeV1SubmissionAction,
   IntakeSubmissionDraftError,
+  IntakeV1SubmissionError,
   getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
   notesProposalInput,
   listIntakeProposals,
+  listIntakeV1CandidatesAction,
+  listIntakeV1UploadCandidatesAction,
   saveIntakeSubmissionDraft,
   intakeSubmissionDraftContent,
+  intakeV1SubmissionSelection,
   onboardingBootstrapSubmissionInput,
   submitOnboardingBootstrapAction,
+  submitIntakeV1Action,
   websiteProposalInput,
 } from '@pathfinder/db'
 
@@ -68,6 +75,19 @@ function mapActionError(error: unknown): never {
           : error.code === 'CONFLICT'
             ? 'CONFLICT'
             : 'NOT_FOUND',
+      message: error.message,
+    })
+  }
+  if (error instanceof IntakeV1SubmissionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : error.code === 'PRECONDITION_FAILED'
+              ? 'PRECONDITION_FAILED'
+              : 'BAD_REQUEST',
       message: error.message,
     })
   }
@@ -145,6 +165,157 @@ export const intakeRouter = router({
             role: ctx.session.role as 'OWNER' | 'MANAGER',
           },
           submission: input,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  submitV1: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(scope.extend({ selection: intakeV1SubmissionSelection }).strict())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await submitIntakeV1Action({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          actorRole: ctx.session.role as 'MANAGER' | 'OWNER',
+          selection: input.selection,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  amendV1: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      scope
+        .extend({
+          submissionId: z.string().min(1).max(191),
+          expectedCurrentRevision: z.number().int().min(1),
+          selection: intakeV1SubmissionSelection,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await submitIntakeV1Action({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          actorRole: ctx.session.role as 'MANAGER' | 'OWNER',
+          selection: input.selection,
+          amend: {
+            submissionId: input.submissionId,
+            expectedCurrentRevision: input.expectedCurrentRevision,
+          },
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  getV1: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      scope
+        .extend({
+          submissionId: z.string().min(1).max(191),
+          revisionCursor: z.number().int().min(1).optional(),
+          revisionLimit: z.number().int().min(1).max(20).default(20),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getIntakeV1SubmissionAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          submissionId: input.submissionId,
+          revisionLimit: input.revisionLimit,
+          ...(input.revisionCursor ? { revisionCursor: input.revisionCursor } : {}),
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  getLatestV1: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(scope.extend({ revisionLimit: z.number().int().min(1).max(20).default(20) }).strict())
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getLatestIntakeV1SubmissionAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          revisionLimit: input.revisionLimit,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  listV1Candidates: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      scope
+        .extend({
+          limit: z.number().int().min(1).max(50).default(25),
+          cursor: z
+            .object({ createdAt: z.string().datetime(), id: z.string().min(1).max(191) })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await listIntakeV1CandidatesAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          limit: input.limit,
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  listV1UploadCandidates: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      scope
+        .extend({
+          limit: z.number().int().min(1).max(50).default(25),
+          cursor: z
+            .object({
+              createdAt: z.string().datetime(),
+              id: z.string().min(1).max(191),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await listIntakeV1UploadCandidatesAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          ownerUserId: ctx.session.userId,
+          limit: input.limit,
+          ...(input.cursor ? { cursor: input.cursor } : {}),
         })
       } catch (error) {
         mapActionError(error)

@@ -12,6 +12,9 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-intake-v1-operation-lock',
+  'tenant-intake-v1-owner-revision-lock',
+  'tenant-intake-v1-selected-source-snapshot',
   'tenant-agent-delegation-operation-lock',
   'tenant-workflow-approval-request-lock',
   'tenant-workflow-execution-lease',
@@ -86,6 +89,39 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // V1 uses READ COMMITTED: operation replay precedes current material reads.
+  // Amendment locks exact owner/venue aggregate; bounded selected sources and
+  // their scoped receipt rows stay SHARE-locked through immutable snapshot writes.
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$executeRaw',
+    hash: '6d191475b0fd6dd5f56e5e85b837a67498ac245cabf14bdc8d0377a0649a37d6',
+    policy: 'tenant-intake-v1-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '474c35ad5c49c9666ffbc3df0691f3c32ef3eaceba38d3374bb6f9c36f8fc4ba',
+    policy: 'tenant-intake-v1-owner-revision-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '565578e189c0e5df7374d8da7f8c515b969329039e0e050df467e4a5418598e1',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: '63b030e633418c27f17f3984e7ff0b30b0f87791c8044454875d33af6e48dc21',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-submission-actions.ts',
+    method: '$queryRaw',
+    hash: 'f295f89e8de246ce3f99cb2e3d1082dbbc72c8cdcf605168cc337d501d9da302',
+    policy: 'tenant-intake-v1-selected-source-snapshot',
+  },
   // Exact tenant/operation replay is serialized before parent authority checks.
   // This grants no delegation authority; bound parents still require a live lease.
   {

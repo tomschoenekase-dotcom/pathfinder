@@ -18,6 +18,7 @@ model User {
   updatedAt              DateTime                @updatedAt @map("updated_at")
   memberships            TenantMembership[]
   intakeSubmissionDrafts IntakeSubmissionDraft[]
+  intakeV1Submissions    IntakeV1Submission[]
 
   @@map("users")
 }
@@ -167,6 +168,7 @@ model Tenant {
   venues                                    Venue[]
   characterFactoryJobs                      CharacterFactoryJob[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
+  intakeV1Submissions                       IntakeV1Submission[]
   operationalUpdates                        OperationalUpdate[]
   analyticsEvents                           AnalyticsEvent[]
   dailyRollups                              DailyRollup[]
@@ -1401,6 +1403,7 @@ model Venue {
   tenant                                    Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   characterFactoryJobs                      CharacterFactoryJob[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
+  intakeV1Submissions                       IntakeV1Submission[]
   places                                    Place[]
   sessions                                  VisitorSession[]
   operationalUpdates                        OperationalUpdate[]
@@ -1906,6 +1909,7 @@ model IntakeRun {
   interviewClarificationResolutions IntakeInterviewClarificationResolution[]
   packageHandoff                    IntakePackageHandoff?
   upload                            IntakeUpload?
+  v1SubmissionMembers               IntakeV1SubmissionMember[]
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
@@ -2206,6 +2210,85 @@ model IntakeSubmissionDraft {
   @@map("intake_submission_drafts")
 }
 
+enum IntakeV1SubmissionStatus {
+  AWAITING_CANONICAL_REVIEW
+}
+
+enum IntakeV1SubmissionMemberKind {
+  INTAKE_RUN
+  INTAKE_UPLOAD
+}
+
+/// Durable, private V1 material checkpoint. It freezes source identities in revisions;
+/// it neither creates a package nor grants publication or execution authority.
+model IntakeV1Submission {
+  id          String                    @id @default(cuid())
+  tenantId    String                    @map("tenant_id")
+  venueId     String                    @map("venue_id")
+  ownerUserId String                    @map("owner_user_id")
+  operationId String                    @map("operation_id") @db.Uuid
+  requestHash String                    @map("request_hash") @db.Char(64)
+  status      IntakeV1SubmissionStatus @default(AWAITING_CANONICAL_REVIEW)
+  revision    Int                       @default(1)
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue       Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  owner       User                      @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  revisions   IntakeV1SubmissionRevision[]
+
+  @@unique([tenantId, operationId], map: "intake_v1_submissions_tenant_operation_key")
+  @@unique([id, tenantId, venueId], map: "intake_v1_submissions_scope_key")
+  @@index([tenantId, venueId, ownerUserId, updatedAt], map: "intake_v1_submissions_owner_resume_idx")
+  @@map("intake_v1_submissions")
+}
+
+/// Append-only immutable manifest revision. Raw draft text and object locations are excluded.
+model IntakeV1SubmissionRevision {
+  id                String              @id @default(cuid())
+  submissionId      String              @map("submission_id")
+  tenantId          String              @map("tenant_id")
+  venueId           String              @map("venue_id")
+  revision          Int
+  operationId       String              @map("operation_id") @db.Uuid
+  requestHash       String              @map("request_hash") @db.Char(64)
+  manifest          Json
+  manifestHash      String              @map("manifest_hash") @db.Char(64)
+  criticalMissing   Json                @map("critical_missing")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  submission        IntakeV1Submission @relation(fields: [submissionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  members           IntakeV1SubmissionMember[]
+
+  @@unique([submissionId, revision], map: "intake_v1_submission_revisions_number_key")
+  @@unique([tenantId, operationId], map: "intake_v1_submission_revisions_tenant_operation_key")
+  @@unique([id, tenantId, venueId], map: "intake_v1_submission_revisions_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "intake_v1_submission_revisions_scope_created_idx")
+  @@map("intake_v1_submission_revisions")
+}
+
+/// Indexed identity members for one immutable manifest revision.
+model IntakeV1SubmissionMember {
+  id             String                    @id @default(cuid())
+  revisionId     String                    @map("revision_id")
+  tenantId       String                    @map("tenant_id")
+  venueId        String                    @map("venue_id")
+  ordinal        Int
+  kind           IntakeV1SubmissionMemberKind
+  intakeRunId    String?                   @map("intake_run_id")
+  intakeUploadId String?                   @map("intake_upload_id")
+  immutableHash  String                    @map("immutable_hash") @db.Char(64)
+  revision       IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  intakeRun      IntakeRun?                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  intakeUpload   IntakeUpload?             @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+
+  @@unique([revisionId, ordinal], map: "intake_v1_submission_members_ordinal_key")
+  @@unique([revisionId, intakeRunId], map: "intake_v1_submission_members_revision_run_key")
+  @@unique([revisionId, intakeUploadId], map: "intake_v1_submission_members_revision_upload_key")
+  @@index([tenantId, venueId, intakeRunId], map: "intake_v1_submission_members_run_idx")
+  @@index([tenantId, venueId, intakeUploadId], map: "intake_v1_submission_members_upload_idx")
+  @@map("intake_v1_submission_members")
+}
+
 enum IntakeEventKind {
   PROPOSAL_CREATED
   EVIDENCE_RECORDED
@@ -2334,6 +2417,7 @@ model IntakeUpload {
   verificationReceipts   IntakeUploadVerificationReceipt[]
   fileExtractionReceipts IntakeFileExtractionReceipt[]
   venueMediaAsset        VenueMediaAsset?
+  v1SubmissionMembers    IntakeV1SubmissionMember[]
 
   @@unique([tenantId, requestId], map: "intake_uploads_tenant_request_key")
   @@unique([intakeRunId, tenantId, venueId], map: "intake_uploads_run_scope_key")
