@@ -43,7 +43,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v10')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v11')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -219,7 +219,8 @@ describe('guest response-depth policy', () => {
     })
     expect(staticPart).toContain('visitor explicitly asked for more detail')
     expect(staticPart).toContain('Use fewer words whenever the answer is already complete')
-    expect(staticPart).toContain('Never exceed 200 words')
+    expect(staticPart).toContain('Normally keep this reply within 200 words')
+    expect(staticPart).toContain('Preserve any restriction, exception, or uncertainty')
   })
 })
 

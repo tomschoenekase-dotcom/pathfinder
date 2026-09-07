@@ -80,7 +80,7 @@ function responseDepthInstruction(
     responseIntent === 'EXPAND'
       ? 'The visitor explicitly asked for more detail about the preceding answer, so add relevant context without repeating filler.'
       : 'The visitor has not requested expansion; answer the current question directly.'
-  return `- RESPONSE DEPTH: ${detail} ${expansion} Use fewer words whenever the answer is already complete. Never exceed ${wordLimit} words in this reply.`
+  return `- RESPONSE DEPTH: ${detail} ${expansion} Use fewer words whenever the answer is already complete. Normally keep this reply within ${wordLimit} words; use only the space needed. Preserve any restriction, exception, or uncertainty needed for a correct answer, even when it requires a little more detail.`
 }
 
 type KnowledgeEntry = {
