@@ -393,6 +393,15 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
         },
       })
       expect(advanced.revision).toBe(result.revision + 1)
+      await expect(
+        publicCaller.location.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          toLocationId: to.id,
+          accessibleOnly: false,
+        }),
+      ).resolves.toMatchObject({ segments: [{ connectionId: connection.id }] })
       expect(
         await applyMediaRelationDraft({ client: db, actorId, input: applyInput }),
       ).toMatchObject({ receiptId: applied[0]!.receiptId, replayed: true })
@@ -424,6 +433,31 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
           },
         }),
       ).rejects.toThrow()
+      const withdrawn = await saveMediaResolution({
+        client: db,
+        actorId,
+        input: {
+          ...base,
+          requestId: randomUUID(),
+          expectedRevision: advanced.revision,
+          decision: {
+            kind: 'REVERT_RELATION',
+            reviewRequestId: valid.reviewRequestId,
+            rationale:
+              'Withdraw the route review while retaining its immutable application receipt.',
+          },
+        },
+      })
+      expect(withdrawn.revision).toBe(advanced.revision + 1)
+      await expect(
+        publicCaller.location.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          toLocationId: to.id,
+          accessibleOnly: false,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
       expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(0)
       expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId } })).toBe(0)
     })

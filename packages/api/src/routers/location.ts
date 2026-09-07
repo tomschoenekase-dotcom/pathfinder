@@ -8,6 +8,7 @@ import type { TRPCContext } from '../context'
 import { publicProcedure } from '../trpc'
 import { findDeterministicRoutePlan, projectRouteLocation } from './location-route'
 import { loadPublicLocationScope } from './location-public-scope'
+import { filterEligibleMediaRouteConnections } from '../lib/media-relation-route-loader'
 
 const safeExternalMap = z
   .string()
@@ -102,6 +103,8 @@ export const locationRouter = router({
         },
         select: {
           id: true,
+          tenantId: true,
+          venueId: true,
           stableKey: true,
           kind: true,
           displayName: true,
@@ -218,6 +221,8 @@ export const locationRouter = router({
           accessible: true,
           directions: true,
           verifiedAt: true,
+          isActive: true,
+          _count: { select: { mediaRelationApplications: true } },
         },
       })
       if (connections.length > 1000)
@@ -225,9 +230,20 @@ export const locationRouter = router({
           code: 'PRECONDITION_FAILED',
           message: 'This venue topology exceeds the supported route size.',
         })
+      const eligibleConnections = await filterEligibleMediaRouteConnections({
+        client: ctx.db,
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        connections: connections.map(
+          ({ _count = { mediaRelationApplications: 0 }, ...connection }) => ({
+            ...connection,
+            mediaApplicationCount: _count.mediaRelationApplications,
+          }),
+        ),
+      })
       const routePlan = findDeterministicRoutePlan({
         locations,
-        connections,
+        connections: eligibleConnections,
         fromLocationId,
         toLocationId,
       })

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const entitlement = vi.hoisted(() => vi.fn())
+const routeEligibility = vi.hoisted(() => vi.fn())
 vi.mock('@pathfinder/db', () => ({ resolveProductEntitlement: entitlement }))
+vi.mock('../lib/media-relation-route-loader', () => ({
+  filterEligibleMediaRouteConnections: routeEligibility,
+}))
 
 import type { TRPCContext } from '../context'
 import { router } from '../core'
@@ -67,6 +71,7 @@ describe('public structured location resolver', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     entitlement.mockResolvedValue({ enabled: true })
+    routeEligibility.mockImplementation(async ({ connections }) => connections)
     queryRaw.mockResolvedValue([
       { tenantId: 'tenant-1', venueId: 'venue-1', experienceScope: 'PUBLIC' },
     ])
@@ -301,6 +306,28 @@ describe('public structured location resolver', () => {
     ])
 
     await expect(caller.location.route(routeInput)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('does not route through a media connection whose source review was withdrawn', async () => {
+    findMany.mockResolvedValue(locations)
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'connection-media',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'location-gallery',
+        kind: 'DOOR',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Use the reviewed door.',
+        verifiedAt: new Date('2026-08-19T12:00:00Z'),
+        _count: { mediaRelationApplications: 1 },
+      },
+    ])
+    routeEligibility.mockResolvedValueOnce([])
+    await expect(caller.location.route(routeInput)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(routeEligibility).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+    )
   })
 
   it('fails closed before loading connections when the public topology is oversized', async () => {
