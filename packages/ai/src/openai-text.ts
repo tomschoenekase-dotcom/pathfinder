@@ -194,7 +194,8 @@ export async function createOpenAiTextStream(params: {
   if (!completedResponse) throw new Error('OpenAI stream ended without a terminal response')
   const incomplete =
     terminalType === 'response.incomplete' ||
-    completedResponse.status === 'incomplete' ||
+    terminalType === 'response.failed' ||
+    (completedResponse.status !== undefined && completedResponse.status !== 'completed') ||
     Boolean(completedResponse.incomplete_details)
   if (!completedResponse.usage) {
     if (incomplete) {
@@ -203,12 +204,6 @@ export async function createOpenAiTextStream(params: {
       )
     }
     throw new Error('OpenAI terminal response did not include usage')
-  }
-  if (terminalType === 'response.failed') {
-    throw new Error('OpenAI stream ended with a failed terminal response')
-  }
-  if (!incomplete && completedResponse.status && completedResponse.status !== 'completed') {
-    throw new Error(`OpenAI stream ended with status ${completedResponse.status}`)
   }
   const cachedInputTokens = completedResponse.usage.input_tokens_details?.cached_tokens ?? 0
   const finalText =

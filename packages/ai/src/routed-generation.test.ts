@@ -363,6 +363,16 @@ describe('routed text generation', () => {
   )
 
   it('rejects a failed terminal stream event when provider status is absent', async () => {
+    const usageSink = vi.fn().mockResolvedValue(undefined)
+    const settleExact = vi.fn().mockResolvedValue(undefined)
+    const settleAmbiguous = vi.fn().mockResolvedValue(undefined)
+    const budgetGate: AiBudgetGate = {
+      reserve: vi.fn().mockResolvedValue({ id: 'failed-stream', reservedUnits: 100_000n }),
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact,
+      settleAmbiguous,
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
     const create = vi.fn().mockResolvedValue({
       async *[Symbol.asyncIterator]() {
         yield {
@@ -397,13 +407,21 @@ describe('routed text generation', () => {
         system: [{ type: 'text', text: 'Brief.' }],
         messages: [{ role: 'user', content: 'Hello' }],
         maxAttempts: 1,
-        usageSink: vi.fn().mockResolvedValue(undefined),
+        usageSink,
         admissionGuard: vi.fn().mockResolvedValue(undefined),
-        budgetGate: NOOP_AI_BUDGET_GATE,
+        budgetGate,
         onTextDelta: vi.fn(),
       }),
-    ).rejects.toMatchObject({ code: 'provider-error' })
+    ).rejects.toMatchObject({ code: 'provider-incomplete-response' })
     expect(create).toHaveBeenCalledTimes(1)
+    expect(settleExact.mock.calls[0]?.[1]).toBeGreaterThan(0n)
+    expect(settleAmbiguous).not.toHaveBeenCalled()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        usage: expect.objectContaining({ inputTokens: 4, outputTokens: 2 }),
+      }),
+    )
   })
 
   it('uses an explicit fallback and annotates usage without repeating the dispatch fence', async () => {
