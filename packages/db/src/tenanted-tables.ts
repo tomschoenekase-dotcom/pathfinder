@@ -105,6 +105,7 @@ export const TENANTED_TABLES = [
   'ApprovalGrantEvidence',
   'AgentImprovementValidationEvidence',
   'AgentWorkflowVersion',
+  'AgentWorkflowPromotionAssessment',
   'AgentQuestion',
   'OnboardingQuestionLink',
   'ApprovalRequest',

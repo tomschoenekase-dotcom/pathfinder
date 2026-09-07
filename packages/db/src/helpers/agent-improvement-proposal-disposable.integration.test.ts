@@ -8,6 +8,7 @@ import { prepareAgentImprovementProposalAction } from './agent-improvement-propo
 import { recordAgentImprovementValidationAction } from './agent-improvement-validation-actions'
 import { recordAgentOutcomeAction, recordAgentTrustSignalAction } from './agent-outcome-actions'
 import { recordApprovalDecisionAction } from './approval-decisions'
+import { createAgentWorkflowPromotionAssessment } from './agent-workflow-promotion-assessment-actions'
 import { claimAgentBridgeTask, registerAgentBridgeSession } from './agent-bridge-actions'
 import { delegateAgentTaskAction } from './agent-delegation-actions'
 import { createAgentTaskAction } from './agent-task-actions'
@@ -922,6 +923,161 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         replayed: false,
         implementationHash: registered.version.contentHash,
       })
+      const createValidationPair = async (
+        manifest: typeof evalManifest,
+        evalCaseId: string,
+        prefix: string,
+      ) => {
+        const before = await createEvalRun(
+          randomUUID(),
+          `${prefix}1`.padEnd(64, '1').slice(0, 64),
+          `${prefix}-before`,
+          `${prefix}2`.padEnd(64, '2').slice(0, 64),
+          manifest,
+        )
+        const after = await createEvalRun(
+          randomUUID(),
+          `${prefix}3`.padEnd(64, '3').slice(0, 64),
+          `${prefix}-after`,
+          `${prefix}4`.padEnd(64, '4').slice(0, 64),
+          manifest,
+        )
+        await db.evalResult.createMany({
+          data: [
+            {
+              tenantId,
+              venueId,
+              runId: before.id,
+              runIdentityHash: before.identityHash,
+              caseId: evalCaseId,
+              caseRevision: 1,
+              caseHash: manifest[0]!.caseHash,
+              outcome: 'SCORED',
+              observationHash: `${prefix}5`.padEnd(64, '5').slice(0, 64),
+              observationSnapshot: { answer: 'Before.' },
+              checksSnapshot: [{ check: 'grounding', passed: false }],
+              passed: false,
+              passedChecks: 0,
+              totalChecks: 1,
+              latencyMs: 100,
+              costE8Usd: 100,
+            },
+            {
+              tenantId,
+              venueId,
+              runId: after.id,
+              runIdentityHash: after.identityHash,
+              caseId: evalCaseId,
+              caseRevision: 1,
+              caseHash: manifest[0]!.caseHash,
+              outcome: 'SCORED',
+              observationHash: `${prefix}6`.padEnd(64, '6').slice(0, 64),
+              observationSnapshot: { answer: 'After.' },
+              checksSnapshot: [{ check: 'grounding', passed: true }],
+              passed: true,
+              passedChecks: 1,
+              totalChecks: 1,
+              latencyMs: 105,
+              costE8Usd: 102,
+            },
+          ],
+        })
+        return recordAgentImprovementValidationAction(
+          {
+            ...validationRequest,
+            operationId: randomUUID(),
+            baselineEvalRunId: before.id,
+            candidateEvalRunId: after.id,
+            implementationKind: 'WORKFLOW_VERSION',
+            implementationRef: `AgentWorkflowVersion:${registered.version.id}`,
+            implementationVersion: '1',
+            implementationHash: registered.version.contentHash,
+            changeDimensions: ['MODEL'],
+          },
+          db,
+          new Set(['resources:read']),
+        )
+      }
+      const overlapValidation = await createValidationPair(evalManifest, evalCase.id, '7')
+      const overlapAssessment = await createAgentWorkflowPromotionAssessment({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        workflowVersionId: registered.version.id,
+        proposalId: prepared.id,
+        developmentValidationId: registryValidation.id,
+        heldoutValidationId: overlapValidation.id,
+        actor,
+      })
+      expect(overlapAssessment.assessment).toMatchObject({
+        outcome: 'REJECTED_OVERFIT',
+        diagnostics: expect.objectContaining({
+          disjointCaseSets: false,
+          autonomousPromotionEligible: false,
+        }),
+      })
+
+      const heldoutCase = await db.evalCase.create({
+        data: {
+          tenantId,
+          venueId,
+          caseKey: `improvement-heldout-${suffix}`,
+          revision: 1,
+          schemaVersion: 'fixture-v1',
+          category: 'grounding-heldout',
+          caseHash: '8'.repeat(64),
+          caseSnapshot: { prompt: 'Heldout grounded recommendation.' },
+          createdBy: 'integration-operator',
+          sourceType: 'SYNTHETIC',
+          sourceRef: `fixture:heldout:${suffix}`,
+        },
+      })
+      const heldoutManifest = [
+        { caseId: heldoutCase.id, revision: 1, caseHash: heldoutCase.caseHash },
+      ]
+      const heldoutValidation = await createValidationPair(heldoutManifest, heldoutCase.id, '9')
+      const assessmentRequest = {
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        workflowVersionId: registered.version.id,
+        proposalId: prepared.id,
+        developmentValidationId: registryValidation.id,
+        heldoutValidationId: heldoutValidation.id,
+        actor,
+      }
+      await expect(
+        createAgentWorkflowPromotionAssessment({
+          ...assessmentRequest,
+          operationId: randomUUID(),
+          venueId: `wrong-${venueId}`,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const assessment = await createAgentWorkflowPromotionAssessment(assessmentRequest)
+      expect(assessment.assessment).toMatchObject({
+        outcome: 'EVIDENCE_READY_REVIEW_REQUIRED',
+        diagnostics: expect.objectContaining({
+          disjointCaseSets: true,
+          targetImprovementObserved: true,
+          thresholdResolution: 'UNRESOLVED',
+          autonomousPromotionEligible: false,
+        }),
+      })
+      await expect(
+        createAgentWorkflowPromotionAssessment(assessmentRequest),
+      ).resolves.toMatchObject({ replayed: true, assessment: { id: assessment.assessment.id } })
+      await expect(
+        createAgentWorkflowPromotionAssessment({
+          ...assessmentRequest,
+          proposalId: `wrong-${prepared.id}`,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        db.agentWorkflowPromotionAssessment.update({
+          where: { id: assessment.assessment.id },
+          data: { outcome: 'REJECTED_REGRESSION' },
+        }),
+      ).rejects.toThrow(/append-only/iu)
       await expect(
         recordAgentImprovementValidationAction(
           {

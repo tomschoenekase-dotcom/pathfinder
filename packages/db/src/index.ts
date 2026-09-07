@@ -1368,3 +1368,4 @@ export {
   restoreProspectContactabilityAction,
 } from './helpers/prospect-contactability-actions'
 export * from './helpers/agent-workflow-registry-actions'
+export * from './helpers/agent-workflow-promotion-assessment-actions'

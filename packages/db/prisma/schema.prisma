@@ -273,8 +273,9 @@ model Tenant {
   intakeUploads                             IntakeUpload[]
   externalCredentials                       ExternalAccessCredential[]
   agentBridgeSessions                       AgentBridgeSession[]
-  agentWorkflowVersions                     AgentWorkflowVersion[]
   agentWorkers                              AgentWorker[]
+  agentWorkflowVersions                     AgentWorkflowVersion[]
+  agentWorkflowPromotionAssessments         AgentWorkflowPromotionAssessment[]
   credentialRotations                       ExternalCredentialRotation[]
   credentialRevocations                     ExternalCredentialRevocation[]
   credentialActivations                     ExternalCredentialActivation[]
@@ -1497,6 +1498,7 @@ model Venue {
   externalCredentials                       ExternalAccessCredential[]
   agentBridgeSessions                       AgentBridgeSession[]
   agentWorkflowVersions                     AgentWorkflowVersion[]
+  agentWorkflowPromotionAssessments         AgentWorkflowPromotionAssessment[]
   credentialRotations                       ExternalCredentialRotation[]
   credentialRevocations                     ExternalCredentialRevocation[]
   credentialActivations                     ExternalCredentialActivation[]
@@ -3751,31 +3753,31 @@ model VenueLocationConnection {
 }
 
 model AiUsageDailyRollup {
-  id                       String   @id @default(cuid())
-  tenantId                 String   @map("tenant_id")
-  venueId                  String?  @map("venue_id")
-  date                     DateTime
-  feature                  String
-  requestCount             Int      @default(0) @map("request_count")
-  successfulRequestCount   Int      @default(0) @map("successful_request_count")
-  failedRequestCount       Int      @default(0) @map("failed_request_count")
-  observedUsageRequestCount Int     @default(0) @map("observed_usage_request_count")
-  unknownUsageRequestCount Int      @default(0) @map("unknown_usage_request_count")
-  notDispatchedRequestCount Int     @default(0) @map("not_dispatched_request_count")
-  legacyUnclassifiedRequestCount Int @default(0) @map("legacy_unclassified_request_count")
-  observedTotalTokens      Int      @default(0) @map("observed_total_tokens")
-  observedEstimatedCostUsd Decimal  @default(0) @map("observed_estimated_cost_usd") @db.Decimal(18, 8)
-  inputTokens              Int      @default(0) @map("input_tokens")
-  outputTokens             Int      @default(0) @map("output_tokens")
-  cacheCreationInputTokens Int      @default(0) @map("cache_creation_input_tokens")
-  cacheReadInputTokens     Int      @default(0) @map("cache_read_input_tokens")
-  audioInputTokens         Int      @default(0) @map("audio_input_tokens")
-  audioOutputTokens        Int      @default(0) @map("audio_output_tokens")
-  cachedAudioInputTokens   Int      @default(0) @map("cached_audio_input_tokens")
-  totalTokens              Int      @default(0) @map("total_tokens")
-  estimatedCostUsd         Decimal  @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                    Venue?   @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  id                             String   @id @default(cuid())
+  tenantId                       String   @map("tenant_id")
+  venueId                        String?  @map("venue_id")
+  date                           DateTime
+  feature                        String
+  requestCount                   Int      @default(0) @map("request_count")
+  successfulRequestCount         Int      @default(0) @map("successful_request_count")
+  failedRequestCount             Int      @default(0) @map("failed_request_count")
+  observedUsageRequestCount      Int      @default(0) @map("observed_usage_request_count")
+  unknownUsageRequestCount       Int      @default(0) @map("unknown_usage_request_count")
+  notDispatchedRequestCount      Int      @default(0) @map("not_dispatched_request_count")
+  legacyUnclassifiedRequestCount Int      @default(0) @map("legacy_unclassified_request_count")
+  observedTotalTokens            Int      @default(0) @map("observed_total_tokens")
+  observedEstimatedCostUsd       Decimal  @default(0) @map("observed_estimated_cost_usd") @db.Decimal(18, 8)
+  inputTokens                    Int      @default(0) @map("input_tokens")
+  outputTokens                   Int      @default(0) @map("output_tokens")
+  cacheCreationInputTokens       Int      @default(0) @map("cache_creation_input_tokens")
+  cacheReadInputTokens           Int      @default(0) @map("cache_read_input_tokens")
+  audioInputTokens               Int      @default(0) @map("audio_input_tokens")
+  audioOutputTokens              Int      @default(0) @map("audio_output_tokens")
+  cachedAudioInputTokens         Int      @default(0) @map("cached_audio_input_tokens")
+  totalTokens                    Int      @default(0) @map("total_tokens")
+  estimatedCostUsd               Decimal  @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
+  tenant                         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                          Venue?   @relation(fields: [venueId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, venueId, date, feature])
   @@index([tenantId, date])
@@ -5755,11 +5757,47 @@ model AgentWorkflowVersion {
   venue                    Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   supersedesVersion        AgentWorkflowVersion?              @relation("AgentWorkflowVersionHistory", fields: [supersedesVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   supersededByVersions     AgentWorkflowVersion[]             @relation("AgentWorkflowVersionHistory")
+  promotionAssessments     AgentWorkflowPromotionAssessment[]
 
   @@unique([id, tenantId, venueId], map: "agent_workflow_versions_id_scope_key")
   @@unique([tenantId, operationId], map: "agent_workflow_versions_tenant_operation_key")
   @@unique([tenantId, venueId, registryKey, version], map: "agent_workflow_versions_scope_key_version_key")
   @@map("agent_workflow_versions")
+}
+
+enum AgentWorkflowPromotionAssessmentOutcome {
+  EVIDENCE_READY_REVIEW_REQUIRED
+  REJECTED_OVERFIT
+  REJECTED_REGRESSION
+  INCOMPLETE_EVIDENCE
+}
+
+model AgentWorkflowPromotionAssessment {
+  id                      String                                  @id @default(cuid())
+  operationId             String                                  @map("operation_id") @db.Uuid
+  tenantId                String                                  @map("tenant_id")
+  venueId                 String                                  @map("venue_id")
+  workflowVersionId       String                                  @map("workflow_version_id") @db.Uuid
+  proposalId              String                                  @map("proposal_id")
+  developmentValidationId String                                  @map("development_validation_id")
+  heldoutValidationId     String                                  @map("heldout_validation_id")
+  assessmentHash          String                                  @map("assessment_hash") @db.Char(64)
+  outcome                 AgentWorkflowPromotionAssessmentOutcome
+  diagnostics             Json
+  createdByType           ActorType                               @map("created_by_type")
+  createdById             String                                  @map("created_by_id") @db.VarChar(191)
+  createdAt               DateTime                                @default(now()) @map("created_at")
+  tenant                  Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  workflowVersion         AgentWorkflowVersion                    @relation(fields: [workflowVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  proposal                AgentImprovementProposal                @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  developmentValidation   AgentImprovementValidationEvidence      @relation("WorkflowAssessmentDevelopment", fields: [developmentValidationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  heldoutValidation       AgentImprovementValidationEvidence      @relation("WorkflowAssessmentHeldout", fields: [heldoutValidationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "agent_workflow_promotion_assessments_tenant_operation_key")
+  @@unique([workflowVersionId, developmentValidationId, heldoutValidationId], map: "agent_workflow_promotion_assessments_evidence_key")
+  @@index([tenantId, venueId, createdAt, id], map: "agent_workflow_promotion_assessments_scope_created_idx")
+  @@map("agent_workflow_promotion_assessments")
 }
 
 enum AgentImprovementImplementationKind {
@@ -5781,35 +5819,37 @@ enum AgentImprovementChangeDimension {
 /// Immutable, evidence-backed hypothesis for improving one exact agent/task scope.
 /// Its linked approval reviews the proposal only; it never applies the change.
 model AgentImprovementProposal {
-  id                    String                               @id @default(cuid())
-  operationId           String                               @map("operation_id") @db.Uuid
-  tenantId              String                               @map("tenant_id")
-  venueId               String                               @map("venue_id")
-  agentIdentityId       String                               @map("agent_identity_id")
-  approvalRequestId     String                               @unique @map("approval_request_id")
-  proposalKey           String                               @map("proposal_key") @db.VarChar(191)
-  revision              Int
-  supersedesProposalId  String?                              @map("supersedes_proposal_id")
-  taskClass             String                               @map("task_class") @db.VarChar(100)
-  targetKind            AgentImprovementTargetKind           @map("target_kind")
-  title                 String                               @db.VarChar(191)
-  hypothesis            String                               @db.VarChar(2000)
-  proposedChange        String                               @map("proposed_change") @db.VarChar(10000)
-  validationPlan        String                               @map("validation_plan") @db.VarChar(5000)
-  baselineSnapshot      Json                                 @map("baseline_snapshot")
-  createdByType         ActorType                            @map("created_by_type")
-  createdById           String                               @map("created_by_id") @db.VarChar(191)
-  createdAt             DateTime                             @default(now()) @map("created_at")
-  tenant                Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                                @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity         AgentIdentity                        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  approvalRequest       ApprovalRequest                      @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supersedesProposal    AgentImprovementProposal?            @relation("AgentImprovementProposalRevisions", fields: [supersedesProposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supersededByProposals AgentImprovementProposal[]           @relation("AgentImprovementProposalRevisions")
-  evidence              AgentImprovementProposalEvidence[]
-  validationEvidence    AgentImprovementValidationEvidence[]
+  id                           String                               @id @default(cuid())
+  operationId                  String                               @map("operation_id") @db.Uuid
+  tenantId                     String                               @map("tenant_id")
+  venueId                      String                               @map("venue_id")
+  agentIdentityId              String                               @map("agent_identity_id")
+  approvalRequestId            String                               @unique @map("approval_request_id")
+  proposalKey                  String                               @map("proposal_key") @db.VarChar(191)
+  revision                     Int
+  supersedesProposalId         String?                              @map("supersedes_proposal_id")
+  taskClass                    String                               @map("task_class") @db.VarChar(100)
+  targetKind                   AgentImprovementTargetKind           @map("target_kind")
+  title                        String                               @db.VarChar(191)
+  hypothesis                   String                               @db.VarChar(2000)
+  proposedChange               String                               @map("proposed_change") @db.VarChar(10000)
+  validationPlan               String                               @map("validation_plan") @db.VarChar(5000)
+  baselineSnapshot             Json                                 @map("baseline_snapshot")
+  createdByType                ActorType                            @map("created_by_type")
+  createdById                  String                               @map("created_by_id") @db.VarChar(191)
+  createdAt                    DateTime                             @default(now()) @map("created_at")
+  tenant                       Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue                                @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity                AgentIdentity                        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest              ApprovalRequest                      @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersedesProposal           AgentImprovementProposal?            @relation("AgentImprovementProposalRevisions", fields: [supersedesProposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersededByProposals        AgentImprovementProposal[]           @relation("AgentImprovementProposalRevisions")
+  evidence                     AgentImprovementProposalEvidence[]
+  validationEvidence           AgentImprovementValidationEvidence[]
+  workflowPromotionAssessments AgentWorkflowPromotionAssessment[]
 
   @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId], map: "agent_improvement_proposals_id_scope_key")
   @@unique([approvalRequestId, tenantId], map: "agent_improvement_proposals_approval_scope_key")
   @@unique([tenantId, operationId], map: "agent_improvement_proposals_tenant_operation_key")
   @@unique([tenantId, proposalKey, revision], map: "agent_improvement_proposals_key_revision_key")
@@ -5838,32 +5878,35 @@ model AgentImprovementProposalEvidence {
 /// reference and evaluated against the same corpus/cases. This is evidence only:
 /// it never applies the implementation or changes agent authority.
 model AgentImprovementValidationEvidence {
-  id                    String                             @id @default(cuid())
-  operationId           String                             @map("operation_id") @db.Uuid
-  tenantId              String                             @map("tenant_id")
-  venueId               String                             @map("venue_id")
-  proposalId            String                             @map("proposal_id")
-  approvalDecisionId    String                             @map("approval_decision_id")
-  baselineEvalRunId     String                             @map("baseline_eval_run_id") @db.Uuid
-  candidateEvalRunId    String                             @map("candidate_eval_run_id") @db.Uuid
-  implementationKind    AgentImprovementImplementationKind @map("implementation_kind")
-  implementationRef     String                             @map("implementation_ref") @db.VarChar(500)
-  implementationVersion String?                            @map("implementation_version") @db.VarChar(191)
-  implementationHash    String                             @map("implementation_hash") @db.Char(64)
-  changeDimensions      AgentImprovementChangeDimension[]  @map("change_dimensions")
-  comparisonSnapshot    Json                               @map("comparison_snapshot")
-  comparisonHash        String                             @map("comparison_hash") @db.Char(64)
-  recordedByType        ActorType                          @map("recorded_by_type")
-  recordedById          String                             @map("recorded_by_id") @db.VarChar(191)
-  createdAt             DateTime                           @default(now()) @map("created_at")
-  tenant                Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  proposal              AgentImprovementProposal           @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  approvalDecision      ApprovalDecision                   @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  baselineEvalRun       EvalRun                            @relation("AgentImprovementBaselineRun", fields: [baselineEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  candidateEvalRun      EvalRun                            @relation("AgentImprovementCandidateRun", fields: [candidateEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                             String                             @id @default(cuid())
+  operationId                    String                             @map("operation_id") @db.Uuid
+  tenantId                       String                             @map("tenant_id")
+  venueId                        String                             @map("venue_id")
+  proposalId                     String                             @map("proposal_id")
+  approvalDecisionId             String                             @map("approval_decision_id")
+  baselineEvalRunId              String                             @map("baseline_eval_run_id") @db.Uuid
+  candidateEvalRunId             String                             @map("candidate_eval_run_id") @db.Uuid
+  implementationKind             AgentImprovementImplementationKind @map("implementation_kind")
+  implementationRef              String                             @map("implementation_ref") @db.VarChar(500)
+  implementationVersion          String?                            @map("implementation_version") @db.VarChar(191)
+  implementationHash             String                             @map("implementation_hash") @db.Char(64)
+  changeDimensions               AgentImprovementChangeDimension[]  @map("change_dimensions")
+  comparisonSnapshot             Json                               @map("comparison_snapshot")
+  comparisonHash                 String                             @map("comparison_hash") @db.Char(64)
+  recordedByType                 ActorType                          @map("recorded_by_type")
+  recordedById                   String                             @map("recorded_by_id") @db.VarChar(191)
+  createdAt                      DateTime                           @default(now()) @map("created_at")
+  tenant                         Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                          Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal                       AgentImprovementProposal           @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision               ApprovalDecision                   @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  baselineEvalRun                EvalRun                            @relation("AgentImprovementBaselineRun", fields: [baselineEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  candidateEvalRun               EvalRun                            @relation("AgentImprovementCandidateRun", fields: [candidateEvalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  workflowDevelopmentAssessments AgentWorkflowPromotionAssessment[] @relation("WorkflowAssessmentDevelopment")
+  workflowHeldoutAssessments     AgentWorkflowPromotionAssessment[] @relation("WorkflowAssessmentHeldout")
 
   @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId], map: "agent_improvement_validations_id_scope_key")
   @@unique([tenantId, operationId], map: "agent_improvement_validations_tenant_operation_key")
   @@unique([proposalId, baselineEvalRunId, candidateEvalRunId, implementationHash], map: "agent_improvement_validations_exact_evidence_key")
   @@index([tenantId, venueId, createdAt, id], map: "agent_improvement_validations_scope_created_idx")
