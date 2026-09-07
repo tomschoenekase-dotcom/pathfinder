@@ -77,6 +77,7 @@ export function MessageBubble({
     helpfulLabel,
     notHelpfulLabel,
   ] = getVisitorUiCopy(language).shell
+  const voiceCopy = getVisitorUiCopy(language).voice
   const speaker = isUser ? youLabel : assistantLabel
   const [feedback, setFeedback] = useState<'HELPFUL' | 'NOT_HELPFUL' | null>(null)
   const [feedbackPending, setFeedbackPending] = useState(false)
@@ -109,15 +110,15 @@ export function MessageBubble({
           <p
             className={`mb-1 text-xs font-semibold ${isUser ? '' : 'text-[var(--chat-text-muted)]'}`}
           >
-            Voice transcript
+            {voiceCopy.transcript}
             <span className="font-medium">
               {voiceDelivery === 'INTERRUPTED'
-                ? ' · Interrupted; may be incomplete'
-                : ' · Captured'}
+                ? ` · ${voiceCopy.interrupted}`
+                : ` · ${voiceCopy.captured}`}
               {voicePersistence === 'PENDING'
-                ? ' · Saving…'
+                ? ` · ${voiceCopy.saving}`
                 : voicePersistence === 'UNCONFIRMED'
-                  ? ' · Save not confirmed'
+                  ? ` · ${voiceCopy.unconfirmed}`
                   : ''}
             </span>
           </p>

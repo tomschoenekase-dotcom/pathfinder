@@ -1,6 +1,13 @@
 import { SUPPORTED_CHAT_LANGUAGES, type SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 type VisitorUiCopy = {
+  voice: {
+    transcript: string
+    captured: string
+    interrupted: string
+    saving: string
+    unconfirmed: string
+  }
   shell: readonly [
     selectLanguage: string,
     back: string,
@@ -81,6 +88,13 @@ export function getVisitorTextPresentation(language: SupportedChatLanguage) {
 
 const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
   English: {
+    voice: {
+      transcript: 'Voice transcript',
+      captured: 'Captured',
+      interrupted: 'Interrupted; may be incomplete',
+      saving: 'Saving…',
+      unconfirmed: 'Save not confirmed',
+    },
     shell: [
       'Select language',
       'Back',
@@ -142,6 +156,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Español: {
+    voice: {
+      transcript: 'Transcripción de voz',
+      captured: 'Registrada',
+      interrupted: 'Interrumpida; puede estar incompleta',
+      saving: 'Guardando…',
+      unconfirmed: 'Guardado no confirmado',
+    },
     shell: [
       'Seleccionar idioma',
       'Volver',
@@ -203,6 +224,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Français: {
+    voice: {
+      transcript: 'Transcription vocale',
+      captured: 'Enregistrée',
+      interrupted: 'Interrompue ; peut être incomplète',
+      saving: 'Enregistrement…',
+      unconfirmed: 'Enregistrement non confirmé',
+    },
     shell: [
       'Sélectionner la langue',
       'Retour',
@@ -264,6 +292,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Deutsch: {
+    voice: {
+      transcript: 'Sprachtranskript',
+      captured: 'Erfasst',
+      interrupted: 'Unterbrochen; möglicherweise unvollständig',
+      saving: 'Wird gespeichert…',
+      unconfirmed: 'Speicherung nicht bestätigt',
+    },
     shell: [
       'Sprache auswählen',
       'Zurück',
@@ -325,6 +360,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Italiano: {
+    voice: {
+      transcript: 'Trascrizione vocale',
+      captured: 'Acquisita',
+      interrupted: 'Interrotta; potrebbe essere incompleta',
+      saving: 'Salvataggio…',
+      unconfirmed: 'Salvataggio non confermato',
+    },
     shell: [
       'Seleziona lingua',
       'Indietro',
@@ -386,6 +428,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   Português: {
+    voice: {
+      transcript: 'Transcrição de voz',
+      captured: 'Registrada',
+      interrupted: 'Interrompida; pode estar incompleta',
+      saving: 'Salvando…',
+      unconfirmed: 'Salvamento não confirmado',
+    },
     shell: [
       'Selecionar idioma',
       'Voltar',
@@ -447,6 +496,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   中文: {
+    voice: {
+      transcript: '语音转录',
+      captured: '已记录',
+      interrupted: '已中断，内容可能不完整',
+      saving: '正在保存…',
+      unconfirmed: '尚未确认保存',
+    },
     shell: [
       '选择语言',
       '返回',
@@ -508,6 +564,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   日本語: {
+    voice: {
+      transcript: '音声の文字起こし',
+      captured: '記録済み',
+      interrupted: '中断されました。内容が不完全な場合があります',
+      saving: '保存中…',
+      unconfirmed: '保存を確認できません',
+    },
     shell: [
       '言語を選択',
       '戻る',
@@ -569,6 +632,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   한국어: {
+    voice: {
+      transcript: '음성 기록',
+      captured: '기록됨',
+      interrupted: '중단됨; 내용이 불완전할 수 있음',
+      saving: '저장 중…',
+      unconfirmed: '저장 확인 안 됨',
+    },
     shell: [
       '언어 선택',
       '뒤로',
@@ -630,6 +700,13 @@ const COPY: Record<SupportedChatLanguage, VisitorUiCopy> = {
     ],
   },
   العربية: {
+    voice: {
+      transcript: 'نص المحادثة الصوتية',
+      captured: 'تم تسجيل النص',
+      interrupted: 'تمت المقاطعة؛ قد يكون النص غير مكتمل',
+      saving: 'جارٍ الحفظ…',
+      unconfirmed: 'لم يتم تأكيد الحفظ',
+    },
     shell: [
       'اختيار اللغة',
       'رجوع',
