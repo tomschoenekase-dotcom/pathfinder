@@ -12,6 +12,9 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Platform-admin relation review and temporal preview retain exact tenant+venue scope.
+  ['packages/api/src/routers/admin/media-ingestion-relations.ts', 1],
+  ['packages/api/src/routers/admin/media-ingestion-temporal.ts', 2],
   // Platform-admin review routes assert exact venue availability and scoped immutable revision reads.
   ['packages/api/src/routers/admin/media-ingestion-resolution.ts', 4],
   // Admin-only review/evidence routes recheck the exact tenant+venue on every read/write.

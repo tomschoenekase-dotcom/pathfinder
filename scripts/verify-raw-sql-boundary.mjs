@@ -79,6 +79,44 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Reviewed relation application: exact request replay, scoped revision/source reads,
+  // and a transaction lock fence one tenant+venue canonical inactive draft.
+  ...[
+    ['b627491e5b8425d8eb591069bf62585da275a87cd54f603024cb1844ab0be929', '$executeRaw'],
+    ['0c6d1caaeb6d5dfbf70100c6e396f4e1e173b716cfcf847483d3c9d679d44105', '$queryRaw'],
+    ['218a6f246feaac82d923756927fb740d0c7af42fd765cee64d2f9b6f396de03e', '$queryRaw'],
+    ['40c98988471c833ed0b8ac3c23afc156176474c53e8cdc81201853255fd65d8f', '$queryRaw'],
+    ['45a70a947acc0b88bec8571a4acfb5b18b42842a88bad8de8413e9b73702b1d9', '$queryRaw'],
+    ['555774db49c3c795f2c23b3c062685357a6a97cb6d9dd637d91a9480afae2d06', '$queryRaw'],
+    ['8578a5f4879bfff11a6977fc6b40ee6cdbc502a60f867f73ed882dbac0fbc1cc', '$queryRaw'],
+    ['bd160997d939f10173fe6f64c40b4c1b6e25a60ba33481ad483f0ba47d85ae32', '$queryRaw'],
+    ['ea272b8468ec7204808150792da482777988e0206256d6ff3a5e20b028d2e8a7', '$queryRaw'],
+  ].map(([hash, method]) => ({
+    file: 'packages/api/src/lib/media-relation-application-service.ts',
+    method,
+    hash,
+    policy:
+      method === '$executeRaw'
+        ? 'tenant-venue-content-mutation-lock'
+        : 'tenant-venue-revision-source',
+  })),
+  {
+    file: 'packages/api/src/lib/media-temporal-review.ts',
+    method: '$queryRaw',
+    hash: '80f9460a454d56ce1304b770a18a86b5128ed59a3d13646d8e78c9ed145389f1',
+    policy: 'tenant-venue-revision-source',
+  },
+  ...[
+    '094b270122668dfd13b2f63a7fcb0bbc20aec66cd951bd9deef04dcd06b10038',
+    '4c5e89a67cc067eb5da334883f56c24a2240b2e59267479a6a458d8d939a1b12',
+    'aa1860d6671c060c3f4d7028e57b25a7bc7cf4e28fbac8202b525a366e0283f2',
+    'fb3e50a1d03f5a741c2b7b9f76aeb8be2d6ab3173042b671f9069d219057ec46',
+  ].map((hash) => ({
+    file: 'packages/api/src/lib/media-relation-route-loader.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-venue-revision-source',
+  })),
   // Reviewed identity ledger: tenant-wide request replay checks exact input+actor hash;
   // project/generation row locks and source hashes fence every new immutable revision.
   {
