@@ -514,6 +514,54 @@ describe('buildVenueSystemPrompt', () => {
     expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
   })
 
+  it('does not retain prior prompt content when supplied facts change or are removed', () => {
+    const prepared = (body: string | null) =>
+      buildVenueSystemPromptParts({
+        venue,
+        relevantPlaces: [],
+        knowledgeEntries: body
+          ? [
+              {
+                id: 'entry-capacity',
+                title: 'Gallery capacity',
+                category: 'visitor policy',
+                content: body,
+                sourceType: 'FOUNDER_PROVIDED',
+                sourceName: null,
+                sourceUrl: null,
+                distance: 0,
+              },
+            ]
+          : [],
+        activeUpdates: body
+          ? [
+              {
+                id: 'update-capacity',
+                updateType: 'NOTICE',
+                severity: 'INFO',
+                priority: 1,
+                title: 'Capacity notice',
+                body,
+                redirectTo: null,
+                place: null,
+              },
+            ]
+          : [],
+        userLat: null,
+        userLng: null,
+      })
+
+    const original = prepared('Capacity is 120 visitors.')
+    const corrected = prepared('Capacity is 137 visitors.')
+    const revoked = prepared(null)
+
+    expect(corrected.staticPart).not.toBe(original.staticPart)
+    expect(corrected.dynamicPart).not.toBe(original.dynamicPart)
+    expect(corrected.staticPart + corrected.dynamicPart).toContain('137 visitors')
+    expect(corrected.staticPart + corrected.dynamicPart).not.toContain('120 visitors')
+    expect(revoked.staticPart + revoked.dynamicPart).not.toContain('Capacity is')
+  })
+
   it('bounds the complete published-content section by UTF-8 bytes', () => {
     const { staticPart } = buildVenueSystemPromptParts({
       venue,
