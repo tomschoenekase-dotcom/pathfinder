@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   feedbackCount: vi.fn(),
   voiceLanguageGroupBy: vi.fn(),
   responseFindMany: vi.fn(),
+  responseCount: vi.fn(),
+  transaction: vi.fn(),
   questionFindMany: vi.fn(),
   noteFindMany: vi.fn(),
   messageFindMany: vi.fn(),
@@ -60,10 +62,11 @@ vi.mock('@pathfinder/db', () => ({
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
     messageFeedback: { count: mocks.feedbackCount },
     voiceSession: { groupBy: mocks.voiceLanguageGroupBy },
-    engagementQuestionResponse: { findMany: mocks.responseFindMany },
+    engagementQuestionResponse: { findMany: mocks.responseFindMany, count: mocks.responseCount },
     engagementQuestion: { findMany: mocks.questionFindMany },
     adminChatlogNote: { findMany: mocks.noteFindMany },
     aiUsageEvent: { create: mocks.aiUsageEventCreate },
+    $transaction: mocks.transaction,
   },
   acquireWeeklyReportExecution: mocks.acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution: mocks.acquireWeeklyReportRecoveryExecution,
@@ -121,6 +124,15 @@ describe('processWeeklyReportJob', () => {
     mocks.venueFindFirst.mockResolvedValue({ name: 'City Zoo', category: 'zoo' })
     mocks.sessionCount.mockResolvedValue(2)
     mocks.messageCount.mockResolvedValue(4)
+    mocks.responseCount.mockResolvedValue(1)
+    mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        engagementQuestionResponse: {
+          count: mocks.responseCount,
+          findMany: mocks.responseFindMany,
+        },
+      }),
+    )
     mocks.voiceLanguageGroupBy.mockResolvedValue([])
     mocks.feedbackCount.mockImplementation(({ where }: { where: { rating: string } }) =>
       where.rating === 'HELPFUL' ? Promise.resolve(3) : Promise.resolve(1),
@@ -271,14 +283,15 @@ describe('processWeeklyReportJob', () => {
     ])
     await processWeeklyReportJob(payload)
     const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
-    expect(content).toContain('Was this helpful? [question:question_1]: 1 answer(s)')
-    expect(content).toContain('Was this helpful? [question:question_2]: 0 answer(s)')
+    expect(content).toContain('Was this helpful? [question:question_1]: 1 sampled answer(s)')
+    expect(content).toContain('Was this helpful? [question:question_2]: 0 sampled answer(s)')
   })
 
   it('creates an honest zero-activity draft without a provider call', async () => {
     mocks.sessionCount.mockResolvedValueOnce(0)
     mocks.messageCount.mockResolvedValueOnce(0)
     mocks.responseFindMany.mockResolvedValueOnce([])
+    mocks.responseCount.mockResolvedValueOnce(0)
     mocks.messageFindMany.mockResolvedValueOnce([])
     mocks.feedbackCount.mockResolvedValue(0)
     await processWeeklyReportJob(payload)
@@ -297,6 +310,88 @@ describe('processWeeklyReportJob', () => {
     expect(content).toContain('No public text conversations were recorded')
     expect(content).toContain('No source-supported observations were available')
     expect(content).not.toContain('Visitors had a positive week')
+  })
+
+  it('keeps exact totals when the byte budget selects fewer than 100 excerpts', async () => {
+    const answers = Array.from({ length: 101 }, (_, index) => ({
+      id: `response_${index}`,
+      engagementQuestionId: 'question_1',
+      questionText: `${'q'.repeat(700)} unseen-question-suffix-${index}`,
+      answerText: `${'x'.repeat(700)} unseen-answer-suffix-${index}`,
+      isAiInvented: false,
+    }))
+    mocks.responseFindMany.mockResolvedValueOnce(answers.slice(0, 100))
+    mocks.responseCount.mockResolvedValueOnce(101)
+    await processWeeklyReportJob(payload)
+
+    expect(mocks.responseFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 100,
+        orderBy: [{ answeredAt: 'asc' }, { id: 'asc' }],
+      }),
+    )
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    })
+    const countWhere = mocks.responseCount.mock.calls.at(-1)?.[0]?.where
+    const sampleWhere = mocks.responseFindMany.mock.calls.at(-1)?.[0]?.where
+    expect(sampleWhere).toEqual(countWhere)
+    const saved = JSON.stringify(mocks.reportUpdateMany.mock.calls.at(-1))
+    expect(mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data.answerCount).toBe(101)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    const prompt = JSON.stringify(anthropicCreate.mock.calls[0]?.[0])
+    const selectedCount = Number(prompt.match(/Captured-answer evidence sample: (\d+) of 101/)?.[1])
+    expect(selectedCount).toBeGreaterThan(0)
+    expect(selectedCount).toBeLessThan(100)
+    for (const character of ['q', 'x']) {
+      expect(prompt).toContain(`${character.repeat(497)}...`)
+      expect(prompt).not.toContain(character.repeat(498))
+    }
+    expect(prompt).not.toContain('unseen-question-suffix')
+    expect(prompt).not.toContain('unseen-answer-suffix')
+    expect(answers[0]?.answerText).toContain('unseen-answer-suffix-0')
+    expect(saved).toContain('Captured answers: 101')
+    expect(saved).toContain(`Captured-answer evidence sample: ${selectedCount} of 101`)
+    expect(saved).toContain('sampled answer(s)')
+    expect(saved).not.toContain('x'.repeat(498))
+    expect(saved).toContain('Captured-answer evidence excerpts are bounded')
+  })
+
+  it('keeps a maximal Unicode evidence fixture below the provider byte boundary', async () => {
+    const largeText = '🌳"\\'.repeat(500)
+    mocks.responseCount.mockResolvedValueOnce(10_000)
+    mocks.responseFindMany.mockResolvedValueOnce(
+      Array.from({ length: 100 }, (_, index) => ({
+        id: `response_${index}`,
+        engagementQuestionId: 'question_1',
+        questionText: largeText,
+        answerText: largeText,
+        isAiInvented: false,
+      })),
+    )
+    mocks.messageFindMany.mockResolvedValueOnce(
+      Array.from({ length: 400 }, (_, index) => ({
+        id: `message_${index}`,
+        content: largeText,
+      })),
+    )
+    mocks.questionFindMany.mockResolvedValueOnce(
+      Array.from({ length: 100 }, (_, index) => ({
+        id: `question_${index}`,
+        prompt: largeText,
+        questionType: 'TEXT',
+      })),
+    )
+    await processWeeklyReportJob(payload)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    const request = anthropicCreate.mock.calls[0]?.[0] as { messages: Array<{ content: string }> }
+    expect(Buffer.byteLength(request.messages[0]!.content, 'utf8')).toBeLessThanOrEqual(120_000)
+    expect(mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      status: 'DRAFT',
+      answerCount: 10_000,
+    })
+    expect(request.messages[0]!.content).not.toContain('Structured captured answers JSON')
+    expect(request.messages[0]!.content).toContain('not representative samples')
   })
 
   it('counts connected public voice settings without claiming spoken or text languages', async () => {

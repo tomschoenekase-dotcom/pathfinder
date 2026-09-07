@@ -29,6 +29,7 @@ import {
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 import { redactCommonIdentifiers } from '../lib/common-identifier-redaction'
+import { selectJsonEvidencePrefix } from '../lib/bounded-json-evidence'
 import {
   ExecutionLeaseOwnershipLostError,
   withExecutionLeaseHeartbeat,
@@ -40,13 +41,15 @@ import {
 } from '../lib/job-execution'
 
 const MAX_GENERAL_MESSAGES = 400
+const MAX_CAPTURED_ANSWERS = 100
+const MAX_REPORT_PROMPT_UTF8_BYTES = 120_000
 const MESSAGE_CONTENT_LIMIT = 500
 const WEEKLY_REPORT_EXECUTION_LEASED_ERROR =
   'Weekly report generation is already in progress. Retry this job later.'
 
 function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
-    ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
+    ? `${content.slice(0, MESSAGE_CONTENT_LIMIT - 3).trimEnd()}...`
     : content
 }
 
@@ -141,6 +144,8 @@ function formatReportContent(params: {
   validatedFindings: ReturnType<typeof validateFindings>
   configuredQuestions: Array<{ id: string; prompt: string }>
   responses: Array<{ engagementQuestionId: string | null }>
+  responseSampleCount: number
+  generalMessageSampleCount: number
 }): string {
   const {
     title,
@@ -156,6 +161,8 @@ function formatReportContent(params: {
     validatedFindings,
     configuredQuestions,
     responses,
+    responseSampleCount,
+    generalMessageSampleCount,
   } = params
   const nextStepsBlock = parsed.nextSteps.map((step, index) => `${index + 1}. ${step}`).join('\n')
   const observations = validatedFindings.findings.length
@@ -186,7 +193,7 @@ function formatReportContent(params: {
     ? configuredQuestions
         .map(
           (question) =>
-            `- ${question.prompt} [question:${question.id}]: ${responseCounts.get(question.id) ?? 0} answer(s)`,
+            `- ${question.prompt} [question:${question.id}]: ${responseCounts.get(question.id) ?? 0} sampled answer(s)`,
         )
         .join('\n')
     : 'No configured engagement questions were active.'
@@ -200,6 +207,9 @@ function formatReportContent(params: {
     // captured engagement answers, which are a different, often-empty metric.
     `Sessions: ${sessionCount} · Messages: ${messageCount}`,
     `Captured answers: ${answerCount}`,
+    `Captured-answer evidence sample: ${responseSampleCount} of ${answerCount}`,
+    'Captured-answer evidence excerpts are bounded; sample counts must not be treated as population totals.',
+    `Public-message evidence sample: ${generalMessageSampleCount} excerpts. Evidence uses bounded chronological prefixes, not a representative sample.`,
     `Feedback: ${helpfulCount} helpful · ${notHelpfulCount} not helpful`,
     'Text conversation languages: not recorded.',
     'Voice language settings (connected public sessions; not verified spoken languages):',
@@ -228,7 +238,7 @@ function formatReportContent(params: {
         ]
       : []),
     '',
-    'Configured question coverage',
+    'Configured question coverage (bounded sample of active questions)',
     configuredCoverage,
     '',
     'Recommendations',
@@ -275,11 +285,37 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
   const weekEnd = new Date(payload.weekEnd)
 
   return withTenantIsolationBypass(async () => {
+    const capturedAnswerWhere = {
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      answeredAt: { gte: weekStart, lte: weekEnd },
+      isAiInvented: false,
+      session: { experienceScope: 'PUBLIC' as const },
+    }
+    const capturedAnswers = db.$transaction(
+      async (tx) =>
+        Promise.all([
+          tx.engagementQuestionResponse.count({ where: capturedAnswerWhere }),
+          tx.engagementQuestionResponse.findMany({
+            where: capturedAnswerWhere,
+            orderBy: [{ answeredAt: 'asc' }, { id: 'asc' }],
+            take: MAX_CAPTURED_ANSWERS,
+            select: {
+              id: true,
+              engagementQuestionId: true,
+              questionText: true,
+              answerText: true,
+              isAiInvented: true,
+            },
+          }),
+        ]),
+      { isolationLevel: 'RepeatableRead' },
+    )
     const [
       venue,
       sessionCount,
       messageCount,
-      responses,
+      capturedAnswerResult,
       activeQuestions,
       generalMessages,
       helpfulCount,
@@ -305,26 +341,11 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
         },
       }),
-      db.engagementQuestionResponse.findMany({
-        where: {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          answeredAt: { gte: weekStart, lte: weekEnd },
-          isAiInvented: false,
-          session: { experienceScope: 'PUBLIC' },
-        },
-        orderBy: { answeredAt: 'asc' },
-        select: {
-          id: true,
-          engagementQuestionId: true,
-          questionText: true,
-          answerText: true,
-          isAiInvented: true,
-        },
-      }),
+      capturedAnswers,
       db.engagementQuestion.findMany({
         where: { tenantId: payload.tenantId, isActive: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 100,
         select: { id: true, prompt: true, questionType: true },
       }),
       // Ordinary guest chat, not tied to any configured/invented engagement question — this
@@ -337,7 +358,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           createdAt: { gte: weekStart, lte: weekEnd },
           session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: MAX_GENERAL_MESSAGES,
         select: { id: true, content: true },
       }),
@@ -373,27 +394,42 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
       }),
     ])
 
+    const [responseCount, responses] = capturedAnswerResult
     if (!venue) {
       throw new Error(`Venue ${payload.venueId} not found`)
     }
 
+    const sampledResponses = selectJsonEvidencePrefix(
+      responses.map((response) => ({
+        ...response,
+        questionText: trimMessageContent(redactCommonIdentifiers(response.questionText)),
+        answerText: trimMessageContent(redactCommonIdentifiers(response.answerText)),
+      })),
+      30_000,
+    ).items
+    const sampledQuestions = selectJsonEvidencePrefix(
+      activeQuestions.map((question) => ({
+        ...question,
+        prompt: trimMessageContent(redactCommonIdentifiers(question.prompt)),
+      })),
+      10_000,
+    ).items
+    const sampledMessages = selectJsonEvidencePrefix(
+      generalMessages.map((message) => ({
+        id: message.id,
+        excerpt: trimMessageContent(redactCommonIdentifiers(message.content)),
+      })),
+      40_000,
+    ).items
     return {
       venue,
       sessionCount,
       messageCount,
-      responses: responses.map((response) => ({
-        ...response,
-        questionText: redactCommonIdentifiers(response.questionText),
-        answerText: redactCommonIdentifiers(response.answerText),
-      })),
-      activeQuestions: activeQuestions.map((question) => ({
-        ...question,
-        prompt: redactCommonIdentifiers(question.prompt),
-      })),
-      generalMessages: generalMessages.map((message) => ({
-        id: message.id,
-        excerpt: trimMessageContent(redactCommonIdentifiers(message.content)),
-      })),
+      responses: sampledResponses,
+      responseCount,
+      responseSampleCount: sampledResponses.length,
+      activeQuestions: sampledQuestions,
+      generalMessages: sampledMessages,
       helpfulCount,
       notHelpfulCount,
       voiceLanguages,
@@ -446,7 +482,9 @@ function buildReportPrompt(params: {
   messageCount: number
   helpfulCount: number
   notHelpfulCount: number
+  answerCount: number
   responses: Awaited<ReturnType<typeof loadReportData>>['responses']
+  responseSampleCount: number
   activeQuestions: Awaited<ReturnType<typeof loadReportData>>['activeQuestions']
   generalMessages: Array<{ id: string; excerpt: string }>
 }): string {
@@ -455,6 +493,8 @@ function buildReportPrompt(params: {
       sourceId: `captured-answer:${response.id}`,
       excerpt: response.answerText,
       sourceType: 'captured-answer' as const,
+      questionText: response.questionText,
+      engagementQuestionId: response.engagementQuestionId,
     })),
     ...params.generalMessages.map((message) => ({
       sourceId: `public-message:${message.id}`,
@@ -464,12 +504,15 @@ function buildReportPrompt(params: {
   ]
   return [
     'You are drafting a weekly Torchiko report for a venue operator.',
-    `Venue: ${params.venueName}${params.venueCategory ? ` (${params.venueCategory})` : ''}`,
+    `Venue: ${params.venueName.slice(0, 300)}${params.venueCategory ? ` (${params.venueCategory.slice(0, 100)})` : ''}`,
     `Week start (UTC): ${params.weekStart}`,
     `Week end (UTC): ${params.weekEnd}`,
     `Session count: ${params.sessionCount}`,
     `Message count: ${params.messageCount}`,
-    `Captured answer count: ${params.responses.length}`,
+    `Captured answer count: ${params.answerCount}`,
+    `Captured-answer evidence sample: ${params.responseSampleCount} of ${params.answerCount}`,
+    'Captured-answer evidence excerpts are bounded; sample counts must not be treated as population totals.',
+    `Public-message evidence sample: ${params.generalMessages.length} excerpts. All evidence uses bounded chronological prefixes, not representative samples.`,
     `Helpful rating count: ${params.helpfulCount}`,
     `Not-helpful rating count: ${params.notHelpfulCount}`,
     '',
@@ -484,21 +527,11 @@ function buildReportPrompt(params: {
     'Feedback ratings are explicit control counts, not sentiment. Do not infer a finding from a rating count without cited textual evidence.',
     'Every material observation must appear in findings with a statement and evidence array. Each evidence item must use an exact provided sourceId and an exact supporting substring from that source excerpt. Do not invent source IDs or excerpts. Recommendations belong only in nextSteps and must not be phrased as observed facts.',
     '',
-    'Active configured engagement questions JSON:',
-    JSON.stringify(params.activeQuestions, null, 2),
-    '',
-    'Structured captured answers JSON:',
-    JSON.stringify(params.responses, null, 2),
-    '',
-    'Ordinary guest chat messages JSON (not tied to any specific question):',
-    JSON.stringify(
-      params.generalMessages.map((message) => message.excerpt),
-      null,
-      2,
-    ),
+    'Bounded active configured engagement questions JSON:',
+    JSON.stringify(params.activeQuestions),
     '',
     'Canonical evidence sources JSON:',
-    JSON.stringify(sources, null, 2),
+    JSON.stringify(sources),
     '',
     'Evidence scope: public visitor sessions and non-invented captured answers in this venue and UTC week only. Private staff notes are excluded.',
   ].join('\n')
@@ -561,7 +594,7 @@ export async function processWeeklyReportJob(
     if (
       data.sessionCount === 0 &&
       data.messageCount === 0 &&
-      data.responses.length === 0 &&
+      data.responseCount === 0 &&
       data.helpfulCount === 0 &&
       data.notHelpfulCount === 0
     ) {
@@ -579,10 +612,15 @@ export async function processWeeklyReportJob(
         messageCount: data.messageCount,
         helpfulCount: data.helpfulCount,
         notHelpfulCount: data.notHelpfulCount,
+        answerCount: data.responseCount,
         responses: data.responses,
+        responseSampleCount: data.responseSampleCount,
         activeQuestions: data.activeQuestions,
         generalMessages: data.generalMessages,
       })
+      if (Buffer.byteLength(prompt, 'utf8') > MAX_REPORT_PROMPT_UTF8_BYTES) {
+        throw new Error('Weekly report evidence exceeds its bounded prompt budget')
+      }
       const renewLease = () =>
         renewWeeklyReportExecution({ ...claimIdentity, leaseToken: acquiredLeaseToken })
       const response = await withExecutionLeaseHeartbeat({
@@ -627,7 +665,7 @@ export async function processWeeklyReportJob(
       weekLabel: `${payload.weekStart.slice(0, 10)} to ${payload.weekEnd.slice(0, 10)}`,
       sessionCount: data.sessionCount,
       messageCount: data.messageCount,
-      answerCount: data.responses.length,
+      answerCount: data.responseCount,
       helpfulCount: data.helpfulCount,
       notHelpfulCount: data.notHelpfulCount,
       voiceLanguages: data.voiceLanguages,
@@ -635,12 +673,14 @@ export async function processWeeklyReportJob(
       validatedFindings,
       configuredQuestions: data.activeQuestions,
       responses: data.responses,
+      responseSampleCount: data.responseSampleCount,
+      generalMessageSampleCount: data.generalMessages.length,
     })
 
     await markReportStatus(payload, acquiredLeaseToken, {
       status: 'DRAFT',
       content,
-      answerCount: data.responses.length,
+      answerCount: data.responseCount,
       sessionCount: data.sessionCount,
       error: null,
       generatedAt: new Date(),
@@ -653,7 +693,7 @@ export async function processWeeklyReportJob(
       tenantId: payload.tenantId,
       venueId: payload.venueId,
       reportId: payload.reportId,
-      answerCount: data.responses.length,
+      answerCount: data.responseCount,
       sessionCount: data.sessionCount,
     })
   } catch (error) {
