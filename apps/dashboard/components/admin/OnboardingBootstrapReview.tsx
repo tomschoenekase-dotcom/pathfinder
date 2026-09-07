@@ -9,6 +9,7 @@ import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
+import { MediaIntakeEvidenceReader } from './MediaIntakeEvidenceReader'
 
 const CANDIDATE_READ_TIMEOUT_MS = 15_000
 
@@ -43,6 +44,12 @@ export function OnboardingBootstrapReview({
 }) {
   const client = useTRPCClient()
   const fromFileReview = isFileExtractionReview(run.structuredBootstrap)
+  const fromMediaReview = Boolean(
+    run.structuredBootstrap &&
+    typeof run.structuredBootstrap === 'object' &&
+    !Array.isArray(run.structuredBootstrap) &&
+    (run.structuredBootstrap as { kind?: unknown }).kind === 'MEDIA_PROJECT_REVIEW',
+  )
   const [candidate, setCandidate] = useState<OnboardingBootstrapCandidate | null>(
     fixtureCandidate ?? null,
   )
@@ -115,9 +122,11 @@ export function OnboardingBootstrapReview({
         {run.status.replaceAll('_', ' ')}
       </p>
       <p className="mt-2 text-sm text-pf-deep/70">
-        {fromFileReview
-          ? 'Build a deterministic VenuePackage candidate from the exact accepted extraction review. The server revalidates its source, receipt, reviewer, notes, and evidence hashes before creating and linking a DRAFT.'
-          : 'Build a deterministic VenuePackage candidate from the stored reviewed proposal. The server rebuilds and hash-checks it again before creating and linking a DRAFT.'}
+        {fromMediaReview
+          ? 'Review the saved media items with their exact source bindings. The original observations, uncertainties, and review note remain attached to this proposal.'
+          : fromFileReview
+            ? 'Build a deterministic VenuePackage candidate from the exact accepted extraction review. The server revalidates its source, receipt, reviewer, notes, and evidence hashes before creating and linking a DRAFT.'
+            : 'Build a deterministic VenuePackage candidate from the stored reviewed proposal. The server rebuilds and hash-checks it again before creating and linking a DRAFT.'}
       </p>
       <button
         type="button"
@@ -158,9 +167,11 @@ export function OnboardingBootstrapReview({
               payload: candidate.payload,
               source: {
                 kind: candidate.sourceKind,
-                label: fromFileReview
-                  ? 'reviewed file extraction proposal'
-                  : 'structured onboarding proposal',
+                label: fromMediaReview
+                  ? 'reviewed media proposal'
+                  : fromFileReview
+                    ? 'reviewed file extraction proposal'
+                    : 'structured onboarding proposal',
                 evidenceCount: candidate.summary.candidateCount,
                 discrepancyCount: candidate.summary.issueCount,
                 confidence: null,
@@ -170,16 +181,20 @@ export function OnboardingBootstrapReview({
           />
         </div>
       ) : null}
-      <details className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
-        <summary className="cursor-pointer font-semibold text-pf-deep">
-          {fromFileReview
-            ? 'View private extraction-review lineage'
-            : 'View original private proposal'}
-        </summary>
-        <pre className="mt-3 overflow-auto whitespace-pre-wrap">
-          {JSON.stringify(run.structuredBootstrap, null, 2)}
-        </pre>
-      </details>
+      {fromMediaReview ? (
+        <MediaIntakeEvidenceReader key={scope} scope={{ tenantId, venueId, runId: run.id }} />
+      ) : (
+        <details className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+          <summary className="cursor-pointer font-semibold text-pf-deep">
+            {fromFileReview
+              ? 'View private extraction-review lineage'
+              : 'View original private proposal'}
+          </summary>
+          <pre className="mt-3 overflow-auto whitespace-pre-wrap">
+            {JSON.stringify(run.structuredBootstrap, null, 2)}
+          </pre>
+        </details>
+      )}
     </article>
   )
 }

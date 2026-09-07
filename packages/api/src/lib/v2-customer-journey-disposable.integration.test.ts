@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { setOpenAiEmbeddingsClientForTesting, type OpenAiEmbeddingsClient } from '@pathfinder/ai'
 import {
   db,
   withTenantIsolationBypass,
@@ -11,11 +12,17 @@ import {
   publishUniversalContentAction,
   searchKnowledgeByEmbedding,
   withdrawUniversalContentAction,
+  listIntakeProposals,
+  listOnboardingBootstrapDetails,
 } from '@pathfinder/db'
 import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
 import { runGuestRetrievalBaseline } from './evaluation/guest-retrieval-baseline'
 import { createSemanticUniversalContentDraftService } from './semantic-universal-content-handoff-service'
 import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
+import { createMediaIntakeHandoff } from './media-intake-handoff-service'
+import { mediaIntakeHash } from './media-intake-snapshot'
+import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
+import { createIntakeCandidateDraftForAdmin } from '../routers/admin/intake-draft-actions'
 
 const enabled =
   process.env.RUN_V2_CUSTOMER_JOURNEY_DB_INTEGRATION === '1' &&
@@ -820,6 +827,200 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
           },
         }),
       ).resolves.toBe(1)
+
+      const mediaProjectId = `media-${suffix}`
+      const mediaVenueId = `media-venue-${suffix}`
+      await db.venue.create({
+        data: {
+          id: mediaVenueId,
+          tenantId,
+          slug: mediaVenueId,
+          name: 'Synthetic media review venue',
+        },
+      })
+      const sourceGeneration = randomUUID()
+      const mediaRequestId = randomUUID()
+      const reviewedItem = {
+        title: 'Media reviewed entrance',
+        category: 'ARRIVAL',
+        content: 'The reviewed walkthrough identifies the north entrance.',
+        isEnabled: true,
+      }
+      const finding = {
+        sourceId: 'video-1',
+        filename: 'walkthrough.mp4',
+        mediaType: 'VIDEO' as const,
+        summary: 'The north entrance is visible.',
+        uncertainties: ['Opening hours are not established by this video.'],
+        review: {
+          summary: 'The north entrance is visible.',
+          uncertainties: ['Opening hours are not established by this video.'],
+          note: 'Accepted only as entrance-location evidence.',
+          reviewedBy: ownerUserId,
+          reviewedAt: new Date().toISOString(),
+        },
+      }
+      await db.mediaIngestionProject.create({
+        data: {
+          id: mediaProjectId,
+          tenantId,
+          venueId: mediaVenueId,
+          name: 'Reviewed walkthrough',
+          createdBy: ownerUserId,
+          status: 'READY_FOR_REVIEW',
+          stage: 'review',
+          sourceObjectGeneration: sourceGeneration,
+          draftJson: {
+            schemaVersion: 1,
+            places: [],
+            knowledgeEntries: [reviewedItem],
+          },
+          findings: [finding],
+          questions: [],
+          assets: {
+            create: {
+              tenantId,
+              sourceId: finding.sourceId,
+              filename: finding.filename,
+              mediaType: finding.mediaType,
+              objectKey: `fixture/${mediaProjectId}.zip#${finding.filename}`,
+              bytes: 128n,
+              sha256: 'a'.repeat(64),
+              status: 'COMPLETE',
+              analysis: finding,
+            },
+          },
+        },
+      })
+      const reviewedProject = await db.mediaIngestionProject.findFirstOrThrow({
+        where: { id: mediaProjectId, tenantId, venueId: mediaVenueId },
+        select: { updatedAt: true },
+      })
+      const handoffInput = {
+        tenantId,
+        venueId: mediaVenueId,
+        projectId: mediaProjectId,
+        requestId: mediaRequestId,
+        sourceGeneration,
+        expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+        bindings: [
+          {
+            kind: 'knowledge' as const,
+            itemIndex: 0,
+            itemHash: mediaIntakeHash(reviewedItem),
+            sourceIds: [finding.sourceId],
+          },
+        ],
+        rationale: 'Human reviewed the source limitation and approved this draft binding.',
+      }
+      const mediaHandoff = await createMediaIntakeHandoff({
+        db,
+        input: handoffInput,
+        actorId: ownerUserId,
+      })
+      await db.mediaIngestionProject.update({
+        where: { id: mediaProjectId },
+        data: { name: 'Changed after immutable handoff' },
+      })
+      const distinctRequestReplay = await createMediaIntakeHandoff({
+        db,
+        input: { ...handoffInput, requestId: randomUUID() },
+        actorId: ownerUserId,
+      })
+      expect(distinctRequestReplay).toMatchObject({ runId: mediaHandoff.runId, replayed: true })
+      expect(
+        await db.intakeRun.count({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            structuredBootstrap: { path: ['projectId'], equals: mediaProjectId },
+          },
+        }),
+      ).toBe(1)
+      const mediaCandidate = await buildIntakeVenuePackageCandidate({
+        db,
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+      })
+      expect(mediaCandidate).toMatchObject({ ready: true, autoApprove: false, autoApply: false })
+      const embeddingCreate = vi.fn(async (params: { input: string[]; dimensions: number }) => ({
+        data: params.input.map((_text, index) => {
+          const embedding = Array(params.dimensions).fill(0)
+          embedding[index % Math.min(params.dimensions, 4)] = 1
+          return { index, embedding }
+        }),
+        usage: { prompt_tokens: params.input.length, total_tokens: params.input.length },
+      }))
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: { create: embeddingCreate },
+      } as OpenAiEmbeddingsClient)
+      const mediaDraft = await createIntakeCandidateDraftForAdmin({
+        db,
+        actorId: ownerUserId,
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+        expectedCandidateHash: mediaCandidate.candidateHash!,
+      })
+      setOpenAiEmbeddingsClientForTesting(null)
+      const retainedMediaDraft = await db.venuePackage.findFirstOrThrow({
+        where: { id: mediaDraft.value.id, tenantId, venueId: mediaVenueId },
+        select: { status: true, payloadHash: true },
+      })
+      expect(retainedMediaDraft).toMatchObject({
+        status: 'DRAFT',
+      })
+      expect(retainedMediaDraft.payloadHash).toBe(mediaDraft.value.payloadHash)
+      await expect(
+        db.intakePackageHandoff.findFirstOrThrow({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            runId: mediaHandoff.runId,
+            packageDraftId: mediaDraft.value.id,
+          },
+        }),
+      ).resolves.toBeTruthy()
+      expect(
+        await db.intakeEvidenceRecord.count({
+          where: { tenantId, venueId: mediaVenueId, runId: mediaHandoff.runId },
+        }),
+      ).toBe(2)
+      const legacyBootstrap = { version: 1, content: { kind: 'knowledge', value: reviewedItem } }
+      await db.intakeRun.create({
+        data: {
+          tenantId,
+          venueId: mediaVenueId,
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          status: 'AWAITING_REVIEW',
+          displayName: 'Legacy bootstrap without top-level kind',
+          structuredBootstrap: legacyBootstrap,
+          submissionRequestId: randomUUID(),
+          submissionInputHash: 'b'.repeat(64),
+          requestedBy: ownerUserId,
+        },
+      })
+      const [proposalList, bootstrapList] = await Promise.all([
+        listIntakeProposals({ db, tenantId, venueId: mediaVenueId, limit: 50 }),
+        listOnboardingBootstrapDetails({
+          client: db,
+          tenantId,
+          venueId: mediaVenueId,
+          limit: 50,
+        }),
+      ])
+      for (const list of [proposalList, bootstrapList]) {
+        expect(list.find((row) => row.id === mediaHandoff.runId)?.structuredBootstrap).toEqual({
+          kind: 'MEDIA_PROJECT_REVIEW',
+          retainedEvidenceCount: 2,
+        })
+        expect(
+          list.find((row) => row.displayName === 'Legacy bootstrap without top-level kind')
+            ?.structuredBootstrap,
+        ).toEqual(legacyBootstrap)
+        expect(JSON.stringify(list)).not.toContain('Opening hours are not established')
+      }
     })
   }, 60_000)
 })

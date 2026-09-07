@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getOnboardingBootstrapSubmission,
+  listOnboardingBootstrapDetails,
   OnboardingBootstrapError,
   submitOnboardingBootstrapAction,
 } from './onboarding-bootstrap-actions'
@@ -235,5 +236,42 @@ describe('onboarding bootstrap intake action', () => {
     )
     expect(JSON.stringify(result)).not.toContain('structuredBootstrap')
     expect(result).toMatchObject({ status: 'AWAITING_REVIEW', nextAction: 'PATHFINDER_REVIEW' })
+  })
+
+  it('projects media bootstrap metadata without selecting its retained source snapshot', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: 'media-run',
+          venueId: 'venue-a',
+          status: 'AWAITING_REVIEW',
+          displayName: 'Media review',
+          createdAt: new Date(),
+          evidenceCount: 9n,
+        },
+      ])
+      .mockResolvedValueOnce([])
+    const client = {
+      venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue-a' }) },
+      intakeRun: {},
+      $queryRaw: queryRaw,
+    }
+    const result = await listOnboardingBootstrapDetails({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      limit: 50,
+      client: client as never,
+    })
+    expect(queryRaw.mock.calls[0]![0].strings.join(' ')).toContain(
+      "COALESCE(run.structured_bootstrap->>'kind', '') <> 'OPTIONAL_NOTES'",
+    )
+    expect(queryRaw.mock.calls[1]![0].strings.join(' ')).toContain(
+      "COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'",
+    )
+    expect(result[0]!.structuredBootstrap).toEqual({
+      kind: 'MEDIA_PROJECT_REVIEW',
+      retainedEvidenceCount: 9,
+    })
   })
 })

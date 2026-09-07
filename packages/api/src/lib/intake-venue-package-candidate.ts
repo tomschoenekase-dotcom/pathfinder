@@ -5,6 +5,7 @@ import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfind
 
 import type { TRPCContext } from '../context'
 import { buildInterviewClarificationReview } from './intake-interview-clarifications'
+import { buildReviewedMediaIntakeCandidate } from './media-intake-candidate'
 import {
   canonicalVenuePackagePayload,
   VenuePackagePayloadV3,
@@ -407,6 +408,30 @@ export async function buildIntakeVenuePackageCandidate(input: {
   const candidate = emptyPayload()
 
   if (run.sourceKind === 'STRUCTURED_BOOTSTRAP') {
+    if (
+      run.structuredBootstrap &&
+      typeof run.structuredBootstrap === 'object' &&
+      !Array.isArray(run.structuredBootstrap) &&
+      run.structuredBootstrap.kind === 'MEDIA_PROJECT_REVIEW'
+    ) {
+      try {
+        return result(
+          run,
+          scope.venueId,
+          buildReviewedMediaIntakeCandidate({
+            ...run,
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+          }),
+          issues,
+        )
+      } catch (error) {
+        throw new IntakeVenuePackageCandidateError(
+          'INVALID_EVIDENCE',
+          error instanceof Error ? error.message : 'Stored media review evidence is invalid',
+        )
+      }
+    }
     const fileReview = storedFileExtractionReview.safeParse(run.structuredBootstrap)
     if (fileReview.success) {
       const review = run.fileExtractionProposalReview

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 import { db } from '../client'
@@ -11,7 +12,10 @@ export type OnboardingBootstrapActor = {
   id: string
   role: 'OWNER' | 'MANAGER'
 }
-export type OnboardingBootstrapClient = Pick<typeof db, '$transaction' | 'intakeRun' | 'venue'>
+export type OnboardingBootstrapClient = Pick<
+  typeof db,
+  '$transaction' | '$queryRaw' | 'intakeRun' | 'venue'
+>
 
 export class OnboardingBootstrapError extends Error {
   constructor(
@@ -356,22 +360,52 @@ export async function listOnboardingBootstrapDetails(input: {
     select: { id: true },
   })
   if (!venue) throw new OnboardingBootstrapError('NOT_FOUND', 'Venue not found')
-  return (input.client ?? db).intakeRun.findMany({
-    where: {
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      sourceKind: 'STRUCTURED_BOOTSTRAP',
-      NOT: { structuredBootstrap: { path: ['kind'], equals: 'OPTIONAL_NOTES' } },
+  const client = input.client ?? db
+  const rows = await client.$queryRaw<
+    Array<{
+      id: string
+      venueId: string
+      status: string
+      displayName: string
+      createdAt: Date
+      evidenceCount: bigint
+    }>
+  >(Prisma.sql`
+    SELECT run.id,
+           run.venue_id AS "venueId",
+           run.status::text AS status,
+           run.display_name AS "displayName",
+           run.created_at AS "createdAt",
+           (SELECT COUNT(*) FROM intake_evidence evidence WHERE evidence.run_id = run.id) AS "evidenceCount"
+      FROM intake_runs run
+     WHERE run.tenant_id = ${input.tenantId}
+       AND run.venue_id = ${input.venueId}
+       AND run.source_kind = 'STRUCTURED_BOOTSTRAP'::"IntakeSourceKind"
+       AND COALESCE(run.structured_bootstrap->>'kind', '') <> 'OPTIONAL_NOTES'
+     ORDER BY run.created_at DESC, run.id DESC
+     LIMIT ${input.limit}
+  `)
+  const details = rows.length
+    ? await client.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>(Prisma.sql`
+        SELECT id, structured_bootstrap AS "structuredBootstrap"
+          FROM intake_runs
+         WHERE tenant_id = ${input.tenantId}
+           AND venue_id = ${input.venueId}
+           AND source_kind = 'STRUCTURED_BOOTSTRAP'::"IntakeSourceKind"
+           AND id IN (${Prisma.join(rows.map((row) => row.id))})
+           AND COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'
+      `)
+    : []
+  const detailsById = new Map(details.map((detail) => [detail.id, detail.structuredBootstrap]))
+  return rows.map((row) => ({
+    id: row.id,
+    venueId: row.venueId,
+    status: row.status,
+    displayName: row.displayName,
+    structuredBootstrap: detailsById.get(row.id) ?? {
+      kind: 'MEDIA_PROJECT_REVIEW' as const,
+      retainedEvidenceCount: Number(row.evidenceCount),
     },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: input.limit,
-    select: {
-      id: true,
-      venueId: true,
-      status: true,
-      displayName: true,
-      structuredBootstrap: true,
-      createdAt: true,
-    },
-  })
+    createdAt: row.createdAt,
+  }))
 }

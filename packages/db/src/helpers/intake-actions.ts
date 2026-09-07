@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { MachineActorContext } from '@pathfinder/contracts/actor'
 
@@ -23,6 +24,7 @@ export type IntakeActionClient = Pick<
   | 'auditLog'
   | 'intakeSubmissionDraft'
   | '$transaction'
+  | '$queryRaw'
 >
 
 const privacyRank: Record<StaffInterviewPrivacy, number> = {
@@ -477,7 +479,7 @@ export async function listIntakeProposals(input: {
   limit: number
 }) {
   await requireVenue(input.db, input.tenantId, input.venueId)
-  return input.db.intakeRun.findMany({
+  const rows = await input.db.intakeRun.findMany({
     where: {
       tenantId: input.tenantId,
       venueId: input.venueId,
@@ -492,12 +494,36 @@ export async function listIntakeProposals(input: {
       displayName: true,
       websiteUri: true,
       interviewRole: true,
-      structuredBootstrap: true,
       createdAt: true,
       _count: { select: { evidence: true, events: true } },
       packageHandoff: { select: { packageDraftId: true, createdAt: true } },
     },
   })
+  const structuredIds = rows
+    .filter((row) => row.sourceKind === 'STRUCTURED_BOOTSTRAP')
+    .map((row) => row.id)
+  const details = structuredIds.length
+    ? await input.db.$queryRaw<Array<{ id: string; structuredBootstrap: unknown }>>(Prisma.sql`
+        SELECT id, structured_bootstrap AS "structuredBootstrap"
+          FROM intake_runs
+         WHERE tenant_id = ${input.tenantId}
+           AND venue_id = ${input.venueId}
+           AND source_kind = 'STRUCTURED_BOOTSTRAP'::"IntakeSourceKind"
+           AND id IN (${Prisma.join(structuredIds)})
+           AND COALESCE(structured_bootstrap->>'kind', '') <> 'MEDIA_PROJECT_REVIEW'
+      `)
+    : []
+  const detailsById = new Map(details.map((detail) => [detail.id, detail.structuredBootstrap]))
+  return rows.map((row) => ({
+    ...row,
+    ...(row.sourceKind === 'STRUCTURED_BOOTSTRAP'
+      ? {
+          structuredBootstrap:
+            detailsById.get(row.id) ??
+            ({ kind: 'MEDIA_PROJECT_REVIEW', retainedEvidenceCount: row._count.evidence } as const),
+        }
+      : { structuredBootstrap: null }),
+  }))
 }
 
 const reviewManifestEntry = z

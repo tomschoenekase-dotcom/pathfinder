@@ -12,6 +12,7 @@ import {
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+import { MediaIntakeHandoffPanel } from './MediaIntakeHandoffPanel'
 
 type MediaProject = inferRouterOutputs<AppRouter>['mediaIngestion']['get']
 type MediaAsset = MediaProject['assets'][number]
@@ -163,6 +164,8 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
   const [draftText, setDraftText] = useState(() =>
     JSON.stringify(initialProject.draftJson ?? {}, null, 2),
   )
+  const [savedDraftText, setSavedDraftText] = useState(draftText)
+  const [savedQuestions, setSavedQuestions] = useState(() => JSON.stringify(questions))
   const [busy, setBusy] = useState(false)
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [loadingFindings, setLoadingFindings] = useState(false)
@@ -204,6 +207,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     saveInFlightRef.current = true
     setBusy(true)
     setMessage(null)
+    const submittedDraftText = draftText
     try {
       const result = await client.mediaIngestion.saveReview.mutate({
         tenantId: initialProject.tenantId,
@@ -217,6 +221,8 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
       })
       if (!mountedRef.current) return
       setUpdatedAt(result.updatedAt)
+      setSavedDraftText(submittedDraftText)
+      setSavedQuestions(JSON.stringify(normalizeQuestions(result.questions)))
       const reviewsBySource = new Map(
         result.findingReviews.map((finding) => [finding.sourceId, finding.review]),
       )
@@ -561,6 +567,21 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
           {busy ? 'Saving…' : 'Save review'}
         </button>
       </div>
+      <MediaIntakeHandoffPanel
+        key={`${initialProject.id}:${updatedAt.toISOString()}`}
+        scope={{
+          tenantId: initialProject.tenantId,
+          venueId: initialProject.venueId,
+          projectId: initialProject.id,
+        }}
+        blocked={
+          busy ||
+          Boolean(parseError) ||
+          draftText !== savedDraftText ||
+          JSON.stringify(questions) !== savedQuestions ||
+          pendingFindingCorrections.length > 0
+        }
+      />
     </div>
   )
 }
