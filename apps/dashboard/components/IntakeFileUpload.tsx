@@ -352,7 +352,10 @@ export function IntakeFileUpload({
   const [savedNextCursor, setSavedNextCursor] = useState(nextCursor)
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
-  const [savedChecks, setSavedChecks] = useState<Record<string, 'busy' | 'error'>>({})
+  const [savedChecksState, setSavedChecksState] = useState<{
+    venueId: string
+    checks: Record<string, 'busy' | 'error'>
+  }>({ venueId, checks: {} })
   const identitiesRef = useRef(
     new Map<string, { fingerprint: string; requestId: string; claimId: string }>(),
   )
@@ -371,6 +374,8 @@ export function IntakeFileUpload({
     setLoadMoreError(null)
   }, [uploads, nextCursor, venueId])
 
+  useEffect(() => setSavedChecksState({ venueId, checks: {} }), [venueId])
+
   if (scopeRef.current !== venueId) {
     scopeRef.current = venueId
     generationRef.current += 1
@@ -384,6 +389,7 @@ export function IntakeFileUpload({
   }
 
   const queue = queueState.venueId === venueId ? queueState.items : []
+  const savedChecks = savedChecksState.venueId === venueId ? savedChecksState.checks : {}
   const visibleSelectionError = queueState.venueId === venueId ? selectionError : null
   const visibleUploads =
     visibleCategory === null
@@ -411,6 +417,7 @@ export function IntakeFileUpload({
 
   useEffect(
     () => () => {
+      generationRef.current += 1
       paginationControllerRef.current?.abort()
       for (const controller of abortControllersRef.current.values()) controller.abort()
     },
@@ -464,24 +471,43 @@ export function IntakeFileUpload({
 
   async function checkSavedUpload(saved: SafeUpload) {
     if (savedChecks[saved.id] === 'busy') return
-    setSavedChecks((current) => ({ ...current, [saved.id]: 'busy' }))
+    const submittedScope = venueId
+    const generation = generationRef.current
+    const isCurrent = () =>
+      scopeRef.current === submittedScope && generationRef.current === generation
+    setSavedChecksState((current) => ({
+      venueId: submittedScope,
+      checks: {
+        ...(current.venueId === submittedScope ? current.checks : {}),
+        [saved.id]: 'busy',
+      },
+    }))
     try {
       const result = await verify({
-        venueId,
+        venueId: submittedScope,
         uploadId: saved.id,
         claimId: browserUuid(),
       })
+      if (!isCurrent()) return
       setSavedUploads((current) =>
         current.map((upload) => (upload.id === saved.id ? result.upload : upload)),
       )
-      setSavedChecks((current) => {
-        const next = { ...current }
-        delete next[saved.id]
-        return next
+      setSavedChecksState((current) => {
+        if (current.venueId !== submittedScope) return current
+        const checks = { ...current.checks }
+        delete checks[saved.id]
+        return { venueId: submittedScope, checks }
       })
       onCommitted?.()
     } catch {
-      setSavedChecks((current) => ({ ...current, [saved.id]: 'error' }))
+      if (!isCurrent()) return
+      setSavedChecksState((current) => ({
+        venueId: submittedScope,
+        checks: {
+          ...(current.venueId === submittedScope ? current.checks : {}),
+          [saved.id]: 'error',
+        },
+      }))
     }
   }
 

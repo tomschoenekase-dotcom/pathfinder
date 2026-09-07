@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -951,6 +951,143 @@ describe('quarantined intake file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
     expect(await screen.findByText('Checks complete — awaiting review')).toBeTruthy()
     expect(onCommitted).toHaveBeenCalledOnce()
+  })
+
+  it.each(['completion', 'failure'] as const)(
+    'ignores a late saved-check %s after the venue changes',
+    async (outcome) => {
+      let resolveCheck: ((value: Awaited<ReturnType<typeof verify>>) => void) | undefined
+      let rejectCheck: ((reason: Error) => void) | undefined
+      verify.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveCheck = resolve
+            rejectCheck = reject
+          }),
+      )
+      const onCommitted = vi.fn()
+      const savedUpload = (venue: string) => ({
+        id: 'shared-upload-id',
+        displayName: `${venue}-map.pdf`,
+        fileName: `${venue}-map.pdf`,
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'PRECHECK_PASSED',
+        clientVerification: {
+          kind: 'RESUME_CHECK' as const,
+          required: true,
+          actionLabel: `Resume ${venue} check`,
+          reason: `The ${venue} file still needs its security check.`,
+          retrySameSubmission: true,
+        },
+      })
+      const view = render(
+        <IntakeFileUpload
+          venueId="venue-a"
+          reserve={reserve}
+          verify={verify}
+          onCommitted={onCommitted}
+          uploads={[savedUpload('venue-a')]}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+      fireEvent.click(screen.getAllByRole('button', { name: 'Resume venue-a check' })[0]!)
+      await waitFor(() => expect(verify).toHaveBeenCalledOnce())
+
+      view.rerender(
+        <IntakeFileUpload
+          venueId="venue-b"
+          reserve={reserve}
+          verify={verify}
+          onCommitted={onCommitted}
+          uploads={[savedUpload('venue-b')]}
+        />,
+      )
+      await waitFor(() =>
+        expect(screen.getAllByRole('button', { name: 'Resume venue-b check' })).toHaveLength(2),
+      )
+
+      await act(async () => {
+        if (outcome === 'completion') {
+          resolveCheck?.({
+            upload: {
+              ...savedUpload('venue-a'),
+              status: 'AWAITING_REVIEW',
+              clientVerification: undefined,
+            },
+            retryable: false,
+            nextAction: 'PATHFINDER_REVIEW',
+          })
+        } else {
+          rejectCheck?.(new Error('late venue-a failure'))
+        }
+        await Promise.resolve()
+      })
+
+      await waitFor(() => expect(screen.getAllByText('venue-b-map.pdf')).toHaveLength(2))
+      expect(screen.getAllByRole('button', { name: 'Resume venue-b check' })).toHaveLength(2)
+      expect(screen.queryByText('venue-a-map.pdf')).toBeNull()
+      expect(screen.queryByText(/could not resume this check/iu)).toBeNull()
+      expect(onCommitted).not.toHaveBeenCalled()
+    },
+  )
+
+  it('ignores a late saved-check completion after unmount', async () => {
+    let resolveCheck: ((value: Awaited<ReturnType<typeof verify>>) => void) | undefined
+    verify.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCheck = resolve
+        }),
+    )
+    const onCommitted = vi.fn()
+    const view = render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        onCommitted={onCommitted}
+        uploads={[
+          {
+            id: 'upload-pending',
+            displayName: 'map.pdf',
+            fileName: 'map.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 8,
+            status: 'PRECHECK_PASSED',
+            clientVerification: {
+              kind: 'RESUME_CHECK',
+              required: true,
+              actionLabel: 'Resume security check',
+              reason: 'The saved file still needs its security check.',
+              retrySameSubmission: true,
+            },
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Resume security check' })[0]!)
+    await waitFor(() => expect(verify).toHaveBeenCalledOnce())
+    view.unmount()
+    await act(async () => {
+      resolveCheck?.({
+        upload: {
+          id: 'upload-pending',
+          displayName: 'map.pdf',
+          fileName: 'map.pdf',
+          mimeType: 'application/pdf',
+          byteSize: 8,
+          status: 'AWAITING_REVIEW',
+        },
+        retryable: false,
+        nextAction: 'PATHFINDER_REVIEW',
+      })
+      await Promise.resolve()
+    })
+
+    expect(onCommitted).not.toHaveBeenCalled()
   })
 
   it('can retry a saved file left in format verification without selecting it again', async () => {
