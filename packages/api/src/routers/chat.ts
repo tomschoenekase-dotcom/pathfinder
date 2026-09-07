@@ -139,6 +139,11 @@ const NEAREST_PLACES_LIMIT = 8
 const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
+const INTERRUPTED_VOICE_PREFIX = '[Interrupted] '
+
+function compareStableKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
 const SESSION_SYNC_GLOBAL_LIMIT = 3000
 const SESSION_SYNC_SESSION_LIMIT = 120
@@ -1725,17 +1730,96 @@ const chatReadRouter = router({
         })
       : null
 
-    const rows = await ctx.db.message.findMany({
-      where: { sessionId: session.id, tenantId: session.tenantId },
-      orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
-      take: HISTORY_LOAD_LIMIT,
-      select: {
-        id: true,
-        role: true,
-        content: true,
-        guestChatTurn: { select: { replayMetadata: true } },
-      },
-    })
+    const [rows, voiceRows] = await Promise.all([
+      ctx.db.message.findMany({
+        where: { sessionId: session.id, tenantId: session.tenantId },
+        orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
+        take: HISTORY_LOAD_LIMIT,
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          createdAt: true,
+          sessionSequence: true,
+          guestChatTurn: { select: { replayMetadata: true } },
+        },
+      }),
+      ctx.db.voiceTranscriptSegment.findMany({
+        where: {
+          tenantId: session.tenantId,
+          venueId: session.venueId,
+          voiceSession: {
+            visitorSessionId: session.id,
+            tenantId: session.tenantId,
+            venueId: session.venueId,
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: HISTORY_LOAD_LIMIT,
+        select: {
+          id: true,
+          voiceSessionId: true,
+          providerEventId: true,
+          sequence: true,
+          speaker: true,
+          text: true,
+          createdAt: true,
+        },
+      }),
+    ])
+
+    const effectiveVoiceTimes = new Map<string, number>()
+    const voiceEntries = [...voiceRows]
+      .sort(
+        (left, right) =>
+          compareStableKeys(left.voiceSessionId, right.voiceSessionId) ||
+          left.sequence - right.sequence ||
+          compareStableKeys(left.id, right.id),
+      )
+      .map((segment) => {
+        const receiptTime = segment.createdAt.getTime()
+        const effectiveTime = Math.max(
+          effectiveVoiceTimes.get(segment.voiceSessionId) ?? receiptTime,
+          receiptTime,
+        )
+        effectiveVoiceTimes.set(segment.voiceSessionId, effectiveTime)
+        const interrupted =
+          segment.speaker === 'ASSISTANT' && segment.text.startsWith(INTERRUPTED_VOICE_PREFIX)
+        return {
+          kind: 'voice' as const,
+          // Browser writes can land out of order. Receipt time places the segment among text
+          // messages while this monotonic effective time keeps one voice session in sequence.
+          sortTime: effectiveTime,
+          sortKey: `voice:${segment.voiceSessionId}:${String(segment.sequence).padStart(12, '0')}:${segment.id}`,
+          segment,
+          interrupted,
+        }
+      })
+
+    let effectiveMessageTime: number | null = null
+    const messageEntries = [...rows]
+      .sort(
+        (left, right) =>
+          left.sessionSequence - right.sessionSequence || compareStableKeys(left.id, right.id),
+      )
+      .map((message, index) => {
+        const receiptTime =
+          message.createdAt instanceof Date ? message.createdAt.getTime() : -(rows.length - index)
+        effectiveMessageTime = Math.max(effectiveMessageTime ?? receiptTime, receiptTime)
+        return {
+          kind: 'message' as const,
+          sortTime: effectiveMessageTime,
+          sortKey: `message:${String(message.sessionSequence).padStart(12, '0')}:${message.id}`,
+          message,
+        }
+      })
+
+    const historyEntries = [...messageEntries, ...voiceEntries]
+      .sort(
+        (left, right) =>
+          left.sortTime - right.sortTime || compareStableKeys(left.sortKey, right.sortKey),
+      )
+      .slice(-HISTORY_LOAD_LIMIT)
 
     return {
       ...(input.operationId
@@ -1745,15 +1829,25 @@ const chatReadRouter = router({
               : null,
           }
         : {}),
-      messages: rows.reverse().map((m) => {
+      messages: historyEntries.map((entry) => {
+        if (entry.kind === 'voice') {
+          return {
+            id: `voice:${entry.segment.voiceSessionId}:${entry.segment.providerEventId}`,
+            role: entry.segment.speaker === 'VISITOR' ? ('user' as const) : ('assistant' as const),
+            content: entry.interrupted
+              ? entry.segment.text.slice(INTERRUPTED_VOICE_PREFIX.length)
+              : entry.segment.text,
+            voiceDelivery: entry.interrupted ? ('INTERRUPTED' as const) : ('CAPTURED' as const),
+          }
+        }
         const replay =
-          m.role === 'assistant'
-            ? GuestChatReplayMetadata.safeParse(m.guestChatTurn?.replayMetadata)
+          entry.message.role === 'assistant'
+            ? GuestChatReplayMetadata.safeParse(entry.message.guestChatTurn?.replayMetadata)
             : null
         return {
-          id: m.id,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
+          id: entry.message.id,
+          role: entry.message.role as 'user' | 'assistant',
+          content: entry.message.content,
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
           ...(replay?.success && replay.data.citations.length
             ? {

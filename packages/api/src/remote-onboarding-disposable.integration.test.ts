@@ -666,7 +666,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       })
       expect(clientResolution).toMatchObject({
         status: 'COMPLETED',
-        canReply: false,
+        canReply: true,
         missingInformation: [],
       })
       expect(clientResolution.messages.map((message) => message.body)).not.toContain(
@@ -1227,6 +1227,15 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       await expect(publicCaller.voice.transcript(transcriptInput)).resolves.toEqual({
         accepted: false,
       })
+      await expect(
+        publicCaller.voice.transcript({
+          ...transcriptInput,
+          providerEventId: 'provider-dark-transcript-2',
+          sequence: 2,
+          speaker: 'ASSISTANT',
+          text: '[Interrupted] Continue past the family lounge.',
+        }),
+      ).resolves.toEqual({ accepted: true })
       const usageInput = {
         venueId,
         anonymousToken,
@@ -1279,6 +1288,20 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           select: { status: true, fallbackToText: true, errorCode: true },
         }),
       ).resolves.toEqual({ status: 'ENDED', fallbackToText: true, errorCode: null })
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: primaryExpected.question,
+            voiceDelivery: 'CAPTURED',
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Continue past the family lounge.',
+            voiceDelivery: 'INTERRUPTED',
+          }),
+        ]),
+      })
 
       // A provider route mismatch is rejected, persisted as failed, and surfaced as an
       // actionable operational incident. The existing text history remains available.
@@ -1543,6 +1566,9 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           status: 'DRAFT',
           title: 'Synthetic Golden Venue report',
           content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+          generatedAt: new Date(),
+          answerCount: guestProofs.length,
+          sessionCount: guestProofs.length,
           createdBy: operatorId,
         },
       })
@@ -2001,11 +2027,18 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
 
       // Failure matrix G — report failure: the real worker consumes a durable request, records
       // a failed job, and leaves the report visibly FAILED when deterministic generation rejects.
+      const failedReportWindowStart = new Date()
+      failedReportWindowStart.setUTCHours(0, 0, 0, 0)
+      const failedReportWindowEnd = new Date(failedReportWindowStart)
+      failedReportWindowEnd.setUTCDate(failedReportWindowEnd.getUTCDate() + 1)
+      failedReportWindowEnd.setUTCMilliseconds(-1)
+      const failedReportWeekStart = failedReportWindowStart.toISOString()
+      const failedReportWeekEnd = failedReportWindowEnd.toISOString()
       const failedReportRequest = await admin.generateWeeklyReportDraft({
         tenantId,
         venueId,
-        weekStart: '2026-08-17T00:00:00.000Z',
-        weekEnd: '2026-08-22T23:59:59.999Z',
+        weekStart: failedReportWeekStart,
+        weekEnd: failedReportWeekEnd,
         title: 'Synthetic failing Golden Venue report',
         requestId: randomUUID(),
       })
@@ -2037,8 +2070,8 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
               reportId: failedReportRequest.reportId,
               tenantId,
               venueId,
-              weekStart: '2026-08-17T00:00:00.000Z',
-              weekEnd: '2026-08-22T23:59:59.999Z',
+              weekStart: failedReportWeekStart,
+              weekEnd: failedReportWeekEnd,
             },
             {
               bullJobId: `golden-venue-report-failure-${suffix}`,
@@ -2057,7 +2090,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }),
       ).resolves.toMatchObject({
         status: 'FAILED',
-        error: expect.stringContaining('Synthetic report provider failure'),
+        error: 'WEEKLY_REPORT_FAILED',
       })
       await expect(
         db.jobRecord.count({

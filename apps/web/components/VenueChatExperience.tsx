@@ -31,6 +31,7 @@ import {
 } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { GuestEntrySource } from '../lib/entry-prompt'
+import type { FinalizedVoiceTranscriptLine } from './VoiceControl'
 
 type VenueChatExperienceProps = {
   venueSlug: string
@@ -747,6 +748,26 @@ export function VenueChatExperience({
       />
     )
 
+  const handleVoiceTranscriptLine = (line: FinalizedVoiceTranscriptLine) => {
+    if (
+      currentVenueIdRef.current !== line.venueId ||
+      currentAnonymousTokenRef.current !== line.anonymousToken
+    )
+      return
+    setMessages((current) => {
+      const message: ChatMessage = {
+        id: line.id,
+        role: line.role,
+        content: line.content,
+        voiceDelivery: line.voiceDelivery,
+        voicePersistence: line.persistence,
+      }
+      const existingIndex = current.findIndex((entry) => entry.id === line.id)
+      if (existingIndex === -1) return [...current, message]
+      return current.map((entry, index) => (index === existingIndex ? message : entry))
+    })
+  }
+
   return (
     <VenueChatShell
       venue={venue}
@@ -788,6 +809,7 @@ export function VenueChatExperience({
       conversationLocked={reconciliationRequiredRef.current || recoveryMode === 'check-history'}
       onNewConversation={handleNewConversation}
       onVoiceCharacterState={setStableCharacterState}
+      onVoiceTranscriptLine={handleVoiceTranscriptLine}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {
           viewedPlaceIdsRef.current.add(placeId)

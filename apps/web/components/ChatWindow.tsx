@@ -19,6 +19,8 @@ type Message = {
   content: string
   places?: GuestPlaceCard[]
   blocks?: GuestResponseBlock[]
+  voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
+  voicePersistence?: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
 }
 
 type ChatWindowProps = {
@@ -219,11 +221,13 @@ export function ChatWindow({
               language={language}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
+              {...(message.voiceDelivery ? { voiceDelivery: message.voiceDelivery } : {})}
+              {...(message.voicePersistence ? { voicePersistence: message.voicePersistence } : {})}
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(onVisitorAction ? { onVisitorAction } : {})}
-              {...(message.id && onMessageFeedback
+              {...(message.id && !message.voiceDelivery && onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
               {...(message.role === 'assistant' && !isLoading && isOnline && !conversationLocked
@@ -237,7 +241,10 @@ export function ChatWindow({
           </div>
         ))}
 
-        {onRequestMore && !isLoading && messages.at(-1)?.role === 'assistant' ? (
+        {onRequestMore &&
+        !isLoading &&
+        messages.at(-1)?.role === 'assistant' &&
+        !messages.at(-1)?.voiceDelivery ? (
           <div className="flex justify-start pl-1">
             <button
               type="button"

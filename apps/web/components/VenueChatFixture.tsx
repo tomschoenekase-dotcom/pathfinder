@@ -24,7 +24,12 @@ export const VISITOR_FIXTURE_STATES = [
 ] as const satisfies readonly CharacterState[]
 
 export type VisitorFixtureMode = 'classic' | 'character'
-export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'streaming'
+export type VisitorFixtureConversation =
+  | 'empty'
+  | 'long'
+  | 'multilingual'
+  | 'streaming'
+  | 'voice-history'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
@@ -195,6 +200,26 @@ const STREAMING_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+const VOICE_HISTORY_CONVERSATION: ChatMessage[] = [
+  {
+    id: 'fixture-text-before-voice',
+    role: 'assistant',
+    content: 'I can help you find a quieter route.',
+  },
+  {
+    id: 'voice:fixture-visitor-segment',
+    role: 'user',
+    content: 'Can we avoid the busy central stairs?',
+    voiceDelivery: 'CAPTURED',
+  },
+  {
+    id: 'voice:fixture-assistant-segment',
+    role: 'assistant',
+    content: 'Take the east corridor past the family lounge, then use the accessible lift.',
+    voiceDelivery: 'INTERRUPTED',
+  },
+]
+
 function fixtureVenue(mode: VisitorFixtureMode, asset: VisitorFixtureAsset): VenueSummary {
   const projection =
     asset === 'ok'
@@ -301,7 +326,9 @@ export function VenueChatFixture({
                 ? MULTILINGUAL_CONVERSATION
                 : conversation === 'streaming'
                   ? STREAMING_CONVERSATION
-                  : []
+                  : conversation === 'voice-history'
+                    ? VOICE_HISTORY_CONVERSATION
+                    : []
           }
           isSending={state === 'thinking' || state === 'speaking'}
           sendError={state === 'error' ? 'The test response could not be loaded.' : null}

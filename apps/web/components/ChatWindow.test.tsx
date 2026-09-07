@@ -42,6 +42,61 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
+  it('labels durable voice history without offering text-message feedback for transcript rows', () => {
+    const onFeedback = vi.fn()
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'voice:visitor',
+            role: 'user',
+            content: 'Where is the quiet route?',
+            voiceDelivery: 'CAPTURED',
+          },
+          {
+            id: 'voice:assistant',
+            role: 'assistant',
+            content: 'Continue past the family lounge.',
+            voiceDelivery: 'INTERRUPTED',
+            voicePersistence: 'UNCONFIRMED',
+          },
+        ]}
+        onSend={vi.fn()}
+        onRequestMore={vi.fn()}
+        onMessageFeedback={onFeedback}
+        isLoading={false}
+      />,
+    )
+
+    expect(screen.getAllByText(/Voice transcript/u)).toHaveLength(2)
+    expect(screen.getByText(/Interrupted; may be incomplete/u)).toBeTruthy()
+    expect(screen.getByText(/Save not confirmed/u)).toBeTruthy()
+    expect(screen.getByText('Continue past the family lounge.')).toBeTruthy()
+    expect(screen.queryByLabelText('Rate this answer')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+    expect(onFeedback).not.toHaveBeenCalled()
+  })
+
+  it('does not offer text-context expansion for a captured assistant voice line', () => {
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'voice:assistant:captured',
+            role: 'assistant',
+            content: 'The gallery is open.',
+            voiceDelivery: 'CAPTURED',
+          },
+        ]}
+        onSend={vi.fn()}
+        onRequestMore={vi.fn()}
+        isLoading={false}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Tell me more' })).toBeNull()
+  })
+
   it('uses automatic direction and unknown language for free-form and restored text', () => {
     const arabicQuestion = '\u0623\u064a\u0646 \u0627\u0644\u0645\u0639\u0631\u0636\u061f'
     const arabicResponse =

@@ -16,6 +16,17 @@ const mocks = vi.hoisted(() => ({
   geolocationPermission: 'granted' as 'granted' | 'denied' | 'prompt' | 'loading',
   geolocationEnabled: vi.fn(),
   connectionState: 'online' as 'online' | 'offline' | 'reconnected',
+  voiceControlProps: null as null | {
+    onTranscriptLine?: (line: {
+      id: string
+      venueId: string
+      anonymousToken: string
+      role: 'user' | 'assistant'
+      content: string
+      voiceDelivery: 'CAPTURED' | 'INTERRUPTED'
+      persistence: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
+    }) => void
+  },
   client: {
     venue: { getBySlug: { query: vi.fn() } },
     chat: {
@@ -86,7 +97,12 @@ vi.mock('@pathfinder/ui/brand', () => ({ TorchikoIcon: () => <span>Icon</span> }
 vi.mock('@pathfinder/ui/character', () => ({
   PublicCharacterPresence: ({ state }: { state: string }) => <span>Character visual: {state}</span>,
 }))
-vi.mock('./VoiceControl', () => ({ VoiceControl: () => null }))
+vi.mock('./VoiceControl', () => ({
+  VoiceControl: (props: NonNullable<typeof mocks.voiceControlProps>) => {
+    mocks.voiceControlProps = props
+    return null
+  },
+}))
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
     emptyState,
@@ -263,6 +279,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.geolocation.lng = null
     mocks.geolocationPermission = 'granted'
     mocks.connectionState = 'online'
+    mocks.voiceControlProps = null
     mocks.client.chat.session.mutate.mockResolvedValue({ sessionId: 'session-1' })
     mocks.client.chat.stream = undefined
     mocks.client.chat.send.mutate.mockResolvedValue({
@@ -288,6 +305,63 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('reconciles a pending finalized voice line with durable history and ignores foreign scope', async () => {
+    const token = '123e4567-e89b-42d3-a456-426614174099'
+    const voiceId = 'voice:11111111-1111-4111-8111-111111111111:event-1'
+    mocks.client.chat.history.query.mockResolvedValueOnce({
+      messages: [
+        {
+          id: voiceId,
+          role: 'assistant' as const,
+          content: 'Continue past the family lounge.',
+          voiceDelivery: 'INTERRUPTED' as const,
+        },
+      ],
+    } as {
+      messages: Array<{
+        id: string
+        role: 'assistant'
+        content: string
+        voiceDelivery: 'INTERRUPTED'
+      }>
+    })
+    mocks.anonymousToken = token
+    mocks.sessionId = 'session-1'
+    window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, token)
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    await screen.findByText('Messages: 1')
+    expect(mocks.voiceControlProps?.onTranscriptLine).toBeTypeOf('function')
+    const line = {
+      id: voiceId,
+      venueId: activeVenue.id,
+      anonymousToken: token,
+      role: 'assistant' as const,
+      content: 'Continue past the family lounge.',
+      voiceDelivery: 'INTERRUPTED' as const,
+      persistence: 'PENDING' as const,
+    }
+    act(() => mocks.voiceControlProps?.onTranscriptLine?.(line))
+    expect(screen.getByText('Messages: 1')).toBeTruthy()
+    expect(screen.getByText('Latest: Continue past the family lounge.')).toBeTruthy()
+
+    act(() =>
+      mocks.voiceControlProps?.onTranscriptLine?.({ ...line, persistence: 'SAVED' as const }),
+    )
+    expect(screen.getByText('Messages: 1')).toBeTruthy()
+
+    act(() =>
+      mocks.voiceControlProps?.onTranscriptLine?.({
+        ...line,
+        id: 'voice:foreign:event-2',
+        venueId: 'venue-2',
+      }),
+    )
+    expect(screen.getByText('Messages: 1')).toBeTruthy()
   })
 
   it('renders safe stream fragments and replaces them with the authoritative completed turn', async () => {

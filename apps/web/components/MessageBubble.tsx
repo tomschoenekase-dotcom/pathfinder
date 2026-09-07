@@ -20,6 +20,8 @@ type MessageBubbleProps = {
   bubbleTextColor?: string
   blocks?: GuestResponseBlock[]
   places?: GuestResponsePlace[]
+  voiceDelivery?: 'CAPTURED' | 'INTERRUPTED'
+  voicePersistence?: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
@@ -38,6 +40,8 @@ export function MessageBubble({
   bubbleTextColor,
   blocks,
   places,
+  voiceDelivery,
+  voicePersistence,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
@@ -101,6 +105,23 @@ export function MessageBubble({
           color: isUser ? bubbleTextColor : undefined,
         }}
       >
+        {voiceDelivery ? (
+          <p
+            className={`mb-1 text-xs font-semibold ${isUser ? '' : 'text-[var(--chat-text-muted)]'}`}
+          >
+            Voice transcript
+            <span className="font-medium">
+              {voiceDelivery === 'INTERRUPTED'
+                ? ' · Interrupted; may be incomplete'
+                : ' · Captured'}
+              {voicePersistence === 'PENDING'
+                ? ' · Saving…'
+                : voicePersistence === 'UNCONFIRMED'
+                  ? ' · Save not confirmed'
+                  : ''}
+            </span>
+          </p>
+        ) : null}
         <span
           className="sr-only"
           lang={isUser ? presentation.code : undefined}

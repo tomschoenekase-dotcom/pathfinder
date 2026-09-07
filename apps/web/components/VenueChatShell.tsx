@@ -22,7 +22,7 @@ import { LocationBanner } from './LocationBanner'
 import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
-import { VoiceControl } from './VoiceControl'
+import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
 import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
@@ -94,6 +94,7 @@ export function VenueChatShell(props: {
   onPlaceClick: (placeId: string) => void
   onDirections: (placeId: string) => void
   onVoiceCharacterState?: (state: CharacterState) => void
+  onVoiceTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
@@ -128,6 +129,7 @@ export function VenueChatShell(props: {
     onPlaceClick,
     onDirections,
     onVoiceCharacterState,
+    onVoiceTranscriptLine,
     onVisitorAction,
     onMessageFeedback,
     voiceControl,
@@ -298,6 +300,7 @@ export function VenueChatShell(props: {
                 language={language}
                 disabled={isSending}
                 {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+                {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
               />
             ) : null
           ) : (

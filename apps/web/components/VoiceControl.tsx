@@ -22,6 +22,15 @@ export type VoiceTranscriptLine = {
   text: string
   delivery?: 'PLAYED' | 'INTERRUPTED'
 }
+export type FinalizedVoiceTranscriptLine = {
+  id: string
+  venueId: string
+  anonymousToken: string
+  role: 'user' | 'assistant'
+  content: string
+  voiceDelivery: 'CAPTURED' | 'INTERRUPTED'
+  persistence: 'PENDING' | 'SAVED' | 'UNCONFIRMED'
+}
 type LiveAssistantCaption = {
   responseId: string
   text: string
@@ -34,6 +43,7 @@ export const REALTIME_SDP_RESPONSE_MAX_BYTES = 1024 * 1024
 export const VOICE_AVAILABILITY_TIMEOUT_MS = 15_000
 const RECENT_CAPTION_DELTA_EVENT_LIMIT = 2_048
 const VOICE_TRANSCRIPT_TEXT_LIMIT = 8_000
+const INTERRUPTED_TRANSCRIPT_PREFIX = '[Interrupted] '
 
 async function cancelResponseBody(response: Response): Promise<void> {
   try {
@@ -177,12 +187,14 @@ export function VoiceControl({
   language,
   disabled,
   onCharacterState,
+  onTranscriptLine,
 }: {
   venueId: string
   anonymousToken: string | null
   language: SupportedChatLanguage
   disabled: boolean
   onCharacterState?: (state: CharacterState) => void
+  onTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
 }) {
   const client = useTRPCClient()
   const [available, setAvailable] = useState(false)
@@ -200,6 +212,7 @@ export function VoiceControl({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const lifecycleGenerationRef = useRef(0)
+  const callbackScopeGenerationRef = useRef(0)
   const startingAttemptRef = useRef<number | null>(null)
   const endingGenerationRef = useRef<number | null>(null)
   const endedSessionIdsRef = useRef(new Set<string>())
@@ -215,6 +228,7 @@ export function VoiceControl({
   const generatingResponseIdsRef = useRef(new Set<string>())
   const finalizedResponseIdsRef = useRef(new Set<string>())
   const handledCaptionDeltaEventIdsRef = useRef(new Set<string>())
+  const projectedTranscriptEventIdsRef = useRef(new Set<string>())
   const pendingGroundingCallsRef = useRef(new Set<string>())
   const completedGroundingCallsRef = useRef(new Set<string>())
   const groundingTurnRef = useRef(0)
@@ -222,11 +236,14 @@ export function VoiceControl({
   const handledGroundingResponsesRef = useRef(new Set<string>())
   const onCharacterStateRef = useRef(onCharacterState)
   onCharacterStateRef.current = onCharacterState
+  const onTranscriptLineRef = useRef(onTranscriptLine)
+  onTranscriptLineRef.current = onTranscriptLine
   const scopeKey = JSON.stringify([venueId, anonymousToken])
   const scopeKeyRef = useRef(scopeKey)
   if (scopeKeyRef.current !== scopeKey) {
     scopeKeyRef.current = scopeKey
     lifecycleGenerationRef.current += 1
+    callbackScopeGenerationRef.current += 1
     startingAttemptRef.current = null
     endingGenerationRef.current = null
   }
@@ -257,6 +274,7 @@ export function VoiceControl({
     generatingResponseIdsRef.current.clear()
     finalizedResponseIdsRef.current.clear()
     handledCaptionDeltaEventIdsRef.current.clear()
+    projectedTranscriptEventIdsRef.current.clear()
     pendingGroundingCallsRef.current.clear()
     completedGroundingCallsRef.current.clear()
     groundingTurnRef.current += 1
@@ -359,6 +377,7 @@ export function VoiceControl({
   useEffect(
     () => () => {
       lifecycleGenerationRef.current += 1
+      callbackScopeGenerationRef.current += 1
       startingAttemptRef.current = null
       endingGenerationRef.current = null
       const voiceSessionId = sessionIdRef.current
@@ -384,10 +403,40 @@ export function VoiceControl({
       providerEventId: string,
       delivery?: 'PLAYED' | 'INTERRUPTED',
     ) => {
-      const clean = text.trim()
+      const contentLimit =
+        delivery === 'INTERRUPTED'
+          ? VOICE_TRANSCRIPT_TEXT_LIMIT - INTERRUPTED_TRANSCRIPT_PREFIX.length
+          : VOICE_TRANSCRIPT_TEXT_LIMIT
+      const clean = text.trim().slice(0, contentLimit)
       const voiceSessionId = sessionIdRef.current
       if (!clean || !voiceSessionId || !anonymousToken) return
+      if (projectedTranscriptEventIdsRef.current.has(providerEventId)) return
+      if (projectedTranscriptEventIdsRef.current.size >= RECENT_CAPTION_DELTA_EVENT_LIMIT) {
+        const oldestEventId = projectedTranscriptEventIdsRef.current.values().next().value
+        if (typeof oldestEventId === 'string') {
+          projectedTranscriptEventIdsRef.current.delete(oldestEventId)
+        }
+      }
+      projectedTranscriptEventIdsRef.current.add(providerEventId)
       const sequence = sequenceRef.current++
+      const callbackGeneration = callbackScopeGenerationRef.current
+      const projectedLine = {
+        id: `voice:${voiceSessionId}:${providerEventId}`,
+        venueId,
+        anonymousToken,
+        role: speaker === 'VISITOR' ? ('user' as const) : ('assistant' as const),
+        content: clean,
+        voiceDelivery:
+          delivery === 'INTERRUPTED' ? ('INTERRUPTED' as const) : ('CAPTURED' as const),
+      }
+      const emitTranscriptLine = (persistence: FinalizedVoiceTranscriptLine['persistence']) => {
+        try {
+          onTranscriptLineRef.current?.({ ...projectedLine, persistence })
+        } catch {
+          // The transcript write and local voice stage do not depend on an optional projection.
+        }
+      }
+      emitTranscriptLine('PENDING')
       setTranscript((lines) =>
         [...lines, { speaker, text: clean, ...(delivery ? { delivery } : {}) }].slice(-12),
       )
@@ -399,13 +448,17 @@ export function VoiceControl({
           providerEventId,
           sequence,
           speaker,
-          text:
-            delivery === 'INTERRUPTED'
-              ? `[Interrupted] ${clean.slice(0, VOICE_TRANSCRIPT_TEXT_LIMIT - 14)}`
-              : clean.slice(0, VOICE_TRANSCRIPT_TEXT_LIMIT),
+          text: delivery === 'INTERRUPTED' ? `${INTERRUPTED_TRANSCRIPT_PREFIX}${clean}` : clean,
           language: getChatLanguagePresentation(language).code,
         })
-        .catch(() => undefined)
+        .then((result) => {
+          if (callbackScopeGenerationRef.current !== callbackGeneration) return
+          emitTranscriptLine(result.accepted ? 'SAVED' : 'UNCONFIRMED')
+        })
+        .catch(() => {
+          if (callbackScopeGenerationRef.current !== callbackGeneration) return
+          emitTranscriptLine('UNCONFIRMED')
+        })
     },
     [anonymousToken, client.voice.transcript, language, venueId],
   )

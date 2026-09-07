@@ -489,6 +489,7 @@ describe('VoiceControl', () => {
   })
 
   it('renders ordered rolling captions and replaces them with one played transcript line', async () => {
+    const onTranscriptLine = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
@@ -520,7 +521,7 @@ describe('VoiceControl', () => {
     )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
 
-    render(<VoiceControl {...props} />)
+    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const providerEvent = (payload: Record<string, unknown>) =>
@@ -598,6 +599,15 @@ describe('VoiceControl', () => {
     expect(mocks.transcript).toHaveBeenCalledWith(
       expect.objectContaining({ providerEventId: 'caption-done', text: 'The gallery is open.' }),
     )
+    await waitFor(() =>
+      expect(onTranscriptLine).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'The gallery is open.',
+          voiceDelivery: 'CAPTURED',
+          persistence: 'SAVED',
+        }),
+      ),
+    )
 
     act(() => {
       providerEvent({
@@ -607,12 +617,98 @@ describe('VoiceControl', () => {
         transcript: 'The cafe is downstairs.',
       })
       providerEvent({ type: 'output_audio_buffer.stopped', response_id: 'response-newer' })
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'newer-caption-done-duplicate',
+        response_id: 'response-newer',
+        transcript: 'The cafe is downstairs.',
+      })
     })
     expect(screen.getByLabelText('Voice transcript').textContent).not.toContain(
       'caption in progress',
     )
     expect(mocks.transcript).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(onTranscriptLine).toHaveBeenCalledTimes(4))
   })
+
+  it.each(['scope change', 'unmount'] as const)(
+    'does not publish a delayed transcript save state after %s',
+    async (retirement) => {
+      mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+      mocks.start.mockResolvedValue({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'ephemeral',
+        maxDurationSeconds: 600,
+      })
+      mocks.connected.mockResolvedValue({ connected: true })
+      let resolveTranscript!: (value: { accepted: boolean }) => void
+      mocks.transcript.mockReturnValue(
+        new Promise((resolve) => {
+          resolveTranscript = resolve
+        }),
+      )
+      mocks.getUserMedia.mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+      const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+      vi.stubGlobal(
+        'RTCPeerConnection',
+        vi.fn(() => ({
+          addTrack: vi.fn(),
+          createDataChannel: () => ({
+            close: vi.fn(),
+            addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+              listeners.set(type, listener),
+          }),
+          createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+          setLocalDescription: vi.fn(),
+          setRemoteDescription: vi.fn(),
+          close: vi.fn(),
+          ontrack: null,
+        })),
+      )
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+      const onTranscriptLine = vi.fn()
+      const view = render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+      await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+      const visitorTranscript =
+        retirement === 'scope change' ? ` ${'x'.repeat(9_000)} ` : 'Where is the lift?'
+      act(() =>
+        listeners.get('message')?.({
+          data: JSON.stringify({
+            type: 'conversation.item.input_audio_transcription.completed',
+            event_id: 'visitor-line-delayed-save',
+            transcript: visitorTranscript,
+          }),
+        } as MessageEvent<string>),
+      )
+      expect(onTranscriptLine).toHaveBeenCalledOnce()
+      expect(onTranscriptLine).toHaveBeenLastCalledWith(
+        expect.objectContaining({ persistence: 'PENDING' }),
+      )
+      if (retirement === 'scope change') {
+        expect(mocks.transcript).toHaveBeenCalledWith(
+          expect.objectContaining({ text: 'x'.repeat(8_000) }),
+        )
+        expect(onTranscriptLine.mock.calls[0]?.[0].content).toHaveLength(8_000)
+      }
+
+      if (retirement === 'scope change') {
+        view.rerender(
+          <VoiceControl {...props} venueId="venue-2" onTranscriptLine={onTranscriptLine} />,
+        )
+      } else {
+        view.unmount()
+      }
+      await act(async () => {
+        resolveTranscript({ accepted: true })
+        await Promise.resolve()
+      })
+
+      expect(onTranscriptLine).toHaveBeenCalledOnce()
+    },
+  )
 
   it('cancels the active response on barge-in, marks unplayed speech interrupted, and tears down media', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
@@ -961,6 +1057,7 @@ describe('VoiceControl', () => {
   })
 
   it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {
+    const onTranscriptLine = vi.fn()
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
       voiceSessionId: '11111111-1111-4111-8111-111111111111',
@@ -968,7 +1065,7 @@ describe('VoiceControl', () => {
       maxDurationSeconds: 600,
     })
     mocks.connected.mockResolvedValue({ connected: true })
-    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.transcript.mockRejectedValue(new Error('transcript save unavailable'))
     const listeners = new Map<string, (event: MessageEvent<string>) => void>()
     const send = vi.fn()
     const channel = {
@@ -995,7 +1092,7 @@ describe('VoiceControl', () => {
     )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
 
-    render(<VoiceControl {...props} />)
+    render(<VoiceControl {...props} onTranscriptLine={onTranscriptLine} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
     const event = (payload: Record<string, unknown>) =>
@@ -1029,6 +1126,15 @@ describe('VoiceControl', () => {
     ])
     expect(screen.getAllByText('(interrupted)')).toHaveLength(1)
     expect(mocks.transcript).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(onTranscriptLine).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          content: 'Partly heard.',
+          voiceDelivery: 'INTERRUPTED',
+          persistence: 'UNCONFIRMED',
+        }),
+      ),
+    )
   })
 })
 

@@ -82,6 +82,7 @@ const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
 const placeFindMany = vi.fn()
 const placeFindFirst = vi.fn()
 const messageFindMany = vi.fn()
+const voiceTranscriptSegmentFindMany = vi.fn()
 const messageCreate = vi.fn()
 const messageFindFirst = vi.fn()
 const guestChatTurnFindFirst = vi.fn()
@@ -123,6 +124,7 @@ const mockDb = {
   operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
+  voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
   guestChatTurn: { findFirst: guestChatTurnFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
@@ -218,6 +220,7 @@ describe('chat router', () => {
     venueFindFirst.mockResolvedValue({ isActive: true })
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
+    voiceTranscriptSegmentFindMany.mockResolvedValue([])
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -2302,8 +2305,20 @@ describe('chat router', () => {
         { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
       ])
       messageFindMany.mockResolvedValueOnce([
-        { role: 'assistant', content: 'Newest.' },
-        { role: 'user', content: 'Older.' },
+        {
+          id: 'message-newest',
+          role: 'assistant',
+          content: 'Newest.',
+          sessionSequence: 2,
+          createdAt: new Date('2026-09-07T16:02:00.000Z'),
+        },
+        {
+          id: 'message-older',
+          role: 'user',
+          content: 'Older.',
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-07T16:01:00.000Z'),
+        },
       ])
 
       const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
@@ -2318,10 +2333,128 @@ describe('chat router', () => {
       )
       expect(result).toEqual({
         messages: [
-          { role: 'user', content: 'Older.' },
-          { role: 'assistant', content: 'Newest.' },
+          { id: 'message-older', role: 'user', content: 'Older.' },
+          { id: 'message-newest', role: 'assistant', content: 'Newest.' },
         ],
       })
+      expect(voiceTranscriptSegmentFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            voiceSession: {
+              visitorSessionId: SESSION_ID,
+              tenantId: TENANT_ID,
+              venueId: VENUE_ID,
+            },
+          },
+          take: 40,
+        }),
+      )
+    })
+
+    it('projects the exact scoped voice session into ordinary history without inferring playback', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      messageFindMany.mockResolvedValueOnce([
+        {
+          id: 'message-after',
+          role: 'assistant',
+          content: 'Text after voice.',
+          sessionSequence: 2,
+          // Receipt timestamps can invert; canonical text session sequence must still win.
+          createdAt: new Date('2026-09-07T15:59:00.000Z'),
+        },
+        {
+          id: 'message-before',
+          role: 'user',
+          content: 'Text before voice.',
+          sessionSequence: 1,
+          createdAt: new Date('2026-09-07T16:00:00.000Z'),
+        },
+      ])
+      voiceTranscriptSegmentFindMany.mockResolvedValueOnce([
+        {
+          id: 'voice-segment-2',
+          voiceSessionId: '11111111-1111-4111-8111-111111111111',
+          providerEventId: 'provider-event-2',
+          sequence: 2,
+          speaker: 'ASSISTANT',
+          text: '[Interrupted] Continue past the family lounge.',
+          createdAt: new Date('2026-09-07T16:01:05.000Z'),
+        },
+        {
+          id: 'voice-segment-1',
+          voiceSessionId: '11111111-1111-4111-8111-111111111111',
+          providerEventId: 'provider-event-1',
+          sequence: 1,
+          speaker: 'VISITOR',
+          text: 'Where is the quieter route?',
+          createdAt: new Date('2026-09-07T16:01:20.000Z'),
+        },
+      ])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).resolves.toEqual({
+        messages: [
+          { id: 'message-before', role: 'user', content: 'Text before voice.' },
+          { id: 'message-after', role: 'assistant', content: 'Text after voice.' },
+          {
+            id: 'voice:11111111-1111-4111-8111-111111111111:provider-event-1',
+            role: 'user',
+            content: 'Where is the quieter route?',
+            voiceDelivery: 'CAPTURED',
+          },
+          {
+            id: 'voice:11111111-1111-4111-8111-111111111111:provider-event-2',
+            role: 'assistant',
+            content: 'Continue past the family lounge.',
+            voiceDelivery: 'INTERRUPTED',
+          },
+        ],
+      })
+    })
+
+    it('keeps a newly received voice segment inside the bounded mixed history window', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      messageFindMany.mockResolvedValueOnce(
+        Array.from({ length: 40 }, (_, index) => {
+          const ordinal = 40 - index
+          return {
+            id: `message-${ordinal}`,
+            role: 'user',
+            content: `Text message ${ordinal}`,
+            sessionSequence: ordinal,
+            createdAt: new Date(Date.UTC(2026, 8, 7, 16, ordinal, 0)),
+          }
+        }),
+      )
+      voiceTranscriptSegmentFindMany.mockResolvedValueOnce([
+        {
+          id: 'latest-voice-segment',
+          voiceSessionId: '11111111-1111-4111-8111-111111111111',
+          providerEventId: 'latest-provider-event',
+          sequence: 99,
+          speaker: 'VISITOR',
+          text: 'This was just spoken.',
+          createdAt: new Date('2026-09-07T16:41:00.000Z'),
+        },
+      ])
+
+      const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+
+      expect(result.messages).toHaveLength(40)
+      expect(result.messages.at(-1)).toEqual({
+        id: 'voice:11111111-1111-4111-8111-111111111111:latest-provider-event',
+        role: 'user',
+        content: 'This was just spoken.',
+        voiceDelivery: 'CAPTURED',
+      })
+      expect(result.messages).not.toContainEqual(expect.objectContaining({ id: 'message-1' }))
     })
 
     it('returns the exact scoped turn status only when requested', async () => {
@@ -2398,6 +2531,7 @@ describe('chat router', () => {
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).resolves.toEqual({ messages: [] })
       expect(messageFindMany).not.toHaveBeenCalled()
+      expect(voiceTranscriptSegmentFindMany).not.toHaveBeenCalled()
     })
 
     it('restores persisted place cards and citations for completed assistant turns', async () => {
@@ -2466,6 +2600,7 @@ describe('chat router', () => {
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).resolves.toEqual({ messages: [] })
       expect(messageFindMany).not.toHaveBeenCalled()
+      expect(voiceTranscriptSegmentFindMany).not.toHaveBeenCalled()
     })
 
     it('does not load messages for an inactive venue', async () => {
