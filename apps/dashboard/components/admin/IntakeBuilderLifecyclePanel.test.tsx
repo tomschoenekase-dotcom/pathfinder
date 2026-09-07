@@ -1025,7 +1025,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
       autoApply: false,
       autoPublish: false,
       stages: [{ stage: 'REVIEW', state: 'BLOCKED', evidenceRefs: [], blockers: [] }],
-    } as never
+    }
     query.mockResolvedValue(lifecycle)
     sourceReaderQuery
       .mockResolvedValueOnce({

@@ -33,10 +33,12 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function makeClient(receipt = makeReceipt()) {
+function makeClient(receipt: ReturnType<typeof makeReceipt> | null = makeReceipt()) {
   return {
     intakeFileExtractionReceipt: { findFirst: vi.fn().mockResolvedValue(receipt) },
-  } as never
+  } as unknown as Parameters<typeof readIntakeFileExtractionSource>[1] & {
+    intakeFileExtractionReceipt: { findFirst: ReturnType<typeof vi.fn> }
+  }
 }
 
 function input(client: unknown, overrides: Record<string, unknown> = {}) {
@@ -120,6 +122,12 @@ describe('intake file extraction source reader', () => {
     const forgedCursor = Buffer.from(JSON.stringify(forged)).toString('base64url')
     await expect(
       readIntakeFileExtractionSource(input(validClient, { cursor: forgedCursor }), validClient),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      readIntakeFileExtractionSource(
+        input(validClient, { cursor: 'not-a-reader-cursor' }),
+        validClient,
+      ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     const changedHashClient = makeClient(makeReceipt({ extractedTextHash: 'd'.repeat(64) }))
     await expect(

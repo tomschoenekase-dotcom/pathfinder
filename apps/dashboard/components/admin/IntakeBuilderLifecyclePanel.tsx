@@ -1269,12 +1269,12 @@ export function IntakeBuilderLifecycleView({
                           type="button"
                           onClick={() =>
                             onReadFullExtraction?.(
-                              sourceReaderPages[sourceReaderIndex].nextCursor ?? undefined,
+                              sourceReaderPages[sourceReaderIndex]?.nextCursor ?? undefined,
                               sourceReaderSearch,
                             )
                           }
                           disabled={
-                            sourceReaderBusy || !sourceReaderPages[sourceReaderIndex].nextCursor
+                            sourceReaderBusy || !sourceReaderPages[sourceReaderIndex]?.nextCursor
                           }
                           className="min-h-11 rounded-full border border-violet-300 bg-white px-4 text-sm font-semibold text-violet-950 disabled:cursor-not-allowed disabled:opacity-50"
                         >
