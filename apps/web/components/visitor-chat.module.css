@@ -18,6 +18,9 @@
 .shell[data-keyboard-open] .character {
   display: none;
 }
+.shell[data-keyboard-open] .footer {
+  display: none;
+}
 .shell[data-keyboard-open] .composerField textarea {
   max-height: var(--chat-keyboard-composer-max, 96px);
 }

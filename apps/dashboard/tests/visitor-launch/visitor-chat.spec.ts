@@ -91,6 +91,49 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
 })
 
+test('keyboard-sized viewport gives footer space back to the conversation', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=long&motion=reduced&network=online&language=English',
+  )
+  await hideFrameworkDevChrome(page)
+
+  const shell = page.locator('[data-fixture="visitor-chat"] > div')
+  const footer = page.locator('footer')
+  const conversation = page.getByRole('log')
+  const composer = page.getByRole('textbox')
+  await expect(footer).toBeVisible()
+  await composer.focus()
+
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', {
+      configurable: true,
+      value: 320,
+    })
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+
+  await expect(shell).toHaveAttribute('data-keyboard-open', 'true')
+  await expect(shell).toHaveCSS('height', '320px')
+  await expect(footer).toBeHidden()
+  await expectComposerReachable(page)
+  const keyboardConversationHeight = (await conversation.boundingBox())!.height
+  expect(keyboardConversationHeight).toBeGreaterThanOrEqual(80)
+  const composerBounds = await composer.boundingBox()
+  expect(composerBounds).not.toBeNull()
+  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(320)
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  const screenshot = await shell.screenshot({
+    animations: 'disabled',
+    caret: 'hide',
+    path: testInfo.outputPath('visitor-chat-keyboard-320.png'),
+  })
+  expect(screenshot.byteLength).toBeGreaterThan(2_000)
+})
+
 test('approved chat branding fails closed on a short mobile viewport', async ({
   page,
 }, testInfo) => {
