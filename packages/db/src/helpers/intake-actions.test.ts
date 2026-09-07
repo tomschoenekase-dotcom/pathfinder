@@ -4,10 +4,12 @@ import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interv
 
 import {
   createIntakeProposal,
+  createIntakeProposalInTransaction,
   IntakeActionError,
   listIntakeProposals,
   type IntakeActionClient,
   type IntakeProposalInput,
+  type IntakeProposalTransaction,
 } from './intake-actions'
 
 const venueFindFirst = vi.fn()
@@ -45,6 +47,37 @@ describe('canonical intake actions', () => {
       displayName: 'Operations interview',
       createdAt: new Date(),
     })
+  })
+
+  it('keeps composed failures inside the caller transaction without outside replay recovery', async () => {
+    const conflict = Object.assign(new Error('unique'), { code: 'P2002' })
+    const outsideRead = vi.fn(() => {
+      throw new Error('Outside transaction read')
+    })
+    const outsideTransaction = vi.fn(() => {
+      throw new Error('Nested transaction')
+    })
+    const outside = {
+      venue: { findFirst: outsideRead },
+      intakeRun: { findFirst: outsideRead },
+      $transaction: outsideTransaction,
+    } as unknown as IntakeActionClient
+    runCreate.mockRejectedValueOnce(conflict)
+    await expect(
+      createIntakeProposalInTransaction({
+        db: outside,
+        transaction: db as unknown as IntakeProposalTransaction,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        actor: { type: 'HUMAN', id: 'operator-a', role: 'MANAGER' },
+        requestId: '56d3ed81-d294-4051-abd2-0e1a77f61ec7',
+        proposal: { kind: 'NOTES', notes: 'Shared source' },
+      }),
+    ).rejects.toBe(conflict)
+    expect(venueFindFirst).toHaveBeenCalledTimes(1)
+    expect(runFindFirst).toHaveBeenCalledTimes(1)
+    expect(outsideRead).not.toHaveBeenCalled()
+    expect(outsideTransaction).not.toHaveBeenCalled()
   })
 
   it('pins venue scope and never passes private answer text to persistence', async () => {

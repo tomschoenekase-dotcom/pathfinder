@@ -123,12 +123,18 @@ export class IntakeActionError extends Error {
   }
 }
 
-async function requireVenue(db: IntakeActionClient, tenantId: string, venueId: string) {
+async function requireVenue(
+  db: Pick<IntakeActionClient, 'venue'>,
+  tenantId: string,
+  venueId: string,
+) {
   const venue = await db.venue.findFirst({ where: { id: venueId, tenantId }, select: { id: true } })
   if (!venue) throw new IntakeActionError('NOT_FOUND', 'Venue not found')
 }
 
-export async function createIntakeProposal(input: {
+export type IntakeProposalTransaction = Parameters<Parameters<typeof db.$transaction>[0]>[0]
+
+export type CreateIntakeProposalInput = {
   db: IntakeActionClient
   tenantId: string
   venueId: string
@@ -136,7 +142,29 @@ export async function createIntakeProposal(input: {
   requestId: string
   proposal: IntakeProposalInput
   draft?: { ownerUserId: string; expectedRevision: number }
-}) {
+}
+
+/** Owns the transaction and historical unique-conflict recovery. */
+export async function createIntakeProposal(input: CreateIntakeProposalInput) {
+  const prepared = prepareIntakeProposal(input)
+  await requireVenue(input.db, input.tenantId, input.venueId)
+  try {
+    return await input.db.$transaction(prepared.execute)
+  } catch (error) {
+    return await prepared.recover(error)
+  }
+}
+
+/** Composes canonical intake writes atomically; never recovers outside the caller transaction. */
+export async function createIntakeProposalInTransaction(
+  input: CreateIntakeProposalInput & { transaction: IntakeProposalTransaction },
+) {
+  const prepared = prepareIntakeProposal(input)
+  await requireVenue(input.transaction, input.tenantId, input.venueId)
+  return await prepared.execute(input.transaction)
+}
+
+function prepareIntakeProposal(input: CreateIntakeProposalInput) {
   const humanActor = input.actor?.type === 'HUMAN' ? input.actor : null
   const machineActor = input.actor?.type === 'AGENT' ? input.actor : null
   if (
@@ -186,7 +214,6 @@ export async function createIntakeProposal(input: {
       }),
     )
     .digest('hex')
-  await requireVenue(input.db, input.tenantId, input.venueId)
   const replaySelect = {
     id: true,
     venueId: true,
@@ -213,6 +240,7 @@ export async function createIntakeProposal(input: {
       sourceKind: string
       status: string
       displayName: string
+      submissionInputHash: string | null
       createdAt: Date
     },
     replayed: boolean,
@@ -222,56 +250,199 @@ export async function createIntakeProposal(input: {
     sourceKind: run.sourceKind,
     status: run.status,
     displayName: run.displayName,
+    submissionInputHash: run.submissionInputHash,
     createdAt: run.createdAt,
     autoApprove: false as const,
     autoApply: false as const,
     nextAction: 'REVIEW_PROPOSAL' as const,
     replayed,
   })
-  try {
-    return await input.db.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-proposal:${input.tenantId}:${input.requestId}`}, 0))`
-      const replay = await tx.intakeRun.findFirst({
-        where: { tenantId: input.tenantId, submissionRequestId: input.requestId },
-        select: replaySelect,
-      })
-      if (replay) {
-        if (
-          replay.submissionInputHash !== inputHash ||
-          replay.requestedBy !== actorId ||
-          replay.venueId !== input.venueId ||
-          replay.sourceKind !== storedSourceKind ||
-          (replay.requestedByType ?? 'HUMAN') !== input.actor.type ||
-          (machineActor &&
-            (replay.agentIdentityId !== machineActor.agentIdentityId ||
-              replay.agentRunId !== machineActor.agentRunId ||
-              replay.workerId !== machineActor.workerId ||
-              replay.credentialId !== machineActor.credentialId ||
-              replay.approvalGrantId !== machineActor.approvalGrantId ||
-              replay.capability !== machineActor.capability ||
-              replay.modelProvider !== (machineActor.modelProvider ?? null) ||
-              replay.modelName !== (machineActor.modelName ?? null)))
-        ) {
-          throw new IntakeActionError(
-            'CONFLICT',
-            'This request key is already bound to a different intake proposal.',
-          )
-        }
-        return safeResult(replay, true)
+  const execute = async (tx: IntakeProposalTransaction) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-proposal:${input.tenantId}:${input.requestId}`}, 0))`
+    const replay = await tx.intakeRun.findFirst({
+      where: { tenantId: input.tenantId, submissionRequestId: input.requestId },
+      select: replaySelect,
+    })
+    if (replay) {
+      if (
+        replay.submissionInputHash !== inputHash ||
+        replay.requestedBy !== actorId ||
+        replay.venueId !== input.venueId ||
+        replay.sourceKind !== storedSourceKind ||
+        (replay.requestedByType ?? 'HUMAN') !== input.actor.type ||
+        (machineActor &&
+          (replay.agentIdentityId !== machineActor.agentIdentityId ||
+            replay.agentRunId !== machineActor.agentRunId ||
+            replay.workerId !== machineActor.workerId ||
+            replay.credentialId !== machineActor.credentialId ||
+            replay.approvalGrantId !== machineActor.approvalGrantId ||
+            replay.capability !== machineActor.capability ||
+            replay.modelProvider !== (machineActor.modelProvider ?? null) ||
+            replay.modelName !== (machineActor.modelName ?? null)))
+      ) {
+        throw new IntakeActionError(
+          'CONFLICT',
+          'This request key is already bound to a different intake proposal.',
+        )
       }
-      const interview = proposal.kind === 'INTERVIEW' ? prepareInterview(proposal.submission) : null
-      const notesHash =
-        proposal.kind === 'NOTES'
-          ? createHash('sha256').update(proposal.notes.trim().replace(/\s+/gu, ' ')).digest('hex')
-          : null
-      const run = await tx.intakeRun.create({
+      return safeResult(replay, true)
+    }
+    const interview = proposal.kind === 'INTERVIEW' ? prepareInterview(proposal.submission) : null
+    const notesHash =
+      proposal.kind === 'NOTES'
+        ? createHash('sha256').update(proposal.notes.trim().replace(/\s+/gu, ' ')).digest('hex')
+        : null
+    const run = await tx.intakeRun.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        sourceKind: storedSourceKind,
+        status: 'AWAITING_REVIEW',
+        displayName,
+        requestedBy: actorId,
+        requestedByType: input.actor.type,
+        ...(machineActor
+          ? {
+              agentIdentityId: machineActor.agentIdentityId,
+              agentRunId: machineActor.agentRunId,
+              workerId: machineActor.workerId,
+              credentialId: machineActor.credentialId,
+              approvalGrantId: machineActor.approvalGrantId,
+              capability: machineActor.capability,
+              ...(machineActor.modelProvider ? { modelProvider: machineActor.modelProvider } : {}),
+              ...(machineActor.modelName ? { modelName: machineActor.modelName } : {}),
+            }
+          : {}),
+        submissionRequestId: input.requestId,
+        submissionInputHash: inputHash,
+        ...(proposal.kind === 'WEBSITE'
+          ? { websiteUri: proposal.websiteUri }
+          : proposal.kind === 'INTERVIEW'
+            ? {
+                interviewRole: proposal.submission.role,
+                interviewPublicAnswers: interview?.publicAnswers ?? [],
+                interviewAnswerManifest: interview?.manifest ?? [],
+                interviewConsentTextHash: createHash('sha256')
+                  .update(STAFF_INTERVIEW_CONSENT_TEXT)
+                  .digest('hex'),
+              }
+            : {
+                structuredBootstrap: {
+                  kind: 'OPTIONAL_NOTES',
+                  notes: proposal.notes,
+                },
+              }),
+      },
+      select: replaySelect,
+    })
+    if (proposal.kind === 'INTERVIEW' && interview) {
+      for (const evidence of interview.evidence) {
+        await tx.intakeEvidenceRecord.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: run.id,
+            sourceKind: 'INTERVIEW',
+            ...evidence,
+            capturedAt: new Date(),
+          },
+        })
+      }
+    }
+    if (input.draft) {
+      const submitted = await tx.intakeSubmissionDraft.updateMany({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          ownerUserId: input.draft.ownerUserId,
+          sourceKind: proposal.kind,
+          revision: input.draft.expectedRevision,
+          submittedAt: null,
+        },
+        data: {
+          submittedProposalId: run.id,
+          submittedAt: new Date(),
+          revision: { increment: 1 },
+        },
+      })
+      if (submitted.count !== 1) {
+        throw new IntakeActionError('CONFLICT', 'Draft state changed; reload before submitting.')
+      }
+    }
+    if (proposal.kind === 'NOTES' && notesHash) {
+      await tx.intakeEvidenceRecord.create({
         data: {
           tenantId: input.tenantId,
           venueId: input.venueId,
+          runId: run.id,
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          locator: `optional-notes:${run.id}`,
+          normalizedHash: notesHash,
+          confidence: 1,
+          capturedAt: new Date(),
+        },
+      })
+    }
+    await tx.intakeRunEvent.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: run.id,
+        kind: 'PROPOSAL_CREATED',
+        actorId,
+        metadata: {
           sourceKind: storedSourceKind,
+          proposalKind: proposal.kind,
+          autoApprove: false,
+          autoApply: false,
+          requestedByType: input.actor.type,
+        },
+      },
+    })
+    if (proposal.kind === 'INTERVIEW') {
+      await tx.intakeRunEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: run.id,
+          kind: 'EVIDENCE_RECORDED',
+          actorId,
+          metadata: {
+            evidenceKind: 'CLASSIFIED_ANSWER_HASH',
+            publicAnswerCount: interview?.publicAnswers.length ?? 0,
+            withheldAnswerCount: interview?.withheldCount ?? 0,
+          },
+        },
+      })
+    }
+    if (proposal.kind === 'NOTES') {
+      await tx.intakeRunEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: run.id,
+          kind: 'EVIDENCE_RECORDED',
+          actorId,
+          metadata: { evidenceKind: 'OPTIONAL_NOTES_HASH', evidenceCount: 1 },
+        },
+      })
+    }
+    await writeAuditLogStrict(
+      {
+        tenantId: input.tenantId,
+        actorId,
+        actorRole: input.actor.role,
+        action: 'intake.proposal-created',
+        targetType: 'IntakeRun',
+        targetId: run.id,
+        afterState: {
+          sourceKind: storedSourceKind,
+          proposalKind: proposal.kind,
           status: 'AWAITING_REVIEW',
-          displayName,
-          requestedBy: actorId,
+          requestHash: inputHash,
+          evidenceCount: interview?.evidence.length ?? (notesHash ? 1 : 0),
+          publicAnswerCount: interview?.publicAnswers.length ?? 0,
+          withheldAnswerCount: interview?.withheldCount ?? 0,
           requestedByType: input.actor.type,
           ...(machineActor
             ? {
@@ -281,163 +452,18 @@ export async function createIntakeProposal(input: {
                 credentialId: machineActor.credentialId,
                 approvalGrantId: machineActor.approvalGrantId,
                 capability: machineActor.capability,
-                ...(machineActor.modelProvider
-                  ? { modelProvider: machineActor.modelProvider }
-                  : {}),
-                ...(machineActor.modelName ? { modelName: machineActor.modelName } : {}),
+                modelProvider: machineActor.modelProvider ?? null,
+                modelName: machineActor.modelName ?? null,
+                idempotencyKey: machineActor.idempotencyKey,
               }
             : {}),
-          submissionRequestId: input.requestId,
-          submissionInputHash: inputHash,
-          ...(proposal.kind === 'WEBSITE'
-            ? { websiteUri: proposal.websiteUri }
-            : proposal.kind === 'INTERVIEW'
-              ? {
-                  interviewRole: proposal.submission.role,
-                  interviewPublicAnswers: interview?.publicAnswers ?? [],
-                  interviewAnswerManifest: interview?.manifest ?? [],
-                  interviewConsentTextHash: createHash('sha256')
-                    .update(STAFF_INTERVIEW_CONSENT_TEXT)
-                    .digest('hex'),
-                }
-              : {
-                  structuredBootstrap: {
-                    kind: 'OPTIONAL_NOTES',
-                    notes: proposal.notes,
-                  },
-                }),
         },
-        select: replaySelect,
-      })
-      if (proposal.kind === 'INTERVIEW' && interview) {
-        for (const evidence of interview.evidence) {
-          await tx.intakeEvidenceRecord.create({
-            data: {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              runId: run.id,
-              sourceKind: 'INTERVIEW',
-              ...evidence,
-              capturedAt: new Date(),
-            },
-          })
-        }
-      }
-      if (input.draft) {
-        const submitted = await tx.intakeSubmissionDraft.updateMany({
-          where: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            ownerUserId: input.draft.ownerUserId,
-            sourceKind: proposal.kind,
-            revision: input.draft.expectedRevision,
-            submittedAt: null,
-          },
-          data: {
-            submittedProposalId: run.id,
-            submittedAt: new Date(),
-            revision: { increment: 1 },
-          },
-        })
-        if (submitted.count !== 1) {
-          throw new IntakeActionError('CONFLICT', 'Draft state changed; reload before submitting.')
-        }
-      }
-      if (proposal.kind === 'NOTES' && notesHash) {
-        await tx.intakeEvidenceRecord.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: run.id,
-            sourceKind: 'STRUCTURED_BOOTSTRAP',
-            locator: `optional-notes:${run.id}`,
-            normalizedHash: notesHash,
-            confidence: 1,
-            capturedAt: new Date(),
-          },
-        })
-      }
-      await tx.intakeRunEvent.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: run.id,
-          kind: 'PROPOSAL_CREATED',
-          actorId,
-          metadata: {
-            sourceKind: storedSourceKind,
-            proposalKind: proposal.kind,
-            autoApprove: false,
-            autoApply: false,
-            requestedByType: input.actor.type,
-          },
-        },
-      })
-      if (proposal.kind === 'INTERVIEW') {
-        await tx.intakeRunEvent.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: run.id,
-            kind: 'EVIDENCE_RECORDED',
-            actorId,
-            metadata: {
-              evidenceKind: 'CLASSIFIED_ANSWER_HASH',
-              publicAnswerCount: interview?.publicAnswers.length ?? 0,
-              withheldAnswerCount: interview?.withheldCount ?? 0,
-            },
-          },
-        })
-      }
-      if (proposal.kind === 'NOTES') {
-        await tx.intakeRunEvent.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: run.id,
-            kind: 'EVIDENCE_RECORDED',
-            actorId,
-            metadata: { evidenceKind: 'OPTIONAL_NOTES_HASH', evidenceCount: 1 },
-          },
-        })
-      }
-      await writeAuditLogStrict(
-        {
-          tenantId: input.tenantId,
-          actorId,
-          actorRole: input.actor.role,
-          action: 'intake.proposal-created',
-          targetType: 'IntakeRun',
-          targetId: run.id,
-          afterState: {
-            sourceKind: storedSourceKind,
-            proposalKind: proposal.kind,
-            status: 'AWAITING_REVIEW',
-            requestHash: inputHash,
-            evidenceCount: interview?.evidence.length ?? (notesHash ? 1 : 0),
-            publicAnswerCount: interview?.publicAnswers.length ?? 0,
-            withheldAnswerCount: interview?.withheldCount ?? 0,
-            requestedByType: input.actor.type,
-            ...(machineActor
-              ? {
-                  agentIdentityId: machineActor.agentIdentityId,
-                  agentRunId: machineActor.agentRunId,
-                  workerId: machineActor.workerId,
-                  credentialId: machineActor.credentialId,
-                  approvalGrantId: machineActor.approvalGrantId,
-                  capability: machineActor.capability,
-                  modelProvider: machineActor.modelProvider ?? null,
-                  modelName: machineActor.modelName ?? null,
-                  idempotencyKey: machineActor.idempotencyKey,
-                }
-              : {}),
-          },
-        },
-        tx,
-      )
-      return safeResult(run, false)
-    })
-  } catch (error) {
+      },
+      tx,
+    )
+    return safeResult(run, false)
+  }
+  const recover = async (error: unknown) => {
     if (error instanceof IntakeActionError) throw error
     if (isUniqueConflict(error)) {
       const replay = await input.db.intakeRun.findFirst({
@@ -469,6 +495,7 @@ export async function createIntakeProposal(input: {
     }
     throw error
   }
+  return { execute, recover }
 }
 
 export async function listIntakeProposals(input: {
