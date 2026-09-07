@@ -13,6 +13,10 @@ import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
 import { AgentApprovalPolicyControl } from './AgentApprovalPolicyControl'
+import {
+  AgentWorkflowActivationLedger,
+  type AgentWorkflowActivationLedgerPage,
+} from './AgentWorkflowActivationLedger'
 
 type Cursor = { createdAt: string; id: string } | null
 
@@ -146,6 +150,7 @@ type Props = {
     expiresAt: Date
     _count: { agentRuns: number }
   }>
+  workflowActivations?: AgentWorkflowActivationLedgerPage
 }
 
 export function formatE8Usd(value: bigint) {
@@ -204,6 +209,12 @@ export function AgentOperationsOverview({
   questionRecipients = [],
   runtime = { agentRunnerEnabled: false },
   bridgeSessions = [],
+  workflowActivations = {
+    heads: [],
+    events: [],
+    nextHeadAfterRegistryKey: null,
+    nextEventBefore: null,
+  },
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/agents`
   const now = new Date()
@@ -241,6 +252,7 @@ export function AgentOperationsOverview({
           [`${base}/integrations`, 'Integrations'],
           [`${base}/settings`, 'AI controls'],
           ['#approvals', 'Approvals'],
+          ['#workflow-activations', 'Workflow ledger'],
         ].map(([href, label]) => (
           <a
             key={href}
@@ -314,6 +326,12 @@ export function AgentOperationsOverview({
           </div>
         )}
       </section>
+
+      <AgentWorkflowActivationLedger
+        tenantId={tenantId}
+        venueId={venueId}
+        initialPage={workflowActivations}
+      />
 
       <section id="team" className="space-y-4" aria-labelledby="agent-identities-heading">
         <div>

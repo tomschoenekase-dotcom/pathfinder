@@ -39,6 +39,84 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('ApprovalDecisionForm', () => {
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a stale decision %s while another request is pending',
+    async (outcome) => {
+      let resolveOld!: (value: unknown) => void
+      let rejectOld!: (error: Error) => void
+      let resolveNew!: (value: unknown) => void
+      mocks.mutate
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveOld = resolve
+              rejectOld = reject
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveNew = resolve
+            }),
+        )
+      const props = {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        approvalRequestId: 'old',
+        proposedAction: 'publish update',
+      }
+      const view = render(<ApprovalDecisionForm {...props} />)
+      fireEvent.click(screen.getByLabelText('APPROVED'))
+      fireEvent.change(screen.getByLabelText('Decision reason (optional)'), {
+        target: { value: 'Old reason' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Record approved decision' }))
+      view.rerender(<ApprovalDecisionForm {...props} approvalRequestId="new" />)
+      expect(
+        (screen.getByLabelText('Decision reason (optional)') as HTMLTextAreaElement).value,
+      ).toBe('')
+      fireEvent.click(screen.getByRole('button', { name: 'Record rejected decision' }))
+      await act(async () => {
+        if (outcome === 'resolve') resolveOld({ executionTriggered: false })
+        else rejectOld(new Error('late failure'))
+      })
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect((screen.getByRole('button', { name: 'Working…' }) as HTMLButtonElement).disabled).toBe(
+        true,
+      )
+      expect(mocks.refresh).not.toHaveBeenCalled()
+      await act(async () => resolveNew({ executionTriggered: false }))
+      expect(screen.getByRole('status').textContent).toContain('REJECTED decision recorded')
+      expect(mocks.mutate.mock.calls[1]?.[0]).toMatchObject({
+        approvalRequestId: 'new',
+        decision: 'REJECTED',
+      })
+    },
+  )
+
+  it('does not refresh after a decision completes on an unmounted form', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.mutate.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    const view = render(
+      <ApprovalDecisionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        approvalRequestId="old"
+        proposedAction="publish update"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Record rejected decision' }))
+    view.unmount()
+    await act(async () => resolve({ executionTriggered: false }))
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
   afterEach(() => {
     cleanup()
     vi.useRealTimers()

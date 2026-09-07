@@ -28,6 +28,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       outcomeObservations,
       bridgeSessions,
       questionRecipients,
+      workflowActivations,
     ] = await Promise.all([
       caller.admin.listAgentIdentities({
         tenantId,
@@ -59,6 +60,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       caller.admin.listAgentOutcomeObservations({ tenantId, venueId, limit: 100 }),
       caller.admin.listAgentBridgeSessions({ tenantId, venueId }),
       caller.admin.listOnboardingQuestionRecipients({ tenantId, venueId }),
+      caller.admin.listAgentWorkflowActivations({ tenantId, venueId, limit: 20 }),
     ])
     return (
       <AgentOperationsOverview
@@ -73,6 +75,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
         questionRecipients={questionRecipients}
         runtime={{ agentRunnerEnabled: env.AGENT_RUNNER_ENABLED }}
         bridgeSessions={bridgeSessions}
+        workflowActivations={workflowActivations}
       />
     )
   } catch {
