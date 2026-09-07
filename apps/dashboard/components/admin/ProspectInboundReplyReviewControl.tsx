@@ -48,6 +48,7 @@ export function ProspectInboundReplyReviewControl({
   const client = useTRPCClient()
   const router = useRouter()
   const active = useRef(false)
+  const attempted = useRef<{ key: string; operationId: string } | null>(null)
   const scope = useRef({ messageId, generation: 0 })
   if (scope.current.messageId !== messageId) {
     scope.current = { messageId, generation: scope.current.generation + 1 }
@@ -80,6 +81,7 @@ export function ProspectInboundReplyReviewControl({
 
   useEffect(() => {
     active.current = false
+    attempted.current = null
     setBusy(false)
     setFeedback(null)
     setReason('')
@@ -106,18 +108,29 @@ export function ProspectInboundReplyReviewControl({
     const submittedMessageId = messageId
     const submittedGeneration = scope.current.generation
     const submittedDisposition = disposition
+    const submittedReason = reason.trim()
+    const requestKey = JSON.stringify([
+      submittedGeneration,
+      messageId,
+      disposition,
+      submittedReason,
+    ])
+    if (attempted.current?.key !== requestKey) {
+      attempted.current = { key: requestKey, operationId: crypto.randomUUID() }
+    }
     try {
       const result = await client.admin.reviewProspectInboundReply.mutate({
-        operationId: crypto.randomUUID(),
+        operationId: attempted.current.operationId,
         messageId,
         disposition,
-        reason: reason.trim(),
+        reason: submittedReason,
       })
       if (
         scope.current.messageId !== submittedMessageId ||
         scope.current.generation !== submittedGeneration
       )
         return
+      attempted.current = null
       if (result.deliveryAttempt) {
         setDeliveryState({ messageId: submittedMessageId, value: result.deliveryAttempt })
       }
@@ -135,7 +148,9 @@ export function ProspectInboundReplyReviewControl({
         scope.current.generation !== submittedGeneration
       )
         return
-      setFeedback(error instanceof Error ? error.message : 'Reply review could not be recorded.')
+      setFeedback(
+        `${error instanceof Error ? error.message : 'Reply review could not be confirmed.'} Retry unchanged to reconcile the same review safely.`,
+      )
     } finally {
       if (
         scope.current.messageId === submittedMessageId &&

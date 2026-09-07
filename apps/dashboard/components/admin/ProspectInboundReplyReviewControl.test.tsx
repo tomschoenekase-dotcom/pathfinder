@@ -24,6 +24,37 @@ describe('ProspectInboundReplyReviewControl', () => {
     vi.unstubAllGlobals()
   })
 
+  it('reuses the exact review request after a lost acknowledgment and rotates it for changed evidence', async () => {
+    const randomUUID = vi
+      .fn()
+      .mockReturnValueOnce('11111111-1111-4111-8111-111111111111')
+      .mockReturnValueOnce('22222222-2222-4222-8222-222222222222')
+    vi.stubGlobal('crypto', { randomUUID })
+    mocks.review
+      .mockRejectedValueOnce(new Error('Connection lost'))
+      .mockRejectedValueOnce(new Error('Connection lost'))
+      .mockResolvedValueOnce({ review: { disposition: 'OTHER' }, deliveryAttempt: null })
+    render(<ProspectInboundReplyReviewControl messageId="message-1" review={null} />)
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'Read original email.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Classify reply' }))
+    await screen.findByText(/Retry unchanged/)
+    fireEvent.click(screen.getByRole('button', { name: 'Classify reply' }))
+    await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(2))
+    await screen.findByText(/Retry unchanged/)
+    expect(mocks.review.mock.calls[1]![0]).toEqual(mocks.review.mock.calls[0]![0])
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'Read corrected email.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Classify reply' }))
+    await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(3))
+    expect(mocks.review.mock.calls[2]![0].operationId).not.toBe(
+      mocks.review.mock.calls[0]![0].operationId,
+    )
+    expect(randomUUID).toHaveBeenCalledTimes(2)
+  })
+
   it('records explicit positive-interest evidence without claiming a send or stage change', async () => {
     mocks.review.mockResolvedValue({
       review: { id: 'review-1' },
