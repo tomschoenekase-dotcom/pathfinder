@@ -146,6 +146,36 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     notes: 'Raw events and derived reports may require different approved durations.',
   },
   {
+    model: 'Message',
+    decisionKey: 'guest-conversations',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'MUTABLE',
+    deletionBoundary: 'VENUE_ROOT',
+    notes:
+      'Visitor and assistant text can identify people; topic enrichment does not anonymize the conversation.',
+  },
+  {
+    model: 'VoiceSession',
+    decisionKey: 'guest-conversations',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'MUTABLE',
+    deletionBoundary: 'VENUE_ROOT',
+    notes:
+      'Visitor linkage, provider session identifiers and configuration snapshots persist after a call ends; provider-side records are separate.',
+  },
+  {
+    model: 'VoiceTranscriptSegment',
+    decisionKey: 'guest-conversations',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'APPEND_ONLY',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Stored voice text and speaker/language metadata require an approved transcript policy; append-only enforcement needs a separately reviewed disposition procedure.',
+  },
+  {
     model: 'AiUsageEvent',
     decisionKey: 'ai-usage-and-cost',
     containsPersonalData: true,
@@ -189,6 +219,26 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     lifecycle: 'APPEND_ONLY',
     deletionBoundary: 'RESTRICTED_EVIDENCE',
     notes: 'Human decision evidence cannot be removed without explicit policy.',
+  },
+  {
+    model: 'AgentWorkflowVersion',
+    decisionKey: 'agent-and-approval-evidence',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'APPEND_ONLY',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Portable workflow text, examples, source references and creator attribution may contain private data; registration grants neither export nor execution authority.',
+  },
+  {
+    model: 'AgentWorkflowPromotionAssessment',
+    decisionKey: 'agent-and-approval-evidence',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'APPEND_ONLY',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Assessment diagnostics, evaluation links and human attribution are immutable evidence, not a retention duration or activation grant.',
   },
   {
     model: 'IntakeEvidenceRecord',
