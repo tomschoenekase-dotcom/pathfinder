@@ -13,6 +13,8 @@ export const GEMINI_VIDEO_MAX_INPUT_TOKENS = 1_048_576
 export const GEMINI_VIDEO_MAX_OUTPUT_TOKENS = 8_192
 export const GEMINI_VIDEO_PROCESSING_TIMEOUT_MS = 15 * 60 * 1_000
 export const GEMINI_VIDEO_DELETE_TIMEOUT_MS = 30_000
+export const GEMINI_VIDEO_PROCESSING_MODE = 'static-default-1fps' as const
+export const GEMINI_VIDEO_API_METHOD = 'files-api+models.generateContent' as const
 
 export class GeminiVideoDeletionUnconfirmedError extends Error {
   readonly code = 'provider-file-delete-unconfirmed'

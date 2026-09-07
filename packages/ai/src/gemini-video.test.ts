@@ -6,6 +6,8 @@ import {
   GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
   GEMINI_VIDEO_MODEL,
   GEMINI_VIDEO_PRICING_VERSION,
+  GEMINI_VIDEO_API_METHOD,
+  GEMINI_VIDEO_PROCESSING_MODE,
   setGeminiVideoClientForTesting,
   type GeminiVideoClient,
 } from './gemini-video'
@@ -90,7 +92,11 @@ function client(options?: {
 }
 
 describe('Gemini video understanding', () => {
-  it('reserves conservatively, analyzes the whole video, records exact usage, and deletes the file', async () => {
+  it('reports the installed API route as static processing rather than agentic or exhaustive', () => {
+    expect(GEMINI_VIDEO_API_METHOD).toBe('files-api+models.generateContent')
+    expect(GEMINI_VIDEO_PROCESSING_MODE).toBe('static-default-1fps')
+  })
+  it('reserves conservatively, submits the uploaded video to static processing, records usage, and deletes the file', async () => {
     const fakeClient = client()
     const { budgetGate, reservation } = gate()
     const usageSink = vi.fn(async () => undefined)

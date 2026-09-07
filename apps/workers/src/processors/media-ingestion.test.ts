@@ -150,6 +150,91 @@ describe('media ingestion provider output validation', () => {
     })
   })
 
+  it('retains structured video observations with source channel, time, inference, and region', () => {
+    expect(
+      parseMediaAnalysisResponse(
+        JSON.stringify({
+          summary: 'A guide names the north entrance.',
+          visibleText: ['NORTH HALL'],
+          objects: [{ name: 'entrance sign', confidence: 'confirmed' }],
+          spatialClues: ['The sign appears above a doorway.'],
+          uncertainties: ['The route beyond the doorway is not covered.'],
+          observations: [
+            {
+              kind: 'visible_text',
+              statement: 'NORTH HALL is visible.',
+              evidenceChannel: 'visible_text',
+              directness: 'observed',
+              confidence: 'confirmed',
+              startSeconds: 12.4,
+              endSeconds: 14.1,
+              region: { x: 0.2, y: 0.1, width: 0.4, height: 0.2 },
+            },
+            {
+              kind: 'narrated_fact',
+              statement: 'The speaker calls this the north entrance.',
+              evidenceChannel: 'speech',
+              directness: 'observed',
+              confidence: 'probable',
+              startSeconds: 13,
+              endSeconds: 15,
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      observations: [
+        { kind: 'visible_text', evidenceChannel: 'visible_text', directness: 'observed' },
+        { kind: 'narrated_fact', evidenceChannel: 'speech', directness: 'observed' },
+      ],
+    })
+  })
+
+  it('rejects video observations with reversed time intervals or out-of-bounds regions', () => {
+    const base = {
+      summary: 'Invalid observation',
+      visibleText: [],
+      objects: [],
+      spatialClues: [],
+      uncertainties: [],
+    }
+    for (const observation of [
+      {
+        kind: 'entity_candidate',
+        statement: 'Object',
+        evidenceChannel: 'visual',
+        directness: 'observed',
+        confidence: 'probable',
+        startSeconds: 9,
+        endSeconds: 2,
+      },
+      {
+        kind: 'visible_text',
+        statement: 'Sign',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        startSeconds: 1,
+        endSeconds: 2,
+        region: { x: 1.1, y: 0, width: 0.2, height: 0.2 },
+      },
+      {
+        kind: 'visible_text',
+        statement: 'Sign',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        startSeconds: 1,
+        endSeconds: 2,
+        region: { x: 0.9, y: 0.9, width: 0.2, height: 0.2 },
+      },
+    ]) {
+      expect(() =>
+        parseMediaAnalysisResponse(JSON.stringify({ ...base, observations: [observation] })),
+      ).toThrow(/^Media analysis provider output/u)
+    }
+  })
+
   it.each([
     ['invalid JSON', '{not-json'],
     [

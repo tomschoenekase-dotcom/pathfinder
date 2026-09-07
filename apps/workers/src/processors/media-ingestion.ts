@@ -73,7 +73,8 @@ import {
   normalizeMediaJobError,
 } from '../lib/media-job-cancellation'
 import {
-  runOptionalFullVideoAnalysis,
+  runOptionalGoogleVideoAnalysis,
+  type VideoAnalysisCoverage,
   type VideoAnalysisMethod,
 } from '../lib/video-analysis-routing'
 import {
@@ -164,6 +165,17 @@ type Analysis = {
   spatialClues: string[]
   uncertainties: string[]
   videoAnalysisMethod?: VideoAnalysisMethod
+  videoAnalysisCoverage?: VideoAnalysisCoverage
+  observations?: Array<{
+    kind: 'entity_candidate' | 'visible_text' | 'narrated_fact' | 'spatial_relation'
+    statement: string
+    evidenceChannel: 'visual' | 'visible_text' | 'speech' | 'mixed'
+    directness: 'observed' | 'inferred'
+    confidence: 'confirmed' | 'probable' | 'unverified'
+    startSeconds: number
+    endSeconds: number
+    region?: { x: number; y: number; width: number; height: number } | undefined
+  }>
 }
 
 const analysisSchema = z
@@ -182,6 +194,37 @@ const analysisSchema = z
       .max(1_000),
     spatialClues: z.array(z.string().max(10_000)).max(1_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
+    observations: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['entity_candidate', 'visible_text', 'narrated_fact', 'spatial_relation']),
+            statement: z.string().min(1).max(10_000),
+            evidenceChannel: z.enum(['visual', 'visible_text', 'speech', 'mixed']),
+            directness: z.enum(['observed', 'inferred']),
+            confidence: z.enum(['confirmed', 'probable', 'unverified']),
+            startSeconds: z.number().finite().min(0),
+            endSeconds: z.number().finite().min(0),
+            region: z
+              .object({
+                x: z.number().finite().min(0).max(1),
+                y: z.number().finite().min(0).max(1),
+                width: z.number().finite().min(0).max(1),
+                height: z.number().finite().min(0).max(1),
+              })
+              .strict()
+              .refine((region) => region.x + region.width <= 1 && region.y + region.height <= 1, {
+                message: 'Observation region must fit within the image.',
+              })
+              .optional(),
+          })
+          .strict()
+          .refine((value) => value.endSeconds >= value.startSeconds, {
+            message: 'Observation end must not precede its start.',
+          }),
+      )
+      .max(2_000)
+      .optional(),
   })
   .strict()
 
@@ -397,7 +440,15 @@ function parseProviderJson<TSchema extends z.ZodTypeAny>(
 }
 
 export function parseMediaAnalysisResponse(text: string): Analysis {
-  return parseProviderJson(text, analysisSchema, 'Media analysis provider output')
+  const parsed = parseProviderJson(text, analysisSchema, 'Media analysis provider output')
+  return {
+    summary: parsed.summary,
+    visibleText: parsed.visibleText,
+    objects: parsed.objects,
+    spatialClues: parsed.spatialClues,
+    uncertainties: parsed.uncertainties,
+    ...(parsed.observations !== undefined ? { observations: parsed.observations } : {}),
+  }
 }
 
 export function parseMediaSynthesisResponse(text: string): z.infer<typeof synthesisDraftSchema> {
@@ -520,7 +571,7 @@ async function transcribe(
 const GEMINI_VIDEO_RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties'],
+  required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties', 'observations'],
   properties: {
     summary: { type: 'string' },
     visibleText: { type: 'array', items: { type: 'string' } },
@@ -538,6 +589,45 @@ const GEMINI_VIDEO_RESPONSE_SCHEMA = {
     },
     spatialClues: { type: 'array', items: { type: 'string' } },
     uncertainties: { type: 'array', items: { type: 'string' } },
+    observations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'kind',
+          'statement',
+          'evidenceChannel',
+          'directness',
+          'confidence',
+          'startSeconds',
+          'endSeconds',
+        ],
+        properties: {
+          kind: {
+            type: 'string',
+            enum: ['entity_candidate', 'visible_text', 'narrated_fact', 'spatial_relation'],
+          },
+          statement: { type: 'string' },
+          evidenceChannel: { type: 'string', enum: ['visual', 'visible_text', 'speech', 'mixed'] },
+          directness: { type: 'string', enum: ['observed', 'inferred'] },
+          confidence: { type: 'string', enum: ['confirmed', 'probable', 'unverified'] },
+          startSeconds: { type: 'number', minimum: 0 },
+          endSeconds: { type: 'number', minimum: 0 },
+          region: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['x', 'y', 'width', 'height'],
+            properties: {
+              x: { type: 'number', minimum: 0, maximum: 1 },
+              y: { type: 'number', minimum: 0, maximum: 1 },
+              width: { type: 'number', minimum: 0, maximum: 1 },
+              height: { type: 'number', minimum: 0, maximum: 1 },
+            },
+          },
+        },
+      },
+    },
   },
 } as const
 
@@ -595,11 +685,12 @@ async function analyzeVideoWithGemini(
         mimeType: videoMimeType(filename),
         model,
         prompt:
-          `Source ${sourceId}. Analyze this complete client-supplied venue video using both its visual and audio streams. ` +
-          'Report only evidence the video supports. Put a concise timestamped sequence of salient events in summary. ' +
+          `Source ${sourceId}. Analyze this uploaded client-supplied venue video using Gemini's static video mode (documented fixed-rate 1 FPS visual extraction) and available audio. ` +
+          'Do not claim every frame was inspected. Report only evidence the processed video input supports. Put a concise timestamped sequence of salient events in summary. ' +
           'Transcribe readable labels verbatim with timestamps in visibleText. Record navigational relationships, movement, adjacency, entrances, exits, levels, landmarks, and accessibility evidence in spatialClues with timestamps. ' +
           'Never infer an identity from shape alone. Separate confirmed, probable, and unverified objects. Keep contradictions, unreadable details, sampling limitations, and missing coverage explicit in uncertainties. ' +
-          'Return JSON with exactly summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]). ' +
+          'Also return observations with kind, statement, evidenceChannel, directness, confidence, startSeconds, endSeconds, and an optional normalized image region. Distinguish visible text from speech and direct observation from inference. Missing coverage is uncertainty, never negative evidence. ' +
+          'Return JSON with exactly summary, visibleText, objects, spatialClues, uncertainties, and observations. ' +
           `Operator context follows and is context, not video evidence:\n${context.slice(0, 12_000)}`,
         responseJsonSchema: GEMINI_VIDEO_RESPONSE_SCHEMA,
         parseResponse: parseMediaAnalysisResponse,
@@ -1165,9 +1256,9 @@ export async function processMediaIngestionJob(
               budgetGate,
               signal,
             )
-          const videoResult = await runOptionalFullVideoAnalysis({
+          const videoResult = await runOptionalGoogleVideoAnalysis({
             enabled: settings.useGeminiVideoUnderstanding === true,
-            analyzeFullVideo: () =>
+            analyzeGoogleVideo: () =>
               analyzeVideoWithGemini(
                 venueAdmission,
                 reserveProviderOperation,
@@ -1186,6 +1277,7 @@ export async function processMediaIngestionJob(
           analysis = {
             ...videoResult.analysis,
             videoAnalysisMethod: videoResult.method,
+            videoAnalysisCoverage: videoResult.coverage,
           }
         } else if (
           mediaType === 'DOCUMENT' &&
@@ -1304,6 +1396,10 @@ export async function processMediaIngestionJob(
             ...(item.analysis.videoAnalysisMethod
               ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
               : {}),
+            ...(item.analysis.videoAnalysisCoverage
+              ? { videoAnalysisCoverage: item.analysis.videoAnalysisCoverage }
+              : {}),
+            ...(item.analysis.observations ? { observations: item.analysis.observations } : {}),
           })),
           draftJson: draft,
           coverage: {
