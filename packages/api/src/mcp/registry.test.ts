@@ -72,6 +72,8 @@ function actions(): PathfinderMcpDomainActions {
     proposeSupportPackageHandoffSupersession: vi.fn().mockResolvedValue(result),
     applySupportPackageHandoffSupersession: vi.fn().mockResolvedValue(result),
     proposeAgentImprovement: vi.fn().mockResolvedValue(result),
+    registerAgentWorkflowVersion: vi.fn().mockResolvedValue(result),
+    readAgentWorkflowVersions: vi.fn().mockResolvedValue(result),
     recordAgentImprovementValidation: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
     integrationHealth: vi.fn().mockResolvedValue(result),
@@ -88,6 +90,35 @@ function actions(): PathfinderMcpDomainActions {
     requestEvaluation: vi.fn().mockResolvedValue(result),
   }
 }
+
+describe('scoped workflow inspection', () => {
+  it('allows bounded read-only inspection and denies scope escalation before the action', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: false })
+    const input = { clientId: 'client-1', venueId: 'venue-1', registryKeys: ['grounded-review'] }
+    await registry.callTool('torchiko.agent_workflows.get_compatible_versions', input, {
+      credential,
+    })
+    expect(domain.readAgentWorkflowVersions).toHaveBeenCalledTimes(1)
+    for (const invalid of [
+      { ...input, venueId: 'venue-2' },
+      { ...input, clientId: 'client-2' },
+      { ...input, registryKeys: Array.from({ length: 6 }, (_, i) => `key-${i}`) },
+    ])
+      await expect(
+        registry.callTool('torchiko.agent_workflows.get_compatible_versions', invalid, {
+          credential,
+        }),
+      ).rejects.toThrow()
+    await expect(
+      registry.callTool('torchiko.agent_workflows.get_compatible_versions', input, {
+        credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow()
+    expect(domain.readAgentWorkflowVersions).toHaveBeenCalledTimes(1)
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+  })
+})
 
 describe('PathFinder MCP server-side adapter registry', () => {
   it('discovers and routes the scoped typed semantic draft without publication authority', async () => {

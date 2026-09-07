@@ -41,6 +41,8 @@ import {
   prepareCustomerAccessRequestAction,
   prepareAgentImprovementProposalAction,
   recordAgentImprovementValidationAction,
+  registerAgentWorkflowVersion as registerAgentWorkflowVersionAction,
+  readCompatibleAgentWorkflowVersions,
   prepareLocationDraftProposalAction,
   prepareSupportTriageProposalAction,
   prepareSupportInformationRequestProposalAction,
@@ -56,6 +58,7 @@ import {
   searchCompanyKnowledge,
   supersedeSupportPackageHandoffAction,
 } from '@pathfinder/db'
+import { PATHFINDER_MCP_TOOLS } from '@pathfinder/contracts/mcp-v0'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
@@ -121,6 +124,8 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'pathfinder.apply_support_package_handoff_supersession',
   'torchiko.agent_improvements.propose',
   'torchiko.agent_improvements.record_validation',
+  'torchiko.agent_workflows.register_version',
+  'torchiko.agent_workflows.get_compatible_versions',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
   'torchiko.reports.get_lifecycle',
@@ -224,6 +229,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeSupportPackageHandoffSupersession'
     | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
+    | 'registerAgentWorkflowVersion'
+    | 'readAgentWorkflowVersions'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
@@ -274,6 +281,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeSupportPackageHandoffSupersession'
     | 'applySupportPackageHandoffSupersession'
     | 'proposeAgentImprovement'
+    | 'registerAgentWorkflowVersion'
+    | 'readAgentWorkflowVersions'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
   > = {
@@ -3817,6 +3826,111 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         }),
       }
     },
+    async registerAgentWorkflowVersion(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Workflow registration requires venue scope')
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: new Date() },
+          capabilities: { has: 'agent-improvements:propose' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker)
+        throw new McpActionBindingError('Verified workflow registration worker is unavailable')
+      const capabilities: Set<string> = new Set(
+        PATHFINDER_MCP_TOOLS.filter(
+          (tool) =>
+            SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+              tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+            ) &&
+            context.credential.capabilities.includes(
+              tool._meta['com.pathfinder/security'].capability,
+            ),
+        ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+      )
+      const result = await registerAgentWorkflowVersionAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          manifest: input.manifest,
+          portableText: input.portableText,
+          provenance: input.provenance,
+          ...(input.supersedesVersionId ? { supersedesVersionId: input.supersedesVersionId } : {}),
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'agent-improvements:propose',
+            idempotencyKey: input.operationId,
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+          },
+        },
+        capabilities,
+        database,
+      )
+      return {
+        kind: 'torchiko.agent-workflow-version',
+        summary:
+          'Immutable unactivated workflow version registered; no behavior or authority changed.',
+        data: jsonData({
+          workflowVersionId: result.version.id,
+          registryKey: result.version.registryKey,
+          version: result.version.version,
+          contentHash: result.version.contentHash,
+          compatibility: result.version.requiredToolCapabilities.some(
+            (capability) => !capabilities.has(capability),
+          )
+            ? 'MISSING_TOOLS'
+            : 'COMPATIBLE',
+          provenanceVerification: result.provenanceVerification,
+          replayed: result.replayed,
+          activationGranted: false,
+        }),
+      }
+    },
+    async readAgentWorkflowVersions(input, context) {
+      if (!input.venueId)
+        throw new McpActionBindingError('Workflow inspection requires venue scope')
+      const capabilities = new Set(
+        PATHFINDER_MCP_TOOLS.filter(
+          (tool) =>
+            SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+              tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+            ) &&
+            context.credential.capabilities.includes(
+              tool._meta['com.pathfinder/security'].capability,
+            ),
+        ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+      )
+      const versions = await readCompatibleAgentWorkflowVersions(
+        {
+          tenantId: context.credential.tenantId,
+          venueId: input.venueId,
+          registryKeys: input.registryKeys,
+        },
+        capabilities,
+        database,
+      )
+      return {
+        kind: 'torchiko.agent-workflow-versions',
+        summary:
+          'Registered artifacts for inspection only; activation and execution authority are not granted.',
+        data: jsonData({ versions, activationGranted: false, executionGranted: false }),
+      }
+    },
     async proposeAgentImprovement(input, context) {
       const venueId = input.venueId
       if (!venueId)
@@ -3992,6 +4106,17 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
         },
         database,
+        new Set(
+          PATHFINDER_MCP_TOOLS.filter(
+            (tool) =>
+              SAFE_OPERATIONAL_MCP_TOOL_BINDINGS.includes(
+                tool.name as (typeof SAFE_OPERATIONAL_MCP_TOOL_BINDINGS)[number],
+              ) &&
+              context.credential.capabilities.includes(
+                tool._meta['com.pathfinder/security'].capability,
+              ),
+          ).map((tool) => tool._meta['com.pathfinder/security'].capability),
+        ),
       )
       return {
         kind: 'torchiko.agent-improvement-validation',

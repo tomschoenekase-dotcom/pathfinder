@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { agentWorkflowManifestHash, agentWorkflowTextHash } from '@pathfinder/db'
 
 const {
   consumeApproval,
@@ -22,6 +23,7 @@ const {
   readSupportFulfillment,
   prepareAgentImprovement,
   recordAgentImprovementValidation,
+  registerAgentWorkflowVersion,
   publishEvent,
   assertVenueAi,
   requestReportDraft,
@@ -54,6 +56,7 @@ const {
   readSupportFulfillment: vi.fn(),
   prepareAgentImprovement: vi.fn(),
   recordAgentImprovementValidation: vi.fn(),
+  registerAgentWorkflowVersion: vi.fn(),
   publishEvent: vi.fn(),
   assertVenueAi: vi.fn(),
   requestReportDraft: vi.fn(),
@@ -89,6 +92,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   readSupportPackageFulfillment: readSupportFulfillment,
   prepareAgentImprovementProposalAction: prepareAgentImprovement,
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
+  registerAgentWorkflowVersion,
   publishOperationalEvent: publishEvent,
   assertVenueAiAvailable: assertVenueAi,
 }))
@@ -135,6 +139,63 @@ const credential = {
 } satisfies VerifiedMcpCredentialScope
 
 describe('safe operational MCP composition', () => {
+  it('reads scoped registered bodies with current capability compatibility and no activation', async () => {
+    const manifest = {
+      schemaVersion: 1,
+      registryKey: 'grounded-review',
+      version: 1,
+      kind: 'WORKFLOW',
+      description: 'Review evidence.',
+      examples: [],
+      testedCases: ['Missing evidence'],
+      requiredTools: [{ capability: 'packages:apply', reason: 'Apply reviewed package.' }],
+      rollback: null,
+      license: null,
+    }
+    const findFirst = vi.fn().mockResolvedValue({
+      registryKey: 'grounded-review',
+      version: 1,
+      kind: 'WORKFLOW',
+      status: 'REGISTERED_UNACTIVATED',
+      manifest,
+      manifestHash: agentWorkflowManifestHash(manifest),
+      portableText: 'Review before applying.',
+      contentHash: agentWorkflowTextHash('Review before applying.'),
+      requiredToolCapabilities: ['packages:apply'],
+    })
+    const registry = createSafeOperationalMcpRegistry({
+      agentWorkflowVersion: { findFirst },
+    } as never)
+    const result = await registry.callTool(
+      'torchiko.agent_workflows.get_compatible_versions',
+      {
+        clientId: credential.clientId,
+        venueId: 'venue-1',
+        registryKeys: ['grounded-review'],
+      },
+      { credential: { ...credential, capabilities: ['resources:read'] } },
+    )
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: credential.tenantId,
+          venueId: 'venue-1',
+          registryKey: 'grounded-review',
+        },
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      activationGranted: false,
+      executionGranted: false,
+      versions: [
+        {
+          compatibility: 'MISSING_TOOLS',
+          missingCapabilities: ['packages:apply'],
+          version: { portableText: 'Review before applying.', status: 'REGISTERED_UNACTIVATED' },
+        },
+      ],
+    })
+  })
   beforeEach(() => {
     vi.resetAllMocks()
     readSupportFulfillment.mockResolvedValue({
@@ -1072,6 +1133,7 @@ describe('safe operational MCP composition', () => {
         }),
       }),
       database,
+      expect.any(Set),
     )
     expect(result.structuredContent).toMatchObject({
       kind: 'torchiko.agent-improvement-validation',
@@ -1083,6 +1145,89 @@ describe('safe operational MCP composition', () => {
       },
     })
   })
+
+  it.each([false, true])(
+    'registers portable workflow text through scoped machine authority without activation (retired tool=%s)',
+    async (retiredTool) => {
+      registerAgentWorkflowVersion.mockResolvedValue({
+        version: {
+          id: 'version-1',
+          registryKey: 'grounded-review',
+          version: 1,
+          contentHash: 'a'.repeat(64),
+          requiredToolCapabilities: ['resources:read'],
+        },
+        replayed: retiredTool,
+        provenanceVerification: 'DECLARED_NOT_VERIFIED',
+      })
+      const database = {
+        agentWorker: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({
+              id: 'worker-id-1',
+              modelProvider: 'openai',
+              modelName: 'gpt-test',
+            }),
+        },
+      }
+      const registry = createSafeOperationalMcpRegistry(database as never)
+      const machineCredential = {
+        ...credential,
+        capabilities: retiredTool
+          ? ['agent-improvements:propose']
+          : ['agent-improvements:propose', 'resources:read'],
+      } satisfies VerifiedMcpCredentialScope
+      const result = await registry.callTool(
+        'torchiko.agent_workflows.register_version',
+        {
+          clientId: 'tenant-1',
+          venueId: 'venue-1',
+          operationId: '77777777-7777-4777-8777-777777777777',
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          manifest: {
+            schemaVersion: 1,
+            registryKey: 'grounded-review',
+            version: 1,
+            kind: 'WORKFLOW',
+            description: 'Review against retained evidence.',
+            examples: [],
+            requiredTools: [{ capability: 'resources:read', reason: 'Read evidence.' }],
+            testedCases: ['Reject missing evidence.'],
+            rollback: null,
+            license: null,
+          },
+          portableText: '# Grounded review',
+          provenance: {
+            sourceType: 'HUMAN_AUTHORED',
+            sourceReferences: ['review:1'],
+            capturedAt: null,
+          },
+        },
+        { credential: machineCredential },
+      )
+      expect(registerAgentWorkflowVersion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor: expect.objectContaining({
+            capability: 'agent-improvements:propose',
+            workerId: 'worker-id-1',
+          }),
+        }),
+        new Set(machineCredential.capabilities),
+        database,
+      )
+      expect(result.structuredContent).toMatchObject({
+        data: {
+          workflowVersionId: 'version-1',
+          compatibility: retiredTool ? 'MISSING_TOOLS' : 'COMPATIBLE',
+          activationGranted: false,
+          provenanceVerification: 'DECLARED_NOT_VERIFIED',
+        },
+      })
+    },
+  )
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {
     const update = {

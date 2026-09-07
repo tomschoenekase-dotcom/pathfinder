@@ -4,6 +4,8 @@ import {
   McpAskOperatorInput,
   McpAgentImprovementProposalInput,
   McpAgentImprovementValidationInput,
+  McpAgentWorkflowVersionRegistrationInput,
+  McpAgentWorkflowVersionsReadInput,
   McpAccountContextInput,
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
@@ -98,6 +100,8 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'pathfinder.propose_support_package_handoff_supersession'
         | 'torchiko.agent_improvements.propose'
         | 'torchiko.agent_improvements.record_validation'
+        | 'torchiko.agent_workflows.register_version'
+        | 'torchiko.agent_workflows.get_compatible_versions'
         | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
         | 'torchiko.reports.get_lifecycle'
@@ -246,6 +250,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   recordAgentImprovementValidation: (
     input: McpAgentImprovementValidationInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  registerAgentWorkflowVersion: (
+    input: McpAgentWorkflowVersionRegistrationInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  readAgentWorkflowVersions: (
+    input: McpAgentWorkflowVersionsReadInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   prepareCustomerAccessInvitation: (
@@ -638,6 +650,18 @@ export function createPathfinderMcpRegistry(
           result = await actions.recordAgentImprovementValidation(input, context)
           break
         }
+        case 'torchiko.agent_workflows.register_version': {
+          const input = McpAgentWorkflowVersionRegistrationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.registerAgentWorkflowVersion(input, context)
+          break
+        }
+        case 'torchiko.agent_workflows.get_compatible_versions': {
+          const input = McpAgentWorkflowVersionsReadInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.readAgentWorkflowVersions(input, context)
+          break
+        }
         case 'torchiko.customer_access.prepare_invitation': {
           const input = McpCustomerAccessPreparationInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -809,6 +833,8 @@ async function verifyApproval(
     | 'pathfinder.propose_support_package_approval'
     | 'torchiko.agent_improvements.propose'
     | 'torchiko.agent_improvements.record_validation'
+    | 'torchiko.agent_workflows.register_version'
+    | 'torchiko.agent_workflows.get_compatible_versions'
     | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
     | 'torchiko.reports.get_lifecycle'

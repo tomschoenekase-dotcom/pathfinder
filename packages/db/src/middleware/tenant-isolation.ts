@@ -28,6 +28,7 @@ const bypassTenantIsolationStorage =
   tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage ?? new AsyncLocalStorage<boolean>()
 tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIsolationStorage
 const APPEND_ONLY_MODELS = [
+  'AgentWorkflowVersion',
   'AiUsageEvent',
   'OperatingCostEvidence',
   'OperationalUsageEvidence',

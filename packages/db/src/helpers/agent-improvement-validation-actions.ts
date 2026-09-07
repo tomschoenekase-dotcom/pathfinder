@@ -8,6 +8,7 @@ import { canonicalEvaluationJson } from '@pathfinder/contracts/evaluation'
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { compareEvaluationRuns } from './evaluation-run-comparison'
+import { isAgentWorkflowArtifactIntact } from './agent-workflow-registry-actions'
 
 export type AgentImprovementValidationActionClient = Pick<typeof db, '$transaction'>
 
@@ -167,6 +168,7 @@ function comparisonHash(snapshot: unknown) {
 export async function recordAgentImprovementValidationAction(
   rawInput: RecordAgentImprovementValidationInput,
   client: AgentImprovementValidationActionClient = db,
+  currentCallableCapabilities?: ReadonlySet<string>,
 ) {
   const parsed = inputSchema.safeParse(rawInput)
   if (!parsed.success) {
@@ -251,6 +253,62 @@ export async function recordAgentImprovementValidationAction(
           throw new AgentImprovementValidationActionError(
             'NOT_FOUND',
             'Authorized validation agent identity or live run was not found.',
+          )
+        }
+      }
+
+      if (
+        input.implementationKind === 'SKILL_VERSION' ||
+        input.implementationKind === 'WORKFLOW_VERSION'
+      ) {
+        const match = /^AgentWorkflowVersion:([0-9a-f-]{36})$/iu.exec(input.implementationRef)
+        if (!match || !input.implementationVersion) {
+          throw new AgentImprovementValidationActionError(
+            'INVALID_INPUT',
+            'Skill and workflow validation must reference an exact registered workflow version.',
+          )
+        }
+        if (!currentCallableCapabilities) {
+          throw new AgentImprovementValidationActionError(
+            'CONFLICT',
+            'Current server callable-tool inventory is required for workflow validation.',
+          )
+        }
+        const registered = await transaction.agentWorkflowVersion.findFirst({
+          where: { id: match[1]!, tenantId: input.tenantId, venueId: input.venueId },
+          select: {
+            registryKey: true,
+            version: true,
+            kind: true,
+            status: true,
+            contentHash: true,
+            portableText: true,
+            manifest: true,
+            manifestHash: true,
+            requiredToolCapabilities: true,
+          },
+        })
+        if (!registered) {
+          throw new AgentImprovementValidationActionError(
+            'NOT_FOUND',
+            'Registered workflow version was not found in scope.',
+          )
+        }
+        const expectedKind = input.implementationKind === 'SKILL_VERSION' ? 'SKILL' : 'WORKFLOW'
+        const missing = registered.requiredToolCapabilities.filter(
+          (capability) => !currentCallableCapabilities.has(capability),
+        )
+        if (
+          registered.kind !== expectedKind ||
+          registered.status !== 'REGISTERED_UNACTIVATED' ||
+          String(registered.version) !== input.implementationVersion ||
+          registered.contentHash !== input.implementationHash ||
+          !isAgentWorkflowArtifactIntact(registered) ||
+          missing.length > 0
+        ) {
+          throw new AgentImprovementValidationActionError(
+            'CONFLICT',
+            'Registered workflow version, content hash, or current callable tools do not match.',
           )
         }
       }

@@ -35,6 +35,7 @@
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts",
     "./actor": "./src/actor.ts",
+    "./agent-workflow-registry": "./src/agent-workflow-registry.ts",
     "./company-brain": "./src/company-brain.ts",
     "./platform-worker-policy": "./src/platform-worker-policy.ts",
     "./google-workspace-source": "./src/google-workspace-source.ts",

@@ -12,6 +12,10 @@ import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
 import { GeneralizedContentRevisionDraft } from './universal-content-actions'
 import { CreateLegacyKnowledgeAdoptionDraftInput } from './legacy-knowledge-adoption'
+import {
+  AgentWorkflowPortableManifestSchema,
+  AgentWorkflowProvenanceSchema,
+} from './agent-workflow-registry'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -1014,6 +1018,25 @@ export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
 
+export const McpAgentWorkflowVersionsReadInput = McpRequestedScope.extend({
+  registryKeys: z.array(z.string().min(1).max(191)).min(1).max(5),
+}).strict()
+export type McpAgentWorkflowVersionsReadInput = z.infer<typeof McpAgentWorkflowVersionsReadInput>
+
+export const McpAgentWorkflowVersionRegistrationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  manifest: AgentWorkflowPortableManifestSchema,
+  portableText: z.string().trim().min(1).max(50_000),
+  provenance: AgentWorkflowProvenanceSchema,
+  supersedesVersionId: z.string().uuid().optional(),
+}).strict()
+export type McpAgentWorkflowVersionRegistrationInput = z.infer<
+  typeof McpAgentWorkflowVersionRegistrationInput
+>
+
 export const McpAgentImprovementValidationInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1315,6 +1338,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.propose_support_package_handoff_supersession'
   | 'pathfinder.apply_support_package_handoff_supersession'
   | 'torchiko.agent_improvements.propose'
+  | 'torchiko.agent_workflows.register_version'
+  | 'torchiko.agent_workflows.get_compatible_versions'
   | 'torchiko.agent_improvements.record_validation'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
@@ -2984,6 +3009,71 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'hypothesis',
         'proposedChange',
         'validationPlan',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:propose', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.agent_workflows.get_compatible_versions',
+    title: 'Read scoped registered workflow versions',
+    description:
+      'Inspect the latest registered version of up to five named workflows or skills and current tool compatibility. Returned text is an unactivated artifact, not execution authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        registryKeys: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 5,
+          items: { type: 'string', minLength: 1, maxLength: 191 },
+        },
+      },
+      [...scopeRequired, 'registryKeys'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'resources:read', 'read') },
+  },
+  {
+    name: 'torchiko.agent_workflows.register_version',
+    title: 'Register an unactivated portable workflow version',
+    description:
+      'Store one immutable portable skill or workflow version with declared provenance and current tool compatibility. Registration grants no activation authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        manifest: { type: 'object' },
+        portableText: { type: 'string', minLength: 1, maxLength: 50000 },
+        provenance: { type: 'object' },
+        supersedesVersionId: { type: 'string', format: 'uuid' },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'manifest',
+        'portableText',
+        'provenance',
       ],
     ),
     outputSchema: resultSchema,

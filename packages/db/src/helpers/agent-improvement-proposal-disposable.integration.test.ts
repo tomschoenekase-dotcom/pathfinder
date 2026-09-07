@@ -8,6 +8,18 @@ import { prepareAgentImprovementProposalAction } from './agent-improvement-propo
 import { recordAgentImprovementValidationAction } from './agent-improvement-validation-actions'
 import { recordAgentOutcomeAction, recordAgentTrustSignalAction } from './agent-outcome-actions'
 import { recordApprovalDecisionAction } from './approval-decisions'
+import { claimAgentBridgeTask, registerAgentBridgeSession } from './agent-bridge-actions'
+import { delegateAgentTaskAction } from './agent-delegation-actions'
+import { createAgentTaskAction } from './agent-task-actions'
+import {
+  activateAgentBridgeCredentialAction,
+  issueExternalCredentialAction,
+} from './external-credential-actions'
+import { verifyAgentBridgeCredential } from './external-credential-verification'
+import {
+  readCompatibleAgentWorkflowVersions,
+  registerAgentWorkflowVersion,
+} from './agent-workflow-registry-actions'
 
 const enabled =
   process.env.RUN_AGENT_IMPROVEMENT_DB_INTEGRATION === '1' &&
@@ -376,6 +388,7 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         identityHash: string,
         modelName: string,
         modelHash: string,
+        manifest = evalManifest,
       ) =>
         db.evalRun.create({
           data: {
@@ -385,7 +398,7 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
             idempotencyKey: `improvement-eval-${id}`,
             identityHash,
             corpusHash: 'b'.repeat(64),
-            caseManifestSnapshot: evalManifest,
+            caseManifestSnapshot: manifest,
             promptContractVersion: 'fixture-v1',
             promptContractHash: 'c'.repeat(64),
             contentSnapshotKind: 'NATIVE_CORE_V1',
@@ -511,6 +524,424 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           data: { implementationRef: 'fixture:tampered' },
         }),
       ).rejects.toThrow(/append-only/u)
+
+      const registryRequest = {
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        manifest: {
+          schemaVersion: 1 as const,
+          registryKey: `grounded-review-${suffix}`,
+          version: 1,
+          kind: 'WORKFLOW' as const,
+          description: 'Review one recommendation against retained evidence.',
+          examples: ['Compare the recommendation with its retained source.'],
+          requiredTools: [{ capability: 'resources:read', reason: 'Read retained evidence.' }],
+          testedCases: ['Reject a recommendation without a retained source.'],
+          rollback: null,
+          license: null,
+        },
+        portableText:
+          '# Grounded review\nRead the retained source before returning a recommendation.',
+        provenance: {
+          sourceType: 'HUMAN_AUTHORED' as const,
+          sourceReferences: [`fixture:${suffix}`],
+          capturedAt: null,
+        },
+        actor,
+      }
+      const registered = await registerAgentWorkflowVersion(
+        registryRequest,
+        new Set(['resources:read']),
+      )
+      await expect(
+        registerAgentWorkflowVersion(registryRequest, new Set(['resources:read'])),
+      ).resolves.toMatchObject({ replayed: true, version: { id: registered.version.id } })
+      await expect(registerAgentWorkflowVersion(registryRequest, new Set())).resolves.toMatchObject(
+        { replayed: true, version: { id: registered.version.id } },
+      )
+      await expect(
+        registerAgentWorkflowVersion(
+          { ...registryRequest, portableText: 'changed' },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        readCompatibleAgentWorkflowVersions(
+          { tenantId, venueId, registryKeys: [registryRequest.manifest.registryKey] },
+          new Set(),
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          compatibility: 'MISSING_TOOLS',
+          missingCapabilities: ['resources:read'],
+        }),
+      ])
+      const registryWorkerId = `registry-worker-${suffix}`
+      const registryScopeKey = venueId
+      const issuedRegistryCredential = await issueExternalCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        actor,
+        kind: 'MCP',
+        label: 'Registry machine fixture',
+        capabilities: ['agent-improvements:propose', 'agent-runs:execute'],
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      const registryCredential = issuedRegistryCredential.credential
+      await activateAgentBridgeCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        actor,
+        credentialId: registryCredential.id,
+        expectedUpdatedAt: registryCredential.updatedAt,
+      })
+      await db.agentWorker.create({
+        data: {
+          id: registryWorkerId,
+          workerKey: registryWorkerId,
+          tenantId,
+          clientId: tenantId,
+          credentialId: registryCredential.id,
+          credentialScopeKey: registryScopeKey,
+          ownerAdminId: 'integration-operator',
+          runtimeType: 'CODEX',
+          label: 'Registry worker fixture',
+          protocolVersion: 'fixture-v1',
+          softwareVersion: 'fixture-v1',
+          capabilities: ['agent-improvements:propose'],
+          agentRoles: ['QUALITY_REVIEW'],
+          safeHealth: { status: 'fixture' },
+          status: 'ONLINE',
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      })
+      const registryRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: proposerIdentityId,
+          runType: 'QUALITY_REVIEW',
+          requestedOperation: 'agent-workflow-version.register',
+          scopeSnapshot: { accessCapabilities: ['agent-improvements:propose'] },
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: 'integration-operator',
+          startedAt: new Date(),
+          executionWorkerId: registryWorkerId,
+          executionLeaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      })
+      const machineActor = {
+        type: 'AGENT' as const,
+        actorId: proposerIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: proposerIdentityId,
+        agentRunId: registryRun.id,
+        workerId: registryWorkerId,
+        credentialId: registryCredential.id,
+        capability: 'agent-improvements:propose' as const,
+        modelProvider: 'deterministic',
+        modelName: 'fixture',
+        idempotencyKey: randomUUID(),
+      }
+      const machineV1Request = {
+        ...registryRequest,
+        operationId: machineActor.idempotencyKey,
+        manifest: {
+          ...registryRequest.manifest,
+          registryKey: `machine-grounded-review-${suffix}`,
+        },
+        actor: machineActor,
+      }
+      const machineV1 = await registerAgentWorkflowVersion(
+        machineV1Request,
+        new Set(['resources:read']),
+      )
+      await expect(
+        registerAgentWorkflowVersion(machineV1Request, new Set()),
+      ).resolves.toMatchObject({ replayed: true, version: { id: machineV1.version.id } })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { capabilities: [] },
+      })
+      await expect(
+        registerAgentWorkflowVersion(machineV1Request, new Set(['resources:read'])),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { capabilities: ['agent-improvements:propose'] },
+      })
+      for (const actorOverride of [
+        { workerId: `wrong-${registryWorkerId}` },
+        { credentialId: `wrong-${registryCredential.id}` },
+        { agentRunId: randomUUID() },
+      ]) {
+        await expect(
+          registerAgentWorkflowVersion(
+            { ...machineV1Request, actor: { ...machineActor, ...actorOverride } },
+            new Set(['resources:read']),
+          ),
+        ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      }
+      await expect(
+        registerAgentWorkflowVersion(
+          { ...machineV1Request, tenantId: `wrong-${tenantId}` },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(
+        registerAgentWorkflowVersion(
+          { ...machineV1Request, venueId: `wrong-${venueId}` },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+      const machineV2OperationId = randomUUID()
+      const machineV2 = await registerAgentWorkflowVersion(
+        {
+          ...machineV1Request,
+          operationId: machineV2OperationId,
+          manifest: {
+            ...machineV1Request.manifest,
+            version: 2,
+            rollback: {
+              registryKey: machineV1Request.manifest.registryKey,
+              version: 1,
+              contentHash: machineV1.version.contentHash,
+            },
+          },
+          portableText: `${machineV1Request.portableText}\n\nVersion two.`,
+          supersedesVersionId: machineV1.version.id,
+          actor: { ...machineActor, idempotencyKey: machineV2OperationId },
+        },
+        new Set(['resources:read']),
+      )
+      expect(machineV2.version).toMatchObject({
+        version: 2,
+        supersedesVersionId: machineV1.version.id,
+      })
+
+      await db.agentIdentity.update({
+        where: { id: proposerIdentityId },
+        data: { defaultProvider: 'codex-bridge', defaultModel: 'subscription-default' },
+      })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: {
+          capabilities: ['agent-improvements:propose', 'agent-runs:execute'],
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      })
+      const verifiedRegistryCredential = await verifyAgentBridgeCredential({
+        tenantId,
+        venueId,
+        plaintext: issuedRegistryCredential.plaintextSecret!,
+      })
+      const registryBridgeSessionId = randomUUID()
+      await registerAgentBridgeSession({
+        sessionId: registryBridgeSessionId,
+        venueId,
+        provider: 'CODEX_SUBSCRIPTION',
+        label: 'Canonical registry reachability runner',
+        runnerVersion: 'integration/1',
+        supportedModels: ['subscription-default'],
+        credential: verifiedRegistryCredential,
+      })
+      const operatorTask = await createAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: proposerIdentityId,
+        prompt: 'Register the exact retained workflow artifact.',
+        actor: { actorType: 'HUMAN', actorId: 'integration-operator', auditRole: 'PLATFORM_ADMIN' },
+      })
+      expect(operatorTask.run).toMatchObject({ status: 'QUEUED' })
+      const claimedOperatorTask = await claimAgentBridgeTask({
+        sessionId: registryBridgeSessionId,
+        venueId,
+        workerKey: registryWorkerId,
+        credential: verifiedRegistryCredential,
+      })
+      expect(claimedOperatorTask.task).toMatchObject({
+        id: operatorTask.run.id,
+        requestedOperation: 'operator_task',
+      })
+      const operatorRegistrationId = randomUUID()
+      const operatorRegistration = await registerAgentWorkflowVersion(
+        {
+          ...registryRequest,
+          operationId: operatorRegistrationId,
+          manifest: {
+            ...registryRequest.manifest,
+            registryKey: `operator-task-review-${suffix}`,
+          },
+          actor: {
+            ...machineActor,
+            agentRunId: operatorTask.run.id,
+            idempotencyKey: operatorRegistrationId,
+          },
+        },
+        new Set(['resources:read']),
+      )
+      expect(operatorRegistration).toMatchObject({
+        replayed: false,
+        version: {
+          status: 'REGISTERED_UNACTIVATED',
+          createdByType: 'AGENT',
+          createdById: proposerIdentityId,
+        },
+      })
+
+      const specialistIdentityId = `identity-registry-specialist-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: specialistIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `registry-specialist.${suffix}`,
+          name: 'Registry specialist',
+          agentType: 'QUALITY_REVIEW',
+          accessScope: 'VENUE',
+          accessCapabilities: ['agent-improvements:propose'],
+          autonomyLevel: 'DRAFT',
+          defaultProvider: 'codex-bridge',
+          defaultModel: 'subscription-default',
+          enabled: true,
+          createdBy: 'integration-operator',
+        },
+      })
+      const delegation = await delegateAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        parentAgentRunId: operatorTask.run.id,
+        requestingAgentIdentityId: proposerIdentityId,
+        specialistAgentIdentityId: specialistIdentityId,
+        instructions: 'Register the specialist workflow artifact without activating it.',
+        reason: 'Use the bounded registry specialist identity.',
+      })
+      expect(delegation.run).toMatchObject({ status: 'QUEUED' })
+      const claimedSpecialistTask = await claimAgentBridgeTask({
+        sessionId: registryBridgeSessionId,
+        venueId,
+        workerKey: registryWorkerId,
+        credential: verifiedRegistryCredential,
+      })
+      expect(claimedSpecialistTask.task).toMatchObject({
+        id: delegation.run.id,
+        requestedOperation: 'specialist_delegation',
+      })
+      const specialistRegistrationId = randomUUID()
+      const specialistRegistration = await registerAgentWorkflowVersion(
+        {
+          ...registryRequest,
+          operationId: specialistRegistrationId,
+          manifest: {
+            ...registryRequest.manifest,
+            registryKey: `specialist-task-review-${suffix}`,
+          },
+          actor: {
+            ...machineActor,
+            actorId: specialistIdentityId,
+            agentIdentityId: specialistIdentityId,
+            agentRunId: delegation.run.id,
+            idempotencyKey: specialistRegistrationId,
+          },
+        },
+        new Set(['resources:read']),
+      )
+      expect(specialistRegistration).toMatchObject({
+        replayed: false,
+        version: {
+          status: 'REGISTERED_UNACTIVATED',
+          createdByType: 'AGENT',
+          createdById: specialistIdentityId,
+        },
+      })
+      await expect(
+        readCompatibleAgentWorkflowVersions(
+          {
+            tenantId,
+            venueId,
+            registryKeys: [
+              operatorRegistration.version.registryKey,
+              specialistRegistration.version.registryKey,
+            ],
+          },
+          new Set(['resources:read']),
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          registryKey: operatorRegistration.version.registryKey,
+          compatibility: 'COMPATIBLE',
+          version: expect.objectContaining({ status: 'REGISTERED_UNACTIVATED' }),
+        }),
+        expect.objectContaining({
+          registryKey: specialistRegistration.version.registryKey,
+          compatibility: 'COMPATIBLE',
+          version: expect.objectContaining({ status: 'REGISTERED_UNACTIVATED' }),
+        }),
+      ])
+      await db.agentRun.update({
+        where: { id: registryRun.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      await expect(
+        registerAgentWorkflowVersion(machineV1Request, new Set(['resources:read'])),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await db.agentRun.update({
+        where: { id: registryRun.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() + 60_000) },
+      })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      await expect(
+        registerAgentWorkflowVersion(machineV1Request, new Set(['resources:read'])),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const registryValidation = await recordAgentImprovementValidationAction(
+        {
+          ...validationRequest,
+          operationId: randomUUID(),
+          implementationKind: 'WORKFLOW_VERSION',
+          implementationRef: `AgentWorkflowVersion:${registered.version.id}`,
+          implementationVersion: '1',
+          implementationHash: registered.version.contentHash,
+        },
+        db,
+        new Set(['resources:read']),
+      )
+      expect(registryValidation).toMatchObject({
+        replayed: false,
+        implementationHash: registered.version.contentHash,
+      })
+      await expect(
+        recordAgentImprovementValidationAction(
+          {
+            ...validationRequest,
+            operationId: randomUUID(),
+            implementationKind: 'WORKFLOW_VERSION',
+            implementationRef: `AgentWorkflowVersion:${registered.version.id}`,
+            implementationVersion: '1',
+            implementationHash: '0'.repeat(64),
+          },
+          db,
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        db.agentWorkflowVersion.update({
+          where: { id: registered.version.id },
+          data: { portableText: 'tampered' },
+        }),
+      ).rejects.toThrow(/append-only/iu)
 
       await expect(
         db.agentImprovementProposal.update({

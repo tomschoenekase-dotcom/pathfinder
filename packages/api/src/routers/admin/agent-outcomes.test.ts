@@ -283,6 +283,7 @@ describe('admin agent outcomes router', () => {
         actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
       }),
       expect.anything(),
+      expect.any(Set),
     )
   })
 
