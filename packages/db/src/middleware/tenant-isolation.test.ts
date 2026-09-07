@@ -166,6 +166,7 @@ describe('tenantIsolationMiddleware', () => {
       'VenueWeeklyTheme',
       'MediaIngestionProject',
       'MediaEntityResolutionRevision',
+      'MediaRelationApplication',
       'MediaIngestionAsset',
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',

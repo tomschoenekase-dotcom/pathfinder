@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption|mediaresolution)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption|mediaresolution|mediarelation)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption|media_resolution)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption|media_resolution|media_relation_application)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -1539,6 +1539,44 @@ export async function runDisposableMediaResolutionShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_MEDIA_RESOLUTION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableMediaRelationApplicationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'mediarelation',
+      databasePrefix: 'pathfinder_disposable_media_relation_application_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_MEDIA_RELATION_APPLICATION_SHAKEDOWN',
+      lifecycleEvent: 'test:media-relation-application:disposable',
+      successAction: 'media-relation-application.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'actual-reviewed-relation-and-frozen-source-evidence',
+        'concurrent-exact-application-replay',
+        'inactive-canonical-connection-only',
+        'separate-reviewed-activation-and-public-route',
+        'scope-review-evidence-and-anchor-cas-fences',
+        'immutable-replay-after-activation-and-ledger-advance',
+        'no-content-or-publication-writes',
+      ],
+      failureScope: [
+        'provider-dark',
+        'no-automatic-activation',
+        'source-review-reversal-does-not-yet-suspend-an-active-route',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/lib/media-relation-application.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_MEDIA_RELATION_APPLICATION_SERVICE_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           WORKER_SCHEDULERS_ENABLED: 'false',
         },
