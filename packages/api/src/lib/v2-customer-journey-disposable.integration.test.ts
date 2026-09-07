@@ -20,6 +20,7 @@ import { runGuestRetrievalBaseline } from './evaluation/guest-retrieval-baseline
 import { createSemanticUniversalContentDraftService } from './semantic-universal-content-handoff-service'
 import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
 import { createMediaIntakeHandoff } from './media-intake-handoff-service'
+import { saveMediaResolution } from './media-resolution-service'
 import { mediaIntakeHash } from './media-intake-snapshot'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
 import { createIntakeCandidateDraftForAdmin } from '../routers/admin/intake-draft-actions'
@@ -839,6 +840,7 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         },
       })
       const sourceGeneration = randomUUID()
+      const mediaUploadAttemptId = randomUUID()
       const mediaRequestId = randomUUID()
       const reviewedItem = {
         title: 'Media reviewed entrance',
@@ -846,12 +848,23 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         content: 'The reviewed walkthrough identifies the north entrance.',
         isEnabled: true,
       }
+      const observation = {
+        kind: 'entity_candidate' as const,
+        statement: 'North entrance',
+        evidenceChannel: 'visual' as const,
+        directness: 'observed' as const,
+        confidence: 'probable' as const,
+        processingMethod: 'provider_video_static_1fps' as const,
+        locator: { type: 'video_interval' as const, startSeconds: 1, endSeconds: 2 },
+      }
       const finding = {
         sourceId: 'video-1',
         filename: 'walkthrough.mp4',
         mediaType: 'VIDEO' as const,
         summary: 'The north entrance is visible.',
         uncertainties: ['Opening hours are not established by this video.'],
+        videoAnalysisMethod: 'GOOGLE_STATIC_VIDEO_1FPS' as const,
+        sourceObservations: [observation],
         review: {
           summary: 'The north entrance is visible.',
           uncertainties: ['Opening hours are not established by this video.'],
@@ -859,6 +872,21 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
           reviewedBy: ownerUserId,
           reviewedAt: new Date().toISOString(),
         },
+      }
+      const secondFinding = {
+        ...finding,
+        sourceId: 'image-2',
+        filename: 'entrance.jpg',
+        mediaType: 'IMAGE' as const,
+        videoAnalysisMethod: undefined,
+        sourceObservations: [
+          {
+            ...observation,
+            statement: 'Main entrance',
+            processingMethod: 'provider_image_analysis' as const,
+            locator: { type: 'whole_source' as const },
+          },
+        ],
       }
       await db.mediaIngestionProject.create({
         data: {
@@ -870,31 +898,119 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
           status: 'READY_FOR_REVIEW',
           stage: 'review',
           sourceObjectGeneration: sourceGeneration,
+          sourceObjectKey: `fixture/${mediaProjectId}.zip`,
+          uploadAttemptId: mediaUploadAttemptId,
           draftJson: {
             schemaVersion: 1,
             places: [],
             knowledgeEntries: [reviewedItem],
           },
-          findings: [finding],
+          findings: [finding, secondFinding],
           questions: [],
           assets: {
-            create: {
-              tenantId,
-              sourceId: finding.sourceId,
-              filename: finding.filename,
-              mediaType: finding.mediaType,
-              objectKey: `fixture/${mediaProjectId}.zip#${finding.filename}`,
-              bytes: 128n,
-              sha256: 'a'.repeat(64),
-              status: 'COMPLETE',
-              analysis: finding,
-            },
+            create: [
+              {
+                tenantId,
+                sourceId: finding.sourceId,
+                filename: finding.filename,
+                mediaType: finding.mediaType,
+                objectKey: `fixture/${mediaProjectId}.zip#${finding.filename}`,
+                bytes: 128n,
+                sha256: 'a'.repeat(64),
+                status: 'COMPLETE',
+                analysis: finding,
+              },
+              {
+                tenantId,
+                sourceId: secondFinding.sourceId,
+                filename: secondFinding.filename,
+                mediaType: secondFinding.mediaType,
+                objectKey: `fixture/${mediaProjectId}.zip#${secondFinding.filename}`,
+                bytes: 64n,
+                sha256: 'b'.repeat(64),
+                status: 'COMPLETE',
+                analysis: secondFinding,
+              },
+            ],
           },
         },
       })
       const reviewedProject = await db.mediaIngestionProject.findFirstOrThrow({
         where: { id: mediaProjectId, tenantId, venueId: mediaVenueId },
-        select: { updatedAt: true },
+        select: { updatedAt: true, uploadAttemptId: true },
+      })
+      const resolutionScope = {
+        tenantId,
+        projectId: mediaProjectId,
+        uploadAttemptId: reviewedProject.uploadAttemptId!,
+      }
+      const candidates = [
+        {
+          candidateId: 'north-entrance',
+          label: 'North entrance',
+          kind: 'entrance',
+          identifiers: [],
+          contextKeys: [],
+          evidence: [
+            {
+              ...resolutionScope,
+              sourceId: finding.sourceId,
+              sourceSha256: 'a'.repeat(64),
+              observationIndex: 0,
+              observationSha256: mediaIntakeHash(observation),
+            },
+          ],
+        },
+        {
+          candidateId: 'main-entrance',
+          label: 'Main entrance',
+          kind: 'entrance',
+          identifiers: [],
+          contextKeys: [],
+          evidence: [
+            {
+              ...resolutionScope,
+              sourceId: secondFinding.sourceId,
+              sourceSha256: 'b'.repeat(64),
+              observationIndex: 0,
+              observationSha256: mediaIntakeHash(secondFinding.sourceObservations[0]),
+            },
+          ],
+        },
+      ]
+      const initializedReview = await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: 0,
+          candidates,
+        },
+      })
+      const mergeRequestId = randomUUID()
+      const mergedReview = await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: mergeRequestId,
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: initializedReview.revision,
+          decision: {
+            kind: 'MERGE',
+            candidateIds: ['north-entrance', 'main-entrance'],
+            representativeId: 'north-entrance',
+            rationale: 'The reviewer matched both retained entrance observations.',
+          },
+        },
       })
       const handoffInput = {
         tenantId,
@@ -908,16 +1024,90 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
             kind: 'knowledge' as const,
             itemIndex: 0,
             itemHash: mediaIntakeHash(reviewedItem),
-            sourceIds: [finding.sourceId],
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+            entityRepresentativeId: 'north-entrance',
           },
         ],
         rationale: 'Human reviewed the source limitation and approved this draft binding.',
+        identityReviewId: mergedReview.id,
       }
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          input: { ...handoffInput, identityReviewId: initializedReview.id },
+          actorId: ownerUserId,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const tamperedFindings = [
+        {
+          ...finding,
+          sourceObservations: [
+            { ...observation, statement: 'Changed after identity review was frozen' },
+          ],
+        },
+        secondFinding,
+      ]
+      await db.$executeRaw`
+        UPDATE media_ingestion_projects SET findings = ${JSON.stringify(tamperedFindings)}::jsonb
+        WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
+      `
+      await expect(
+        createMediaIntakeHandoff({ db, input: handoffInput, actorId: ownerUserId }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await db.$executeRaw`
+        UPDATE media_ingestion_projects SET findings = ${JSON.stringify([finding, secondFinding])}::jsonb
+        WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
+      `
       const mediaHandoff = await createMediaIntakeHandoff({
         db,
         input: handoffInput,
         actorId: ownerUserId,
       })
+      const frozenIdentitySnapshot = await db.intakeRun.findFirstOrThrow({
+        where: { id: mediaHandoff.runId, tenantId, venueId: mediaVenueId },
+        select: { structuredBootstrap: true },
+      })
+      expect(frozenIdentitySnapshot.structuredBootstrap).toMatchObject({
+        identityReview: { id: mergedReview.id, revision: 2 },
+        bindings: [
+          {
+            entityRepresentativeId: 'north-entrance',
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+          },
+        ],
+      })
+      const frozenIdentitySnapshotHash = mediaIntakeHash(frozenIdentitySnapshot.structuredBootstrap)
+      await saveMediaResolution({
+        client: db,
+        actorId: ownerUserId,
+        input: {
+          tenantId,
+          venueId: mediaVenueId,
+          projectId: mediaProjectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: reviewedProject.updatedAt.toISOString(),
+          expectedRevision: mergedReview.revision,
+          decision: {
+            kind: 'REVERT_MERGE',
+            mergeRequestId,
+            rationale: 'The reviewer reversed the identity grouping.',
+          },
+        },
+      })
+      await expect(
+        createMediaIntakeHandoff({ db, input: handoffInput, actorId: ownerUserId }),
+      ).resolves.toMatchObject({ runId: mediaHandoff.runId, replayed: true })
+      expect(
+        mediaIntakeHash(
+          (
+            await db.intakeRun.findFirstOrThrow({
+              where: { id: mediaHandoff.runId, tenantId, venueId: mediaVenueId },
+              select: { structuredBootstrap: true },
+            })
+          ).structuredBootstrap,
+        ),
+      ).toBe(frozenIdentitySnapshotHash)
       await db.mediaIngestionProject.update({
         where: { id: mediaProjectId },
         data: { name: 'Changed after immutable handoff' },
@@ -973,6 +1163,9 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
       })
       expect(retainedMediaDraft.payloadHash).toBe(mediaDraft.value.payloadHash)
       await expect(
+        db.contentModulePublication.count({ where: { tenantId, venueId: mediaVenueId } }),
+      ).resolves.toBe(0)
+      await expect(
         db.intakePackageHandoff.findFirstOrThrow({
           where: {
             tenantId,
@@ -986,7 +1179,7 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         await db.intakeEvidenceRecord.count({
           where: { tenantId, venueId: mediaVenueId, runId: mediaHandoff.runId },
         }),
-      ).toBe(2)
+      ).toBe(3)
       const legacyBootstrap = { version: 1, content: { kind: 'knowledge', value: reviewedItem } }
       await db.intakeRun.create({
         data: {
@@ -1013,7 +1206,7 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
       for (const list of [proposalList, bootstrapList]) {
         expect(list.find((row) => row.id === mediaHandoff.runId)?.structuredBootstrap).toEqual({
           kind: 'MEDIA_PROJECT_REVIEW',
-          retainedEvidenceCount: 2,
+          retainedEvidenceCount: 3,
         })
         expect(
           list.find((row) => row.displayName === 'Legacy bootstrap without top-level kind')

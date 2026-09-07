@@ -69,6 +69,7 @@ import {
   cleanupMediaWorkDir,
   downloadAndExtract,
   assertMediaSourceFilename,
+  audioTranscriptAnalysis,
   failedMediaAssetAnalysis,
   MEDIA_ASSET_ANALYSIS_FAILURE_CODE,
   mediaSynthesisToVenuePackage,
@@ -108,6 +109,18 @@ const project = {
 }
 
 describe('media ingestion provider output validation', () => {
+  it('labels a truncated audio observation as a bounded transcript prefix', () => {
+    const analysis = audioTranscriptAnalysis('a'.repeat(10_001))
+    expect(analysis.sourceObservations?.[0]?.statement).toHaveLength(10_000)
+    expect(analysis.uncertainties).toEqual([
+      'The retained speech observation is a bounded transcript prefix, not exhaustive audio coverage.',
+    ])
+    expect(analysis.sourceObservations?.[0]).toMatchObject({
+      evidenceChannel: 'speech',
+      confidence: 'unverified',
+      locator: { type: 'whole_source' },
+    })
+  })
   it('never falls back around the invocation budget ceiling', () => {
     expect(shouldPropagateFullVideoFailure(new AiRequestBudgetCeilingExceededError(10n, 11n))).toBe(
       true,

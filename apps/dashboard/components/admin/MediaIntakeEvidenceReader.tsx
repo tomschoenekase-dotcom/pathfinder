@@ -15,7 +15,10 @@ export function MediaIntakeEvidenceReader({
   readPage,
 }: {
   scope: Scope
-  readPage?: (input: Scope & { offset: number }) => Promise<EvidencePage>
+  readPage?: (
+    input: Scope & { offset: number },
+    options?: { signal?: AbortSignal },
+  ) => Promise<EvidencePage>
 }) {
   const client = useTRPCClient()
   const [page, setPage] = useState<EvidencePage | null>(null)
@@ -36,7 +39,7 @@ export function MediaIntakeEvidenceReader({
         timeoutMs: 15_000,
         request: (signal) =>
           readPage
-            ? readPage({ ...scope, offset })
+            ? readPage({ ...scope, offset }, { signal })
             : client.mediaIngestion.readIntakeHandoffEvidence.query(
                 { ...scope, offset },
                 { signal },

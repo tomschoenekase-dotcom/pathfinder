@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
@@ -24,12 +24,23 @@ type Request = Scope & {
     itemIndex: number
     itemHash: string
     sourceIds: string[]
+    entityRepresentativeId?: string
   }>
   rationale: string
+  identityReviewId?: string
+}
+type IdentityReview = {
+  id: string
+  revision: number
+  projection: { groups: Array<{ representativeId: string; candidateIds: string[] }> }
+  candidates: Array<{ candidateId: string; label: string; sourceIds: string[] }>
 }
 export type MediaIntakeHandoffAdapter = {
   preview: (scope: Scope & { sourceCursor?: string }) => Promise<Preview>
   create: (input: Request) => Promise<{ runId: string }>
+  getIdentityReview?: (
+    scope: Scope & { sourceGeneration: string },
+  ) => Promise<IdentityReview | null>
 }
 
 const control =
@@ -47,6 +58,7 @@ export function MediaIntakeHandoffPanel({
 }) {
   const client = useTRPCClient()
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [identityReview, setIdentityReview] = useState<IdentityReview | null>(null)
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [rationale, setRationale] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,6 +66,26 @@ export function MediaIntakeHandoffPanel({
   const [runId, setRunId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [attempted, setAttempted] = useState(false)
+  const identityOptions = useMemo(() => {
+    const candidates = new Map(
+      identityReview?.candidates.map((candidate) => [candidate.candidateId, candidate]) ?? [],
+    )
+    return (
+      identityReview?.projection.groups.map((group) => {
+        const members = group.candidateIds.map((id) => candidates.get(id)).filter(Boolean)
+        const sourceCount = new Set(members.flatMap((candidate) => candidate!.sourceIds)).size
+        const label = members
+          .slice(0, 2)
+          .map((candidate) => candidate!.label)
+          .join(' + ')
+        return {
+          representativeId: group.representativeId,
+          sourceCount,
+          label: `${label}${members.length > 2 ? ` + ${members.length - 2} more` : ''}`,
+        }
+      }) ?? []
+    )
+  }, [identityReview])
   const requestRef = useRef<Request | null>(null)
   const inFlight = useRef(false)
   const controller = useRef(new AbortController())
@@ -76,6 +108,23 @@ export function MediaIntakeHandoffPanel({
             : client.mediaIngestion.previewIntakeHandoff.query(scope, { signal }),
       })
       if (controller.current.signal.aborted) return
+      const review = loaded.sourceGeneration
+        ? await runBoundedClientRequest({
+            parentSignal: controller.current.signal,
+            timeoutMs: 15_000,
+            request: (signal) =>
+              adapter
+                ? (adapter.getIdentityReview?.({
+                    ...scope,
+                    sourceGeneration: loaded.sourceGeneration!,
+                  }) ?? Promise.resolve(null))
+                : client.mediaIngestion.getIdentityReview.query(
+                    { ...scope, sourceGeneration: loaded.sourceGeneration! },
+                    { signal },
+                  ),
+          })
+        : null
+      if (controller.current.signal.aborted) return
       setPreview({
         ...loaded,
         updatedAt:
@@ -84,6 +133,7 @@ export function MediaIntakeHandoffPanel({
             : new Date(loaded.updatedAt).toISOString(),
       })
       setSelections({})
+      setIdentityReview(review)
       setPage(0)
     } catch {
       setError('Could not load the saved review. Try again.')
@@ -149,18 +199,47 @@ export function MediaIntakeHandoffPanel({
     )
       return
     if (!requestRef.current) {
+      const candidates = new Map(
+        identityReview?.candidates.map((candidate) => [candidate.candidateId, candidate]) ?? [],
+      )
+      const groups = new Map(
+        identityReview?.projection.groups.map((group) => [group.representativeId, group]) ?? [],
+      )
+      const bindings = preview.items.map((item) => {
+        const selection = selections[`${item.kind}:${item.itemIndex}`]!
+        if (!selection.startsWith('group:')) {
+          return {
+            kind: item.kind,
+            itemIndex: item.itemIndex,
+            itemHash: item.itemHash,
+            sourceIds: [selection.replace(/^source:/u, '')],
+          }
+        }
+        const representativeId = selection.slice('group:'.length)
+        const group = groups.get(representativeId)!
+        return {
+          kind: item.kind,
+          itemIndex: item.itemIndex,
+          itemHash: item.itemHash,
+          sourceIds: [
+            ...new Set(
+              group.candidateIds.flatMap(
+                (candidateId) => candidates.get(candidateId)?.sourceIds ?? [],
+              ),
+            ),
+          ],
+          entityRepresentativeId: representativeId,
+        }
+      })
+      const usesIdentityReview = bindings.some((binding) => binding.entityRepresentativeId)
       requestRef.current = {
         ...scope,
         requestId: crypto.randomUUID(),
         sourceGeneration: preview.sourceGeneration,
         expectedUpdatedAt: preview.updatedAt,
-        bindings: preview.items.map((item) => ({
-          kind: item.kind,
-          itemIndex: item.itemIndex,
-          itemHash: item.itemHash,
-          sourceIds: [selections[`${item.kind}:${item.itemIndex}`]!],
-        })),
+        bindings,
         rationale: rationale.trim(),
+        ...(usesIdentityReview && identityReview ? { identityReviewId: identityReview.id } : {}),
       }
     }
     inFlight.current = true
@@ -286,10 +365,25 @@ export function MediaIntakeHandoffPanel({
                       >
                         <option value="">Choose supporting source</option>
                         {preview.sources.map((source) => (
-                          <option key={source.sourceId} value={source.sourceId}>
+                          <option key={source.sourceId} value={`source:${source.sourceId}`}>
                             {source.filename}
                           </option>
                         ))}
+                        {identityOptions.map((group) => {
+                          return (
+                            <option
+                              key={`group:${group.representativeId}`}
+                              value={`group:${group.representativeId}`}
+                              disabled={group.sourceCount > 20}
+                            >
+                              Reviewed group — {group.label} (
+                              {group.sourceCount > 20
+                                ? 'exceeds 20-source handoff limit'
+                                : 'grouped by reviewer; identity unconfirmed'}
+                              )
+                            </option>
+                          )
+                        })}
                       </select>
                     </label>
                   )

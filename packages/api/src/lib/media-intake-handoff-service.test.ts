@@ -5,8 +5,18 @@ vi.mock('@pathfinder/db', () => ({ db: {}, writeAuditLogStrict }))
 
 import { mediaIntakeHash } from './media-intake-snapshot'
 import { createMediaIntakeHandoff } from './media-intake-handoff-service'
+import { validateResolutionEvidence } from './media-resolution-evidence'
 
 const updatedAt = new Date('2026-09-07T12:00:00.000Z')
+const entityObservation = {
+  kind: 'entity_candidate' as const,
+  statement: 'North entrance',
+  evidenceChannel: 'visual' as const,
+  directness: 'observed' as const,
+  confidence: 'probable' as const,
+  processingMethod: 'provider_video_static_1fps' as const,
+  locator: { type: 'video_interval' as const, startSeconds: 1, endSeconds: 2 },
+}
 const input = {
   tenantId: 'tenant-1',
   venueId: 'venue-1',
@@ -37,6 +47,8 @@ function fixture() {
     mediaType: 'VIDEO',
     summary: 'North entrance is shown.',
     uncertainties: [],
+    videoAnalysisMethod: 'GOOGLE_STATIC_VIDEO_1FPS',
+    sourceObservations: [entityObservation],
     review: {
       summary: 'North entrance is shown.',
       uncertainties: [],
@@ -47,7 +59,9 @@ function fixture() {
   }
   const tx = {
     $executeRaw: vi.fn(async () => 1),
-    $queryRaw: vi.fn(async () => [{ id: input.projectId }]),
+    $queryRaw: vi.fn(
+      async (): Promise<Array<Record<string, unknown>>> => [{ id: input.projectId }],
+    ),
     intakeRun: {
       findFirst: vi.fn(async () => null),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -63,6 +77,7 @@ function fixture() {
         stage: 'review',
         updatedAt,
         sourceObjectGeneration: input.sourceGeneration,
+        uploadAttemptId: '55555555-5555-4555-8555-555555555555',
         draftJson: {
           schemaVersion: 1,
           places: [],
@@ -126,6 +141,79 @@ describe('reviewed media intake handoff service', () => {
       confidence: 1,
     })
     expect(writeAuditLogStrict).toHaveBeenCalledOnce()
+  })
+
+  it('freezes the latest scoped identity review and representative binding', async () => {
+    const { tx, client } = fixture()
+    const identityReviewId = '44444444-4444-4444-8444-444444444444'
+    const scope = {
+      tenantId: input.tenantId,
+      projectId: input.projectId,
+      uploadAttemptId: '55555555-5555-4555-8555-555555555555',
+    }
+    const candidates = [
+      {
+        candidateId: 'north-entrance',
+        label: 'North entrance',
+        kind: 'entrance',
+        identifiers: [],
+        contextKeys: [],
+        evidence: [
+          {
+            ...scope,
+            sourceId: 'source-1',
+            sourceSha256: 'a'.repeat(64),
+            observationIndex: 0,
+            observationSha256: mediaIntakeHash(entityObservation),
+          },
+        ],
+      },
+    ]
+    const state = { version: 1 as const, scope, candidates, decisions: [] }
+    const project = await tx.mediaIngestionProject.findFirst()
+    const { evidenceSnapshot, evidenceSnapshotHash } = validateResolutionEvidence({
+      scope,
+      sourceGeneration: input.sourceGeneration,
+      candidates,
+      findings: project!.findings,
+      assets: project!.assets,
+    })
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: input.projectId }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: identityReviewId,
+          revision: 1,
+          state,
+          evidenceSnapshotHash,
+          evidenceSnapshot,
+        },
+      ])
+
+    await createMediaIntakeHandoff({
+      db: client as never,
+      actorId: 'admin-1',
+      input: {
+        ...input,
+        identityReviewId,
+        bindings: [
+          {
+            ...input.bindings[0]!,
+            entityRepresentativeId: 'north-entrance',
+          },
+        ],
+      },
+    })
+
+    expect(tx.intakeRun.create.mock.calls[0]![0].data.structuredBootstrap).toMatchObject({
+      identityReview: {
+        id: identityReviewId,
+        revision: 1,
+        evidenceSnapshotHash,
+      },
+      bindings: [{ entityRepresentativeId: 'north-entrance', sourceIds: ['source-1'] }],
+    })
   })
 
   it('replays before reading a media project, even after the project changes later', async () => {

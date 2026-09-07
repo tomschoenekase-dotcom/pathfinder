@@ -13,6 +13,7 @@ import {
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 import { MediaIntakeHandoffPanel } from './MediaIntakeHandoffPanel'
+import { MediaIdentityReviewPanel } from './MediaIdentityReviewPanel'
 
 type MediaProject = inferRouterOutputs<AppRouter>['mediaIngestion']['get']
 type MediaAsset = MediaProject['assets'][number]
@@ -360,6 +361,13 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     URL.revokeObjectURL(url)
   }
 
+  const hasUnsavedReviewChanges =
+    busy ||
+    Boolean(parseError) ||
+    draftText !== savedDraftText ||
+    JSON.stringify(questions) !== savedQuestions ||
+    pendingFindingCorrections.length > 0
+
   return (
     <div className="space-y-8">
       <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
@@ -567,6 +575,18 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
           {busy ? 'Saving…' : 'Save review'}
         </button>
       </div>
+      {initialProject.reviewGeneration ? (
+        <MediaIdentityReviewPanel
+          scope={{
+            tenantId: initialProject.tenantId,
+            venueId: initialProject.venueId,
+            projectId: initialProject.id,
+            sourceGeneration: initialProject.reviewGeneration,
+          }}
+          expectedUpdatedAt={updatedAt.toISOString()}
+          blocked={hasUnsavedReviewChanges}
+        />
+      ) : null}
       <MediaIntakeHandoffPanel
         key={`${initialProject.id}:${updatedAt.toISOString()}`}
         scope={{
@@ -574,13 +594,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
           venueId: initialProject.venueId,
           projectId: initialProject.id,
         }}
-        blocked={
-          busy ||
-          Boolean(parseError) ||
-          draftText !== savedDraftText ||
-          JSON.stringify(questions) !== savedQuestions ||
-          pendingFindingCorrections.length > 0
-        }
+        blocked={hasUnsavedReviewChanges}
       />
     </div>
   )

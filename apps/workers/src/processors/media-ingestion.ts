@@ -611,8 +611,18 @@ async function transcribe(
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
+  return audioTranscriptAnalysis(result)
+}
+
+export function audioTranscriptAnalysis(result: string): Analysis {
+  const truncated = result.length > 10_000
   return {
     ...emptyAnalysis(result),
+    uncertainties: truncated
+      ? [
+          'The retained speech observation is a bounded transcript prefix, not exhaustive audio coverage.',
+        ]
+      : [],
     sourceObservations: result.trim()
       ? [
           {

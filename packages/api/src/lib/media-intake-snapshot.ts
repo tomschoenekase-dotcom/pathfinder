@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import {
+  MediaResolutionStateSchema,
+  projectMediaResolution,
+} from '@pathfinder/contracts/media-resolution-state'
 
 import { mediaFindingSchema } from '../routers/admin/media-ingestion-review-schemas'
 
@@ -16,6 +20,7 @@ export const MediaIntakeBinding = z
     itemIndex: z.number().int().min(0).max(499),
     itemHash: sha256,
     sourceIds: z.array(sourceId).min(1).max(20),
+    entityRepresentativeId: id.optional(),
   })
   .strict()
 
@@ -29,6 +34,7 @@ export const MediaIntakeHandoffInput = z
     expectedUpdatedAt: z.string().datetime(),
     bindings: z.array(MediaIntakeBinding).min(1).max(500),
     rationale: z.string().trim().min(1).max(2000),
+    identityReviewId: z.string().uuid().optional(),
   })
   .strict()
 
@@ -62,6 +68,16 @@ export const MediaIntakeSnapshot = z
       )
       .min(1)
       .max(10000),
+    identityReview: z
+      .object({
+        id: z.string().uuid(),
+        revision: z.number().int().min(1).max(501),
+        state: MediaResolutionStateSchema,
+        evidenceSnapshotHash: sha256,
+        evidenceSnapshot: z.unknown(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -97,6 +113,7 @@ export function mediaIntakeSnapshotInput(snapshot: MediaIntakeSnapshot) {
     expectedUpdatedAt: snapshot.reviewedUpdatedAt,
     bindings: snapshot.bindings,
     rationale: snapshot.reviewRationale,
+    ...(snapshot.identityReview ? { identityReviewId: snapshot.identityReview.id } : {}),
   })
 }
 
@@ -123,6 +140,29 @@ export function validateMediaIntakeSnapshot(value: unknown): MediaIntakeSnapshot
     )
   }
   const snapshot = MediaIntakeSnapshot.parse(value)
+  if (snapshot.identityReview) {
+    const evidence = snapshot.identityReview.evidenceSnapshot as {
+      scope?: unknown
+      candidates?: unknown
+    } | null
+    if (
+      !evidence ||
+      mediaIntakeHash(snapshot.identityReview.evidenceSnapshot) !==
+        snapshot.identityReview.evidenceSnapshotHash ||
+      mediaIntakeHash(evidence.scope) !== mediaIntakeHash(snapshot.identityReview.state.scope) ||
+      mediaIntakeHash(evidence.candidates) !==
+        mediaIntakeHash(snapshot.identityReview.state.candidates) ||
+      snapshot.identityReview.state.scope.tenantId !== snapshot.tenantId ||
+      snapshot.identityReview.state.scope.projectId !== snapshot.projectId
+    )
+      throw new Error('Media identity review does not match its retained evidence and scope')
+    if (
+      (evidence as { sourceGeneration?: unknown }).sourceGeneration !== snapshot.sourceGeneration ||
+      snapshot.identityReview.revision !== snapshot.identityReview.state.decisions.length + 1
+    )
+      throw new Error('Media identity review revision or source generation is inconsistent')
+    projectMediaResolution(snapshot.identityReview.state)
+  }
   const sources = new Map(snapshot.sources.map((source) => [source.sourceId, source]))
   if (
     sources.size !== snapshot.sources.length ||
@@ -142,6 +182,21 @@ export function validateMediaIntakeSnapshot(value: unknown): MediaIntakeSnapshot
   }
   const items = new Set<string>()
   const usedSources = new Set<string>()
+  const placeRepresentatives = new Set<string>()
+  const groups = snapshot.identityReview
+    ? new Map(
+        projectMediaResolution(snapshot.identityReview.state).groups.map((group) => [
+          group.representativeId,
+          group.candidateIds,
+        ]),
+      )
+    : new Map<string, string[]>()
+  const candidates = new Map(
+    snapshot.identityReview?.state.candidates.map((candidate) => [
+      candidate.candidateId,
+      candidate,
+    ]) ?? [],
+  )
   for (const binding of snapshot.bindings) {
     const item =
       binding.kind === 'place'
@@ -154,6 +209,39 @@ export function validateMediaIntakeSnapshot(value: unknown): MediaIntakeSnapshot
     items.add(key)
     if (new Set(binding.sourceIds).size !== binding.sourceIds.length) {
       throw new Error('A reviewed item cannot repeat its source evidence')
+    }
+    if (binding.entityRepresentativeId) {
+      if (!snapshot.identityReview)
+        throw new Error('Entity representatives require a retained identity review')
+      const members = groups.get(binding.entityRepresentativeId)
+      if (!members) throw new Error('Entity representative is outside the retained identity review')
+      const expectedSources = new Set(
+        members.flatMap(
+          (member) => candidates.get(member)?.evidence.map((evidence) => evidence.sourceId) ?? [],
+        ),
+      )
+      for (const member of members) {
+        const candidate = candidates.get(member)!
+        for (const locator of candidate.evidence) {
+          const source = sources.get(locator.sourceId)
+          const observations = source?.finding.sourceObservations ?? source?.finding.observations
+          if (
+            !source ||
+            source.sha256 !== locator.sourceSha256 ||
+            !observations?.[locator.observationIndex] ||
+            mediaIntakeHash(observations[locator.observationIndex]) !== locator.observationSha256
+          )
+            throw new Error('Entity binding evidence changed from its retained source observation')
+        }
+      }
+      if (
+        expectedSources.size !== binding.sourceIds.length ||
+        binding.sourceIds.some((source) => !expectedSources.has(source))
+      )
+        throw new Error('Entity binding must retain every source in the reviewed identity group')
+      if (binding.kind === 'place' && placeRepresentatives.has(binding.entityRepresentativeId))
+        throw new Error('One reviewed identity group cannot bind multiple place candidates')
+      if (binding.kind === 'place') placeRepresentatives.add(binding.entityRepresentativeId)
     }
     for (const source of binding.sourceIds) {
       if (!sources.has(source)) throw new Error('Reviewed item refers to missing source evidence')

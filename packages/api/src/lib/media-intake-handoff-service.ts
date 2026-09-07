@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MediaResolutionStateSchema } from '@pathfinder/contracts/media-resolution-state'
 
 import { db, writeAuditLogStrict } from '@pathfinder/db'
 
@@ -10,6 +11,7 @@ import {
   type MediaIntakeSnapshot,
 } from './media-intake-snapshot'
 import { buildReviewedMediaIntakeCandidate } from './media-intake-candidate'
+import { validateResolutionEvidence } from './media-resolution-evidence'
 import {
   mediaFindingsSchema,
   mediaQuestionSchema,
@@ -157,11 +159,13 @@ export async function createMediaIntakeHandoff(params: {
           actorId,
           bindings: input.bindings,
           rationale: input.rationale,
+          identityReviewId: input.identityReviewId,
         })
         const storedReviewHash = mediaIntakeHash({
           actorId: snapshot.reviewedBy,
           bindings: snapshot.bindings,
           rationale: snapshot.reviewRationale,
+          identityReviewId: snapshot.identityReview?.id,
         })
         if (currentReviewHash !== storedReviewHash)
           throw new MediaIntakeHandoffError(
@@ -185,6 +189,7 @@ export async function createMediaIntakeHandoff(params: {
           stage: true,
           updatedAt: true,
           sourceObjectGeneration: true,
+          uploadAttemptId: true,
           draftJson: true,
           findings: true,
           questions: true,
@@ -213,6 +218,38 @@ export async function createMediaIntakeHandoff(params: {
           'CONFLICT',
           'The reviewed media project changed or is not ready for handoff.',
         )
+      let identityReview: MediaIntakeSnapshot['identityReview']
+      if (input.identityReviewId) {
+        const reviews = await tx.$queryRaw<
+          Array<{
+            id: string
+            revision: number
+            state: unknown
+            evidenceSnapshotHash: string
+            evidenceSnapshot: unknown
+          }>
+        >`
+          SELECT id, revision, state, evidence_snapshot_hash AS "evidenceSnapshotHash",
+            evidence_snapshot AS "evidenceSnapshot"
+          FROM media_entity_resolution_revisions
+          WHERE tenant_id = ${input.tenantId} AND venue_id = ${input.venueId}
+            AND project_id = ${input.projectId} AND source_generation = ${input.sourceGeneration}::uuid
+          ORDER BY revision DESC LIMIT 1
+        `
+        const latest = reviews[0]
+        if (!latest || latest.id !== input.identityReviewId)
+          throw new MediaIntakeHandoffError(
+            'CONFLICT',
+            'The selected identity review is no longer the latest reviewed revision.',
+          )
+        identityReview = {
+          id: latest.id,
+          revision: latest.revision,
+          state: MediaResolutionStateSchema.parse(latest.state),
+          evidenceSnapshotHash: latest.evidenceSnapshotHash,
+          evidenceSnapshot: latest.evidenceSnapshot,
+        }
+      }
       const questions = z.array(mediaQuestionSchema).max(500).parse(project.questions)
       if (questions.some((question) => question.answer === undefined || !question.answer.trim()))
         throw new MediaIntakeHandoffError(
@@ -233,6 +270,33 @@ export async function createMediaIntakeHandoff(params: {
           'INVALID_REVIEW',
           'Media review contains duplicate asset source identities.',
         )
+      if (identityReview) {
+        if (!project.uploadAttemptId)
+          throw new MediaIntakeHandoffError(
+            'INVALID_REVIEW',
+            'The identity review has no current media processing generation.',
+          )
+        try {
+          const currentEvidence = validateResolutionEvidence({
+            scope: {
+              tenantId: input.tenantId,
+              projectId: input.projectId,
+              uploadAttemptId: project.uploadAttemptId,
+            },
+            sourceGeneration: input.sourceGeneration,
+            candidates: identityReview.state.candidates,
+            findings,
+            assets: project.assets,
+          })
+          if (currentEvidence.evidenceSnapshotHash !== identityReview.evidenceSnapshotHash)
+            throw new Error('Frozen identity evidence no longer matches the current media review.')
+        } catch (error) {
+          throw new MediaIntakeHandoffError(
+            'CONFLICT',
+            error instanceof Error ? error.message : 'Identity review evidence changed.',
+          )
+        }
+      }
       const referencedSourceIds = new Set(input.bindings.flatMap((binding) => binding.sourceIds))
       const sources: MediaIntakeSnapshot['sources'] = []
       for (const sourceId of referencedSourceIds) {
@@ -267,6 +331,7 @@ export async function createMediaIntakeHandoff(params: {
         draft,
         bindings: input.bindings,
         sources,
+        ...(identityReview ? { identityReview } : {}),
       })
       const snapshotHash = mediaIntakeHash(snapshot)
       const capturedAt = new Date()

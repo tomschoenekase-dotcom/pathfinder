@@ -42,7 +42,7 @@ describe('reviewed media Builder handoff controls', () => {
     const select = await screen.findByRole('combobox', { name: 'North Hall' })
     fireEvent.click(screen.getByRole('button', { name: 'Create Builder proposal' }))
     expect(api.create).not.toHaveBeenCalled()
-    fireEvent.change(select, { target: { value: 's1' } })
+    fireEvent.change(select, { target: { value: 'source:s1' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Review note' }), {
       target: { value: 'Checked the sign and excluded the unfilmed route.' },
     })
@@ -62,7 +62,7 @@ describe('reviewed media Builder handoff controls', () => {
     api.create.mockRejectedValueOnce(new Error('Network connection lost'))
     render(<MediaIntakeHandoffPanel scope={scope} blocked={false} adapter={api} />)
     fireEvent.click(screen.getByRole('button', { name: 'Prepare saved review' }))
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 's1' } })
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'source:s1' } })
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Verified signage.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Builder proposal' }))
     await screen.findByRole('alert')
@@ -70,6 +70,43 @@ describe('reviewed media Builder handoff controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry same handoff' }))
     await screen.findByRole('link', { name: 'Open in Builder' })
     expect(api.create.mock.calls[1]?.[0]).toEqual(api.create.mock.calls[0]?.[0])
+  })
+
+  it('requires an explicit reviewed group choice and carries its full source union', async () => {
+    const api = Object.assign(adapter(), {
+      getIdentityReview: vi.fn().mockResolvedValue({
+        id: '44444444-4444-4444-8444-444444444444',
+        revision: 2,
+        projection: {
+          groups: [{ representativeId: 'entrance-a', candidateIds: ['entrance-a', 'entrance-b'] }],
+        },
+        candidates: [
+          { candidateId: 'entrance-a', label: 'North door', sourceIds: ['s1'] },
+          { candidateId: 'entrance-b', label: 'Main entrance', sourceIds: ['s2', 's1'] },
+        ],
+      }),
+    })
+    render(<MediaIntakeHandoffPanel scope={scope} blocked={false} adapter={api} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare saved review' }))
+    const select = await screen.findByRole('combobox')
+    expect(
+      screen.getByRole('option', { name: /grouped by reviewer; identity unconfirmed/ }),
+    ).toBeTruthy()
+    fireEvent.change(select, { target: { value: 'group:entrance-a' } })
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Reviewed as one entrance.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Builder proposal' }))
+    await screen.findByRole('link', { name: 'Open in Builder' })
+    expect(api.create.mock.calls[0]![0]).toMatchObject({
+      identityReviewId: '44444444-4444-4444-8444-444444444444',
+      bindings: [
+        {
+          entityRepresentativeId: 'entrance-a',
+          sourceIds: ['s1', 's2'],
+        },
+      ],
+    })
   })
 
   it('invalidates selection when a later source page belongs to a changed saved review', async () => {
@@ -92,7 +129,7 @@ describe('reviewed media Builder handoff controls', () => {
     api.create.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     render(<MediaIntakeHandoffPanel scope={scope} blocked={false} adapter={api} />)
     fireEvent.click(screen.getByRole('button', { name: 'Prepare saved review' }))
-    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 's1' } })
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'source:s1' } })
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Verified signage.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Builder proposal' }))
     await screen.findByRole('alert')
