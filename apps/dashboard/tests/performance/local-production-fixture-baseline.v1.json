@@ -1,0 +1,335 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-07T20:21:56.2753409Z",
+  "kind": "local-production-build-fixture-measurement",
+  "sourceRevision": "11ba5313",
+  "measurementCodeRevision": "107ccee3",
+  "worktree": "C:\\Users\\tomsc\\Downloads\\PathFinder-prod-perf-11ba5313",
+  "networkProfiles": [
+    {
+      "schemaVersion": 3,
+      "readinessDefinition": "React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked.",
+      "measuredAt": "2026-09-07T20:19:34.66Z",
+      "revision": null,
+      "networkProfile": "unthrottled",
+      "networkConditions": null,
+      "sampleCount": 3,
+      "url": "http://127.0.0.1:3002/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "chatRequestsSent": 0,
+      "interactionReadyMs": {
+        "minimum": 203,
+        "p50": 205,
+        "p95": 292,
+        "maximum": 292
+      },
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "samples": [
+        {
+          "interactionReadyMs": 292,
+          "navigation": {
+            "responseStartMs": 15,
+            "domContentLoadedMs": 104,
+            "loadEventMs": 213,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 59,
+            "longestMs": 59
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 205,
+          "navigation": {
+            "responseStartMs": 11,
+            "domContentLoadedMs": 22,
+            "loadEventMs": 127,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 54,
+            "longestMs": 54
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 203,
+          "navigation": {
+            "responseStartMs": 10,
+            "domContentLoadedMs": 65,
+            "loadEventMs": 125,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 0,
+            "totalDurationMs": 0,
+            "longestMs": 0
+          },
+          "chatRequestsSent": 0
+        }
+      ]
+    },
+    {
+      "schemaVersion": 3,
+      "readinessDefinition": "React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked.",
+      "measuredAt": "2026-09-07T20:19:48.034Z",
+      "revision": null,
+      "networkProfile": "weak-4g",
+      "networkConditions": {
+        "latencyMs": 150,
+        "downloadMbps": 1.6,
+        "uploadKbps": 750
+      },
+      "sampleCount": 3,
+      "url": "http://127.0.0.1:3002/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "chatRequestsSent": 0,
+      "interactionReadyMs": {
+        "minimum": 3146,
+        "p50": 3161,
+        "p95": 3163,
+        "maximum": 3163
+      },
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "samples": [
+        {
+          "interactionReadyMs": 3163,
+          "navigation": {
+            "responseStartMs": 12,
+            "domContentLoadedMs": 573,
+            "loadEventMs": 2446,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 0,
+            "totalDurationMs": 0,
+            "longestMs": 0
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 3161,
+          "navigation": {
+            "responseStartMs": 9,
+            "domContentLoadedMs": 572,
+            "loadEventMs": 2445,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 0,
+            "totalDurationMs": 0,
+            "longestMs": 0
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 3146,
+          "navigation": {
+            "responseStartMs": 10,
+            "domContentLoadedMs": 545,
+            "loadEventMs": 2439,
+            "documentTransferBytes": 7232,
+            "documentEncodedBodyBytes": 6932
+          },
+          "allResources": {
+            "requests": 21,
+            "transferBytes": 408152,
+            "encodedBodyBytes": 401852,
+            "decodedBodyBytes": 1324414
+          },
+          "scripts": {
+            "requests": 16,
+            "transferBytes": 366760,
+            "encodedBodyBytes": 361960,
+            "decodedBodyBytes": 1241185
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 38479,
+            "encodedBodyBytes": 37579,
+            "decodedBodyBytes": 78371
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 51,
+            "longestMs": 51
+          },
+          "chatRequestsSent": 0
+        }
+      ]
+    }
+  ],
+  "retainedLogs": [
+    {
+      "path": "production-build.log",
+      "sha256": "d21232a476ba4d0987c089078fd6269f45a5cbbcf4233725e96f06784c92b15c"
+    },
+    {
+      "path": "production-server.log",
+      "sha256": "6574af26cc11e80dd800fb1843fd21195bf984cd396f642325c8688d40143858"
+    },
+    {
+      "path": "production-measurement.log",
+      "sha256": "d0cce0ad9d9eaf3459eccacd1c73d39c1de711536f8370ff8d95b5a6bf7957f4"
+    }
+  ],
+  "deviations": [
+    "Isolated visitor fixture guard permits PATHFINDER_PRODUCTION_PERF_FIXTURE=true outside development.",
+    "Isolated middleware under that flag bypasses Clerk only for exact /dev-fixtures/visitor-chat; other matched routes return404. Static routes retain Next matcher behavior.",
+    "Empty Clerk publishable key, disabled PWA, clean allowlisted environment, isolated offline dependencies and generated Prisma client. No .env files copied or read."
+  ],
+  "limits": [
+    "Three fresh browser contexts per profile against a locally warmed production build; not a hosted service SLO.",
+    "Synthetic empty classic chat with reduced motion, no external images, zero chat/provider/database retrieval requests.",
+    "Explicit custom PLAYWRIGHT_VISITOR_PATH makes this measurement-only; development gates are not production acceptance criteria.",
+    "Readiness is a controlled draft round trip, not streaming TTFT, response quality, or physical-device evidence.",
+    "Two fixture-only source modifications remain in the retained detached worktree; neither is applied to shipping source.",
+    "Server stopped after measurement; port3002 released per execution readback."
+  ]
+}
