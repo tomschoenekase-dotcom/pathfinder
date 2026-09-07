@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
@@ -8,6 +8,7 @@ import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
+import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
@@ -35,6 +36,7 @@ type ChatWindowProps = {
   placeholder?: string
   initialDraft?: string
   emptyState?: ReactNode
+  conversationTools?: ReactNode
   assistantLabel?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
@@ -60,6 +62,7 @@ export function ChatWindow({
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
   emptyState,
+  conversationTools,
   assistantLabel = 'Venue guide',
   onPlaceCardClick,
   onPlaceCardView,
@@ -84,6 +87,7 @@ export function ChatWindow({
     respondingLabel,
   ] = getVisitorUiCopy(language).shell
   const [draft, setDraft] = useState(initialDraft)
+  const composerId = useId()
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
   >(null)
@@ -95,6 +99,13 @@ export function ChatWindow({
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
   const followLatestRef = useRef(true)
+
+  useEffect(() => {
+    const node = composerRef.current
+    if (!node) return
+    node.style.height = 'auto'
+    node.style.height = `${Math.min(144, Math.max(44, node.scrollHeight))}px`
+  }, [draft])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -110,7 +121,7 @@ export function ChatWindow({
     if (followLatestRef.current) {
       // Instant follow avoids animation events racing the reader's scroll position.
       node.scrollTo({
-        top: node.scrollHeight,
+        top: messages.length === 0 ? 0 : node.scrollHeight,
         behavior: 'auto',
       })
     }
@@ -177,10 +188,10 @@ export function ChatWindow({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
+    <section className={`${styles.window} flex min-h-0 flex-1 flex-col overflow-hidden`}>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)] sm:px-5"
+        className={`${styles.conversation} min-h-0 flex-1 space-y-5 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]`}
         role="log"
         aria-label={conversationLabel}
         aria-live="off"
@@ -190,6 +201,7 @@ export function ChatWindow({
           followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120
         }}
       >
+        {conversationTools}
         {messages.length === 0 && emptyState ? emptyState : null}
 
         {messages.map((message, index) => (
@@ -252,10 +264,7 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      <div
-        className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
-      >
+      <div className={styles.composer}>
         {errorMessage ? (
           <div
             className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
@@ -275,10 +284,10 @@ export function ChatWindow({
           </div>
         ) : null}
 
-        <div className="flex items-end gap-3">
+        <div className={styles.composerField}>
           <label
             className="sr-only"
-            htmlFor="chat-input"
+            htmlFor={composerId}
             lang={presentation.code}
             dir={presentation.direction}
           >
@@ -286,13 +295,13 @@ export function ChatWindow({
           </label>
           <textarea
             ref={composerRef}
-            id="chat-input"
+            id={composerId}
             lang=""
             dir="auto"
             className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
-            disabled={isLoading}
+            enterKeyHint="send"
             placeholder={placeholder}
-            rows={2}
+            rows={1}
             value={draft}
             onChange={(event) => {
               const nextDraft = event.target.value
@@ -300,7 +309,7 @@ export function ChatWindow({
               onDraftChange?.(nextDraft)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 submit()
               }
@@ -343,7 +352,19 @@ export function ChatWindow({
                 />
               </svg>
             ) : (
-              sendLabel
+              <>
+                <span className="hidden sm:inline">{sendLabel}</span>
+                <svg
+                  className="h-5 w-5 sm:hidden"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5m-6 6 6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </>
             )}
           </button>
         </div>

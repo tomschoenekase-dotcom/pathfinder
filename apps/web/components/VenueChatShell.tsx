@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
-import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
 import { ChatWindow } from './ChatWindow'
+import styles from './visitor-chat.module.css'
 import { ConnectionStatusBanner } from './ConnectionStatusBanner'
 import {
   LANGUAGE_FALLBACK_DESCRIPTIONS,
@@ -26,6 +26,7 @@ import { VoiceControl } from './VoiceControl'
 import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { useChatViewportHeight } from '../hooks/useChatViewportHeight'
 
 const LazyVenueCharacterStage = dynamic(
   () => import('./VenueCharacterStage').then((module) => module.VenueCharacterStage),
@@ -108,6 +109,7 @@ export function VenueChatShell(props: {
     connectionState = 'online',
   } = props
   const isOnline = connectionState !== 'offline'
+  const viewportHeight = useChatViewportHeight()
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
   const [
@@ -141,12 +143,31 @@ export function VenueChatShell(props: {
     <div
       lang={languagePresentation.code}
       dir={languagePresentation.direction}
-      className="flex min-h-svh flex-col overflow-x-hidden"
-      style={{ backgroundColor: palette.bg, fontFamily: fontFamily(venue.chatFont) }}
+      className={`${styles.shell} flex flex-col`}
+      data-keyboard-open={viewportHeight !== undefined || undefined}
+      style={
+        {
+          backgroundColor: palette.bg,
+          height: viewportHeight,
+          '--chat-keyboard-composer-max':
+            viewportHeight !== undefined
+              ? `${Math.max(44, Math.min(96, Math.floor(viewportHeight * 0.2)))}px`
+              : undefined,
+          fontFamily: fontFamily(venue.chatFont),
+          '--chat-accent': palette.accent,
+          '--chat-accent-text': palette.accentText,
+          '--chat-accent-contrast': palette.accentContrast,
+          '--chat-surface': palette.bg,
+          '--chat-bg': palette.bg,
+          '--chat-card': palette.card,
+          '--chat-border': palette.border,
+          '--chat-text': palette.text,
+          '--chat-text-muted': palette.textMuted,
+        } as CSSProperties
+      }
     >
-      <style>{`:root{--chat-accent:${palette.accent};--chat-accent-text:${palette.accentText};--chat-accent-contrast:${palette.accentContrast};--chat-surface:${palette.bg};--chat-bg:${palette.bg};--chat-card:${palette.card};--chat-border:${palette.border};--chat-text:${palette.text};--chat-text-muted:${palette.textMuted};}`}</style>
       <header
-        className="border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
+        className={`${styles.header} border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6`}
         style={
           venue.chatBannerUrl
             ? {
@@ -157,25 +178,23 @@ export function VenueChatShell(props: {
             : undefined
         }
       >
-        <div className="mx-auto max-w-2xl py-4">
+        <div className={`${styles.headerInner} mx-auto max-w-2xl`}>
           {presentation === 'standalone' ? (
             <Link
               href={`/${venueSlug}`}
               lang={languagePresentation.code}
               dir={languagePresentation.direction}
-              className={`inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
+              className={`${styles.back} inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
             >
               <span aria-hidden="true">{languagePresentation.direction === 'rtl' ? '→' : '←'}</span>{' '}
               {backLabel}
             </Link>
           ) : null}
-          <div className={`${presentation === 'standalone' ? 'mt-2 ' : ''}flex items-center gap-3`}>
+          <div className={`${styles.identity} flex items-center`}>
             {venue.chatLogoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
-            ) : (
-              <TorchikoIcon className="flex-shrink-0 text-xs" />
-            )}
+            ) : null}
             <h1
               lang=""
               dir="auto"
@@ -191,7 +210,7 @@ export function VenueChatShell(props: {
               </span>
             ) : null}
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
+          <div className={`${styles.toolbar} flex items-center justify-between`}>
             <LanguagePicker value={language} onChange={setLanguage} />
             <button
               type="button"
@@ -205,9 +224,9 @@ export function VenueChatShell(props: {
         </div>
       </header>
       <ConnectionStatusBanner state={connectionState} language={language} />
-      <main className="flex min-h-[24rem] flex-1 flex-col">
+      <main className={`${styles.main} flex flex-1 flex-col`}>
         {characterPresentation ? (
-          <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+          <div className={`${styles.character} mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6`}>
             <VenueCharacterBoundary
               resetKey={`${characterPresentation.character.characterId}:${characterPresentation.character.assetPackId}:${characterPresentation.character.assetPackVersion}`}
               compact={!characterExpanded}
@@ -223,15 +242,7 @@ export function VenueChatShell(props: {
             </VenueCharacterBoundary>
           </div>
         ) : null}
-        <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-          <LocationBanner
-            permission={location.permission}
-            onRefresh={location.refresh}
-            show={venue.guideMode !== 'non_location'}
-            language={language}
-          />
-        </div>
-        <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+        <div className={`${styles.body} mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col`}>
           {routePlanner}
           {voiceControl === undefined ? (
             isOnline ? (
@@ -247,6 +258,14 @@ export function VenueChatShell(props: {
             voiceControl
           )}
           <ChatWindow
+            conversationTools={
+              <LocationBanner
+                permission={location.permission}
+                onRefresh={location.refresh}
+                show={venue.guideMode !== 'non_location'}
+                language={language}
+              />
+            }
             messages={messages}
             language={language}
             assistantLabel={guideName}
@@ -265,7 +284,7 @@ export function VenueChatShell(props: {
             initialDraft={initialDraft}
             emptyState={
               <div lang={languagePresentation.code} dir={languagePresentation.direction}>
-                <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
+                <div className={styles.welcome}>
                   <h2 className="text-xl font-semibold text-[var(--chat-text)]">
                     {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
                   </h2>
@@ -298,31 +317,37 @@ export function VenueChatShell(props: {
           />
         </div>
       </main>
-      <footer className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
-        <p
-          className="mx-auto max-w-2xl px-4 text-[11px] leading-4 text-[var(--chat-text-muted)] sm:px-6"
-          role="note"
-          aria-label={aiGuidanceLabel}
-          lang={languagePresentation.code}
-          dir={languagePresentation.direction}
-        >
-          {aiGuidance}
-        </p>
-        {presentation !== 'webview' ? (
-          <p className="text-[10px] text-[var(--chat-text-muted)]">
-            {poweredByLabel}{' '}
-            {presentation === 'standalone' ? (
-              <a
-                href="https://torchiko.com"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[var(--chat-accent-text)]"
-              >
-                Torchiko
-              </a>
-            ) : (
-              <span>Torchiko</span>
-            )}
-          </p>
-        ) : null}
+      <footer className={styles.footer}>
+        <div className={styles.footerRow}>
+          {presentation !== 'webview' ? (
+            <span>
+              {poweredByLabel}{' '}
+              {presentation === 'standalone' ? (
+                <a
+                  href="https://torchiko.com"
+                  className="inline-flex min-h-11 min-w-11 items-center font-medium hover:underline"
+                >
+                  Torchiko
+                </a>
+              ) : (
+                <span>Torchiko</span>
+              )}
+            </span>
+          ) : null}
+          <details className={styles.guidance}>
+            <summary lang={languagePresentation.code} dir={languagePresentation.direction}>
+              {aiGuidanceLabel}
+            </summary>
+            <p
+              role="note"
+              aria-label={aiGuidanceLabel}
+              lang={languagePresentation.code}
+              dir={languagePresentation.direction}
+            >
+              {aiGuidance}
+            </p>
+          </details>
+        </div>
       </footer>
     </div>
   )

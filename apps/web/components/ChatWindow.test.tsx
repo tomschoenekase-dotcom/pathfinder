@@ -290,11 +290,15 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }))
   })
 
-  it('reserves the mobile safe area beneath the composer', () => {
+  it('grows the composer for multiline drafts up to its reading cap', () => {
     render(<ChatWindow messages={[]} onSend={vi.fn()} isLoading={false} />)
     const composer = screen.getByRole('textbox', { name: 'Ask a question' })
-    const composerRegion = composer.parentElement?.parentElement
-    expect(composerRegion?.style.paddingBottom).toContain('safe-area-inset-bottom')
+    Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 96 })
+    fireEvent.change(composer, { target: { value: 'A longer\nquestion' } })
+    expect((composer as HTMLTextAreaElement).style.height).toBe('96px')
+    Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 400 })
+    fireEvent.change(composer, { target: { value: 'A much longer\nquestion\nwith details' } })
+    expect((composer as HTMLTextAreaElement).style.height).toBe('144px')
   })
 
   it('submits trimmed text and clears the composer', () => {
@@ -419,6 +423,22 @@ describe('ChatWindow accessibility and motion behavior', () => {
       (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
     ).toBe('Tell me about the Tide Clock.')
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps the next draft editable during a response while fencing sends', () => {
+    const onSend = vi.fn()
+    const view = render(<ChatWindow messages={[]} onSend={onSend} isLoading />)
+    const composer = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(composer.disabled).toBe(false)
+    fireEvent.change(composer, { target: { value: 'My next question' } })
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(composer.value).toBe('My next question')
+    view.rerender(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    expect(onSend).not.toHaveBeenCalled()
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('My next question')
   })
 
   it('offers one explicit expansion action only after an assistant answer', () => {

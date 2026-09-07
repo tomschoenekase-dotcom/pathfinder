@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 import type { PublicVenueMediaItem } from '@pathfinder/contracts'
 
-import { VenueArrival } from '../../components/VenueArrival'
+import { VenueArrival, type VenueArrivalSummary } from '../../components/VenueArrival'
 import { VenueTemporarilyUnavailable } from '../../components/VenueTemporarilyUnavailable'
 import { classifyPublicVenueLookupError } from '../../lib/public-venue-error'
 
@@ -12,7 +12,7 @@ type VenueLandingPageProps = {
   }>
 }
 
-type VenueSummary = {
+type VenueSummary = VenueArrivalSummary & {
   id: string
   name: string
   description: string | null

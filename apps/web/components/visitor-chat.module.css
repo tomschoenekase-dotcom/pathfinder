@@ -1,0 +1,259 @@
+.shell {
+  height: 100svh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--chat-text);
+}
+.header {
+  flex-shrink: 0;
+}
+.shell[data-keyboard-open] .connectionDetail {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.shell[data-keyboard-open] .character {
+  display: none;
+}
+.shell[data-keyboard-open] .composerField textarea {
+  max-height: var(--chat-keyboard-composer-max, 96px);
+}
+.headerInner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  padding-block: 8px;
+}
+.back {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+.identity {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0;
+  gap: 8px;
+}
+.identity h1 {
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.toolbar {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  gap: 8px;
+}
+.toolbar > button {
+  border: 0;
+  font-size: 0.6875rem;
+}
+.main {
+  min-height: 0;
+}
+.body {
+  padding-inline: 0;
+}
+.window {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.conversation {
+  padding: 20px 20px 12px;
+  scroll-padding-block: 20px;
+}
+.composer {
+  border: 0;
+  padding: 10px 16px 0;
+  background: var(--chat-surface);
+}
+.composerField {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--chat-border);
+  border-radius: 20px;
+  background: var(--chat-card);
+  box-shadow: 0 3px 16px rgb(0 0 0 / 4%);
+}
+.composerField:focus-within {
+  border-color: var(--chat-accent-text);
+}
+.composerField textarea {
+  min-width: 0;
+  min-height: 44px;
+  max-height: 144px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  padding: 10px 8px;
+  font-size: 16px;
+  line-height: 24px;
+}
+.composerField button {
+  flex-shrink: 0;
+  padding-inline: 12px;
+}
+.welcome {
+  padding: 24px 0 20px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.welcome h2 {
+  max-width: 15ch;
+  font-size: clamp(1.8rem, 7.8vw, 2.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+.welcome p {
+  max-width: 42ch;
+  margin-top: 16px;
+  line-height: 1.65;
+}
+.prompts {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--chat-border);
+}
+.prompt {
+  justify-content: space-between;
+  min-height: 58px;
+  gap: 16px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--chat-border);
+  border-radius: 0;
+  box-shadow: none;
+  text-align: start;
+  background: transparent;
+  color: var(--chat-text);
+}
+.prompt:hover {
+  background: transparent;
+  color: var(--chat-accent-text);
+}
+.promptArrow {
+  font-size: 18px;
+  color: var(--chat-accent-text);
+}
+.assistant {
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 0 12px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.user {
+  max-width: 88%;
+  border-radius: 20px;
+  border-end-end-radius: 5px;
+  padding: 11px 15px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.footer {
+  flex-shrink: 0;
+  padding: 0 20px max(4px, env(safe-area-inset-bottom, 0px));
+}
+.footerRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 44px;
+  font-size: 10px;
+  color: var(--chat-text-muted);
+}
+.guidance {
+  position: relative;
+}
+.guidance summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.guidance summary::-webkit-details-marker {
+  display: none;
+}
+.guidance summary:focus-visible {
+  outline: 2px solid var(--chat-accent-text);
+  outline-offset: 2px;
+}
+@media (max-height: 540px) {
+  .connectionDetail {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .composerField textarea {
+    max-height: 96px;
+  }
+  .character {
+    display: none;
+  }
+  .headerInner {
+    padding-block: 0;
+  }
+  .conversation {
+    padding-top: 12px;
+  }
+  .welcome {
+    padding-top: 8px;
+  }
+}
+.guidance p {
+  position: absolute;
+  z-index: 30;
+  inset-inline-end: 0;
+  bottom: 44px;
+  width: min(260px, calc(100vw - 40px));
+  padding: 16px;
+  border: 1px solid var(--chat-border);
+  border-radius: 14px;
+  background: var(--chat-card);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 12%);
+  color: var(--chat-text);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: start;
+}
+@media (min-width: 640px) {
+  .headerInner {
+    padding-block: 12px;
+  }
+  .conversation {
+    padding-inline: 28px;
+  }
+  .composer {
+    padding-inline: 24px;
+  }
+  .welcome {
+    padding-block: 40px 28px;
+  }
+}
+@media (max-height: 400px) {
+  .composerField textarea {
+    max-height: 72px;
+  }
+}

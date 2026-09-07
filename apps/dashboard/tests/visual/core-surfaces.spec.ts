@@ -36,7 +36,7 @@ async function expectScrollableVisitorShell(page: Page) {
   )
   expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
 
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await composer.scrollIntoViewIfNeeded()
   await composer.focus()
   await expect(composer).toBeFocused()

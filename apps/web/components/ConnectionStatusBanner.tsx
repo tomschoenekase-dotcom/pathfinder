@@ -3,6 +3,7 @@ import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
+import styles from './visitor-chat.module.css'
 
 export function ConnectionStatusBanner({
   state,
@@ -20,7 +21,7 @@ export function ConnectionStatusBanner({
 
   return (
     <div
-      className={`border-b px-4 py-2.5 sm:px-6 ${
+      className={`${styles.connection} border-b px-4 py-2.5 sm:px-6 ${
         offline
           ? 'border-amber-300 bg-amber-50 text-amber-950'
           : 'border-emerald-300 bg-emerald-50 text-emerald-950'
@@ -33,7 +34,9 @@ export function ConnectionStatusBanner({
     >
       <div className="mx-auto max-w-2xl text-sm leading-5">
         <span className="font-semibold">{offline ? offlineTitle : onlineTitle}</span>
-        <span className="ml-1">{offline ? offlineBody : onlineBody}</span>
+        <span className={`${styles.connectionDetail} ml-1`}>
+          {offline ? offlineBody : onlineBody}
+        </span>
       </div>
     </div>
   )

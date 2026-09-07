@@ -49,6 +49,8 @@ export default async function VisitorChatVisualFixture({
     route?: string | string[]
     language?: string | string[]
     surface?: string | string[]
+    theme?: string | string[]
+    accent?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -100,6 +102,8 @@ export default async function VisitorChatVisualFixture({
       network={network}
       route={route satisfies VisitorFixtureRoute}
       language={language}
+      theme={first(params.theme)}
+      accent={first(params.accent)}
     />
   )
 }

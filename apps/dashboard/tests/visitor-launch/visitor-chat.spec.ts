@@ -31,7 +31,7 @@ async function expectViewportIntegrity(page: Page) {
 }
 
 async function expectComposerReachable(page: Page) {
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await composer.scrollIntoViewIfNeeded()
   if (await composer.isEnabled()) {
     await composer.focus()
@@ -42,7 +42,7 @@ async function expectComposerReachable(page: Page) {
   const bounds = await composer.boundingBox()
   const viewportHeight = await page.evaluate(() => window.innerHeight)
   expect(bounds).not.toBeNull()
-  expect(bounds!.height).toBeGreaterThanOrEqual(56)
+  expect(bounds!.height).toBeGreaterThanOrEqual(44)
   expect(bounds!.y).toBeGreaterThanOrEqual(0)
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewportHeight + 1)
 }

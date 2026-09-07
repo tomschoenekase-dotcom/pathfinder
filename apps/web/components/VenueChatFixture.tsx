@@ -240,6 +240,8 @@ export function VenueChatFixture({
   network = 'online',
   route = 'none',
   language = 'English',
+  theme,
+  accent,
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -250,6 +252,8 @@ export function VenueChatFixture({
   network?: NetworkConnectionState
   route?: VisitorFixtureRoute
   language?: SupportedChatLanguage
+  theme?: string | undefined
+  accent?: string | undefined
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -264,7 +268,11 @@ export function VenueChatFixture({
         data-fixture-route={route}
       >
         <VenueChatShell
-          venue={fixtureVenue(mode, asset)}
+          venue={{
+            ...fixtureVenue(mode, asset),
+            ...(theme ? { chatTheme: theme } : {}),
+            ...(accent ? { chatAccentColor: accent } : {}),
+          }}
           venueSlug="fixture-great-lakes-museum"
           presentation="standalone"
           messages={

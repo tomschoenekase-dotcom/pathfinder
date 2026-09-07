@@ -65,7 +65,7 @@ async function measureSample(browser: Browser, networkProfile: string) {
     const response = await page.goto(visitorPath, { waitUntil: 'domcontentloaded' })
     expect(response?.ok()).toBe(true)
 
-    const composer = page.locator('#chat-input')
+    const composer = page.getByRole('textbox')
     await expect(composer).toBeVisible()
     await expect(composer).toBeEnabled()
     const interactionReadyMs = Date.now() - startedAt

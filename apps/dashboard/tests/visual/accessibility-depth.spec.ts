@@ -7,7 +7,7 @@ async function openFixture(page: Page, query: string) {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
   await page.goto(`${visitorBaseUrl}/dev-fixtures/visitor-chat?${query}`)
   await page.locator('nextjs-portal').evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
-  await expect(page.locator('#chat-input')).toBeEnabled()
+  await expect(page.getByRole('textbox')).toBeEnabled()
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -41,7 +41,7 @@ test('visitor chat preserves its text path at 200% root text size', async ({ pag
 
   await expect(page.getByRole('heading', { name: 'Museum Guide' })).toBeVisible()
   await expect(page.getByRole('log', { name: 'Conversation' })).toBeVisible()
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await composer.scrollIntoViewIfNeeded()
   await composer.focus()
   await expect(composer).toBeFocused()
@@ -62,7 +62,7 @@ test('voice failure is announced while the equivalent text path stays operable',
   await expect(
     page.getByRole('alert').filter({ hasText: 'Microphone access was denied' }),
   ).toBeVisible()
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await composer.fill('Use the text path')
   await expect(composer).toHaveValue('Use the text path')
   await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled()
@@ -85,7 +85,7 @@ test('missing character media retains an announced fallback and complete text ch
   ).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('main')).toBeVisible()
   await expect(page.getByRole('log', { name: 'Conversation' })).toBeVisible()
-  const composer = page.locator('#chat-input')
+  const composer = page.getByRole('textbox')
   await expect(composer).toBeEnabled()
   await composer.fill('Continue without character media')
   await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled()

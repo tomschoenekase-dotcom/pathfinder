@@ -34,17 +34,19 @@ const FIXTURE_MEDIA: PublicVenueMediaItem[] = [
 export default async function VenueArrivalFixturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string }>
+  searchParams: Promise<{ state?: string; theme?: string; accent?: string }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const { state = 'media' } = await searchParams
+  const { state = 'media', theme, accent } = await searchParams
   return (
     <VenueArrival
       venue={{
         name: 'Great Lakes Discovery Museum',
         description: 'Explore lake ecology, shipping history, and hands-on family exhibits.',
         category: 'Museum',
+        chatTheme: theme ?? null,
+        chatAccentColor: accent ?? null,
       }}
       venueSlug="great-lakes-museum"
       media={state === 'media' ? FIXTURE_MEDIA : []}

@@ -47,6 +47,26 @@ describe('VenueArrival', () => {
     expect(screen.getByRole('link', { name: /open your guide/i })).toBeTruthy()
   })
 
+  it('offers editable entry questions and keeps the venue theme local', () => {
+    const { container } = render(
+      <VenueArrival
+        venue={{ ...venue, chatTheme: 'forest', chatAccentColor: '#efaa44' }}
+        venueSlug="great-lakes-museum"
+        media={[]}
+        mediaStatus="ready"
+      />,
+    )
+    const link = screen.getByRole('link', { name: 'What should I see first?' })
+    const target = new URL(link.getAttribute('href')!, 'https://example.test')
+    expect(target.pathname).toBe('/great-lakes-museum/chat')
+    expect(target.searchParams.get('prompt')).toBe('What should I see first?')
+    expect(container.querySelector('main')?.style.getPropertyValue('--arrival-bg')).toBe('#F0F7F4')
+    expect(container.querySelector('main')?.style.getPropertyValue('--arrival-accent')).toBe(
+      '#efaa44',
+    )
+    expect(document.documentElement.style.getPropertyValue('--arrival-accent')).toBe('')
+  })
+
   it('does not reserve a media column for rejected locators', () => {
     const { container } = render(
       <VenueArrival

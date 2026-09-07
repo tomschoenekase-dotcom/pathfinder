@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import styles from './visitor-chat.module.css'
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type {
@@ -90,7 +91,7 @@ export function MessageBubble({
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`${isUser ? 'max-w-[85%]' : 'w-full max-w-[92%]'} rounded-[1.75rem] px-4 py-3 text-sm leading-6 ${
+        className={`${isUser ? styles.user : styles.assistant} ${isUser ? 'max-w-[85%]' : 'w-full max-w-[92%]'} rounded-[1.75rem] px-4 py-3 text-sm leading-6 ${
           isUser
             ? 'rounded-br-md bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)]'
             : 'rounded-bl-md border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-text)]'
