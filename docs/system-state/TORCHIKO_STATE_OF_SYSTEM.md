@@ -1,12 +1,12 @@
 # Torchiko State of System
 
-| Snapshot field             | Value                                                                                                                                                                                                                |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current-truth overlay      | 2026-09-02, America/Chicago                                                                                                                                                                                          |
-| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                                                    |
-| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                                                  |
-| Current release evidence   | Local candidate `be3052fd...`: 214 migrations and 238 public tables measured on disposable PostgreSQL. Hosted staging remains `a3e66de5...` at 207/207 migrations and 232 tables; no newer deployment was performed. |
-| Confidence                 | High for integrated code-supported behavior and the bounded exact staging snapshot; medium/unknown for production, provider-backed quality, customer contact, real billing, recovery, and usage                      |
+| Snapshot field             | Value                                                                                                                                                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current-truth overlay      | 2026-09-02, America/Chicago                                                                                                                                                                                                                                 |
+| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                                                                                           |
+| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                                                                                         |
+| Current release evidence   | Local candidate `be3052fd...`: 214 migrations and 238 public tables measured on disposable PostgreSQL. Retained September 2 hosted evidence records `a3e66de5...` at 207/207 migrations and 232 tables; this local campaign has not deployed its candidate. |
+| Confidence                 | High for integrated code-supported behavior and the bounded exact staging snapshot; medium/unknown for production, provider-backed quality, customer contact, real billing, recovery, and usage                                                             |
 
 ## Current Truth Overlay
 
