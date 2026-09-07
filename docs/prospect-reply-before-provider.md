@@ -29,6 +29,11 @@ provider. Existing provider recovery and first-send approval requirements remain
   ambiguity and batch terminal-state readback, with no provider dispatch.
   The server was stopped and its loopback port released; the database directory
   and logs were deliberately retained. See the [native proof record](evidence/prospect-native-postgres-2026-09-07.json).
+- The same journey also passed with PostgreSQL explicitly configured to UTC,
+  after discovering that the native cluster inherited the host timezone.
+  That [separate UTC readback](evidence/prospect-native-postgres-utc-2026-09-07.json)
+  retains 224 applied migrations and one passing test; it does not exercise the
+  unrelated intake tables added by migration 224.
 - Docker remains unavailable. The earlier Docker runner attempt's cleanup state
   is still unknown until that engine can be inspected; the separate native proof
   does not establish Docker resource removal.
