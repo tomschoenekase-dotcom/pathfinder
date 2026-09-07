@@ -39,7 +39,7 @@ describe('client AI cost coverage', () => {
           totalTokens: 15,
           estimatedCostUsd: '3.00000000',
           observedTotalTokens: 10,
-          observedEstimatedCostUsd: '2.00000000',
+          observedEstimatedCostUsd: { toString: () => '2.00000000' },
         },
       ])
       const result = await adminClientAnalyticsRouter
@@ -61,6 +61,7 @@ describe('client AI cost coverage', () => {
         observedEstimatedCostUsd: '2.00000000',
       })
       expect(result.costs[0]?.usageCoverageStatus).toBe(status)
+      expect(result.costs[0]?.observedEstimatedCostUsd).toBe('2.00000000')
       expect(mocks.rows).toHaveBeenLastCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant-1' }) }),
       )

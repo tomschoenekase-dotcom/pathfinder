@@ -295,6 +295,9 @@ export const adminClientAnalyticsRouter = router({
           return {
             ...row,
             estimatedCostUsd,
+            observedEstimatedCostUsd: aiCostUnitsToDecimal(
+              aiCostDecimalToUnits(row.observedEstimatedCostUsd),
+            ),
             usageCoverageStatus:
               row.unknownUsageRequestCount === 0 &&
               row.legacyUnclassifiedRequestCount === 0 &&
