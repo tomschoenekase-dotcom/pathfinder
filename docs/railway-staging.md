@@ -229,7 +229,7 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-216-20260907`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-218-20260907`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma when migrations are pending. After the exact migration and hosted health pass, restore
 `PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
@@ -245,10 +245,11 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The campaign's draft candidate contains 216 migrations and 240 public tables, including the
-immutable media relation-application receipt ledger. The prior 215-row/239-table media-resolution
-candidate, the 214-row/238-table legacy-adoption candidate and 207-row/232-table campaign boundary remain admitted as predecessors, never as a
-complete candidate. The post-migration guard freezes the exact topology along with the ordered
+The campaign's draft candidate contains 218 migrations and 243 public tables, including compact
+immutable temporal-review receipts and idempotent prospect-onboarding delivery attempts. The prior
+216-row/240-table media-relation candidate, 215-row/239-table media-resolution candidate,
+214-row/238-table legacy-adoption candidate, and 207-row/232-table campaign boundary remain
+admitted as predecessors, never as a complete candidate. The post-migration guard freezes the exact topology along with the ordered
 ledger, checksums, valid indexes, and validated constraints. These candidate expectations do not
 change historical hosted observations into evidence of a new deployment.
 

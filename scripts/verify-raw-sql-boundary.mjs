@@ -15,6 +15,7 @@ const approvedPolicies = new Set([
   'tenant-media-identity-request-lock',
   'tenant-media-identity-exact-receipt',
   'tenant-media-project-source-lock',
+  'tenant-media-temporal-request-lock',
   'system-probe',
   'public-venue-slug',
   'public-venue-id',
@@ -79,6 +80,23 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Compact temporal review receipts serialize one tenant request, lock the exact current
+  // tenant+venue+project generation, and retain only source rows from that scoped project.
+  {
+    file: 'packages/api/src/lib/media-temporal-review-service.ts',
+    method: '$executeRaw',
+    hash: 'ffa3be9ceadb182b9c4dd6d21ae60b7fa586eb9a8951cb15427cabefc4861e15',
+    policy: 'tenant-media-temporal-request-lock',
+  },
+  ...[
+    '364897d03a112883c8ef9ac72214842fed1d7de44053dfc2cfe9b0fde2313ad6',
+    '4292d8fc0cc921fe8e03abd50990e32f3cccb13f0a5970c4b85b2db5b1622e42',
+  ].map((hash) => ({
+    file: 'packages/api/src/lib/media-temporal-review-service.ts',
+    method: '$queryRaw',
+    hash,
+    policy: 'tenant-venue-revision-source',
+  })),
   // Reviewed relation application: exact request replay, scoped revision/source reads,
   // and a transaction lock fence one tenant+venue canonical inactive draft.
   ...[
