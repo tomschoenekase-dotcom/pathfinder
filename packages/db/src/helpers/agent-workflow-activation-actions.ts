@@ -185,7 +185,7 @@ async function exactApproval(
 function assertSupportedEffectPolicy(policy: z.infer<typeof AgentWorkflowCanaryPolicySchema>) {
   if (
     policy.supportedActionClasses.some((action) =>
-      ['AGENT_DELEGATION', 'OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(action),
+      ['OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(action),
     )
   )
     throw new AgentWorkflowActivationError(
@@ -449,6 +449,8 @@ export async function transitionAgentWorkflowActivation(
     await tx.$executeRaw`
       UPDATE agent_runs AS run
       SET status = 'CANCELLED', cancel_requested_at = clock_timestamp(),
+          started_at = COALESCE(started_at, clock_timestamp()),
+          completed_at = clock_timestamp(),
           execution_lease_token = NULL, execution_lease_expires_at = NULL,
           updated_at = clock_timestamp()
       WHERE run.tenant_id = ${input.tenantId} AND run.venue_id = ${input.venueId}

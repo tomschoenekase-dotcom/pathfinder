@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 import { db } from '../client'
-import { bindEligibleAgentWorkflows } from './agent-workflow-run-binding'
+import {
+  bindAgentWorkflowVersions,
+  lockAgentWorkflowActivationHeads,
+  resolveActiveAgentWorkflowRegistryKeys,
+} from './agent-workflow-run-binding'
+import { assertEligibleWorkflowRunLease } from './agent-workflow-run-lease'
 
 export type AgentDelegationClient = Pick<typeof db, '$transaction'>
 
@@ -25,6 +30,7 @@ const inputSchema = z
     specialistAgentIdentityId: z.string().trim().min(1).max(191),
     instructions: z.string().trim().min(1).max(10_000),
     reason: z.string().trim().min(1).max(1_000),
+    executionLeaseToken: z.string().uuid().optional(),
   })
   .strict()
 
@@ -37,6 +43,12 @@ export async function delegateAgentTaskAction(
   const input = inputSchema.parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
+    const operationLockKey = JSON.stringify([
+      'pathfinder:agent-delegation',
+      input.tenantId,
+      input.operationId,
+    ])
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${operationLockKey}, 0))`
     const replay = await transaction.agentRun.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
       select: {
@@ -66,6 +78,46 @@ export async function delegateAgentTaskAction(
         )
       }
       return { run: replay, replayed: true }
+    }
+    const childRegistryKeys = await resolveActiveAgentWorkflowRegistryKeys(transaction, input)
+    const parentBindings = await transaction.agentWorkflowRunBinding.findMany({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentRunId: input.parentAgentRunId,
+      },
+      select: { registryKey: true, outcome: true },
+      orderBy: { registryKey: 'asc' },
+      take: 51,
+    })
+    if (parentBindings.length > 50)
+      throw new AgentDelegationError('FORBIDDEN', 'Parent workflow binding limit exceeded')
+    const unionKeys = [
+      ...parentBindings.map((binding) => binding.registryKey),
+      ...childRegistryKeys,
+    ]
+    await lockAgentWorkflowActivationHeads(transaction, {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      registryKeys: unionKeys,
+      maxKeys: 100,
+    })
+    const workflowBound = parentBindings.some(
+      ({ outcome }) => outcome === 'SELECTED' || outcome === 'CANARY_SKIPPED_PRIOR_VERSION',
+    )
+    if (workflowBound) {
+      if (!input.executionLeaseToken)
+        throw new AgentDelegationError(
+          'FORBIDDEN',
+          'Workflow-bound delegation requires the exact execution lease token',
+        )
+      await assertEligibleWorkflowRunLease(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentRunId: input.parentAgentRunId,
+        executionLeaseToken: input.executionLeaseToken,
+        actionClass: 'AGENT_DELEGATION',
+      })
     }
     const parent = await transaction.agentRun.findFirst({
       where: {
@@ -139,12 +191,13 @@ export async function delegateAgentTaskAction(
         createdAt: true,
       },
     })
-    await bindEligibleAgentWorkflows(transaction, {
+    await bindAgentWorkflowVersions(transaction, {
       tenantId: input.tenantId,
       venueId: input.venueId,
       agentRunId: child.id,
       runType: specialist.agentType,
       operation: 'specialist_delegation',
+      registryKeys: childRegistryKeys,
     })
     await transaction.agentTimelineEvent.createMany({
       data: [

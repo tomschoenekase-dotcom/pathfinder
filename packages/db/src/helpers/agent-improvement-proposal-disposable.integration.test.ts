@@ -600,8 +600,8 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         actor,
         kind: 'MCP',
         label: 'Registry machine fixture',
-        capabilities: ['agent-improvements:propose', 'agent-runs:execute'],
-        expiresAt: new Date(Date.now() + 60_000),
+        capabilities: ['agent-improvements:propose', 'agent-runs:execute', 'resources:read'],
+        expiresAt: new Date(Date.now() + 3_600_000),
       })
       const registryCredential = issuedRegistryCredential.credential
       await activateAgentBridgeCredentialAction({
@@ -626,11 +626,11 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           label: 'Registry worker fixture',
           protocolVersion: 'fixture-v1',
           softwareVersion: 'fixture-v1',
-          capabilities: ['agent-improvements:propose'],
+          capabilities: ['agent-improvements:propose', 'resources:read'],
           agentRoles: ['QUALITY_REVIEW'],
           safeHealth: { status: 'fixture' },
           status: 'ONLINE',
-          leaseExpiresAt: new Date(Date.now() + 60_000),
+          leaseExpiresAt: new Date(Date.now() + 3_600_000),
         },
       })
       const registryRun = await db.agentRun.create({
@@ -686,6 +686,10 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       await expect(
         registerAgentWorkflowVersion(machineV1Request, new Set(['resources:read'])),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { leaseExpiresAt: new Date(Date.now() + 3_600_000) },
+      })
       await db.agentWorker.update({
         where: { id: registryWorkerId },
         data: { capabilities: ['agent-improvements:propose'] },
@@ -747,8 +751,8 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       await db.agentWorker.update({
         where: { id: registryWorkerId },
         data: {
-          capabilities: ['agent-improvements:propose', 'agent-runs:execute'],
-          leaseExpiresAt: new Date(Date.now() + 60_000),
+          capabilities: ['agent-improvements:propose', 'agent-runs:execute', 'resources:read'],
+          leaseExpiresAt: new Date(Date.now() + 3_600_000),
         },
       })
       const verifiedRegistryCredential = await verifyAgentBridgeCredential({
@@ -821,7 +825,7 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           name: 'Registry specialist',
           agentType: 'QUALITY_REVIEW',
           accessScope: 'VENUE',
-          accessCapabilities: ['agent-improvements:propose'],
+          accessCapabilities: ['agent-improvements:propose', 'resources:read'],
           autonomyLevel: 'DRAFT',
           defaultProvider: 'codex-bridge',
           defaultModel: 'subscription-default',
@@ -910,7 +914,7 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
       await db.agentRun.update({
         where: { id: registryRun.id },
-        data: { executionLeaseExpiresAt: new Date(Date.now() + 60_000) },
+        data: { executionLeaseExpiresAt: new Date(Date.now() + 3_600_000) },
       })
       await db.agentWorker.update({
         where: { id: registryWorkerId },
@@ -919,6 +923,10 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       await expect(
         registerAgentWorkflowVersion(machineV1Request, new Set(['resources:read'])),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { leaseExpiresAt: new Date(Date.now() + 3_600_000) },
+      })
       const registryValidation = await recordAgentImprovementValidationAction(
         {
           ...validationRequest,
@@ -1089,7 +1097,7 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         eligibleRunTypes: ['QUALITY_REVIEW'],
         eligibleOperations: ['operator_task'],
         skippedBaseline: { kind: 'NO_WORKFLOW' as const },
-        supportedActionClasses: ['RUN_TERMINAL_WRITE' as const],
+        supportedActionClasses: ['RUN_TERMINAL_WRITE' as const, 'AGENT_DELEGATION' as const],
       }
       const activationOperationId = randomUUID()
       const approvalRequestOperationId = randomUUID()
@@ -1154,6 +1162,82 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         ),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
 
+      const workflowParent = await createAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: specialistIdentityId,
+        prompt: 'Delegate one bounded evidence review to the exact specialist.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const claimedWorkflowParent = await claimAgentBridgeTask({
+        sessionId: registryBridgeSessionId,
+        venueId,
+        workerKey: registryWorkerId,
+        credential: verifiedRegistryCredential,
+      })
+      expect(claimedWorkflowParent.task).toMatchObject({ id: workflowParent.run.id })
+      const workflowDelegationOperationId = randomUUID()
+      const workflowDelegationInput = {
+        operationId: workflowDelegationOperationId,
+        tenantId,
+        venueId,
+        parentAgentRunId: workflowParent.run.id,
+        requestingAgentIdentityId: specialistIdentityId,
+        specialistAgentIdentityId: identityId,
+        instructions: 'Review the retained evidence using the captured workflow head set.',
+        reason: 'The workflow-bound parent delegates one canonical specialist task.',
+      }
+      await expect(delegateAgentTaskAction(workflowDelegationInput)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      })
+      const [workflowDelegation, concurrentWorkflowDelegation] = await Promise.all([
+        delegateAgentTaskAction({
+          ...workflowDelegationInput,
+          executionLeaseToken: claimedWorkflowParent.task!.leaseToken,
+        }),
+        delegateAgentTaskAction({
+          ...workflowDelegationInput,
+          executionLeaseToken: claimedWorkflowParent.task!.leaseToken,
+        }),
+      ])
+      expect([workflowDelegation.replayed, concurrentWorkflowDelegation.replayed].sort()).toEqual([
+        false,
+        true,
+      ])
+      expect(concurrentWorkflowDelegation.run.id).toBe(workflowDelegation.run.id)
+      expect(workflowDelegation.run).toMatchObject({ status: 'QUEUED' })
+      const workflowParentBinding = await db.agentWorkflowRunBinding.findFirstOrThrow({
+        where: { tenantId, venueId, agentRunId: workflowParent.run.id },
+      })
+      expect(workflowParentBinding).toMatchObject({
+        outcome: 'SELECTED',
+        selectionReason: 'HASH_SELECTED',
+      })
+      const workflowChildBinding = await db.agentWorkflowRunBinding.findFirstOrThrow({
+        where: { tenantId, venueId, agentRunId: workflowDelegation.run.id },
+      })
+      expect(workflowChildBinding).toMatchObject({
+        registryKey: registered.version.registryKey,
+        outcome: 'CANARY_SKIPPED_NO_WORKFLOW',
+        selectionReason: 'INELIGIBLE_RUN',
+      })
+      await db.agentRun.update({
+        where: { id: workflowParent.run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      await expect(
+        delegateAgentTaskAction({
+          ...workflowDelegationInput,
+          operationId: randomUUID(),
+          executionLeaseToken: claimedWorkflowParent.task!.leaseToken,
+        }),
+      ).rejects.toMatchObject({ code: 'LEASE_LOST' })
+      await db.agentRun.update({
+        where: { id: workflowParent.run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() + 3_600_000) },
+      })
+
       const rollbackRequestInput = {
         requestOperationId: randomUUID(),
         tenantId,
@@ -1206,6 +1290,19 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           new Set(['resources:read']),
         ),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const queuedWorkflowParent = await createAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: specialistIdentityId,
+        prompt: 'Remain queued until the reviewed workflow head is revoked.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      await expect(
+        db.agentWorkflowRunBinding.findFirstOrThrow({
+          where: { tenantId, venueId, agentRunId: queuedWorkflowParent.run.id },
+        }),
+      ).resolves.toMatchObject({ outcome: 'SELECTED', selectionReason: 'HASH_SELECTED' })
       const revokeRequestInput = {
         requestOperationId: randomUUID(),
         tenantId,
@@ -1245,6 +1342,48 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           new Set(['resources:read']),
         ),
       ).resolves.toMatchObject({ replayed: false, event: { kind: 'REVOKE' } })
+      const cancelledWorkflowRuns = await db.agentRun.findMany({
+        where: {
+          id: { in: [workflowParent.run.id, queuedWorkflowParent.run.id] },
+          tenantId,
+          venueId,
+        },
+        select: {
+          id: true,
+          status: true,
+          startedAt: true,
+          completedAt: true,
+          executionLeaseToken: true,
+          executionLeaseExpiresAt: true,
+        },
+        orderBy: { id: 'asc' },
+      })
+      expect(cancelledWorkflowRuns).toHaveLength(2)
+      expect(cancelledWorkflowRuns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: workflowParent.run.id, status: 'CANCELLED' }),
+          expect.objectContaining({ id: queuedWorkflowParent.run.id, status: 'CANCELLED' }),
+        ]),
+      )
+      for (const run of cancelledWorkflowRuns) {
+        expect(run.startedAt).toBeInstanceOf(Date)
+        expect(run.completedAt).toBeInstanceOf(Date)
+        expect(run.executionLeaseToken).toBeNull()
+        expect(run.executionLeaseExpiresAt).toBeNull()
+      }
+      await expect(
+        delegateAgentTaskAction({
+          ...workflowDelegationInput,
+          operationId: randomUUID(),
+          executionLeaseToken: claimedWorkflowParent.task!.leaseToken,
+        }),
+      ).rejects.toMatchObject({ code: expect.stringMatching(/^(LEASE_LOST|REVOKED)$/u) })
+      await expect(
+        delegateAgentTaskAction({
+          ...workflowDelegationInput,
+          executionLeaseToken: claimedWorkflowParent.task!.leaseToken,
+        }),
+      ).resolves.toMatchObject({ replayed: true, run: { id: workflowDelegation.run.id } })
       await expect(
         requestAgentWorkflowTransitionApproval(revokeRequestInput, new Set(['resources:read'])),
       ).resolves.toMatchObject({ replayed: true, request: { id: revokeRequest.request.id } })

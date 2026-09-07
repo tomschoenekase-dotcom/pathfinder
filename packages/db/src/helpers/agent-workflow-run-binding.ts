@@ -30,11 +30,50 @@ type Tx = Pick<
 >
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 
-export async function bindAgentWorkflowVersions(transaction: Tx, raw: z.input<typeof inputSchema>) {
-  const input = inputSchema.parse(raw)
+export async function lockAgentWorkflowActivationHeads(
+  transaction: Pick<Tx, '$queryRaw'>,
+  input: { tenantId: string; venueId: string; registryKeys: string[]; maxKeys?: number },
+) {
   const keys = [...new Set(input.registryKeys)].sort()
+  if (keys.length > (input.maxKeys ?? 50))
+    throw new AgentWorkflowRunLeaseError(
+      'CORRUPT_BINDING',
+      'Workflow registry lock set exceeds the bounded context',
+    )
   for (const registryKey of keys)
     await transaction.$queryRaw`SELECT id FROM agent_workflow_activation_heads WHERE tenant_id=${input.tenantId} AND venue_id=${input.venueId} AND registry_key=${registryKey} FOR UPDATE`
+  return keys
+}
+
+export async function resolveActiveAgentWorkflowRegistryKeys(
+  transaction: Pick<Tx, 'agentWorkflowActivationHead'>,
+  input: { tenantId: string; venueId: string },
+) {
+  const heads = await transaction.agentWorkflowActivationHead.findMany({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      activeVersionId: { not: null },
+    },
+    select: { registryKey: true },
+    orderBy: { registryKey: 'asc' },
+    take: 51,
+  })
+  if (heads.length > 50)
+    throw new AgentWorkflowRunLeaseError(
+      'CORRUPT_BINDING',
+      'Active workflow registry exceeds the bounded run context',
+    )
+  return heads.map((head) => head.registryKey)
+}
+
+export async function bindAgentWorkflowVersions(transaction: Tx, raw: z.input<typeof inputSchema>) {
+  const input = inputSchema.parse(raw)
+  const keys = await lockAgentWorkflowActivationHeads(transaction, {
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    registryKeys: input.registryKeys,
+  })
   const runs = await transaction.$queryRaw<
     Array<{ status: string; attemptNumber: number; leaseToken: string | null }>
   >`SELECT status, attempt_number AS "attemptNumber", execution_lease_token AS "leaseToken"
@@ -204,23 +243,9 @@ export async function bindEligibleAgentWorkflows(
   transaction: Tx,
   input: Omit<z.input<typeof inputSchema>, 'registryKeys'>,
 ) {
-  const heads = await transaction.agentWorkflowActivationHead.findMany({
-    where: {
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      activeVersionId: { not: null },
-    },
-    select: { registryKey: true },
-    orderBy: { registryKey: 'asc' },
-    take: 51,
-  })
-  if (heads.length > 50)
-    throw new AgentWorkflowRunLeaseError(
-      'CORRUPT_BINDING',
-      'Active workflow registry exceeds the bounded run context',
-    )
+  const registryKeys = await resolveActiveAgentWorkflowRegistryKeys(transaction, input)
   return bindAgentWorkflowVersions(transaction, {
     ...input,
-    registryKeys: heads.map((head) => head.registryKey),
+    registryKeys,
   })
 }

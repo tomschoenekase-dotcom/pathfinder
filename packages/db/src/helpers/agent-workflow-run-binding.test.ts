@@ -11,7 +11,10 @@ vi.mock('./agent-workflow-run-lease', async (original) => {
     agentWorkflowBindingHash: () => 'b'.repeat(64),
   }
 })
-import { bindAgentWorkflowVersions } from './agent-workflow-run-binding'
+import {
+  bindAgentWorkflowVersions,
+  resolveActiveAgentWorkflowRegistryKeys,
+} from './agent-workflow-run-binding'
 
 const input = {
   tenantId: 'tenant',
@@ -23,6 +26,21 @@ const input = {
 }
 
 describe('workflow run binding selection', () => {
+  it('resolves active keys with an exact scoped bounded projection', async () => {
+    const findMany = vi.fn(async () => [{ registryKey: 'review' }])
+    await expect(
+      resolveActiveAgentWorkflowRegistryKeys(
+        { agentWorkflowActivationHead: { findMany } } as never,
+        { tenantId: 'tenant', venueId: 'venue' },
+      ),
+    ).resolves.toEqual(['review'])
+    expect(findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant', venueId: 'venue', activeVersionId: { not: null } },
+      select: { registryKey: true },
+      orderBy: { registryKey: 'asc' },
+      take: 51,
+    })
+  })
   it('persists an explicit no-workflow outcome once', async () => {
     const create = vi.fn(async ({ data }) => ({ id: 'binding', ...data }))
     const tx = {

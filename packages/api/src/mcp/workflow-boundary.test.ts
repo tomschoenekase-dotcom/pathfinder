@@ -109,18 +109,13 @@ describe('MCP unsupported workflow effects', () => {
   })
 })
 
-it('checks the parent run before specialist delegation and exposes a stable machine rejection code', async () => {
+it('leaves specialist delegation to its canonical transaction fence', async () => {
   const findFirst = vi.fn().mockResolvedValue({ id: 'binding' })
-  await expect(
-    assertMcpWorkflowToolSupported(
-      { agentWorkflowRunBinding: { findFirst } } as never,
-      'pathfinder.delegate_specialist',
-      { parentAgentRunId: 'run-a', venueId: 'venue-a' },
-      { credential: { tenantId: 'tenant-a', venueIds: ['venue-a'] } } as never,
-    ),
-  ).rejects.toMatchObject({ code: 'WORKFLOW_EFFECT_UNSUPPORTED' })
-  expect(findFirst).toHaveBeenCalledWith({
-    where: { ...scope, ...effectiveBinding },
-    select: { id: true },
-  })
+  await assertMcpWorkflowToolSupported(
+    { agentWorkflowRunBinding: { findFirst } } as never,
+    'pathfinder.delegate_specialist',
+    { parentAgentRunId: 'run-a', venueId: 'venue-a' },
+    { credential: { tenantId: 'tenant-a', venueIds: ['venue-a'] } } as never,
+  )
+  expect(findFirst).not.toHaveBeenCalled()
 })

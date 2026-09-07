@@ -70,6 +70,7 @@ export function createPathfinderMcpAgentActions(
           specialistAgentIdentityId: input.specialistAgentIdentityId,
           instructions: input.instructions,
           reason: input.reason,
+          ...(input.executionLeaseToken ? { executionLeaseToken: input.executionLeaseToken } : {}),
         },
         db,
       )

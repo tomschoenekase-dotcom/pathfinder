@@ -50,7 +50,7 @@ const base = {
 }
 
 describe('workflow activation actions', () => {
-  it.each(['AGENT_DELEGATION', 'OPERATOR_QUESTION', 'BILLING_PROPOSAL'] as const)(
+  it.each(['OPERATOR_QUESTION', 'BILLING_PROPOSAL'] as const)(
     'rejects unfenced %s in both activation and rollback before any transition',
     async (action) => {
       const transaction = vi.fn()
@@ -81,6 +81,16 @@ describe('workflow activation actions', () => {
       expect(transaction).not.toHaveBeenCalled()
     },
   )
+
+  it('admits the canonically fenced delegation action class to transaction validation', async () => {
+    const transaction = vi.fn()
+    await activateAgentWorkflowVersion(
+      { ...base, canaryPolicy: { ...policy, supportedActionClasses: ['AGENT_DELEGATION'] } },
+      new Set(),
+      { $transaction: transaction } as never,
+    )
+    expect(transaction).toHaveBeenCalledTimes(1)
+  })
 
   it('rejects invalid canary input before opening a transaction', async () => {
     const transaction = vi.fn()

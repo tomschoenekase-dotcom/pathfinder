@@ -955,10 +955,16 @@ describe('PathFinder MCP server-side adapter registry', () => {
         specialistAgentIdentityId: 'agent-research',
         instructions: 'Review the current architecture and return evidence.',
         reason: 'The research specialist owns architecture review.',
+        executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       },
       { credential },
     )
-    expect(domain.delegateSpecialist).toHaveBeenCalledOnce()
+    expect(domain.delegateSpecialist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+      expect.anything(),
+    )
     expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
   })
 

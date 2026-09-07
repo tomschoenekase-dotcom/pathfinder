@@ -9,7 +9,7 @@ The registry stores immutable, venue-scoped portable text and its manifest. A re
 - `torchiko.agent_workflows.get_compatible_versions` requires `resources:read` and exact venue scope. It accepts up to five registry keys and returns each latest registered version with current compatibility. It does not load the entire catalog. Required tools are compared with the intersection of registered server tools and the caller's credential capabilities.
 - `NOT_FOUND`, `INVALID_ARTIFACT`, and `MISSING_TOOLS` are explicit read outcomes. A successful historical registration retry may now have missing tools. Neither a registration nor a compatible read authorizes execution.
 
-The administrator routes `registerAgentWorkflowVersion` and `listCompatibleAgentWorkflowVersions` use the same database helpers. Administrator inspection supports up to 50 explicit keys; automatic worker prompt loading and activation are separate lifecycle work.
+The administrator routes `registerAgentWorkflowVersion` and `listCompatibleAgentWorkflowVersions` use the same database helpers. Administrator inspection supports up to 50 explicit keys. Registration itself does not select a workflow for a run.
 
 ## Version and evidence rules
 
@@ -19,6 +19,18 @@ Provenance is returned as `DECLARED_NOT_VERIFIED`: source references and labels 
 
 New skill/workflow evaluation evidence must reference `AgentWorkflowVersion:<uuid>`, its exact version and content hash, and currently available tools. Existing historical evidence stays readable. Promotion, canary assignment, revocation, and run-bound selective execution require their own reviewed lifecycle; this registry grants none of them.
 
+## Reviewed activation and delegation
+
+The activation lifecycle uses a separate exact approval request, human decision, and canonical apply operation. A registered version must satisfy its promotion assessment and canary policy before activation. Run bindings retain the selected version and selection evidence; rollback and revocation do not rewrite that history. The administrator review panel exposes these approval and apply steps.
+
+`pathfinder.delegate_specialist` accepts an optional `executionLeaseToken`. It is required when the parent has a selected workflow (including a canary selection of the prior version). The same transaction that creates the child checks the exact live parent lease, current authority, and the policy's `AGENT_DELEGATION` action class. Operator-question and billing-proposal effects remain unsupported for workflow activation.
+
+Delegation retries serialize on the tenant and operation UUID. An exact historical retry returns the original child before checking the current lease; it cannot create another child after expiry or revocation. A changed parent, specialist, venue, or instructions conflicts. A new operation must pass current authority checks. Delegating to the parent's own identity is rejected.
+
+The transaction captures at most 50 active child workflow keys and locks their sorted union with the parent's immutable binding keys before locking the parent run. It binds the child against that captured key set. A newly activated registry key outside the captured set applies to subsequent runs. This bounded snapshot prevents a later key discovery from reversing the head-before-run lock order.
+
 ## Retained local proof
 
 Migration 220 supplies scoped keys, predecessor foreign keys, and immutable database triggers. Disposable PostgreSQL checks exercise version creation, exact replay/conflict, rollback predecessor, machine identity/worker/credential/lease boundaries, and append-only history. MCP tests cover read-only scope denial, the five-key bound, current credential/tool intersection, and explicit non-activation results. These tests use fixture providers and are not live model quality evidence.
+
+The workflow delegation extension has a retained [UTC PostgreSQL proof](evidence/workflow-delegation-native-postgres-2026-09-07.json): concurrent operation replay, exact parent lease admission, expired/revoked denial, captured child bindings, and cancellation of both running and queued selected runs. The fixture exposed and fixed missing terminal timestamps in canonical revocation. It passed after 224 fresh migrations; the unrelated intake224 tables were present but this journey does not verify V1 onboarding.

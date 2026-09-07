@@ -12,6 +12,7 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-agent-delegation-operation-lock',
   'tenant-workflow-approval-request-lock',
   'tenant-workflow-execution-lease',
   'tenant-workflow-authority-share-lock',
@@ -85,6 +86,14 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Exact tenant/operation replay is serialized before parent authority checks.
+  // This grants no delegation authority; bound parents still require a live lease.
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$executeRaw',
+    hash: 'f9b34b15bd77ea8df1b9751db50a427912d8a679cb2c869861dacf04636d2af4',
+    policy: 'tenant-agent-delegation-operation-lock',
+  },
   // Serialize immutable approval-request retries by exact tenant and operation UUID.
   // This lock grants no activation authority; canonical apply still checks approval.
   {
@@ -149,7 +158,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
     method: '$executeRaw',
-    hash: 'e33060b71ac9505b3b7bb896727ae889b8abffa9186db7b0543903e9c4cdefe5',
+    hash: 'd857e9c52d5df15c314f29e530d26311f067b741d1ca034f192180d6b1a3b7ff',
     policy: 'tenant-workflow-activation-revoke',
   },
   {

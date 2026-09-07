@@ -7,6 +7,7 @@ const guardedTools = new Set([
   'pathfinder.create_update_draft',
   'pathfinder.create_support_draft',
   'pathfinder.add_support_internal_note',
+  'pathfinder.delegate_specialist',
 ])
 
 export class McpWorkflowBoundaryError extends Error {

@@ -1259,6 +1259,7 @@ export const McpDelegateSpecialistInput = McpRequestedScope.extend({
   specialistAgentIdentityId: Identifier,
   instructions: z.string().trim().min(1).max(10_000),
   reason: z.string().trim().min(1).max(1_000),
+  executionLeaseToken: z.string().uuid().optional(),
 }).strict()
 export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
 
@@ -3302,6 +3303,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         specialistAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         instructions: { type: 'string', minLength: 1, maxLength: 10000 },
         reason: { type: 'string', minLength: 1, maxLength: 1000 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Exact current parent-run lease token required for workflow-bound delegation.',
+        },
       },
       [
         ...scopeRequired,

@@ -9,6 +9,7 @@ import {
   McpSupportCompletionApplyInput,
   McpSupportDraftInput,
   McpSupportInternalNoteInput,
+  McpDelegateSpecialistInput,
   McpSupportPackageDraftApplyInput,
   McpSupportPackageDraftProposalInput,
   McpSupportPackageApprovalApplyInput,
@@ -82,6 +83,20 @@ describe('Torchiko MCP v0 contracts', () => {
           requestId: 'request-1',
           expectedVersion: 1,
           body: 'Internal note.',
+        },
+      },
+      {
+        schema: McpDelegateSpecialistInput,
+        tool: 'pathfinder.delegate_specialist',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          parentAgentRunId: 'run-1',
+          requestingAgentIdentityId: 'agent-1',
+          specialistAgentIdentityId: 'agent-2',
+          instructions: 'Review retained evidence.',
+          reason: 'Use the scoped specialist.',
         },
       },
     ] as const

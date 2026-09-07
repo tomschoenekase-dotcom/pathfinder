@@ -163,7 +163,7 @@ export async function requestAgentWorkflowActivationApproval(
       checked.assessment.outcome !== 'EVIDENCE_READY_REVIEW_REQUIRED' ||
       diagnostics.data.autonomousPromotionEligible ||
       input.canaryPolicy.supportedActionClasses.some((value) =>
-        ['AGENT_DELEGATION', 'OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(value),
+        ['OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(value),
       )
     )
       throw new AgentWorkflowActivationError(
@@ -187,7 +187,7 @@ export async function requestAgentWorkflowTransitionApproval(
   const input = transition.parse(raw)
   if (
     input.canaryPolicy?.supportedActionClasses.some((value) =>
-      ['AGENT_DELEGATION', 'OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(value),
+      ['OPERATOR_QUESTION', 'BILLING_PROPOSAL'].includes(value),
     )
   )
     throw new AgentWorkflowActivationError(
