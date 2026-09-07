@@ -32,6 +32,8 @@ const baseRun = {
     autonomousActions: [],
     enabled: true,
   },
+  questions: [],
+  messages: [],
 }
 
 function client(transaction: object) {
@@ -55,11 +57,27 @@ describe('agent run execution actions', () => {
     )
     expect(result.status).toBe('RUNNING')
     expect(result.attemptNumber).toBe(1)
+    expect(result.executionContext).toContain('"attemptNumber": 1')
     expect(result.leaseToken).toMatch(/^[0-9a-f-]{36}$/u)
     expect(transaction.agentRun.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ tenantId: 'tenant-1', attemptNumber: 0 }),
         data: expect.objectContaining({ status: 'RUNNING', attemptNumber: { increment: 1 } }),
+      }),
+    )
+    expect(transaction.agentRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'run-1', tenantId: 'tenant-1' },
+        select: expect.objectContaining({
+          questions: expect.objectContaining({
+            where: { status: 'ANSWERED' },
+            take: 8,
+          }),
+          messages: expect.objectContaining({
+            where: { messageType: { in: ['PROMPT', 'RESULT'] } },
+            take: 12,
+          }),
+        }),
       }),
     )
   })

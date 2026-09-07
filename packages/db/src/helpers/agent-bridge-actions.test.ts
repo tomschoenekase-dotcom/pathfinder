@@ -92,6 +92,8 @@ describe('agent bridge actions', () => {
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
+      executionContext:
+        '{"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}',
       initiatedByType: 'HUMAN',
       initiatedById: 'operator-1',
       agentIdentity: {
@@ -149,6 +151,7 @@ describe('agent bridge actions', () => {
       }),
     )
     expect(result.task?.id).toBe('run-1')
+    expect(result.task?.prompt).toContain('The approved visitor capacity is exactly 137.')
   })
 
   it('skips incompatible role-bound work and claims the first compatible task', async () => {

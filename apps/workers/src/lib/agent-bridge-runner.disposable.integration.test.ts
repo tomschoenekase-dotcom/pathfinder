@@ -11,6 +11,8 @@ import {
   AI_COST_BUDGET_COVERAGE_VERSION,
   AiCostBudgetExceededError,
   activateAgentBridgeCredentialAction,
+  answerAgentQuestionAction,
+  askAgentQuestionAction,
   claimAgentBridgeTask,
   completeAgentBridgeTask,
   createCompanyKnowledgeCandidateAction,
@@ -126,6 +128,52 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           initiatedById: actor.id,
           maxAttempts: 2,
         },
+      })
+      const staleQuestion = await askAgentQuestionAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        question: 'What is the approved visitor capacity?',
+        category: 'venue.capacity',
+        blocking: true,
+      })
+      await answerAgentQuestionAction({
+        tenantId,
+        venueId,
+        questionId: staleQuestion.question.id,
+        expectedUpdatedAt: staleQuestion.question.updatedAt,
+        outcome: 'ANSWERED',
+        answer: 'The stale visitor capacity was 120.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      await db.agentQuestion.update({
+        where: { id: staleQuestion.question.id },
+        data: { answeredAt: new Date('2026-09-05T18:00:00.000Z') },
+      })
+      const currentQuestion = await askAgentQuestionAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        question: 'What is the approved visitor capacity?',
+        category: 'venue.capacity',
+        blocking: true,
+        evidence: [
+          { label: 'Capacity policy', reference: 'Venue:venue-agent-bridge-runner:capacity:v3' },
+        ],
+        callbackMetadata: { currentStateRef: 'Venue:venue-agent-bridge-runner:v7' },
+      })
+      await answerAgentQuestionAction({
+        tenantId,
+        venueId,
+        questionId: currentQuestion.question.id,
+        expectedUpdatedAt: currentQuestion.question.updatedAt,
+        outcome: 'ANSWERED',
+        answer: 'The approved visitor capacity is exactly 137.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
       })
 
       const controller = new AbortController()
@@ -244,7 +292,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           operationId,
           venueId,
           requestedOperation: 'review_venue_health',
-          prompt: null,
+          prompt: expect.stringContaining('The approved visitor capacity is exactly 137.'),
           modelProvider: 'codex-bridge',
           attemptNumber: executions,
           initiator: { type: 'HUMAN', id: actor.id },
@@ -257,6 +305,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         const prompt = buildAgentBridgeExecutionPrompt(task)
         expect(prompt).toContain('Task: review_venue_health')
         expect(prompt).toContain('"destructiveActionsAllowed": false')
+        expect(prompt).toContain('The approved visitor capacity is exactly 137.')
+        expect(prompt).not.toContain('The stale visitor capacity was 120.')
+        expect(prompt).toContain('Venue:venue-agent-bridge-runner:capacity:v3')
+        expect(prompt).toContain('do not grant permission')
         if (executions === 1) throw new Error('TASK_EXECUTOR_FAILED')
         return {
           content: 'BRIDGE_RUNNER_E2E_OK',

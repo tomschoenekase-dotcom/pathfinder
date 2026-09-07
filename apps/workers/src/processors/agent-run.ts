@@ -163,7 +163,17 @@ export async function processAgentRunJob(payload: AgentRunJobPayload, signal?: A
     const result = await generateTextForCapability({
       route,
       system: [{ type: 'text', text: systemPrompt(run) }],
-      messages: [{ role: 'user', content: run.requestPrompt ?? run.requestedOperation }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            run.requestPrompt ?? run.requestedOperation,
+            '',
+            'Bounded persisted execution context:',
+            run.executionContext,
+          ].join('\n'),
+        },
+      ],
       ...(configuration.maxOutputTokens === null
         ? {}
         : { maxOutputTokens: configuration.maxOutputTokens }),

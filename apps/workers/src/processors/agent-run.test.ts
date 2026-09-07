@@ -63,6 +63,10 @@ const run = {
     autonomyLevel: 'READ_ONLY',
     accessCapabilities: ['agents.read'],
   },
+  executionContext:
+    '{"contextVersion":1,"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}',
+  questions: [],
+  messages: [],
 }
 
 describe('agent run processor', () => {
@@ -121,7 +125,12 @@ describe('agent run processor', () => {
         maxOutputTokens: 1_600,
         timeoutMs: 45_000,
         requestBudgetCeilingE8Usd: '50000000',
-        messages: [{ role: 'user', content: 'Coordinate this work.' }],
+        messages: [
+          {
+            role: 'user',
+            content: expect.stringContaining('The approved visitor capacity is exactly 137.'),
+          },
+        ],
       }),
     )
     expect(mocks.complete).toHaveBeenCalledWith(

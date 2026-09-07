@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 
 import { db } from '../client'
+import { buildBoundedAgentRunExecutionContext } from './agent-run-execution-context'
 
 export type AgentRunExecutionClient = Pick<typeof db, '$transaction'>
 
@@ -88,6 +89,35 @@ export async function claimAgentRunExecution(
             enabled: true,
           },
         },
+        questions: {
+          where: { status: 'ANSWERED' },
+          orderBy: [{ answeredAt: 'desc' }, { id: 'desc' }],
+          take: 8,
+          select: {
+            id: true,
+            question: true,
+            answer: true,
+            category: true,
+            answeredAt: true,
+            updatedAt: true,
+            answeredById: true,
+            evidence: true,
+            callbackMetadata: true,
+          },
+        },
+        messages: {
+          where: { messageType: { in: ['PROMPT', 'RESULT'] } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 12,
+          select: {
+            id: true,
+            role: true,
+            messageType: true,
+            content: true,
+            actorId: true,
+            createdAt: true,
+          },
+        },
       },
     })
     if (!run) throw new AgentRunExecutionError('NOT_FOUND', 'Agent run not found')
@@ -143,8 +173,13 @@ export async function claimAgentRunExecution(
         },
       },
     })
+    const executionContext = buildBoundedAgentRunExecutionContext({
+      ...run,
+      attemptNumber: run.attemptNumber + 1,
+    })
     return {
       ...run,
+      executionContext,
       status: 'RUNNING' as const,
       attemptNumber: run.attemptNumber + 1,
       leaseToken,

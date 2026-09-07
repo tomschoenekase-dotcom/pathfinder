@@ -276,6 +276,12 @@ export async function claimAgentBridgeTask(input: {
       data: { executionWorkerId: worker.id },
     })
   }
+  const rawRequest = claimed.requestPrompt ?? claimed.requestedOperation
+  const requestLimit = 1_800
+  const request =
+    rawRequest.length <= requestLimit
+      ? rawRequest
+      : `${rawRequest.slice(0, requestLimit - 38)}\n...[task request explicitly truncated]`
   return AgentBridgeClaimResult.parse({
     task: {
       id: claimed.id,
@@ -283,7 +289,9 @@ export async function claimAgentBridgeTask(input: {
       venueId: claimed.venueId,
       runType: claimed.runType,
       requestedOperation: claimed.requestedOperation,
-      prompt: claimed.requestPrompt,
+      prompt: [request, '', 'Bounded persisted execution context:', claimed.executionContext]
+        .join('\n')
+        .slice(0, 10_000),
       modelProvider: claimed.modelProvider,
       modelName: claimed.modelName,
       leaseToken: claimed.leaseToken,

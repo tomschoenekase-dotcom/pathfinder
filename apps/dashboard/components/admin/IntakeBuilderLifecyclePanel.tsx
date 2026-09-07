@@ -30,6 +30,7 @@ type FileResolutionInput = {
   amendedExcerpt?: string
   rationale: string
 }
+type SourceReaderPage = inferRouterOutputs<AppRouter>['admin']['readIntakeFileExtractionSource']
 
 const stateStyles: Record<Stage['state'], string> = {
   COMPLETE: 'border-emerald-200 bg-emerald-50 text-emerald-900',
@@ -244,6 +245,11 @@ export function IntakeBuilderLifecyclePanel({
   const [extractionProposalTitle, setExtractionProposalTitle] = useState('')
   const [extractionProposalNotes, setExtractionProposalNotes] = useState('')
   const [extractionReviewRationale, setExtractionReviewRationale] = useState('')
+  const [sourceReaderPages, setSourceReaderPages] = useState<SourceReaderPage[]>([])
+  const [sourceReaderIndex, setSourceReaderIndex] = useState(0)
+  const [sourceReaderSearch, setSourceReaderSearch] = useState('')
+  const [sourceReaderBusy, setSourceReaderBusy] = useState(false)
+  const [sourceReaderError, setSourceReaderError] = useState<string | null>(null)
   const [clarificationBusy, setClarificationBusy] = useState(false)
   const [clarificationError, setClarificationError] = useState<string | null>(null)
   const [clarificationIdentityId, setClarificationIdentityId] = useState('')
@@ -271,6 +277,7 @@ export function IntakeBuilderLifecyclePanel({
   const mappingSequence = useRef(0)
   const loadAbort = useRef<AbortController | null>(null)
   const mappingAbort = useRef<AbortController | null>(null)
+  const sourceReaderAbort = useRef<AbortController | null>(null)
   const scope = `${tenantId}:${venueId}:${runId}`
   const renderedScope = useRef(scope)
   if (renderedScope.current !== scope) {
@@ -279,8 +286,10 @@ export function IntakeBuilderLifecyclePanel({
     mappingSequence.current += 1
     loadAbort.current?.abort()
     mappingAbort.current?.abort()
+    sourceReaderAbort.current?.abort()
     loadAbort.current = null
     mappingAbort.current = null
+    sourceReaderAbort.current = null
   }
   const researchOperationId = useRef<string | null>(null)
   const extractionOperationId = useRef<string | null>(null)
@@ -303,6 +312,11 @@ export function IntakeBuilderLifecyclePanel({
     setExtractionProposalTitle('')
     setExtractionProposalNotes('')
     setExtractionReviewRationale('')
+    setSourceReaderPages([])
+    setSourceReaderIndex(0)
+    setSourceReaderSearch('')
+    setSourceReaderBusy(false)
+    setSourceReaderError(null)
     setClarificationBusy(false)
     setClarificationError(null)
     setClarificationIdentityId('')
@@ -335,8 +349,10 @@ export function IntakeBuilderLifecyclePanel({
       mappingSequence.current += 1
       loadAbort.current?.abort()
       mappingAbort.current?.abort()
+      sourceReaderAbort.current?.abort()
       loadAbort.current = null
       mappingAbort.current = null
+      sourceReaderAbort.current = null
     },
     [],
   )
@@ -376,6 +392,55 @@ export function IntakeBuilderLifecyclePanel({
     } finally {
       if (loadAbort.current === controller) loadAbort.current = null
       if (request === sequence.current) setBusy(false)
+    }
+  }
+
+  async function readFullExtraction(cursor?: string, search?: string) {
+    const extraction = lifecycle?.fileExtractionReview
+    if (!extraction || sourceReaderBusy) return
+    sourceReaderAbort.current?.abort()
+    const controller = new AbortController()
+    sourceReaderAbort.current = controller
+    setSourceReaderBusy(true)
+    setSourceReaderError(null)
+    try {
+      const result = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: BUILDER_READ_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.readIntakeFileExtractionSource.query(
+            {
+              tenantId,
+              venueId,
+              runId,
+              receiptId: extraction.receiptId,
+              expectedExtractedTextHash: extraction.extractedTextHash,
+              pageSize: 4_000,
+              ...(cursor ? { cursor } : {}),
+              ...(search?.trim() ? { search: search.trim() } : {}),
+            },
+            { signal },
+          ),
+      })
+      if (sourceReaderAbort.current !== controller) return
+      if (cursor) {
+        setSourceReaderPages((pages) => [...pages, result])
+        setSourceReaderIndex((index) => index + 1)
+      } else {
+        setSourceReaderPages([result])
+        setSourceReaderIndex(0)
+      }
+    } catch (cause) {
+      if (sourceReaderAbort.current !== controller) return
+      const message = cause instanceof Error ? cause.message : ''
+      setSourceReaderError(
+        /source changed|exact file extraction|continuation/u.test(message)
+          ? 'The source changed or this reading position is stale. Refresh Builder status and request a fresh extraction if needed.'
+          : 'The retained document could not be read. Try again without losing the review state.',
+      )
+    } finally {
+      if (sourceReaderAbort.current === controller) sourceReaderAbort.current = null
+      setSourceReaderBusy(false)
     }
   }
 
@@ -775,6 +840,14 @@ export function IntakeBuilderLifecyclePanel({
       onPreviewWebsiteMapping={() => void previewWebsiteMapping()}
       onMappingReviewedChange={setMappingReviewed}
       onCreateWebsiteMappingDraft={() => void createWebsiteMappingDraft()}
+      sourceReaderPages={sourceReaderPages}
+      sourceReaderIndex={sourceReaderIndex}
+      sourceReaderSearch={sourceReaderSearch}
+      sourceReaderBusy={sourceReaderBusy}
+      sourceReaderError={sourceReaderError}
+      onSourceReaderIndexChange={setSourceReaderIndex}
+      onSourceReaderSearchChange={setSourceReaderSearch}
+      onReadFullExtraction={(cursor, search) => void readFullExtraction(cursor, search)}
     />
   )
 }
@@ -832,6 +905,14 @@ export function IntakeBuilderLifecycleView({
   onPreviewWebsiteMapping,
   onMappingReviewedChange,
   onCreateWebsiteMappingDraft,
+  sourceReaderPages = [],
+  sourceReaderIndex = 0,
+  sourceReaderSearch = '',
+  sourceReaderBusy = false,
+  sourceReaderError = null,
+  onSourceReaderIndexChange,
+  onSourceReaderSearchChange,
+  onReadFullExtraction,
 }: {
   lifecycle: Lifecycle
   ariaLabel?: string
@@ -891,6 +972,14 @@ export function IntakeBuilderLifecycleView({
   onPreviewWebsiteMapping?: () => void
   onMappingReviewedChange?: (reviewed: boolean) => void
   onCreateWebsiteMappingDraft?: () => void
+  sourceReaderPages?: SourceReaderPage[]
+  sourceReaderIndex?: number
+  sourceReaderSearch?: string
+  sourceReaderBusy?: boolean
+  sourceReaderError?: string | null
+  onSourceReaderIndexChange?: (index: number | ((current: number) => number)) => void
+  onSourceReaderSearchChange?: (search: string) => void
+  onReadFullExtraction?: (cursor?: string, search?: string) => void
 }) {
   const active = lifecycle.stages.find(({ stage }) => stage === lifecycle.currentStage)!
   const mappingGroups = Object.entries(
@@ -1082,9 +1171,127 @@ export function IntakeBuilderLifecycleView({
               {lifecycle.fileExtractionReview.preview}
             </pre>
             {lifecycle.fileExtractionReview.previewTruncated ? (
-              <p className="mt-2 text-xs text-pf-deep/60">Preview ends at 4,000 characters.</p>
+              <p className="mt-2 text-xs text-pf-deep/60">
+                Preview ends at 4,000 characters. Open the retained source to review the rest.
+              </p>
             ) : null}
           </div>
+          {lifecycle.fileExtractionReview.previewTruncated || sourceReaderPages.length ? (
+            <section
+              className="mt-3 border-t border-violet-100 pt-3"
+              aria-labelledby={`retained-source-reader-${lifecycle.runId}`}
+            >
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3
+                    id={`retained-source-reader-${lifecycle.runId}`}
+                    className="text-sm font-semibold text-violet-950"
+                  >
+                    Retained source reader
+                  </h3>
+                  <p className="mt-1 max-w-2xl text-xs leading-5 text-violet-900/75">
+                    Read the exact extracted text in bounded pages. This does not open the original
+                    upload or create authority to use it.
+                  </p>
+                </div>
+                {sourceReaderPages.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onReadFullExtraction?.()}
+                    disabled={sourceReaderBusy}
+                    className="min-h-11 rounded-full border border-violet-300 bg-white px-4 text-sm font-semibold text-violet-950 transition-colors hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+                  >
+                    {sourceReaderBusy ? 'Opening retained source…' : 'Read full extracted source'}
+                  </button>
+                ) : null}
+              </div>
+              {sourceReaderPages.length ? (
+                <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
+                  <form
+                    className="flex flex-wrap items-end gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      onReadFullExtraction?.(undefined, sourceReaderSearch)
+                    }}
+                  >
+                    <label className="min-w-0 flex-1 text-xs font-medium text-pf-deep">
+                      Find in extracted text
+                      <input
+                        value={sourceReaderSearch}
+                        onChange={(event) => onSourceReaderSearchChange?.(event.target.value)}
+                        maxLength={200}
+                        className="mt-1 min-h-11 w-full rounded-lg border border-violet-200 bg-white px-3 text-sm"
+                        placeholder="Search this retained source"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={sourceReaderBusy || !sourceReaderSearch.trim()}
+                      className="min-h-11 rounded-full bg-violet-800 px-4 text-sm font-semibold text-white transition-colors hover:bg-violet-950 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+                    >
+                      Search
+                    </button>
+                  </form>
+                  {sourceReaderError ? (
+                    <p role="alert" className="mt-3 text-sm text-rose-800">
+                      {sourceReaderError}
+                    </p>
+                  ) : null}
+                  {sourceReaderPages[sourceReaderIndex] ? (
+                    <>
+                      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-violet-900/70">
+                        Characters{' '}
+                        {sourceReaderPages[sourceReaderIndex].page.offset.toLocaleString()}–
+                        {(
+                          sourceReaderPages[sourceReaderIndex].page.offset +
+                          sourceReaderPages[sourceReaderIndex].page.text.length
+                        ).toLocaleString()}{' '}
+                        of{' '}
+                        {sourceReaderPages[
+                          sourceReaderIndex
+                        ].extractedCharacterCount.toLocaleString()}
+                      </p>
+                      <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words border-y border-violet-100 py-3 font-sans text-xs leading-5 text-pf-deep">
+                        {sourceReaderPages[sourceReaderIndex].page.text}
+                      </pre>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSourceReaderIndexChange?.((index) => Math.max(0, index - 1))
+                          }
+                          disabled={sourceReaderBusy || sourceReaderIndex === 0}
+                          className="min-h-11 rounded-full border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Previous page
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onReadFullExtraction?.(
+                              sourceReaderPages[sourceReaderIndex].nextCursor ?? undefined,
+                              sourceReaderSearch,
+                            )
+                          }
+                          disabled={
+                            sourceReaderBusy || !sourceReaderPages[sourceReaderIndex].nextCursor
+                          }
+                          className="min-h-11 rounded-full border border-violet-300 bg-white px-4 text-sm font-semibold text-violet-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {sourceReaderBusy ? 'Loading page…' : 'Next page'}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {sourceReaderError && sourceReaderPages.length === 0 ? (
+                <p role="alert" className="mt-3 text-sm text-rose-800">
+                  {sourceReaderError}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
           {lifecycle.fileClarificationReview ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
