@@ -12,6 +12,8 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Platform-admin review routes assert exact venue availability and scoped immutable revision reads.
+  ['packages/api/src/routers/admin/media-ingestion-resolution.ts', 4],
   // Admin-only review/evidence routes recheck the exact tenant+venue on every read/write.
   ['packages/api/src/routers/admin/media-ingestion-handoff.ts', 5],
   // Durable provider identities are tenant-scoped; each mutation is ID/lease/revision-fenced.

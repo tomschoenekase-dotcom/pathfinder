@@ -131,9 +131,11 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 214-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 215-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 238)
+  assert.equal(EXPECTED.finalPublicTableCount, 239)
+  assert.equal(EXPECTED.legacyAdoptionPredecessorCount, 214)
+  assert.equal(EXPECTED.legacyAdoptionPredecessorPublicTableCount, 238)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -184,7 +186,16 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.legacyAdoptionPredecessorCount), manifest),
+    'legacy-adoption-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.legacyAdoptionPredecessorCount), manifest),
+    ['20260907021500_add_media_entity_resolution_revisions'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
@@ -261,6 +272,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(
@@ -288,6 +300,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(
@@ -313,6 +326,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(
@@ -337,6 +351,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(
@@ -360,6 +375,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(
@@ -378,6 +394,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
@@ -390,6 +407,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     '20260907021200_add_media_provider_operations',
     '20260907021300_add_venue_chat_derivative_bindings',
     '20260907021400_add_legacy_knowledge_adoption',
+    '20260907021500_add_media_entity_resolution_revisions',
   ])
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -405,6 +423,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -577,6 +596,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260907021200_add_media_provider_operations',
       '20260907021300_add_venue_chat_derivative_bindings',
       '20260907021400_add_legacy_knowledge_adoption',
+      '20260907021500_add_media_entity_resolution_revisions',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -653,6 +673,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260907021200_add_media_provider_operations',
     '20260907021300_add_venue_chat_derivative_bindings',
     '20260907021400_add_legacy_knowledge_adoption',
+    '20260907021500_add_media_entity_resolution_revisions',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

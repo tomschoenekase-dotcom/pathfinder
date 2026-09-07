@@ -12,6 +12,9 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-media-identity-request-lock',
+  'tenant-media-identity-exact-receipt',
+  'tenant-media-project-source-lock',
   'system-probe',
   'public-venue-slug',
   'public-venue-id',
@@ -76,6 +79,63 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Reviewed identity ledger: tenant-wide request replay checks exact input+actor hash;
+  // project/generation row locks and source hashes fence every new immutable revision.
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$executeRaw',
+    hash: 'f04dbe5b35ba6b83006c1a06beecf695cbab2ea49f02fc0a8158411725182fd6',
+    policy: 'tenant-media-identity-request-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'f9150aa473bef501a5120aec080cbcffe3c33f2640751d8d2eb8cb1eb4fbfe86',
+    policy: 'tenant-media-identity-exact-receipt',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '4873d82c5b58bbfc8d385b5d10355eef6b82795d50c1b349150544ebc07d4858',
+    policy: 'tenant-media-identity-exact-receipt',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '932a9adea7500915f17755d2b4b47783c3c714d7da886a72270670568e52db27',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: 'c641196769779465e9f36622a1ab2c7bb35f012b7eb66c2fd619beffb1d893f0',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '767bbb2da1c9ea66a6637812b1f0b29cc293b002e6bd1d00da7c997f88c2a024',
+    policy: 'tenant-media-project-source-lock',
+  },
+  {
+    file: 'packages/api/src/lib/media-resolution-service.ts',
+    method: '$queryRaw',
+    hash: '336c5118208bd5dab565a796804e6aad38aabd7691c74d04345df58c165e6d6f',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/routers/admin/media-ingestion-resolution.ts',
+    method: '$queryRaw',
+    hash: 'cb1cea67ccfb589572408255efb6995c098ae8b9a08645328d04fcc640779519',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/lib/media-intake-handoff-service.ts',
+    method: '$queryRaw',
+    hash: '19b46d35139a3cfaf644efbc6f9b2980f9910d3cc163b2dc69c7a14e71f20c73',
+    policy: 'tenant-venue-revision-source',
+  },
+
   // Reviewed canonical media handoff and legacy adoption: exact scoped receipts,
   // transaction locks, and bounded metadata reads excluding large media snapshots.
   {
