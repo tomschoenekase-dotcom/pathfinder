@@ -33,6 +33,7 @@ export function UploadStateFixture({ state }: { state: UploadFixtureState }) {
             }),
             category: 'PHOTO' as const,
             phase: 'awaiting-review' as const,
+            error: null,
           },
           {
             localId: 'fixture-mixed-document',

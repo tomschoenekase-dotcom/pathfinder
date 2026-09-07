@@ -8,6 +8,10 @@ import {
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import {
+  MediaTemporalReviewPanel,
+  type MediaTemporalReviewAdapter,
+} from './MediaTemporalReviewPanel'
 
 type Scope = { tenantId: string; venueId: string; projectId: string }
 type Preview = {
@@ -74,6 +78,7 @@ export type MediaIntakeHandoffAdapter = {
     },
     signal: AbortSignal,
   ) => Promise<TemporalPreview>
+  temporalReview?: MediaTemporalReviewAdapter
 }
 
 const control =
@@ -768,10 +773,36 @@ export function MediaIntakeHandoffPanel({
                         </div>
                       ) : null}
                       {eligibleCount === 0 ? (
-                        <p className="mt-3 text-sm font-medium text-amber-900">
-                          Every item is held. Resolve conflicting or time-bound evidence and items
-                          without current support before creating a static Builder candidate.
-                        </p>
+                        <>
+                          <p className="mt-3 text-sm font-medium text-amber-900">
+                            Every item is held. Resolve conflicting or time-bound evidence and items
+                            without current support before creating a static Builder candidate.
+                          </p>
+                          {preview.sourceGeneration && temporalClaims ? (
+                            <div className="mt-4">
+                              <MediaTemporalReviewPanel
+                                scope={scope}
+                                sourceGeneration={preview.sourceGeneration}
+                                expectedUpdatedAt={preview.updatedAt}
+                                rationale={rationale}
+                                claims={temporalClaims}
+                                bindings={preview.items.map((draftItem) => ({
+                                  kind: draftItem.kind,
+                                  itemIndex: draftItem.itemIndex,
+                                  itemHash: draftItem.itemHash,
+                                  sourceIds: sourcesForSelection(
+                                    selections[`${draftItem.kind}:${draftItem.itemIndex}`],
+                                  ),
+                                }))}
+                                allHeld
+                                blocked={blocked || attempted}
+                                {...(adapter?.temporalReview
+                                  ? { adapter: adapter.temporalReview }
+                                  : {})}
+                              />
+                            </div>
+                          ) : null}
+                        </>
                       ) : null}
                     </div>
                   ) : null}
