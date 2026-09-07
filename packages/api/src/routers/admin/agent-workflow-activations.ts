@@ -4,6 +4,7 @@ import { AgentWorkflowCanaryPolicySchema } from '@pathfinder/contracts/agent-wor
 import {
   activateAgentWorkflowVersion,
   AgentWorkflowActivationError,
+  AgentWorkflowPromotionAssessmentError,
   isVenueUnavailableError,
   assertVenueAvailable,
   db,
@@ -36,6 +37,17 @@ const mapped = (error: unknown): never => {
   if (error instanceof AgentWorkflowActivationError) {
     throw new TRPCError({
       code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+      message: error.message,
+    })
+  }
+  if (error instanceof AgentWorkflowPromotionAssessmentError) {
+    throw new TRPCError({
+      code:
+        error.code === 'INVALID_INPUT'
+          ? 'BAD_REQUEST'
+          : error.code === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : 'CONFLICT',
       message: error.message,
     })
   }

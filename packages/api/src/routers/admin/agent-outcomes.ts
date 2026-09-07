@@ -25,6 +25,7 @@ import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-
 import { adminAgentTrustSignalsRouter } from './agent-trust-signals'
 import { adminAgentWorkflowPromotionAssessmentsRouter } from './agent-workflow-promotion-assessments'
 import { adminAgentWorkflowActivationsRouter } from './agent-workflow-activations'
+import { adminAgentWorkflowActivationReviewRouter } from './agent-workflow-activation-review'
 import { createSafeOperationalMcpRegistry } from '../../mcp/composition'
 
 function currentCallableCapabilities() {
@@ -416,4 +417,5 @@ export const adminAgentOutcomesRouter = mergeRouters(
   adminAgentTrustSignalsRouter,
   adminAgentWorkflowPromotionAssessmentsRouter,
   adminAgentWorkflowActivationsRouter,
+  adminAgentWorkflowActivationReviewRouter,
 )

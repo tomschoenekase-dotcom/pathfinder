@@ -49,6 +49,35 @@ const hash = (value: unknown) =>
     .update(canonicalEvaluationJson(value as never))
     .digest('hex')
 
+export const AgentWorkflowActivationApprovalReceiptSchema = z
+  .object({
+    registryKey: z.string().min(1).max(191),
+    workflowVersionId: z.string().uuid(),
+    promotionAssessmentId: z.string().min(1).max(191),
+    expectedHeadRevision: z.number().int().min(0),
+    canaryPolicy: AgentWorkflowCanaryPolicySchema,
+    evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict()
+
+export const AgentWorkflowTransitionApprovalReceiptSchema = z
+  .object({
+    kind: z.enum(['ROLLBACK', 'REVOKE']),
+    registryKey: z.string().min(1).max(191),
+    workflowVersionId: z.string().uuid().nullable(),
+    expectedHeadRevision: z.number().int().min(1),
+    canaryPolicy: AgentWorkflowCanaryPolicySchema.nullable(),
+    evidenceDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      (value.kind === 'ROLLBACK' && (!value.workflowVersionId || !value.canaryPolicy)) ||
+      (value.kind === 'REVOKE' && (value.workflowVersionId || value.canaryPolicy))
+    )
+      context.addIssue({ code: 'custom', message: 'Invalid transition approval receipt.' })
+  })
+
 export const agentWorkflowActivationApprovalReceipt = (
   input: {
     registryKey: string

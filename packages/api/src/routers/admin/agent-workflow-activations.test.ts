@@ -20,6 +20,14 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  AgentWorkflowPromotionAssessmentError: class AgentWorkflowPromotionAssessmentError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   isVenueUnavailableError: (error: unknown) =>
     error instanceof Error && error.name === 'VenueUnavailableError',
   assertVenueAvailable: mocks.available,
@@ -36,7 +44,7 @@ vi.mock('@pathfinder/db', () => ({
 vi.mock('../../mcp/composition', () => ({
   createSafeOperationalMcpRegistry: () => ({ listTools: mocks.tools }),
 }))
-import { AgentWorkflowActivationError } from '@pathfinder/db'
+import { AgentWorkflowActivationError, AgentWorkflowPromotionAssessmentError } from '@pathfinder/db'
 import type { TRPCContext } from '../../context'
 import { adminAgentWorkflowActivationsRouter } from './agent-workflow-activations'
 
@@ -208,6 +216,14 @@ describe('operator workflow activation boundary', () => {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Workflow activation could not be completed',
     })
+  })
+  it('preserves canonical stale-assessment conflict semantics', async () => {
+    mocks.apply.mockRejectedValueOnce(
+      new AgentWorkflowPromotionAssessmentError('CONFLICT', 'Evaluation evidence changed'),
+    )
+    await expect(
+      caller().applyAgentWorkflowActivation({ ...activation, approvalDecisionId: 'decision-one' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: 'Evaluation evidence changed' })
   })
   it('paginates scoped immutable events and heads without portable workflow bodies', async () => {
     const createdAt = new Date('2026-09-07T12:00:00Z')
