@@ -104,6 +104,62 @@ describe('agent question actions', () => {
     expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
   })
 
+  it('replays JSONB-reordered rich evidence while still rejecting changed values and array order', async () => {
+    const existing = {
+      id: 'question-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      agentRunId: null,
+      question: 'Which hours?',
+      context: null,
+      questionType: 'SHORT_TEXT',
+      category: 'general',
+      urgency: 'NORMAL',
+      dueAt: null,
+      blocking: false,
+      choices: [],
+      evidence: [
+        { reference: 'source-a', summary: 'Open at 9', label: 'A' },
+        { reference: 'source-b', label: 'B' },
+      ],
+      callbackMetadata: { target: 'hours', blockerScope: 'LOCAL' },
+      proposedAnswer: {
+        candidateEntities: [{ reference: 'entry', label: 'Entrance' }],
+        confidence: 0.5,
+      },
+    }
+    const transaction = {
+      agentQuestion: { findFirst: vi.fn().mockResolvedValue(existing), create: vi.fn() },
+    }
+    const input = {
+      operationId: '86d4ee39-a7c7-44ab-bf24-75c187cff002',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      question: 'Which hours?',
+      blocking: false,
+      evidence: [
+        { label: 'A', reference: 'source-a', summary: 'Open at 9' },
+        { label: 'B', reference: 'source-b' },
+      ],
+      callbackMetadata: { blockerScope: 'LOCAL', target: 'hours' },
+      proposedAnswer: {
+        confidence: 0.5,
+        candidateEntities: [{ label: 'Entrance', reference: 'entry' }],
+      },
+    }
+    expect((await askAgentQuestionAction(input, client(transaction) as never)).replayed).toBe(true)
+    for (const changed of [
+      { ...input, evidence: [...input.evidence].reverse() },
+      { ...input, callbackMetadata: { ...input.callbackMetadata, target: 'entrance' } },
+      { ...input, proposedAnswer: { ...input.proposedAnswer, confidence: 0.9 } },
+    ])
+      await expect(
+        askAgentQuestionAction(changed, client(transaction) as never),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
+  })
+
   it('persists bounded rich evidence and decision support in the canonical question', async () => {
     const created = {
       id: 'question-rich',

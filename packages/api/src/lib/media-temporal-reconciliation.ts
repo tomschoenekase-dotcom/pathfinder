@@ -24,6 +24,30 @@ const activeAt = (claim: MediaTemporalClaim, now: number) =>
   (!claim.effectiveFrom || Date.parse(claim.effectiveFrom) <= now) &&
   (!claim.effectiveUntil || Date.parse(claim.effectiveUntil) > now)
 
+/** Holds apply to individual source-bound items; date-bound facts need the dated update path. */
+export function mediaTemporalHolds(claims: MediaTemporalClaim[], now: string) {
+  const reconciliation = reconcileMediaTemporalClaims({ claims, now })
+  const blockedTargets = new Set(reconciliation.blockedTargetKeys)
+  const historicalTargets = new Set(
+    reconciliation.comparisons
+      .filter((entry) => entry.disposition === 'HISTORICAL_ONLY')
+      .map((entry) => entry.targetKey),
+  )
+  type Reason = 'CONFLICT' | 'DATE_BOUND' | 'NO_CURRENT_SUPPORT'
+  const held = new Map<string, Set<Reason>>()
+  for (const claim of claims) {
+    const reasons = held.get(claim.targetItemHash) ?? new Set<Reason>()
+    if (blockedTargets.has(claim.targetKey)) reasons.add('CONFLICT')
+    if (historicalTargets.has(claim.targetKey)) reasons.add('NO_CURRENT_SUPPORT')
+    if (claim.claimType === 'TEMPORARY_SCHEDULE' || claim.effectiveFrom || claim.effectiveUntil)
+      reasons.add('DATE_BOUND')
+    if (reasons.size) held.set(claim.targetItemHash, reasons)
+  }
+  return [...held]
+    .sort(([a], [b]) => compare(a, b))
+    .map(([itemHash, reasons]) => ({ itemHash, reasons: [...reasons].sort() }))
+}
+
 type Disposition =
   | 'TARGET_INCONSISTENT'
   | 'FUTURE_SCHEDULE'

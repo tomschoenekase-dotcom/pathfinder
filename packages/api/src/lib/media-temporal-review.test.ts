@@ -37,11 +37,13 @@ const makeClaim = (id: string, value: string) => ({
   claimId: id,
   targetKey: 'place:greenhouse:hours',
   targetItemHash: mediaIntakeHash(draft.places[0]),
-  claimType: 'STABLE_FACT' as const,
+  claimType: 'STABLE_FACT' as 'STABLE_FACT' | 'TEMPORARY_SCHEDULE',
   value,
   valueHash: valueHash(value),
   authority: 'AUTHORIZED_STAFF' as const,
   consequential: true,
+  effectiveFrom: undefined as string | undefined,
+  effectiveUntil: undefined as string | undefined,
   source: {
     sourceId: 'poster',
     sourceSha256: 'a'.repeat(64),
@@ -123,8 +125,18 @@ describe('previewMediaTemporalReview', () => {
     })
     expect(result.reviewReceiptHash).toMatch(/^[a-f0-9]{64}$/u)
     expect(result.items).toEqual([
-      expect.objectContaining({ kind: 'place', status: 'LOCALLY_BLOCKED' }),
-      expect.objectContaining({ kind: 'knowledge', status: 'ELIGIBLE' }),
+      expect.objectContaining({
+        kind: 'place',
+        status: 'LOCALLY_BLOCKED',
+        handoffStatus: 'HELD',
+        holdReasons: ['CONFLICT'],
+      }),
+      expect.objectContaining({
+        kind: 'knowledge',
+        status: 'ELIGIBLE',
+        handoffStatus: 'ELIGIBLE',
+        holdReasons: [],
+      }),
     ])
     expect(tx.mediaIngestionAsset.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -134,6 +146,48 @@ describe('previewMediaTemporalReview', () => {
     )
     expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'RepeatableRead',
+    })
+  })
+
+  it('reports a date-bound item as held even when reconciliation has no conflict', async () => {
+    const { db, input } = fixture()
+    input.claims = [
+      {
+        ...makeClaim('holiday-hours', 'Open 10–4'),
+        claimType: 'TEMPORARY_SCHEDULE',
+        effectiveFrom: '2026-09-01T00:00:00.000Z',
+        effectiveUntil: '2026-09-30T00:00:00.000Z',
+      },
+    ]
+    const result = await previewMediaTemporalReview({
+      db: db as never,
+      input,
+      evaluatedAt: '2026-09-07T12:00:00.000Z',
+    })
+    expect(result.items[0]).toMatchObject({
+      status: 'ELIGIBLE',
+      handoffStatus: 'HELD',
+      holdReasons: ['DATE_BOUND'],
+    })
+  })
+
+  it('reports historical-only evidence as lacking current support', async () => {
+    const { db, input } = fixture()
+    input.claims = [
+      {
+        ...makeClaim('expired-hours', 'Open 10–4 last month'),
+        effectiveUntil: '2026-08-31T23:59:59.000Z',
+      },
+    ]
+    const result = await previewMediaTemporalReview({
+      db: db as never,
+      input,
+      evaluatedAt: '2026-09-07T12:00:00.000Z',
+    })
+    expect(result.items[0]).toMatchObject({
+      status: 'ELIGIBLE',
+      handoffStatus: 'HELD',
+      holdReasons: ['DATE_BOUND', 'NO_CURRENT_SUPPORT'],
     })
   })
 

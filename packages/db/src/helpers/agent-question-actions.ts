@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDeepStrictEqual } from 'node:util'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -159,6 +160,14 @@ export class AgentQuestionActionError extends Error {
   }
 }
 
+function sameStoredJson(left: unknown, right: unknown) {
+  // JSONB reorders object keys; compare its persisted shape while preserving array order.
+  return isDeepStrictEqual(
+    JSON.parse(JSON.stringify(left ?? null)),
+    JSON.parse(JSON.stringify(right ?? null)),
+  )
+}
+
 function sameQuestion(
   existing: {
     venueId: string
@@ -189,10 +198,10 @@ function sameQuestion(
     existing.category === input.category &&
     existing.urgency === input.urgency &&
     existing.dueAt?.toISOString() === input.dueAt?.toISOString() &&
-    JSON.stringify(existing.evidence) === JSON.stringify(input.evidence) &&
-    JSON.stringify(existing.proposedAnswer) === JSON.stringify(input.proposedAnswer ?? null) &&
-    JSON.stringify(existing.callbackMetadata) === JSON.stringify(input.callbackMetadata ?? null) &&
-    JSON.stringify(existing.choices) === JSON.stringify(input.choices)
+    sameStoredJson(existing.evidence, input.evidence) &&
+    sameStoredJson(existing.proposedAnswer, input.proposedAnswer ?? null) &&
+    sameStoredJson(existing.callbackMetadata, input.callbackMetadata ?? null) &&
+    sameStoredJson(existing.choices, input.choices)
   )
 }
 

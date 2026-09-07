@@ -9,8 +9,31 @@ import {
 } from '../../lib/media-temporal-review'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import {
+  createMediaTemporalClarification,
+  MediaTemporalClarificationError,
+  MediaTemporalClarificationInput,
+} from '../../lib/media-temporal-clarification'
 
 export const mediaIngestionTemporalRouter = router({
+  createTemporalClarification: adminProcedure
+    .input(MediaTemporalClarificationInput)
+    .mutation(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        await assertVenueAvailable(db, { tenantId: input.tenantId, venueId: input.venueId })
+        try {
+          return await createMediaTemporalClarification({ client: db, input })
+        } catch (error) {
+          if (error instanceof MediaTemporalClarificationError)
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: error.message,
+              cause: error,
+            })
+          throw error
+        }
+      }),
+    ),
   previewTemporalReview: adminProcedure.input(MediaTemporalReviewInput).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       await assertVenueAvailable(db, { tenantId: input.tenantId, venueId: input.venueId })

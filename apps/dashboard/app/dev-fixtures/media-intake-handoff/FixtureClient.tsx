@@ -37,6 +37,35 @@ export function FixtureClient() {
           : [{ sourceId: 's1', filename: 'north-hall-walkthrough.mp4' }],
         nextSourceCursor: sourceCursor ? null : 's1',
       }),
+      previewTemporal: async ({ claims }) => ({
+        evaluatedAt: '2026-09-07T12:00:00.000Z',
+        authorityBasis: 'REVIEW_ASSERTED',
+        authorityVerified: false,
+        reviewReceiptHash: 'c'.repeat(64),
+        reconciliation: {
+          comparisonCount: 1,
+          comparisonsTruncated: false,
+          selectedClaimIds: claims.map((claim) => claim.claimId),
+        },
+        items: [
+          {
+            kind: 'place',
+            itemIndex: 0,
+            itemHash: 'a'.repeat(64),
+            label: 'North Hall and the east entrance visitor information desk',
+            handoffStatus: 'HELD',
+            holdReasons: ['DATE_BOUND', 'NO_CURRENT_SUPPORT'],
+          },
+          {
+            kind: 'knowledge',
+            itemIndex: 0,
+            itemHash: 'b'.repeat(64),
+            label: 'Arrival assistance',
+            handoffStatus: 'ELIGIBLE',
+            holdReasons: [],
+          },
+        ],
+      }),
       create: async (request) => {
         if (firstRequest === null) {
           firstRequest = JSON.stringify(request)

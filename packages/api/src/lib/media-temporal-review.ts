@@ -8,7 +8,7 @@ import {
 import { db } from '@pathfinder/db'
 
 import { mediaIntakeHash } from './media-intake-snapshot'
-import { reconcileMediaTemporalClaims } from './media-temporal-reconciliation'
+import { mediaTemporalHolds, reconcileMediaTemporalClaims } from './media-temporal-reconciliation'
 import { mediaFindingsSchema } from '../routers/admin/media-ingestion-review-schemas'
 
 const id = z.string().min(1).max(191)
@@ -175,6 +175,9 @@ async function readTemporalReview(
     claims: normalizedClaims,
     now: evaluatedAt,
   })
+  const holds = new Map(
+    mediaTemporalHolds(normalizedClaims, evaluatedAt).map((item) => [item.itemHash, item.reasons]),
+  )
   const blocked = new Map<string, string[]>()
   for (const comparison of reconciliation.comparisons) {
     if (!reconciliation.blockedTargetKeys.includes(comparison.targetKey)) continue
@@ -203,6 +206,8 @@ async function readTemporalReview(
       ...item,
       status: blocked.has(item.itemHash) ? ('LOCALLY_BLOCKED' as const) : ('ELIGIBLE' as const),
       blockedTargetKeys: [...new Set(blocked.get(item.itemHash) ?? [])].sort(),
+      handoffStatus: holds.has(item.itemHash) ? ('HELD' as const) : ('ELIGIBLE' as const),
+      holdReasons: holds.get(item.itemHash) ?? [],
     })),
   }
 }

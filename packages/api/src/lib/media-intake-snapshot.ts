@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import { MediaTemporalClaimSchema } from '@pathfinder/contracts/media-temporal-claims'
+import { mediaTemporalHolds, reconcileMediaTemporalClaims } from './media-temporal-reconciliation'
 import {
   MediaResolutionStateSchema,
   projectMediaResolution,
@@ -35,6 +37,7 @@ export const MediaIntakeHandoffInput = z
     bindings: z.array(MediaIntakeBinding).min(1).max(500),
     rationale: z.string().trim().min(1).max(2000),
     identityReviewId: z.string().uuid().optional(),
+    temporalClaims: z.array(MediaTemporalClaimSchema).min(1).max(100).optional(),
   })
   .strict()
 
@@ -78,6 +81,15 @@ export const MediaIntakeSnapshot = z
       })
       .strict()
       .optional(),
+    temporalReview: z
+      .object({
+        claims: z.array(MediaTemporalClaimSchema).min(1).max(100),
+        evaluatedAt: z.string().datetime(),
+        sourceVersion: id,
+        reconciliationHash: sha256,
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -114,6 +126,7 @@ export function mediaIntakeSnapshotInput(snapshot: MediaIntakeSnapshot) {
     bindings: snapshot.bindings,
     rationale: snapshot.reviewRationale,
     ...(snapshot.identityReview ? { identityReviewId: snapshot.identityReview.id } : {}),
+    ...(snapshot.temporalReview ? { temporalClaims: snapshot.temporalReview.claims } : {}),
   })
 }
 
@@ -256,5 +269,46 @@ export function validateMediaIntakeSnapshot(value: unknown): MediaIntakeSnapshot
       'Media review must bind all candidate items and contain only their retained evidence',
     )
   }
+  if (snapshot.temporalReview) {
+    const review = snapshot.temporalReview
+    const reconciliation = reconcileMediaTemporalClaims({
+      claims: review.claims,
+      now: review.evaluatedAt,
+    })
+    if (reconciliation.reconciliationHash !== review.reconciliationHash)
+      throw new Error('Temporal review reconciliation does not match its frozen claims and time')
+    for (const claim of review.claims) {
+      const source = sources.get(claim.source.sourceId)
+      const observations = source?.finding.sourceObservations ?? source?.finding.observations
+      const observation = observations?.[claim.source.observationIndex]
+      if (
+        !source ||
+        source.sha256 !== claim.source.sourceSha256 ||
+        claim.source.sourceVersion !== review.sourceVersion ||
+        !observation ||
+        mediaIntakeHash(observation) !== claim.source.observationSha256 ||
+        !snapshot.bindings.some(
+          (binding) =>
+            binding.itemHash === claim.targetItemHash &&
+            binding.sourceIds.includes(claim.source.sourceId),
+        )
+      )
+        throw new Error(
+          'Temporal claim does not match its exact bound item and retained source observation',
+        )
+    }
+    const held = mediaIntakeHeldItemHashes(snapshot)
+    if (snapshot.bindings.every((binding) => held.has(binding.itemHash)))
+      throw new Error(
+        'All reviewed items are held; resolve a local conflict or use the dated operational update workflow',
+      )
+  }
   return snapshot
+}
+
+/** Local holds keep source indices stable and never turn temporary facts into permanent content. */
+export function mediaIntakeHeldItemHashes(snapshot: MediaIntakeSnapshot): Set<string> {
+  const review = snapshot.temporalReview
+  if (!review) return new Set()
+  return new Set(mediaTemporalHolds(review.claims, review.evaluatedAt).map((item) => item.itemHash))
 }

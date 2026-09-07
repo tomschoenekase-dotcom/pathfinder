@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { reconcileMediaTemporalClaims } from './media-temporal-reconciliation'
 
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
@@ -96,6 +98,166 @@ function fixture() {
 }
 
 describe('reviewed media canonical intake candidate', () => {
+  function temporalFixture() {
+    const run = fixture()
+    const snapshot = run.structuredBootstrap
+    const source = snapshot.sources[0]!
+    const observation = {
+      kind: 'visible_text' as const,
+      statement: 'East entrance opening hours.',
+      evidenceChannel: 'visible_text' as const,
+      directness: 'observed' as const,
+      confidence: 'confirmed' as const,
+      processingMethod: 'provider_video_static_1fps' as const,
+      locator: { type: 'whole_source' as const },
+    }
+    source.finding.sourceObservations = [observation]
+    source.analysisHash = mediaIntakeHash(source.finding)
+    const claims = ['Open at 9', 'Open at 11'].map((value, index) => ({
+      claimId: `hours-${index}`,
+      targetKey: 'entrance:hours',
+      targetItemHash: snapshot.bindings[0]!.itemHash,
+      claimType: 'STABLE_FACT' as const,
+      value,
+      valueHash: createHash('sha256').update(value).digest('hex'),
+      authority: 'AUTHORIZED_STAFF' as const,
+      consequential: true,
+      source: {
+        sourceId: source.sourceId,
+        sourceSha256: source.sha256,
+        sourceVersion: 'upload-1',
+        capturedAt: null,
+        observationIndex: 0,
+        observationSha256: mediaIntakeHash(observation),
+      },
+    }))
+    const evaluatedAt = '2026-09-07T09:00:00.000Z'
+    snapshot.temporalReview = {
+      claims,
+      evaluatedAt,
+      sourceVersion: 'upload-1',
+      reconciliationHash: reconcileMediaTemporalClaims({ claims, now: evaluatedAt })
+        .reconciliationHash,
+    }
+    function seal() {
+      run.submissionInputHash = mediaIntakeHash({
+        input: mediaIntakeSnapshotInput(snapshot),
+        actorId: snapshot.reviewedBy,
+      })
+      run.evidence[0]!.normalizedHash = mediaIntakeHash(snapshot)
+      run.evidence[1]!.normalizedHash = source.analysisHash
+    }
+    seal()
+    return { run, seal }
+  }
+
+  it('holds only the conflicted item while retaining all original evidence and stable item identity', () => {
+    const { run } = temporalFixture()
+    const candidate = buildReviewedMediaIntakeCandidate(run)
+    expect(candidate.places.create).toEqual([])
+    expect(candidate.knowledgeEntries.create).toEqual(
+      buildReviewedMediaIntakeCandidate(fixture()).knowledgeEntries.create,
+    )
+    expect(run.structuredBootstrap.draft.places).toHaveLength(1)
+    expect(run.structuredBootstrap.bindings).toHaveLength(2)
+    expect(buildReviewedMediaIntakeCandidate(structuredClone(run))).toEqual(candidate)
+  })
+
+  it('never hands date-bound facts to permanent Builder content even when authoritative and active', () => {
+    const { run, seal } = temporalFixture()
+    const review = run.structuredBootstrap.temporalReview!
+    review.claims = [
+      {
+        ...review.claims[0]!,
+        claimType: 'TEMPORARY_SCHEDULE',
+        effectiveFrom: '2026-09-01T00:00:00.000Z',
+        effectiveUntil: '2026-10-01T00:00:00.000Z',
+      },
+    ]
+    review.reconciliationHash = reconcileMediaTemporalClaims({
+      claims: review.claims,
+      now: review.evaluatedAt,
+    }).reconciliationHash
+    seal()
+    expect(buildReviewedMediaIntakeCandidate(run).places.create).toEqual([])
+  })
+
+  it('retains future and expired schedules on hold when reconstructing an immutable handoff', () => {
+    for (const effectiveFrom of ['2025-09-01T00:00:00.000Z', '2027-09-01T00:00:00.000Z']) {
+      const { run, seal } = temporalFixture()
+      const review = run.structuredBootstrap.temporalReview!
+      review.claims = [
+        {
+          ...review.claims[0]!,
+          claimType: 'TEMPORARY_SCHEDULE',
+          effectiveFrom,
+          effectiveUntil: effectiveFrom.replace('-09-01', '-10-01'),
+        },
+      ]
+      review.reconciliationHash = reconcileMediaTemporalClaims({
+        claims: review.claims,
+        now: review.evaluatedAt,
+      }).reconciliationHash
+      seal()
+      expect(buildReviewedMediaIntakeCandidate(run).places.create).toEqual([])
+      expect(buildReviewedMediaIntakeCandidate(run).knowledgeEntries.create).toHaveLength(1)
+    }
+  })
+
+  it('rejects temporal source, item and reconciliation tampering even with resealed outer receipts', () => {
+    for (const mutate of [
+      (
+        review: NonNullable<ReturnType<typeof fixture>['structuredBootstrap']['temporalReview']>,
+      ) => {
+        review.sourceVersion = 'other-upload'
+      },
+      (
+        review: NonNullable<ReturnType<typeof fixture>['structuredBootstrap']['temporalReview']>,
+      ) => {
+        review.claims[0]!.source.observationSha256 = 'b'.repeat(64)
+      },
+      (
+        review: NonNullable<ReturnType<typeof fixture>['structuredBootstrap']['temporalReview']>,
+      ) => {
+        review.claims[0]!.targetItemHash = 'c'.repeat(64)
+      },
+    ]) {
+      const { run, seal } = temporalFixture()
+      mutate(run.structuredBootstrap.temporalReview!)
+      const review = run.structuredBootstrap.temporalReview!
+      review.reconciliationHash = reconcileMediaTemporalClaims({
+        claims: review.claims,
+        now: review.evaluatedAt,
+      }).reconciliationHash
+      seal()
+      expect(() => buildReviewedMediaIntakeCandidate(run)).toThrow()
+    }
+  })
+
+  it('rejects frozen reconciliation tampering and an entirely held static handoff', () => {
+    const { run, seal } = temporalFixture()
+    run.structuredBootstrap.temporalReview!.reconciliationHash = 'f'.repeat(64)
+    seal()
+    expect(() => buildReviewedMediaIntakeCandidate(run)).toThrow('reconciliation')
+    const allHeld = temporalFixture()
+    const review = allHeld.run.structuredBootstrap.temporalReview!
+    review.claims.push(
+      ...review.claims.map((claim) => ({
+        ...claim,
+        claimId: `${claim.claimId}-knowledge`,
+        targetKey: 'knowledge:hours',
+        targetItemHash: allHeld.run.structuredBootstrap.bindings[1]!.itemHash,
+      })),
+    )
+    review.reconciliationHash = reconcileMediaTemporalClaims({
+      claims: review.claims,
+      now: review.evaluatedAt,
+    }).reconciliationHash
+    allHeld.seal()
+    expect(() => buildReviewedMediaIntakeCandidate(allHeld.run)).toThrow(
+      'All reviewed items are held',
+    )
+  })
   it('maps exact reviewed items to stable V3 creates with truthful AI provenance', () => {
     const run = fixture()
     const payload = buildReviewedMediaIntakeCandidate(run)

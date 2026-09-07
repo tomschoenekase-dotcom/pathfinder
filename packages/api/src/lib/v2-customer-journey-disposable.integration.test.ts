@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { setOpenAiEmbeddingsClientForTesting, type OpenAiEmbeddingsClient } from '@pathfinder/ai'
 import {
@@ -22,6 +22,7 @@ import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater
 import { createMediaIntakeHandoff } from './media-intake-handoff-service'
 import { saveMediaResolution } from './media-resolution-service'
 import { mediaIntakeHash } from './media-intake-snapshot'
+import { createMediaTemporalClarification } from './media-temporal-clarification'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
 import { createIntakeCandidateDraftForAdmin } from '../routers/admin/intake-draft-actions'
 
@@ -848,6 +849,12 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         content: 'The reviewed walkthrough identifies the north entrance.',
         isEnabled: true,
       }
+      const unrelatedReviewedItem = {
+        title: 'Permanent gallery orientation',
+        category: 'VISITOR_GUIDANCE',
+        content: 'The sculpture gallery is reached through the north entrance lobby.',
+        isEnabled: true,
+      }
       const observation = {
         kind: 'entity_candidate' as const,
         statement: 'North entrance',
@@ -903,7 +910,7 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
           draftJson: {
             schemaVersion: 1,
             places: [],
-            knowledgeEntries: [reviewedItem],
+            knowledgeEntries: [reviewedItem, unrelatedReviewedItem],
           },
           findings: [finding, secondFinding],
           questions: [],
@@ -1027,10 +1034,51 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
             sourceIds: [finding.sourceId, secondFinding.sourceId],
             entityRepresentativeId: 'north-entrance',
           },
+          {
+            kind: 'knowledge' as const,
+            itemIndex: 1,
+            itemHash: mediaIntakeHash(unrelatedReviewedItem),
+            sourceIds: [finding.sourceId, secondFinding.sourceId],
+            entityRepresentativeId: 'north-entrance',
+          },
         ],
         rationale: 'Human reviewed the source limitation and approved this draft binding.',
         identityReviewId: mergedReview.id,
       }
+      const claimValueHash = (value: string) => createHash('sha256').update(value).digest('hex')
+      const temporalClaim = (
+        claimId: string,
+        value: string,
+        source: { sourceId: string; sourceObservations: unknown[] },
+        sourceSha256: string,
+      ) => ({
+        claimId,
+        targetKey: 'north-entrance:current-access',
+        targetItemHash: mediaIntakeHash(reviewedItem),
+        claimType: 'STABLE_FACT' as const,
+        value,
+        valueHash: claimValueHash(value),
+        authority: 'AUTHORIZED_STAFF' as const,
+        consequential: true,
+        source: {
+          sourceId: source.sourceId,
+          sourceSha256,
+          sourceVersion: mediaUploadAttemptId,
+          capturedAt: null,
+          observationIndex: 0,
+          observationSha256: mediaIntakeHash(source.sourceObservations[0]),
+        },
+      })
+      const conflictingTemporalClaims = [
+        temporalClaim('access-open', 'The north entrance is open.', finding, 'a'.repeat(64)),
+        temporalClaim(
+          'access-closed',
+          'The north entrance is closed.',
+          secondFinding,
+          'b'.repeat(64),
+        ),
+      ]
+      const temporalHandoffInput = { ...handoffInput, temporalClaims: conflictingTemporalClaims }
       await expect(
         createMediaIntakeHandoff({
           db,
@@ -1052,15 +1100,113 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
       `
       await expect(
-        createMediaIntakeHandoff({ db, input: handoffInput, actorId: ownerUserId }),
+        createMediaIntakeHandoff({ db, input: temporalHandoffInput, actorId: ownerUserId }),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
       await db.$executeRaw`
         UPDATE media_ingestion_projects SET findings = ${JSON.stringify([finding, secondFinding])}::jsonb
         WHERE id = ${mediaProjectId} AND tenant_id = ${tenantId} AND venue_id = ${mediaVenueId}
       `
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: conflictingTemporalClaims.map((claim) => ({
+              ...claim,
+              source: { ...claim.source, sourceVersion: randomUUID() },
+            })),
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: [
+              {
+                ...conflictingTemporalClaims[0]!,
+                source: {
+                  ...conflictingTemporalClaims[0]!.source,
+                  observationSha256: 'f'.repeat(64),
+                },
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: [
+              {
+                ...conflictingTemporalClaims[0]!,
+                source: { ...conflictingTemporalClaims[0]!.source, sourceSha256: 'f'.repeat(64) },
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const unboundClaim = {
+        ...conflictingTemporalClaims[0]!,
+        claimId: 'unbound-item-source',
+        targetKey: 'gallery:current-access',
+        targetItemHash: mediaIntakeHash(unrelatedReviewedItem),
+      }
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            bindings: [
+              handoffInput.bindings[0]!,
+              { ...handoffInput.bindings[1]!, sourceIds: [secondFinding.sourceId] },
+            ],
+            temporalClaims: [unboundClaim],
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const now = Date.now()
+      const allItemsHeldClaims = [
+        ...conflictingTemporalClaims,
+        {
+          ...temporalClaim(
+            'gallery-temporary',
+            'The sculpture gallery is temporarily closed.',
+            secondFinding,
+            'b'.repeat(64),
+          ),
+          targetKey: 'gallery:temporary-access',
+          targetItemHash: mediaIntakeHash(unrelatedReviewedItem),
+          claimType: 'TEMPORARY_SCHEDULE' as const,
+          effectiveFrom: new Date(now - 60_000).toISOString(),
+          effectiveUntil: new Date(now + 3_600_000).toISOString(),
+        },
+      ]
+      await expect(
+        createMediaIntakeHandoff({
+          db,
+          actorId: ownerUserId,
+          input: {
+            ...temporalHandoffInput,
+            requestId: randomUUID(),
+            temporalClaims: allItemsHeldClaims,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
       const mediaHandoff = await createMediaIntakeHandoff({
         db,
-        input: handoffInput,
+        input: temporalHandoffInput,
         actorId: ownerUserId,
       })
       const frozenIdentitySnapshot = await db.intakeRun.findFirstOrThrow({
@@ -1069,14 +1215,78 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
       })
       expect(frozenIdentitySnapshot.structuredBootstrap).toMatchObject({
         identityReview: { id: mergedReview.id, revision: 2 },
-        bindings: [
-          {
+        temporalReview: {
+          claims: conflictingTemporalClaims,
+          sourceVersion: mediaUploadAttemptId,
+        },
+      })
+      expect(
+        (frozenIdentitySnapshot.structuredBootstrap as { bindings: unknown[] }).bindings,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
             entityRepresentativeId: 'north-entrance',
             sourceIds: [finding.sourceId, secondFinding.sourceId],
-          },
-        ],
-      })
+          }),
+        ]),
+      )
+      expect(
+        (frozenIdentitySnapshot.structuredBootstrap as { draft: { knowledgeEntries: unknown[] } })
+          .draft.knowledgeEntries,
+      ).toHaveLength(2)
       const frozenIdentitySnapshotHash = mediaIntakeHash(frozenIdentitySnapshot.structuredBootstrap)
+      const contentIdentityId = `media-content-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: contentIdentityId,
+          tenantId,
+          venueId: mediaVenueId,
+          identityKey: `media.temporal.${suffix}`,
+          name: 'Media temporal clarification specialist',
+          agentType: 'CONTENT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['content.draft'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: ownerUserId,
+        },
+      })
+      const clarificationInput = {
+        tenantId,
+        venueId: mediaVenueId,
+        runId: mediaHandoff.runId,
+        agentIdentityId: contentIdentityId,
+        targetKey: 'north-entrance:current-access',
+        expectedSnapshotHash: frozenIdentitySnapshotHash,
+      }
+      const clarification = await createMediaTemporalClarification({
+        client: db,
+        input: clarificationInput,
+      })
+      const clarificationReplay = await createMediaTemporalClarification({
+        client: db,
+        input: clarificationInput,
+      })
+      expect(clarification).toMatchObject({
+        blockerScope: 'LOCAL',
+        sourceAmendmentRequired: true,
+        publicationTriggered: false,
+        canonicalVenueChanged: false,
+      })
+      expect(clarificationReplay).toMatchObject({
+        questionId: clarification.questionId,
+        replayed: true,
+      })
+      await expect(
+        db.agentQuestion.count({
+          where: {
+            tenantId,
+            venueId: mediaVenueId,
+            category: 'media-temporal-clarification',
+            blocking: false,
+          },
+        }),
+      ).resolves.toBe(1)
       await saveMediaResolution({
         client: db,
         actorId: ownerUserId,
@@ -1096,7 +1306,7 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         },
       })
       await expect(
-        createMediaIntakeHandoff({ db, input: handoffInput, actorId: ownerUserId }),
+        createMediaIntakeHandoff({ db, input: temporalHandoffInput, actorId: ownerUserId }),
       ).resolves.toMatchObject({ runId: mediaHandoff.runId, replayed: true })
       expect(
         mediaIntakeHash(
@@ -1110,11 +1320,17 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
       ).toBe(frozenIdentitySnapshotHash)
       await db.mediaIngestionProject.update({
         where: { id: mediaProjectId },
-        data: { name: 'Changed after immutable handoff' },
+        data: {
+          name: 'Changed after immutable handoff',
+          findings: [
+            { ...finding, summary: 'Source changed after immutable handoff.' },
+            secondFinding,
+          ],
+        },
       })
       const distinctRequestReplay = await createMediaIntakeHandoff({
         db,
-        input: { ...handoffInput, requestId: randomUUID() },
+        input: temporalHandoffInput,
         actorId: ownerUserId,
       })
       expect(distinctRequestReplay).toMatchObject({ runId: mediaHandoff.runId, replayed: true })
@@ -1134,6 +1350,9 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
         runId: mediaHandoff.runId,
       })
       expect(mediaCandidate).toMatchObject({ ready: true, autoApprove: false, autoApply: false })
+      expect(mediaCandidate.payload?.knowledgeEntries.create).toEqual([
+        expect.objectContaining({ value: unrelatedReviewedItem }),
+      ])
       const embeddingCreate = vi.fn(async (params: { input: string[]; dimensions: number }) => ({
         data: params.input.map((_text, index) => {
           const embedding = Array(params.dimensions).fill(0)

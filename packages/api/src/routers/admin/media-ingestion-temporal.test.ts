@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ available: vi.fn(), preview: vi.fn() }))
+const mocks = vi.hoisted(() => ({ available: vi.fn(), preview: vi.fn(), clarify: vi.fn() }))
 vi.mock('@pathfinder/config', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
@@ -12,6 +12,10 @@ vi.mock('@pathfinder/db', () => ({
 vi.mock('../../lib/media-temporal-review', async (original) => {
   const actual = await original<typeof import('../../lib/media-temporal-review')>()
   return { ...actual, previewMediaTemporalReview: mocks.preview }
+})
+vi.mock('../../lib/media-temporal-clarification', async (original) => {
+  const actual = await original<typeof import('../../lib/media-temporal-clarification')>()
+  return { ...actual, createMediaTemporalClarification: mocks.clarify }
 })
 
 import { createHash } from 'node:crypto'
@@ -58,6 +62,29 @@ function caller(isPlatformAdmin = true) {
 
 beforeEach(() => vi.clearAllMocks())
 describe('media temporal review admin route', () => {
+  it('requires platform authority and venue availability before creating a local clarification', async () => {
+    const clarification = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      agentIdentityId: 'agent-a',
+      targetKey: 'hours',
+      expectedSnapshotHash: 'a'.repeat(64),
+    }
+    await expect(
+      caller(false).mediaIngestion.createTemporalClarification(clarification),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.clarify).not.toHaveBeenCalled()
+    mocks.available.mockRejectedValueOnce(new Error('Venue unavailable'))
+    await expect(
+      caller().mediaIngestion.createTemporalClarification(clarification),
+    ).rejects.toThrow('Venue unavailable')
+    expect(mocks.clarify).not.toHaveBeenCalled()
+    mocks.clarify.mockResolvedValue({ blockerScope: 'LOCAL' })
+    await expect(
+      caller().mediaIngestion.createTemporalClarification(clarification),
+    ).resolves.toEqual({ blockerScope: 'LOCAL' })
+  })
   it('checks venue authority and supplies server evaluation time', async () => {
     mocks.preview.mockResolvedValue({ reconciliation: { blockedTargetKeys: [] } })
     await expect(caller().mediaIngestion.previewTemporalReview(input)).resolves.toEqual({

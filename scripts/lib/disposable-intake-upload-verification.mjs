@@ -1562,15 +1562,12 @@ export async function runDisposableMediaRelationApplicationShakedown(options = {
         'concurrent-exact-application-replay',
         'inactive-canonical-connection-only',
         'separate-reviewed-activation-and-public-route',
+        'source-review-reversal-suspends-active-public-route',
         'scope-review-evidence-and-anchor-cas-fences',
         'immutable-replay-after-activation-and-ledger-advance',
         'no-content-or-publication-writes',
       ],
-      failureScope: [
-        'provider-dark',
-        'no-automatic-activation',
-        'source-review-reversal-does-not-yet-suspend-an-active-route',
-      ],
+      failureScope: ['provider-dark', 'no-automatic-activation'],
       integration: {
         packageDirectory: 'packages/api',
         testFile: 'src/lib/media-relation-application.disposable.integration.test.ts',

@@ -12,6 +12,7 @@ import {
 } from './media-intake-snapshot'
 import { buildReviewedMediaIntakeCandidate } from './media-intake-candidate'
 import { validateResolutionEvidence } from './media-resolution-evidence'
+import { reconcileMediaTemporalClaims } from './media-temporal-reconciliation'
 import {
   mediaFindingsSchema,
   mediaQuestionSchema,
@@ -317,22 +318,53 @@ export async function createMediaIntakeHandoff(params: {
           finding,
         })
       }
-      const snapshot = validateMediaIntakeSnapshot({
-        kind: 'MEDIA_PROJECT_REVIEW',
-        version: 1,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        projectId: input.projectId,
-        requestId: input.requestId,
-        sourceGeneration: input.sourceGeneration,
-        reviewedUpdatedAt: input.expectedUpdatedAt,
-        reviewedBy: actorId,
-        reviewRationale: input.rationale,
-        draft,
-        bindings: input.bindings,
-        sources,
-        ...(identityReview ? { identityReview } : {}),
-      })
+      let snapshot: MediaIntakeSnapshot
+      try {
+        snapshot = validateMediaIntakeSnapshot({
+          kind: 'MEDIA_PROJECT_REVIEW',
+          version: 1,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          projectId: input.projectId,
+          requestId: input.requestId,
+          sourceGeneration: input.sourceGeneration,
+          reviewedUpdatedAt: input.expectedUpdatedAt,
+          reviewedBy: actorId,
+          reviewRationale: input.rationale,
+          draft,
+          bindings: input.bindings,
+          sources,
+          ...(identityReview ? { identityReview } : {}),
+          ...(input.temporalClaims
+            ? {
+                temporalReview: (() => {
+                  if (!project.uploadAttemptId)
+                    throw new MediaIntakeHandoffError(
+                      'INVALID_REVIEW',
+                      'Temporal evidence requires the current media processing generation.',
+                    )
+                  const evaluatedAt = new Date().toISOString()
+                  const reconciliation = reconcileMediaTemporalClaims({
+                    claims: input.temporalClaims,
+                    now: evaluatedAt,
+                  })
+                  return {
+                    claims: input.temporalClaims,
+                    evaluatedAt,
+                    sourceVersion: project.uploadAttemptId,
+                    reconciliationHash: reconciliation.reconciliationHash,
+                  }
+                })(),
+              }
+            : {}),
+        })
+      } catch (error) {
+        if (error instanceof MediaIntakeHandoffError) throw error
+        throw new MediaIntakeHandoffError(
+          'INVALID_REVIEW',
+          error instanceof Error ? error.message : 'The reviewed media snapshot is invalid.',
+        )
+      }
       const snapshotHash = mediaIntakeHash(snapshot)
       const capturedAt = new Date()
       const run = await tx.intakeRun.create({

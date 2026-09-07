@@ -4,6 +4,7 @@ import { VenuePackagePayloadV3 } from '../schemas/venue-package'
 import {
   mediaIntakeEvidenceLocator,
   mediaIntakeHash,
+  mediaIntakeHeldItemHashes,
   mediaIntakeSnapshotInput,
   validateMediaIntakeSnapshot,
 } from './media-intake-snapshot'
@@ -86,21 +87,34 @@ export function buildReviewedMediaIntakeCandidate(run: StoredMediaIntake) {
       },
     ]),
   )
+  const held = mediaIntakeHeldItemHashes(snapshot)
   return VenuePackagePayloadV3.parse({
     schemaVersion: 3,
     places: {
-      create: snapshot.draft.places.map((value, index) => ({
-        ...identities.get(`place:${index}`),
-        value,
-      })),
+      create: snapshot.draft.places.flatMap((value, index) =>
+        held.has(mediaIntakeHash(value))
+          ? []
+          : [
+              {
+                ...identities.get(`place:${index}`),
+                value,
+              },
+            ],
+      ),
       update: [],
       delete: [],
     },
     knowledgeEntries: {
-      create: snapshot.draft.knowledgeEntries.map((value, index) => ({
-        ...identities.get(`knowledge:${index}`),
-        value,
-      })),
+      create: snapshot.draft.knowledgeEntries.flatMap((value, index) =>
+        held.has(mediaIntakeHash(value))
+          ? []
+          : [
+              {
+                ...identities.get(`knowledge:${index}`),
+                value,
+              },
+            ],
+      ),
       update: [],
       delete: [],
     },
