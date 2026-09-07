@@ -34,13 +34,11 @@ export async function handleIntakeV1WebsiteResearch(
   if (job.name === INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB) {
     return reconcileIntakeV1SourceProcessingJobs()
   }
-  if (job.name === INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB) {
-    return processIntakeV1SourceProcessingJob(
-      job.data as IntakeV1SourceProcessingJobPayload,
-      `intake-v1-research:${process.pid}:${String(job.id ?? job.name)}`,
-      undefined,
-    )
-  }
+  return processIntakeV1SourceProcessingJob(
+    job.data as IntakeV1SourceProcessingJobPayload,
+    `intake-v1-research:${process.pid}:${String(job.id ?? job.name)}`,
+    undefined,
+  )
 }
 
 export async function createIntakeV1WebsiteResearchResources() {
