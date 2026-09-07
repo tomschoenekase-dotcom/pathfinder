@@ -34,11 +34,11 @@ const FIXTURE_MEDIA: PublicVenueMediaItem[] = [
 export default async function VenueArrivalFixturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string; theme?: string; accent?: string }>
+  searchParams: Promise<{ state?: string; theme?: string; accent?: string; branding?: string }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const { state = 'media', theme, accent } = await searchParams
+  const { state = 'media', theme, accent, branding } = await searchParams
   return (
     <VenueArrival
       venue={{
@@ -47,6 +47,12 @@ export default async function VenueArrivalFixturePage({
         category: 'Museum',
         chatTheme: theme ?? null,
         chatAccentColor: accent ?? null,
+        chatLogoUrl: branding
+          ? '/api/venue-media/44444444-4444-4444-8444-444444444444?venue=great-lakes-museum'
+          : null,
+        chatBannerUrl: branding
+          ? '/api/venue-media/55555555-5555-4555-8555-555555555555?venue=great-lakes-museum'
+          : null,
       }}
       venueSlug="great-lakes-museum"
       media={state === 'media' ? FIXTURE_MEDIA : []}

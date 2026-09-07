@@ -6,6 +6,7 @@ import type { PublicVenueMediaItem } from '@pathfinder/contracts'
 
 import { selectVenueMediaForPresentation } from '../lib/venue-media-presentation'
 import { VenueMediaShowcase } from './VenueMediaShowcase'
+import { VenueBrandingImage } from './VenueBrandingImage'
 
 export type VenueArrivalSummary = {
   name: string
@@ -51,8 +52,7 @@ export function VenueArrival({
         <header className={styles.identity}>
           <span className={styles.category}>{venue.category || 'Welcome'}</span>
           {venue.chatLogoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={venue.chatLogoUrl} alt="" className={styles.wordmark} />
+            <VenueBrandingImage src={venue.chatLogoUrl} className={styles.wordmark!} />
           ) : null}
         </header>
         <div className={hasMedia ? styles.withMedia : undefined}>
@@ -68,6 +68,9 @@ export function VenueArrival({
                 ↗
               </span>
             </Link>
+            {venue.chatBannerUrl ? (
+              <VenueBrandingImage src={venue.chatBannerUrl} className={styles.banner!} />
+            ) : null}
             <nav className={styles.entryQuestions} aria-label="Start with a question">
               <p>Or, start with a question</p>
               {[

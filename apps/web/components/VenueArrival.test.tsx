@@ -1,6 +1,6 @@
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -18,7 +18,32 @@ const venue = {
 }
 
 describe('VenueArrival', () => {
+  beforeEach(() => vi.stubGlobal('React', React))
   afterEach(() => cleanup())
+
+  it('shows saved branding and removes failed decorative images without losing entry actions', () => {
+    const { container, rerender } = render(
+      <VenueArrival
+        venue={{ ...venue, chatLogoUrl: '/logo', chatBannerUrl: '/banner' }}
+        venueSlug="great-lakes-museum"
+        media={[]}
+        mediaStatus="ready"
+      />,
+    )
+    expect(container.querySelectorAll('img')).toHaveLength(2)
+    for (const image of container.querySelectorAll('img')) fireEvent.error(image)
+    expect(container.querySelectorAll('img')).toHaveLength(0)
+    expect(screen.getByRole('link', { name: /open your guide/i })).toBeTruthy()
+    rerender(
+      <VenueArrival
+        venue={{ ...venue, chatBannerUrl: '/replacement' }}
+        venueSlug="great-lakes-museum"
+        media={[]}
+        mediaStatus="ready"
+      />,
+    )
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('/replacement')
+  })
 
   it('keeps the guide complete when the venue has no approved media', () => {
     vi.stubGlobal('React', React)
