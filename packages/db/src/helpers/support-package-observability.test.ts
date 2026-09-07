@@ -199,6 +199,73 @@ function fixture(
 }
 
 describe('support package guest observability', () => {
+  it.each([1, 2])(
+    'does not infer schema v%i package identity from unbound historical content versions',
+    async (schemaVersion) => {
+      const contentVersion = {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: applyVersionId,
+            venuePackageId: null,
+            venuePackageAction: null,
+            venuePackageItemKey: null,
+            entityType: 'KNOWLEDGE_ENTRY',
+            entityId,
+            operation: 'CREATE',
+            beforeState: null,
+            afterState,
+          },
+        ]),
+      }
+      await expect(
+        readSupportPackageGuestObservability({
+          client: { contentVersion } as never,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          packages: [
+            {
+              packageId,
+              schemaVersion,
+              appliedEntities:
+                schemaVersion === 1
+                  ? {
+                      postApplyDigest: 'a'.repeat(64),
+                      places: [],
+                      knowledgeEntries: [
+                        {
+                          id: entityId,
+                          title: afterState.title,
+                          category: afterState.category,
+                          content: afterState.content,
+                          isEnabled: true,
+                        },
+                      ],
+                    }
+                  : {
+                      schemaVersion: 2,
+                      postApplyDigest: 'a'.repeat(64),
+                      venue: null,
+                      places: [],
+                      knowledgeEntries: [
+                        {
+                          id: entityId,
+                          title: afterState.title,
+                          category: afterState.category,
+                          content: afterState.content,
+                          isEnabled: true,
+                        },
+                      ],
+                    },
+            },
+          ],
+        }),
+      ).rejects.toThrow(
+        `schema version ${schemaVersion} does not record immutable applyVersionId, itemKey, and package-action bindings; apply a reviewed V3 replacement and supersede this handoff`,
+      )
+      expect(contentVersion.findMany).not.toHaveBeenCalled()
+    },
+  )
+
   it('hashes the exact changed fields selected by the production legacy read path', async () => {
     const { input } = fixture()
     const result = await readSupportPackageGuestObservability(input)

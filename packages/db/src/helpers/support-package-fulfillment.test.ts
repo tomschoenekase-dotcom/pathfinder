@@ -171,7 +171,7 @@ describe('support package fulfillment evidence', () => {
       },
     }
     await expect(readSupportPackageFulfillment(reader as never, scope)).rejects.toThrow(
-      'schema version 2 has no supported observable receipt',
+      'schema version 2 does not record immutable applyVersionId, itemKey, and package-action bindings',
     )
   })
 })

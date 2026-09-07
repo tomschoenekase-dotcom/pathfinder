@@ -181,7 +181,10 @@ export async function readSupportPackageGuestObservability(input: {
   }
   const manifests = input.packages.map((pkg) => {
     if (pkg.schemaVersion !== 3)
-      fail(pkg.packageId, `schema version ${pkg.schemaVersion} has no supported observable receipt`)
+      fail(
+        pkg.packageId,
+        `schema version ${pkg.schemaVersion} does not record immutable applyVersionId, itemKey, and package-action bindings; apply a reviewed V3 replacement and supersede this handoff`,
+      )
     const parsed = AppliedManifestV3.safeParse(pkg.appliedEntities)
     if (!parsed.success) fail(pkg.packageId, 'apply evidence is missing or malformed')
     return { packageId: pkg.packageId, manifest: parsed.data }
