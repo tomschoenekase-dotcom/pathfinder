@@ -69,6 +69,20 @@ describe('admin AI workload configuration', () => {
     )
     expect(result.workloads.every((workload) => workload.effectiveSource === 'PLATFORM')).toBe(true)
     expect(result.providerExecution).toBe(false)
+    expect(result.operationalInventory.entries).toHaveLength(result.workloads.length)
+    expect(result.operationalInventory.entries.every((entry) => entry.adapterCallable)).toBe(true)
+    expect(
+      result.operationalInventory.entries.every(
+        (entry) =>
+          entry.providerConfiguration === 'UNKNOWN' &&
+          entry.measured.latencyMs === null &&
+          entry.measured.estimatedCostUsd === null &&
+          entry.measured.invoiceCostUsd === null,
+      ),
+    ).toBe(true)
+    expect(result.operationalInventory.omissions).toContain(
+      'realtime voice uses its dedicated route registry',
+    )
   })
 
   it('does not query configuration rows when venue ownership is absent', async () => {
@@ -94,6 +108,8 @@ describe('admin AI workload configuration', () => {
     expect(result.workloads.every((item) => item.pricingEstimate.invoiceAmount === false)).toBe(
       true,
     )
+    expect(serialized).toContain('configuredPricingEstimate')
+    expect(serialized).toContain('invoice cost are unknown')
   })
 
   it('rejects unknown registry keys and cross-kind fallback before any action', async () => {

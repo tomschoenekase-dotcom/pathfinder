@@ -2,6 +2,22 @@ import type { AiUsageRecord } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const budgetMocks = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  settleExact: vi.fn(),
+  settleAmbiguous: vi.fn(),
+  release: vi.fn(),
+  dispatch: vi.fn(),
+}))
+
+vi.mock('@pathfinder/db', () => ({
+  reserveAiCostAttempt: budgetMocks.reserve,
+  settleAiCostAttemptExact: budgetMocks.settleExact,
+  settleAiCostAttemptAmbiguous: budgetMocks.settleAmbiguous,
+  releaseUndispatchedAiCostAttempt: budgetMocks.release,
+  markAiCostAttemptDispatched: budgetMocks.dispatch,
+}))
+
 vi.mock('@pathfinder/config', () => ({
   logger: { error: vi.fn() },
 }))
@@ -151,5 +167,40 @@ describe('API AI usage recorder', () => {
     )
     expect(recorder.persistenceFailed()).toBe(true)
     expect(recorder.usageEventIds()).toEqual([])
+  })
+
+  it('forgets terminal reservations so stale local references cannot settle twice', async () => {
+    budgetMocks.reserve.mockResolvedValue({
+      id: 'reservation-1',
+      budgetId: 'budget-1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      budgetEpoch: 1,
+      invocationId: 'invocation-1',
+      attemptNumber: 1,
+      reservedUnits: 100n,
+    })
+    budgetMocks.settleExact.mockResolvedValue(undefined)
+    const recorder = createApiAiUsageRecorder({
+      db,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      feature: 'guest-chat',
+      surface: 'guest',
+    })
+    const ref = await recorder.budgetGate.reserve({
+      invocationId: 'invocation-1',
+      attemptNumber: 1,
+      provider: 'openai',
+      model: 'model-1',
+      pricingVersion: 'configured-price-v1',
+      reservedUnits: 100n,
+    })
+    expect(ref).toEqual({ id: 'reservation-1', reservedUnits: 100n })
+    await recorder.budgetGate.settleExact(ref!, 42n)
+    await expect(recorder.budgetGate.settleExact(ref!, 42n)).rejects.toThrow(
+      'AI cost reservation reference is unavailable',
+    )
+    expect(budgetMocks.settleExact).toHaveBeenCalledTimes(1)
   })
 })

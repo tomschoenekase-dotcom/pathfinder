@@ -115,6 +115,11 @@ export {
 } from './realtime-voice'
 export { generateTextForCapability, type RoutedAiTextResult } from './routed-generation'
 export {
+  AI_INVENTORY_OMISSIONS,
+  buildAiWorkloadInventory,
+  type AiProviderConfigurationState,
+} from './workload-inventory'
+export {
   AI_CAPABILITIES,
   AI_WORKLOAD_CAPABILITIES,
   AiCapability,
