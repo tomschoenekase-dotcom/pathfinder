@@ -57,7 +57,7 @@ describe('agent run execution actions', () => {
     )
     expect(result.status).toBe('RUNNING')
     expect(result.attemptNumber).toBe(1)
-    expect(result.executionContext).toContain('"attemptNumber": 1')
+    expect(JSON.parse(result.executionContext).provenance.attemptNumber).toBe(1)
     expect(result.leaseToken).toMatch(/^[0-9a-f-]{36}$/u)
     expect(transaction.agentRun.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

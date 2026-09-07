@@ -85,7 +85,8 @@ describe('company knowledge retrieval', () => {
     expect(JSON.stringify(query.where)).toContain('character')
     expect(JSON.stringify(query.where)).toContain('pricing')
     expect(JSON.stringify(query.where)).not.toContain('custom character pricing')
-    expect(query.take).toBe(20)
+    expect(query.take).toBe(80)
+    expect(findMany.mock.calls[1]?.[0].take).toBe(20)
     expect(result.retrieval.permissionFilteredBeforeSelection).toBe(true)
     expect(result.results[0]).toMatchObject({
       id: 'knowledge_1',
@@ -114,7 +115,10 @@ describe('company knowledge retrieval', () => {
         item({ id: 'allowed_1', title: 'Outdoor venue lesson', summary: 'Weather resilience.' }),
         item({ id: 'allowed_2', title: 'Another lesson', summary: 'Operational context.' }),
       ])
-    const semanticSearch = vi.fn().mockResolvedValue([{ id: 'allowed_2', distance: 0.1 }])
+    const semanticSearch = vi.fn().mockResolvedValue([
+      { id: 'private_stronger_match', distance: 0.01 },
+      { id: 'allowed_2', distance: 0.1 },
+    ])
     const result = await searchCompanyKnowledge(
       { query: 'what did we learn outdoors', clientId: 'tenant_1', limit: 5 },
       { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
@@ -124,9 +128,10 @@ describe('company knowledge retrieval', () => {
     expect(semanticSearch).toHaveBeenCalledWith(
       expect.objectContaining({ authorizedCandidateIds: ['allowed_1', 'allowed_2'] }),
     )
-    expect(findMany.mock.calls[0]?.[0].take).toBe(500)
+    expect(findMany.mock.calls[1]?.[0].take).toBe(500)
     expect(result.retrieval.mode).toBe('HYBRID_STRUCTURED_SEMANTIC')
     expect(result.results[0]?.id).toBe('allowed_2')
+    expect(result.results.some((row) => row.id === 'private_stronger_match')).toBe(false)
   })
 
   it('inherits only applicable shared knowledge after verifying the requested venue', async () => {
@@ -153,6 +158,42 @@ describe('company knowledge retrieval', () => {
     expect(where).toContain('"accessScope":"TENANT"')
     expect(where).toContain('"accessScope":"ORGANIZATION"')
     expect(where).toContain('"accessScope":"VENUE"')
+  })
+
+  it('recovers an older all-term commitment beyond the broad recency cap', async () => {
+    const olderCommitment = item({
+      id: 'older_commitment',
+      title: 'Early partner launch commitment',
+      summary: 'The early partner launch commitment includes custom characters through renewal.',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastConfirmedAt: new Date('2026-01-01T00:00:00.000Z'),
+    })
+    const distractors = Array.from({ length: 500 }, (_, index) =>
+      item({
+        id: `recent_distractor_${index}`,
+        title: index % 2 === 0 ? 'Recent launch note' : 'Recent partner note',
+        summary: index % 3 === 0 ? 'Commitment discussion.' : 'Unrelated current context.',
+      }),
+    )
+    const findMany = vi.fn(async (query: { where: { AND: unknown[] }; take: number }) => {
+      const strictAllTerms = query.where.AND.length > 4
+      return strictAllTerms ? [olderCommitment] : distractors.slice(0, query.take)
+    })
+
+    const result = await searchCompanyKnowledge(
+      { query: 'early partner launch commitment', clientId: 'tenant_1', limit: 5 },
+      { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+      { companyKnowledgeItem: { findMany } } as never,
+    )
+
+    expect(result.results[0]?.id).toBe('older_commitment')
+    expect(result.retrieval.candidateCoverage).toMatchObject({
+      strictAllTerms: 1,
+      broad: 20,
+      broadLimit: 20,
+      partial: true,
+    })
+    expect(findMany).toHaveBeenCalledTimes(2)
   })
 
   it('rejects a foreign venue before selecting any knowledge candidates', async () => {

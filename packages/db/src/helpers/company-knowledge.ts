@@ -294,49 +294,62 @@ export async function searchCompanyKnowledge(
     ? input.authorities
     : input.authorities.filter((authority) => !['HISTORICAL', 'SUPERSEDED'].includes(authority))
   const terms = lexicalTerms(input.query)
-  const candidates = await client.companyKnowledgeItem.findMany({
-    where: {
-      AND: [
-        accessWhere(access, input.clientId),
-        { promotionStatus: 'PROMOTED', archivedAt: null },
-        ...(authorityFilter.length > 0 ? [{ authority: { in: authorityFilter } }] : []),
-        ...(input.types.length > 0 ? [{ type: { in: input.types } }] : []),
-        ...(input.venueId
-          ? [venueContextWhere(access, input.venueId, input.clientId, input.organizationId)]
-          : input.organizationId
-            ? [{ organizationId: input.organizationId }]
-            : []),
-        ...(input.from || input.to
-          ? [
-              {
-                effectiveAt: {
-                  ...(input.from ? { gte: new Date(input.from) } : {}),
-                  ...(input.to ? { lte: new Date(input.to) } : {}),
-                },
-              },
-            ]
-          : []),
-        ...(options.queryEmbedding
-          ? []
-          : [
-              {
-                OR: terms.flatMap((term) => [
-                  { title: { contains: term, mode: 'insensitive' as const } },
-                  { summary: { contains: term, mode: 'insensitive' as const } },
-                  {
-                    revisions: {
-                      some: { body: { contains: term, mode: 'insensitive' as const } },
-                    },
-                  },
-                ]),
-              },
-            ]),
-      ],
-    },
-    orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
-    take: options.queryEmbedding ? 500 : Math.min(input.limit * 4, 80),
-    select: detailSelect,
+  const scopedFilters: Prisma.CompanyKnowledgeItemWhereInput[] = [
+    accessWhere(access, input.clientId),
+    { promotionStatus: 'PROMOTED', archivedAt: null },
+    ...(authorityFilter.length > 0 ? [{ authority: { in: authorityFilter } }] : []),
+    ...(input.types.length > 0 ? [{ type: { in: input.types } }] : []),
+    ...(input.venueId
+      ? [venueContextWhere(access, input.venueId, input.clientId, input.organizationId)]
+      : input.organizationId
+        ? [{ organizationId: input.organizationId }]
+        : []),
+    ...(input.from || input.to
+      ? [
+          {
+            effectiveAt: {
+              ...(input.from ? { gte: new Date(input.from) } : {}),
+              ...(input.to ? { lte: new Date(input.to) } : {}),
+            },
+          },
+        ]
+      : []),
+  ]
+  const matchesTerm = (term: string): Prisma.CompanyKnowledgeItemWhereInput => ({
+    OR: [
+      { title: { contains: term, mode: 'insensitive' } },
+      { summary: { contains: term, mode: 'insensitive' } },
+      { revisions: { some: { body: { contains: term, mode: 'insensitive' } } } },
+    ],
   })
+  const strictTake = 80
+  const broadTake = options.queryEmbedding ? 500 : Math.min(input.limit * 4, 80)
+  const [strictCandidates, broadCandidates] = await Promise.all([
+    terms.length > 1
+      ? client.companyKnowledgeItem.findMany({
+          where: { AND: [...scopedFilters, ...terms.map(matchesTerm)] },
+          orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
+          take: strictTake,
+          select: detailSelect,
+        })
+      : Promise.resolve([]),
+    client.companyKnowledgeItem.findMany({
+      where: {
+        AND: [
+          ...scopedFilters,
+          ...(options.queryEmbedding || terms.length === 0
+            ? []
+            : [{ OR: terms.flatMap((term) => matchesTerm(term).OR!) }]),
+        ],
+      },
+      orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
+      take: broadTake,
+      select: detailSelect,
+    }),
+  ])
+  const candidates = [
+    ...new Map([...strictCandidates, ...broadCandidates].map((item) => [item.id, item])).values(),
+  ]
   const semanticRows = options.queryEmbedding
     ? await (options.semanticSearch ?? searchCompanyKnowledgeByEmbedding)({
         queryEmbedding: options.queryEmbedding,
@@ -383,6 +396,13 @@ export async function searchCompanyKnowledge(
       mode: options.queryEmbedding ? 'HYBRID_STRUCTURED_SEMANTIC' : 'STRUCTURED_LEXICAL',
       permissionFilteredBeforeSelection: true,
       semanticCandidates: semanticRows.length,
+      candidateCoverage: {
+        strictAllTerms: strictCandidates.length,
+        strictLimit: strictTake,
+        broad: broadCandidates.length,
+        broadLimit: broadTake,
+        partial: strictCandidates.length === strictTake || broadCandidates.length === broadTake,
+      },
     },
     results,
     payload: {
