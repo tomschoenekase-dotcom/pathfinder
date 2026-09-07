@@ -179,6 +179,7 @@ export function VoiceControl({
 }) {
   const client = useTRPCClient()
   const [available, setAvailable] = useState(false)
+  const [availabilityScopeKey, setAvailabilityScopeKey] = useState<string | null>(null)
   const [premiumAvailable, setPremiumAvailable] = useState(false)
   const [state, setState] = useState<VoiceState>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -188,10 +189,13 @@ export function VoiceControl({
   const channelRef = useRef<RTCDataChannel | null>(null)
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const lifecycleGenerationRef = useRef(0)
+  const startingAttemptRef = useRef<number | null>(null)
+  const endingGenerationRef = useRef<number | null>(null)
+  const endedSessionIdsRef = useRef(new Set<string>())
   const sequenceRef = useRef(0)
   const stopTimerRef = useRef<number | null>(null)
   const realtimeRequestRef = useRef<AbortController | null>(null)
-  const endingRef = useRef(false)
   const activeResponseIdRef = useRef<string | null>(null)
   const pendingAssistantTranscriptRef = useRef<
     Map<string, { text: string; providerEventId: string }>
@@ -200,14 +204,21 @@ export function VoiceControl({
   const playedResponseIdsRef = useRef(new Set<string>())
   const generatingResponseIdsRef = useRef(new Set<string>())
   const finalizedResponseIdsRef = useRef(new Set<string>())
+  const onCharacterStateRef = useRef(onCharacterState)
+  onCharacterStateRef.current = onCharacterState
+  const scopeKey = JSON.stringify([venueId, anonymousToken])
+  const scopeKeyRef = useRef(scopeKey)
+  if (scopeKeyRef.current !== scopeKey) {
+    scopeKeyRef.current = scopeKey
+    lifecycleGenerationRef.current += 1
+    startingAttemptRef.current = null
+    endingGenerationRef.current = null
+  }
 
-  const setVoiceState = useCallback(
-    (next: VoiceState) => {
-      setState(next)
-      onCharacterState?.(characterStateForVoice(next))
-    },
-    [onCharacterState],
-  )
+  const setVoiceState = useCallback((next: VoiceState) => {
+    setState(next)
+    onCharacterStateRef.current?.(characterStateForVoice(next))
+  }, [])
 
   const releaseBrowserMedia = useCallback(() => {
     if (stopTimerRef.current !== null) window.clearTimeout(stopTimerRef.current)
@@ -231,35 +242,61 @@ export function VoiceControl({
     finalizedResponseIdsRef.current.clear()
   }, [])
 
-  const endSession = useCallback(
-    async (options: { fallbackToText?: boolean; errorCode?: string } = {}) => {
-      if (endingRef.current) return
-      endingRef.current = true
-      const voiceSessionId = sessionIdRef.current
-      releaseBrowserMedia()
-      sessionIdRef.current = null
-      if (voiceSessionId && anonymousToken) {
-        try {
-          await client.voice.end.mutate({
-            venueId,
-            anonymousToken,
-            voiceSessionId,
-            fallbackToText: options.fallbackToText ?? false,
-            ...(options.errorCode ? { errorCode: options.errorCode } : {}),
-          })
-        } catch {
-          // The browser media is already closed; server expiry remains the safe fallback.
-        }
+  const closeRemoteSession = useCallback(
+    async (input: {
+      venueId: string
+      anonymousToken: string
+      voiceSessionId: string
+      fallbackToText: boolean
+      errorCode?: string
+    }) => {
+      if (endedSessionIdsRef.current.has(input.voiceSessionId)) return
+      endedSessionIdsRef.current.add(input.voiceSessionId)
+      try {
+        await client.voice.end.mutate(input)
+      } catch {
+        // Browser media is closed independently; server expiry remains the safe fallback.
       }
-      endingRef.current = false
-      setVoiceState(options.errorCode ? 'error' : 'idle')
     },
-    [anonymousToken, client.voice.end, releaseBrowserMedia, setVoiceState, venueId],
+    [client.voice.end],
+  )
+
+  const endSession = useCallback(
+    (options: { fallbackToText?: boolean; errorCode?: string } = {}) => {
+      if (endingGenerationRef.current !== null) return
+      const endingGeneration = ++lifecycleGenerationRef.current
+      endingGenerationRef.current = endingGeneration
+      startingAttemptRef.current = null
+      const endingScopeKey = scopeKeyRef.current
+      const voiceSessionId = sessionIdRef.current
+      sessionIdRef.current = null
+      releaseBrowserMedia()
+      if (endingGenerationRef.current === endingGeneration) {
+        endingGenerationRef.current = null
+      }
+      if (
+        lifecycleGenerationRef.current === endingGeneration &&
+        scopeKeyRef.current === endingScopeKey
+      ) {
+        setVoiceState(options.errorCode ? 'error' : 'idle')
+      }
+      if (voiceSessionId && anonymousToken) {
+        void closeRemoteSession({
+          venueId,
+          anonymousToken,
+          voiceSessionId,
+          fallbackToText: options.fallbackToText ?? false,
+          ...(options.errorCode ? { errorCode: options.errorCode } : {}),
+        })
+      }
+    },
+    [anonymousToken, closeRemoteSession, releaseBrowserMedia, setVoiceState, venueId],
   )
 
   useEffect(() => {
     if (!anonymousToken) {
       setAvailable(false)
+      setAvailabilityScopeKey(scopeKey)
       return
     }
     const controller = new AbortController()
@@ -270,23 +307,40 @@ export function VoiceControl({
     })
       .then((result) => {
         if (controller.signal.aborted) return
+        setVoiceState('idle')
+        setError(null)
+        setTranscript([])
+        sequenceRef.current = 0
         setAvailable(result.enabled)
         setPremiumAvailable(result.enabled && result.premiumAvailable)
+        setAvailabilityScopeKey(scopeKey)
       })
       .catch(() => {
-        if (!controller.signal.aborted) setAvailable(false)
+        if (!controller.signal.aborted) {
+          setVoiceState('idle')
+          setError(null)
+          setTranscript([])
+          sequenceRef.current = 0
+          setAvailable(false)
+          setPremiumAvailable(false)
+          setAvailabilityScopeKey(scopeKey)
+        }
       })
     return () => {
       controller.abort()
     }
-  }, [anonymousToken, client.voice.availability, venueId])
+  }, [anonymousToken, client.voice.availability, scopeKey, setVoiceState, venueId])
 
   useEffect(
     () => () => {
-      releaseBrowserMedia()
+      lifecycleGenerationRef.current += 1
+      startingAttemptRef.current = null
+      endingGenerationRef.current = null
       const voiceSessionId = sessionIdRef.current
+      sessionIdRef.current = null
+      releaseBrowserMedia()
       if (voiceSessionId && anonymousToken) {
-        void client.voice.end.mutate({
+        void closeRemoteSession({
           venueId,
           anonymousToken,
           voiceSessionId,
@@ -295,7 +349,7 @@ export function VoiceControl({
         })
       }
     },
-    [anonymousToken, client.voice.end, releaseBrowserMedia, venueId],
+    [anonymousToken, closeRemoteSession, releaseBrowserMedia, venueId],
   )
 
   const saveTranscript = useCallback(
@@ -474,7 +528,42 @@ export function VoiceControl({
   )
 
   async function startSession() {
-    if (!anonymousToken || disabled || (state !== 'idle' && state !== 'error')) return
+    if (
+      !anonymousToken ||
+      disabled ||
+      (state !== 'idle' && state !== 'error') ||
+      startingAttemptRef.current !== null
+    )
+      return
+    const attemptGeneration = ++lifecycleGenerationRef.current
+    const attemptScopeKey = scopeKeyRef.current
+    startingAttemptRef.current = attemptGeneration
+    let stream: MediaStream | null = null
+    let peer: RTCPeerConnection | null = null
+    let voiceSessionId: string | null = null
+    const isCurrentAttempt = () =>
+      lifecycleGenerationRef.current === attemptGeneration &&
+      scopeKeyRef.current === attemptScopeKey
+    const closeStaleAttempt = async () => {
+      if (voiceSessionId && sessionIdRef.current === voiceSessionId) {
+        sessionIdRef.current = null
+      }
+      if (peer && peerRef.current === peer) {
+        releaseBrowserMedia()
+      } else {
+        peer?.close()
+        stream?.getTracks().forEach((track) => track.stop())
+      }
+      if (voiceSessionId) {
+        await closeRemoteSession({
+          venueId,
+          anonymousToken,
+          voiceSessionId,
+          fallbackToText: true,
+          errorCode: 'CLIENT_UNMOUNTED',
+        })
+      }
+    }
     setError(null)
     setTranscript([])
     sequenceRef.current = 0
@@ -483,7 +572,11 @@ export function VoiceControl({
         throw new Error('VOICE_UNSUPPORTED')
       }
       setVoiceState('requesting')
-      const stream = await requestMicrophoneStream()
+      stream = await requestMicrophoneStream()
+      if (!isCurrentAttempt()) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
       streamRef.current = stream
       setVoiceState('connecting')
       const locale = getChatLanguagePresentation(language).code
@@ -493,17 +586,23 @@ export function VoiceControl({
         locale,
         tier: premiumAvailable ? 'PREMIUM' : 'ECONOMY',
       })
-      sessionIdRef.current = authorization.voiceSessionId
+      voiceSessionId = authorization.voiceSessionId
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
+      sessionIdRef.current = voiceSessionId
 
-      const peer = new RTCPeerConnection()
+      peer = new RTCPeerConnection()
       peerRef.current = peer
+      const activePeer = peer
       const failActiveConnection = (errorCode: string, message: string) => {
-        if (peerRef.current !== peer || !sessionIdRef.current) return
+        if (!isCurrentAttempt() || peerRef.current !== peer || !sessionIdRef.current) return
         setError(message)
         void endSession({ fallbackToText: true, errorCode })
       }
       peer.onconnectionstatechange = () => {
-        if (peer.connectionState === 'failed') {
+        if (activePeer.connectionState === 'failed') {
           failActiveConnection(
             'CLIENT_NETWORK_FAILED',
             'The voice network connection was lost. Continue in text or try voice again.',
@@ -511,7 +610,7 @@ export function VoiceControl({
         }
       }
       peer.oniceconnectionstatechange = () => {
-        if (peer.iceConnectionState === 'failed') {
+        if (activePeer.iceConnectionState === 'failed') {
           failActiveConnection(
             'CLIENT_NETWORK_FAILED',
             'The voice network connection was lost. Continue in text or try voice again.',
@@ -522,6 +621,12 @@ export function VoiceControl({
       audio.autoplay = true
       remoteAudioRef.current = audio
       peer.ontrack = (event) => {
+        if (
+          !isCurrentAttempt() ||
+          peerRef.current !== activePeer ||
+          remoteAudioRef.current !== audio
+        )
+          return
         audio.srcObject = event.streams[0] ?? new MediaStream([event.track])
       }
       for (const track of stream.getTracks()) {
@@ -538,14 +643,28 @@ export function VoiceControl({
       }
       const channel = peer.createDataChannel('oai-events')
       channelRef.current = channel
-      channel.addEventListener('message', handleProviderEvent)
-      channel.addEventListener('open', () => setVoiceState('listening'))
+      channel.addEventListener('message', (event) => {
+        if (isCurrentAttempt() && channelRef.current === channel) handleProviderEvent(event)
+      })
+      channel.addEventListener('open', () => {
+        if (isCurrentAttempt() && channelRef.current === channel) setVoiceState('listening')
+      })
       channel.addEventListener('close', () => {
-        if (sessionIdRef.current) void endSession({ fallbackToText: true })
+        if (isCurrentAttempt() && channelRef.current === channel && sessionIdRef.current) {
+          void endSession({ fallbackToText: true })
+        }
       })
 
       const offer = await peer.createOffer()
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       await peer.setLocalDescription(offer)
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       if (!offer.sdp) throw new Error('VOICE_SDP_UNAVAILABLE')
       const realtimeController = new AbortController()
       realtimeRequestRef.current = realtimeController
@@ -555,22 +674,42 @@ export function VoiceControl({
         controller: realtimeController,
       })
       if (realtimeRequestRef.current === realtimeController) realtimeRequestRef.current = null
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       await peer.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       await client.voice.connected.mutate({
         venueId,
         anonymousToken,
         voiceSessionId: authorization.voiceSessionId,
       })
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       stopTimerRef.current = window.setTimeout(() => {
-        void endSession({ fallbackToText: true })
+        if (isCurrentAttempt() && sessionIdRef.current === authorization.voiceSessionId) {
+          void endSession({ fallbackToText: true })
+        }
       }, authorization.maxDurationSeconds * 1_000)
     } catch (cause) {
+      if (!isCurrentAttempt()) {
+        await closeStaleAttempt()
+        return
+      }
       setError(readableError(cause))
       await endSession({ fallbackToText: true, errorCode: 'CLIENT_CONNECTION_FAILED' })
+    } finally {
+      if (startingAttemptRef.current === attemptGeneration) startingAttemptRef.current = null
     }
   }
 
-  if (!available) return null
+  if (!available || availabilityScopeKey !== scopeKey) return null
 
   return (
     <VoiceControlPanel

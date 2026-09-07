@@ -50,10 +50,12 @@ describe('VoiceControl', () => {
     })
     vi.stubGlobal('RTCPeerConnection', class {})
     vi.stubGlobal('React', React)
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
   })
   afterEach(() => {
     vi.useRealTimers()
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -135,6 +137,339 @@ describe('VoiceControl', () => {
     expect(mocks.start).not.toHaveBeenCalled()
   })
 
+  it('serializes rapid starts and stops media acquired after the component leaves its scope', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    let resolveMicrophone!: (stream: MediaStream) => void
+    mocks.getUserMedia.mockReturnValue(
+      new Promise<MediaStream>((resolve) => {
+        resolveMicrophone = resolve
+      }),
+    )
+    const stop = vi.fn()
+    const view = render(<VoiceControl {...props} />)
+    const start = await screen.findByRole('button', { name: 'Start voice conversation' })
+
+    act(() => {
+      start.click()
+      start.click()
+    })
+    expect(mocks.getUserMedia).toHaveBeenCalledOnce()
+
+    view.unmount()
+    await act(async () => {
+      resolveMicrophone({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+      await Promise.resolve()
+    })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('keeps an A to B to A restart active when the first authorization resolves late', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    let resolveOldAuthorization!: (value: {
+      voiceSessionId: string
+      clientSecret: string
+      maxDurationSeconds: number
+    }) => void
+    let resolveCurrentAuthorization!: (value: {
+      voiceSessionId: string
+      clientSecret: string
+      maxDurationSeconds: number
+    }) => void
+    mocks.start
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldAuthorization = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveCurrentAuthorization = resolve
+        }),
+      )
+    const oldStop = vi.fn()
+    const currentStop = vi.fn()
+    mocks.getUserMedia
+      .mockResolvedValueOnce({ getTracks: () => [{ stop: oldStop }] } as unknown as MediaStream)
+      .mockResolvedValueOnce({ getTracks: () => [{ stop: currentStop }] } as unknown as MediaStream)
+    const channel = { close: vi.fn(), addEventListener: vi.fn() }
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+      ontrack: null,
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+    const view = render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1))
+
+    view.rerender(
+      <VoiceControl
+        {...props}
+        venueId="venue-2"
+        anonymousToken="223e4567-e89b-42d3-a456-426614174001"
+      />,
+    )
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalledTimes(2))
+    view.rerender(<VoiceControl {...props} />)
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalledTimes(3))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      resolveOldAuthorization({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'retired-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(mocks.end).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        fallbackToText: true,
+        errorCode: 'CLIENT_UNMOUNTED',
+      }),
+    )
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(oldStop).toHaveBeenCalled()
+    expect(currentStop).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Connecting')
+
+    await act(async () => {
+      resolveCurrentAuthorization({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'current-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(mocks.connected).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+      }),
+    )
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('does not reset an active session when the parent replaces its character callback', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const listeners = new Map<string, () => void>()
+    const channel = {
+      close: vi.fn(),
+      addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+    const firstCharacterCallback = vi.fn()
+    const secondCharacterCallback = vi.fn()
+    const view = render(<VoiceControl {...props} onCharacterState={firstCharacterCallback} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    act(() => listeners.get('open')?.())
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+
+    view.rerender(<VoiceControl {...props} onCharacterState={secondCharacterCallback} />)
+
+    expect(mocks.availability).toHaveBeenCalledOnce()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('allows a restart while the previous remote end acknowledgement is delayed', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start
+      .mockResolvedValueOnce({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'first-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      .mockResolvedValueOnce({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'second-ephemeral',
+        maxDurationSeconds: 600,
+      })
+    mocks.connected.mockResolvedValue({ connected: true })
+    let resolveOldEnd!: (value: { ended: boolean }) => void
+    mocks.end.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOldEnd = resolve
+      }),
+    )
+    const oldStop = vi.fn()
+    const currentStop = vi.fn()
+    mocks.getUserMedia
+      .mockResolvedValueOnce({
+        getTracks: () => [{ stop: oldStop, addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+      .mockResolvedValueOnce({
+        getTracks: () => [{ stop: currentStop, addEventListener: vi.fn() }],
+      } as unknown as MediaStream)
+    const channelListeners: Array<Map<string, () => void>> = []
+    const channels = Array.from({ length: 2 }, () => {
+      const listeners = new Map<string, () => void>()
+      channelListeners.push(listeners)
+      return {
+        close: vi.fn(),
+        addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+      }
+    })
+    let peerIndex = 0
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channels[peerIndex++]!,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
+    )
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(1))
+    act(() => channelListeners[0]!.get('open')?.())
+
+    fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+    const restart = await screen.findByRole('button', { name: 'Start voice conversation' })
+    expect(oldStop).toHaveBeenCalledOnce()
+    expect(mocks.end).toHaveBeenCalledWith({
+      venueId: props.venueId,
+      anonymousToken: props.anonymousToken,
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      fallbackToText: false,
+    })
+
+    fireEvent.click(restart)
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(2))
+    act(() => channelListeners[1]!.get('open')?.())
+    await act(async () => {
+      resolveOldEnd({ ended: true })
+      await Promise.resolve()
+    })
+
+    expect(currentStop).not.toHaveBeenCalled()
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeTruthy()
+  })
+
+  it('ignores delayed events from a retired data channel after voice restarts', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start
+      .mockResolvedValueOnce({
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        clientSecret: 'first-ephemeral',
+        maxDurationSeconds: 600,
+      })
+      .mockResolvedValueOnce({
+        voiceSessionId: '22222222-2222-4222-8222-222222222222',
+        clientSecret: 'second-ephemeral',
+        maxDurationSeconds: 600,
+      })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const channelListeners: Array<Map<string, (event?: MessageEvent<string>) => void>> = []
+    const channels = Array.from({ length: 2 }, () => {
+      const listeners = new Map<string, (event?: MessageEvent<string>) => void>()
+      channelListeners.push(listeners)
+      return {
+        close: vi.fn(),
+        addEventListener: (type: string, listener: (event?: MessageEvent<string>) => void) =>
+          listeners.set(type, listener),
+      }
+    })
+    let peerIndex = 0
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channels[peerIndex++]!,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response('answer'))),
+    )
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(1))
+    act(() => channelListeners[0]!.get('open')?.())
+    fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce())
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledTimes(2))
+    act(() => channelListeners[1]!.get('open')?.())
+
+    act(() => {
+      channelListeners[0]!.get('open')?.()
+      channelListeners[0]!.get('message')?.({
+        data: JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.completed',
+          event_id: 'retired-event',
+          transcript: 'A retired turn.',
+        }),
+      } as MessageEvent<string>)
+      channelListeners[0]!.get('close')?.()
+    })
+
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(mocks.transcript).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Listening')
+  })
+
   it('cancels the active response on barge-in, marks unplayed speech interrupted, and tears down media', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
@@ -179,7 +514,6 @@ describe('VoiceControl', () => {
       vi.fn(() => peer),
     )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
 
     render(<VoiceControl {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
