@@ -84,6 +84,14 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Checkout reserves under an exact tenant-keyed transaction advisory lock;
+  // the transaction commits its pending agreement before external provider work.
+  {
+    file: 'packages/billing/src/service.ts',
+    method: '$executeRaw',
+    hash: '7b38aa25cd1def5b224727e4c592a17c80ad0ed7c2651152b5e6bcd9eff93264',
+    policy: 'tenant-billing-effect-lock',
+  },
   // Reviewed workflow activation: sorted scoped heads precede exact leased runs;
   // SHARE-locked authority is rechecked with PostgreSQL time after locks. Revoke
   // touches only effective bindings of one scoped activation; clocks read no data.

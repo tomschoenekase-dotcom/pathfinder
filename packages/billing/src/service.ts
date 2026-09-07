@@ -349,6 +349,9 @@ export async function createTenantCheckout(params: {
     : []
   const operationKey = params.operationKey ?? randomUUID()
   const reserved = await client.$transaction(async (tx) => {
+    // Serialize reservation against the always-present tenant identity. Provider work happens
+    // after this transaction commits; the pending replacement row is the cross-request fence.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`torchiko:billing-checkout:${params.tenantId}`}, 0))`
     const replay = await tx.billingCheckoutAttempt.findFirst({
       where: { tenantId: params.tenantId, operationKey },
     })
@@ -378,9 +381,26 @@ export async function createTenantCheckout(params: {
       where: {
         tenantId: params.tenantId,
         isBase: true,
-        status: { in: ['PENDING', 'TRIALING', 'ACTIVE', 'PAST_DUE', 'PAUSED'] },
       },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     })
+    const pendingReplacement = await tx.commercialAgreement.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        isBase: false,
+        status: 'PENDING',
+        billingMode: 'STRIPE_SUBSCRIPTION',
+        stripeSubscriptionId: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    })
+    if (pendingReplacement) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'A reviewed subscription Checkout is already awaiting completion.',
+      )
+    }
     if (
       current?.status === 'PENDING' &&
       current.billingMode === 'STRIPE_SUBSCRIPTION' &&
@@ -453,8 +473,11 @@ export async function createTenantCheckout(params: {
         return { replay: attempt, tenant, account, agreement: current, replacementId: null }
       }
     }
+    const terminalReplacement =
+      current !== null && (current.status === 'CANCELED' || current.status === 'ENDED')
     if (
       current &&
+      !terminalReplacement &&
       (!params.replaceManualArrangement ||
         current.billingMode === 'STRIPE_SUBSCRIPTION' ||
         current.billingMode === 'STRIPE_INVOICE')
@@ -473,7 +496,12 @@ export async function createTenantCheckout(params: {
         createdBy: params.actorId,
         updatedBy: params.actorId,
       },
-      update: { billingMode: 'STRIPE_SUBSCRIPTION', updatedBy: params.actorId },
+      update: {
+        billingMode: 'STRIPE_SUBSCRIPTION',
+        stripeMode: mode(environment),
+        stripeAccountId: environment.STRIPE_ACCOUNT_NAMESPACE,
+        updatedBy: params.actorId,
+      },
     })
     const agreement = await tx.commercialAgreement.create({
       data: {
