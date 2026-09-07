@@ -183,6 +183,38 @@ test('remote onboarding gives optional capture guidance before file selection', 
   expect(runtimeErrors).toEqual([])
 })
 
+test('remote onboarding checkpoint distinguishes private drafts from shared sources', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.route('**/api/trpc/intake.getSubmissionDraft**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(Array.from({ length: 3 }, () => ({ result: { data: { json: null } } }))),
+    })
+  })
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=share`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  const checkpoint = page.getByRole('heading', {
+    name: 'Your onboarding progress will be here when you return.',
+  })
+  await expect(checkpoint).toBeVisible()
+  const privateDrafts = page.getByText(
+    'Unfinished website, staff, and note entries save privately while you work.',
+  )
+  await expect(privateDrafts).toBeVisible()
+  await expect(
+    page.getByText('Unfinished entries are not saved until you share them.'),
+  ).toHaveCount(0)
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await privateDrafts.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+  await saveViewportEvidence(page, testInfo, 'remote-onboarding-private-drafts-checkpoint')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('remote onboarding keeps a long bounded question remainder visible without overflow', async ({
   page,
 }, testInfo) => {

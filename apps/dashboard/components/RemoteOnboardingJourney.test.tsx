@@ -207,6 +207,10 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain(
       'Nothing else is required right now. You can close this page and return later.',
     )
+    expect(root.textContent).toContain(
+      'Unfinished website, staff, and note entries save privately while you work.',
+    )
+    expect(root.textContent).not.toContain('Unfinished entries are not saved until you share them.')
     const activity = root.querySelector('[aria-label="Current onboarding activity"]')
     expect(activity?.textContent).toContain('Shared2')
     expect(activity?.textContent).toContain('Ready for Torchiko1')

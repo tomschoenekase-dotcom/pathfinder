@@ -247,7 +247,7 @@ export function RemoteOnboardingJourney({
               {data.projection.primaryAction.required
                 ? 'The action above still needs your attention, and Torchiko will bring you back to it.'
                 : 'Nothing else is required right now. You can close this page and return later.'}{' '}
-              Unfinished entries are not saved until you share them.
+              Unfinished website, staff, and note entries save privately while you work.
             </p>
           </section>
         ) : null}
