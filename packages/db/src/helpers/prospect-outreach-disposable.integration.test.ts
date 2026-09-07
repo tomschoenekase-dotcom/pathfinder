@@ -1,13 +1,16 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
 import {
   approveProspectSendBatchAction,
+  claimProspectSendOutboxAction,
   createProspectAction,
   createProspectCampaignAction,
   db,
   reviewProspectOutreachDraftAction,
+  revalidateProspectSendOutboxClaimAction,
+  releaseProspectSendBatchAction,
   reviewProspectContactReadinessAction,
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
@@ -21,7 +24,7 @@ const enabled =
 describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
 
-  it('proves agent draft, escalation acknowledgment and exact frozen batch approval', async () => {
+  it('proves review-gated release and a late-synced reply stops a claimed item before any provider call', async () => {
     await withTenantIsolationBypass(async () => {
       const suffix = randomUUID().slice(0, 8)
       const actor = {
@@ -104,6 +107,219 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       expect(
         await db.prospectEmailMessage.count({
           where: { organizationId: prospect.organization.id },
+        }),
+      ).toBe(0)
+
+      const contactId = prospect.contact?.id
+      const recipientEmail = prospect.contact?.email
+      if (!contactId || !recipientEmail)
+        throw new Error('Disposable prospect fixture requires contact')
+      const mailboxAddress = `outreach-${suffix}@example.test`
+      const providerAccount = await db.correspondenceProviderAccount.create({
+        data: {
+          provider: 'GMAIL',
+          externalAccountId: `disposable-gmail-${suffix}`,
+          mailboxAddress,
+          capabilities: ['SEND'],
+          connectionStatus: 'CONNECTED',
+          credentialReferenceId: `fake-credential-reference-${suffix}`,
+          deliveryEnabled: true,
+          dailySendCap: 10,
+          perDomainDailyCap: 2,
+          minimumDelaySeconds: 0,
+          jitterSeconds: 0,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      })
+      await db.prospectDeliveryControl.upsert({
+        where: { id: 'global' },
+        create: {
+          id: 'global',
+          deliveryEnabled: true,
+          internalOnly: true,
+          internalAllowlist: [recipientEmail],
+          changedBy: actor.id,
+          changedReason: 'Disposable internal-only reply-before-send fixture',
+        },
+        update: {
+          deliveryEnabled: true,
+          internalOnly: true,
+          internalAllowlist: [recipientEmail],
+          changedBy: actor.id,
+          changedReason: 'Disposable internal-only reply-before-send fixture',
+        },
+      })
+      const released = await releaseProspectSendBatchAction({
+        batchId: frozen.id,
+        providerAccountId: providerAccount.id,
+        expectedRecipientCount: 1,
+        expectedSnapshotHash: frozen.snapshotHash,
+        actor,
+      })
+      const outbox = await db.prospectSendOutbox.findFirstOrThrow({
+        where: { sendItem: { batchId: released.batch.id } },
+      })
+      const claimed = await claimProspectSendOutboxAction({
+        outboxId: outbox.id,
+        workerId: `provider-dark-worker-${suffix}`,
+      })
+      expect(claimed).toMatchObject({ outboxId: outbox.id, provider: 'GMAIL' })
+
+      const item = await db.prospectSendItem.findUniqueOrThrow({
+        where: { id: outbox.sendItemId },
+        select: { createdAt: true },
+      })
+      const replyCreatedAt = new Date(item.createdAt.valueOf() + 1_000)
+      const replyOccurredAt = new Date(item.createdAt.valueOf() - 86_400_000)
+      const thread = await db.prospectEmailThread.create({
+        data: {
+          organizationId: prospect.organization.id,
+          contactId,
+          replyTokenHash: createHash('sha256').update(`reply-token-${suffix}`).digest('hex'),
+          subject: 'Reply before provider delivery',
+          lastMessageAt: replyOccurredAt,
+        },
+      })
+      const inbound = await db.prospectEmailMessage.create({
+        data: {
+          threadId: thread.id,
+          organizationId: prospect.organization.id,
+          contactId,
+          direction: 'INBOUND',
+          status: 'RECEIVED',
+          providerAccountId: providerAccount.id,
+          providerMessageId: `late-synced-reply-${suffix}`,
+          fromAddress: recipientEmail,
+          toAddresses: [mailboxAddress],
+          subject: 'Reply before provider delivery',
+          textBody: 'Please do not send this message.',
+          bodyPreview: 'Please do not send this message.',
+          bodyRetentionState: 'TEMPORARY',
+          bodyExpiresAt: new Date(replyCreatedAt.valueOf() + 86_400_000),
+          sourceReference: `disposable://late-sync/${suffix}`,
+          occurredAt: replyOccurredAt,
+          createdAt: replyCreatedAt,
+        },
+      })
+
+      await expect(
+        revalidateProspectSendOutboxClaimAction({
+          outboxId: outbox.id,
+          workerId: `provider-dark-worker-${suffix}`,
+          now: new Date(replyCreatedAt.valueOf() + 1_000),
+        }),
+      ).resolves.toBe(false)
+      await expect(
+        db.prospectSendOutbox.findUniqueOrThrow({ where: { id: outbox.id } }),
+      ).resolves.toMatchObject({
+        status: 'CANCELLED',
+        lastErrorCode: 'REPLY_RECEIVED_BEFORE_PROVIDER',
+      })
+      await expect(
+        db.prospectSendItem.findUniqueOrThrow({ where: { id: outbox.sendItemId } }),
+      ).resolves.toMatchObject({
+        status: 'CANCELLED',
+        lastErrorCode: 'REPLY_RECEIVED_BEFORE_PROVIDER',
+      })
+      await expect(
+        db.prospectSendBatch.findUniqueOrThrow({ where: { id: frozen.id } }),
+      ).resolves.toMatchObject({
+        status: 'PARTIAL',
+      })
+      expect(
+        await db.prospectEmailMessage.count({
+          where: { organizationId: prospect.organization.id, direction: 'INBOUND', id: inbound.id },
+        }),
+      ).toBe(1)
+      expect(
+        await db.prospectEmailMessage.count({
+          where: { organizationId: prospect.organization.id, direction: 'OUTBOUND' },
+        }),
+      ).toBe(0)
+
+      // Synthetic fixture state: a prior provider attempt may have been accepted before this
+      // retry. Claim/takeover must retain ambiguity rather than assert that no provider delivery
+      // could have occurred.
+      const retryWorker = `provider-dark-retry-worker-${suffix}`
+      const retryNow = new Date(replyCreatedAt.valueOf() + 2_000)
+      await db.prospectSendItem.update({
+        where: { id: outbox.sendItemId },
+        data: { status: 'QUEUED', lastErrorCode: null, lastErrorMessage: null },
+      })
+      await db.prospectSendOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: 'RETRYABLE',
+          availableAt: retryNow,
+          claimOwner: null,
+          claimExpiresAt: null,
+          attemptCount: 1,
+          terminalAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastErrorRetryable: null,
+        },
+      })
+      await expect(
+        claimProspectSendOutboxAction({
+          outboxId: outbox.id,
+          workerId: retryWorker,
+          now: retryNow,
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        db.prospectSendOutbox.findUniqueOrThrow({ where: { id: outbox.id } }),
+      ).resolves.toMatchObject({ status: 'AMBIGUOUS' })
+      await expect(
+        db.prospectSendItem.findUniqueOrThrow({ where: { id: outbox.sendItemId } }),
+      ).resolves.toMatchObject({ status: 'AMBIGUOUS' })
+      await expect(
+        db.prospectSendBatch.findUniqueOrThrow({ where: { id: frozen.id } }),
+      ).resolves.toMatchObject({
+        status: 'ATTENTION_REQUIRED',
+      })
+
+      // A separately constructed claimed retry state covers the last pre-provider revalidation
+      // boundary as well as claim/takeover above.
+      await db.prospectSendItem.update({
+        where: { id: outbox.sendItemId },
+        data: { status: 'QUEUED', lastErrorCode: null, lastErrorMessage: null },
+      })
+      await db.prospectSendOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: 'CLAIMED',
+          claimOwner: retryWorker,
+          claimExpiresAt: new Date(retryNow.valueOf() + 60_000),
+          attemptCount: 2,
+          terminalAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastErrorRetryable: null,
+        },
+      })
+      await expect(
+        revalidateProspectSendOutboxClaimAction({
+          outboxId: outbox.id,
+          workerId: retryWorker,
+          now: retryNow,
+        }),
+      ).resolves.toBe(false)
+      await expect(
+        db.prospectSendOutbox.findUniqueOrThrow({ where: { id: outbox.id } }),
+      ).resolves.toMatchObject({ status: 'AMBIGUOUS' })
+      await expect(
+        db.prospectSendItem.findUniqueOrThrow({ where: { id: outbox.sendItemId } }),
+      ).resolves.toMatchObject({ status: 'AMBIGUOUS' })
+      expect(
+        await db.prospectEmailMessage.count({
+          where: { organizationId: prospect.organization.id, direction: 'INBOUND', id: inbound.id },
+        }),
+      ).toBe(1)
+      expect(
+        await db.prospectEmailMessage.count({
+          where: { organizationId: prospect.organization.id, direction: 'OUTBOUND' },
         }),
       ).toBe(0)
     })

@@ -40,6 +40,7 @@
     "test:first-week-learning:disposable": "node scripts/run-disposable-first-week-learning.mjs",
     "test:founder-conversation:disposable": "node scripts/run-disposable-founder-conversation.mjs",
     "test:founder-directive-task:disposable": "node scripts/run-disposable-founder-directive-task.mjs",
+    "test:prospect-outreach:disposable": "node scripts/run-disposable-prospect-outreach.mjs",
     "test:support-completion:disposable": "node scripts/run-disposable-support-completion.mjs",
     "test:support-package-draft:disposable": "node scripts/run-disposable-support-package-draft.mjs",
     "test:support-completion-observability:disposable": "node scripts/run-disposable-support-completion-observability.mjs",
