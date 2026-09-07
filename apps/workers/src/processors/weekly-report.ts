@@ -147,6 +147,7 @@ function formatReportContent(params: {
   answerCount: number
   helpfulCount: number
   notHelpfulCount: number
+  voiceLanguages: Array<{ locale: string; _count: { _all: number } }>
   parsed: WeeklyReportResponse
   validatedFindings: ReturnType<typeof validateFindings>
   configuredQuestions: Array<{ id: string; prompt: string }>
@@ -161,6 +162,7 @@ function formatReportContent(params: {
     answerCount,
     helpfulCount,
     notHelpfulCount,
+    voiceLanguages,
     parsed,
     validatedFindings,
     configuredQuestions,
@@ -179,7 +181,7 @@ function formatReportContent(params: {
     : 'No source-supported observations were available for this week.'
   const limitation =
     sessionCount === 0
-      ? 'No public visitor activity was recorded in this reporting window.'
+      ? 'No public text conversations were recorded in this reporting window.'
       : sessionCount < 5
         ? 'Low sample: treat these observations as directional, not representative.'
         : 'Observations reflect only the public interactions recorded in this reporting window.'
@@ -210,6 +212,19 @@ function formatReportContent(params: {
     `Sessions: ${sessionCount} · Messages: ${messageCount}`,
     `Captured answers: ${answerCount}`,
     `Feedback: ${helpfulCount} helpful · ${notHelpfulCount} not helpful`,
+    'Text conversation languages: not recorded.',
+    'Voice language settings (connected public sessions; not verified spoken languages):',
+    ...(voiceLanguages.length
+      ? voiceLanguages
+          .slice(0, 25)
+          .map(
+            ({ locale, _count }) =>
+              `- ${/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/iu.test(locale) ? locale : 'Unrecognized setting'}: ${_count._all} session(s)`,
+          )
+      : ['No connected public voice sessions were recorded in this reporting window.']),
+    ...(voiceLanguages.length > 25
+      ? ['Only the 25 most-used voice language settings are shown.']
+      : []),
     '',
     'Evidence scope and limitations',
     limitation,
@@ -280,6 +295,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
       generalMessages,
       helpfulCount,
       notHelpfulCount,
+      voiceLanguages,
     ] = await Promise.all([
       db.venue.findFirst({
         where: { id: payload.venueId, tenantId: payload.tenantId },
@@ -354,6 +370,18 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           session: { experienceScope: 'PUBLIC' },
         },
       }),
+      db.voiceSession.groupBy({
+        by: ['locale'],
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          connectedAt: { gte: weekStart, lte: weekEnd },
+          visitorSession: { experienceScope: 'PUBLIC' },
+        },
+        _count: { _all: true },
+        orderBy: [{ _count: { locale: 'desc' } }, { locale: 'asc' }],
+        take: 26,
+      }),
     ])
 
     if (!venue) {
@@ -379,6 +407,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
       })),
       helpfulCount,
       notHelpfulCount,
+      voiceLanguages,
     }
   })
 }
@@ -612,6 +641,7 @@ export async function processWeeklyReportJob(
       answerCount: data.responses.length,
       helpfulCount: data.helpfulCount,
       notHelpfulCount: data.notHelpfulCount,
+      voiceLanguages: data.voiceLanguages,
       parsed,
       validatedFindings,
       configuredQuestions: data.activeQuestions,

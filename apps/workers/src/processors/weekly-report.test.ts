@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   sessionCount: vi.fn(),
   messageCount: vi.fn(),
   feedbackCount: vi.fn(),
+  voiceLanguageGroupBy: vi.fn(),
   responseFindMany: vi.fn(),
   questionFindMany: vi.fn(),
   noteFindMany: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock('@pathfinder/db', () => ({
     visitorSession: { count: mocks.sessionCount },
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
     messageFeedback: { count: mocks.feedbackCount },
+    voiceSession: { groupBy: mocks.voiceLanguageGroupBy },
     engagementQuestionResponse: { findMany: mocks.responseFindMany },
     engagementQuestion: { findMany: mocks.questionFindMany },
     adminChatlogNote: { findMany: mocks.noteFindMany },
@@ -119,6 +121,7 @@ describe('processWeeklyReportJob', () => {
     mocks.venueFindFirst.mockResolvedValue({ name: 'City Zoo', category: 'zoo' })
     mocks.sessionCount.mockResolvedValue(2)
     mocks.messageCount.mockResolvedValue(4)
+    mocks.voiceLanguageGroupBy.mockResolvedValue([])
     mocks.feedbackCount.mockImplementation(({ where }: { where: { rating: string } }) =>
       where.rating === 'HELPFUL' ? Promise.resolve(3) : Promise.resolve(1),
     )
@@ -291,9 +294,56 @@ describe('processWeeklyReportJob', () => {
     const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
     expect(content).toContain('Sessions: 0 · Messages: 0')
     expect(content).toContain('Feedback: 0 helpful · 0 not helpful')
-    expect(content).toContain('No public visitor activity was recorded')
+    expect(content).toContain('No public text conversations were recorded')
     expect(content).toContain('No source-supported observations were available')
     expect(content).not.toContain('Visitors had a positive week')
+  })
+
+  it('counts connected public voice settings without claiming spoken or text languages', async () => {
+    mocks.voiceLanguageGroupBy.mockResolvedValue([
+      { locale: 'es-MX', _count: { _all: 3 } },
+      { locale: 'en-US', _count: { _all: 1 } },
+    ])
+    await processWeeklyReportJob(payload)
+    expect(mocks.voiceLanguageGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          connectedAt: { gte: new Date(payload.weekStart), lte: new Date(payload.weekEnd) },
+          visitorSession: { experienceScope: 'PUBLIC' },
+        },
+        take: 26,
+      }),
+    )
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('es-MX: 3 session(s)')
+    expect(content).toContain('en-US: 1 session(s)')
+    expect(content).toContain('not verified spoken languages')
+    expect(content).toContain('Text conversation languages: not recorded.')
+  })
+
+  it('does not print arbitrary locale metadata as report content', async () => {
+    mocks.voiceLanguageGroupBy.mockResolvedValue([
+      { locale: 'contact@example.test', _count: { _all: 1 } },
+    ])
+    await processWeeklyReportJob(payload)
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Unrecognized setting: 1 session(s)')
+    expect(content).not.toContain('contact@example.test')
+  })
+
+  it('discloses bounded language-setting coverage', async () => {
+    mocks.voiceLanguageGroupBy.mockResolvedValue(
+      Array.from({ length: 26 }, (_, i) => ({
+        locale: `en-${String(i).padStart(2, '0')}`,
+        _count: { _all: 1 },
+      })),
+    )
+    await processWeeklyReportJob(payload)
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Only the 25 most-used voice language settings are shown.')
+    expect(content).not.toContain('en-25:')
   })
 
   it('fences zero-activity completion when lease ownership is lost', async () => {
