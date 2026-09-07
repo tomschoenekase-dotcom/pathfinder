@@ -35,6 +35,261 @@ const environment = {
 describe('approval-gated agent billing commands', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  function recoveryFixture(action = 'SET_GRACE_PERIOD') {
+    const payload =
+      action === 'SET_GRACE_PERIOD'
+        ? {
+            action,
+            agreementId: 'agreement-1',
+            expiresAt: '2026-12-01T00:00:00Z',
+            reference: 'fixture',
+            reason: 'Synthetic grace recovery',
+          }
+        : action === 'CREATE_NEGOTIATED_CHECKOUT'
+          ? {
+              action,
+              planKey: 'torchiko_pilot_test',
+              venueIds: ['venue-1'],
+              amountMinor: '4300',
+              currency: 'usd',
+              interval: 'month',
+              reference: 'fixture',
+              reason: 'Synthetic checkout recovery',
+            }
+          : { action, reason: 'Synthetic cancellation recovery' }
+    let row = {
+      id: 'recover-command',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      action,
+      operationId: '44a1e58c-670c-47d5-b02d-24c56b0e7747',
+      status: 'PENDING_APPROVAL',
+      failureCode: 'EXECUTION_CLAIM_V2',
+      updatedAt: new Date(Date.now() - 600_000),
+      payload,
+      approvalRequest: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestedByType: 'AGENT',
+        proposedAction: `billing.${action.toLowerCase()}`,
+        scopeSnapshot: { tenantId: 'tenant-1', venueId: 'venue-1', payload },
+        expiresAt: new Date(Date.now() + 60_000),
+        decision: { decision: 'APPROVED', decidedByType: 'HUMAN' },
+      },
+    }
+    let failCompletion = false
+    let loseLeaseOnCompletion = false
+    const model = {
+      findFirst: vi.fn(async () => ({ ...row })),
+      updateMany: vi.fn(async ({ where, data }) => {
+        if (where.status !== row.status || where.updatedAt.getTime() !== row.updatedAt.getTime())
+          return { count: 0 }
+        if (data.status === 'COMPLETED' && failCompletion) {
+          failCompletion = false
+          throw new Error('completion database unavailable')
+        }
+        if (data.status === 'COMPLETED' && loseLeaseOnCompletion) {
+          row = { ...row, updatedAt: new Date(row.updatedAt.getTime() + 1) }
+          return { count: 0 }
+        }
+        row = { ...row, ...data }
+        return { count: 1 }
+      }),
+    }
+    const request = vi.fn()
+    const checkoutAttempt = vi.fn()
+    const client = {
+      $transaction: (fn: (tx: unknown) => unknown) => fn({ billingAgentCommand: model }),
+      billingAgentCommand: model,
+      billingCustomerRequest: { findFirst: request },
+      billingCheckoutAttempt: { findFirst: checkoutAttempt },
+    }
+    return {
+      client,
+      request,
+      checkoutAttempt,
+      row: () => row,
+      setStatus: (status: string) => {
+        row.status = status
+      },
+      failCompletion: () => {
+        failCompletion = true
+      },
+      loseLeaseOnCompletion: () => {
+        loseLeaseOnCompletion = true
+      },
+      invoke: () =>
+        executeApprovedBillingAgentCommand({
+          tenantId: 'tenant-1',
+          commandId: row.id,
+          actorId: 'admin-1',
+          provider: {} as never,
+          environment,
+          client: client as never,
+        }),
+    }
+  }
+
+  it('retains a stable grace effect identity through completion-write failure and restart', async () => {
+    const fixture = recoveryFixture()
+    mocks.override.mockResolvedValue({ id: 'persisted-override' })
+    fixture.failCompletion()
+    await expect(fixture.invoke()).rejects.toThrow('completion database unavailable')
+    expect(fixture.row()).toMatchObject({
+      status: 'FAILED',
+      failureCode: 'RECONCILIATION_REQUIRED_V2',
+    })
+    await fixture.invoke()
+    expect(mocks.override.mock.calls.map(([args]) => args.idempotencyKey)).toEqual([
+      'agent-command:recover-command',
+      'agent-command:recover-command',
+    ])
+    expect(fixture.row().status).toBe('COMPLETED')
+    await fixture.invoke()
+    expect(mocks.override).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers an expired grace claim, but cannot reclaim a live claim', async () => {
+    const fixture = recoveryFixture()
+    fixture.setStatus('EXECUTING')
+    mocks.override.mockResolvedValue({ id: 'persisted-override' })
+    await fixture.invoke()
+    expect(fixture.row().status).toBe('COMPLETED')
+    fixture.setStatus('EXECUTING')
+    await expect(fixture.invoke()).rejects.toThrow('already executing')
+  })
+
+  it('does not repeat an ambiguous provider cancellation, and reconciles its durable success', async () => {
+    const fixture = recoveryFixture('CANCEL_AT_PERIOD_END')
+    fixture.setStatus('FAILED')
+    fixture.request.mockResolvedValue({
+      id: 'request-1',
+      status: 'PROCESSING',
+      providerActionAt: null,
+    })
+    await expect(fixture.invoke()).rejects.toThrow('requires provider reconciliation')
+    expect(mocks.cancellation).not.toHaveBeenCalled()
+    fixture.request.mockResolvedValue({
+      id: 'request-1',
+      status: 'COMPLETED',
+      providerActionAt: new Date(),
+    })
+    await fixture.invoke()
+    expect(fixture.row().status).toBe('COMPLETED')
+    expect(mocks.cancellation).not.toHaveBeenCalled()
+  })
+
+  it('admits only one effect when two callers read the same approved revision', async () => {
+    const command = {
+      id: 'command-race',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '44a1e58c-670c-47d5-b02d-24c56b0e7747',
+      action: 'SET_GRACE_PERIOD',
+      status: 'PENDING_APPROVAL',
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
+      payload: {
+        action: 'SET_GRACE_PERIOD',
+        agreementId: 'agreement-1',
+        expiresAt: '2026-10-01T00:00:00Z',
+        reference: 'fixture',
+        reason: 'Synthetic approved grace',
+      },
+      approvalRequest: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestedByType: 'AGENT',
+        proposedAction: 'billing.set_grace_period',
+        scopeSnapshot: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          payload: {
+            action: 'SET_GRACE_PERIOD',
+            agreementId: 'agreement-1',
+            expiresAt: '2026-10-01T00:00:00Z',
+            reference: 'fixture',
+            reason: 'Synthetic approved grace',
+          },
+        },
+        expiresAt: new Date(Date.now() + 60_000),
+        decision: { decision: 'APPROVED', decidedByType: 'HUMAN' },
+      },
+    }
+    let reads = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let claimed = false
+    const model = {
+      findFirst: vi.fn(async () => {
+        if (++reads === 2) release()
+        await barrier
+        return { ...command }
+      }),
+      update: vi.fn(async ({ data }) => ({ ...command, ...data })),
+      updateMany: vi.fn(async ({ data }) => {
+        if (data.status !== 'EXECUTING') return { count: 1 }
+        if (claimed) return { count: 0 }
+        claimed = true
+        return { count: 1 }
+      }),
+    }
+    const client = {
+      $transaction: (fn: (tx: unknown) => unknown) => fn({ billingAgentCommand: model }),
+      billingAgentCommand: model,
+    }
+    mocks.override.mockResolvedValue({ id: 'one-effect' })
+    const invoke = () =>
+      executeApprovedBillingAgentCommand({
+        tenantId: 'tenant-1',
+        commandId: command.id,
+        actorId: 'admin-1',
+        provider: {} as never,
+        environment,
+        client: client as never,
+      })
+    const results = await Promise.allSettled([invoke(), invoke()])
+    expect(mocks.override).toHaveBeenCalledTimes(1)
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+  })
+
+  it('rejects a human approval whose action snapshot no longer matches the command', async () => {
+    const fixture = recoveryFixture()
+    fixture.row().approvalRequest.scopeSnapshot = {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      payload: { ...fixture.row().payload, expiresAt: '2027-01-01T00:00:00Z' },
+    }
+    await expect(fixture.invoke()).rejects.toThrow('does not match the exact command')
+    expect(mocks.override).not.toHaveBeenCalled()
+  })
+
+  it('does not treat a partial checkout child row as reconciled provider success', async () => {
+    const fixture = recoveryFixture('CREATE_NEGOTIATED_CHECKOUT')
+    fixture.setStatus('FAILED')
+    fixture.checkoutAttempt.mockResolvedValue({
+      id: 'attempt-1',
+      status: 'PENDING',
+      providerCreatedAt: null,
+      stripeCheckoutSessionId: 'cs_unproved',
+      stripeCheckoutUrl: 'https://checkout.example/unproved',
+    })
+    await expect(fixture.invoke()).rejects.toThrow('requires provider reconciliation')
+    expect(mocks.checkout).not.toHaveBeenCalled()
+  })
+
+  it('does not let stale completion or its catch overwrite a newer lease revision', async () => {
+    const fixture = recoveryFixture()
+    mocks.override.mockResolvedValue({ id: 'effect-created-before-lease-loss' })
+    fixture.loseLeaseOnCompletion()
+    await expect(fixture.invoke()).rejects.toThrow('execution lease was lost')
+    expect(fixture.row()).toMatchObject({
+      status: 'EXECUTING',
+      failureCode: 'EXECUTION_CLAIM_V2',
+    })
+  })
+
   it('creates only a human approval proposal and never executes provider work', async () => {
     const approval = { id: 'approval-1' }
     const command = {
@@ -159,9 +414,20 @@ describe('approval-gated agent billing commands', () => {
       tenantId: 'tenant-1',
       venueId: 'venue-1',
       operationId,
+      action: 'CANCEL_AT_PERIOD_END',
       status: 'PENDING_APPROVAL',
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
       payload: { action: 'CANCEL_AT_PERIOD_END', reason: 'The venue is closing.' },
       approvalRequest: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        requestedByType: 'AGENT',
+        proposedAction: 'billing.cancel_at_period_end',
+        scopeSnapshot: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          payload: { action: 'CANCEL_AT_PERIOD_END', reason: 'The venue is closing.' },
+        },
         expiresAt: new Date(Date.now() + 60_000),
         decision: { decision: 'APPROVED', decidedByType: 'HUMAN' },
       },
@@ -170,12 +436,15 @@ describe('approval-gated agent billing commands', () => {
       billingAgentCommand: {
         findFirst: vi.fn().mockResolvedValue(command),
         update: vi.fn().mockResolvedValue({ ...command, status: 'EXECUTING' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     }
     const client = {
       $transaction: (action: (value: typeof tx) => unknown) => action(tx),
       billingAgentCommand: {
         update: vi.fn().mockResolvedValue({ ...command, status: 'COMPLETED' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue({ ...command, status: 'COMPLETED' }),
       },
     }
     mocks.cancellation.mockResolvedValue({ awaitingWebhook: true })
@@ -192,7 +461,7 @@ describe('approval-gated agent billing commands', () => {
     expect(mocks.cancellation).toHaveBeenCalledWith(
       expect.objectContaining({ operationId, actorRole: 'PLATFORM_ADMIN' }),
     )
-    expect(client.billingAgentCommand.update).toHaveBeenCalledWith(
+    expect(client.billingAgentCommand.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }),
     )
   })

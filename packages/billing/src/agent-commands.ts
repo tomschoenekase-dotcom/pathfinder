@@ -9,6 +9,8 @@ import { BillingServiceError, createBillingAccessOverride, createTenantCheckout 
 
 type DbClient = typeof db
 
+export const BILLING_COMMAND_LEASE_MS = 5 * 60_000
+
 export const BillingAgentCommandPayload = z.discriminatedUnion('action', [
   z
     .object({
@@ -179,8 +181,25 @@ export async function executeApprovedBillingAgentCommand(params: {
     })
     if (!command) throw new BillingServiceError('NOT_FOUND', 'Billing command was not found.')
     if (command.status === 'COMPLETED') return { command, replayed: true }
-    if (command.status === 'EXECUTING')
+    const recovering = command.status === 'EXECUTING' || command.status === 'FAILED'
+    if (
+      command.status === 'EXECUTING' &&
+      command.updatedAt.getTime() + BILLING_COMMAND_LEASE_MS > Date.now()
+    )
       throw new BillingServiceError('CONFLICT', 'Billing command is already executing.')
+    if (!['PENDING_APPROVAL', 'APPROVED', 'EXECUTING', 'FAILED'].includes(command.status))
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Billing command requires reconciliation before retry.',
+      )
+    if (
+      recovering &&
+      !['EXECUTION_CLAIM_V2', 'RECONCILIATION_REQUIRED_V2'].includes(command.failureCode ?? '')
+    )
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Legacy billing outcome requires explicit reconciliation before recovery.',
+      )
     if (command.approvalRequest.expiresAt && command.approvalRequest.expiresAt <= new Date())
       throw new BillingServiceError('CONFLICT', 'Billing approval has expired.')
     if (
@@ -189,19 +208,92 @@ export async function executeApprovedBillingAgentCommand(params: {
     ) {
       throw new BillingServiceError('FORBIDDEN', 'A current human approval is required.')
     }
-    return {
-      command: await tx.billingAgentCommand.update({
-        where: { id: command.id, tenantId: params.tenantId },
-        data: { status: 'EXECUTING' },
-      }),
-      replayed: false,
+    const payload = BillingAgentCommandPayload.parse(command.payload)
+    const approvalScope = z
+      .object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        payload: BillingAgentCommandPayload,
+      })
+      .strict()
+      .safeParse(command.approvalRequest.scopeSnapshot)
+    if (
+      command.action !== payload.action ||
+      command.approvalRequest.tenantId !== command.tenantId ||
+      command.approvalRequest.venueId !== command.venueId ||
+      command.approvalRequest.requestedByType !== 'AGENT' ||
+      command.approvalRequest.proposedAction !== `billing.${payload.action.toLowerCase()}` ||
+      !approvalScope.success ||
+      approvalScope.data.tenantId !== command.tenantId ||
+      approvalScope.data.venueId !== command.venueId ||
+      JSON.stringify(approvalScope.data.payload) !== JSON.stringify(payload)
+    ) {
+      throw new BillingServiceError(
+        'FORBIDDEN',
+        'Billing approval does not match the exact command action and scope.',
+      )
     }
+    // The monotonically increasing revision fences completion by an expired worker.
+    const claimedAt = new Date(Math.max(Date.now(), command.updatedAt.getTime() + 1))
+    const claimed = await tx.billingAgentCommand.updateMany({
+      where: {
+        id: command.id,
+        tenantId: params.tenantId,
+        status: command.status,
+        updatedAt: command.updatedAt,
+      },
+      data: { status: 'EXECUTING', failureCode: 'EXECUTION_CLAIM_V2', updatedAt: claimedAt },
+    })
+    if (claimed.count !== 1)
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Billing command changed or was claimed by another worker.',
+      )
+    return { command: { ...command, updatedAt: claimedAt }, payload, recovering, replayed: false }
   })
   if (reserved.replayed) return { command: reserved.command, replayed: true }
   const payload = BillingAgentCommandPayload.parse(reserved.command.payload)
   try {
     let result: unknown
-    if (payload.action === 'CREATE_NEGOTIATED_CHECKOUT') {
+    if (reserved.recovering && payload.action !== 'SET_GRACE_PERIOD') {
+      // Provider-start records are durable, but their existence is not evidence of success.
+      // Never repeat a money-like effect after an unknown outcome.
+      if (payload.action === 'CREATE_NEGOTIATED_CHECKOUT') {
+        const attempt = await client.billingCheckoutAttempt.findFirst({
+          where: { tenantId: params.tenantId, operationKey: reserved.command.operationId },
+        })
+        if (
+          attempt?.status !== 'CREATED' ||
+          !attempt.providerCreatedAt ||
+          !attempt.stripeCheckoutSessionId ||
+          !attempt.stripeCheckoutUrl
+        )
+          throw new BillingServiceError(
+            'CONFLICT',
+            'Checkout outcome requires provider reconciliation; no new checkout was issued.',
+          )
+        result = {
+          attemptId: attempt.id,
+          sessionId: attempt.stripeCheckoutSessionId,
+          url: attempt.stripeCheckoutUrl,
+          replayed: true,
+        }
+      } else {
+        const request = await client.billingCustomerRequest.findFirst({
+          where: {
+            tenantId: params.tenantId,
+            operationId: reserved.command.operationId,
+            kind: 'CANCELLATION',
+          },
+        })
+        if (request?.status !== 'COMPLETED' || !request.providerActionAt)
+          throw new BillingServiceError(
+            'CONFLICT',
+            'Cancellation outcome requires provider reconciliation; no cancellation was repeated.',
+          )
+        result = { request, replayed: true, awaitingWebhook: true }
+      }
+    } else if (payload.action === 'CREATE_NEGOTIATED_CHECKOUT') {
       result = await createTenantCheckout({
         tenantId: params.tenantId,
         actorId: params.actorId,
@@ -233,6 +325,7 @@ export async function executeApprovedBillingAgentCommand(params: {
         expiresAt: new Date(payload.expiresAt),
         reason: payload.reason,
         reference: payload.reference,
+        idempotencyKey: `agent-command:${reserved.command.id}`,
         client,
       })
     } else {
@@ -247,10 +340,16 @@ export async function executeApprovedBillingAgentCommand(params: {
         client,
       })
     }
-    const command = await client.billingAgentCommand.update({
-      where: { id: reserved.command.id, tenantId: params.tenantId },
+    const completed = await client.billingAgentCommand.updateMany({
+      where: {
+        id: reserved.command.id,
+        tenantId: params.tenantId,
+        status: 'EXECUTING',
+        updatedAt: reserved.command.updatedAt,
+      },
       data: {
         status: 'COMPLETED',
+        failureCode: null,
         executedBy: params.actorId,
         executedAt: new Date(),
         result: JSON.parse(
@@ -260,15 +359,28 @@ export async function executeApprovedBillingAgentCommand(params: {
         ),
       },
     })
+    if (completed.count !== 1)
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Billing execution lease was lost; its outcome must be reconciled.',
+      )
+    const command = await client.billingAgentCommand.findFirst({
+      where: { id: reserved.command.id, tenantId: params.tenantId },
+    })
     return { command, result, replayed: false }
   } catch (error) {
-    await client.billingAgentCommand.update({
-      where: { id: reserved.command.id, tenantId: params.tenantId },
+    await client.billingAgentCommand.updateMany({
+      where: {
+        id: reserved.command.id,
+        tenantId: params.tenantId,
+        status: 'EXECUTING',
+        updatedAt: reserved.command.updatedAt,
+      },
       data: {
         status: 'FAILED',
         executedBy: params.actorId,
         executedAt: new Date(),
-        failureCode: 'EXECUTION_FAILED',
+        failureCode: 'RECONCILIATION_REQUIRED_V2',
       },
     })
     throw error

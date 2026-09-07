@@ -61,6 +61,7 @@ const approvedPolicies = new Set([
   'tenant-client-assistant-completion-lock',
   'tenant-client-assistant-handoff-lock',
   'tenant-customer-access-request-lock',
+  'tenant-billing-effect-lock',
   'tenant-first-week-review-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
@@ -75,6 +76,12 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/billing/src/service.ts',
+    method: '$executeRaw',
+    hash: 'bf3421dfb1b691819b8baed107ec5de13a07d17407153a1b3738a8b12e631d00',
+    policy: 'tenant-billing-effect-lock',
+  },
   {
     file: 'packages/db/src/helpers/prospect-inbound-reply-review-actions.ts',
     method: '$executeRaw',

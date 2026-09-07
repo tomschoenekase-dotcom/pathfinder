@@ -20,6 +20,21 @@ const client = {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('product entitlement resolution', () => {
+  it('does not suspend access from an unapproved default recovery policy', async () => {
+    vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+    vi.stubEnv('BILLING_RECOVERY_POLICY_APPROVED', 'false')
+    plan.mockResolvedValue({ id: 'launch-widget', enabled: true, settings: {} })
+    const decision = await resolveProductEntitlement({
+      client: {
+        ...client,
+        billingAccount: { findUnique: billingAccount },
+      } as ProductEntitlementClient,
+      tenantId: 'tenant-a',
+      capability: 'widget',
+    })
+    expect(decision).toMatchObject({ enabled: true, source: 'PLAN' })
+    expect(billingAccount).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     tenant.mockResolvedValue({ planTier: 'launch' })
@@ -107,6 +122,7 @@ describe('product entitlement resolution', () => {
 
   it('enforces the central billing policy only behind the launch kill switch', async () => {
     vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+    vi.stubEnv('BILLING_RECOVERY_POLICY_APPROVED', 'true')
     const enforcingClient = {
       ...client,
       billingAccount: { findUnique: billingAccount },

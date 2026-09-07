@@ -48,6 +48,7 @@ const rawEnvSchema = z
     STRIPE_WEBHOOK_PROCESSING_ENABLED: z.enum(['true', 'false']).optional(),
     STRIPE_RECONCILIATION_ENABLED: z.enum(['true', 'false']).optional(),
     BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).optional(),
+    BILLING_RECOVERY_POLICY_APPROVED: z.enum(['true', 'false']).optional(),
     STRIPE_LIVE_MODE_ALLOWED: z.enum(['true', 'false']).optional(),
     STRIPE_MODE: z.enum(['test', 'live']).default('test'),
     STRIPE_ACCOUNT_NAMESPACE: z
@@ -287,6 +288,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   STRIPE_RECONCILIATION_ENABLED: values.STRIPE_RECONCILIATION_ENABLED === 'true',
   BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED:
     values.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true',
+  BILLING_RECOVERY_POLICY_APPROVED: values.BILLING_RECOVERY_POLICY_APPROVED === 'true',
   STRIPE_LIVE_MODE_ALLOWED: values.STRIPE_LIVE_MODE_ALLOWED === 'true',
   EMBEDDING_DISPATCH_ENABLED: values.EMBEDDING_DISPATCH_ENABLED === 'true',
   GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',

@@ -1601,14 +1601,44 @@ export async function createBillingAccessOverride(params: {
   expiresAt: Date
   reason: string
   reference?: string | null
+  /** Stable internal effect identity; callers must retain it across recovery. */
+  idempotencyKey?: string
   client?: DbClient
 }) {
   const client = params.client ?? db
   const startsAt = params.startsAt ?? new Date()
-  if (params.expiresAt <= startsAt)
-    throw new BillingServiceError('CONFLICT', 'Override expiry must follow its start.')
+  const effectId = params.idempotencyKey
+    ? `billing-effect-${createHash('sha256')
+        .update(JSON.stringify([params.tenantId, params.idempotencyKey]))
+        .digest('hex')}`
+    : undefined
   return withTenantIsolationBypass(() =>
     client.$transaction(async (tx) => {
+      if (effectId) {
+        // Tenant-qualified advisory lock serializes this one effect, including audit persistence.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${effectId}, 0))`
+        const existing = await tx.billingAccessOverride.findFirst({
+          where: { id: effectId, tenantId: params.tenantId },
+        })
+        if (existing) {
+          if (
+            existing.commercialAgreementId !== (params.agreementId ?? null) ||
+            existing.venueId !== (params.venueId ?? null) ||
+            existing.effect !== params.effect ||
+            existing.kind !== params.kind ||
+            existing.expiresAt.getTime() !== params.expiresAt.getTime() ||
+            existing.reason !== params.reason ||
+            existing.sourceReference !== (params.reference ?? null)
+          )
+            throw new BillingServiceError(
+              'CONFLICT',
+              'Billing effect identity was reused with different terms.',
+            )
+          return existing
+        }
+      }
+      if (params.expiresAt <= startsAt)
+        throw new BillingServiceError('CONFLICT', 'Override expiry must follow its start.')
       const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
       if (!account) throw new BillingServiceError('NOT_FOUND', 'Billing account not found.')
       if (params.agreementId) {
@@ -1634,6 +1664,7 @@ export async function createBillingAccessOverride(params: {
       }
       const override = await tx.billingAccessOverride.create({
         data: {
+          ...(effectId ? { id: effectId } : {}),
           tenantId: params.tenantId,
           billingAccountId: account.id,
           commercialAgreementId: params.agreementId ?? null,
