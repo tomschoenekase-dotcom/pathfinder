@@ -150,6 +150,7 @@ export const TENANTED_TABLES = [
   'IntakeV1SubmissionRevision',
   'IntakeV1SubmissionMember',
   'IntakeV1ProcessingDispatch',
+  'IntakeV1PackageHandoff',
   'IntakeEvidenceRecord',
   'IntakeRunEvent',
   'IntakeWebsiteResearchReceipt',

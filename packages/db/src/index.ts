@@ -1367,6 +1367,7 @@ export {
   getIntakeV1SubmissionAction,
   getLatestIntakeV1SubmissionAction,
   IntakeV1SubmissionError,
+  intakeV1ManifestHash,
   intakeV1SubmissionSelection,
   listIntakeV1CandidatesAction,
   listIntakeV1UploadCandidatesAction,
@@ -1374,6 +1375,7 @@ export {
 } from './helpers/intake-v1-submission-actions'
 export * from './helpers/intake-v1-processing-dispatch-actions'
 export * from './helpers/intake-v1-processing-read'
+export * from './helpers/intake-v1-package-handoff'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

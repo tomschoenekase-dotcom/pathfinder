@@ -66,6 +66,7 @@ import { createPathfinderMcpAgentActions } from './agent-actions'
 import { assertMcpWorkflowEffectLease, assertMcpWorkflowToolSupported } from './workflow-boundary'
 import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-finalizers'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { buildIntakeV1PackageCandidate } from '../lib/intake-v1-package-candidate'
 import { prepareSupportPackageApprovalProposalAction } from '../lib/support-package-approval-actions'
 import { prepareSupportPackageApplicationProposalAction } from '../lib/support-package-application-actions'
 import {
@@ -284,9 +285,29 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeAgentImprovement'
     | 'registerAgentWorkflowVersion'
     | 'readAgentWorkflowVersions'
+    | 'previewIntakeV1PackageDraft'
     | 'recordAgentImprovementValidation'
     | 'prepareCustomerAccessInvitation'
   > = {
+    async previewIntakeV1PackageDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('V1 package previews require venue scope')
+      const candidate = await buildIntakeV1PackageCandidate({
+        db: database,
+        tenantId: context.credential.tenantId,
+        venueId,
+        submissionId: input.submissionId,
+        revision: input.revision,
+        selectedMemberIds: input.selectedMemberIds,
+      })
+      return {
+        kind: 'torchiko.intake-v1-package-preview',
+        summary: candidate.ready
+          ? 'Exact V1 package candidate is ready for human review; no package or public change was created.'
+          : 'Exact V1 package candidate needs review; no package or public change was created.',
+        data: jsonData(candidate),
+      }
+    },
     async verifyApprovalGrant(request, context) {
       const now = new Date()
       const grant = await database.approvalGrant.findFirst({

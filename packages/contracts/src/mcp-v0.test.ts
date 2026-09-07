@@ -5,6 +5,7 @@ import {
   McpReadInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpIntakeV1PackagePreviewInput,
   McpSupportInformationRequestApplyInput,
   McpSupportCompletionApplyInput,
   McpSupportDraftInput,
@@ -36,6 +37,38 @@ const credential: VerifiedMcpCredentialScope = {
 }
 
 describe('Torchiko MCP v0 contracts', () => {
+  it('declares an exact bounded read-only V1 package preview', () => {
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'pathfinder.preview_intake_v1_package_draft',
+    )!
+    expect(definition.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true })
+    expect(definition._meta['com.pathfinder/security']).toMatchObject({
+      scope: 'venue',
+      capability: 'packages:read',
+      effect: 'read',
+      approvalRequired: false,
+    })
+    expect(definition.inputSchema).toMatchObject({
+      additionalProperties: false,
+      required: expect.arrayContaining([
+        'clientId',
+        'venueId',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+      ]),
+      properties: { selectedMemberIds: { minItems: 1, maxItems: 50, uniqueItems: true } },
+    })
+    expect(() =>
+      McpIntakeV1PackagePreviewInput.parse({
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 1,
+        selectedMemberIds: ['member-1', 'member-1'],
+      }),
+    ).toThrow()
+  })
   it('keeps the optional execution lease UUID aligned across validators and tool JSON schemas', () => {
     const lease = '11111111-1111-4111-8111-111111111111'
     const cases = [

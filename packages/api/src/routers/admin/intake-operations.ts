@@ -42,6 +42,7 @@ import {
 import { adminIntakeInterviewClarificationsRouter } from './intake-interview-clarifications'
 import { adminIntakeFileExtractionRouter } from './intake-file-extraction'
 import { adminIntakeFileClarificationsRouter } from './intake-file-clarifications'
+import { adminIntakeV1PackagesRouter } from './intake-v1-packages'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
 const createInput = z.discriminatedUnion('kind', [
@@ -364,4 +365,5 @@ export const adminIntakeOperationsRouter = mergeRouters(
   adminIntakeFileClarificationsRouter,
   adminIntakeFileExtractionRouter,
   adminIntakeInterviewClarificationsRouter,
+  adminIntakeV1PackagesRouter,
 )

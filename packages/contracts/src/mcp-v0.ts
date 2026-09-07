@@ -1130,6 +1130,23 @@ export const McpPackageDraftInput = McpRequestedScope.extend({
 }).strict()
 export type McpPackageDraftInput = z.infer<typeof McpPackageDraftInput>
 
+export const McpIntakeV1PackagePreviewInput = McpRequestedScope.extend({
+  submissionId: Identifier,
+  revision: z.number().int().min(1),
+  selectedMemberIds: z.array(Identifier).min(1).max(50),
+})
+  .strict()
+  .superRefine((value, context) => {
+    if (new Set(value.selectedMemberIds).size !== value.selectedMemberIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['selectedMemberIds'],
+        message: 'Selected V1 member IDs must be unique.',
+      })
+    }
+  })
+export type McpIntakeV1PackagePreviewInput = z.infer<typeof McpIntakeV1PackagePreviewInput>
+
 export const McpUpdateDraftInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1352,6 +1369,7 @@ export type PathfinderMcpToolName =
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
+  | 'pathfinder.preview_intake_v1_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.open_support_request'
@@ -3328,6 +3346,35 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'delegations:create', 'interaction') },
+  },
+  {
+    name: 'pathfinder.preview_intake_v1_package_draft',
+    title: 'Preview an exact V1 intake package',
+    description:
+      'Build a bounded, server-derived preview for an exact submitted V1 revision and member selection. This read-only tool creates no package, handoff, approval, application, or publication.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+      },
+      [...scopeRequired, 'submissionId', 'revision', 'selectedMemberIds'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:read', 'read') },
   },
   {
     name: 'pathfinder.create_package_draft',

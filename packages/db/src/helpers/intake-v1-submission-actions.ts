@@ -77,6 +77,9 @@ const canonicalJson = (value: unknown): string =>
       : JSON.stringify(value)
 const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex')
 
+/** Shared manifest identity; object key order from PostgreSQL JSONB is irrelevant. */
+export const intakeV1ManifestHash = (manifest: unknown): string => digest(manifest)
+
 export function materializeIntakeV1Draft(
   content: z.infer<typeof intakeSubmissionDraftContent>,
 ): IntakeProposalInput | null {
@@ -440,7 +443,7 @@ export async function submitIntakeV1Action(input: {
       })),
       criticalMissing,
     }
-    const manifestHash = digest(manifest)
+    const manifestHash = intakeV1ManifestHash(manifest)
     const nextRevision = amended ? amended.revision + 1 : 1
     const submission =
       amended ??

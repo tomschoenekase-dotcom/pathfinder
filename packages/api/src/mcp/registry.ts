@@ -14,6 +14,7 @@ import {
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpIntakeV1PackagePreviewInput,
   McpKnowledgeGetInput,
   McpKnowledgeGapListInput,
   McpGuestAnswerAttributionListInput,
@@ -286,6 +287,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   createPackageDraft: (
     input: McpPackageDraftInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  previewIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackagePreviewInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createUpdateDraft: (
@@ -760,6 +765,15 @@ export function createPathfinderMcpRegistry(
           )
           await options.beforeAction?.(name, input, context)
           result = await actions.createPackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.preview_intake_v1_package_draft': {
+          const input = McpIntakeV1PackagePreviewInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          if (!actions.previewIntakeV1PackageDraft)
+            throw new Error('V1 package preview is unavailable')
+          result = await actions.previewIntakeV1PackageDraft(input, context)
           break
         }
         case 'pathfinder.create_update_draft': {

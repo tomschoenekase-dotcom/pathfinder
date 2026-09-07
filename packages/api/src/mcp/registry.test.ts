@@ -13,6 +13,7 @@ const credential: VerifiedMcpCredentialScope = {
     'resources:read',
     'content:read',
     'packages:draft',
+    'packages:read',
     'packages:approve',
     'packages:apply',
     'packages:revert',
@@ -81,6 +82,7 @@ function actions(): PathfinderMcpDomainActions {
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
+    previewIntakeV1PackageDraft: vi.fn().mockResolvedValue(result),
     createUpdateDraft: vi.fn().mockResolvedValue(result),
     createSupportDraft: vi.fn().mockResolvedValue(result),
     openSupportRequest: vi.fn().mockResolvedValue(result),
@@ -92,6 +94,34 @@ function actions(): PathfinderMcpDomainActions {
 }
 
 describe('scoped workflow inspection', () => {
+  it('validates exact V1 preview scope and selection before the read action', async () => {
+    const domain = actions()
+    const beforeAction = vi.fn()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: false, beforeAction })
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      submissionId: 'submission-1',
+      revision: 2,
+      selectedMemberIds: ['member-1', 'member-2'],
+    }
+    await registry.callTool('pathfinder.preview_intake_v1_package_draft', input, { credential })
+    expect(domain.previewIntakeV1PackageDraft).toHaveBeenCalledWith(input, expect.anything())
+    expect(beforeAction).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+
+    for (const invalid of [
+      { ...input, venueId: 'venue-2' },
+      { ...input, selectedMemberIds: ['member-1', 'member-1'] },
+      { ...input, selectedMemberIds: Array.from({ length: 51 }, (_, index) => `member-${index}`) },
+    ]) {
+      await expect(
+        registry.callTool('pathfinder.preview_intake_v1_package_draft', invalid, { credential }),
+      ).rejects.toThrow()
+    }
+    expect(domain.previewIntakeV1PackageDraft).toHaveBeenCalledTimes(1)
+    expect(beforeAction).toHaveBeenCalledTimes(1)
+  })
   it('allows bounded read-only inspection and denies scope escalation before the action', async () => {
     const domain = actions()
     const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: false })

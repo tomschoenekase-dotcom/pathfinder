@@ -2277,6 +2277,7 @@ model IntakeV1SubmissionRevision {
   submission        IntakeV1Submission @relation(fields: [submissionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   members           IntakeV1SubmissionMember[]
   processingDispatches IntakeV1ProcessingDispatch[]
+  packageHandoff    IntakeV1PackageHandoff?
 
   @@unique([submissionId, revision], map: "intake_v1_submission_revisions_number_key")
   @@unique([tenantId, operationId], map: "intake_v1_submission_revisions_tenant_operation_key")
@@ -2349,6 +2350,30 @@ model IntakeV1ProcessingDispatch {
   @@index([status, leaseExpiresAt, createdAt], map: "intake_v1_processing_dispatches_lease_idx")
   @@index([tenantId, venueId, revisionId], map: "intake_v1_processing_dispatches_revision_idx")
   @@map("intake_v1_processing_dispatches")
+}
+
+model IntakeV1PackageHandoff {
+  id                  String                     @id @default(cuid())
+  tenantId            String                     @map("tenant_id")
+  venueId             String                     @map("venue_id")
+  revisionId          String                     @unique(map: "intake_v1_package_handoffs_revision_key") @map("revision_id")
+  packageDraftId      String                     @unique(map: "intake_v1_package_handoffs_package_key") @map("package_draft_id")
+  operationId         String                     @map("operation_id") @db.Uuid
+  manifestHash        String                     @map("manifest_hash") @db.Char(64)
+  candidateHash       String                     @map("candidate_hash") @db.Char(64)
+  payloadHash         String                     @map("payload_hash") @db.Char(64)
+  selectedMemberIds   Json                       @map("selected_member_ids")
+  partialAcknowledged Boolean                    @default(false) @map("partial_acknowledged")
+  createdBy           String                     @map("created_by") @db.VarChar(191)
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  revision            IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  packageDraft        VenuePackage               @relation(fields: [packageDraftId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+
+  @@unique([tenantId, operationId], map: "intake_v1_package_handoffs_operation_key")
+  @@unique([revisionId, tenantId, venueId], map: "intake_v1_package_handoffs_revision_scope_key")
+  @@unique([packageDraftId, tenantId, venueId], map: "intake_v1_package_handoffs_package_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_v1_package_handoffs_scope_key")
+  @@map("intake_v1_package_handoffs")
 }
 
 enum IntakeEventKind {
@@ -2726,6 +2751,7 @@ model VenuePackage {
   sourcedPlaces            Place[]
   sourcedKnowledgeEntries  VenueKnowledgeEntry[]
   intakeHandoffs           IntakePackageHandoff[]
+  intakeV1Handoff          IntakeV1PackageHandoff?
   knowledgeProposalHandoff KnowledgeProposalPackageHandoff?
   supportHandoffs          SupportPackageHandoff[]
   supportPreviewFeedback   SupportPreviewFeedback[]

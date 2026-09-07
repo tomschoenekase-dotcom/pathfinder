@@ -34,6 +34,7 @@ const {
   applyPackage,
   createSemanticDraft,
   createLegacyAdoptionDraft,
+  buildIntakeV1Candidate,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -67,6 +68,7 @@ const {
   applyPackage: vi.fn(),
   createSemanticDraft: vi.fn(),
   createLegacyAdoptionDraft: vi.fn(),
+  buildIntakeV1Candidate: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -120,6 +122,9 @@ vi.mock('../lib/semantic-universal-content-handoff-service', () => ({
 vi.mock('../lib/legacy-knowledge-adoption-service', () => ({
   createLegacyKnowledgeAdoptionDraftService: createLegacyAdoptionDraft,
 }))
+vi.mock('../lib/intake-v1-package-candidate', () => ({
+  buildIntakeV1PackageCandidate: buildIntakeV1Candidate,
+}))
 
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/jobs')>()),
@@ -139,6 +144,49 @@ const credential = {
 } satisfies VerifiedMcpCredentialScope
 
 describe('safe operational MCP composition', () => {
+  it('returns a bounded exact V1 candidate without creating a package or publication', async () => {
+    buildIntakeV1Candidate.mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revisionId: 'revision-1',
+      revision: 2,
+      manifestHash: 'a'.repeat(64),
+      selectedMemberIds: ['member-1'],
+      remainingMemberIds: [],
+      selectionHash: 'b'.repeat(64),
+      ready: false,
+      payload: null,
+      payloadHash: null,
+      candidateHash: null,
+      members: [],
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+    const result = await createSafeOperationalMcpRegistry({} as never).callTool(
+      'pathfinder.preview_intake_v1_package_draft',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 2,
+        selectedMemberIds: ['member-1'],
+      },
+      { credential: { ...credential, capabilities: ['packages:read'] } },
+    )
+    expect(buildIntakeV1Candidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        submissionId: 'submission-1',
+        revision: 2,
+        selectedMemberIds: ['member-1'],
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.intake-v1-package-preview',
+      data: { ready: false, autoApprove: false, autoApply: false, published: false },
+    })
+  })
   it('reads scoped registered bodies with current capability compatibility and no activation', async () => {
     const manifest = {
       schemaVersion: 1,
