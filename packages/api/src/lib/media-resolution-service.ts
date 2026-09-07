@@ -6,6 +6,9 @@ import {
   createMediaResolutionState,
   MediaResolutionStateSchema,
   projectMediaResolution,
+  MediaRelationProposalDecisionInputSchema,
+  MediaRelationReviewDecisionInputSchema,
+  MediaRelationRevertDecisionInputSchema,
 } from '@pathfinder/contracts/media-resolution-state'
 import { mediaIntakeHash } from './media-intake-snapshot'
 import { validateResolutionEvidence } from './media-resolution-evidence'
@@ -15,7 +18,7 @@ const uuid = z
   .string()
   .uuid()
   .transform((value) => value.toLowerCase())
-const decision = z.discriminatedUnion('kind', [
+const decision = z.union([
   z
     .object({
       kind: z.literal('MERGE'),
@@ -31,6 +34,9 @@ const decision = z.discriminatedUnion('kind', [
       rationale: z.string().trim().min(1).max(2000),
     })
     .strict(),
+  MediaRelationProposalDecisionInputSchema,
+  MediaRelationReviewDecisionInputSchema,
+  MediaRelationRevertDecisionInputSchema,
 ])
 export const SaveMediaResolutionInput = z
   .object({

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { mediaEvidenceLocatorId } from '@pathfinder/contracts/media-entity-resolution'
 
 import { mediaIntakeHash } from './media-intake-snapshot'
 import { MediaResolutionError, saveMediaResolution } from './media-resolution-service'
@@ -157,6 +158,191 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
       expect(new Set(initialized.map((result) => result.id)).size).toBe(1)
       expect(initialized.filter((result) => result.replayed)).toHaveLength(1)
 
+      const relationRequestId = randomUUID()
+      const relationDecision = {
+        kind: 'PROPOSE_RELATION' as const,
+        relationId: 'west-stair-adjacency',
+        fromCandidateId: 'lion-video',
+        toCandidateId: 'lion-image',
+        relationKind: 'ADJACENT' as const,
+        evidenceLocatorIds: candidates.map((candidate) =>
+          mediaEvidenceLocatorId(candidate.evidence[0]!),
+        ),
+        basis: 'visual_overlap' as const,
+        confidence: 'probable' as const,
+        observationTime: { kind: 'UNKNOWN' as const },
+        uncertainties: ['The two source views do not prove a traversable path.'],
+        rationale: 'Retain the scoped spatial evidence for explicit review.',
+      }
+      const proposed = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: relationRequestId,
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 1,
+          decision: relationDecision,
+        },
+      })
+      expect(proposed.projection.relations).toEqual([
+        expect.objectContaining({
+          relationId: 'west-stair-adjacency',
+          reviewStatus: 'PENDING',
+          fromCandidateId: 'lion-video',
+          toCandidateId: 'lion-image',
+          endpointState: 'RESOLVED',
+        }),
+      ])
+      await expect(
+        saveMediaResolution({
+          client: db,
+          actorId: 'reviewer-1',
+          input: {
+            tenantId,
+            venueId,
+            projectId,
+            sourceGeneration,
+            requestId: randomUUID(),
+            expectedUpdatedAt: project.updatedAt.toISOString(),
+            expectedRevision: 2,
+            decision: {
+              ...relationDecision,
+              relationId: 'forged-relation',
+              evidenceLocatorIds: [
+                relationDecision.evidenceLocatorIds[0]!,
+                'media-evidence-v1:["forged"]',
+              ],
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REVIEW' })
+      const proposalReplay = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: relationRequestId,
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 1,
+          decision: relationDecision,
+        },
+      })
+      expect(proposalReplay).toMatchObject({ id: proposed.id, revision: 2, replayed: true })
+
+      const firstReviewRequestId = randomUUID()
+      const reviewInput = {
+        tenantId,
+        venueId,
+        projectId,
+        sourceGeneration,
+        requestId: firstReviewRequestId,
+        expectedUpdatedAt: project.updatedAt.toISOString(),
+        expectedRevision: 2,
+        decision: {
+          kind: 'REVIEW_RELATION' as const,
+          proposalRequestId: relationRequestId,
+          verdict: 'ACCEPTED' as const,
+          rationale: 'Accept the evidence hypothesis without granting canonical write authority.',
+        },
+      }
+      const accepted = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: reviewInput,
+      })
+      expect(accepted.projection.relations[0]).toMatchObject({ reviewStatus: 'ACCEPTED' })
+      expect(
+        await saveMediaResolution({ client: db, actorId: 'reviewer-1', input: reviewInput }),
+      ).toMatchObject({ id: accepted.id, revision: 3, replayed: true })
+
+      const reviewRevertRequestId = randomUUID()
+      const reviewReverted = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: reviewRevertRequestId,
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 3,
+          decision: {
+            kind: 'REVERT_RELATION',
+            reviewRequestId: firstReviewRequestId,
+            rationale: 'Retain the first verdict in history while reopening review.',
+          },
+        },
+      })
+      expect(reviewReverted.projection.relations[0]).toMatchObject({ reviewStatus: 'PENDING' })
+      const rejectedRequestId = randomUUID()
+      const rejected = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: rejectedRequestId,
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 4,
+          decision: {
+            kind: 'REVIEW_RELATION',
+            proposalRequestId: relationRequestId,
+            verdict: 'REJECTED',
+            rationale: 'The retained uncertainty prevents operational use.',
+          },
+        },
+      })
+      expect(rejected.projection.relations[0]).toMatchObject({ reviewStatus: 'REJECTED' })
+      const rejectedReverted = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 5,
+          decision: {
+            kind: 'REVERT_RELATION',
+            reviewRequestId: rejectedRequestId,
+            rationale: 'New human review is required; preserve the rejected verdict in history.',
+          },
+        },
+      })
+      expect(rejectedReverted.projection.relations[0]).toMatchObject({ reviewStatus: 'PENDING' })
+      const acceptedAgain = await saveMediaResolution({
+        client: db,
+        actorId: 'reviewer-1',
+        input: {
+          tenantId,
+          venueId,
+          projectId,
+          sourceGeneration,
+          requestId: randomUUID(),
+          expectedUpdatedAt: project.updatedAt.toISOString(),
+          expectedRevision: 6,
+          decision: {
+            kind: 'REVIEW_RELATION',
+            proposalRequestId: relationRequestId,
+            verdict: 'ACCEPTED',
+            rationale: 'A later explicit review accepts the evidence relation only.',
+          },
+        },
+      })
+      expect(acceptedAgain.projection.relations[0]).toMatchObject({ reviewStatus: 'ACCEPTED' })
+
       const mergeRequestId = randomUUID()
       const merged = await saveMediaResolution({
         client: db,
@@ -168,7 +354,7 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
           sourceGeneration,
           requestId: mergeRequestId,
           expectedUpdatedAt: project.updatedAt.toISOString(),
-          expectedRevision: 1,
+          expectedRevision: 7,
           decision: {
             kind: 'MERGE',
             candidateIds: ['lion-video', 'lion-image'],
@@ -179,6 +365,11 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
       })
       expect(merged.projection.groups).toHaveLength(1)
       expect(merged.projection.references).toHaveLength(2)
+      expect(merged.projection.relations[0]).toMatchObject({
+        endpointState: 'COLLAPSED',
+        fromCandidateId: 'lion-video',
+        toCandidateId: 'lion-video',
+      })
       const reverted = await saveMediaResolution({
         client: db,
         actorId: 'reviewer-1',
@@ -189,7 +380,7 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
           sourceGeneration,
           requestId: randomUUID(),
           expectedUpdatedAt: project.updatedAt.toISOString(),
-          expectedRevision: 2,
+          expectedRevision: 8,
           decision: {
             kind: 'REVERT_MERGE',
             mergeRequestId,
@@ -202,9 +393,14 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
         'lion-image',
         'lion-video',
       ])
+      expect(reverted.projection.relations[0]).toMatchObject({
+        endpointState: 'RESOLVED',
+        fromCandidateId: 'lion-video',
+        toCandidateId: 'lion-image',
+      })
       expect(
         await db.mediaEntityResolutionRevision.count({ where: { tenantId, venueId, projectId } }),
-      ).toBe(3)
+      ).toBe(9)
 
       const nextMerge = (expectedUpdatedAt: string) => ({
         tenantId,
@@ -213,7 +409,7 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
         sourceGeneration,
         requestId: randomUUID(),
         expectedUpdatedAt,
-        expectedRevision: 3,
+        expectedRevision: 9,
         decision: {
           kind: 'MERGE' as const,
           candidateIds: ['lion-video', 'lion-image'],
@@ -318,6 +514,8 @@ describe.skipIf(!enabled)('media resolution service on disposable PostgreSQL', (
       expect(await db.contentModuleIdentity.count({ where: { tenantId, venueId } })).toBe(0)
       expect(await db.contentModulePublication.count({ where: { tenantId, venueId } })).toBe(0)
       expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(await db.venueLocation.count({ where: { tenantId, venueId } })).toBe(0)
+      expect(await db.venueLocationConnection.count({ where: { tenantId, venueId } })).toBe(0)
     })
   })
 })

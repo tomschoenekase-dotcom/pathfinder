@@ -1526,9 +1526,11 @@ export async function runDisposableMediaResolutionShakedown(options = {}) {
         'actual-media-project-assets-and-observations',
         'concurrent-initialization-replay',
         'merge-and-revert-source-lineage',
+        'relation-proposal-review-revert-and-replay',
+        'relation-endpoint-collapse-and-restoration',
         'scope-generation-evidence-and-revision-fences',
         'immutable-replay-after-project-change',
-        'no-content-or-publication-writes',
+        'no-canonical-location-content-or-publication-writes',
       ],
       failureScope: ['provider-dark', 'no-publication-authority'],
       integration: {

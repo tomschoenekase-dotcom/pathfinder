@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server'
+import { mediaEvidenceLocatorId } from '@pathfinder/contracts/media-entity-resolution'
 import { z } from 'zod'
 import { assertVenueAvailable, db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
@@ -161,6 +162,7 @@ export const mediaIngestionResolutionRouter = router({
           candidateId,
           label,
           kind,
+          evidenceLocatorIds: evidence.map(mediaEvidenceLocatorId),
           sourceIds: [...new Set(evidence.map((item) => item.sourceId))],
         })),
         decisions: state.decisions,

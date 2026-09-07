@@ -5,6 +5,7 @@ import {
   createMediaResolutionState,
   projectMediaResolution,
 } from './media-resolution-state'
+import { mediaEvidenceLocatorId } from './media-entity-resolution'
 
 const scope = {
   tenantId: 'tenant-a',
@@ -43,6 +44,24 @@ const revert = (n: number, original: number) => ({
   mergeRequestId: request(original),
   reviewerId: 'reviewer-a',
   rationale: 'The source views show distinct greenhouses.',
+})
+const locatorId = (candidateId: string) =>
+  mediaEvidenceLocatorId(candidate(candidateId).evidence[0]!)
+const proposeRelation = (n: number, overrides: Record<string, unknown> = {}) => ({
+  kind: 'PROPOSE_RELATION',
+  requestId: request(n),
+  relationId: `relation-${n}`,
+  fromCandidateId: 'a',
+  toCandidateId: 'b',
+  relationKind: 'ADJACENT',
+  evidenceLocatorIds: [locatorId('a'), locatorId('b')],
+  basis: 'visual_overlap',
+  confidence: 'probable',
+  observationTime: { kind: 'UNKNOWN' },
+  uncertainties: ['The connecting doorway is outside the captured frame.'],
+  reviewerId: 'reviewer-a',
+  rationale: 'Retain the observed spatial relation for human review.',
+  ...overrides,
 })
 
 describe('reversible media review identities', () => {
@@ -161,5 +180,157 @@ describe('reversible media review identities', () => {
   it('revalidates persisted histories instead of trusting a claimed projection', () => {
     const poisoned = { ...initial(), decisions: [merge(1, ['a', 'missing'])] }
     expect(() => projectMediaResolution(poisoned)).toThrow(/outside/)
+  })
+
+  it('preserves old version-one states and projects an empty relation list', () => {
+    const oldSerialized = JSON.parse(JSON.stringify(initial()))
+    expect(projectMediaResolution(oldSerialized).relations).toEqual([])
+  })
+
+  it('retains typed uncertainty and unknown observation age without inventing a date', () => {
+    const proposed = appendMediaResolutionDecision(initial(), proposeRelation(10))
+    expect(projectMediaResolution(proposed).relations).toEqual([
+      expect.objectContaining({
+        relationId: 'relation-10',
+        relationKind: 'ADJACENT',
+        reviewStatus: 'PENDING',
+        observationTime: { kind: 'UNKNOWN' },
+        uncertainties: ['The connecting doorway is outside the captured frame.'],
+      }),
+    ])
+  })
+
+  it('requires exact frozen evidence from both original endpoint candidates', () => {
+    expect(() =>
+      appendMediaResolutionDecision(
+        initial(),
+        proposeRelation(10, { evidenceLocatorIds: [locatorId('a')] }),
+      ),
+    ).toThrow(/both original endpoint/)
+    expect(() =>
+      appendMediaResolutionDecision(
+        initial(),
+        proposeRelation(10, {
+          evidenceLocatorIds: [locatorId('a'), 'label-only-evidence'],
+        }),
+      ),
+    ).toThrow(/outside the frozen review/)
+  })
+
+  it('requires explicit traversability evidence and keeps unknown accessibility unknown', () => {
+    expect(() =>
+      appendMediaResolutionDecision(
+        initial(),
+        proposeRelation(10, {
+          relationKind: 'TRAVERSABLE',
+          basis: 'visual_overlap',
+        }),
+      ),
+    ).toThrow(/Traversability/)
+    const proposed = appendMediaResolutionDecision(
+      initial(),
+      proposeRelation(10, {
+        relationKind: 'TRAVERSABLE',
+        basis: 'doorway',
+        traversal: {
+          connectionKind: 'DOOR',
+          bidirectional: false,
+          accessibility: 'UNKNOWN',
+          directions: 'Use the doorway visible beside the west gallery sign.',
+        },
+      }),
+    )
+    expect(projectMediaResolution(proposed).relations[0]?.traversal?.accessibility).toBe('UNKNOWN')
+  })
+
+  it('requires explicit containment evidence for the directed parent-child claim', () => {
+    expect(() =>
+      appendMediaResolutionDecision(
+        initial(),
+        proposeRelation(10, {
+          relationKind: 'CONTAINS',
+          basis: 'visual_overlap',
+        }),
+      ),
+    ).toThrow(/Containment requires explicit containment evidence/)
+    expect(() =>
+      appendMediaResolutionDecision(
+        initial(),
+        proposeRelation(10, {
+          relationKind: 'CONTAINS',
+          basis: 'explicit_containment',
+        }),
+      ),
+    ).not.toThrow()
+  })
+
+  it('retains proposal and verdict history across review, revert, and later review', () => {
+    const proposed = appendMediaResolutionDecision(initial(), proposeRelation(10))
+    const accepted = appendMediaResolutionDecision(proposed, {
+      kind: 'REVIEW_RELATION',
+      requestId: request(11),
+      proposalRequestId: request(10),
+      verdict: 'ACCEPTED',
+      reviewerId: 'reviewer-a',
+      rationale: 'Explicit review accepts this evidence hypothesis only.',
+    })
+    expect(projectMediaResolution(accepted).relations[0]?.reviewStatus).toBe('ACCEPTED')
+    expect(() =>
+      appendMediaResolutionDecision(accepted, {
+        kind: 'REVIEW_RELATION',
+        requestId: request(12),
+        proposalRequestId: request(10),
+        verdict: 'REJECTED',
+        reviewerId: 'reviewer-a',
+        rationale: 'Changed verdict without reverting.',
+      }),
+    ).toThrow(/Revert/)
+    const reverted = appendMediaResolutionDecision(accepted, {
+      kind: 'REVERT_RELATION',
+      requestId: request(12),
+      reviewRequestId: request(11),
+      reviewerId: 'reviewer-a',
+      rationale: 'Additional evidence requires another review.',
+    })
+    expect(projectMediaResolution(reverted).relations[0]?.reviewStatus).toBe('PENDING')
+    const rejected = appendMediaResolutionDecision(reverted, {
+      kind: 'REVIEW_RELATION',
+      requestId: request(13),
+      proposalRequestId: request(10),
+      verdict: 'REJECTED',
+      reviewerId: 'reviewer-a',
+      rationale: 'The wider source view contradicts adjacency.',
+    })
+    expect(rejected.decisions).toHaveLength(4)
+    expect(projectMediaResolution(rejected).relations[0]?.reviewStatus).toBe('REJECTED')
+  })
+
+  it('resolves original endpoints through merges and flags collapsed or ambiguous relations', () => {
+    const one = appendMediaResolutionDecision(initial(), proposeRelation(10))
+    const two = appendMediaResolutionDecision(
+      one,
+      proposeRelation(11, { relationId: 'relation-11' }),
+    )
+    const accepted = [request(10), request(11)].reduce(
+      (state, proposalRequestId, index) =>
+        appendMediaResolutionDecision(state, {
+          kind: 'REVIEW_RELATION',
+          requestId: request(12 + index),
+          proposalRequestId,
+          verdict: 'ACCEPTED',
+          reviewerId: 'reviewer-a',
+          rationale: 'Reviewed as evidence only.',
+        }),
+      two,
+    )
+    expect(
+      projectMediaResolution(accepted).relations.every((item) => item.ambiguity === 'AMBIGUOUS'),
+    ).toBe(true)
+    const collapsed = appendMediaResolutionDecision(accepted, merge(14, ['a', 'b']))
+    expect(
+      projectMediaResolution(collapsed).relations.every(
+        (item) => item.endpointState === 'COLLAPSED' && item.fromCandidateId === 'a',
+      ),
+    ).toBe(true)
   })
 })

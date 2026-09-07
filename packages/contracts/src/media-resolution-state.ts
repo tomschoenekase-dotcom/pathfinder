@@ -19,8 +19,125 @@ const decisionBase = {
   rationale: z.string().trim().min(1).max(2000),
 }
 
+const relationKind = z.enum(['CONTAINS', 'ADJACENT', 'COVISIBLE', 'TRAVERSABLE'])
+const relationBasis = z.enum([
+  'visual_overlap',
+  'explicit_containment',
+  'explicit_path',
+  'doorway',
+  'map_route',
+])
+const observationTime = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('UNKNOWN') }).strict(),
+  z.object({ kind: z.literal('OBSERVED_AT'), observedAt: z.string().datetime() }).strict(),
+])
+const traversalReview = z
+  .object({
+    connectionKind: z.enum([
+      'WALKWAY',
+      'DOOR',
+      'STAIRS',
+      'ELEVATOR',
+      'ESCALATOR',
+      'OUTDOOR_PATH',
+      'SHUTTLE',
+    ]),
+    bidirectional: z.boolean(),
+    accessibility: z.enum(['ACCESSIBLE', 'NOT_ACCESSIBLE', 'UNKNOWN']),
+    directions: z.string().trim().min(1).max(2000),
+  })
+  .strict()
+
+const relationProposalPayloadObject = z
+  .object({
+    kind: z.literal('PROPOSE_RELATION'),
+    rationale: decisionBase.rationale,
+    relationId: id,
+    /** For CONTAINS, from is the container and to is the contained location. */
+    fromCandidateId: id,
+    toCandidateId: id,
+    relationKind,
+    evidenceLocatorIds: z.array(z.string().min(1).max(2500)).min(1).max(100),
+    basis: relationBasis,
+    confidence: z.enum(['confirmed', 'probable', 'unverified']),
+    observationTime,
+    uncertainties: z.array(z.string().trim().min(1).max(2000)).max(100),
+    traversal: traversalReview.optional(),
+  })
+  .strict()
+
+function validateRelationProposal(
+  value: z.infer<typeof relationProposalPayloadObject>,
+  context: z.RefinementCtx,
+) {
+  if (value.fromCandidateId === value.toCandidateId)
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Relation endpoints must differ.' })
+  if (new Set(value.evidenceLocatorIds).size !== value.evidenceLocatorIds.length)
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Relation evidence must be unique.' })
+  if (value.relationKind === 'TRAVERSABLE') {
+    if (!['explicit_path', 'doorway', 'map_route'].includes(value.basis))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Traversability requires explicit path, doorway, or map-route evidence.',
+      })
+    if (!value.traversal)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Traversability requires explicit reviewed connection details.',
+      })
+  } else if (value.traversal) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Only traversable relations may include connection details.',
+    })
+  }
+  if (value.relationKind === 'CONTAINS' && value.basis !== 'explicit_containment')
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Containment requires explicit containment evidence.',
+    })
+}
+
+export const MediaRelationProposalDecisionInputSchema =
+  relationProposalPayloadObject.superRefine(validateRelationProposal)
+export type MediaRelationProposalDecisionInput = z.infer<
+  typeof MediaRelationProposalDecisionInputSchema
+>
+const proposeRelation = z
+  .object({
+    ...relationProposalPayloadObject.shape,
+    requestId: decisionBase.requestId,
+    reviewerId: decisionBase.reviewerId,
+  })
+  .strict()
+  .superRefine(validateRelationProposal)
+
+/** ACCEPTED records review state only; reviewer metadata grants no native-write authority. */
+export const MediaRelationReviewDecisionInputSchema = z
+  .object({
+    kind: z.literal('REVIEW_RELATION'),
+    rationale: decisionBase.rationale,
+    proposalRequestId: uuid,
+    verdict: z.enum(['ACCEPTED', 'REJECTED']),
+  })
+  .strict()
+export type MediaRelationReviewDecisionInput = z.infer<
+  typeof MediaRelationReviewDecisionInputSchema
+>
+
+export const MediaRelationRevertDecisionInputSchema = z
+  .object({
+    kind: z.literal('REVERT_RELATION'),
+    rationale: decisionBase.rationale,
+    reviewRequestId: uuid,
+  })
+  .strict()
+export type MediaRelationRevertDecisionInput = z.infer<
+  typeof MediaRelationRevertDecisionInputSchema
+>
+
 /** These identities exist only in media review; they grant no native/public content authority. */
-export const MediaResolutionDecisionSchema = z.discriminatedUnion('kind', [
+export const MediaResolutionDecisionSchema = z.union([
   z
     .object({
       ...decisionBase,
@@ -34,6 +151,21 @@ export const MediaResolutionDecisionSchema = z.discriminatedUnion('kind', [
       ...decisionBase,
       kind: z.literal('REVERT_MERGE'),
       mergeRequestId: uuid,
+    })
+    .strict(),
+  proposeRelation,
+  z
+    .object({
+      ...MediaRelationReviewDecisionInputSchema.shape,
+      requestId: decisionBase.requestId,
+      reviewerId: decisionBase.reviewerId,
+    })
+    .strict(),
+  z
+    .object({
+      ...MediaRelationRevertDecisionInputSchema.shape,
+      requestId: decisionBase.requestId,
+      reviewerId: decisionBase.reviewerId,
     })
     .strict(),
 ])
@@ -52,6 +184,25 @@ export type MediaResolutionState = z.infer<typeof MediaResolutionStateSchema>
 type Projection = {
   representativeByCandidate: Map<string, string>
   activeMergeIds: Set<string>
+  relations: Array<{
+    relationId: string
+    proposalRequestId: string
+    originalFromCandidateId: string
+    originalToCandidateId: string
+    fromCandidateId: string
+    toCandidateId: string
+    relationKind: z.infer<typeof relationKind>
+    evidenceLocatorIds: string[]
+    basis: z.infer<typeof relationBasis>
+    confidence: 'confirmed' | 'probable' | 'unverified'
+    observationTime: z.infer<typeof observationTime>
+    uncertainties: string[]
+    traversal?: z.infer<typeof traversalReview>
+    reviewStatus: 'PENDING' | 'ACCEPTED' | 'REJECTED'
+    reviewRequestId: string | null
+    endpointState: 'RESOLVED' | 'COLLAPSED'
+    ambiguity: 'NONE' | 'AMBIGUOUS'
+  }>
 }
 
 function projectValidatedState(state: MediaResolutionState): Projection {
@@ -63,6 +214,25 @@ function projectValidatedState(state: MediaResolutionState): Projection {
   }
   const requests = new Set<string>()
   const active = new Map<string, Extract<MediaResolutionDecision, { kind: 'MERGE' }>>()
+  const proposals = new Map<
+    string,
+    Extract<MediaResolutionDecision, { kind: 'PROPOSE_RELATION' }>
+  >()
+  const activeRelationReviews = new Map<
+    string,
+    Extract<MediaResolutionDecision, { kind: 'REVIEW_RELATION' }>
+  >()
+  const relationReviewByRequest = new Map<
+    string,
+    Extract<MediaResolutionDecision, { kind: 'REVIEW_RELATION' }>
+  >()
+  const evidenceByCandidate = new Map(
+    state.candidates.map((candidate) => [
+      candidate.candidateId,
+      createMediaEvidenceLocatorIndex(state.scope, candidate.evidence),
+    ]),
+  )
+  const availableEvidence = new Set([...evidenceByCandidate.values()].flatMap((set) => [...set]))
   const representativeByCandidate = new Map([...candidateIds].map((value) => [value, value]))
   const rebuild = () => {
     for (const value of candidateIds) representativeByCandidate.set(value, value)
@@ -97,7 +267,7 @@ function projectValidatedState(state: MediaResolutionState): Projection {
       }
       active.set(decision.requestId, decision)
       rebuild()
-    } else {
+    } else if (decision.kind === 'REVERT_MERGE') {
       const original = active.get(decision.mergeRequestId)
       if (!original) throw new Error('The referenced merge is not active.')
       const members = new Set(original.candidateIds)
@@ -113,9 +283,79 @@ function projectValidatedState(state: MediaResolutionState): Projection {
       }
       active.delete(original.requestId)
       rebuild()
+    } else if (decision.kind === 'PROPOSE_RELATION') {
+      if (proposals.has(decision.relationId))
+        throw new Error('Relation IDs must be unique within a review.')
+      const fromEvidence = evidenceByCandidate.get(decision.fromCandidateId)
+      const toEvidence = evidenceByCandidate.get(decision.toCandidateId)
+      if (!fromEvidence || !toEvidence)
+        throw new Error('Relation endpoint candidate is outside the frozen review.')
+      if (decision.evidenceLocatorIds.some((locator) => !availableEvidence.has(locator)))
+        throw new Error('Relation references evidence outside the frozen review.')
+      if (
+        !decision.evidenceLocatorIds.some((locator) => fromEvidence.has(locator)) ||
+        !decision.evidenceLocatorIds.some((locator) => toEvidence.has(locator))
+      )
+        throw new Error('Relation evidence must retain both original endpoint candidates.')
+      proposals.set(decision.relationId, decision)
+    } else if (decision.kind === 'REVIEW_RELATION') {
+      const proposal = [...proposals.values()].find(
+        (entry) => entry.requestId === decision.proposalRequestId,
+      )
+      if (!proposal) throw new Error('Relation review references an unavailable proposal.')
+      if (activeRelationReviews.has(proposal.requestId))
+        throw new Error('Revert the active relation review before reviewing it again.')
+      activeRelationReviews.set(proposal.requestId, decision)
+      relationReviewByRequest.set(decision.requestId, decision)
+    } else {
+      const review = relationReviewByRequest.get(decision.reviewRequestId)
+      if (!review || activeRelationReviews.get(review.proposalRequestId) !== review)
+        throw new Error('The referenced relation review is not active.')
+      activeRelationReviews.delete(review.proposalRequestId)
     }
   }
-  return { representativeByCandidate, activeMergeIds: new Set(active.keys()) }
+  const relations = [...proposals.values()].map((proposal) => {
+    const review = activeRelationReviews.get(proposal.requestId)
+    const fromCandidateId = representativeByCandidate.get(proposal.fromCandidateId)!
+    const toCandidateId = representativeByCandidate.get(proposal.toCandidateId)!
+    return {
+      relationId: proposal.relationId,
+      proposalRequestId: proposal.requestId,
+      originalFromCandidateId: proposal.fromCandidateId,
+      originalToCandidateId: proposal.toCandidateId,
+      fromCandidateId,
+      toCandidateId,
+      relationKind: proposal.relationKind,
+      evidenceLocatorIds: proposal.evidenceLocatorIds,
+      basis: proposal.basis,
+      confidence: proposal.confidence,
+      observationTime: proposal.observationTime,
+      uncertainties: proposal.uncertainties,
+      ...(proposal.traversal ? { traversal: proposal.traversal } : {}),
+      reviewStatus: review?.verdict ?? ('PENDING' as const),
+      reviewRequestId: review?.requestId ?? null,
+      endpointState:
+        fromCandidateId === toCandidateId ? ('COLLAPSED' as const) : ('RESOLVED' as const),
+      ambiguity: 'NONE' as 'NONE' | 'AMBIGUOUS',
+    }
+  })
+  const acceptedGroups = new Map<string, typeof relations>()
+  for (const relation of relations) {
+    if (relation.reviewStatus !== 'ACCEPTED' || relation.endpointState === 'COLLAPSED') continue
+    const directed =
+      relation.relationKind === 'CONTAINS' || relation.traversal?.bidirectional === false
+    const endpoints = directed
+      ? [relation.fromCandidateId, relation.toCandidateId]
+      : [relation.fromCandidateId, relation.toCandidateId].sort()
+    const key = JSON.stringify([relation.relationKind, ...endpoints])
+    const group = acceptedGroups.get(key) ?? []
+    group.push(relation)
+    acceptedGroups.set(key, group)
+  }
+  for (const group of acceptedGroups.values()) {
+    if (group.length > 1) for (const relation of group) relation.ambiguity = 'AMBIGUOUS'
+  }
+  return { representativeByCandidate, activeMergeIds: new Set(active.keys()), relations }
 }
 
 export function createMediaResolutionState(
@@ -151,7 +391,7 @@ export function appendMediaResolutionDecision(
 /** Resolve references from their original candidate IDs every time; reversal never loses lineage. */
 export function projectMediaResolution(input: unknown) {
   const state = MediaResolutionStateSchema.parse(input)
-  const { representativeByCandidate, activeMergeIds } = projectValidatedState(state)
+  const { representativeByCandidate, activeMergeIds, relations } = projectValidatedState(state)
   const groups = new Map<string, string[]>()
   for (const [candidate, representative] of representativeByCandidate) {
     const members = groups.get(representative) ?? []
@@ -168,6 +408,7 @@ export function projectMediaResolution(input: unknown) {
       representativeId,
     })),
     activeMergeIds: [...activeMergeIds],
+    relations,
     decisionCount: state.decisions.length,
   }
 }
