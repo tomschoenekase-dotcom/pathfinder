@@ -80,4 +80,87 @@ describe('media ingestion review finding provenance', () => {
       ).toThrow('Video analysis provenance is only valid for video findings.')
     },
   )
+
+  it.each([
+    [
+      'IMAGE',
+      'provider_image_analysis',
+      { type: 'image_region', region: { x: 0, y: 0, width: 1, height: 1 } },
+    ],
+    ['AUDIO', 'audio_transcription', { type: 'whole_source' }],
+    ['DOCUMENT', 'text_extraction', { type: 'document_page', page: 3 }],
+  ] as const)(
+    'round trips %s source-native observations',
+    (mediaType, processingMethod, locator) => {
+      const sourceObservation = {
+        kind: 'visible_text' as const,
+        statement: 'North Hall',
+        evidenceChannel: mediaType === 'AUDIO' ? ('speech' as const) : ('visible_text' as const),
+        directness: 'observed' as const,
+        confidence: 'unverified' as const,
+        processingMethod,
+        locator,
+      }
+      expect(
+        mediaFindingSchema.parse({
+          ...baseFinding,
+          mediaType,
+          sourceObservations: [sourceObservation],
+        }).sourceObservations,
+      ).toEqual([sourceObservation])
+    },
+  )
+
+  it('rejects source precision or processing methods that do not match the media type', () => {
+    expect(
+      mediaFindingSchema.safeParse({
+        ...baseFinding,
+        mediaType: 'IMAGE',
+        sourceObservations: [
+          {
+            kind: 'visible_text',
+            statement: 'North Hall',
+            evidenceChannel: 'visible_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            processingMethod: 'text_extraction',
+            locator: { type: 'document_page', page: 1 },
+          },
+        ],
+      }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    {
+      mediaType: 'IMAGE',
+      videoAnalysisMethod: undefined,
+      processingMethod: 'provider_image_analysis',
+      evidenceChannel: 'speech',
+    },
+    {
+      mediaType: 'VIDEO',
+      videoAnalysisMethod: 'SAMPLED_VIDEO',
+      processingMethod: 'provider_video_static_1fps',
+      evidenceChannel: 'visual',
+    },
+  ])('rejects mismatched source channel or recorded video route %#', (variant) => {
+    expect(
+      mediaFindingSchema.safeParse({
+        ...baseFinding,
+        ...variant,
+        sourceObservations: [
+          {
+            kind: 'entity_candidate',
+            statement: 'A sign is present.',
+            evidenceChannel: variant.evidenceChannel,
+            directness: 'observed',
+            confidence: 'probable',
+            processingMethod: variant.processingMethod,
+            locator: { type: 'whole_source' },
+          },
+        ],
+      }).success,
+    ).toBe(false)
+  })
 })

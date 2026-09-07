@@ -80,9 +80,10 @@ import {
   processMediaIngestionJob,
   MediaProviderOperationRecoveryError,
   shouldPropagateFullVideoFailure,
+  sourceObservationsForAnalysis,
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
-import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import { MediaSourceObservationSchema, VenuePackagePayloadV1 } from '@pathfinder/contracts'
 import {
   AiRequestBudgetCeilingExceededError,
   GeminiVideoAccountingPendingError,
@@ -204,6 +205,146 @@ describe('media ingestion provider output validation', () => {
         { kind: 'narrated_fact', evidenceChannel: 'speech', directness: 'observed' },
       ],
     })
+  })
+
+  it('normalizes legacy timed video output into the shared source observation contract', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'A sign is visible.',
+        visibleText: ['NORTH HALL'],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        observations: [
+          {
+            kind: 'visible_text',
+            statement: 'NORTH HALL',
+            evidenceChannel: 'visible_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            startSeconds: 2,
+            endSeconds: 3,
+          },
+        ],
+      }),
+    )
+    analysis.videoAnalysisMethod = 'GOOGLE_STATIC_VIDEO_1FPS'
+
+    expect(sourceObservationsForAnalysis('VIDEO', analysis)).toEqual([
+      {
+        kind: 'visible_text',
+        statement: 'NORTH HALL',
+        evidenceChannel: 'visible_text',
+        directness: 'observed',
+        confidence: 'confirmed',
+        processingMethod: 'provider_video_static_1fps',
+        locator: { type: 'video_interval', startSeconds: 2, endSeconds: 3 },
+      },
+    ])
+  })
+
+  it('does not invent a processing method for legacy timed observations without a known route', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Legacy video finding.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        observations: [
+          {
+            kind: 'entity_candidate',
+            statement: 'A doorway is visible.',
+            evidenceChannel: 'visual',
+            directness: 'observed',
+            confidence: 'probable',
+            startSeconds: 1,
+            endSeconds: 2,
+          },
+        ],
+      }),
+    )
+    expect(sourceObservationsForAnalysis('VIDEO', analysis)).toBeUndefined()
+  })
+
+  it('parses source-native image evidence without requiring fabricated coordinates', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'A sign is visible.',
+        visibleText: ['NORTH HALL'],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'visible_text',
+            statement: 'NORTH HALL',
+            evidenceChannel: 'visible_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            processingMethod: 'provider_image_analysis',
+            locator: { type: 'whole_source' },
+          },
+        ],
+      }),
+    )
+
+    expect(sourceObservationsForAnalysis('IMAGE', analysis)).toEqual(analysis.sourceObservations)
+    expect(
+      MediaSourceObservationSchema.array().parse(sourceObservationsForAnalysis('IMAGE', analysis)),
+    ).toEqual(analysis.sourceObservations)
+  })
+
+  it('rejects a provider observation whose method or locator contradicts its source type', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Invalid image precision.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'visible_text',
+            statement: 'Page heading',
+            evidenceChannel: 'document_text',
+            directness: 'observed',
+            confidence: 'confirmed',
+            processingMethod: 'text_extraction',
+            locator: { type: 'document_page', page: 1 },
+          },
+        ],
+      }),
+    )
+    expect(() => sourceObservationsForAnalysis('IMAGE', analysis)).toThrow(
+      'Media source observation does not match its source type.',
+    )
+  })
+
+  it('rejects a speech channel declared for an image observation', () => {
+    const analysis = parseMediaAnalysisResponse(
+      JSON.stringify({
+        summary: 'Invalid image channel.',
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+        sourceObservations: [
+          {
+            kind: 'narrated_fact',
+            statement: 'A speaker says the entrance is north.',
+            evidenceChannel: 'speech',
+            directness: 'observed',
+            confidence: 'unverified',
+            processingMethod: 'provider_image_analysis',
+            locator: { type: 'whole_source' },
+          },
+        ],
+      }),
+    )
+    expect(() => sourceObservationsForAnalysis('IMAGE', analysis)).toThrow(
+      'Media source observation does not match its source type.',
+    )
   })
 
   it('rejects video observations with reversed time intervals or out-of-bounds regions', () => {

@@ -16,6 +16,7 @@ import { z } from 'zod'
 import {
   MEDIA_SOURCE_FILENAME_LIMIT,
   MediaObservationSchema,
+  MediaSourceObservationSchema,
   VENUE_PACKAGE_ITEM_LIMIT,
   VenuePackagePayloadV1,
   VenuePackagePayloadV1Object,
@@ -181,6 +182,7 @@ type Analysis = {
   videoAnalysisMethod?: VideoAnalysisMethod
   videoAnalysisCoverage?: VideoAnalysisCoverage
   observations?: Array<z.infer<typeof MediaObservationSchema>>
+  sourceObservations?: Array<z.infer<typeof MediaSourceObservationSchema>>
 }
 
 const analysisSchema = z
@@ -200,6 +202,7 @@ const analysisSchema = z
     spatialClues: z.array(z.string().max(10_000)).max(1_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
     observations: z.array(MediaObservationSchema).max(2_000).optional(),
+    sourceObservations: z.array(MediaSourceObservationSchema).max(2_000).optional(),
   })
   .strict()
 
@@ -423,6 +426,9 @@ export function parseMediaAnalysisResponse(text: string): Analysis {
     spatialClues: parsed.spatialClues,
     uncertainties: parsed.uncertainties,
     ...(parsed.observations !== undefined ? { observations: parsed.observations } : {}),
+    ...(parsed.sourceObservations !== undefined
+      ? { sourceObservations: parsed.sourceObservations }
+      : {}),
   }
 }
 
@@ -448,6 +454,71 @@ function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
     spatialClues: [],
     uncertainties: uncertainty ? [uncertainty] : [],
   }
+}
+
+export function sourceObservationsForAnalysis(
+  mediaType: MediaType,
+  analysis: Analysis,
+): Array<z.infer<typeof MediaSourceObservationSchema>> | undefined {
+  if (analysis.sourceObservations?.length) {
+    const compatible = analysis.sourceObservations.every((observation) => {
+      const locator = observation.locator.type
+      const channelCompatible =
+        (mediaType === 'IMAGE' &&
+          ['visual', 'visible_text', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'VIDEO' &&
+          ['visual', 'visible_text', 'speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'AUDIO' && ['speech', 'mixed'].includes(observation.evidenceChannel)) ||
+        (mediaType === 'DOCUMENT' &&
+          ['document_text', 'visible_text', 'mixed'].includes(observation.evidenceChannel))
+      if (!channelCompatible) return false
+      if (mediaType === 'IMAGE')
+        return (
+          observation.processingMethod === 'provider_image_analysis' &&
+          (locator === 'whole_source' || locator === 'image_region')
+        )
+      if (mediaType === 'AUDIO')
+        return observation.processingMethod === 'audio_transcription' && locator === 'whole_source'
+      if (mediaType === 'DOCUMENT')
+        return (
+          observation.processingMethod === 'text_extraction' &&
+          (locator === 'whole_source' || locator === 'document_page')
+        )
+      const expectedMethod =
+        analysis.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS'
+          ? 'provider_video_static_1fps'
+          : analysis.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+              analysis.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+            ? 'sampled_video_analysis'
+            : null
+      return (
+        expectedMethod !== null &&
+        observation.processingMethod === expectedMethod &&
+        (locator === 'whole_source' || locator === 'video_interval')
+      )
+    })
+    if (!compatible) throw new Error('Media source observation does not match its source type.')
+    return analysis.sourceObservations
+  }
+  if (mediaType !== 'VIDEO' || !analysis.observations?.length) return undefined
+  const processingMethod =
+    analysis.videoAnalysisMethod === 'GOOGLE_STATIC_VIDEO_1FPS'
+      ? ('provider_video_static_1fps' as const)
+      : analysis.videoAnalysisMethod === 'SAMPLED_VIDEO' ||
+          analysis.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
+        ? ('sampled_video_analysis' as const)
+        : null
+  if (!processingMethod) return undefined
+  return analysis.observations.map(({ startSeconds, endSeconds, region, ...observation }) => ({
+    ...observation,
+    processingMethod,
+    locator: {
+      type: 'video_interval' as const,
+      startSeconds,
+      endSeconds,
+      ...(region ? { region } : {}),
+    },
+  }))
 }
 
 export function failedMediaAssetAnalysis(): Analysis {
@@ -489,7 +560,7 @@ async function analyzeImage(
           {
             role: 'system',
             content:
-              'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
+              'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), uncertainties (string[]), and sourceObservations. Each sourceObservations item must contain kind (entity_candidate|visible_text|narrated_fact|spatial_relation), statement, evidenceChannel (visual|visible_text|mixed), directness (observed|inferred), confidence (confirmed|probable|unverified), processingMethod exactly provider_image_analysis, and locator. Locator is either {type:"whole_source"} or {type:"image_region",region:{x,y,width,height}} with normalized 0..1 coordinates wholly inside the image. Use whole_source unless a region is directly supported; never invent coordinates.',
           },
           {
             role: 'user',
@@ -540,7 +611,22 @@ async function transcribe(
     () => assertMediaJobActive(signal),
   )
   assertMediaJobActive(signal)
-  return emptyAnalysis(result)
+  return {
+    ...emptyAnalysis(result),
+    sourceObservations: result.trim()
+      ? [
+          {
+            kind: 'narrated_fact',
+            statement: result.slice(0, 10_000),
+            evidenceChannel: 'speech',
+            directness: 'observed',
+            confidence: 'unverified',
+            processingMethod: 'audio_transcription',
+            locator: { type: 'whole_source' },
+          },
+        ]
+      : [],
+  }
 }
 
 const GEMINI_VIDEO_RESPONSE_SCHEMA = {
@@ -1278,7 +1364,7 @@ export async function processMediaIngestionJob(
     const analyses: Array<{
       sourceId: string
       filename: string
-      mediaType: string
+      mediaType: MediaType
       analysis: Analysis
     }> = []
     const analysesByHash = new Map<string, Analysis>()
@@ -1416,7 +1502,25 @@ export async function processMediaIngestionJob(
               ...(signal ? { signal } : {}),
             })
             textRetention.retain(text)
-            analysis = emptyAnalysis(text)
+            analysis = {
+              ...emptyAnalysis(
+                text,
+                'Only a bounded retained text prefix was extracted; document coverage is not exhaustive.',
+              ),
+              sourceObservations: text
+                ? [
+                    {
+                      kind: 'narrated_fact',
+                      statement: text.slice(0, 10_000),
+                      evidenceChannel: 'document_text',
+                      directness: 'observed',
+                      confidence: 'unverified',
+                      processingMethod: 'text_extraction',
+                      locator: { type: 'whole_source' },
+                    },
+                  ]
+                : [],
+            }
           }
         } else {
           analysis = emptyAnalysis(
@@ -1508,20 +1612,24 @@ export async function processMediaIngestionJob(
           stage: questions.length > 0 ? 'questions' : 'review',
           progress: 100,
           questions,
-          findings: analyses.map((item) => ({
-            sourceId: item.sourceId,
-            filename: item.filename,
-            mediaType: item.mediaType,
-            summary: item.analysis.summary,
-            uncertainties: item.analysis.uncertainties,
-            ...(item.analysis.videoAnalysisMethod
-              ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
-              : {}),
-            ...(item.analysis.videoAnalysisCoverage
-              ? { videoAnalysisCoverage: item.analysis.videoAnalysisCoverage }
-              : {}),
-            ...(item.analysis.observations ? { observations: item.analysis.observations } : {}),
-          })),
+          findings: analyses.map((item) => {
+            const sourceObservations = sourceObservationsForAnalysis(item.mediaType, item.analysis)
+            return {
+              sourceId: item.sourceId,
+              filename: item.filename,
+              mediaType: item.mediaType,
+              summary: item.analysis.summary,
+              uncertainties: item.analysis.uncertainties,
+              ...(item.analysis.videoAnalysisMethod
+                ? { videoAnalysisMethod: item.analysis.videoAnalysisMethod }
+                : {}),
+              ...(item.analysis.videoAnalysisCoverage
+                ? { videoAnalysisCoverage: item.analysis.videoAnalysisCoverage }
+                : {}),
+              ...(item.analysis.observations ? { observations: item.analysis.observations } : {}),
+              ...(sourceObservations ? { sourceObservations } : {}),
+            }
+          }),
           draftJson: draft,
           coverage: {
             totalFiles: files.length,
