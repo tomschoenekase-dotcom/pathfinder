@@ -338,6 +338,68 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
           },
         }),
       ).toBe(1)
+      const internalNote = await appendSupportMessageAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedVersion: request.version + 2,
+        visibility: 'INTERNAL_ONLY',
+        body: 'Private diagnostic detail for the reopened request.',
+        attachments: [],
+        actor: {
+          actorType: 'HUMAN',
+          participantKind: 'OPERATOR',
+          actorId: 'integration-operator',
+          auditRole: 'PLATFORM_ADMIN',
+        },
+      })
+      expect(internalNote).toMatchObject({
+        replayed: false,
+        status: 'IN_REVIEW',
+        requestVersion: request.version + 3,
+        clientVersion: request.clientVersion + 2,
+        currentProjection: {
+          requestVersion: request.version + 3,
+          clientVersion: request.clientVersion + 2,
+          status: 'IN_REVIEW',
+        },
+        operationVersion: {
+          requestVersion: request.version + 3,
+          clientVersion: null,
+        },
+      })
+      const lateReplay = await appendSupportMessageAction(followup)
+      expect(lateReplay).toMatchObject({
+        replayed: true,
+        message: { id: replies[0]!.message.id },
+        status: 'IN_REVIEW',
+        requestVersion: request.version + 3,
+        clientVersion: request.clientVersion + 2,
+        currentProjection: {
+          requestVersion: request.version + 3,
+          clientVersion: request.clientVersion + 2,
+          status: 'IN_REVIEW',
+        },
+        operationVersion: {
+          requestVersion: request.version + 2,
+          clientVersion: request.clientVersion + 2,
+        },
+      })
+      expect(
+        await db.supportMessage.findMany({
+          where: { tenantId, venueId, supportRequestId: request.id, visibility: 'CLIENT_VISIBLE' },
+          select: { body: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        }),
+      ).toEqual([{ body }, { body: followup.body }])
+      expect(
+        await db.supportMessage.findMany({
+          where: { tenantId, venueId, supportRequestId: request.id, visibility: 'INTERNAL_ONLY' },
+          select: { body: true },
+        }),
+      ).toEqual([{ body: 'Private diagnostic detail for the reopened request.' }])
+      expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(3)
       await expect(
         appendSupportMessageAction({ ...followup, operationId: randomUUID() }),
       ).rejects.toMatchObject({ code: 'CONFLICT' })

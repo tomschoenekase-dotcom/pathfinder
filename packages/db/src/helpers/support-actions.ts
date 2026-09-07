@@ -1162,13 +1162,18 @@ async function appendSupportMessageActionOnce(
       }
       return {
         message: safeReplayMessage(existingMessage),
-        requestVersion:
-          parsed.actor.participantKind === 'CLIENT' ? request.version : parsed.expectedVersion! + 1,
-        clientVersion:
-          parsed.actor.participantKind === 'CLIENT'
-            ? existingMessage.clientVersion!
-            : request.clientVersion,
+        requestVersion: request.version,
+        clientVersion: request.clientVersion,
         status: request.status,
+        currentProjection: {
+          requestVersion: request.version,
+          clientVersion: request.clientVersion,
+          status: request.status,
+        },
+        operationVersion: {
+          requestVersion: existingMessage.requestVersion,
+          clientVersion: existingMessage.clientVersion,
+        },
         replayed: true as const,
       }
     }
@@ -1226,6 +1231,7 @@ async function appendSupportMessageActionOnce(
         submissionRequestId: parsed.operationId,
         submissionInputHash,
         clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
+        requestVersion: nextVersion,
         attachments: {
           create: attachmentCreates(attachments),
         },
@@ -1310,6 +1316,18 @@ async function appendSupportMessageActionOnce(
       clientVersion:
         parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : request.clientVersion,
       status: reopensCompletedRequest ? ('IN_REVIEW' as const) : request.status,
+      currentProjection: {
+        requestVersion: nextVersion,
+        clientVersion:
+          parsed.visibility === 'CLIENT_VISIBLE'
+            ? request.clientVersion + 1
+            : request.clientVersion,
+        status: reopensCompletedRequest ? ('IN_REVIEW' as const) : request.status,
+      },
+      operationVersion: {
+        requestVersion: nextVersion,
+        clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
+      },
       replayed: false as const,
     }
   })

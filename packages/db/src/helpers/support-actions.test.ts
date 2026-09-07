@@ -836,12 +836,17 @@ describe('support domain actions', () => {
       body: appendInput.body,
       submissionRequestId: operationId,
       submissionInputHash: inputHash,
+      requestVersion: 2,
       attachments: [],
     })
     await expect(
       appendSupportMessageAction(appendInput, replay.actionClient),
     ).resolves.toMatchObject({
-      clientVersion: 2,
+      requestVersion: 9,
+      clientVersion: 7,
+      status: 'OPEN',
+      currentProjection: { requestVersion: 9, clientVersion: 7, status: 'OPEN' },
+      operationVersion: { requestVersion: 2, clientVersion: 2 },
       replayed: true,
     })
     expect(replay.tx.supportRequest.updateMany).not.toHaveBeenCalled()
@@ -898,6 +903,11 @@ describe('support domain actions', () => {
           toStatus: 'IN_REVIEW',
           requestVersion: 5,
         }),
+      }),
+    )
+    expect(tx.supportMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ requestVersion: 5, clientVersion: 4 }),
       }),
     )
     expect(tx.auditLog.create).toHaveBeenCalledWith(
