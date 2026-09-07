@@ -26,6 +26,7 @@ type Question = {
   question: string
   context: string | null
   blocking: boolean
+  urgency?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
   agentIdentity: { name: string }
   createdAt: Date
   dueAt?: Date | null
@@ -144,7 +145,9 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
   const urgentPlatformEvent = input.platformEvents.items.find(
     (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
   )
-  const blockingQuestion = input.questions.items.find((question) => question.blocking)
+  const priorityQuestion =
+    input.questions.items.find((question) => question.urgency === 'URGENT') ??
+    input.questions.items.find((question) => question.blocking)
   const approval = input.approvals.items.find((item) => !item.expired)
   const actionRequiredEvent = selectActionRequiredEvent({
     events: input.events.items,
@@ -187,22 +190,22 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
       },
       decisionContext: eventDecisionContext(urgentPlatformEvent, true),
     }
-  } else if (blockingQuestion) {
+  } else if (priorityQuestion) {
     focus = {
       kind: 'FOUNDER_QUESTION',
       urgency: 'HIGH',
       label: 'Founder decision',
-      title: blockingQuestion.question,
+      title: priorityQuestion.question,
       detail:
-        blockingQuestion.context || `${blockingQuestion.agentIdentity.name} is waiting for input.`,
+        priorityQuestion.context || `${priorityQuestion.agentIdentity.name} is requesting input.`,
       action: { label: 'Answer here', href: '/admin/operations#needs-you-heading' },
       source: tenantSource(
         'agent-question',
-        blockingQuestion.id,
-        blockingQuestion.tenantId,
-        blockingQuestion.venueId,
+        priorityQuestion.id,
+        priorityQuestion.tenantId,
+        priorityQuestion.venueId,
       ),
-      decisionContext: questionDecisionContext(blockingQuestion),
+      decisionContext: questionDecisionContext(priorityQuestion),
     }
   } else if (approval) {
     focus = {

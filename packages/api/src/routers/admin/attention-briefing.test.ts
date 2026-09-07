@@ -25,6 +25,42 @@ function input(): FounderBriefingInput {
 }
 
 describe('founder briefing contract', () => {
+  it.each([5, 50, 500])(
+    'keeps an urgent nonblocking question visible among %s routine venue questions without claiming execution is blocked',
+    (size) => {
+      const value = input()
+      value.questions = page(
+        Array.from({ length: size }, (_, index) => ({
+          id: `question-${index}`,
+          tenantId: `tenant-${index}`,
+          venueId: `venue-${index}`,
+          question:
+            index === size - 1 ? 'Review the time-sensitive visitor report' : 'Check a label',
+          context: null,
+          blocking: index === 0,
+          urgency: index === size - 1 ? ('URGENT' as const) : ('NORMAL' as const),
+          agentIdentity: { name: 'Venue observer' },
+          createdAt: new Date('2026-09-07T10:00:00Z'),
+          dueAt: index === size - 1 ? new Date('2026-09-07T11:00:00Z') : null,
+        })),
+        true,
+      )
+      const result = deriveFounderBriefing(value)
+      expect(result.focus).toMatchObject({
+        kind: 'FOUNDER_QUESTION',
+        urgency: 'HIGH',
+        title: 'Review the time-sensitive visitor report',
+        source: { objectId: `question-${size - 1}`, venueId: `venue-${size - 1}` },
+        decisionContext: {
+          founderResponseRequiredToProceed: false,
+          deadline: { at: new Date('2026-09-07T11:00:00Z'), kind: 'DUE' },
+          consequence: 'This question needs attention; it does not block other agent work.',
+        },
+      })
+      expect(result.boundedSnapshot.hasMore).toBe(true)
+    },
+  )
+
   it('returns an honest versioned clear state for an empty bounded snapshot', () => {
     const result = deriveFounderBriefing(input())
 
