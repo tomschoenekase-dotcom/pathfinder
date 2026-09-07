@@ -15,6 +15,7 @@ import {
   type IntakeV1ReviewReceipt,
   type IntakeV1ReviewSource,
 } from './IntakeV1ReviewPanel'
+import { IntakeV1ProcessingStatus } from './IntakeV1ProcessingStatus'
 
 type Cursor = { createdAt: string; id: string }
 type Candidate = {
@@ -186,6 +187,10 @@ export function IntakeV1SubmissionWorkspace({
   const [operationId, setOperationId] = useState(browserUuid)
   const [retryUncertain, setRetryUncertain] = useState(false)
   const [receipt, setReceipt] = useState<IntakeV1ReviewReceipt | null>(null)
+  const [processingTarget, setProcessingTarget] = useState<{
+    submissionId: string
+    revision: number
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sourceCursor, setSourceCursor] = useState<Cursor | null>(null)
   const [uploadCursor, setUploadCursor] = useState<Cursor | null>(null)
@@ -222,6 +227,7 @@ export function IntakeV1SubmissionWorkspace({
     setOperationId(browserUuid())
     setRetryUncertain(false)
     setReceipt(null)
+    setProcessingTarget(null)
     setError(null)
     setSourceCursor(null)
     setUploadCursor(null)
@@ -233,6 +239,7 @@ export function IntakeV1SubmissionWorkspace({
         if (!scopeCurrent(generation)) return
         const next = result as LatestSubmission | null
         const revision = currentRevision(next)
+        if (revision) setProcessingTarget({ submissionId: next!.id, revision: revision.revision })
         if (revision)
           setReceipt({
             revision: revision.revision,
@@ -514,6 +521,7 @@ export function IntakeV1SubmissionWorkspace({
           includedCount: null,
           excludedDescriptions,
         })
+        setProcessingTarget({ submissionId: result.submissionId, revision: result.revision })
         setDraftWorkspaceKey((value) => value + 1)
         setRetryUncertain(false)
         persistRetry(null)
@@ -634,6 +642,15 @@ export function IntakeV1SubmissionWorkspace({
         onLoadMoreSources={() => void loadMore('source')}
         onLoadMoreUploads={() => void loadMore('upload')}
       />
+      {receipt && processingTarget ? (
+        <IntakeV1ProcessingStatus
+          key={`${ownerId}:${venueId}:${processingTarget.submissionId}:${processingTarget.revision}`}
+          ownerId={ownerId}
+          venueId={venueId}
+          submissionId={processingTarget.submissionId}
+          revision={processingTarget.revision}
+        />
+      ) : null}
     </div>
   )
 }

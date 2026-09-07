@@ -613,7 +613,23 @@ for (const mode of ['shared', 'private-draft', 'retry'] as const) {
           saved = true
           json = { submissionId: 'v1-submission', revision: 1, criticalMissing: [] }
         } else if (procedure === 'intake.getV1') json = receipt()
-        else throw new Error(`Unexpected fixture procedure: ${procedure}`)
+        else if (procedure === 'intake.getV1Processing') {
+          const input = JSON.parse(url.searchParams.get('input')!)[String(index)].json
+          expect(input).toMatchObject({ submissionId: 'v1-submission', revision: 1 })
+          json = {
+            submissionId: 'v1-submission',
+            revision: 1,
+            members: receipt().revisions[0]!.members.map((source, ordinal) => ({
+              memberId: source.intakeRunId,
+              ordinal,
+              displayName: source.displayName,
+              sourceLabel: source.sourceKind === 'WEBSITE' ? 'Website' : 'Shared notes',
+              processingKind: source.sourceKind === 'WEBSITE' ? 'WEBSITE_RESEARCH' : 'REVIEW_READY',
+              status: source.sourceKind === 'WEBSITE' ? 'POLICY_DISABLED' : 'COMPLETED',
+              reasonCode: source.sourceKind === 'WEBSITE' ? 'WEBSITE_RESEARCH_DISABLED' : null,
+            })),
+          }
+        } else throw new Error(`Unexpected fixture procedure: ${procedure}`)
         return { result: { data: { json } } }
       })
       if (dropNextMutationResponse && procedures.includes('intake.submitV1')) {
@@ -688,6 +704,16 @@ for (const mode of ['shared', 'private-draft', 'retry'] as const) {
       intakeUploadIds: [],
     })
     await expect(page.getByRole('button', { name: 'Review an update' })).toBeEnabled()
+    const processing = page.getByRole('region', { name: 'Material processing' })
+    await expect(processing.getByText('Ready for review', { exact: true })).toBeVisible()
+    if (includePrivateDraft)
+      await expect(processing.getByText('Waiting for research to be enabled')).toBeVisible()
+    const refreshStatus = processing.getByRole('button', { name: 'Refresh status' })
+    await refreshStatus.focus()
+    await refreshStatus.press('Enter')
+    await expect(refreshStatus).toBeEnabled()
+    await processing.scrollIntoViewIfNeeded()
+    await saveViewportEvidence(page, testInfo, 'intake-v1-processing')
     await page.getByText('Version 1 received').scrollIntoViewIfNeeded()
     await saveViewportEvidence(page, testInfo, 'intake-v1-receipt')
     await expectAccessiblePage(page)

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     prepare: vi.fn(),
     draftMounted: vi.fn(),
     draftUnmounted: vi.fn(),
+    processing: vi.fn(),
     refresh: vi.fn(),
   }
   const client = {
@@ -49,6 +50,12 @@ vi.mock('./IntakeProposalWorkspace', async () => {
     ),
   }
 })
+vi.mock('./IntakeV1ProcessingStatus', () => ({
+  IntakeV1ProcessingStatus: (props: unknown) => {
+    mocks.processing(props)
+    return <div data-testid="processing-status" />
+  },
+}))
 
 import { IntakeV1SubmissionWorkspace } from './IntakeV1SubmissionWorkspace'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -471,6 +478,12 @@ describe('IntakeV1SubmissionWorkspace', () => {
       submissionId: 'submission-1',
       revisionCursor: 2,
       revisionLimit: 1,
+    })
+    expect(mocks.processing).toHaveBeenLastCalledWith({
+      ownerId: 'user-1',
+      venueId: 'venue-1',
+      submissionId: 'submission-1',
+      revision: 1,
     })
   })
 
