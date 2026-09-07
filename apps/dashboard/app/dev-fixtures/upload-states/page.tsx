@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { UploadStateFixture, type UploadFixtureState } from './UploadStateFixture'
 
-const STATES = ['selected', 'uploading', 'error', 'joined'] as const
+const STATES = ['selected', 'uploading', 'error', 'joined', 'mixed'] as const
 
 export default async function UploadVisualFixture({
   searchParams,

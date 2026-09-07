@@ -486,6 +486,95 @@ describe('quarantined intake file upload', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/at most 20/)
   })
 
+  it('preserves valid, invalid, and interrupted files while each recoverable item continues', async () => {
+    fetchMock.mockReset().mockResolvedValue({ ok: true, status: 200 })
+    const reserveRequests = new Map<string, string[]>()
+    reserve.mockImplementation(
+      async (input: {
+        fileName: string
+        requestId: string
+        mimeType: string
+        byteSize: number
+      }) => {
+        reserveRequests.set(input.fileName, [
+          ...(reserveRequests.get(input.fileName) ?? []),
+          input.requestId,
+        ])
+        return {
+          upload: {
+            id: `upload-${input.fileName}`,
+            displayName: input.fileName,
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            byteSize: input.byteSize,
+            status: 'AWAITING_REVIEW',
+            rejectionCode: null,
+          },
+          replayed: reserveRequests.get(input.fileName)!.length > 1,
+          nextAction: 'REVIEW_STATUS',
+          uploadRequest: null,
+        }
+      },
+    )
+    verify.mockImplementation(async ({ uploadId }: { uploadId: string }) => ({
+      upload: {
+        id: uploadId,
+        displayName: uploadId,
+        fileName: uploadId,
+        mimeType: 'application/octet-stream',
+        byteSize: 1,
+        status: 'AWAITING_REVIEW',
+      },
+      retryable: false,
+      nextAction: 'PATHFINDER_REVIEW',
+    }))
+    const photo = new File(['photo'], 'gallery-entry.png', { type: 'image/png' })
+    const documentFile = new File(['guide'], 'arrival-guide.pdf', { type: 'application/pdf' })
+    const invalid = new File(['binary'], 'installer.exe', { type: 'application/x-msdownload' })
+    const { container } = render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+        initialQueue={[
+          {
+            localId: 'interrupted-photo',
+            file: photo,
+            category: 'PHOTO',
+            phase: 'error',
+            error: 'The connection paused. Retry to continue.',
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Choose files'), {
+      target: { files: [documentFile, invalid] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(reserve).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByText('Cannot be added')).toBeTruthy()
+    expect(reserveRequests.has('installer.exe')).toBe(false)
+    expect(screen.getByText('Checks complete — awaiting review')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(reserve).toHaveBeenCalledTimes(2))
+    expect(reserve.mock.calls.map(([input]) => input.fileName)).toEqual([
+      'arrival-guide.pdf',
+      'gallery-entry.png',
+    ])
+    expect(screen.getAllByText('Checks complete — awaiting review')).toHaveLength(2)
+
+    document.documentElement.lang = 'en'
+    const accessibility = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(accessibility.violations).toEqual([])
+  })
+
   it('treats drag-and-drop like browse selection, including automatic material typing', () => {
     const dropped = new File(['map'], 'floor-plan.pdf', {
       type: 'application/pdf',

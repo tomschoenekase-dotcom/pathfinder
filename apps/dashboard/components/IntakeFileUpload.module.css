@@ -436,6 +436,7 @@
 
 .fileCategory {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.55rem;
@@ -445,6 +446,8 @@
 }
 
 .fileCategory select {
+  min-width: 0;
+  max-width: 100%;
   min-height: 2.75rem;
   font-size: 0.72rem;
 }
@@ -825,6 +828,16 @@
 
   .fileActions {
     padding-left: 0;
+  }
+
+  .fileCategory {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .fileCategory select {
+    width: 100%;
   }
 
   .fileActions .primaryButton,
