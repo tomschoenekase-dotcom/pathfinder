@@ -236,7 +236,7 @@ test('human-reviewed prospect replies stay explicit and bounded across real brow
   await hideFrameworkDevChrome(page, { clerk: true })
 
   await expect(page.locator('[data-fixture="prospect-correspondence"]')).toBeVisible()
-  await expect(page.getByText('Positive interest · v1')).toBeVisible()
+  await expect(page.getByText('Not interested · v2')).toBeVisible()
   await expect(page.getByText(/does not infer sentiment from this preview/)).toBeVisible()
   await expect(page.getByText(/cannot send, suppress, change pipeline stage/)).toBeVisible()
   const disposition = page.getByLabel('Disposition')
@@ -245,6 +245,13 @@ test('human-reviewed prospect replies stay explicit and bounded across real brow
   const reason = page.getByLabel('Review reason')
   await reason.fill('Reviewed against the complete canonical Gmail message.')
   await expect(page.getByRole('button', { name: 'Record a new review' })).toBeEnabled()
+
+  const draft = page.getByText('Historical invitation draft · DRAFT')
+  await expect(draft).toBeVisible()
+  await draft.click()
+  await expect(page.getByText('Draft only · nothing was sent.')).toBeVisible()
+  await expect(page.getByText(/not send eligible/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /send/i })).toHaveCount(0)
 
   await expectViewportIntegrity(page)
   await expectAccessiblePage(page)

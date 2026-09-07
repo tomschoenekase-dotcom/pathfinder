@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   prepareAttachmentRetention: vi.fn(),
   reviewAttachmentRetention: vi.fn(),
   reviewInboundReply: vi.fn(),
+  onboardingAttempt: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -54,6 +55,7 @@ vi.mock('@pathfinder/db', () => ({
     correspondenceProviderAccount: { findMany: mocks.providerAccounts },
     prospectFollowup: { findMany: mocks.followups },
     prospectOrganization: { findUnique: mocks.prospect },
+    prospectOnboardingDeliveryAttempt: { findFirst: mocks.onboardingAttempt },
   },
 }))
 
@@ -78,6 +80,46 @@ function context(isPlatformAdmin: boolean): TRPCContext {
 
 describe('admin prospect CRM router', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('reads an invitation draft only through its exact organization, venue, and message scope', async () => {
+    mocks.onboardingAttempt.mockResolvedValueOnce({
+      id: 'attempt-1',
+      status: 'DRAFT',
+      organizationId: 'org-1',
+      prospectVenueId: 'venue-1',
+      sourceMessageId: 'message-1',
+      recipientEmailSnapshot: 'owner@example.com',
+      subject: 'A private preview',
+      textBody: 'Draft body',
+    })
+    const caller = testRouter.createCaller(context(true)).crm
+    await expect(
+      caller.getProspectOnboardingDeliveryAttempt({
+        organizationId: 'org-1',
+        prospectVenueId: 'venue-1',
+        messageId: 'message-1',
+      }),
+    ).resolves.toMatchObject({ id: 'attempt-1', status: 'DRAFT' })
+    expect(mocks.onboardingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'org-1',
+          prospectVenueId: 'venue-1',
+          sourceMessageId: 'message-1',
+          sourceMessage: { organizationId: 'org-1', venueId: 'venue-1' },
+        }),
+      }),
+    )
+
+    mocks.onboardingAttempt.mockResolvedValueOnce(null)
+    await expect(
+      caller.getProspectOnboardingDeliveryAttempt({
+        organizationId: 'org-1',
+        prospectVenueId: 'wrong-venue',
+        messageId: 'message-1',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
 
   it('rejects non-admin reads and writes before bypass or action dispatch', async () => {
     const caller = testRouter.createCaller(context(false)).crm

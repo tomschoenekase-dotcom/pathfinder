@@ -113,6 +113,22 @@ export const adminProspectCrmCoreRouter = router({
                         createdAt: true,
                       },
                     },
+                    onboardingDeliveryAttempts: {
+                      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                      take: 1,
+                      select: {
+                        id: true,
+                        status: true,
+                        prospectVenueId: true,
+                        sourceMessageId: true,
+                        sourceReviewId: true,
+                        recipientEmailSnapshot: true,
+                        templateVersion: true,
+                        subject: true,
+                        textBody: true,
+                        createdAt: true,
+                      },
+                    },
                     bodyRetentionState: true,
                     sourceReference: true,
                     attachmentMetadata: true,
@@ -255,6 +271,51 @@ export const adminProspectCrmCoreRouter = router({
           // Compatibility for the current board while it adopts cursor navigation.
           truncated: rows.length > input.limit,
         }
+      }),
+    ),
+
+  getProspectOnboardingDeliveryAttempt: adminProcedure
+    .input(
+      z
+        .object({
+          organizationId: z.string().min(1).max(191),
+          prospectVenueId: z.string().min(1).max(191),
+          messageId: z.string().min(1).max(191),
+        })
+        .strict(),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const attempt = await db.prospectOnboardingDeliveryAttempt.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            prospectVenueId: input.prospectVenueId,
+            sourceMessageId: input.messageId,
+            sourceMessage: {
+              organizationId: input.organizationId,
+              venueId: input.prospectVenueId,
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+            organizationId: true,
+            prospectVenueId: true,
+            contactId: true,
+            sourceMessageId: true,
+            sourceReviewId: true,
+            recipientEmailSnapshot: true,
+            templateVersion: true,
+            subject: true,
+            textBody: true,
+            createdBy: true,
+            createdAt: true,
+          },
+        })
+        if (!attempt) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Invitation draft not found' })
+        }
+        return attempt
       }),
     ),
 

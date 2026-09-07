@@ -73,6 +73,15 @@ type ProspectCorrespondenceMessage = {
     revision: number
     createdAt: Date | string
   } | null
+  onboardingDeliveryAttempts?: Array<{
+    id: string
+    status: 'DRAFT'
+    recipientEmailSnapshot: string
+    templateVersion: string
+    subject: string
+    textBody: string
+    createdAt: Date | string
+  }>
   attachmentMetadata?: unknown
   attachmentRetentionRequests?: RetentionRequest[]
   occurredAt: Date | string
@@ -160,6 +169,7 @@ export function ProspectCorrespondenceHistory({
                         <ProspectInboundReplyReviewControl
                           messageId={message.id}
                           review={message.currentInboundReplyReview ?? null}
+                          deliveryAttempt={message.onboardingDeliveryAttempts?.[0] ?? null}
                         />
                       ) : null}
                       {messageAttachments.length ? (
