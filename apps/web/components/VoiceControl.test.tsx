@@ -145,8 +145,15 @@ describe('VoiceControl', () => {
     mocks.connected.mockResolvedValue({ connected: true })
     mocks.transcript.mockResolvedValue({ accepted: true })
     mocks.end.mockResolvedValue({ ended: true })
-    const stop = vi.fn()
-    mocks.getUserMedia.mockResolvedValue({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+    let onTrackEnded: (() => void) | undefined
+    const stop = vi.fn(() => onTrackEnded?.())
+    const track = {
+      stop,
+      addEventListener: vi.fn((type: string, listener: () => void) => {
+        if (type === 'ended') onTrackEnded = listener
+      }),
+    }
+    mocks.getUserMedia.mockResolvedValue({ getTracks: () => [track] } as unknown as MediaStream)
     const listeners = new Map<string, (event: MessageEvent<string>) => void>()
     const send = vi.fn()
     const closeChannel = vi.fn()
@@ -218,6 +225,74 @@ describe('VoiceControl', () => {
     expect(stop).toHaveBeenCalledOnce()
     expect(closeChannel).toHaveBeenCalledOnce()
     expect(closePeer).toHaveBeenCalledOnce()
+  })
+
+  it('finalizes once when microphone end and duplicate peer failures race with cleanup', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    let onTrackEnded: (() => void) | undefined
+    const stop = vi.fn(() => onTrackEnded?.())
+    const track = {
+      stop,
+      addEventListener: vi.fn((type: string, listener: () => void) => {
+        if (type === 'ended') onTrackEnded = listener
+      }),
+    }
+    mocks.getUserMedia.mockResolvedValue({ getTracks: () => [track] } as unknown as MediaStream)
+    const closeChannel = vi.fn()
+    const peer = {
+      connectionState: 'new',
+      iceConnectionState: 'new',
+      onconnectionstatechange: null as (() => void) | null,
+      oniceconnectionstatechange: null as (() => void) | null,
+      ontrack: null,
+      addTrack: vi.fn(),
+      createDataChannel: () => ({
+        close: closeChannel,
+        addEventListener: vi.fn(),
+      }),
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+
+    peer.connectionState = 'failed'
+    peer.iceConnectionState = 'failed'
+    act(() => {
+      onTrackEnded?.()
+      peer.onconnectionstatechange?.()
+      peer.oniceconnectionstatechange?.()
+    })
+
+    await waitFor(() =>
+      expect(mocks.end).toHaveBeenCalledWith({
+        venueId: props.venueId,
+        anonymousToken: props.anonymousToken,
+        voiceSessionId: '11111111-1111-4111-8111-111111111111',
+        fallbackToText: true,
+        errorCode: 'MICROPHONE_ENDED',
+      }),
+    )
+    expect(stop).toHaveBeenCalledOnce()
+    expect(closeChannel).toHaveBeenCalledOnce()
+    expect(mocks.end).toHaveBeenCalledOnce()
+    expect(screen.getByRole('alert').textContent).toContain('microphone stopped')
   })
 
   it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {

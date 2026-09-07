@@ -9,6 +9,7 @@ import {
 export const GEMINI_VIDEO_MODEL = 'gemini-3.7-flash' as const
 export const GEMINI_VIDEO_FILE_MAX_BYTES = 2_000_000_000
 export const GEMINI_VIDEO_PRICING_VERSION = 'google-gemini-public-2026-09-01' as const
+export const GEMINI_VIDEO_PRICING_VERSION_2027 = 'google-gemini-public-2027-01-01' as const
 export const GEMINI_VIDEO_MAX_INPUT_TOKENS = 1_048_576
 export const GEMINI_VIDEO_MAX_OUTPUT_TOKENS = 8_192
 export const GEMINI_VIDEO_PROCESSING_TIMEOUT_MS = 15 * 60 * 1_000
@@ -19,7 +20,7 @@ export const GEMINI_VIDEO_API_METHOD = 'files-api+models.generateContent' as con
 export class GeminiVideoDeletionUnconfirmedError extends Error {
   readonly code = 'provider-file-delete-unconfirmed'
 
-  constructor() {
+  constructor(readonly providerFileName: string) {
     super('Gemini video file deletion could not be confirmed')
     this.name = 'GeminiVideoDeletionUnconfirmedError'
   }
@@ -48,6 +49,9 @@ type GeminiGenerateContentResponse = {
     promptTokenCount?: number
     candidatesTokenCount?: number
     cachedContentTokenCount?: number
+    thoughtsTokenCount?: number
+    toolUsePromptTokenCount?: number
+    totalTokenCount?: number
   }
 }
 
@@ -126,32 +130,63 @@ function usageFromResponse(response: GeminiGenerateContentResponse): AiTokenUsag
   const prompt = metadata?.promptTokenCount
   const output = metadata?.candidatesTokenCount
   const cached = metadata?.cachedContentTokenCount ?? 0
+  const thoughts = metadata?.thoughtsTokenCount ?? 0
+  const toolUse = metadata?.toolUsePromptTokenCount ?? 0
+  const total = metadata?.totalTokenCount
   if (
     !Number.isSafeInteger(prompt) ||
     !Number.isSafeInteger(output) ||
     !Number.isSafeInteger(cached) ||
+    !Number.isSafeInteger(thoughts) ||
+    !Number.isSafeInteger(toolUse) ||
+    (total !== undefined && !Number.isSafeInteger(total)) ||
     prompt! < 0 ||
     output! < 0 ||
     cached < 0 ||
+    thoughts < 0 ||
+    toolUse !== 0 ||
     cached > prompt! ||
     prompt! > GEMINI_VIDEO_MAX_INPUT_TOKENS ||
-    output! > GEMINI_VIDEO_MAX_OUTPUT_TOKENS
+    output! + thoughts > GEMINI_VIDEO_MAX_OUTPUT_TOKENS
   ) {
     throw new Error('Gemini video response returned invalid usage metadata')
   }
+  if (total !== undefined && total !== prompt! + output! + thoughts + toolUse) {
+    throw new Error('Gemini video response returned inconsistent total usage metadata')
+  }
   return {
     inputTokens: prompt! - cached,
-    outputTokens: output!,
+    outputTokens: output! + thoughts,
     cacheCreationInputTokens: 0,
     cacheReadInputTokens: cached,
   }
 }
 
-function estimatedCostUsd(usage: AiTokenUsage): number {
+function pricingAt(invokedAt: Date) {
+  if (!Number.isFinite(invokedAt.getTime())) {
+    throw new Error('Gemini video invocation time must be a valid date')
+  }
+  if (invokedAt.getTime() >= Date.UTC(2027, 0, 1)) {
+    return {
+      version: GEMINI_VIDEO_PRICING_VERSION_2027,
+      input: 1.5,
+      cachedInput: 0.15,
+      output: 7.5,
+    } as const
+  }
+  return {
+    version: GEMINI_VIDEO_PRICING_VERSION,
+    input: INTRODUCTORY_INPUT_USD_PER_MILLION,
+    cachedInput: INTRODUCTORY_CACHED_INPUT_USD_PER_MILLION,
+    output: INTRODUCTORY_OUTPUT_USD_PER_MILLION,
+  } as const
+}
+
+function estimatedCostUsd(usage: AiTokenUsage, pricing: ReturnType<typeof pricingAt>): number {
   return (
-    (usage.inputTokens * INTRODUCTORY_INPUT_USD_PER_MILLION +
-      usage.cacheReadInputTokens * INTRODUCTORY_CACHED_INPUT_USD_PER_MILLION +
-      usage.outputTokens * INTRODUCTORY_OUTPUT_USD_PER_MILLION) /
+    (usage.inputTokens * pricing.input +
+      usage.cacheReadInputTokens * pricing.cachedInput +
+      usage.outputTokens * pricing.output) /
     1_000_000
   )
 }
@@ -223,8 +258,11 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   budgetGate: AiBudgetGate
   invocationId?: string
   signal?: AbortSignal
+  invokedAt?: Date
 }): Promise<TParsed> {
+  params.signal?.throwIfAborted()
   const startedAt = performance.now()
+  const pricing = pricingAt(params.invokedAt ?? new Date())
   const invocationId = params.invocationId ?? createAiInvocationId()
   const providerFileId = createAiInvocationId()
   const deadline = AbortSignal.timeout(GEMINI_VIDEO_PROCESSING_TIMEOUT_MS)
@@ -244,9 +282,10 @@ export async function analyzeGeminiVideo<TParsed>(params: {
       attemptNumber: 1,
       provider: 'google',
       model: params.model,
-      pricingVersion: GEMINI_VIDEO_PRICING_VERSION,
+      pricingVersion: pricing.version,
       reservedUnits: GEMINI_VIDEO_ATTEMPT_CEILING_UNITS,
     })
+    signal.throwIfAborted()
     let client: GeminiVideoClient
     try {
       client = await getGeminiVideoClient()
@@ -306,7 +345,7 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     usageObserved = Boolean(response.usageMetadata)
     if (reservation && usageObserved) {
       await params.budgetGate
-        .settleExact(reservation, observedAiCostUnits(estimatedCostUsd(usage)))
+        .settleExact(reservation, observedAiCostUnits(estimatedCostUsd(usage, pricing)))
         .catch(() => undefined)
       reservation = null
     }
@@ -345,9 +384,9 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   await recordUsage(params.usageSink, {
     provider: 'google',
     model: params.model,
-    pricingVersion: GEMINI_VIDEO_PRICING_VERSION,
+    pricingVersion: pricing.version,
     usage,
-    estimatedCostUsd: estimatedCostUsd(usage),
+    estimatedCostUsd: estimatedCostUsd(usage, pricing),
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
     attempts: dispatched ? 1 : 0,
     success,
@@ -363,7 +402,7 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   })
 
   if (cleanupError !== undefined) {
-    throw new GeminiVideoDeletionUnconfirmedError()
+    throw new GeminiVideoDeletionUnconfirmedError(uploadedName!)
   }
   if (!outcome.ok) throw outcome.error
   return outcome.value

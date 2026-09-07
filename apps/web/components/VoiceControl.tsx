@@ -497,13 +497,45 @@ export function VoiceControl({
 
       const peer = new RTCPeerConnection()
       peerRef.current = peer
+      const failActiveConnection = (errorCode: string, message: string) => {
+        if (peerRef.current !== peer || !sessionIdRef.current) return
+        setError(message)
+        void endSession({ fallbackToText: true, errorCode })
+      }
+      peer.onconnectionstatechange = () => {
+        if (peer.connectionState === 'failed') {
+          failActiveConnection(
+            'CLIENT_NETWORK_FAILED',
+            'The voice network connection was lost. Continue in text or try voice again.',
+          )
+        }
+      }
+      peer.oniceconnectionstatechange = () => {
+        if (peer.iceConnectionState === 'failed') {
+          failActiveConnection(
+            'CLIENT_NETWORK_FAILED',
+            'The voice network connection was lost. Continue in text or try voice again.',
+          )
+        }
+      }
       const audio = document.createElement('audio')
       audio.autoplay = true
       remoteAudioRef.current = audio
       peer.ontrack = (event) => {
         audio.srcObject = event.streams[0] ?? new MediaStream([event.track])
       }
-      for (const track of stream.getTracks()) peer.addTrack(track, stream)
+      for (const track of stream.getTracks()) {
+        peer.addTrack(track, stream)
+        track.addEventListener?.(
+          'ended',
+          () =>
+            failActiveConnection(
+              'MICROPHONE_ENDED',
+              'The microphone stopped. Continue in text or reconnect voice after checking the device.',
+            ),
+          { once: true },
+        )
+      }
       const channel = peer.createDataChannel('oai-events')
       channelRef.current = channel
       channel.addEventListener('message', handleProviderEvent)
