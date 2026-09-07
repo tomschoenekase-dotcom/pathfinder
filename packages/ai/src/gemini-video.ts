@@ -26,6 +26,15 @@ export class GeminiVideoDeletionUnconfirmedError extends Error {
   }
 }
 
+export class GeminiVideoAccountingPendingError extends Error {
+  readonly code = 'provider-accounting-pending'
+
+  constructor() {
+    super('Gemini video accounting settlement remains pending')
+    this.name = 'GeminiVideoAccountingPendingError'
+  }
+}
+
 // Fixed 1e-8 USD units. The reservation uses the documented post-introductory
 // rates ($1.50 input / $7.50 output per million) so the gate remains
 // conservative after the 2026 introductory period ends.
@@ -100,6 +109,36 @@ export function assertGeminiVideoFileSize(fileSizeBytes: number): void {
 
 export function setGeminiVideoClientForTesting(client: GeminiVideoClient | null): void {
   geminiVideoClient = client
+}
+
+export async function deleteGeminiVideoFile(params: {
+  providerFileName: string
+  signal?: AbortSignal
+}): Promise<'deleted' | 'absent'> {
+  if (!/^files\/[A-Za-z0-9._-]{1,249}$/u.test(params.providerFileName)) {
+    throw new Error('Gemini cleanup requires an exact provider file name')
+  }
+  params.signal?.throwIfAborted()
+  try {
+    await (
+      await getGeminiVideoClient()
+    ).files.delete({
+      name: params.providerFileName,
+      config: {
+        abortSignal: params.signal
+          ? AbortSignal.any([params.signal, AbortSignal.timeout(GEMINI_VIDEO_DELETE_TIMEOUT_MS)])
+          : AbortSignal.timeout(GEMINI_VIDEO_DELETE_TIMEOUT_MS),
+      },
+    })
+    return 'deleted'
+  } catch (error) {
+    const status =
+      error && typeof error === 'object' && 'status' in error
+        ? (error as { status?: unknown }).status
+        : undefined
+    if (status === 404) return 'absent'
+    throw error
+  }
 }
 
 async function getGeminiVideoClient(): Promise<GeminiVideoClient> {
@@ -191,6 +230,10 @@ function estimatedCostUsd(usage: AiTokenUsage, pricing: ReturnType<typeof pricin
   )
 }
 
+export function observedGeminiVideoCostUnits(usage: AiTokenUsage, invokedAt: Date): bigint {
+  return observedAiCostUnits(estimatedCostUsd(usage, pricingAt(invokedAt)))
+}
+
 function errorCode(error: unknown, outputObserved: boolean): string {
   if (outputObserved) return 'invalid-structured-output'
   if (error && typeof error === 'object') {
@@ -259,6 +302,15 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   invocationId?: string
   signal?: AbortSignal
   invokedAt?: Date
+  plannedProviderFileName?: string
+  lifecycle?: {
+    beforeProviderDispatch: (reservationId: string) => Promise<void>
+    outputObserved: (value: TParsed, responseText: string, usage: AiTokenUsage) => Promise<void>
+    cleanupConfirmed: () => Promise<void>
+    outputAmbiguous: (errorCode: string) => Promise<void>
+    accountingSettled: () => Promise<void>
+    accountingAmbiguous: () => Promise<void>
+  }
 }): Promise<TParsed> {
   params.signal?.throwIfAborted()
   const startedAt = performance.now()
@@ -308,11 +360,17 @@ export async function analyzeGeminiVideo<TParsed>(params: {
         throw error
       }
     }
+    if (!reservation) throw new Error('Gemini video requires a durable budget reservation')
+    await params.lifecycle?.beforeProviderDispatch(reservation.id)
+    signal.throwIfAborted()
     dispatched = true
     // Preselect the provider resource name before upload. Even if the client
     // loses the upload response after the service accepts bytes, cleanup still
     // has an exact identity to delete and cannot silently abandon client media.
-    uploadedName = `files/torchiko-${providerFileId}`
+    uploadedName = params.plannedProviderFileName ?? `files/torchiko-${providerFileId}`
+    if (!/^files\/[A-Za-z0-9._-]{1,249}$/u.test(uploadedName)) {
+      throw new Error('Gemini upload requires an exact provider file name')
+    }
     const uploaded = await client.files.upload({
       file: params.filePath,
       config: {
@@ -324,7 +382,11 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     })
     // Treat an empty or whitespace-only SDK response name like an omitted
     // name. The preselected identity is still the only safe cleanup target.
-    uploadedName = uploaded.name?.trim() || uploadedName
+    const returnedName = uploaded.name?.trim()
+    if (params.plannedProviderFileName && returnedName && returnedName !== uploadedName) {
+      throw new Error('Gemini video upload returned an unexpected provider file identity')
+    }
+    uploadedName = returnedName || uploadedName
     const active = await waitForActiveFile(client, { ...uploaded, name: uploadedName }, signal)
 
     const response = await client.models.generateContent({
@@ -344,42 +406,64 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     usage = usageFromResponse(response)
     usageObserved = Boolean(response.usageMetadata)
     if (reservation && usageObserved) {
-      await params.budgetGate
-        .settleExact(reservation, observedAiCostUnits(estimatedCostUsd(usage, pricing)))
-        .catch(() => undefined)
-      reservation = null
+      try {
+        await params.budgetGate.settleExact(
+          reservation,
+          observedAiCostUnits(estimatedCostUsd(usage, pricing)),
+        )
+        await params.lifecycle?.accountingSettled()
+        reservation = null
+      } catch {
+        // The durable operation receipt retains PENDING and the reservation id;
+        // retry reconciles accounting without regenerating provider output.
+      }
     }
     const text = response.text
     if (!text) throw new Error('Gemini video response was empty')
+    const value = params.parseResponse(text)
+    await params.lifecycle?.outputObserved(value, text, usage)
     outputObserved = true
-    outcome = { ok: true, value: params.parseResponse(text) }
+    outcome = { ok: true, value }
   } catch (error) {
     outcome = { ok: false, error }
+  }
+
+  let lifecycleError: unknown
+  if (dispatched && !outputObserved) {
+    try {
+      await params.lifecycle?.outputAmbiguous(
+        errorCode(outcome.ok ? undefined : outcome.error, false),
+      )
+    } catch (error) {
+      lifecycleError = error
+    }
   }
 
   let cleanupError: unknown
   if (uploadedName) {
     try {
-      const cleanupSignal = AbortSignal.timeout(GEMINI_VIDEO_DELETE_TIMEOUT_MS)
-      const cleanupClient = await getGeminiVideoClient()
-      await cleanupClient.files.delete({
-        name: uploadedName,
-        config: { abortSignal: cleanupSignal },
-      })
+      await deleteGeminiVideoFile({ providerFileName: uploadedName })
+      await params.lifecycle?.cleanupConfirmed()
     } catch (error) {
       cleanupError = error
     }
   }
 
   if (reservation && dispatched && !usageObserved) {
-    await params.budgetGate.settleAmbiguous(reservation).catch(() => undefined)
-    reservation = null
+    try {
+      await params.budgetGate.settleAmbiguous(reservation)
+      await params.lifecycle?.accountingAmbiguous()
+      reservation = null
+    } catch {
+      // Retain durable accounting PENDING for retry reconciliation.
+    }
   } else if (reservation && !dispatched) {
     await params.budgetGate.releaseUndispatched(reservation).catch(() => undefined)
     reservation = null
   }
 
   const success = outcome.ok && cleanupError === undefined
+  const accountingPending = reservation !== null && dispatched && usageObserved
   const outcomeError = outcome.ok ? undefined : outcome.error
   await recordUsage(params.usageSink, {
     provider: 'google',
@@ -389,11 +473,12 @@ export async function analyzeGeminiVideo<TParsed>(params: {
     estimatedCostUsd: estimatedCostUsd(usage, pricing),
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
     attempts: dispatched ? 1 : 0,
-    success,
+    success: success && !accountingPending,
     ...(!success
       ? {
-          errorCode:
-            cleanupError !== undefined
+          errorCode: accountingPending
+            ? 'provider-accounting-pending'
+            : cleanupError !== undefined
               ? 'provider-file-delete-unconfirmed'
               : errorCode(outcomeError, outputObserved),
         }
@@ -404,6 +489,8 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   if (cleanupError !== undefined) {
     throw new GeminiVideoDeletionUnconfirmedError(uploadedName!)
   }
+  if (lifecycleError !== undefined) throw lifecycleError
+  if (accountingPending) throw new GeminiVideoAccountingPendingError()
   if (!outcome.ok) throw outcome.error
   return outcome.value
 }

@@ -1,5 +1,18 @@
 export { db } from './client'
 export {
+  claimMediaProviderOperation,
+  confirmMediaProviderOperationCleanup,
+  heartbeatMediaProviderOperation,
+  markMediaProviderOperationAmbiguous,
+  markMediaProviderOperationDispatched,
+  MEDIA_PROVIDER_OPERATION_LEASE_MS,
+  prepareMediaProviderOperation,
+  recordMediaProviderOperationOutput,
+  releaseMediaProviderOperation,
+  settleMediaProviderOperationAccounting,
+  type MediaProviderOperationIdentity,
+} from './helpers/media-provider-operations'
+export {
   cancelCharacterFactoryJobAction,
   CHARACTER_FACTORY_JOB_LEASE_MS,
   claimCharacterFactoryJobAction,

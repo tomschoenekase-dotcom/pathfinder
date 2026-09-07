@@ -296,6 +296,7 @@ model Tenant {
   venueMediaAssets                   VenueMediaAsset[]
 
   @@map("tenants")
+  mediaProviderOperations                   MediaProviderOperation[]
 }
 
 model TenantMembership {
@@ -1506,6 +1507,7 @@ model Venue {
   @@unique([id, tenantId])
   @@index([tenantId])
   @@map("venues")
+  mediaProviderOperations                   MediaProviderOperation[]
 }
 
 model Place {
@@ -4905,43 +4907,45 @@ enum GenerationDispatchStatus {
 /// import-ready Torchiko JSON. Raw media stays in object storage; the DB
 /// contains only orchestration state, evidence, questions, and drafts.
 model MediaIngestionProject {
-  id                         String                @id @default(cuid())
-  tenantId                   String                @map("tenant_id")
-  venueId                    String                @map("venue_id")
+  id                         String                   @id @default(cuid())
+  tenantId                   String                   @map("tenant_id")
+  venueId                    String                   @map("venue_id")
   name                       String
-  context                    String                @default("")
-  mode                       MediaIngestionMode    @default(BALANCED)
-  status                     MediaIngestionStatus  @default(DRAFT)
-  stage                      String                @default("setup")
-  progress                   Int                   @default(0)
-  sourceObjectKey            String?               @map("source_object_key")
-  sourceFileName             String?               @map("source_file_name")
-  sourceBytes                BigInt?               @map("source_bytes")
-  sourceLastModified         BigInt?               @map("source_last_modified")
-  sourceFingerprintAlgorithm String?               @map("source_fingerprint_algorithm") @db.VarChar(48)
-  sourceFingerprint          String?               @map("source_fingerprint") @db.Char(64)
-  sourceObjectGeneration     String?               @map("source_object_generation") @db.Uuid
-  uploadAttemptId            String?               @map("upload_attempt_id") @db.Uuid
-  storageUploadId            String?               @map("storage_upload_id")
-  uploadStartedAt            DateTime?             @map("upload_started_at")
-  sourceContentType          String?               @map("source_content_type")
-  settings                   Json                  @default("{}")
-  coverage                   Json                  @default("{}")
-  questions                  Json                  @default("[]")
-  findings                   Json                  @default("[]")
-  draftJson                  Json?                 @map("draft_json")
-  estimatedCostCents         Int?                  @map("estimated_cost_cents")
-  actualCostCents            Int                   @default(0) @map("actual_cost_cents")
-  providerOperationCount     Int                   @default(0) @map("provider_operation_count")
+  context                    String                   @default("")
+  mode                       MediaIngestionMode       @default(BALANCED)
+  status                     MediaIngestionStatus     @default(DRAFT)
+  stage                      String                   @default("setup")
+  progress                   Int                      @default(0)
+  sourceObjectKey            String?                  @map("source_object_key")
+  sourceFileName             String?                  @map("source_file_name")
+  sourceBytes                BigInt?                  @map("source_bytes")
+  sourceLastModified         BigInt?                  @map("source_last_modified")
+  sourceFingerprintAlgorithm String?                  @map("source_fingerprint_algorithm") @db.VarChar(48)
+  sourceFingerprint          String?                  @map("source_fingerprint") @db.Char(64)
+  sourceObjectGeneration     String?                  @map("source_object_generation") @db.Uuid
+  uploadAttemptId            String?                  @map("upload_attempt_id") @db.Uuid
+  storageUploadId            String?                  @map("storage_upload_id")
+  uploadStartedAt            DateTime?                @map("upload_started_at")
+  sourceContentType          String?                  @map("source_content_type")
+  settings                   Json                     @default("{}")
+  coverage                   Json                     @default("{}")
+  questions                  Json                     @default("[]")
+  findings                   Json                     @default("[]")
+  draftJson                  Json?                    @map("draft_json")
+  estimatedCostCents         Int?                     @map("estimated_cost_cents")
+  actualCostCents            Int                      @default(0) @map("actual_cost_cents")
+  providerOperationCount     Int                      @default(0) @map("provider_operation_count")
   error                      String?
-  createdBy                  String                @map("created_by")
-  createdAt                  DateTime              @default(now()) @map("created_at")
-  updatedAt                  DateTime              @updatedAt @map("updated_at")
-  completedAt                DateTime?             @map("completed_at")
-  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                      Venue                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  createdBy                  String                   @map("created_by")
+  createdAt                  DateTime                 @default(now()) @map("created_at")
+  updatedAt                  DateTime                 @updatedAt @map("updated_at")
+  completedAt                DateTime?                @map("completed_at")
+  tenant                     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                      Venue                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
   assets                     MediaIngestionAsset[]
+  providerOperations         MediaProviderOperation[]
 
+  @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
   @@index([status, createdAt])
   @@index([status, stage, uploadStartedAt])
@@ -4969,6 +4973,73 @@ model MediaIngestionAsset {
   @@unique([projectId, sourceId])
   @@index([tenantId, projectId, status])
   @@map("media_ingestion_assets")
+}
+
+model MediaProviderOperation {
+  id                      String                       @id @default(cuid())
+  tenantId                String                       @map("tenant_id")
+  venueId                 String                       @map("venue_id")
+  projectId               String                       @map("project_id")
+  uploadAttemptId         String                       @map("upload_attempt_id") @db.Uuid
+  sourceId                String                       @map("source_id") @db.VarChar(191)
+  provider                String                       @db.VarChar(32)
+  model                   String                       @db.VarChar(96)
+  method                  String                       @db.VarChar(96)
+  inputSha256             String                       @map("input_sha256") @db.Char(64)
+  promptSha256            String                       @map("prompt_sha256") @db.Char(64)
+  extractionSchemaVersion String                       @map("extraction_schema_version") @db.VarChar(64)
+  plannedProviderFileName String                       @map("planned_provider_file_name") @db.VarChar(255)
+  dispatchState           MediaProviderDispatchState   @default(PREPARED) @map("dispatch_state")
+  outcomeState            MediaProviderOutcomeState    @default(PENDING) @map("outcome_state")
+  cleanupState            MediaProviderCleanupState    @default(NOT_REQUIRED) @map("cleanup_state")
+  accountingState         MediaProviderAccountingState @default(NOT_REQUIRED) @map("accounting_state")
+  budgetReservationId     String?                      @map("budget_reservation_id")
+  result                  Json?
+  responseSha256          String?                      @map("response_sha256") @db.Char(64)
+  usage                   Json?
+  errorCode               String?                      @map("error_code") @db.VarChar(96)
+  leaseToken              String?                      @map("lease_token") @db.Uuid
+  leaseExpiresAt          DateTime?                    @map("lease_expires_at")
+  revision                Int                          @default(0)
+  dispatchedAt            DateTime?                    @map("dispatched_at")
+  outputObservedAt        DateTime?                    @map("output_observed_at")
+  cleanupConfirmedAt      DateTime?                    @map("cleanup_confirmed_at")
+  createdAt               DateTime                     @default(now()) @map("created_at")
+  updatedAt               DateTime                     @updatedAt @map("updated_at")
+  tenant                  Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  project                 MediaIngestionProject        @relation(fields: [projectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, projectId, uploadAttemptId, sourceId, method])
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, cleanupState, leaseExpiresAt])
+  @@index([projectId, uploadAttemptId])
+  @@map("media_provider_operations")
+}
+
+enum MediaProviderDispatchState {
+  PREPARED
+  DISPATCHED
+}
+
+enum MediaProviderOutcomeState {
+  PENDING
+  OBSERVED
+  FAILED
+  AMBIGUOUS
+}
+
+enum MediaProviderCleanupState {
+  NOT_REQUIRED
+  PENDING
+  CONFIRMED
+}
+
+enum MediaProviderAccountingState {
+  NOT_REQUIRED
+  PENDING
+  SETTLED
+  AMBIGUOUS
 }
 
 enum MediaIngestionMode {

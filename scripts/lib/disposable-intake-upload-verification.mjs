@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )

@@ -7,6 +7,7 @@ import {
   GEMINI_VIDEO_MODEL,
   GEMINI_VIDEO_PRICING_VERSION,
   GEMINI_VIDEO_PRICING_VERSION_2027,
+  deleteGeminiVideoFile,
   GEMINI_VIDEO_API_METHOD,
   GEMINI_VIDEO_PROCESSING_MODE,
   setGeminiVideoClientForTesting,
@@ -534,5 +535,54 @@ describe('Gemini video understanding', () => {
     expect(inconsistentGate.budgetGate.settleAmbiguous).toHaveBeenCalledWith(
       inconsistentGate.reservation,
     )
+  })
+
+  it('confirms only a typed 404 for an exact cleanup identity', async () => {
+    const fakeClient = client()
+    vi.mocked(fakeClient.files.delete).mockRejectedValueOnce(
+      Object.assign(new Error('missing'), { status: 404 }),
+    )
+    setGeminiVideoClientForTesting(fakeClient)
+    await expect(deleteGeminiVideoFile({ providerFileName: 'files/exact-fixture' })).resolves.toBe(
+      'absent',
+    )
+    await expect(deleteGeminiVideoFile({ providerFileName: '' })).rejects.toThrow(
+      'exact provider file name',
+    )
+    expect(fakeClient.files.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('still attempts exact cleanup when ambiguous-outcome persistence fails', async () => {
+    const fakeClient = client({ uploadFailure: new Error('upload failed') })
+    const { budgetGate } = gate()
+    setGeminiVideoClientForTesting(fakeClient)
+    await expect(
+      analyzeGeminiVideo({
+        filePath: 'tour.mp4',
+        fileSizeBytes: 10,
+        filename: 'tour.mp4',
+        mimeType: 'video/mp4',
+        model: GEMINI_VIDEO_MODEL,
+        prompt: 'Return JSON.',
+        parseResponse: JSON.parse,
+        usageSink: vi.fn(async () => undefined),
+        budgetGate,
+        plannedProviderFileName: 'files/exact-upload',
+        lifecycle: {
+          beforeProviderDispatch: vi.fn(async () => undefined),
+          outputObserved: vi.fn(async () => undefined),
+          cleanupConfirmed: vi.fn(async () => undefined),
+          outputAmbiguous: vi.fn(async () => {
+            throw new Error('receipt unavailable')
+          }),
+          accountingSettled: vi.fn(async () => undefined),
+          accountingAmbiguous: vi.fn(async () => undefined),
+        },
+      }),
+    ).rejects.toThrow('receipt unavailable')
+    expect(fakeClient.files.delete).toHaveBeenCalledWith({
+      name: 'files/exact-upload',
+      config: { abortSignal: expect.any(AbortSignal) },
+    })
   })
 })
