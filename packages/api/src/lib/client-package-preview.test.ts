@@ -78,6 +78,31 @@ const additive = (count: number) =>
   }) as never
 
 describe('effective client package preview projection', () => {
+  it('preserves all public branding fields for the visitor client', () => {
+    const result = clientPackagePreviewProjection({
+      venue: {
+        ...venue,
+        chatTheme: 'forest',
+        chatAccentColor: '#245A4A',
+        chatFont: 'inter',
+        chatLogoUrl: 'https://cdn.example.test/logo.png',
+        chatBannerUrl: 'https://cdn.example.test/banner.png',
+      },
+      places: [],
+      knowledgeEntries: [],
+      pkg: { id: 'package_1', approvedAt: new Date('2030-01-01') },
+      stored: additive(0),
+    })
+
+    expect(result.venue.branding).toEqual({
+      theme: 'forest',
+      accentColor: '#245A4A',
+      font: 'inter',
+      logoUrl: 'https://cdn.example.test/logo.png',
+      bannerUrl: 'https://cdn.example.test/banner.png',
+    })
+  })
+
   it.each(['concise', 'informative', 'enthusiastic'] as const)(
     'preserves exact public %s tone preset and behavior version',
     (tonePreset) => {

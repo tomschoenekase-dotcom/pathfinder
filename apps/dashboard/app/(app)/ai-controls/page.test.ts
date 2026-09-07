@@ -9,6 +9,9 @@ describe('Venue Bot settings route boundary', () => {
   it('loads the canonical configuration API and does not revive legacy AI controls', () => {
     expect(source).toContain('getBotConfiguration')
     expect(source).toContain('listPersonalityProfiles')
+    expect(source).toContain('ChatDesignForm')
+    expect(source).toContain('Customize the visitor chat')
+    expect(source).toContain('canEditBranding')
     expect(source).not.toContain('getAiConfig')
     expect(source).not.toContain('place.list')
   })

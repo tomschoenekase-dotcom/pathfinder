@@ -26,6 +26,15 @@ type Venue = {
 
 type ChatDesignFormProps = {
   venues: Venue[]
+  canEdit?: boolean
+  initialVenueId?: string
+}
+
+type SavedChatDesign = {
+  chatTheme?: string | null
+  chatAccentColor?: string | null
+  chatFont?: string | null
+  updatedAt: Date
 }
 
 type LightThemeValue = (typeof CHAT_THEME_PRESETS)[number]['value']
@@ -58,13 +67,20 @@ function designStateForVenue(venue: Venue | undefined) {
   }
 }
 
-export function ChatDesignForm({ venues }: ChatDesignFormProps) {
+export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatDesignFormProps) {
   const client = useTRPCClient()
   const revisions = useRef(
     new Map(venues.map((candidate) => [candidate.id, new Date(candidate.updatedAt)])),
   )
+  const savedDesigns = useRef(
+    new Map(venues.map((candidate) => [candidate.id, designStateForVenue(candidate)])),
+  )
 
-  const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id ?? '')
+  const [selectedVenueId, setSelectedVenueId] = useState(
+    initialVenueId && venues.some((candidate) => candidate.id === initialVenueId)
+      ? initialVenueId
+      : (venues[0]?.id ?? ''),
+  )
   const venue = venues.find((candidate) => candidate.id === selectedVenueId)
   const initialDesign = designStateForVenue(venue)
   const [chatTheme, setChatTheme] = useState<LightThemeValue>(initialDesign.chatTheme)
@@ -114,7 +130,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
       return
     }
 
-    const next = designStateForVenue(nextVenue)
+    const next = savedDesigns.current.get(nextVenue.id) ?? designStateForVenue(nextVenue)
     setSelectedVenueId(nextVenue.id)
     setChatTheme(next.chatTheme)
     setDarkMode(next.darkMode)
@@ -126,7 +142,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
   }
 
   async function handleSave() {
-    if (!venue?.id || mutationInFlight.current) return
+    if (!canEdit || !venue?.id || mutationInFlight.current) return
     if (invalidAccent) {
       setSaved(false)
       setSaveError('Enter a six-digit hex colour such as #3A7BD5, or leave it blank.')
@@ -139,17 +155,35 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     setIsSaving(true)
 
     try {
-      const saved = await client.venue.updateChatDesign.mutate({
+      const saved = (await client.venue.updateChatDesign.mutate({
         venueId: venue.id,
         expectedUpdatedAt: revisions.current.get(venue.id) ?? new Date(venue.updatedAt),
         chatTheme: effectiveTheme,
         chatAccentColor: accentOverride,
         chatFont,
-      })
+      })) as SavedChatDesign
       revisions.current.set(venue.id, saved.updatedAt)
-      const savedAccentColor = accentOverride ?? ''
+      const savedTheme =
+        saved.chatTheme === 'dark'
+          ? chatTheme
+          : isLightThemeValue(saved.chatTheme)
+            ? saved.chatTheme
+            : chatTheme
+      const savedDarkMode = saved.chatTheme ? saved.chatTheme === 'dark' : darkMode
+      const savedAccentColor = saved.chatAccentColor ?? accentOverride ?? ''
+      const savedFont = isFontValue(saved.chatFont) ? saved.chatFont : chatFont
+      setChatTheme(savedTheme)
+      setDarkMode(savedDarkMode)
       setChatAccentColor(savedAccentColor)
-      setSavedDesign({ chatTheme, darkMode, chatAccentColor: savedAccentColor, chatFont })
+      setChatFont(savedFont)
+      const canonicalDesign = {
+        chatTheme: savedTheme,
+        darkMode: savedDarkMode,
+        chatAccentColor: savedAccentColor,
+        chatFont: savedFont,
+      }
+      savedDesigns.current.set(venue.id, canonicalDesign)
+      setSavedDesign(canonicalDesign)
       setSaved(true)
     } catch (err: unknown) {
       const message =
@@ -197,7 +231,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               key={theme.value}
               type="button"
               aria-pressed={chatTheme === theme.value}
-              disabled={isSaving || darkMode}
+              disabled={!canEdit || isSaving || darkMode}
               onClick={() => {
                 markDirty()
                 setChatTheme(theme.value)
@@ -221,7 +255,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4 rounded-2xl border border-pf-light bg-pf-white p-4">
+      <div className="flex items-start justify-between gap-4 rounded-2xl border border-pf-light bg-pf-white p-4">
         <div className="flex items-center gap-3">
           <div
             className="h-10 w-10 flex-shrink-0 rounded-full border border-pf-light"
@@ -233,7 +267,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               style={{ backgroundColor: palettePreview.accent }}
             />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-pf-deep">Dark mode (Neon)</p>
             <p className="mt-0.5 text-xs leading-5 text-pf-deep/50">
               Replaces the light preset with a glowing dark palette derived from your accent colour.
@@ -246,10 +280,10 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
           role="switch"
           aria-label="Use dark mode"
           aria-checked={darkMode}
-          disabled={isSaving}
+          disabled={!canEdit || isSaving}
           onClick={toggleDarkMode}
           className={[
-            'relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition',
+            'relative mt-1 inline-flex h-11 w-12 flex-shrink-0 items-center rounded-full transition',
             darkMode ? 'bg-pf-primary' : 'bg-pf-light',
             'disabled:cursor-not-allowed disabled:opacity-50',
           ].join(' ')}
@@ -278,7 +312,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
             placeholder="#3A7BD5"
             value={chatAccentColor}
             maxLength={7}
-            disabled={isSaving}
+            disabled={!canEdit || isSaving}
             aria-invalid={invalidAccent}
             aria-describedby={
               invalidAccent && saveError
@@ -310,7 +344,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
               key={font.value}
               type="button"
               aria-pressed={chatFont === font.value}
-              disabled={isSaving}
+              disabled={!canEdit || isSaving}
               onClick={() => {
                 markDirty()
                 setChatFont(font.value)
@@ -349,15 +383,38 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         </p>
       ) : null}
 
-      <button
-        type="button"
-        aria-live="polite"
-        disabled={isSaving || !venue?.id}
-        onClick={handleSave}
-        className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isSaving ? 'Saving...' : 'Save design'}
-      </button>
+      {canEdit ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            aria-live="polite"
+            disabled={isSaving || !venue?.id}
+            onClick={handleSave}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : 'Save design'}
+          </button>
+          <button
+            type="button"
+            disabled={isSaving || !isDirty}
+            onClick={() => {
+              setChatTheme(savedDesign.chatTheme)
+              setDarkMode(savedDesign.darkMode)
+              setChatAccentColor(savedDesign.chatAccentColor)
+              setChatFont(savedDesign.chatFont)
+              setSaveError(null)
+              setSaved(false)
+            }}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-semibold text-pf-deep transition hover:border-pf-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Reset changes
+          </button>
+        </div>
+      ) : (
+        <p className="rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep/70">
+          Your role can view visitor branding, but only venue managers and owners can edit it.
+        </p>
+      )}
     </div>
   )
 }

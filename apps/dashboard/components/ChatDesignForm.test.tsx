@@ -173,10 +173,106 @@ describe('ChatDesignForm', () => {
     expect(await screen.findByRole('status')).toBeTruthy()
   })
 
+  it('resets unsaved changes to the last saved design without writing', () => {
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset changes' }))
+
+    expect(screen.getByRole('button', { name: 'Forest' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Inter' }).getAttribute('aria-pressed')).toBe('true')
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(mocks.updateChatDesign).not.toHaveBeenCalled()
+  })
+
+  it('uses the canonical design returned by the save mutation for readback', async () => {
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatTheme: 'midnight',
+      chatAccentColor: '#123456',
+      chatFont: 'dmSans',
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+
+    await screen.findByRole('status')
+    expect(screen.getByRole('button', { name: 'Midnight' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('button', { name: 'DM Sans' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).value).toBe(
+      '#123456',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
+  it('keeps canonical saved design when switching venues and returning', async () => {
+    mocks.updateChatDesign.mockResolvedValueOnce({
+      chatTheme: 'sunset',
+      chatAccentColor: '#ABCDEF',
+      chatFont: 'poppins',
+      updatedAt: new Date('2026-08-11T14:31:00.000Z'),
+    })
+    render(<ChatDesignForm venues={venues} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sunset' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Poppins' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await screen.findByRole('status')
+
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[1]!.id } })
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[0]!.id } })
+
+    expect(screen.getByRole('button', { name: 'Sunset' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Poppins' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).value).toBe(
+      '#ABCDEF',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Reset changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
+  it('starts on the venue selected by the client route', () => {
+    render(<ChatDesignForm venues={venues} initialVenueId={venues[1]!.id} />)
+
+    expect((screen.getByLabelText('Venue') as HTMLSelectElement).value).toBe(venues[1]!.id)
+    expect(screen.getByRole('switch', { name: 'Use dark mode' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+  })
+
   it('renders a graceful empty state without a save control', () => {
     render(<ChatDesignForm venues={[]} />)
 
     expect(screen.getByText(/No venues found/u)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save design' })).toBeNull()
+  })
+
+  it('renders visitor branding read-only for restricted roles', () => {
+    render(<ChatDesignForm venues={venues} canEdit={false} />)
+
+    expect(screen.queryByRole('button', { name: 'Save design' })).toBeNull()
+    expect(screen.getByText(/only venue managers and owners can edit/u)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Forest' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).disabled).toBe(true)
   })
 })
