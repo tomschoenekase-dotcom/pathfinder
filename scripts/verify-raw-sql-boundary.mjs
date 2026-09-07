@@ -12,6 +12,7 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-workflow-approval-request-lock',
   'tenant-workflow-execution-lease',
   'tenant-workflow-authority-share-lock',
   'tenant-workflow-activation-revoke',
@@ -84,6 +85,14 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Serialize immutable approval-request retries by exact tenant and operation UUID.
+  // This lock grants no activation authority; canonical apply still checks approval.
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-approval-requests.ts',
+    method: '$executeRaw',
+    hash: 'eb5d16c6a962a5f7484f72522cfa390740984f4d869601f29746efbeffafcba8',
+    policy: 'tenant-workflow-approval-request-lock',
+  },
   // Checkout reserves under an exact tenant-keyed transaction advisory lock;
   // the transaction commits its pending agreement before external provider work.
   {

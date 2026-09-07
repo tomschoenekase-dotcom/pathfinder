@@ -49,6 +49,53 @@ const hash = (value: unknown) =>
     .update(canonicalEvaluationJson(value as never))
     .digest('hex')
 
+export const agentWorkflowActivationApprovalReceipt = (
+  input: {
+    registryKey: string
+    workflowVersionId: string
+    promotionAssessmentId: string
+    expectedHeadRevision: number
+    canaryPolicy: z.infer<typeof AgentWorkflowCanaryPolicySchema>
+  },
+  evidenceDigest: string,
+) => ({
+  registryKey: input.registryKey,
+  workflowVersionId: input.workflowVersionId,
+  promotionAssessmentId: input.promotionAssessmentId,
+  expectedHeadRevision: input.expectedHeadRevision,
+  canaryPolicy: input.canaryPolicy,
+  evidenceDigest,
+})
+
+export const agentWorkflowTransitionApprovalReceipt = (
+  input: {
+    kind: 'ROLLBACK' | 'REVOKE'
+    registryKey: string
+    workflowVersionId?: string | null | undefined
+    expectedHeadRevision: number
+    canaryPolicy?: z.infer<typeof AgentWorkflowCanaryPolicySchema> | undefined
+  },
+  evidenceDigest: string,
+) => ({
+  kind: input.kind,
+  registryKey: input.registryKey,
+  workflowVersionId: input.workflowVersionId ?? null,
+  expectedHeadRevision: input.expectedHeadRevision,
+  canaryPolicy: input.canaryPolicy ?? null,
+  evidenceDigest,
+})
+
+export const agentWorkflowTransitionEvidenceDigest = (
+  transition: Omit<ReturnType<typeof agentWorkflowTransitionApprovalReceipt>, 'evidenceDigest'>,
+  priorActivationEventId: string | null,
+  rollbackLineageEventHash: string | null,
+) =>
+  hash({
+    transition,
+    priorActivationEventHash: priorActivationEventId,
+    rollbackLineageEventHash,
+  })
+
 export class AgentWorkflowActivationError extends Error {
   constructor(
     readonly code: 'INVALID_INPUT' | 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN',
@@ -134,13 +181,6 @@ export async function activateAgentWorkflowVersion(
   return client.$transaction(async (rawTx) => {
     const tx = rawTx
     const head = await lockHead(tx, input)
-    const receipt = {
-      registryKey: input.registryKey,
-      workflowVersionId: input.workflowVersionId,
-      promotionAssessmentId: input.promotionAssessmentId,
-      expectedHeadRevision: input.expectedHeadRevision,
-      canaryPolicy: input.canaryPolicy,
-    }
     const replay = await tx.agentWorkflowActivationEvent.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
     })
@@ -197,7 +237,7 @@ export async function activateAgentWorkflowVersion(
       ...input,
       actorId: input.actor.id,
       action: 'agent-workflow.activate',
-      receipt: { ...receipt, evidenceDigest },
+      receipt: agentWorkflowActivationApprovalReceipt(input, evidenceDigest),
     })
     const required = [...version.requiredToolCapabilities].sort()
     if (required.some((capability) => !availableCapabilities.has(capability)))
@@ -364,16 +404,16 @@ export async function transitionAgentWorkflowActivation(
       version?.requiredToolCapabilities.some((capability) => !availableCapabilities.has(capability))
     )
       throw new AgentWorkflowActivationError('FORBIDDEN', 'Required callable tool is unavailable')
-    const evidenceDigest = hash({
-      transition: receipt,
-      priorActivationEventHash: head.activationEventId,
-      rollbackLineageEventHash: lineage?.eventHash ?? null,
-    })
+    const evidenceDigest = agentWorkflowTransitionEvidenceDigest(
+      receipt,
+      head.activationEventId,
+      lineage?.eventHash ?? null,
+    )
     await exactApproval(tx, {
       ...input,
       actorId: input.actor.id,
       action: input.kind === 'REVOKE' ? 'agent-workflow.revoke' : 'agent-workflow.rollback',
-      receipt: { ...receipt, evidenceDigest },
+      receipt: agentWorkflowTransitionApprovalReceipt(input, evidenceDigest),
     })
     // Head is locked first. This set-based update then locks every effective dependent run;
     // skipped baseline bindings are deliberately unaffected. A later failure rolls it back.

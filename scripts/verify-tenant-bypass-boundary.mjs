@@ -12,6 +12,9 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Human platform-admin workflow requests, reviewed transitions, and bounded history
+  // retain explicit tenant+venue predicates; canonical helpers revalidate authority.
+  ['packages/api/src/routers/admin/agent-workflow-activations.ts', 1],
   // Platform-admin relation review, temporal review/clarification, and evidence reads retain exact
   // tenant+venue scope; dated drafts remain inactive and confer no publication authority.
   ['packages/api/src/routers/admin/media-ingestion-relations.ts', 1],

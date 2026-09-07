@@ -25,7 +25,14 @@ import {
   readCompatibleAgentWorkflowVersions,
   registerAgentWorkflowVersion,
 } from './agent-workflow-registry-actions'
-import { activateAgentWorkflowVersion } from './agent-workflow-activation-actions'
+import {
+  activateAgentWorkflowVersion,
+  transitionAgentWorkflowActivation,
+} from './agent-workflow-activation-actions'
+import {
+  requestAgentWorkflowActivationApproval,
+  requestAgentWorkflowTransitionApproval,
+} from './agent-workflow-activation-approval-requests'
 
 const enabled =
   process.env.RUN_AGENT_IMPROVEMENT_DB_INTEGRATION === '1' &&
@@ -1072,14 +1079,6 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         createAgentWorkflowPromotionAssessment(assessmentRequest),
       ).resolves.toMatchObject({ replayed: true, assessment: { id: assessment.assessment.id } })
 
-      const activationEvidence = await db.$transaction((tx) =>
-        revalidateAgentWorkflowPromotionAssessment(tx, {
-          tenantId,
-          venueId,
-          workflowVersionId: registered.version.id,
-          assessmentId: assessment.assessment.id,
-        }),
-      )
       const activationPolicy = {
         numerator: 1,
         denominator: 1,
@@ -1093,26 +1092,32 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         supportedActionClasses: ['RUN_TERMINAL_WRITE' as const],
       }
       const activationOperationId = randomUUID()
-      const activationRequest = await db.approvalRequest.create({
-        data: {
-          tenantId,
-          venueId,
-          agentIdentityId: identityId,
-          requestedByType: 'HUMAN',
-          requestedById: actor.id,
-          proposedAction: 'agent-workflow.activate',
-          scopeSnapshot: {
-            registryKey: registered.version.registryKey,
-            workflowVersionId: registered.version.id,
-            promotionAssessmentId: assessment.assessment.id,
-            expectedHeadRevision: 0,
-            canaryPolicy: activationPolicy,
-            evidenceDigest: activationEvidence.evidenceDigest,
-          },
-          reason: 'Review exact workflow activation evidence.',
-          riskCategory: 'HIGH',
-        },
-      })
+      const approvalRequestOperationId = randomUUID()
+      const approvalRequestInput = {
+        requestOperationId: approvalRequestOperationId,
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        registryKey: registered.version.registryKey,
+        workflowVersionId: registered.version.id,
+        promotionAssessmentId: assessment.assessment.id,
+        expectedHeadRevision: 0,
+        canaryPolicy: activationPolicy,
+        reason: 'Review exact workflow activation evidence.',
+        actor: { type: 'HUMAN' as const, id: actor.id, role: 'PLATFORM_ADMIN' as const },
+      }
+      const [requested, replayedRequest] = await Promise.all([
+        requestAgentWorkflowActivationApproval(approvalRequestInput, new Set(['resources:read'])),
+        requestAgentWorkflowActivationApproval(approvalRequestInput, new Set(['resources:read'])),
+      ])
+      expect([requested.replayed, replayedRequest.replayed].sort()).toEqual([false, true])
+      await expect(
+        requestAgentWorkflowActivationApproval(
+          { ...approvalRequestInput, reason: 'Changed terms.' },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const activationRequest = requested.request
       const activationDecision = await recordApprovalDecisionAction({
         tenantId,
         venueId,
@@ -1148,6 +1153,101 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           new Set(['resources:read']),
         ),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+      const rollbackRequestInput = {
+        requestOperationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        registryKey: registered.version.registryKey,
+        kind: 'ROLLBACK' as const,
+        workflowVersionId: registered.version.id,
+        expectedHeadRevision: 1,
+        canaryPolicy: activationPolicy,
+        reason: 'Review exact rollback.',
+        actor: { type: 'HUMAN' as const, id: actor.id, role: 'PLATFORM_ADMIN' as const },
+      }
+      const rollbackRequest = await requestAgentWorkflowTransitionApproval(
+        rollbackRequestInput,
+        new Set(['resources:read']),
+      )
+      const rollbackDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: rollbackRequest.request.id,
+        decision: 'APPROVED',
+        reason: 'Approve rollback.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      await expect(
+        transitionAgentWorkflowActivation(
+          {
+            operationId: randomUUID(),
+            tenantId,
+            venueId,
+            registryKey: registered.version.registryKey,
+            kind: 'ROLLBACK',
+            workflowVersionId: registered.version.id,
+            approvalDecisionId: rollbackDecision.id,
+            expectedHeadRevision: 1,
+            canaryPolicy: activationPolicy,
+            reason: 'Review exact rollback.',
+            actor,
+          },
+          new Set(['resources:read']),
+        ),
+      ).resolves.toMatchObject({ replayed: false, event: { kind: 'ROLLBACK' } })
+      await expect(
+        requestAgentWorkflowTransitionApproval(rollbackRequestInput, new Set(['resources:read'])),
+      ).resolves.toMatchObject({ replayed: true, request: { id: rollbackRequest.request.id } })
+      await expect(
+        requestAgentWorkflowTransitionApproval(
+          { ...rollbackRequestInput, reason: 'Changed rollback terms.' },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const revokeRequestInput = {
+        requestOperationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        registryKey: registered.version.registryKey,
+        kind: 'REVOKE' as const,
+        expectedHeadRevision: 2,
+        reason: 'Review exact revoke.',
+        actor: { type: 'HUMAN' as const, id: actor.id, role: 'PLATFORM_ADMIN' as const },
+      }
+      const revokeRequest = await requestAgentWorkflowTransitionApproval(
+        revokeRequestInput,
+        new Set(['resources:read']),
+      )
+      const revokeDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: revokeRequest.request.id,
+        decision: 'APPROVED',
+        reason: 'Approve revoke.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      await expect(
+        transitionAgentWorkflowActivation(
+          {
+            operationId: randomUUID(),
+            tenantId,
+            venueId,
+            registryKey: registered.version.registryKey,
+            kind: 'REVOKE',
+            approvalDecisionId: revokeDecision.id,
+            expectedHeadRevision: 2,
+            reason: 'Review exact revoke.',
+            actor,
+          },
+          new Set(['resources:read']),
+        ),
+      ).resolves.toMatchObject({ replayed: false, event: { kind: 'REVOKE' } })
+      await expect(
+        requestAgentWorkflowTransitionApproval(revokeRequestInput, new Set(['resources:read'])),
+      ).resolves.toMatchObject({ replayed: true, request: { id: revokeRequest.request.id } })
 
       const heldoutCandidateRun = await db.evalRun.findFirstOrThrow({
         where: { id: heldoutValidation.candidateEvalRunId, tenantId, venueId },
