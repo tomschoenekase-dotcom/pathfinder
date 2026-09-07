@@ -29,4 +29,10 @@ describe('family rig renderer', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)')
     expect(css).toContain(".rig[data-rig-motion='system']")
   })
+
+  it('provides semantic choreography for declared custom rig families', () => {
+    expect(css).toContain(".customRig[data-rig-state='speaking']")
+    expect(css).toContain(".customRig[data-rig-state='attention']")
+    expect(css).toContain(".customRig[data-rig-state='success']")
+  })
 })

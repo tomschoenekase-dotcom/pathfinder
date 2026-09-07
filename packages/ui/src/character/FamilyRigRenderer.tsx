@@ -7,16 +7,23 @@ import type { CharacterState } from '@pathfinder/contracts/character-system'
 import styles from './family-rig.module.css'
 
 export type FamilyRigName = 'morph-v1' | 'compact-creature-v1' | 'humanoid-v1'
-export type FamilyRigLayerRole = 'body' | 'face' | 'head' | 'wing' | 'torso' | 'accent'
+export type FamilyRigFamily = FamilyRigName | `custom:${string}`
+export type FamilyRigLayerRole = string
 
 export type FamilyRigRendererProps = {
   name: string
   source: string
   fallbackSource: string
-  family: FamilyRigName
+  family: FamilyRigFamily
   state: CharacterState
   motion: 'system' | 'reduced' | 'full'
   layers?: readonly { source: string; role: FamilyRigLayerRole }[] | undefined
+  rigCapabilities?:
+    | {
+        familyId: FamilyRigFamily
+        stateControls: Partial<Record<CharacterState, readonly string[]>>
+      }
+    | undefined
   intensity?: number | undefined
   className?: string | undefined
   onAssetError?: (() => void) | undefined
@@ -47,6 +54,7 @@ export function FamilyRigRenderer({
   state,
   motion,
   layers,
+  rigCapabilities,
   intensity = 0.6,
   className,
   onAssetError,
@@ -61,10 +69,21 @@ export function FamilyRigRenderer({
   const fallbackFailed = assetState?.fallbackFailed ?? false
   const resolvedMotion = resolveFamilyRigMotion(motion, failed)
   const style = { '--family-rig-intensity': String(clamp(intensity)) } as CSSProperties
+  const isCustom = family.startsWith('custom:')
+  const controls =
+    isCustom && rigCapabilities?.familyId === family
+      ? (rigCapabilities.stateControls[state] ?? [])
+      : []
 
   return (
     <span
-      className={[styles.rig, styles[family], className].filter(Boolean).join(' ')}
+      className={[
+        styles.rig,
+        styles[family] ?? (isCustom ? styles.customRig : undefined),
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={style}
       role="img"
       aria-label={`${name}: ${state}`}
@@ -72,6 +91,7 @@ export function FamilyRigRenderer({
       data-rig-state={state}
       data-rig-motion={resolvedMotion}
       data-asset-capability="rigid-source"
+      data-rig-controls={controls.join(' ')}
     >
       <span className={styles.stage} aria-hidden="true">
         {fallbackFailed ? (
@@ -111,7 +131,10 @@ export function FamilyRigRenderer({
             {layers.map((layer) => (
               <img
                 key={`${layer.role}:${layer.source}`}
-                className={[styles.layer, styles[`layer_${layer.role}`]].join(' ')}
+                className={[
+                  styles.layer,
+                  styles[`layer_${layer.role}`] ?? styles.layer_custom,
+                ].join(' ')}
                 data-rig-layer={layer.role}
                 src={layer.source}
                 alt=""
