@@ -564,6 +564,7 @@ export const McpKnowledgeSearchInput = McpRequestedScope.extend({
     .default(['AUTHORITATIVE_CURRENT', 'DURABLE_CONTEXT']),
   includeHistorical: z.boolean().default(false),
   limit: z.number().int().min(1).max(20).default(5),
+  cursor: z.string().min(1).max(2000).optional(),
 }).strict()
 export type McpKnowledgeSearchInput = z.infer<typeof McpKnowledgeSearchInput>
 
@@ -1554,6 +1555,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         authorities: { type: 'array', maxItems: 5, items: { type: 'string' } },
         includeHistorical: { type: 'boolean', default: false },
         limit: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+        cursor: { type: 'string', minLength: 1, maxLength: 2000 },
       },
       ['clientId', 'query'],
     ),

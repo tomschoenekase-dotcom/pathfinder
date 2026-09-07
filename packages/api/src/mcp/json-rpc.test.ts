@@ -86,6 +86,37 @@ describe('MCP JSON-RPC dispatcher', () => {
     ).resolves.toMatchObject({ error: { code: -32602, message: 'Invalid params' } })
   })
 
+  it('returns invalid search cursors as actionable invalid params', async () => {
+    const target = registry()
+    target.callTool.mockRejectedValue(
+      Object.assign(new Error('internal cursor details'), { code: 'INVALID_CURSOR' }),
+    )
+
+    await expect(
+      dispatchMcpJsonRpc(
+        {
+          jsonrpc: '2.0',
+          id: 'invalid-cursor',
+          method: 'tools/call',
+          params: {
+            name: 'torchiko.knowledge.search',
+            arguments: { clientId: 'tenant_1', query: 'pricing', cursor: 'corrupt' },
+          },
+        },
+        { credential: credential as never },
+        target as never,
+      ),
+    ).resolves.toEqual({
+      jsonrpc: '2.0',
+      id: 'invalid-cursor',
+      error: {
+        code: -32602,
+        message: 'Invalid params',
+        data: { reason: 'INVALID_CURSOR' },
+      },
+    })
+  })
+
   it('does not respond to notifications', async () => {
     await expect(
       dispatchMcpJsonRpc(

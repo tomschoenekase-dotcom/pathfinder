@@ -202,7 +202,12 @@ describe('PathFinder MCP server-side adapter registry', () => {
     )
     await registry.callTool(
       'torchiko.knowledge.search',
-      { clientId: 'client-1', query: 'pricing decision', limit: 5 },
+      {
+        clientId: 'client-1',
+        query: 'pricing decision',
+        limit: 5,
+        cursor: 'opaque-semantic-window',
+      },
       { credential },
     )
     expect(domain.accountContext).toHaveBeenCalled()
@@ -211,7 +216,10 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.accountMeetingGet).toHaveBeenCalled()
     expect(domain.accountCorrespondence).toHaveBeenCalled()
     expect(domain.processMeeting).toHaveBeenCalled()
-    expect(domain.knowledgeSearch).toHaveBeenCalled()
+    expect(domain.knowledgeSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 'opaque-semantic-window' }),
+      expect.anything(),
+    )
   })
 
   it('binds reviewed answer attribution reads to exact venue review scope', async () => {

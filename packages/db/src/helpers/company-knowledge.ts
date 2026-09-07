@@ -4,6 +4,7 @@ import {
   KNOWLEDGE_SEARCH_TARGET_BYTES,
 } from '@pathfinder/contracts/company-brain'
 import type { Prisma } from '@prisma/client'
+import { createHash } from 'node:crypto'
 
 import { db } from '../client'
 import { searchCompanyKnowledgeByEmbedding } from './semantic-search'
@@ -16,11 +17,81 @@ export type CompanyKnowledgeClient = Pick<typeof db, 'companyKnowledgeItem' | 'v
 
 export class CompanyKnowledgeError extends Error {
   constructor(
-    readonly code: 'NOT_FOUND' | 'PAYLOAD_TOO_LARGE',
+    readonly code: 'NOT_FOUND' | 'PAYLOAD_TOO_LARGE' | 'INVALID_CURSOR',
     message: string,
   ) {
     super(message)
     this.name = 'CompanyKnowledgeError'
+  }
+}
+
+const SEMANTIC_AUTHORIZATION_WINDOW = 500
+const cursorHash = (value: string) =>
+  createHash('sha256').update(`company-knowledge-search-cursor-v1\0${value}`).digest('hex')
+
+function searchFingerprint(input: {
+  request: ReturnType<typeof CompanyKnowledgeSearchRequest.parse>
+  access: KnowledgeAccessContext
+  queryEmbedding: number[]
+}) {
+  const request = { ...input.request }
+  delete request.cursor
+  const roles = [...input.access.roles].sort()
+  const access =
+    input.access.kind === 'CLIENT'
+      ? { kind: input.access.kind, clientId: input.access.clientId, roles }
+      : { kind: input.access.kind, roles }
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        request,
+        access,
+        embedding: createHash('sha256').update(JSON.stringify(input.queryEmbedding)).digest('hex'),
+      }),
+    )
+    .digest('hex')
+}
+
+function encodeSearchCursor(afterId: string, fingerprint: string) {
+  const payload = JSON.stringify({ version: 1, afterId, fingerprint })
+  return Buffer.from(JSON.stringify({ payload, checksum: cursorHash(payload) })).toString(
+    'base64url',
+  )
+}
+
+function decodeSearchCursor(cursor: string, fingerprint: string) {
+  try {
+    const encoded = Buffer.from(cursor, 'base64url')
+    if (encoded.toString('base64url') !== cursor) throw new Error('encoding')
+    const envelope = JSON.parse(encoded.toString('utf8')) as {
+      payload?: unknown
+      checksum?: unknown
+    }
+    if (
+      typeof envelope.payload !== 'string' ||
+      typeof envelope.checksum !== 'string' ||
+      envelope.checksum !== cursorHash(envelope.payload)
+    )
+      throw new Error('checksum')
+    const payload = JSON.parse(envelope.payload) as {
+      version?: unknown
+      afterId?: unknown
+      fingerprint?: unknown
+    }
+    if (
+      payload.version !== 1 ||
+      typeof payload.afterId !== 'string' ||
+      payload.afterId.length < 1 ||
+      payload.afterId.length > 191 ||
+      payload.fingerprint !== fingerprint
+    )
+      throw new Error('payload')
+    return payload.afterId
+  } catch {
+    throw new CompanyKnowledgeError(
+      'INVALID_CURSOR',
+      'Knowledge search cursor is corrupted or belongs to another query or scope.',
+    )
   }
 }
 
@@ -127,16 +198,22 @@ function lexicalTerms(query: string) {
 
 function lexicalScore(query: string, title: string, summary: string, body: string | null) {
   const terms = lexicalTerms(query)
+  const normalizedQuery = query.toLocaleLowerCase()
   const normalizedTitle = title.toLocaleLowerCase()
   const normalizedSummary = summary.toLocaleLowerCase()
   const normalizedBody = body?.toLocaleLowerCase() ?? ''
-  return terms.reduce(
-    (score, term) =>
-      score +
-      (normalizedTitle.includes(term) ? 5 : 0) +
-      (normalizedSummary.includes(term) ? 3 : 0) +
-      (normalizedBody.includes(term) ? 1 : 0),
-    0,
+  return (
+    (normalizedTitle.includes(normalizedQuery) ? 60 : 0) +
+    (normalizedSummary.includes(normalizedQuery) ? 40 : 0) +
+    (normalizedBody.includes(normalizedQuery) ? 20 : 0) +
+    terms.reduce(
+      (score, term) =>
+        score +
+        (normalizedTitle.includes(term) ? 5 : 0) +
+        (normalizedSummary.includes(term) ? 3 : 0) +
+        (normalizedBody.includes(term) ? 1 : 0),
+      0,
+    )
   )
 }
 
@@ -322,41 +399,129 @@ export async function searchCompanyKnowledge(
       { revisions: { some: { body: { contains: term, mode: 'insensitive' } } } },
     ],
   })
+  const stableOrder = [
+    { authority: 'asc' as const },
+    { lastConfirmedAt: { sort: 'desc' as const, nulls: 'last' as const } },
+    { updatedAt: 'desc' as const },
+    { id: 'asc' as const },
+  ] satisfies Prisma.CompanyKnowledgeItemOrderByWithRelationInput[]
   const strictTake = 80
-  const broadTake = options.queryEmbedding ? 500 : Math.min(input.limit * 4, 80)
-  const [strictCandidates, broadCandidates] = await Promise.all([
-    terms.length > 1
-      ? client.companyKnowledgeItem.findMany({
-          where: { AND: [...scopedFilters, ...terms.map(matchesTerm)] },
-          orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
-          take: strictTake,
-          select: detailSelect,
-        })
-      : Promise.resolve([]),
-    client.companyKnowledgeItem.findMany({
-      where: {
-        AND: [
-          ...scopedFilters,
-          ...(options.queryEmbedding || terms.length === 0
-            ? []
-            : [{ OR: terms.flatMap((term) => matchesTerm(term).OR!) }]),
-        ],
-      },
-      orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
-      take: broadTake,
-      select: detailSelect,
-    }),
-  ])
-  const candidates = [
-    ...new Map([...strictCandidates, ...broadCandidates].map((item) => [item.id, item])).values(),
-  ]
-  const semanticRows = options.queryEmbedding
+  const broadTake = Math.min(input.limit * 4, 80)
+  if (input.cursor && !options.queryEmbedding)
+    throw new CompanyKnowledgeError(
+      'INVALID_CURSOR',
+      'Knowledge search cursors require semantic search input.',
+    )
+  const fingerprint = options.queryEmbedding
+    ? searchFingerprint({ request: input, access, queryEmbedding: options.queryEmbedding })
+    : null
+  const afterId = input.cursor ? decodeSearchCursor(input.cursor, fingerprint!) : null
+  if (afterId) {
+    const anchor = await client.companyKnowledgeItem.findFirst({
+      where: { AND: [...scopedFilters, { id: afterId }] },
+      select: { id: true },
+    })
+    if (!anchor)
+      throw new CompanyKnowledgeError(
+        'INVALID_CURSOR',
+        'Knowledge search cursor anchor is unavailable in the authorized scope.',
+      )
+  }
+  const firstWindow = !afterId
+  const [exactCandidates, strictCandidates, broadCandidates, semanticAuthorizationRows] =
+    await Promise.all([
+      firstWindow
+        ? client.companyKnowledgeItem.findMany({
+            where: {
+              AND: [
+                ...scopedFilters,
+                {
+                  OR: [
+                    { title: { contains: input.query, mode: 'insensitive' } },
+                    { summary: { contains: input.query, mode: 'insensitive' } },
+                    {
+                      revisions: {
+                        some: { body: { contains: input.query, mode: 'insensitive' } },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            orderBy: stableOrder,
+            take: 20,
+            select: detailSelect,
+          })
+        : Promise.resolve([]),
+      firstWindow && terms.length > 1
+        ? client.companyKnowledgeItem.findMany({
+            where: { AND: [...scopedFilters, ...terms.map(matchesTerm)] },
+            orderBy: stableOrder,
+            take: strictTake,
+            select: detailSelect,
+          })
+        : Promise.resolve([]),
+      firstWindow
+        ? client.companyKnowledgeItem.findMany({
+            where: {
+              AND: [
+                ...scopedFilters,
+                ...(terms.length === 0
+                  ? []
+                  : [{ OR: terms.flatMap((term) => matchesTerm(term).OR!) }]),
+              ],
+            },
+            orderBy: stableOrder,
+            take: broadTake,
+            select: detailSelect,
+          })
+        : Promise.resolve([]),
+      options.queryEmbedding
+        ? client.companyKnowledgeItem.findMany({
+            where: { AND: scopedFilters },
+            orderBy: stableOrder,
+            ...(afterId ? { cursor: { id: afterId }, skip: 1 } : {}),
+            take: SEMANTIC_AUTHORIZATION_WINDOW + 1,
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+    ])
+  const semanticAuthorizedIds = semanticAuthorizationRows
+    .slice(0, SEMANTIC_AUTHORIZATION_WINDOW)
+    .map((item) => item.id)
+  const hasNextSemanticWindow = semanticAuthorizationRows.length > SEMANTIC_AUTHORIZATION_WINDOW
+  const semanticRowsFromProvider = options.queryEmbedding
     ? await (options.semanticSearch ?? searchCompanyKnowledgeByEmbedding)({
         queryEmbedding: options.queryEmbedding,
-        authorizedCandidateIds: candidates.map((item) => item.id),
+        authorizedCandidateIds: semanticAuthorizedIds,
         limit: Math.min(input.limit * 8, 50),
       })
     : []
+  const semanticAuthorizedSet = new Set(semanticAuthorizedIds)
+  const semanticDetailLimit = Math.min(input.limit * 8, 50)
+  const semanticRows = [
+    ...new Map(
+      semanticRowsFromProvider
+        .filter((row) => semanticAuthorizedSet.has(row.id))
+        .map((row) => [row.id, row]),
+    ).values(),
+  ].slice(0, semanticDetailLimit)
+  const semanticIds = semanticRows.map((row) => row.id)
+  const semanticCandidates = semanticIds.length
+    ? await client.companyKnowledgeItem.findMany({
+        where: { AND: [...scopedFilters, { id: { in: semanticIds } }] },
+        orderBy: stableOrder,
+        take: semanticDetailLimit,
+        select: detailSelect,
+      })
+    : []
+  const candidates = [
+    ...new Map(
+      [...exactCandidates, ...strictCandidates, ...broadCandidates, ...semanticCandidates].map(
+        (item) => [item.id, item],
+      ),
+    ).values(),
+  ]
   const semanticById = new Map(semanticRows.map((row) => [row.id, row.distance]))
   const results = candidates
     .map((item) => ({
@@ -397,11 +562,26 @@ export async function searchCompanyKnowledge(
       permissionFilteredBeforeSelection: true,
       semanticCandidates: semanticRows.length,
       candidateCoverage: {
+        exactPhrase: exactCandidates.length,
+        exactPhraseLimit: 20,
         strictAllTerms: strictCandidates.length,
         strictLimit: strictTake,
         broad: broadCandidates.length,
         broadLimit: broadTake,
-        partial: strictCandidates.length === strictTake || broadCandidates.length === broadTake,
+        semanticAuthorized: semanticAuthorizedIds.length,
+        semanticAuthorizationLimit: SEMANTIC_AUTHORIZATION_WINDOW,
+        nextCursor:
+          hasNextSemanticWindow && semanticAuthorizedIds.length
+            ? encodeSearchCursor(semanticAuthorizedIds.at(-1)!, fingerprint!)
+            : null,
+        semanticRanking: options.queryEmbedding ? ('PER_WINDOW' as const) : null,
+        semanticWindowsExhausted: options.queryEmbedding ? !hasNextSemanticWindow : null,
+        consistency: options.queryEmbedding ? ('BEST_EFFORT_CURRENT_STATE' as const) : null,
+        partial:
+          exactCandidates.length === 20 ||
+          strictCandidates.length === strictTake ||
+          broadCandidates.length === broadTake ||
+          hasNextSemanticWindow,
       },
     },
     results,

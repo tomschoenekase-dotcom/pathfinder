@@ -4348,6 +4348,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           authorities: input.authorities,
           includeHistorical: input.includeHistorical,
           limit: input.limit,
+          ...(input.cursor ? { cursor: input.cursor } : {}),
         },
         { kind: 'CLIENT', clientId: context.credential.clientId, roles: [] },
         database,
