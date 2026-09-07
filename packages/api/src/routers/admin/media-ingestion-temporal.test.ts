@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   clarify: vi.fn(),
   operational: vi.fn(),
+  receiptClarify: vi.fn(),
 }))
 vi.mock('@pathfinder/config', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -20,7 +21,11 @@ vi.mock('../../lib/media-temporal-review', async (original) => {
 })
 vi.mock('../../lib/media-temporal-clarification', async (original) => {
   const actual = await original<typeof import('../../lib/media-temporal-clarification')>()
-  return { ...actual, createMediaTemporalClarification: mocks.clarify }
+  return {
+    ...actual,
+    createMediaTemporalClarification: mocks.clarify,
+    createMediaTemporalReceiptClarification: mocks.receiptClarify,
+  }
 })
 
 vi.mock('../../lib/media-temporal-operational-service', async (original) => {
@@ -72,6 +77,32 @@ function caller(isPlatformAdmin = true) {
 
 beforeEach(() => vi.clearAllMocks())
 describe('media temporal review admin route', () => {
+  it('binds compact receipt clarification to platform access and the session actor', async () => {
+    const input = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      receiptId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'content-a',
+      targetKey: 'hours',
+      expectedRequestHash: 'b'.repeat(64),
+      expectedSnapshotHash: 'a'.repeat(64),
+    }
+    await expect(
+      caller(false).mediaIngestion.createTemporalReceiptClarification(input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.receiptClarify).not.toHaveBeenCalled()
+    mocks.available.mockRejectedValueOnce(new Error('Venue unavailable'))
+    await expect(caller().mediaIngestion.createTemporalReceiptClarification(input)).rejects.toThrow(
+      'Venue unavailable',
+    )
+    expect(mocks.receiptClarify).not.toHaveBeenCalled()
+    mocks.receiptClarify.mockResolvedValue({ blockerScope: 'LOCAL' })
+    await expect(
+      caller().mediaIngestion.createTemporalReceiptClarification(input),
+    ).resolves.toEqual({ blockerScope: 'LOCAL' })
+    expect(mocks.receiptClarify).toHaveBeenCalledWith({ client: {}, input, actorId: 'admin-a' })
+  })
+
   it('gates dated drafts and binds the authenticated actor without activation input', async () => {
     const draft = {
       tenantId: 'tenant-a',

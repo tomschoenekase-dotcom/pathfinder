@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { createMediaTemporalReviewReceipt } from './media-temporal-review-service'
+import { createMediaTemporalReceiptClarification } from './media-temporal-clarification'
 import { createMediaTemporalOperationalHandoff } from './media-temporal-operational-service'
 import { mediaIntakeHash } from './media-intake-snapshot'
 
@@ -142,6 +143,82 @@ describe.skipIf(!enabled)('media temporal review service on disposable PostgreSQ
       expect(first).toMatchObject({ builderRunCreated: false, publicationTriggered: false })
       expect(first.heldItems).toEqual([
         { itemHash: mediaIntakeHash(item), reasons: ['DATE_BOUND'] },
+      ])
+      const contentIdentity = await db.agentIdentity.create({
+        data: {
+          id: `temporal-content-${suffix}`,
+          tenantId,
+          venueId,
+          identityKey: `media.temporal.clarification.${suffix}`,
+          name: 'Temporal clarification specialist',
+          agentType: 'CONTENT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['content.draft'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: 'reviewer',
+        },
+      })
+      const retainedReceipt = await db.mediaTemporalReviewReceipt.findFirstOrThrow({
+        where: { id: first.receiptId, tenantId, venueId },
+        select: { requestHash: true, snapshotHash: true },
+      })
+      const effectsBeforeClarification = {
+        intakeRuns: await db.intakeRun.count({ where: { tenantId, venueId } }),
+        publications: await db.contentModulePublication.count({ where: { tenantId, venueId } }),
+        operationalUpdates: await db.operationalUpdate.count({ where: { tenantId, venueId } }),
+      }
+      const clarificationInput = {
+        tenantId,
+        venueId,
+        receiptId: first.receiptId,
+        agentIdentityId: contentIdentity.id,
+        targetKey: claim.targetKey,
+        expectedRequestHash: retainedReceipt.requestHash,
+        expectedSnapshotHash: retainedReceipt.snapshotHash,
+      }
+      const clarification = await createMediaTemporalReceiptClarification({
+        client: db,
+        actorId: 'reviewer',
+        input: clarificationInput,
+      })
+      const clarificationReplay = await createMediaTemporalReceiptClarification({
+        client: db,
+        actorId: 'reviewer',
+        input: clarificationInput,
+      })
+      expect(clarification).toMatchObject({
+        receiptId: first.receiptId,
+        blockerScope: 'LOCAL',
+        sourceAmendmentRequired: true,
+        publicationTriggered: false,
+        canonicalVenueChanged: false,
+      })
+      expect(clarificationReplay).toMatchObject({
+        questionId: clarification.questionId,
+        replayed: true,
+      })
+      await expect(
+        db.agentQuestion.count({
+          where: {
+            tenantId,
+            venueId,
+            agentIdentityId: contentIdentity.id,
+            category: 'media-temporal-clarification',
+            blocking: false,
+          },
+        }),
+      ).resolves.toBe(1)
+      await expect(
+        Promise.all([
+          db.intakeRun.count({ where: { tenantId, venueId } }),
+          db.contentModulePublication.count({ where: { tenantId, venueId } }),
+          db.operationalUpdate.count({ where: { tenantId, venueId } }),
+        ]),
+      ).resolves.toEqual([
+        effectsBeforeClarification.intakeRuns,
+        effectsBeforeClarification.publications,
+        effectsBeforeClarification.operationalUpdates,
       ])
       const operationalInput = {
         tenantId,

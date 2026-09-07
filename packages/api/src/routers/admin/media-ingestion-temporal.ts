@@ -27,11 +27,35 @@ import {
 } from '../../lib/media-temporal-operational-service'
 import {
   createMediaTemporalClarification,
+  createMediaTemporalReceiptClarification,
+  MediaTemporalReceiptClarificationInput,
   MediaTemporalClarificationError,
   MediaTemporalClarificationInput,
 } from '../../lib/media-temporal-clarification'
 
 export const mediaIngestionTemporalRouter = router({
+  createTemporalReceiptClarification: adminProcedure
+    .input(MediaTemporalReceiptClarificationInput)
+    .mutation(({ input, ctx }) =>
+      withTenantIsolationBypass(async () => {
+        await assertVenueAvailable(db, { tenantId: input.tenantId, venueId: input.venueId })
+        try {
+          return await createMediaTemporalReceiptClarification({
+            client: db,
+            input,
+            actorId: ctx.session.userId,
+          })
+        } catch (error) {
+          if (error instanceof MediaTemporalClarificationError)
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: error.message,
+              cause: error,
+            })
+          throw error
+        }
+      }),
+    ),
   createTemporalOperationalDraft: adminProcedure
     .input(MediaTemporalOperationalInput)
     .mutation(({ input, ctx }) =>
@@ -129,6 +153,7 @@ export const mediaIngestionTemporalRouter = router({
         return {
           receiptId: input.receiptId,
           snapshotHash: receipt.snapshotHash,
+          requestHash: receipt.requestHash,
           text: text.slice(input.offset, end),
           offset: input.offset,
           nextOffset: end < text.length ? end : null,

@@ -61,6 +61,7 @@ function outcome(receipt: Receipt, inputHash: string, actorId: string, replayed:
   return {
     receiptId: receipt.id,
     snapshotHash: receipt.snapshotHash,
+    requestHash: receipt.requestHash,
     heldItems: mediaTemporalHolds(
       snapshot.temporalReview.claims,
       snapshot.temporalReview.evaluatedAt,
