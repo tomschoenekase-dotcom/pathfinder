@@ -229,7 +229,7 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-223-20260907`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-224-20260907`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma when migrations are pending. After the exact migration and hosted health pass, restore
 `PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
@@ -245,8 +245,7 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The campaign's measured local candidate contains 223 migrations and 248 public tables, ending with
-immutable workflow activation heads, events, and run bindings. The 222-row/245-table promotion-assessment state is an admitted migration-derived predecessor boundary. The 221-row/244-table usage-observation and
+The campaign's local candidate `1e84eee2bb99912ca7aa44382ed17eb9f4f68a88` contains 224 migrations and 251 public tables, measured on native disposable PostgreSQL 16.15 in UTC, ending with immutable V1 intake submissions, revisions, and members. The normalized manifest SHA-256 is `8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532`; [retained fixture evidence](evidence/intake-v1-native-postgres-2026-09-07.json) records successful tests and server shutdown. Fixture data and logs remain retained; this does not establish cleanup of earlier Docker resources. The measured 223-row/248-table workflow-activation state remains an admitted predecessor. The 222-row/245-table promotion-assessment state is an admitted migration-derived predecessor boundary. The 221-row/244-table usage-observation and
 220-row/244-table workflow-registry states are admitted migration-derived predecessor boundaries.
 The measured 219-row/243-table governed-media, 218-row/243-table prospect-onboarding,
 216-row/240-table media-relation, 215-row/239-table media-resolution, 214-row/238-table

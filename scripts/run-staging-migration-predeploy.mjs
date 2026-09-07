@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-223-20260907',
+  approval: 'torchiko-staging-lineage-to-224-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 223,
+  migrationCount: 224,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -79,6 +79,9 @@ const EXPECTED = Object.freeze({
   promotionAssessmentPredecessorPublicTableCount: 245,
   promotionAssessmentPredecessorFinalMigration:
     '20260907022200_add_agent_workflow_promotion_assessments',
+  workflowActivationPredecessorCount: 223,
+  workflowActivationPredecessorPublicTableCount: 248,
+  workflowActivationPredecessorFinalMigration: '20260907022300_add_agent_workflow_activations',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -98,10 +101,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907022300_add_agent_workflow_activations',
-  manifestHash: 'f643a5f40f0e205f8664eb36f42cddad22e66527bc1b47f663cd3f75f5d69be1',
-  // The 82-migration suffix after B.5 adds 55 public tables.
-  finalPublicTableCount: 248,
+  finalMigration: '20260907022400_add_intake_v1_submissions',
+  manifestHash: '8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532',
+  // Measured on native disposable PostgreSQL 16.15 in UTC; retained V1 fixture evidence.
+  finalPublicTableCount: 251,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -367,6 +370,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.workflowRegistryPredecessorCount &&
     rows.length !== EXPECTED.usageObservationPredecessorCount &&
     rows.length !== EXPECTED.promotionAssessmentPredecessorCount &&
+    rows.length !== EXPECTED.workflowActivationPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -428,6 +432,8 @@ function ledgerState(rows, manifest) {
     return 'usage-observation-predecessor'
   if (rows.length === EXPECTED.promotionAssessmentPredecessorCount)
     return 'promotion-assessment-predecessor'
+  if (rows.length === EXPECTED.workflowActivationPredecessorCount)
+    return 'workflow-activation-predecessor'
   return 'complete'
 }
 
@@ -567,57 +573,7 @@ async function main() {
     assertBackupEvidenceMatchesLedger(admission, initialLedger)
 
     const beforeCounts = await publicTableCounts(database)
-    const expectedInitialTableCount =
-      initialState === 'baseline'
-        ? EXPECTED.baselinePublicTableCount
-        : initialState === 'prior-complete'
-          ? EXPECTED.priorCompletePublicTableCount
-          : initialState === 'capability-baseline'
-            ? EXPECTED.capabilityBaselinePublicTableCount
-            : initialState === 'pre-billing'
-              ? EXPECTED.preBillingPublicTableCount
-              : initialState === 'billing-foundation'
-                ? EXPECTED.billingFoundationPublicTableCount
-                : initialState === 'previous-release'
-                  ? EXPECTED.previousReleasePublicTableCount
-                  : initialState === 'b5-complete'
-                    ? EXPECTED.b5CompletePublicTableCount
-                    : initialState === 'current-staging'
-                      ? EXPECTED.currentStagingPublicTableCount
-                      : initialState === 'hosted-predecessor'
-                        ? EXPECTED.hostedPredecessorPublicTableCount
-                        : initialState === 'venue-media-predecessor'
-                          ? EXPECTED.venueMediaPredecessorPublicTableCount
-                          : initialState === 'performance-predecessor'
-                            ? EXPECTED.performancePredecessorPublicTableCount
-                            : initialState === 'founder-absence-predecessor'
-                              ? EXPECTED.founderAbsencePredecessorPublicTableCount
-                              : initialState === 'founder-absence-complete'
-                                ? EXPECTED.founderAbsenceCompletePublicTableCount
-                                : initialState === 'reply-review-predecessor'
-                                  ? EXPECTED.replyReviewPredecessorPublicTableCount
-                                  : initialState === 'hosted-release'
-                                    ? EXPECTED.hostedReleasePublicTableCount
-                                    : initialState === 'campaign-predecessor'
-                                      ? EXPECTED.campaignPredecessorPublicTableCount
-                                      : initialState === 'legacy-adoption-predecessor'
-                                        ? EXPECTED.legacyAdoptionPredecessorPublicTableCount
-                                        : initialState === 'media-resolution-predecessor'
-                                          ? EXPECTED.mediaResolutionPredecessorPublicTableCount
-                                          : initialState === 'media-relation-predecessor'
-                                            ? EXPECTED.mediaRelationPredecessorPublicTableCount
-                                            : initialState === 'prospect-onboarding-predecessor'
-                                              ? EXPECTED.prospectOnboardingPredecessorPublicTableCount
-                                              : initialState === 'governed-media-predecessor'
-                                                ? EXPECTED.governedMediaPredecessorPublicTableCount
-                                                : initialState === 'workflow-registry-predecessor'
-                                                  ? EXPECTED.workflowRegistryPredecessorPublicTableCount
-                                                  : initialState === 'usage-observation-predecessor'
-                                                    ? EXPECTED.usageObservationPredecessorPublicTableCount
-                                                    : initialState ===
-                                                        'promotion-assessment-predecessor'
-                                                      ? EXPECTED.promotionAssessmentPredecessorPublicTableCount
-                                                      : EXPECTED.stagingBaselinePublicTableCount
+    const expectedInitialTableCount = expectedPublicTableCount(initialState)
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
@@ -635,6 +591,40 @@ async function main() {
   } finally {
     await database.$disconnect()
   }
+}
+
+export function expectedPublicTableCount(state) {
+  const counts = {
+    baseline: EXPECTED.baselinePublicTableCount,
+    'prior-complete': EXPECTED.priorCompletePublicTableCount,
+    'capability-baseline': EXPECTED.capabilityBaselinePublicTableCount,
+    'pre-billing': EXPECTED.preBillingPublicTableCount,
+    'billing-foundation': EXPECTED.billingFoundationPublicTableCount,
+    'previous-release': EXPECTED.previousReleasePublicTableCount,
+    'b5-complete': EXPECTED.b5CompletePublicTableCount,
+    'current-staging': EXPECTED.currentStagingPublicTableCount,
+    'hosted-predecessor': EXPECTED.hostedPredecessorPublicTableCount,
+    'venue-media-predecessor': EXPECTED.venueMediaPredecessorPublicTableCount,
+    'performance-predecessor': EXPECTED.performancePredecessorPublicTableCount,
+    'founder-absence-predecessor': EXPECTED.founderAbsencePredecessorPublicTableCount,
+    'founder-absence-complete': EXPECTED.founderAbsenceCompletePublicTableCount,
+    'reply-review-predecessor': EXPECTED.replyReviewPredecessorPublicTableCount,
+    'hosted-release': EXPECTED.hostedReleasePublicTableCount,
+    'campaign-predecessor': EXPECTED.campaignPredecessorPublicTableCount,
+    'legacy-adoption-predecessor': EXPECTED.legacyAdoptionPredecessorPublicTableCount,
+    'media-resolution-predecessor': EXPECTED.mediaResolutionPredecessorPublicTableCount,
+    'media-relation-predecessor': EXPECTED.mediaRelationPredecessorPublicTableCount,
+    'prospect-onboarding-predecessor': EXPECTED.prospectOnboardingPredecessorPublicTableCount,
+    'governed-media-predecessor': EXPECTED.governedMediaPredecessorPublicTableCount,
+    'workflow-registry-predecessor': EXPECTED.workflowRegistryPredecessorPublicTableCount,
+    'usage-observation-predecessor': EXPECTED.usageObservationPredecessorPublicTableCount,
+    'promotion-assessment-predecessor': EXPECTED.promotionAssessmentPredecessorPublicTableCount,
+    'staging-baseline': EXPECTED.stagingBaselinePublicTableCount,
+    'workflow-activation-predecessor': EXPECTED.workflowActivationPredecessorPublicTableCount,
+    complete: EXPECTED.finalPublicTableCount,
+  }
+  if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)
+  return counts[state]
 }
 
 const isMain =
