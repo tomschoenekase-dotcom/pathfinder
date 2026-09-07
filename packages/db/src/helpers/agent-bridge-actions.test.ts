@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   sessionUpsert: vi.fn(),
   sessionUpdate: vi.fn(),
   runFindMany: vi.fn(),
-  runUpdate: vi.fn(),
   workerFind: vi.fn(),
   claim: vi.fn(),
   complete: vi.fn(),
@@ -21,7 +20,7 @@ vi.mock('../client', () => ({
       upsert: mocks.sessionUpsert,
       updateMany: mocks.sessionUpdate,
     },
-    agentRun: { findMany: mocks.runFindMany, update: mocks.runUpdate },
+    agentRun: { findMany: mocks.runFindMany },
     agentWorker: { findFirst: mocks.workerFind },
   },
 }))
@@ -206,7 +205,9 @@ describe('agent bridge actions', () => {
       credential: credential as never,
     })
     expect(mocks.claim).toHaveBeenCalledTimes(1)
-    expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ runId: 'research-run' }))
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'research-run', executionWorkerId: 'worker-1' }),
+    )
     expect(result.task?.id).toBe('research-run')
   })
 

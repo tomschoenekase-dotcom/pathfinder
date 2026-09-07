@@ -37,7 +37,11 @@ const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
 
 /** Atomically claims a queued run or takes over a running run whose lease expired. */
 export async function claimAgentRunExecution(
-  rawInput: z.input<typeof scopeSchema> & { leaseDurationMs?: number; bridgeSessionId?: string },
+  rawInput: z.input<typeof scopeSchema> & {
+    leaseDurationMs?: number
+    bridgeSessionId?: string
+    executionWorkerId?: string
+  },
   client: AgentRunExecutionClient = db,
 ) {
   const input = scopeSchema
@@ -49,6 +53,7 @@ export async function claimAgentRunExecution(
         .max(15 * 60_000)
         .default(60_000),
       bridgeSessionId: z.string().uuid().optional(),
+      executionWorkerId: z.string().trim().min(1).max(191).optional(),
     })
     .parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
@@ -141,13 +146,17 @@ export async function claimAgentRunExecution(
         id: run.id,
         tenantId: run.tenantId,
         attemptNumber: run.attemptNumber,
+        agentIdentityId: run.agentIdentityId,
+        cancelRequestedAt: null,
+        agentIdentity: { enabled: true },
         OR: [{ status: 'QUEUED' }, { status: 'RUNNING', executionLeaseExpiresAt: { lt: now } }],
       },
       data: {
         status: 'RUNNING',
         executionLeaseToken: leaseToken,
         executionLeaseExpiresAt: leaseExpiresAt,
-        ...(input.bridgeSessionId ? { executionBridgeSessionId: input.bridgeSessionId } : {}),
+        executionBridgeSessionId: input.bridgeSessionId ?? null,
+        executionWorkerId: input.executionWorkerId ?? null,
         lastHeartbeatAt: now,
         attemptNumber: { increment: 1 },
         startedAt: run.startedAt ?? now,

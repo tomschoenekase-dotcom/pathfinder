@@ -262,6 +262,7 @@ export async function claimAgentBridgeTask(input: {
         tenantId: input.credential.tenantId,
         runId: run.id,
         bridgeSessionId: session.id,
+        ...(worker ? { executionWorkerId: worker.id } : {}),
       })
       break
     } catch (error) {
@@ -270,12 +271,6 @@ export async function claimAgentBridgeTask(input: {
     }
   }
   if (!claimed) return { task: null }
-  if (worker) {
-    await db.agentRun.update({
-      where: { id: claimed.id },
-      data: { executionWorkerId: worker.id },
-    })
-  }
   const rawRequest = claimed.requestPrompt ?? claimed.requestedOperation
   const requestLimit = 1_800
   const request =
