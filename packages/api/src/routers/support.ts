@@ -152,7 +152,7 @@ function serializeClientRequest<
     participantIsCurrentUser: participants.some(
       (participant) => participant.userId === actor.actorId && participant.revokedAt === null,
     ),
-    canReply: authorized && request.status !== 'COMPLETED' && request.status !== 'CANCELLED',
+    canReply: authorized && request.status !== 'CANCELLED',
   }
 }
 
@@ -494,8 +494,7 @@ export const supportRouter = router({
             ...clientRequest,
             requesterIsCurrentUser: true,
             participantIsCurrentUser: false,
-            canReply:
-              result.request.status !== 'COMPLETED' && result.request.status !== 'CANCELLED',
+            canReply: result.request.status !== 'CANCELLED',
           },
           message: serializeClientMessage(result.message, actor.actorId),
           replayed: result.replayed,
@@ -533,6 +532,7 @@ export const supportRouter = router({
         return {
           message: serializeClientMessage(result.message, actor.actorId),
           clientVersion: result.clientVersion,
+          status: result.status,
           replayed: result.replayed,
         }
       } catch (error) {

@@ -457,12 +457,7 @@ export function SupportWorkspace({
         detailRequestRef.current !== requestId
       )
         return
-      if (
-        detail?.id !== requestId ||
-        !next.canReply ||
-        next.status === 'COMPLETED' ||
-        next.status === 'CANCELLED'
-      ) {
+      if (detail?.id !== requestId || !next.canReply || next.status === 'CANCELLED') {
         setReplyBody('')
         setReplyAttachments([])
       }
@@ -714,8 +709,9 @@ export function SupportWorkspace({
           ? {
               ...current,
               clientVersion: result.clientVersion,
-              ...(result.status && result.missingInformation
-                ? { status: result.status, missingInformation: result.missingInformation }
+              ...(result.status ? { status: result.status } : {}),
+              ...(result.missingInformation
+                ? { missingInformation: result.missingInformation }
                 : {}),
               messages: [...current.messages, result.message as ClientMessage],
             }
@@ -727,8 +723,9 @@ export function SupportWorkspace({
             ? {
                 ...request,
                 clientVersion: result.clientVersion,
-                ...(result.status && result.missingInformation
-                  ? { status: result.status, missingInformation: result.missingInformation }
+                ...(result.status ? { status: result.status } : {}),
+                ...(result.missingInformation
+                  ? { missingInformation: result.missingInformation }
                   : {}),
               }
             : request,
@@ -1147,7 +1144,6 @@ export function SupportWorkspace({
 
                 {detail.canReply &&
                 detail.missingInformation.length > 0 &&
-                detail.status !== 'COMPLETED' &&
                 detail.status !== 'CANCELLED' ? (
                   <section
                     aria-labelledby="support-information-needed"
@@ -1301,16 +1297,20 @@ export function SupportWorkspace({
                   </section>
                 ) : null}
 
-                {!detail.canReply ||
-                detail.status === 'COMPLETED' ||
-                detail.status === 'CANCELLED' ? (
+                {!detail.canReply || detail.status === 'CANCELLED' ? (
                   <p className="rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/70">
-                    {detail.status === 'COMPLETED' || detail.status === 'CANCELLED'
+                    {detail.status === 'CANCELLED'
                       ? 'This conversation is closed. Start a new request if you need anything else.'
                       : 'You no longer have access to reply to this conversation.'}
                   </p>
                 ) : (
                   <form onSubmit={sendReply} className="border-t border-pf-light pt-5">
+                    {detail.status === 'COMPLETED' ? (
+                      <p className="mb-4 border-l-2 border-pf-primary bg-pf-surface px-4 py-3 text-sm leading-6 text-pf-deep/75">
+                        Need to add something? Reply here. We’ll reopen this conversation for review
+                        so its history stays together.
+                      </p>
+                    ) : null}
                     <label className="sr-only" htmlFor="support-reply">
                       Reply
                     </label>

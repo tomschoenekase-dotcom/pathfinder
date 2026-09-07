@@ -204,6 +204,11 @@ describe('weekly report domain actions', () => {
       status: 'DRAFT',
       content: 'private report content',
       updatedAt: revision,
+      generatedAt: revision,
+      weekStart: new Date('2026-08-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-08-07T23:59:59.000Z'),
+      answerCount: 0,
+      sessionCount: 0,
     })
     tx.weeklyReport.updateMany.mockResolvedValueOnce({ count: 1 })
 
@@ -223,6 +228,29 @@ describe('weekly report domain actions', () => {
       data: { status: 'PUBLISHED', publishedAt: expect.any(Date) },
     })
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain('private report content')
+  })
+
+  it('requires structured generation evidence while preserving honest zero-usage reports', async () => {
+    const { tx, client } = fixture()
+    tx.venueReportConfiguration.findFirst.mockResolvedValueOnce({ enabled: true })
+    tx.weeklyReport.findFirst.mockResolvedValueOnce({
+      status: 'DRAFT',
+      content: 'A report-shaped body typed by hand',
+      updatedAt: revision,
+      generatedAt: null,
+      weekStart: new Date('2026-08-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-08-07T23:59:59.000Z'),
+      answerCount: 0,
+      sessionCount: 0,
+    })
+
+    await expect(
+      publishWeeklyReportAction(
+        { ...scope, reportId: 'report_1', expectedUpdatedAt: revision },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(tx.weeklyReport.updateMany).not.toHaveBeenCalled()
   })
 
   it('propagates strict audit failure so the transaction cannot report success', async () => {

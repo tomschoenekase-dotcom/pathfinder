@@ -8,7 +8,7 @@ import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 import { recordApprovalDecisionAction } from './approval-decisions'
 import { consumeApprovalGrantAction, issueApprovalGrantAction } from './approval-grants'
-import { completeSupportRequestAction } from './support-actions'
+import { appendSupportMessageAction, completeSupportRequestAction } from './support-actions'
 import { prepareSupportCompletionProposalAction } from './support-completion-proposal-actions'
 
 const enabled =
@@ -24,6 +24,7 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
       const tenantId = `tenant-support-complete-${suffix}`
       const venueId = `venue-support-complete-${suffix}`
       const identityId = `identity-support-complete-${suffix}`
+      const clientId = `client-support-complete-${suffix}`
       const body = 'Your requested venue update is complete and ready to use.'
 
       await db.tenant.create({
@@ -31,6 +32,12 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
       })
       await db.venue.create({
         data: { id: venueId, tenantId, name: 'Synthetic support completion venue', slug: venueId },
+      })
+      await db.user.create({
+        data: { id: clientId, email: `${clientId}@example.test`, fullName: 'Synthetic client' },
+      })
+      await db.tenantMembership.create({
+        data: { tenantId, userId: clientId, role: 'STAFF', status: 'ACTIVE' },
       })
       await db.agentIdentity.create({
         data: {
@@ -70,8 +77,9 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
           status: 'IN_REVIEW',
           subject: 'Requested venue information update',
           missingInformation: [],
-          createdByKind: 'OPERATOR',
-          createdById: 'integration-operator',
+          createdByKind: 'CLIENT',
+          createdById: clientId,
+          requesterUserId: clientId,
           updatedByKind: 'OPERATOR',
           updatedById: 'integration-operator',
         },
@@ -281,6 +289,58 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
           select: { mode: true, useCount: true, maxUses: true },
         }),
       ).toEqual({ mode: 'ONE_SHOT', useCount: 1, maxUses: 1 })
+
+      const followup = {
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: request.id,
+        expectedClientVersion: request.clientVersion + 1,
+        visibility: 'CLIENT_VISIBLE' as const,
+        body: 'The update helped, but the entrance hours still need correction.',
+        attachments: [],
+        actor: {
+          actorType: 'HUMAN' as const,
+          participantKind: 'CLIENT' as const,
+          actorId: clientId,
+          auditRole: 'STAFF' as const,
+        },
+      }
+      await expect(
+        appendSupportMessageAction({
+          ...followup,
+          actor: { ...followup.actor, actorId: `unrelated-${suffix}` },
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const replies = await Promise.all([
+        appendSupportMessageAction(followup),
+        appendSupportMessageAction(followup),
+      ])
+      expect(replies.map((reply) => reply.replayed).sort()).toEqual([false, true])
+      expect(new Set(replies.map((reply) => reply.message.id)).size).toBe(1)
+      expect(replies.every((reply) => reply.status === 'IN_REVIEW')).toBe(true)
+      expect(
+        await db.supportRequest.findUniqueOrThrow({ where: { id: request.id } }),
+      ).toMatchObject({
+        status: 'IN_REVIEW',
+        version: request.version + 2,
+        clientVersion: request.clientVersion + 2,
+      })
+      expect(await db.supportRequest.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.supportMessage.count({ where: { tenantId, venueId } })).toBe(2)
+      expect(
+        await db.supportRequestAuditEvent.count({
+          where: {
+            tenantId,
+            supportRequestId: request.id,
+            fromStatus: 'COMPLETED',
+            toStatus: 'IN_REVIEW',
+          },
+        }),
+      ).toBe(1)
+      await expect(
+        appendSupportMessageAction({ ...followup, operationId: randomUUID() }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
     })
   })
 })

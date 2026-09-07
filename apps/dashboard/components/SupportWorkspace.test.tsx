@@ -209,6 +209,52 @@ describe('SupportWorkspace', () => {
     expect(screen.queryByRole('link', { name: 'Reply with details' })).toBeNull()
   })
 
+  it('answers missing information in the same thread and shows the reopened review state', async () => {
+    const waiting = {
+      ...detail,
+      status: 'WAITING_FOR_CLIENT',
+      missingInformation: ['Which entrance should visitors use?'],
+    }
+    mocks.respondToInformation.mockResolvedValueOnce({
+      message: { ...clientMessage, id: 'answer', body: 'Use the east entrance.' },
+      clientVersion: 5,
+      status: 'IN_REVIEW',
+      missingInformation: [],
+    })
+    renderWorkspace({ initialRequests: [waiting], initialDetail: waiting })
+
+    fireEvent.change(screen.getByLabelText('Reply'), {
+      target: { value: 'Use the east entrance.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    await waitFor(() => expect(screen.getByText('In review')).toBeTruthy())
+    expect(screen.queryByText('Which entrance should visitors use?')).toBeNull()
+    expect(mocks.respondToInformation).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: request.id, expectedClientVersion: 4 }),
+    )
+  })
+
+  it('reopens a completed conversation when the client follows up', async () => {
+    const completed = { ...detail, status: 'COMPLETED', canReply: true }
+    mocks.addMessage.mockResolvedValueOnce({
+      message: { ...clientMessage, id: 'follow-up', body: 'One more detail.' },
+      clientVersion: 5,
+      status: 'IN_REVIEW',
+    })
+    renderWorkspace({ initialRequests: [completed], initialDetail: completed })
+
+    expect(screen.getByText(/reopen this conversation for review/i)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'One more detail.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    await waitFor(() => expect(screen.getByText('In review')).toBeTruthy())
+    expect(screen.queryByText(/reopen this conversation for review/i)).toBeNull()
+    expect(mocks.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: request.id, expectedClientVersion: 4 }),
+    )
+  })
+
   it('loads paginated requests with the exact active venue scope', async () => {
     const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
     renderWorkspace({ initialNextCursor: cursor })

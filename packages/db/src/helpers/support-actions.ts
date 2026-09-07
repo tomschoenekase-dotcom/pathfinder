@@ -1168,12 +1168,20 @@ async function appendSupportMessageActionOnce(
           parsed.actor.participantKind === 'CLIENT'
             ? existingMessage.clientVersion!
             : request.clientVersion,
+        status: request.status,
         replayed: true as const,
       }
     }
+    if (parsed.actor.participantKind !== 'OPERATOR' && request.status === 'CANCELLED')
+      throw new SupportActionError('CONFLICT', 'This support request is closed')
+    const reopensCompletedRequest =
+      parsed.actor.participantKind === 'CLIENT' &&
+      parsed.visibility === 'CLIENT_VISIBLE' &&
+      request.status === 'COMPLETED'
     if (
+      request.status === 'COMPLETED' &&
       parsed.actor.participantKind !== 'OPERATOR' &&
-      (request.status === 'COMPLETED' || request.status === 'CANCELLED')
+      !reopensCompletedRequest
     )
       throw new SupportActionError('CONFLICT', 'This support request is closed')
     if (
@@ -1192,9 +1200,11 @@ async function appendSupportMessageActionOnce(
         ...(parsed.actor.participantKind === 'CLIENT'
           ? { clientVersion: parsed.expectedClientVersion!, version: request.version }
           : { version: parsed.expectedVersion! }),
+        ...(reopensCompletedRequest ? { status: 'COMPLETED' } : {}),
       },
       data: {
         version: nextVersion,
+        ...(reopensCompletedRequest ? { status: 'IN_REVIEW', statusChangedAt: new Date() } : {}),
         ...(parsed.visibility === 'CLIENT_VISIBLE'
           ? { clientVersion: request.clientVersion + 1, clientActivityAt: new Date() }
           : {}),
@@ -1232,8 +1242,8 @@ async function appendSupportMessageActionOnce(
         eventType: evidence.eventType,
         actorKind: parsed.actor.participantKind,
         actorId: parsed.actor.actorId,
-        fromStatus: null,
-        toStatus: null,
+        fromStatus: reopensCompletedRequest ? 'COMPLETED' : null,
+        toStatus: reopensCompletedRequest ? 'IN_REVIEW' : null,
       },
       select: { id: true },
     })
@@ -1242,9 +1252,11 @@ async function appendSupportMessageActionOnce(
       action: evidence.action,
       targetType: 'SupportRequest',
       targetId: request.id,
-      beforeState: { version: request.version },
+      beforeState: { version: request.version, status: request.status },
       afterState: {
         version: nextVersion,
+        status: reopensCompletedRequest ? 'IN_REVIEW' : request.status,
+        statusChanged: reopensCompletedRequest,
         attachmentCount: attachments.length,
         ...(parsed.actor.participantKind === 'OPERATOR' ? { visibility: parsed.visibility } : {}),
         ...(parsed.actor.participantKind === 'AGENT'
@@ -1297,6 +1309,7 @@ async function appendSupportMessageActionOnce(
       requestVersion: nextVersion,
       clientVersion:
         parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : request.clientVersion,
+      status: reopensCompletedRequest ? ('IN_REVIEW' as const) : request.status,
       replayed: false as const,
     }
   })

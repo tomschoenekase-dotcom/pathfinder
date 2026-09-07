@@ -527,4 +527,26 @@ describe('client support router', () => {
     expect(requestUpdateMany).not.toHaveBeenCalled()
     expect(messageCreate).not.toHaveBeenCalled()
   })
+
+  it('keeps completed threads replyable and returns the reopened status after follow-up', async () => {
+    requestFindMany.mockResolvedValueOnce([
+      { ...requestRow, status: 'COMPLETED' },
+      { ...requestRow, id: 'cancelled', status: 'CANCELLED' },
+    ])
+    const listed = await testRouter.createCaller(tenantCtx).support.listRequests({ venueId })
+    expect(listed.items.map(({ status, canReply }) => ({ status, canReply }))).toEqual([
+      { status: 'COMPLETED', canReply: true },
+      { status: 'CANCELLED', canReply: false },
+    ])
+
+    requestFindFirst.mockResolvedValueOnce({ ...requestRow, status: 'COMPLETED' })
+    const result = await testRouter.createCaller(tenantCtx).support.addMessage({
+      operationId,
+      venueId,
+      requestId,
+      expectedClientVersion: 1,
+      body: 'The issue is still happening.',
+    })
+    expect(result).toMatchObject({ status: 'IN_REVIEW', clientVersion: 2, replayed: false })
+  })
 })
