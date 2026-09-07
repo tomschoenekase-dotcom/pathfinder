@@ -42,8 +42,28 @@ const relevantPlaces = [
 ]
 
 describe('guest chat prompt provenance', () => {
+  it.each(['English', 'Spanish', 'Chinese', 'Arabic', null])(
+    'allows explicit and conversational switches from preference %s while retaining on-site labels',
+    (language) => {
+      const prompt = buildVenueSystemPrompt({
+        venue,
+        relevantPlaces,
+        userLat: null,
+        userLng: null,
+        language,
+      })
+      expect(prompt).toContain("Honor the guest's latest explicit request for a supported language")
+      expect(prompt).toContain(
+        'A clear conversational switch should also change the reply language',
+      )
+      expect(prompt).toContain('retain the established reply language when ambiguous')
+      expect(prompt).toContain('Keep official on-site place and sign names recognizable')
+      expect(prompt).not.toContain('regardless of what language the guest types in')
+    },
+  )
+
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v11')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v12')
   })
 
   it('matches the broad production prompt contract manifest', () => {

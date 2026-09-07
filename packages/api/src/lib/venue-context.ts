@@ -300,10 +300,11 @@ export function buildVenueSystemPromptParts(params: {
           })
           .join('\n')}`
 
-  const languageRule =
+  const languageRule = `LANGUAGE RULE: ${
     language && language.trim().length > 0
-      ? `LANGUAGE RULE: The guest has selected ${language} as their preferred language. Always respond in ${language}, regardless of what language the guest types in.`
-      : "LANGUAGE RULE: Detect the language of the guest's message. Always reply in the same language the guest uses. If the guest writes in Spanish, reply in Spanish. If French, reply in French. Do not switch languages mid-conversation unless the guest switches first. Default to English if the language is unclear."
+      ? `The guest's preferred language is ${language}. Use it as the default when their intent is unclear.`
+      : 'Infer the language from the conversation; use English only when no preference or clear language signal is available.'
+  } Honor the guest's latest explicit request for a supported language, including a request written in another language. A clear conversational switch should also change the reply language. A quoted passage, place name, short acknowledgment, or mixed-language fragment alone does not require a switch; retain the established reply language when ambiguous. Keep official on-site place and sign names recognizable, adding a translated explanation when useful instead of inventing a translated sign. Language changes never relax factual grounding, privacy, or route restrictions.`
 
   const roleDescription = hasLocationContext ? 'a helpful on-site guide' : 'a knowledgeable guide'
 
