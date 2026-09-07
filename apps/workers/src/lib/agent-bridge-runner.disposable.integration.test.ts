@@ -169,15 +169,108 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           supersedesQuestionId: staleQuestion.question.id,
         },
       })
-      await answerAgentQuestionAction({
+      const unrelatedRun = await db.agentRun.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          runType: 'OPERATIONS',
+          requestedOperation: 'unrelated_health_check',
+          scopeSnapshot: { venueId },
+          status: 'QUEUED',
+          initiatedByType: 'HUMAN',
+          initiatedById: actor.id,
+        },
+      })
+      const secondBlocker = await askAgentQuestionAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        question: 'Which capacity record should be archived?',
+        category: 'venue.capacity.archive',
+        blocking: true,
+      })
+      const currentAnswerInput = {
         tenantId,
         venueId,
         questionId: currentQuestion.question.id,
         expectedUpdatedAt: currentQuestion.question.updatedAt,
-        outcome: 'ANSWERED',
+        outcome: 'ANSWERED' as const,
         answer: 'The approved visitor capacity is exactly 137.',
-        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+        actor: {
+          actorType: 'HUMAN' as const,
+          actorId: actor.id,
+          auditRole: 'PLATFORM_ADMIN' as const,
+        },
+      }
+      const concurrentAnswers = await Promise.all([
+        answerAgentQuestionAction(currentAnswerInput),
+        answerAgentQuestionAction({
+          tenantId,
+          venueId,
+          questionId: secondBlocker.question.id,
+          expectedUpdatedAt: secondBlocker.question.updatedAt,
+          outcome: 'ANSWERED',
+          answer: 'Archive the superseded capacity record.',
+          actor: currentAnswerInput.actor,
+        }),
+      ])
+      expect(concurrentAnswers.map((result) => result.replayed)).toEqual([false, false])
+      expect(concurrentAnswers.map((result) => result.runEligibleToResume).sort()).toEqual([
+        false,
+        true,
+      ])
+      await expect(
+        db.agentRun.findUniqueOrThrow({ where: { id: run.id }, select: { status: true } }),
+      ).resolves.toEqual({ status: 'QUEUED' })
+      await expect(answerAgentQuestionAction(currentAnswerInput)).resolves.toMatchObject({
+        replayed: true,
+        runEligibleToResume: true,
       })
+      await expect(
+        answerAgentQuestionAction({ ...currentAnswerInput, answer: 'A changed answer.' }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        answerAgentQuestionAction({
+          ...currentAnswerInput,
+          actor: { ...currentAnswerInput.actor, actorId: 'different-founder' },
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(
+        await db.auditLog.count({
+          where: {
+            action: 'agent-question.responded',
+            targetType: 'AgentQuestion',
+            targetId: currentQuestion.question.id,
+          },
+        }),
+      ).toBe(1)
+      expect(
+        await db.agentTimelineEvent.count({
+          where: {
+            agentRunId: run.id,
+            eventType: 'QUESTION_ANSWERED',
+            data: { path: ['questionId'], equals: currentQuestion.question.id },
+          },
+        }),
+      ).toBe(1)
+      expect(
+        await db.agentMessage.count({
+          where: {
+            agentRunId: run.id,
+            messageType: 'ANSWER',
+            content: currentAnswerInput.answer,
+          },
+        }),
+      ).toBe(1)
+      await expect(
+        db.agentRun.findUniqueOrThrow({
+          where: { id: unrelatedRun.id },
+          select: { status: true },
+        }),
+      ).resolves.toEqual({ status: 'QUEUED' })
 
       const config = parseAgentBridgeRunnerConfig({
         endpoint: `http://127.0.0.1/agent-bridge/${tenantId}/${venueId}`,
@@ -401,6 +494,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             content: 'BRIDGE_RUNNER_E2E_OK',
           },
         ],
+      })
+      await expect(answerAgentQuestionAction(currentAnswerInput)).resolves.toMatchObject({
+        replayed: true,
+        runEligibleToResume: false,
       })
       expect(
         evidence.timelineEvents

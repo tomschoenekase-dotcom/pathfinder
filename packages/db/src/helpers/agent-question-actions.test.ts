@@ -1,14 +1,185 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { askAgentQuestionAction } from './agent-question-actions'
+import { answerAgentQuestionAction, askAgentQuestionAction } from './agent-question-actions'
 
 function client(transaction: Record<string, unknown>) {
+  transaction.$queryRaw ??= vi.fn().mockResolvedValue([{ id: 'run-1' }])
   return {
     $transaction: vi.fn(async (operation: (value: unknown) => unknown) => operation(transaction)),
   }
 }
 
 describe('agent question actions', () => {
+  it('reconciles an exact lost answer acknowledgement without repeating side effects', async () => {
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'question-answered',
+          agentRunId: 'run-1',
+          agentIdentityId: 'agent-1',
+          blocking: true,
+          status: 'ANSWERED',
+          answer: 'Use the north entrance.',
+          answeredById: 'founder-1',
+          updatedAt: new Date('2026-09-07T12:01:00.000Z'),
+        }),
+        updateMany: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      agentRun: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+      agentMessage: { create: vi.fn() },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      answerAgentQuestionAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          questionId: 'question-answered',
+          expectedUpdatedAt: new Date('2026-09-07T12:00:00.000Z'),
+          outcome: 'ANSWERED',
+          answer: 'Use the north entrance.',
+          actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true, questionId: 'question-answered' })
+    expect(transaction.agentQuestion.updateMany).not.toHaveBeenCalled()
+    expect(transaction.agentRun.updateMany).toHaveBeenCalledOnce()
+    expect(transaction.agentTimelineEvent.create).not.toHaveBeenCalled()
+    expect(transaction.agentMessage.create).not.toHaveBeenCalled()
+    expect(transaction.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['COMPLETED', 'CANCELLED'] as const)(
+    'does not claim a terminal %s run is resumable on replay',
+    async () => {
+      const transaction = {
+        agentQuestion: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'question-answered',
+            agentRunId: 'run-1',
+            agentIdentityId: 'agent-1',
+            blocking: true,
+            status: 'ANSWERED',
+            answer: 'North',
+            answeredById: 'founder-1',
+            updatedAt: new Date('2026-09-07T12:01:00.000Z'),
+          }),
+          count: vi.fn().mockResolvedValue(0),
+        },
+        agentRun: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      }
+      await expect(
+        answerAgentQuestionAction(
+          {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            questionId: 'question-answered',
+            expectedUpdatedAt: new Date('2026-09-07T12:00:00.000Z'),
+            outcome: 'ANSWERED',
+            answer: 'North',
+            actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+          },
+          client(transaction) as never,
+        ),
+      ).resolves.toMatchObject({
+        replayed: true,
+        runEligibleToResume: false,
+      })
+    },
+  )
+
+  it('rejects a duplicate response when answer or actor differs', async () => {
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'question-answered',
+          agentRunId: null,
+          agentIdentityId: 'agent-1',
+          blocking: false,
+          status: 'ANSWERED',
+          answer: 'North',
+          answeredById: 'founder-1',
+          updatedAt: new Date('2026-09-07T12:01:00.000Z'),
+        }),
+      },
+    }
+    const base = {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      questionId: 'question-answered',
+      expectedUpdatedAt: new Date('2026-09-07T12:00:00.000Z'),
+      outcome: 'ANSWERED' as const,
+      actor: {
+        actorType: 'HUMAN' as const,
+        actorId: 'founder-1',
+        auditRole: 'PLATFORM_ADMIN' as const,
+      },
+    }
+    await expect(
+      answerAgentQuestionAction({ ...base, answer: 'South' }, client(transaction) as never),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      answerAgentQuestionAction(
+        { ...base, answer: 'North', actor: { ...base.actor, actorId: 'other-founder' } },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('reconciles the exact concurrent winner after losing the pending CAS', async () => {
+    const pending = {
+      id: 'question-1',
+      agentRunId: 'run-1',
+      agentIdentityId: 'agent-1',
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      answeredById: null,
+      updatedAt: new Date('2026-09-07T12:00:00.000Z'),
+    }
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(pending)
+          .mockResolvedValueOnce({
+            ...pending,
+            status: 'ANSWERED',
+            answer: 'North',
+            answeredById: 'founder-1',
+          }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      agentRun: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }),
+      },
+    }
+    await expect(
+      answerAgentQuestionAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          questionId: 'question-1',
+          expectedUpdatedAt: pending.updatedAt,
+          outcome: 'ANSWERED',
+          answer: 'North',
+          actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true })
+  })
   it('creates an idempotent blocking question and pauses the exact active run', async () => {
     const created = {
       id: 'question-1',

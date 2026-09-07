@@ -80,6 +80,14 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Serialize question creation/resolution on the exact tenant+venue run so
+  // simultaneous final answers cannot strand an otherwise resumable run.
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$queryRaw',
+    hash: '1df6ea64e4eec249ead41436d458f0e4c30ac605ee3b18f0702f9b51add6a27a',
+    policy: 'tenant-and-venue',
+  },
   // Compact temporal review receipts serialize one tenant request, lock the exact current
   // tenant+venue+project generation, and retain only source rows from that scoped project.
   {

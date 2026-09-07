@@ -160,6 +160,23 @@ export class AgentQuestionActionError extends Error {
   }
 }
 
+async function lockScopedAgentRun(
+  transaction: Parameters<Parameters<AgentQuestionClient['$transaction']>[0]>[0],
+  tenantId: string,
+  venueId: string,
+  agentRunId: string,
+) {
+  const rows = await transaction.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM agent_runs
+    WHERE id = ${agentRunId}
+      AND tenant_id = ${tenantId}
+      AND venue_id = ${venueId}
+    FOR UPDATE
+  `
+  return rows.length === 1
+}
+
 function sameStoredJson(left: unknown, right: unknown) {
   // JSONB reorders object keys; compare its persisted shape while preserving array order.
   return isDeepStrictEqual(
@@ -293,6 +310,11 @@ export async function askAgentQuestionAction(
     }
 
     if (input.agentRunId) {
+      if (
+        !(await lockScopedAgentRun(transaction, input.tenantId, input.venueId, input.agentRunId))
+      ) {
+        throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
+      }
       const run = await transaction.agentRun.findFirst({
         where: {
           id: input.agentRunId,
@@ -414,6 +436,53 @@ export async function answerAgentQuestionAction(
 ) {
   const input = answerFields.parse(rawInput)
   return client.$transaction(async (transaction) => {
+    async function resumeEligibility(agentRunId: string | null, blocking: boolean) {
+      if (!agentRunId || !blocking) return false
+      const remainingBlockingQuestions = () =>
+        transaction.agentQuestion.count({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentRunId,
+            blocking: true,
+            status: 'PENDING',
+          },
+        })
+      const remaining = await remainingBlockingQuestions()
+      if (remaining !== 0) return false
+      const transitioned = await transaction.agentRun.updateMany({
+        where: {
+          id: agentRunId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'AWAITING_INPUT',
+        },
+        data: { status: 'QUEUED' },
+      })
+      if (transitioned.count === 1) {
+        if ((await remainingBlockingQuestions()) === 0) return true
+        await transaction.agentRun.updateMany({
+          where: {
+            id: agentRunId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'QUEUED',
+          },
+          data: { status: 'AWAITING_INPUT' },
+        })
+        return false
+      }
+      const alreadyQueued = await transaction.agentRun.findFirst({
+        where: {
+          id: agentRunId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'QUEUED',
+        },
+        select: { id: true },
+      })
+      return Boolean(alreadyQueued && (await remainingBlockingQuestions()) === 0)
+    }
     const existing = await transaction.agentQuestion.findFirst({
       where: { id: input.questionId, tenantId: input.tenantId, venueId: input.venueId },
       select: {
@@ -422,10 +491,33 @@ export async function answerAgentQuestionAction(
         agentIdentityId: true,
         blocking: true,
         status: true,
+        answer: true,
+        answeredById: true,
         updatedAt: true,
       },
     })
     if (!existing) throw new AgentQuestionActionError('NOT_FOUND', 'Agent question not found')
+    if (
+      existing.agentRunId &&
+      existing.blocking &&
+      !(await lockScopedAgentRun(transaction, input.tenantId, input.venueId, existing.agentRunId))
+    ) {
+      throw new AgentQuestionActionError('NOT_FOUND', 'Agent question run is not in scope')
+    }
+    if (
+      existing.status === input.outcome &&
+      existing.answer === input.answer &&
+      existing.answeredById === input.actor.actorId
+    ) {
+      const runEligibleToResume = await resumeEligibility(existing.agentRunId, existing.blocking)
+      return {
+        questionId: existing.id,
+        agentRunId: existing.agentRunId,
+        status: input.outcome,
+        runEligibleToResume,
+        replayed: true as const,
+      }
+    }
     if (
       existing.status !== 'PENDING' ||
       existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
@@ -449,6 +541,31 @@ export async function answerAgentQuestionAction(
       },
     })
     if (changed.count !== 1) {
+      const winner = await transaction.agentQuestion.findFirst({
+        where: { id: input.questionId, tenantId: input.tenantId, venueId: input.venueId },
+        select: {
+          id: true,
+          agentRunId: true,
+          blocking: true,
+          status: true,
+          answer: true,
+          answeredById: true,
+        },
+      })
+      if (
+        winner?.status === input.outcome &&
+        winner.answer === input.answer &&
+        winner.answeredById === input.actor.actorId
+      ) {
+        const runEligibleToResume = await resumeEligibility(winner.agentRunId, winner.blocking)
+        return {
+          questionId: winner.id,
+          agentRunId: winner.agentRunId,
+          status: input.outcome,
+          runEligibleToResume,
+          replayed: true as const,
+        }
+      }
       throw new AgentQuestionActionError('CONFLICT', 'Agent question changed; refresh and retry')
     }
 
@@ -477,18 +594,9 @@ export async function answerAgentQuestionAction(
           actorId: input.actor.actorId,
         },
       })
-      if (existing.blocking) {
-        await transaction.agentRun.updateMany({
-          where: {
-            id: existing.agentRunId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: 'AWAITING_INPUT',
-          },
-          data: { status: 'QUEUED' },
-        })
-      }
     }
+
+    const runEligibleToResume = await resumeEligibility(existing.agentRunId, existing.blocking)
 
     await writeAuditLogStrict(
       {
@@ -501,7 +609,7 @@ export async function answerAgentQuestionAction(
         beforeState: { status: existing.status },
         afterState: {
           status: input.outcome,
-          runEligibleToResume: Boolean(existing.agentRunId && existing.blocking),
+          runEligibleToResume,
         },
       },
       transaction,
@@ -510,7 +618,8 @@ export async function answerAgentQuestionAction(
       questionId: existing.id,
       agentRunId: existing.agentRunId,
       status: input.outcome,
-      runEligibleToResume: Boolean(existing.agentRunId && existing.blocking),
+      runEligibleToResume,
+      replayed: false as const,
     }
   })
 }
