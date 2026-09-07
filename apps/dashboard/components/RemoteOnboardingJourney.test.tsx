@@ -298,6 +298,50 @@ describe('RemoteOnboardingJourney', () => {
     expect(href.searchParams.get('returnTo')).toBe('/venues/venue-1/onboarding#questions')
   })
 
+  it('makes a bounded hidden-question remainder transparent with singular and plural copy', () => {
+    const questions = [
+      {
+        requestId: 'request-1',
+        subject: 'Entrance',
+        prompts: ['Which entrance is step-free?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'request-2',
+        subject: 'Hours',
+        prompts: ['Which days are you open?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'request-3',
+        subject: 'Restrooms',
+        prompts: ['Where are accessible restrooms?'],
+        additionalPromptCount: 0,
+      },
+    ]
+
+    const singular = renderToStaticMarkup(
+      <RemoteOnboardingJourney
+        data={{
+          ...data,
+          questions: { open: 4, items: questions, additionalQuestionCount: 1 },
+        }}
+      />,
+    )
+    const plural = renderToStaticMarkup(
+      <RemoteOnboardingJourney
+        data={{
+          ...data,
+          questions: { open: 28, items: questions, additionalQuestionCount: 25 },
+        }}
+      />,
+    )
+
+    expect(singular).toContain('1 more focused question is waiting.')
+    expect(plural).toContain('25 more focused questions are waiting.')
+    expect(plural.match(/Answer this question/g)).toHaveLength(3)
+  })
+
   it('offers only an available exact preview and keeps release outside client control', () => {
     const root = markupRoot(
       renderToStaticMarkup(

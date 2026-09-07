@@ -380,6 +380,15 @@
   line-height: 1.65;
 }
 
+.questionRemainder {
+  max-width: 30rem;
+  margin: 0.8rem 0 0;
+  color: rgba(16, 45, 72, 0.72);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .sourceList {
   margin-top: 1.5rem;
 }

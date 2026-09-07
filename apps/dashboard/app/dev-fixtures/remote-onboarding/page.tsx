@@ -20,6 +20,7 @@ const FIXTURE_STATES = [
   'attention',
   'check-recovery',
   'questions',
+  'questions-many',
   'ready',
 ] as const
 type FixtureState = (typeof FIXTURE_STATES)[number]
@@ -230,6 +231,43 @@ function scenario(state: FixtureState): {
           },
         ],
         additionalQuestionCount: 0,
+      },
+      preview: { state: 'UNAVAILABLE', packageId: null },
+      qa: EMPTY_QA,
+      release: { hasReviewedArtifact: false, released: false },
+      uploads: sharedUploads,
+      materialTypes: { DOCUMENT: 1, PHOTO: 1, STAFF_INTERVIEW: 1 },
+    },
+    'questions-many': {
+      lifecycle: lifecycleEvidence({ reviewSourceCount: 1, intakeProposalCount: 2 }),
+      materials: { ...EMPTY_MATERIALS, processed: 3 },
+      review: { proposedSources: 2, draftPackages: 0 },
+      questions: {
+        open: 28,
+        items: [
+          {
+            requestId: 'fixture-accessible-entrance',
+            subject: 'Accessible entrance details',
+            prompts: [
+              'Which entrance provides the step-free route?',
+              'Is that entrance available during every public hour?',
+            ],
+            additionalPromptCount: 0,
+          },
+          {
+            requestId: 'fixture-gallery-hours',
+            subject: 'Gallery hours',
+            prompts: ['Which galleries have different closing times?'],
+            additionalPromptCount: 0,
+          },
+          {
+            requestId: 'fixture-restrooms',
+            subject: 'Accessible restrooms',
+            prompts: ['Where is the nearest accessible restroom?'],
+            additionalPromptCount: 0,
+          },
+        ],
+        additionalQuestionCount: 25,
       },
       preview: { state: 'UNAVAILABLE', packageId: null },
       qa: EMPTY_QA,

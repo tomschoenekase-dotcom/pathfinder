@@ -159,6 +159,27 @@ test('remote onboarding questions remain clear and keyboard reachable', async ({
   expect(runtimeErrors).toEqual([])
 })
 
+test('remote onboarding keeps a long bounded question remainder visible without overflow', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=questions-many`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="remote-onboarding"][data-fixture-state="questions-many"]'),
+  ).toBeVisible()
+  const remainder = page.getByText('25 more focused questions are waiting.')
+  await expect(remainder).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Answer this question' })).toHaveCount(3)
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await remainder.scrollIntoViewIfNeeded()
+  await saveViewportEvidence(page, testInfo, 'remote-onboarding-questions-many')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('launch-language evaluation preparation stays bounded and responsive', async ({
   page,
 }, testInfo) => {

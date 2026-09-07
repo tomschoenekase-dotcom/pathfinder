@@ -284,6 +284,12 @@ export function RemoteOnboardingJourney({
               <p className={styles.reviewIntro}>
                 Torchiko asks only when a missing detail would materially improve a visitor answer.
               </p>
+              {data.questions.additionalQuestionCount ? (
+                <p className={styles.questionRemainder}>
+                  {data.questions.additionalQuestionCount} more focused question
+                  {data.questions.additionalQuestionCount === 1 ? ' is' : 's are'} waiting.
+                </p>
+              ) : null}
             </div>
             <ul className={styles.questionList}>
               {data.questions.items.map((question) => (
