@@ -850,6 +850,15 @@ export function IntakeFileUpload({
         </label>
       </div>
 
+      <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
+        <h3 id="capture-guidance-title">A useful walkthrough, if you have one</h3>
+        <p>A short optional video of the entrance, visitor route, and useful signs is plenty.</p>
+        <p>
+          Photos of those spots, a map or guide, or a short staff answer work well too. Please avoid
+          filming visitors or sharing private details.
+        </p>
+      </div>
+
       {hasMaterialAttention ? (
         <section
           id="material-attention"

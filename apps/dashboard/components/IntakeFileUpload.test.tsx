@@ -87,6 +87,22 @@ describe('quarantined intake file upload', () => {
     return file
   }
 
+  it('offers concise optional walkthrough guidance and usable non-video alternatives before file selection', () => {
+    render(<IntakeFileUpload venueId="venue-a" uploads={[]} reserve={reserve} verify={verify} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'A useful walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/optional video of the entrance, visitor route, and useful signs/i),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Photos of those spots, a map or guide, or a short staff answer/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/avoid filming visitors or sharing private details/i)).toBeTruthy()
+    expect(screen.getByLabelText('Choose files')).toBeTruthy()
+  })
+
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))

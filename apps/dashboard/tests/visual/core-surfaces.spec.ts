@@ -159,6 +159,30 @@ test('remote onboarding questions remain clear and keyboard reachable', async ({
   expect(runtimeErrors).toEqual([])
 })
 
+test('remote onboarding gives optional capture guidance before file selection', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=share`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="remote-onboarding"][data-fixture-state="share"]'),
+  ).toBeVisible()
+  const guidance = page.getByRole('heading', { name: 'A useful walkthrough, if you have one' })
+  await expect(guidance).toBeVisible()
+  await expect(
+    page.getByText(/Photos of those spots, a map or guide, or a short staff answer/i),
+  ).toBeVisible()
+  await expect(page.getByLabel('Choose files')).toBeVisible()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await guidance.scrollIntoViewIfNeeded()
+  await saveViewportEvidence(page, testInfo, 'remote-onboarding-capture-guidance')
+  expect(runtimeErrors).toEqual([])
+})
+
 test('remote onboarding keeps a long bounded question remainder visible without overflow', async ({
   page,
 }, testInfo) => {
