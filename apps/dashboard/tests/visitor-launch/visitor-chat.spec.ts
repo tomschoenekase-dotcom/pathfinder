@@ -95,13 +95,15 @@ test('approved chat branding fails closed on a short mobile viewport', async ({
   page,
 }, testInfo) => {
   let failImages = false
+  const interceptedAssets: string[] = []
   await page.setViewportSize({
     width: Math.min(page.viewportSize()?.width ?? 390, 390),
     height: 420,
   })
-  await page.route('**/api/venue-media/**', async (route) => {
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    interceptedAssets.push(route.request().url())
     if (failImages) return route.fulfill({ status: 404, body: '' })
-    const banner = route.request().url().includes('44444444-4444-4444-8444-444444444444')
+    const banner = route.request().url().includes('visitor-brand-banner')
     return route.fulfill({
       contentType: 'image/svg+xml',
       body: banner
@@ -117,6 +119,7 @@ test('approved chat branding fails closed on a short mobile viewport', async ({
   const header = page.locator('header')
   await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
   await expect(header.locator('img')).toHaveCount(2)
+  await expect.poll(() => interceptedAssets.length).toBe(2)
   await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(/text-white/u)
   await expect(page.getByRole('button', { name: 'New conversation' })).toHaveClass(/text-white/u)
   await expectViewportIntegrity(page)
@@ -126,10 +129,12 @@ test('approved chat branding fails closed on a short mobile viewport', async ({
   await saveEvidence(page, testInfo, 'visitor-chat-approved-branding-short-mobile')
 
   failImages = true
+  interceptedAssets.length = 0
   await page.reload()
   await hideFrameworkDevChrome(page)
   await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
   await expect(header.locator('img')).toHaveCount(0)
+  await expect.poll(() => interceptedAssets.length).toBe(2)
   await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(
     /text-\[var\(--chat-text\)\]/u,
   )

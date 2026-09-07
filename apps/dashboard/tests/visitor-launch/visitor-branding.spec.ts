@@ -3,7 +3,9 @@ import { expect, test } from '@playwright/test'
 
 test('saved arrival branding loads below the primary action', async ({ page }, testInfo) => {
   // Synthetic layout evidence; public receipt/revocation is proven separately against PostgreSQL.
-  await page.route('**/api/venue-media/**', async (route) => {
+  const requestedAssets: string[] = []
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    requestedAssets.push(route.request().url())
     return route.fulfill({
       contentType: 'image/svg+xml',
       headers: { 'Cache-Control': 'private, max-age=0, no-store' },
@@ -12,6 +14,7 @@ test('saved arrival branding loads below the primary action', async ({ page }, t
   })
   await page.goto('/dev-fixtures/venue-arrival?state=empty&theme=forest&branding=approved')
   await expect(page.locator('main img')).toHaveCount(2)
+  await expect.poll(() => requestedAssets.length).toBe(2)
   for (const image of await page.locator('main img').all()) {
     await expect
       .poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth))
@@ -19,7 +22,7 @@ test('saved arrival branding loads below the primary action', async ({ page }, t
   }
   const action = page.getByRole('link', { name: /Open your guide/u })
   const actionBounds = await action.boundingBox()
-  const bannerBounds = await page.locator('img[src*="55555555"]').boundingBox()
+  const bannerBounds = await page.locator('img[src*="visitor-brand-banner"]').boundingBox()
   expect(bannerBounds!.y).toBeGreaterThan(actionBounds!.y + actionBounds!.height)
   expect(actionBounds!.height).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -31,7 +34,9 @@ test('saved arrival branding loads below the primary action', async ({ page }, t
 })
 
 test('a fresh branding delivery failure preserves arrival actions', async ({ page }) => {
-  await page.route('**/api/venue-media/**', async (route) => {
+  const requestedAssets: string[] = []
+  await page.route('**/dev-fixtures/visitor-brand-*.svg', async (route) => {
+    requestedAssets.push(route.request().url())
     await route.fulfill({
       status: 404,
       headers: { 'Cache-Control': 'private, max-age=0, no-store' },
@@ -42,6 +47,7 @@ test('a fresh branding delivery failure preserves arrival actions', async ({ pag
 
   const action = page.getByRole('link', { name: /Open your guide/u })
   await expect(page.locator('main img')).toHaveCount(0)
+  await expect.poll(() => requestedAssets.length).toBe(2)
   await expect(action).toHaveAttribute('href', '/great-lakes-museum/chat')
   await action.focus()
   await expect(action).toBeFocused()

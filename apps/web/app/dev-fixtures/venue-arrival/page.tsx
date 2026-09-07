@@ -28,7 +28,7 @@ const FIXTURE_MEDIA: PublicVenueMediaItem[] = [
   height: height as number,
   byteSize: 260_000,
   mimeType: 'image/webp' as const,
-  deliveryPath: `/api/venue-media/${id}?venue=great-lakes-museum`,
+  deliveryPath: `/dev-fixtures/visitor-media-${index + 1}.svg`,
 }))
 
 export default async function VenueArrivalFixturePage({
@@ -47,12 +47,8 @@ export default async function VenueArrivalFixturePage({
         category: 'Museum',
         chatTheme: theme ?? null,
         chatAccentColor: accent ?? null,
-        chatLogoUrl: branding
-          ? '/api/venue-media/44444444-4444-4444-8444-444444444444?venue=great-lakes-museum'
-          : null,
-        chatBannerUrl: branding
-          ? '/api/venue-media/55555555-5555-4555-8555-555555555555?venue=great-lakes-museum'
-          : null,
+        chatLogoUrl: branding ? '/dev-fixtures/visitor-brand-logo.svg' : null,
+        chatBannerUrl: branding ? '/dev-fixtures/visitor-brand-banner.svg' : null,
       }}
       venueSlug="great-lakes-museum"
       media={state === 'media' ? FIXTURE_MEDIA : []}
