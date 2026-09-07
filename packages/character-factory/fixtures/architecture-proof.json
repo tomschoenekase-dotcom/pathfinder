@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "runKind": "local-import-fixture-proof",
+  "sourceRevision": "openmoji-16.0.0@66e17da0f2d4347f64ee9d78c367fc5234283863",
+  "rendererDecision": "renderer-neutral",
+  "runtimeSelection": "unselected",
+  "fixtures": [
+    {
+      "id": "neutral-openmoji-owl",
+      "rigFamily": "compact-creature-v1",
+      "compatible": true,
+      "manualCleanup": ["separate paired wings and eyes from body"]
+    },
+    {
+      "id": "neutral-openmoji-astronaut",
+      "rigFamily": "humanoid-v1",
+      "compatible": true,
+      "manualCleanup": ["separate arms, helmet/head, and torso; define shoulder pivots"]
+    },
+    {
+      "id": "neutral-openmoji-morph",
+      "rigFamily": "morph-v1",
+      "compatible": true,
+      "manualCleanup": ["separate face from deforming body mask"]
+    }
+  ],
+  "conclusion": "All three bounded source fixtures map to the shared semantic state grammar, but require anatomy-specific segmentation. This proves contract/rig-family compatibility only; it does not prove commercial deformation quality, Rive suitability, cleanup duration, or mobile performance.",
+  "openProof": [
+    "raster normalization",
+    "actual deforming rig playback",
+    "measured cleanup time",
+    "browser performance",
+    "independent visual quality review"
+  ]
+}

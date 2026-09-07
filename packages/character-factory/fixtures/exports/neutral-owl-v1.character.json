@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "characterId": "neutral-openmoji-owl",
+  "version": 1,
+  "displayName": "Neutral Owl",
+  "rigFamily": "compact-creature-v1",
+  "source": {
+    "kind": "imported",
+    "sourceUrl": "https://github.com/hfg-gmuend/openmoji/blob/66e17da0f2d4347f64ee9d78c367fc5234283863/color/svg/1F989.svg",
+    "sourceRevision": "openmoji-16.0.0@66e17da0f2d4347f64ee9d78c367fc5234283863",
+    "license": "CC-BY-SA-4.0",
+    "attribution": "OpenMoji contributors",
+    "importedAt": "2026-09-07T00:00:00.000Z",
+    "sha256": "81dadab0b2334e9d0ca03a9bf466d68781db0a4e31248788ed771b1d7b37ada7",
+    "mediaType": "image/svg+xml",
+    "byteLength": 2506
+  },
+  "masterReference": "source/owl.svg",
+  "protectedTraits": ["asymmetric perched body", "brown facial disk", "small paired feet"],
+  "slotMap": { "body": "color", "eyes": "line", "wings": "color" },
+  "supportedStates": [
+    "idle",
+    "attention",
+    "listening",
+    "thinking",
+    "speaking",
+    "happy",
+    "sad",
+    "success",
+    "error",
+    "reaction"
+  ],
+  "status": "exported"
+}

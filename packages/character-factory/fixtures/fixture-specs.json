@@ -1,0 +1,39 @@
+[
+  {
+    "characterId": "neutral-openmoji-owl",
+    "displayName": "Neutral Owl",
+    "file": "source/owl.svg",
+    "rigFamily": "compact-creature-v1",
+    "sha256": "81dadab0b2334e9d0ca03a9bf466d68781db0a4e31248788ed771b1d7b37ada7",
+    "byteLength": 2506,
+    "sourceUrl": "https://github.com/hfg-gmuend/openmoji/blob/66e17da0f2d4347f64ee9d78c367fc5234283863/color/svg/1F989.svg",
+    "protectedTraits": ["asymmetric perched body", "brown facial disk", "small paired feet"],
+    "slotMap": { "body": "color", "eyes": "line", "wings": "color" }
+  },
+  {
+    "characterId": "neutral-openmoji-astronaut",
+    "displayName": "Neutral Astronaut",
+    "file": "source/astronaut.svg",
+    "rigFamily": "humanoid-v1",
+    "sha256": "5f8045d358eea7fcbab9eb3d9ed984bd6a143f314dafc4f3194e634b3ac808eb",
+    "byteLength": 4745,
+    "sourceUrl": "https://github.com/hfg-gmuend/openmoji/blob/66e17da0f2d4347f64ee9d78c367fc5234283863/color/svg/1F9D1-200D-1F680.svg",
+    "protectedTraits": ["round grey helmet", "yellow face", "light grey suit"],
+    "slotMap": { "torso": "color", "head": "skin", "leftArm": "color", "rightArm": "color" }
+  },
+  {
+    "characterId": "neutral-openmoji-morph",
+    "displayName": "Neutral Morph",
+    "file": "source/morph.svg",
+    "rigFamily": "morph-v1",
+    "sha256": "f0ec36105f2a0fefd75233a7b2d3b604fb632a0d31651c63cdc76eb81aaad451",
+    "byteLength": 2896,
+    "sourceUrl": "https://github.com/hfg-gmuend/openmoji/blob/66e17da0f2d4347f64ee9d78c367fc5234283863/color/svg/1F47B.svg",
+    "protectedTraits": [
+      "white flowing silhouette",
+      "three dark facial marks",
+      "soft asymmetric lower edge"
+    ],
+    "slotMap": { "body": "color", "face": "line" }
+  }
+]
