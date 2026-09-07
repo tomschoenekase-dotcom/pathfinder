@@ -31,7 +31,7 @@ import {
 } from './agent-approval-policy'
 
 describe('support completion fulfillment contract', () => {
-  const packageFulfillment = {
+  const legacyPackageFulfillment = {
     contractVersion: 1 as const,
     linkedPackageCount: 1,
     packages: [
@@ -49,8 +49,33 @@ describe('support completion fulfillment contract', () => {
     ],
     digest: 'b'.repeat(64),
   }
+  const packageFulfillment = {
+    ...legacyPackageFulfillment,
+    contractVersion: 2 as const,
+    guestObservability: {
+      contractVersion: 1 as const,
+      configuredPath: 'LEGACY' as const,
+      reason: 'SERVER_DISABLED' as const,
+      releaseId: null,
+      nativeStateHash: null,
+      effects: [
+        {
+          packageId: 'package_1',
+          applyVersionId: '22222222-2222-4222-8222-222222222222',
+          entityType: 'KNOWLEDGE_ENTRY' as const,
+          entityId: 'knowledge_1',
+          operation: 'UPDATE' as const,
+          readPath: 'LEGACY' as const,
+          expectedGuestStateHash: 'c'.repeat(64),
+          observedGuestStateHash: 'c'.repeat(64),
+        },
+      ],
+      verifiedAt: '2030-01-02T00:00:02.000Z',
+      digest: 'd'.repeat(64),
+    },
+  }
 
-  it('requires exact fully applied package evidence in the grant and proposal snapshot', () => {
+  it('requires observable package evidence in new grants while retaining legacy history parsing', () => {
     const parameters = {
       clientId: 'tenant_1',
       venueId: 'venue_1',
@@ -82,12 +107,49 @@ describe('support completion fulfillment contract', () => {
       executionAuthorized: false as const,
     }
     expect(SupportCompletionProposalApprovalSnapshot.parse(snapshot)).toEqual(snapshot)
+    expect(
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: legacyPackageFulfillment,
+      }).packageFulfillment.contractVersion,
+    ).toBe(1)
     expect(() =>
       SupportCompletionApplyParameters.parse({
         ...parameters,
         packageFulfillment: { ...packageFulfillment, linkedPackageCount: 0 },
       }),
     ).toThrow()
+    expect(() =>
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: {
+          ...packageFulfillment,
+          guestObservability: {
+            ...packageFulfillment.guestObservability,
+            effects: [
+              {
+                ...packageFulfillment.guestObservability.effects[0],
+                observedGuestStateHash: 'e'.repeat(64),
+              },
+            ],
+          },
+        },
+      }),
+    ).toThrow('Observed guest state does not match')
+    expect(() =>
+      SupportCompletionApplyParameters.parse({
+        ...parameters,
+        packageFulfillment: {
+          ...packageFulfillment,
+          guestObservability: {
+            ...packageFulfillment.guestObservability,
+            configuredPath: 'NOT_APPLICABLE',
+            reason: 'NO_LINKED_PACKAGES',
+            effects: [],
+          },
+        },
+      }),
+    ).toThrow('Package-free observability')
   })
 })
 

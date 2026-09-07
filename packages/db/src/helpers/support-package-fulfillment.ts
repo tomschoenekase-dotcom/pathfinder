@@ -6,9 +6,15 @@ import {
 } from '@pathfinder/contracts'
 
 import { db } from '../client'
+import {
+  readSupportPackageGuestObservability,
+  SupportPackageObservabilityError,
+  type SupportPackageObservabilityReader,
+} from './support-package-observability'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
-type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff'>
+type FulfillmentReader = Pick<TransactionClient, 'supportPackageHandoff'> &
+  SupportPackageObservabilityReader
 
 export class SupportPackageFulfillmentError extends Error {
   constructor(message: string) {
@@ -29,9 +35,18 @@ function canonicalJson(value: unknown): string {
 }
 
 export function supportPackageFulfillmentDigest(
-  value: Omit<SupportCompletionPackageFulfillmentValue, 'digest'>,
+  value:
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 1 }>, 'digest'>
+    | Omit<Extract<SupportCompletionPackageFulfillmentValue, { contractVersion: 2 }>, 'digest'>,
 ): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+  const normalized =
+    value.contractVersion === 2
+      ? {
+          ...value,
+          guestObservability: { ...value.guestObservability, verifiedAt: null },
+        }
+      : value
+  return createHash('sha256').update(canonicalJson(normalized)).digest('hex')
 }
 
 /** Reads the exact current package fulfillment for one support request. Immutable
@@ -63,6 +78,8 @@ export async function readSupportPackageFulfillment(
           appliedBy: true,
           appliedCommandKey: true,
           updatedAt: true,
+          schemaVersion: true,
+          appliedEntities: true,
         },
       },
     },
@@ -92,10 +109,28 @@ export async function readSupportPackageFulfillment(
     appliedCommandKey: venuePackage.appliedCommandKey!,
     packageUpdatedAt: venuePackage.updatedAt.toISOString(),
   }))
+  let guestObservability
+  try {
+    guestObservability = await readSupportPackageGuestObservability({
+      client,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      packages: handoffs.map(({ venuePackageId, venuePackage }) => ({
+        packageId: venuePackageId,
+        schemaVersion: venuePackage.schemaVersion,
+        appliedEntities: venuePackage.appliedEntities,
+      })),
+    })
+  } catch (error) {
+    if (error instanceof SupportPackageObservabilityError)
+      throw new SupportPackageFulfillmentError(error.message)
+    throw error
+  }
   const identity = {
-    contractVersion: 1 as const,
+    contractVersion: 2 as const,
     linkedPackageCount: packages.length,
     packages,
+    guestObservability,
   }
   return SupportCompletionPackageFulfillment.parse({
     ...identity,
@@ -107,5 +142,22 @@ export function sameSupportPackageFulfillment(
   left: SupportCompletionPackageFulfillmentValue,
   right: SupportCompletionPackageFulfillmentValue,
 ): boolean {
-  return left.digest === right.digest && canonicalJson(left) === canonicalJson(right)
+  if (left.contractVersion === 1 || right.contractVersion === 1) {
+    return left.linkedPackageCount === 0 && right.linkedPackageCount === 0
+  }
+  const withoutVerificationTime = (
+    value: Extract<
+      SupportCompletionPackageFulfillmentValue,
+      {
+        contractVersion: 2
+      }
+    >,
+  ) => ({
+    ...value,
+    guestObservability: { ...value.guestObservability, verifiedAt: null },
+  })
+  return (
+    left.digest === right.digest &&
+    canonicalJson(withoutVerificationTime(left)) === canonicalJson(withoutVerificationTime(right))
+  )
 }

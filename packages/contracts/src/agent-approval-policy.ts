@@ -285,28 +285,95 @@ export type SupportInformationRequestProposalApprovalSnapshot = z.infer<
 /** Exact one-shot authority derived from an approved completion proposal. The
  * reviewed message and request version are immutable; this is never reusable
  * customer-contact or lifecycle authority. */
-export const SupportCompletionPackageFulfillment = z
+const SupportCompletionPackageEvidence = z
+  .object({
+    handoffId: z.string().trim().min(1).max(191),
+    packageId: z.string().trim().min(1).max(191),
+    handoffRequestVersion: z.number().int().positive(),
+    status: z.literal('APPLIED'),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    appliedAt: z.string().datetime(),
+    appliedBy: z.string().trim().min(1).max(191),
+    appliedCommandKey: z.string().uuid(),
+    packageUpdatedAt: z.string().datetime(),
+  })
+  .strict()
+
+const supportCompletionPackageShape = {
+  linkedPackageCount: z.number().int().nonnegative(),
+  packages: z.array(SupportCompletionPackageEvidence),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+} as const
+
+export const SupportCompletionPackageFulfillmentV1 = z
   .object({
     contractVersion: z.literal(1),
-    linkedPackageCount: z.number().int().nonnegative(),
-    packages: z.array(
-      z
-        .object({
-          handoffId: z.string().trim().min(1).max(191),
-          packageId: z.string().trim().min(1).max(191),
-          handoffRequestVersion: z.number().int().positive(),
-          status: z.literal('APPLIED'),
-          payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
-          appliedAt: z.string().datetime(),
-          appliedBy: z.string().trim().min(1).max(191),
-          appliedCommandKey: z.string().uuid(),
-          packageUpdatedAt: z.string().datetime(),
-        })
-        .strict(),
-    ),
+    ...supportCompletionPackageShape,
+  })
+  .strict()
+
+export const SupportCompletionGuestObservability = z
+  .object({
+    contractVersion: z.literal(1),
+    configuredPath: z.enum(['NOT_APPLICABLE', 'LEGACY', 'DARK', 'NATIVE']),
+    reason: z.enum([
+      'NO_LINKED_PACKAGES',
+      'SERVER_DISABLED',
+      'POLICY_MISSING',
+      'POLICY_INVALID',
+      'PRODUCTION_APPROVAL_MISSING',
+      'HEAD_INVALID',
+      'EVALUATION_INVALID',
+      'NATIVE_READY',
+    ]),
+    releaseId: z.string().trim().min(1).max(191).nullable(),
+    nativeStateHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    effects: z
+      .array(
+        z
+          .object({
+            packageId: z.string().trim().min(1).max(191),
+            applyVersionId: z.string().uuid(),
+            entityType: z.enum(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY']),
+            entityId: z.string().trim().min(1).max(191),
+            operation: z.enum(['CREATE', 'UPDATE', 'DELETE']),
+            readPath: z.enum(['LIVE_VENUE', 'LEGACY', 'DARK', 'NATIVE']),
+            expectedGuestStateHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .nullable(),
+            observedGuestStateHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .nullable(),
+          })
+          .strict(),
+      )
+      .max(500),
+    verifiedAt: z.string().datetime(),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
+export type SupportCompletionGuestObservability = z.infer<
+  typeof SupportCompletionGuestObservability
+>
+
+export const SupportCompletionPackageFulfillmentV2 = z
+  .object({
+    contractVersion: z.literal(2),
+    ...supportCompletionPackageShape,
+    guestObservability: SupportCompletionGuestObservability,
+  })
+  .strict()
+
+export const SupportCompletionPackageFulfillment = z
+  .discriminatedUnion('contractVersion', [
+    SupportCompletionPackageFulfillmentV1,
+    SupportCompletionPackageFulfillmentV2,
+  ])
   .superRefine((value, context) => {
     if (value.linkedPackageCount !== value.packages.length) {
       context.addIssue({
@@ -321,6 +388,65 @@ export const SupportCompletionPackageFulfillment = z
         code: z.ZodIssueCode.custom,
         path: ['packages'],
         message: 'Support completion package evidence contains duplicate packages.',
+      })
+    }
+    if (value.contractVersion !== 2) return
+    const observation = value.guestObservability
+    const packageFree = value.linkedPackageCount === 0
+    const notApplicable =
+      observation.configuredPath === 'NOT_APPLICABLE' &&
+      observation.reason === 'NO_LINKED_PACKAGES' &&
+      observation.effects.length === 0
+    if (
+      packageFree
+        ? !notApplicable
+        : observation.configuredPath === 'NOT_APPLICABLE' ||
+          observation.reason === 'NO_LINKED_PACKAGES'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability'],
+        message: 'Package-free observability is only valid when no packages are linked.',
+      })
+    }
+    if (!packageFree && observation.effects.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'effects'],
+        message: 'Linked packages require exact guest-visible effect evidence.',
+      })
+    }
+    const applyVersionIds = observation.effects.map(({ applyVersionId }) => applyVersionId)
+    if (new Set(applyVersionIds).size !== applyVersionIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'effects'],
+        message: 'Guest observability contains duplicate apply evidence.',
+      })
+    }
+    observation.effects.forEach((effect, index) => {
+      if (!packageIds.includes(effect.packageId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['guestObservability', 'effects', index, 'packageId'],
+          message: 'Guest observability references an unlinked package.',
+        })
+      }
+      if (effect.expectedGuestStateHash !== effect.observedGuestStateHash) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['guestObservability', 'effects', index, 'observedGuestStateHash'],
+          message: 'Observed guest state does not match the applied guest-visible state.',
+        })
+      }
+    })
+    const nativeIdentityPresent =
+      observation.releaseId !== null && observation.nativeStateHash !== null
+    if ((observation.configuredPath === 'NATIVE') !== nativeIdentityPresent) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guestObservability', 'nativeStateHash'],
+        message: 'Native observability requires one exact release and native state hash.',
       })
     }
   })
