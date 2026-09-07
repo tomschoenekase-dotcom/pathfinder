@@ -477,10 +477,12 @@ const approvedOperations = [
     hash: '46303d6622b41aff5fc44f7d2d9201ba9b6cfada52486596296c0ce5784a8056',
     policy: 'public-venue-id',
   },
+  // Public chat bootstrap is exact-venue scoped; slug and presentation/photo toggles do not grant
+  // tenant discovery or media approval authority.
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'faa1ef0aa5d4570ff4b33d05ac666ef03b8229afe03e94dec0e1980049012e36',
+    hash: '0ff40061b6629a12113dd50a970a6a4188af21409137ff429984df9c2ed2bd2d',
     policy: 'public-venue-id',
   },
   {

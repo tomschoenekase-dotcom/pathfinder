@@ -131,7 +131,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 218-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 219-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 243)
   assert.equal(EXPECTED.legacyAdoptionPredecessorCount, 214)
@@ -140,6 +140,8 @@ test('repository migration manifest remains frozen at the reviewed 218-file chai
   assert.equal(EXPECTED.mediaResolutionPredecessorPublicTableCount, 239)
   assert.equal(EXPECTED.mediaRelationPredecessorCount, 216)
   assert.equal(EXPECTED.mediaRelationPredecessorPublicTableCount, 240)
+  assert.equal(EXPECTED.prospectOnboardingPredecessorCount, 218)
+  assert.equal(EXPECTED.prospectOnboardingPredecessorPublicTableCount, 243)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -194,6 +196,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -207,6 +210,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -219,6 +223,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -230,7 +235,16 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     [
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.prospectOnboardingPredecessorCount), manifest),
+    'prospect-onboarding-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.prospectOnboardingPredecessorCount), manifest),
+    ['20260907021900_add_governed_guest_place_media_preferences'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
@@ -311,6 +325,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -342,6 +357,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -371,6 +387,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -399,6 +416,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -426,6 +444,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(
@@ -448,6 +467,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
@@ -464,6 +484,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     '20260907021600_add_media_relation_applications',
     '20260907021700_add_media_temporal_review_receipts',
     '20260907021800_add_prospect_onboarding_delivery_attempts',
+    '20260907021900_add_governed_guest_place_media_preferences',
   ])
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -483,6 +504,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -659,6 +681,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260907021600_add_media_relation_applications',
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
+      '20260907021900_add_governed_guest_place_media_preferences',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -739,6 +762,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260907021600_add_media_relation_applications',
     '20260907021700_add_media_temporal_review_receipts',
     '20260907021800_add_prospect_onboarding_delivery_attempts',
+    '20260907021900_add_governed_guest_place_media_preferences',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

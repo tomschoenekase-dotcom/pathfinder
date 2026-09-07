@@ -181,9 +181,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/support-knowledge-proposals.ts', 2],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],
-  // Human platform-admin-only prospect CRM reads/writes. Platform-owned prospect
-  // records stay outside tenant scope; conversion validates one exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 5],
+  // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
+  // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
+  // exact customer tenant+venue.
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 6],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],

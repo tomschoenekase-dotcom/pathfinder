@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-218-20260907',
+  approval: 'torchiko-staging-lineage-to-219-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 218,
+  migrationCount: 219,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -61,6 +61,10 @@ const EXPECTED = Object.freeze({
   mediaRelationPredecessorCount: 216,
   mediaRelationPredecessorPublicTableCount: 240,
   mediaRelationPredecessorFinalMigration: '20260907021600_add_media_relation_applications',
+  prospectOnboardingPredecessorCount: 218,
+  prospectOnboardingPredecessorPublicTableCount: 243,
+  prospectOnboardingPredecessorFinalMigration:
+    '20260907021800_add_prospect_onboarding_delivery_attempts',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -80,9 +84,9 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907021800_add_prospect_onboarding_delivery_attempts',
-  manifestHash: '17ea3a9b7990679e6fd67132f7629a71f84463115a6f12788f5a9bff01e330c7',
-  // The 77-migration suffix after B.5 adds 50 public tables.
+  finalMigration: '20260907021900_add_governed_guest_place_media_preferences',
+  manifestHash: 'e94eca583f84d863b08c08bdbcdce12be8c8737dd2ef543eb07238dfcec0ad11',
+  // The 78-migration suffix after B.5 adds 50 public tables.
   finalPublicTableCount: 243,
 })
 
@@ -295,6 +299,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('media relation predecessor migration changed')
   }
+  if (
+    manifest.names[EXPECTED.prospectOnboardingPredecessorCount - 1] !==
+    EXPECTED.prospectOnboardingPredecessorFinalMigration
+  ) {
+    fail('prospect onboarding predecessor migration changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -320,6 +330,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.legacyAdoptionPredecessorCount &&
     rows.length !== EXPECTED.mediaResolutionPredecessorCount &&
     rows.length !== EXPECTED.mediaRelationPredecessorCount &&
+    rows.length !== EXPECTED.prospectOnboardingPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -372,6 +383,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.mediaResolutionPredecessorCount)
     return 'media-resolution-predecessor'
   if (rows.length === EXPECTED.mediaRelationPredecessorCount) return 'media-relation-predecessor'
+  if (rows.length === EXPECTED.prospectOnboardingPredecessorCount)
+    return 'prospect-onboarding-predecessor'
   return 'complete'
 }
 
@@ -550,7 +563,9 @@ async function main() {
                                           ? EXPECTED.mediaResolutionPredecessorPublicTableCount
                                           : initialState === 'media-relation-predecessor'
                                             ? EXPECTED.mediaRelationPredecessorPublicTableCount
-                                            : EXPECTED.stagingBaselinePublicTableCount
+                                            : initialState === 'prospect-onboarding-predecessor'
+                                              ? EXPECTED.prospectOnboardingPredecessorPublicTableCount
+                                              : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
