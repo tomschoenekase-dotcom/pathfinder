@@ -2,16 +2,19 @@
  * Versioned gates for deterministic local fixtures. These figures are deliberately
  * not service SLOs: they do not exercise a provider, database, or real retrieval.
  *
- * Calibration source: local-fixture-baseline.v1.json (2026-09-07, local Next
- * development server, Chromium, three samples). The thresholds leave room for
- * local variance while making material route, asset, and main-thread regressions
- * executable failures.
+ * Visitor calibration: local-fixture-baseline.v2.json; unchanged dashboard
+ * calibration: local-fixture-baseline.v1.json (2026-09-07, local Next development
+ * server, Chromium). These thresholds detect local regressions. In particular,
+ * the weak-4G allowance does not establish acceptable production visitor UX.
  */
 export const LOCAL_FIXTURE_PERFORMANCE_BUDGETS = {
-  version: 1,
-  calibrationArtifact: 'tests/performance/local-fixture-baseline.v1.json',
+  version: 2,
+  calibrationArtifact: 'tests/performance/local-fixture-baseline.v2.json',
   visitor: {
-    interactionReadyP95Ms: 2_500,
+    interactionReadyP95Ms: {
+      unthrottled: 2_500,
+      'weak-4g': 35_000,
+    },
     resourceTransferBytes: 6_000_000,
     // The baseline loads no external images. This is an explicit future-asset
     // allowance, not an image weight derived from an observed image baseline.
@@ -25,6 +28,9 @@ export const LOCAL_FIXTURE_PERFORMANCE_BUDGETS = {
     longestTaskMs: 600,
   },
 } as const
+
+export type VisitorNetworkProfile =
+  keyof typeof LOCAL_FIXTURE_PERFORMANCE_BUDGETS.visitor.interactionReadyP95Ms
 
 type ResourceAggregate = { requests: number; transferBytes: number }
 type LongTasks = { count: number; totalDurationMs: number; longestMs: number }
@@ -146,13 +152,20 @@ function hasDashboardMetrics(sample: unknown): sample is DashboardPerformanceSam
   )
 }
 
-export function assertVisitorLocalFixturePerformanceBudget(
+export function assertVisitorBudget(
   samples: VisitorPerformanceSample[],
+  networkProfile: string,
 ): void {
+  if (
+    !Object.hasOwn(LOCAL_FIXTURE_PERFORMANCE_BUDGETS.visitor.interactionReadyP95Ms, networkProfile)
+  )
+    fail('visitor-network-profile-unknown')
   if (samples.length < 3 || !samples.every(hasVisitorMetrics)) fail('visitor-metrics-incomplete')
 
   const budget = LOCAL_FIXTURE_PERFORMANCE_BUDGETS.visitor
-  if (p95(samples.map((sample) => sample.interactionReadyMs)) > budget.interactionReadyP95Ms) {
+  const interactionReadyP95Ms =
+    budget.interactionReadyP95Ms[networkProfile as VisitorNetworkProfile]
+  if (p95(samples.map((sample) => sample.interactionReadyMs)) > interactionReadyP95Ms) {
     fail('visitor-interaction-ready-budget-exceeded')
   }
   if (samples.some((sample) => sample.allResources.transferBytes > budget.resourceTransferBytes)) {

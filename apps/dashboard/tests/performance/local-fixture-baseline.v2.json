@@ -1,0 +1,330 @@
+{
+  "schemaVersion": 2,
+  "recordedAt": "2026-09-07T20:04:26.8522916Z",
+  "policyVersion": 2,
+  "calibration": {
+    "source": "VISITOR_PERFORMANCE_METRICS console records from the local Playwright command below",
+    "command": "VISITOR_PERFORMANCE_SAMPLES=3 playwright test --config playwright.visitor-performance.config.ts --project mobile-unthrottled --project mobile-weak-4g",
+    "readinessDefinition": "React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked."
+  },
+  "environment": {
+    "server": "local Next development server on http://127.0.0.1:3000",
+    "browser": "local Playwright Chromium",
+    "limits": [
+      "These are deterministic local-development fixture regression measurements, not production SLOs or retrieval latency measurements.",
+      "The weak-4G 35000 ms allowance is a local variance gate and does not establish acceptable production visitor UX.",
+      "The visitor fixture sends zero chat requests and has no provider or database retrieval.",
+      "Version 1 measured DOM-visible/enabled composer readiness and is preserved only as historical evidence; version 2 supersedes that readiness definition with a React-controlled draft round trip."
+    ]
+  },
+  "policy": {
+    "visitorInteractionReadyP95Ms": {
+      "unthrottled": 2500,
+      "weak-4g": 35000
+    },
+    "calibrationRationale": {
+      "unthrottled": "Observed p95 1114 ms; 2500 ms local-development ceiling.",
+      "weak-4g": "Observed p95 26113 ms; 35000 ms local-development ceiling with approximately 35 percent variance headroom."
+    }
+  },
+  "visitor": {
+    "unthrottled": {
+      "schemaVersion": 3,
+      "readinessDefinition": "React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked.",
+      "measuredAt": "2026-09-07T20:02:03.303Z",
+      "revision": null,
+      "networkProfile": "unthrottled",
+      "networkConditions": null,
+      "sampleCount": 3,
+      "url": "http://127.0.0.1:3000/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "chatRequestsSent": 0,
+      "interactionReadyMs": {
+        "minimum": 1069,
+        "p50": 1108,
+        "p95": 1114,
+        "maximum": 1114
+      },
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "samples": [
+        {
+          "interactionReadyMs": 1108,
+          "navigation": {
+            "responseStartMs": 75,
+            "domContentLoadedMs": 142,
+            "loadEventMs": 835,
+            "documentTransferBytes": 9815,
+            "documentEncodedBodyBytes": 9515
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 245,
+            "longestMs": 245
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 1069,
+          "navigation": {
+            "responseStartMs": 51,
+            "domContentLoadedMs": 64,
+            "loadEventMs": 782,
+            "documentTransferBytes": 9820,
+            "documentEncodedBodyBytes": 9520
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 235,
+            "longestMs": 235
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 1114,
+          "navigation": {
+            "responseStartMs": 53,
+            "domContentLoadedMs": 66,
+            "loadEventMs": 834,
+            "documentTransferBytes": 9817,
+            "documentEncodedBodyBytes": 9517
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 252,
+            "longestMs": 252
+          },
+          "chatRequestsSent": 0
+        }
+      ]
+    },
+    "weak-4g": {
+      "schemaVersion": 3,
+      "readinessDefinition": "React-controlled composer draft round trip: send is initially disabled, becomes enabled after a nonempty probe, then becomes disabled after clearing; no submit action is invoked.",
+      "measuredAt": "2026-09-07T20:03:25.658Z",
+      "revision": null,
+      "networkProfile": "weak-4g",
+      "networkConditions": {
+        "latencyMs": 150,
+        "downloadMbps": 1.6,
+        "uploadKbps": 750
+      },
+      "sampleCount": 3,
+      "url": "http://127.0.0.1:3000/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&network=online&language=English",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "chatRequestsSent": 0,
+      "interactionReadyMs": {
+        "minimum": 26087,
+        "p50": 26089,
+        "p95": 26113,
+        "maximum": 26113
+      },
+      "streamingTtft": {
+        "measured": false,
+        "reason": "Guest chat supports SSE token streaming and records provider/request first-text timing, but this provider-dark readiness run intentionally sends zero chat requests."
+      },
+      "samples": [
+        {
+          "interactionReadyMs": 26087,
+          "navigation": {
+            "responseStartMs": 71,
+            "domContentLoadedMs": 714,
+            "loadEventMs": 25792,
+            "documentTransferBytes": 9817,
+            "documentEncodedBodyBytes": 9517
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 268,
+            "longestMs": 268
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 26089,
+          "navigation": {
+            "responseStartMs": 56,
+            "domContentLoadedMs": 724,
+            "loadEventMs": 25795,
+            "documentTransferBytes": 9819,
+            "documentEncodedBodyBytes": 9519
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 288,
+            "longestMs": 288
+          },
+          "chatRequestsSent": 0
+        },
+        {
+          "interactionReadyMs": 26113,
+          "navigation": {
+            "responseStartMs": 54,
+            "domContentLoadedMs": 707,
+            "loadEventMs": 25840,
+            "documentTransferBytes": 9817,
+            "documentEncodedBodyBytes": 9517
+          },
+          "allResources": {
+            "requests": 11,
+            "transferBytes": 5195322,
+            "encodedBodyBytes": 5192022,
+            "decodedBodyBytes": 23586142
+          },
+          "scripts": {
+            "requests": 7,
+            "transferBytes": 5124612,
+            "encodedBodyBytes": 5122512,
+            "decodedBodyBytes": 23329924
+          },
+          "styles": {
+            "requests": 3,
+            "transferBytes": 41848,
+            "encodedBodyBytes": 40948,
+            "decodedBodyBytes": 113580
+          },
+          "images": {
+            "requests": 0,
+            "transferBytes": 0,
+            "encodedBodyBytes": 0,
+            "decodedBodyBytes": 0
+          },
+          "longTasks": {
+            "count": 1,
+            "totalDurationMs": 285,
+            "longestMs": 285
+          },
+          "chatRequestsSent": 0
+        }
+      ]
+    }
+  }
+}
