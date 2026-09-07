@@ -8,19 +8,28 @@ const mocks = vi.hoisted(() => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
   publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   rateLimit: vi.fn().mockResolvedValue(true),
+  nativeSnapshot: vi
+    .fn()
+    .mockResolvedValue({ path: 'LEGACY', reason: 'SERVER_DISABLED', releaseId: null, state: null }),
 }))
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
   publishOperationalEvent: mocks.publishOperationalEvent,
   resolveProductEntitlement: mocks.entitlement,
+  resolveNativeGuestReadSnapshotAction: mocks.nativeSnapshot,
+  applyNativeGuestContentRead: vi.fn((input) => ({
+    path: input.snapshot.path,
+    places: input.legacyPlaces,
+    knowledgeEntries: input.legacyKnowledgeEntries,
+  })),
 }))
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: mocks.emitEvent }))
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: mocks.rateLimit }))
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
-import { _setVoiceProviderAdapterForTesting, voiceRouter } from './voice'
+import { _setVoiceProviderAdapterForTesting, composeVoiceInstructions, voiceRouter } from './voice'
 
 const VENUE_ID = 'venue-1'
 const TOKEN = '123e4567-e89b-12d3-a456-426614174000'
@@ -151,7 +160,7 @@ describe('voice router', () => {
     )
   })
 
-  it('authorizes a public, entitled, quota-admitted session with tenant-scoped retrieval', async () => {
+  it('authorizes a public, entitled, quota-admitted session without freezing a recency snapshot', async () => {
     const result = await caller.voice.start({
       venueId: VENUE_ID,
       anonymousToken: TOKEN,
@@ -166,15 +175,7 @@ describe('voice router', () => {
       maxDurationSeconds: 600,
     })
     expect(result).not.toEqual(expect.objectContaining({ apiKey: expect.anything() }))
-    expect(dbMocks.knowledge).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          tenantId: 'tenant-1',
-          venueId: VENUE_ID,
-          visibility: 'PUBLIC',
-        }),
-      }),
-    )
+    expect(dbMocks.knowledge).not.toHaveBeenCalled()
     expect(dbMocks.voiceCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -189,6 +190,54 @@ describe('voice router', () => {
       expect.objectContaining({
         apiKey: 'sk-server-only',
         safetyIdentifier: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        instructions: expect.stringContaining('lookup_venue_knowledge'),
+      }),
+    )
+  })
+
+  it('retains mandatory grounding policy when venue notes are extremely long', () => {
+    const instructions = composeVoiceInstructions({
+      staticPart: `Museum\n${'guide '.repeat(20_000)}`,
+      dynamicPart: 'session '.repeat(20_000),
+    })
+    expect(instructions).toContain('VOICE INTERFACE (MANDATORY)')
+    expect(instructions).toContain('lookup_venue_knowledge')
+    expect(instructions.length).toBeLessThan(17_000)
+  })
+
+  it('retrieves current scoped public knowledge only for an active owned voice session', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    dbMocks.knowledge.mockResolvedValue([
+      {
+        id: 'bathroom',
+        title: 'Accessible bathrooms',
+        category: 'accessibility',
+        content: 'The accessible bathroom is beside the east lift.',
+        sourceType: 'FOUNDER_PROVIDED',
+        sourceName: null,
+        sourceUrl: null,
+        updatedAt: new Date(),
+        lastReviewedAt: null,
+      },
+    ])
+    const result = await caller.voice.groundingContext({
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'call-bathroom',
+      query: 'Where is the accessible bathroom?',
+    })
+    expect(result.toolCallId).toBe('call-bathroom')
+    expect(result.context).toContain('east lift')
+    expect(result.sourceIds).toEqual(['bathroom'])
+    expect(dbMocks.knowledge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1', venueId: VENUE_ID }),
       }),
     )
   })

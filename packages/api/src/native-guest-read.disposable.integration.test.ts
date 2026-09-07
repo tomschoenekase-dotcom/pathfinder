@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import type { Prisma } from '@prisma/client'
 
 import type { AnthropicMessagesClient } from '@pathfinder/ai'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
+import type { NativeCoreVisibleState } from '@pathfinder/contracts'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
@@ -47,6 +49,7 @@ import {
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
   recordNativeDeploymentEvaluationEvidenceAction,
+  resolveNativeGuestReadSnapshotAction,
   revertNativeVenueDeploymentAction,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
@@ -59,6 +62,7 @@ import { router } from './core'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
 import { createSafeOperationalMcpRegistry } from './mcp/composition'
+import { buildVoiceGroundingContext } from './lib/voice-grounding-context'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
@@ -181,6 +185,20 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       })
 
       const projected = await projectNativeVenueStateAction(db, { tenantId, venueId })
+      const projectedState = projected.state as NativeCoreVisibleState
+      const desiredState = {
+        ...projectedState,
+        places: projectedState.places.map((item) =>
+          item.id === publicPlaceId
+            ? { ...item, shortDescription: 'Native override: public gallery arrival point.' }
+            : item,
+        ),
+        knowledgeEntries: projectedState.knowledgeEntries.map((item) =>
+          item.id === publicKnowledgeId
+            ? { ...item, content: 'Native override: use the east entrance.' }
+            : item,
+        ),
+      }
       const release = await createNativeVenueDeploymentAction(
         {
           tenantId,
@@ -201,8 +219,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             },
             venue: projected.state.venue,
             venueBotConfiguration: projected.state.venueBotConfiguration,
-            places: projected.state.places,
-            knowledgeEntries: projected.state.knowledgeEntries,
+            places: desiredState.places,
+            knowledgeEntries: desiredState.knowledgeEntries,
             generalizedModules: projected.state.generalizedModules,
             items: [],
             assets: [],
@@ -262,8 +280,8 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             requestedCases: 1,
             contentSnapshotSchemaVersion: 'pathfinder-native-evaluation-content-v1',
             contentComponentCounts: {
-              places: projected.state.places.length,
-              knowledgeEntries: projected.state.knowledgeEntries.length,
+              places: desiredState.places.length,
+              knowledgeEntries: desiredState.knowledgeEntries.length,
               generalizedModules: projected.state.generalizedModules.length,
             },
             contentSnapshot: {
@@ -271,7 +289,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
               tenantId,
               venueId,
               releaseId: release.id,
-              state: projected.state,
+              state: JSON.parse(JSON.stringify(desiredState)) as Prisma.InputJsonValue,
             },
           },
           declaredBudgetCeilingE8Usd: 0n,
@@ -506,6 +524,88 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         },
       })
 
+      // Voice uses the same exact applied native snapshot while querying the
+      // current scoped relational indexes on every factual turn.
+      const now = new Date()
+      await db.operationalUpdate.createMany({
+        data: [
+          {
+            id: `update-public-${suffix}`,
+            tenantId,
+            venueId,
+            severity: 'INFO',
+            priority: 'HIGH',
+            title: 'Arrival closure',
+            body: 'The west entrance is closed today.',
+            startsAt: new Date(now.getTime() - 60_000),
+            expiresAt: new Date(now.getTime() + 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+          {
+            id: `update-internal-${suffix}`,
+            tenantId,
+            venueId,
+            placeId: employeePlaceId,
+            severity: 'INFO',
+            title: 'Staff arrival secret',
+            body: 'Internal route only.',
+            startsAt: new Date(now.getTime() - 60_000),
+            expiresAt: new Date(now.getTime() + 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+          {
+            id: `update-expired-${suffix}`,
+            tenantId,
+            venueId,
+            severity: 'INFO',
+            title: 'Expired arrival notice',
+            body: 'Obsolete route.',
+            startsAt: new Date(now.getTime() - 120_000),
+            expiresAt: new Date(now.getTime() - 60_000),
+            status: 'PUBLISHED',
+            isActive: true,
+            createdBy: actor.id,
+            publishedBy: actor.id,
+            publishedAt: now,
+          },
+        ],
+      })
+      const voiceGrounding = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: 'What is the native public arrival gallery update?',
+        asOf: now,
+        nativeSnapshot: await resolveNativeGuestReadSnapshotAction({
+          client: db,
+          tenantId,
+          venueId,
+        }),
+      })
+      expect(voiceGrounding.context).toContain('Native override: use the east entrance.')
+      expect(voiceGrounding.context).toContain('Native Public Gallery')
+      expect(voiceGrounding.context).toContain('Native override: public gallery arrival point.')
+      expect(voiceGrounding.context).toContain('west entrance is closed today')
+      expect(voiceGrounding.context).not.toContain('Public semantic native knowledge says')
+      expect(voiceGrounding.context).not.toContain('Staff arrival secret')
+      expect(voiceGrounding.context).not.toContain('Expired arrival notice')
+      expect(voiceGrounding.provider.called).toBe(false)
+      expect(voiceGrounding.nativeProjection).toMatchObject({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: release.id,
+        stateHash: release.desiredStateHash,
+      })
+      expect(voiceGrounding.trace.finalIncludedSourceIds).toEqual(voiceGrounding.sourceIds)
+
       const anthropicCreate = vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: 'Provider-dark guest response.' }],
         usage: {
@@ -698,9 +798,7 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       await send({})
       expect(latestPrompt()).toContain('Native Public Gallery')
       expect(latestPrompt()).toContain('Native Public Arrival Guide')
-      expect(latestPrompt()).toContain(
-        'Public semantic native knowledge says to use the east entrance.',
-      )
+      expect(latestPrompt()).toContain('Native override: use the east entrance.')
       expect(latestPrompt()).not.toContain('Native Staff Room')
       expect(latestPrompt()).not.toContain('Native Staff Arrival Procedure')
       expect(logger.info).toHaveBeenLastCalledWith(

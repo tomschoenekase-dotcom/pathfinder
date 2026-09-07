@@ -34,6 +34,7 @@ async function run() {
         'mcp-readiness-preflight',
         'mcp-capability-scope',
         'mcp-preflight-secret-boundary',
+        'voice-per-turn-native-place-knowledge-current-update-grounding',
       ],
       integration: {
         packageDirectory: 'packages/api',

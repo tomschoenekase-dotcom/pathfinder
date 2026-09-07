@@ -204,6 +204,11 @@ export function VoiceControl({
   const playedResponseIdsRef = useRef(new Set<string>())
   const generatingResponseIdsRef = useRef(new Set<string>())
   const finalizedResponseIdsRef = useRef(new Set<string>())
+  const pendingGroundingCallsRef = useRef(new Set<string>())
+  const completedGroundingCallsRef = useRef(new Set<string>())
+  const groundingTurnRef = useRef(0)
+  const groundingContinuedResponsesRef = useRef(new Set<string>())
+  const handledGroundingResponsesRef = useRef(new Set<string>())
   const onCharacterStateRef = useRef(onCharacterState)
   onCharacterStateRef.current = onCharacterState
   const scopeKey = JSON.stringify([venueId, anonymousToken])
@@ -240,6 +245,11 @@ export function VoiceControl({
     playedResponseIdsRef.current.clear()
     generatingResponseIdsRef.current.clear()
     finalizedResponseIdsRef.current.clear()
+    pendingGroundingCallsRef.current.clear()
+    completedGroundingCallsRef.current.clear()
+    groundingTurnRef.current += 1
+    groundingContinuedResponsesRef.current.clear()
+    handledGroundingResponsesRef.current.clear()
   }, [])
 
   const closeRemoteSession = useCallback(
@@ -448,6 +458,8 @@ export function VoiceControl({
         const type = typeof event.type === 'string' ? event.type : ''
         const eventId = typeof event.event_id === 'string' ? event.event_id : crypto.randomUUID()
         if (type === 'input_audio_buffer.speech_started') {
+          groundingTurnRef.current += 1
+          pendingGroundingCallsRef.current.clear()
           const responseId = activeResponseIdRef.current
           if (responseId && channelRef.current) {
             interruptedResponseIdsRef.current.add(responseId)
@@ -474,8 +486,122 @@ export function VoiceControl({
         ) {
           setVoiceState('speaking')
         } else if (type === 'response.done') {
-          const response = event.response as { id?: unknown } | undefined
-          if (typeof response?.id === 'string') generatingResponseIdsRef.current.delete(response.id)
+          const response = event.response as
+            | { id?: unknown; status?: unknown; output?: unknown }
+            | undefined
+          if (typeof response?.id === 'string') {
+            generatingResponseIdsRef.current.delete(response.id)
+            if (response.status !== 'completed') {
+              interruptedResponseIdsRef.current.add(response.id)
+              saveUsage(event, eventId)
+              return
+            }
+            if (handledGroundingResponsesRef.current.has(response.id)) {
+              saveUsage(event, eventId)
+              return
+            }
+            handledGroundingResponsesRef.current.add(response.id)
+            const callCandidates = (Array.isArray(response.output) ? response.output : [])
+              .filter(
+                (item): item is Record<string, unknown> =>
+                  Boolean(item) && typeof item === 'object',
+              )
+              .filter(
+                (item) => item.type === 'function_call' && item.name === 'lookup_venue_knowledge',
+              )
+              .filter(
+                (item) => typeof item.call_id === 'string' && typeof item.arguments === 'string',
+              )
+            const calls = [
+              ...new Map(callCandidates.map((item) => [item.call_id as string, item])).values(),
+            ]
+            if (calls.length && !interruptedResponseIdsRef.current.has(response.id)) {
+              const generation = lifecycleGenerationRef.current
+              const groundingTurn = groundingTurnRef.current
+              const voiceSessionId = sessionIdRef.current
+              if (!voiceSessionId || !anonymousToken) return
+              const freshCalls = calls.slice(0, 3).filter((item) => {
+                const callId = item.call_id as string
+                if (
+                  pendingGroundingCallsRef.current.has(callId) ||
+                  completedGroundingCallsRef.current.has(callId)
+                )
+                  return false
+                pendingGroundingCallsRef.current.add(callId)
+                return true
+              })
+              const overflowOutputs = calls.slice(3).map((item) => ({
+                callId: item.call_id as string,
+                output: { grounded: false, context: '', error: 'GROUNDING_CALL_LIMIT_EXCEEDED' },
+              }))
+              void Promise.all(
+                freshCalls.map(async (item) => {
+                  const callId = item.call_id as string
+                  let query = ''
+                  try {
+                    const args = JSON.parse(item.arguments as string) as { query?: unknown }
+                    query = typeof args.query === 'string' ? args.query : ''
+                  } catch {
+                    query = ''
+                  }
+                  try {
+                    const result = await client.voice.groundingContext.mutate({
+                      venueId,
+                      anonymousToken,
+                      voiceSessionId,
+                      toolCallId: callId,
+                      query,
+                    })
+                    return {
+                      callId,
+                      output: {
+                        grounded: result.context.length > 0,
+                        context: result.context,
+                        sourceIds: result.sourceIds,
+                      },
+                    }
+                  } catch {
+                    return {
+                      callId,
+                      output: { grounded: false, context: '', error: 'GROUNDING_UNAVAILABLE' },
+                    }
+                  } finally {
+                    pendingGroundingCallsRef.current.delete(callId)
+                  }
+                }),
+              )
+                .then((groundedOutputs) => {
+                  const outputs = [...groundedOutputs, ...overflowOutputs]
+                  if (
+                    !outputs.length ||
+                    lifecycleGenerationRef.current !== generation ||
+                    groundingTurnRef.current !== groundingTurn ||
+                    sessionIdRef.current !== voiceSessionId ||
+                    channelRef.current?.readyState !== 'open' ||
+                    interruptedResponseIdsRef.current.has(response.id as string)
+                  )
+                    return
+                  for (const output of outputs) {
+                    channelRef.current.send(
+                      JSON.stringify({
+                        type: 'conversation.item.create',
+                        item: {
+                          type: 'function_call_output',
+                          call_id: output.callId,
+                          output: JSON.stringify(output.output),
+                        },
+                      }),
+                    )
+                    completedGroundingCallsRef.current.add(output.callId)
+                  }
+                  if (!groundingContinuedResponsesRef.current.has(response.id as string)) {
+                    groundingContinuedResponsesRef.current.add(response.id as string)
+                    channelRef.current.send(JSON.stringify({ type: 'response.create' }))
+                  }
+                })
+                .catch(() => undefined)
+            }
+          }
           saveUsage(event, eventId)
         } else if (type === 'conversation.item.input_audio_transcription.completed') {
           saveTranscript('VISITOR', String(event.transcript ?? ''), eventId)
@@ -524,7 +650,16 @@ export function VoiceControl({
         // Ignore provider events this client version does not understand.
       }
     },
-    [endSession, finishAssistantTranscript, saveTranscript, saveUsage, setVoiceState],
+    [
+      anonymousToken,
+      client.voice.groundingContext,
+      endSession,
+      finishAssistantTranscript,
+      saveTranscript,
+      saveUsage,
+      setVoiceState,
+      venueId,
+    ],
   )
 
   async function startSession() {
@@ -647,7 +782,32 @@ export function VoiceControl({
         if (isCurrentAttempt() && channelRef.current === channel) handleProviderEvent(event)
       })
       channel.addEventListener('open', () => {
-        if (isCurrentAttempt() && channelRef.current === channel) setVoiceState('listening')
+        if (isCurrentAttempt() && channelRef.current === channel) {
+          channel.send?.(
+            JSON.stringify({
+              type: 'session.update',
+              session: {
+                type: 'realtime',
+                tool_choice: 'auto',
+                tools: [
+                  {
+                    type: 'function',
+                    name: 'lookup_venue_knowledge',
+                    description:
+                      'Look up current public venue facts for the visitor question. Required before answering venue-specific factual questions.',
+                    parameters: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: { query: { type: 'string', minLength: 2, maxLength: 500 } },
+                      required: ['query'],
+                    },
+                  },
+                ],
+              },
+            }),
+          )
+          setVoiceState('listening')
+        }
       })
       channel.addEventListener('close', () => {
         if (isCurrentAttempt() && channelRef.current === channel && sessionIdRef.current) {

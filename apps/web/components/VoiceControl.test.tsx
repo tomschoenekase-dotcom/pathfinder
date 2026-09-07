@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   connected: vi.fn(),
   transcript: vi.fn(),
   usage: vi.fn(),
+  groundingContext: vi.fn(),
   end: vi.fn(),
   getUserMedia: vi.fn(),
 }))
@@ -21,6 +22,7 @@ vi.mock('../lib/trpc', () => {
       connected: { mutate: mocks.connected },
       transcript: { mutate: mocks.transcript },
       usage: { mutate: mocks.usage },
+      groundingContext: { mutate: mocks.groundingContext },
       end: { mutate: mocks.end },
     },
   }
@@ -50,6 +52,10 @@ describe('VoiceControl', () => {
     })
     vi.stubGlobal('RTCPeerConnection', class {})
     vi.stubGlobal('React', React)
+    mocks.groundingContext.mockResolvedValue({
+      context: '[Bathrooms]\nBeside the east lift.',
+      sourceIds: ['bathroom'],
+    })
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
   })
   afterEach(() => {
@@ -462,11 +468,23 @@ describe('VoiceControl', () => {
           transcript: 'A retired turn.',
         }),
       } as MessageEvent<string>)
+      channelListeners[0]!.get('message')?.({
+        data: JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            name: 'lookup_venue_knowledge',
+            call_id: 'retired-call',
+            arguments: JSON.stringify({ query: 'private?' }),
+          },
+        }),
+      } as MessageEvent<string>)
       channelListeners[0]!.get('close')?.()
     })
 
     expect(mocks.end).toHaveBeenCalledOnce()
     expect(mocks.transcript).not.toHaveBeenCalled()
+    expect(mocks.groundingContext).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toContain('Listening')
   })
 
@@ -490,7 +508,11 @@ describe('VoiceControl', () => {
     }
     mocks.getUserMedia.mockResolvedValue({ getTracks: () => [track] } as unknown as MediaStream)
     const listeners = new Map<string, (event: MessageEvent<string>) => void>()
-    const send = vi.fn()
+    const send = vi.fn((value: string) => {
+      if ((JSON.parse(value) as { type?: string }).type === 'response.create') {
+        throw new Error('simulated closed-channel send')
+      }
+    })
     const closeChannel = vi.fn()
     const channel = {
       readyState: 'open',
@@ -528,7 +550,145 @@ describe('VoiceControl', () => {
         response: { id: 'response-1' },
       })
       providerEvent({ type: 'response.output_audio.delta', event_id: 'audio-1' })
+      providerEvent({
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          name: 'lookup_venue_knowledge',
+          call_id: 'call-1',
+          arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+        },
+      })
+      providerEvent({
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          name: 'lookup_venue_knowledge',
+          call_id: 'call-1',
+          arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+        },
+      })
+      providerEvent({
+        type: 'response.output_item.done',
+        response_id: 'response-1',
+        item: {
+          type: 'function_call',
+          name: 'lookup_venue_knowledge',
+          call_id: 'call-2',
+          arguments: JSON.stringify({ query: 'Is there step-free access?' }),
+        },
+      })
+    })
+    expect(
+      send.mock.calls.some(([value]) => JSON.parse(value as string).type === 'response.create'),
+    ).toBe(false)
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'response-1',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-1',
+              arguments: JSON.stringify({ query: 'Where is the bathroom?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-2',
+              arguments: JSON.stringify({ query: 'Is there step-free access?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-3',
+              arguments: JSON.stringify({ query: 'What are today’s hours?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-4',
+              arguments: JSON.stringify({ query: 'Where is the cafe?' }),
+            },
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-1',
+              arguments: JSON.stringify({ query: 'duplicate' }),
+            },
+          ],
+        },
+      }),
+    )
+    await waitFor(() => expect(mocks.groundingContext).toHaveBeenCalledTimes(3))
+    await waitFor(() =>
+      expect(
+        send.mock.calls.filter(([value]) => JSON.parse(value as string).type === 'response.create'),
+      ).toHaveLength(1),
+    )
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+      type: 'conversation.item.create',
+      item: {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: JSON.stringify({
+          grounded: true,
+          context: '[Bathrooms]\nBeside the east lift.',
+          sourceIds: ['bathroom'],
+        }),
+      },
+    })
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+      type: 'conversation.item.create',
+      item: {
+        type: 'function_call_output',
+        call_id: 'call-4',
+        output: JSON.stringify({
+          grounded: false,
+          context: '',
+          error: 'GROUNDING_CALL_LIMIT_EXCEEDED',
+        }),
+      },
+    })
+
+    let resolveLate!: (value: { context: string; sourceIds: string[] }) => void
+    mocks.groundingContext.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLate = resolve
+      }),
+    )
+    act(() => {
+      providerEvent({ type: 'response.created', response: { id: 'response-2' } })
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'response-2',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-late',
+              arguments: JSON.stringify({ query: 'What time does it close?' }),
+            },
+          ],
+        },
+      })
+      providerEvent({ type: 'response.created', response: { id: 'response-3' } })
       providerEvent({ type: 'input_audio_buffer.speech_started', event_id: 'speech-1' })
+      providerEvent({
+        type: 'response.output_item.done',
+        response_id: 'response-2',
+        item: {
+          type: 'function_call',
+          name: 'lookup_venue_knowledge',
+          call_id: 'call-after-interrupt',
+          arguments: JSON.stringify({ query: 'This call is stale.' }),
+        },
+      })
       providerEvent({
         type: 'output_audio_buffer.cleared',
         event_id: 'clear-1',
@@ -542,10 +702,43 @@ describe('VoiceControl', () => {
       })
     })
 
-    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
-      { type: 'response.cancel', response_id: 'response-1' },
-      { type: 'output_audio_buffer.clear' },
-    ])
+    await act(async () => {
+      resolveLate({ context: '[Hours]\nFive.', sourceIds: ['hours'] })
+      await Promise.resolve()
+    })
+    act(() =>
+      providerEvent({ type: 'response.done', response: { id: 'response-3', status: 'cancelled' } }),
+    )
+    act(() =>
+      providerEvent({
+        type: 'response.done',
+        response: {
+          id: 'response-2',
+          status: 'completed',
+          output: [
+            {
+              type: 'function_call',
+              name: 'lookup_venue_knowledge',
+              call_id: 'call-late',
+              arguments: JSON.stringify({ query: 'duplicate old response' }),
+            },
+          ],
+        },
+      }),
+    )
+    expect(send.mock.calls.some(([value]) => String(value).includes('call-late'))).toBe(false)
+    expect(mocks.groundingContext).toHaveBeenCalledTimes(4)
+    expect(
+      send.mock.calls.filter(([value]) => JSON.parse(value as string).type === 'response.create'),
+    ).toHaveLength(1)
+
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+      type: 'response.cancel',
+      response_id: 'response-3',
+    })
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual({
+      type: 'output_audio_buffer.clear',
+    })
     expect(await screen.findByText('(interrupted)')).toBeTruthy()
     expect(mocks.transcript).toHaveBeenCalledWith(
       expect.objectContaining({

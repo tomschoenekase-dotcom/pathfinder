@@ -32,6 +32,11 @@ export const VoiceSessionStartInput = z
 
 export const VoiceSessionConnectedInput = VoiceSessionIdentity
 
+export const VoiceGroundingInput = VoiceSessionIdentity.extend({
+  toolCallId: z.string().trim().min(1).max(191),
+  query: z.string().trim().min(2).max(500),
+}).strict()
+
 export const VoiceTranscriptSegmentInput = VoiceSessionIdentity.extend({
   providerEventId: z.string().trim().min(1).max(191),
   sequence: z.number().int().min(0).max(100_000),
