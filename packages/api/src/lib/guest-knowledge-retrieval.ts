@@ -52,10 +52,36 @@ const STOP_WORDS = new Set([
 const CONCEPTS: readonly (readonly string[])[] = [
   ['capacity', 'occupancy', 'occupants', 'visitors', 'guests', 'fit', 'hold', 'aforo', 'caben'],
   ['photo', 'photos', 'photography', 'camera', 'pictures', 'fotografia', 'fotografía', 'fotos'],
-  ['hours', 'opening', 'closing', 'open', 'close', 'horario', 'abre', 'cierra'],
+  [
+    'hours',
+    'opening',
+    'closing',
+    'open',
+    'close',
+    'horario',
+    'abre',
+    'cierra',
+    '营业时间',
+    '开放时间',
+    '営業時間',
+    '開館時間',
+  ],
   ['bag', 'bags', 'backpack', 'luggage', 'bolsa', 'mochila', 'equipaje'],
   ['gallery', 'galeria', 'galería', 'galerie'],
   ['north', 'norte', 'nord'],
+  [
+    'restroom',
+    'restrooms',
+    'bathroom',
+    'bathrooms',
+    'toilet',
+    'toilets',
+    'wc',
+    '厕所',
+    '洗手间',
+    'トイレ',
+    'お手洗い',
+  ],
 ] as const
 
 export type GuestKnowledgeReader = {
@@ -122,13 +148,30 @@ function normalize(value: string): string {
 
 function termsForQuery(query: string): string[][] {
   const tokens = [...new Set(normalize(query).match(/[\p{L}\p{N}]+/gu) ?? [])]
-    .filter((token) => token.length > 2 && !STOP_WORDS.has(token))
+    .map((token) => ({
+      token,
+      concepts: CONCEPTS.filter((items) =>
+        items.some((item) => {
+          const term = normalize(item)
+          return (
+            term === token ||
+            (/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(term) &&
+              token.includes(term))
+          )
+        }),
+      ),
+    }))
+    .filter(({ token, concepts }) =>
+      concepts.length > 0 ? true : token.length > 2 && !STOP_WORDS.has(token),
+    )
     .slice(0, 8)
   const groups: string[][] = []
-  for (const token of tokens) {
-    const concept = CONCEPTS.find((items) => items.some((item) => normalize(item) === token))
-    const group = concept ? concept.map(normalize) : [token]
-    if (!groups.some((existing) => existing.join('|') === group.join('|'))) groups.push(group)
+  for (const { token, concepts } of tokens) {
+    const tokenGroups =
+      concepts.length > 0 ? concepts.map((concept) => concept.map(normalize)) : [[token]]
+    for (const group of tokenGroups) {
+      if (!groups.some((existing) => existing.join('|') === group.join('|'))) groups.push(group)
+    }
   }
   return groups.slice(0, 5)
 }
@@ -318,7 +361,7 @@ export async function retrieveGuestKnowledge(params: {
           })),
         ],
       }
-    : scope
+    : { ...scope, id: '__no_query_terms__' }
   const broadWhere = concepts.length
     ? {
         ...scope,

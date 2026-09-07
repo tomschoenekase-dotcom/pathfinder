@@ -110,6 +110,162 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.entries.map((entry) => entry.id)).toContain(id)
   })
 
+  it('expands the recognized two-letter WC concept before applying the generic token length bound', async () => {
+    const restroom = row('restroom-wc', 'Visitor restroom', 'The nearest bathroom is by the lobby.')
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      const queryShape = JSON.stringify(args.where)
+      expect(queryShape).toContain('"contains":"wc"')
+      expect(queryShape).toContain('"contains":"restroom"')
+      return [restroom]
+    })
+
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: 'WC?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+
+    expect(result.entries.map(({ id }) => id)).toEqual(['restroom-wc'])
+    expect(findMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a recognized short concept after more than eight leading stop words', async () => {
+    const restroom = row(
+      'restroom-verbose-wc',
+      'Visitor restroom',
+      'The nearest bathroom is by the lobby.',
+    )
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      expect(JSON.stringify(args.where)).toContain('"contains":"wc"')
+      return [restroom]
+    })
+
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: 'please can you what is the of a where WC',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+
+    expect(result.entries.map(({ id }) => id)).toEqual(['restroom-verbose-wc'])
+  })
+
+  it.each([
+    ['厕所在哪？', '厕所'],
+    ['トイレはどこですか', 'トイレ'],
+  ])(
+    'finds a scoped restroom fact from an embedding-dark no-space query: %s',
+    async (query, term) => {
+      const restroom = row(
+        `restroom-${term}`,
+        'Restroom location',
+        'The toilets are beside the lobby.',
+      )
+      const asOf = new Date('2026-09-07T12:00:00.000Z')
+      const findMany = vi.fn(async (args: Record<string, unknown>) => {
+        const typed = args as { where: Record<string, unknown>; take: number }
+        const queryShape = JSON.stringify(typed.where)
+        expect(typed.where).toMatchObject({
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          isEnabled: true,
+          visibility: 'PUBLIC',
+        })
+        expect(queryShape).toContain(`"contains":"${term}"`)
+        expect(queryShape).toContain(asOf.toISOString())
+        expect(typed.take).toBeLessThanOrEqual(60)
+        return [restroom]
+      })
+
+      const result = await retrieveGuestKnowledge({
+        reader: { venueKnowledgeEntry: { findMany } },
+        query,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        includeSecondLayer: false,
+        queryEmbedding: null,
+        asOf,
+      })
+
+      expect(result.entries.map(({ id }) => id)).toEqual([`restroom-${term}`])
+      expect(result.trace.path).toBe('lexical-fallback')
+    },
+  )
+
+  it('recognizes an hours concept inside a natural Chinese no-space query', async () => {
+    const hours = row('hours-zh', 'Current opening hours', 'The museum is open from 9 AM to 5 PM.')
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      expect(JSON.stringify(args.where)).toContain('"contains":"营业时间"')
+      return [hours]
+    })
+
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: '博物馆营业时间是什么？',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+
+    expect(result.entries.map(({ id }) => id)).toEqual(['hours-zh'])
+    expect(findMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains distinct restroom and hours concepts from one Chinese token', async () => {
+    const hours = row(
+      'restroom-hours-zh',
+      'Restroom opening hours',
+      'The lobby toilets are open from 9 AM to 5 PM.',
+    )
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      const queryShape = JSON.stringify(args.where)
+      expect(queryShape).toContain('"contains":"厕所"')
+      expect(queryShape).toContain('"contains":"营业时间"')
+      return [hours]
+    })
+
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: '厕所营业时间是什么？',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+
+    expect(result.entries.map(({ id }) => id)).toEqual(['restroom-hours-zh'])
+  })
+
+  it('does not turn an unrecognized short token into an all-public-content scan', async () => {
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      expect(args.where).toMatchObject({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        visibility: 'PUBLIC',
+        id: '__no_query_terms__',
+      })
+      return []
+    })
+
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: 'AI?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+
+    expect(result.entries).toEqual([])
+    expect(findMany).toHaveBeenCalledTimes(2)
+  })
+
   it('merges semantic results through the same production function and preserves its bounded result', async () => {
     const lexical = row('lexical', 'Current hours', 'Open until 5 PM.')
     const findMany = vi.fn().mockResolvedValueOnce([lexical]).mockResolvedValueOnce([lexical])
