@@ -710,6 +710,76 @@ type VisitorRecoveryCopy = readonly [
   prepareSessionFailed: string,
 ]
 
+export type VisitorStopCopy = {
+  stop: string
+  checking: string
+  refreshed: string
+}
+
+const STOP_COPY: Record<SupportedChatLanguage, VisitorStopCopy> = {
+  English: {
+    stop: 'Stop response',
+    checking:
+      'Response stopped locally. Checking the message outcome before allowing another message.',
+    refreshed: 'Response stopped locally. Conversation refreshed; you may send a new message.',
+  },
+  Español: {
+    stop: 'Detener respuesta',
+    checking:
+      'La respuesta se detuvo localmente. Se está comprobando el resultado antes de permitir otro mensaje.',
+    refreshed:
+      'La respuesta se detuvo localmente. Se actualizó la conversación; puedes enviar un mensaje nuevo.',
+  },
+  Français: {
+    stop: 'Arrêter la réponse',
+    checking:
+      'Réponse arrêtée localement. Vérification du résultat avant d’autoriser un autre message.',
+    refreshed:
+      'Réponse arrêtée localement. Conversation actualisée ; vous pouvez envoyer un nouveau message.',
+  },
+  Deutsch: {
+    stop: 'Antwort stoppen',
+    checking:
+      'Antwort lokal gestoppt. Das Ergebnis wird geprüft, bevor eine weitere Nachricht zugelassen wird.',
+    refreshed:
+      'Antwort lokal gestoppt. Unterhaltung aktualisiert; du kannst eine neue Nachricht senden.',
+  },
+  Italiano: {
+    stop: 'Ferma risposta',
+    checking:
+      'Risposta fermata localmente. Verifica dell’esito prima di consentire un altro messaggio.',
+    refreshed:
+      'Risposta fermata localmente. Conversazione aggiornata; puoi inviare un nuovo messaggio.',
+  },
+  Português: {
+    stop: 'Parar resposta',
+    checking:
+      'Resposta interrompida localmente. Verificando o resultado antes de permitir outra mensagem.',
+    refreshed:
+      'Resposta interrompida localmente. Conversa atualizada; você pode enviar uma nova mensagem.',
+  },
+  中文: {
+    stop: '停止回答',
+    checking: '回答已在本地停止。正在检查消息结果，确认后才能发送另一条消息。',
+    refreshed: '回答已在本地停止。对话已刷新；你可以发送一条新消息。',
+  },
+  日本語: {
+    stop: '回答を停止',
+    checking: '回答をローカルで停止しました。別のメッセージを許可する前に結果を確認しています。',
+    refreshed: '回答をローカルで停止しました。会話を更新しました。新しいメッセージを送信できます。',
+  },
+  한국어: {
+    stop: '응답 중지',
+    checking: '응답을 로컬에서 중지했습니다. 다른 메시지를 허용하기 전에 결과를 확인하는 중입니다.',
+    refreshed: '응답을 로컬에서 중지했습니다. 대화를 새로 고쳤으며 새 메시지를 보낼 수 있습니다.',
+  },
+  العربية: {
+    stop: 'إيقاف الرد',
+    checking: 'تم إيقاف الرد محليًا. جارٍ التحقق من نتيجة الرسالة قبل السماح برسالة أخرى.',
+    refreshed: 'تم إيقاف الرد محليًا. تم تحديث المحادثة ويمكنك إرسال رسالة جديدة.',
+  },
+}
+
 const RECOVERY_COPY: Record<SupportedChatLanguage, VisitorRecoveryCopy> = {
   English: [
     'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.',
@@ -972,6 +1042,10 @@ export function getVisitorUiCopy(language: SupportedChatLanguage = 'English') {
 
 export function getVisitorRecoveryCopy(language: SupportedChatLanguage = 'English') {
   return RECOVERY_COPY[language] ?? RECOVERY_COPY.English
+}
+
+export function getVisitorStopCopy(language: SupportedChatLanguage = 'English') {
+  return STOP_COPY[language] ?? STOP_COPY.English
 }
 
 export function getVisitorStateCopy(language: SupportedChatLanguage = 'English') {

@@ -98,6 +98,9 @@ vi.mock('./ChatWindow', () => ({
     onDraftChange,
     onRetry,
     retryLabel,
+    onStopResponse,
+    isLoading,
+    conversationLocked,
     onPlaceCardClick,
     onPlaceCardView,
   }: {
@@ -110,6 +113,9 @@ vi.mock('./ChatWindow', () => ({
     onDraftChange?: (draft: string) => void
     onRetry?: () => void
     retryLabel?: string
+    onStopResponse?: () => void
+    isLoading: boolean
+    conversationLocked?: boolean
     onPlaceCardClick?: (placeId: string) => void
     onPlaceCardView?: (placeId: string) => void
   }) => (
@@ -127,11 +133,20 @@ vi.mock('./ChatWindow', () => ({
             <button onClick={() => onPlaceCardClick?.(place.id)}>Open {place.id}</button>
           </div>
         ))}
-      <button onClick={() => onSend('Where is the café?')}>Send test message</button>
-      <button onClick={() => onSend('Where is parking?')}>Send different message</button>
-      {onRequestMore ? <button onClick={onRequestMore}>{requestMoreLabel}</button> : null}
+      <button disabled={conversationLocked} onClick={() => onSend('Where is the café?')}>
+        Send test message
+      </button>
+      <button disabled={conversationLocked} onClick={() => onSend('Where is parking?')}>
+        Send different message
+      </button>
+      {onRequestMore ? (
+        <button disabled={conversationLocked} onClick={onRequestMore}>
+          {requestMoreLabel}
+        </button>
+      ) : null}
       <button onClick={() => onDraftChange?.('Edited draft')}>Edit draft</button>
       {onRetry ? <button onClick={onRetry}>{retryLabel ?? 'Retry same message'}</button> : null}
+      {onStopResponse && isLoading ? <button onClick={onStopResponse}>Stop response</button> : null}
     </div>
   ),
 }))
@@ -325,6 +340,156 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
+  it('stops local response rendering, reconciles once, and ignores a delayed completion', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let stoppedOperationId: string | undefined
+    mocks.client.chat.history.query.mockImplementation(
+      () =>
+        Promise.resolve({
+          messages: [
+            { role: 'user', content: 'Where is the café?' },
+            { role: 'assistant', content: 'The café is beside the east gallery.' },
+          ],
+          turn: { operationId: stoppedOperationId, status: 'COMPLETE' },
+        }) as never,
+    )
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    let firstHandlers: typeof handlers
+    const subscribe = vi.fn((input: unknown, nextHandlers: typeof handlers) => {
+      stoppedOperationId = (input as { operationId: string }).operationId
+      if (!firstHandlers) firstHandlers = nextHandlers
+      handlers = nextHandlers
+      return { unsubscribe: vi.fn() }
+    })
+    mocks.client.chat.stream = { subscribe }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
+
+    await screen.findByText(
+      'Response stopped locally. Conversation refreshed; you may send a new message.',
+    )
+    expect(screen.getByText('Latest: The café is beside the east gallery.')).toBeTruthy()
+    expect(screen.getByText('Messages: 2')).toBeTruthy()
+
+    act(() => {
+      handlers?.onData({
+        type: 'complete',
+        result: { response: 'Late provider result', places: [] },
+      })
+      handlers?.onComplete()
+    })
+    expect(screen.queryByText('Latest: Late provider result')).toBeNull()
+
+    fireEvent.click(screen.getByText('Send different message'))
+    await waitFor(() => expect(mocks.client.chat.stream?.subscribe).toHaveBeenCalledTimes(2))
+
+    act(() => {
+      firstHandlers?.onData({ type: 'delta', delta: 'Late provider fragment' })
+      firstHandlers?.onComplete()
+    })
+    expect(screen.queryByText(/Late provider fragment/u)).toBeNull()
+  })
+
+  it('keeps reset and new sends blocked while stopped-turn history is unknown', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    mocks.client.chat.history.query.mockRejectedValueOnce(new Error('history unavailable'))
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    const subscribe = vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+      handlers = nextHandlers
+      return { unsubscribe: vi.fn() }
+    })
+    mocks.client.chat.stream = { subscribe }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
+
+    await screen.findByRole('button', { name: 'Check conversation' })
+    expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByText('Send different message'))
+    expect(mocks.client.chat.stream?.subscribe).toHaveBeenCalledOnce()
+    expect(handlers).toBeTruthy()
+  })
+
+  it('does not unlock when reconciliation only sees the same turn still generating', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let stoppedOperationId: string | undefined
+    const statuses = ['GENERATING', 'GENERATING', 'COMPLETE']
+    mocks.client.chat.history.query.mockImplementation(((input: unknown) =>
+      Promise.resolve({
+        messages: [{ role: 'user', content: 'Where is the café?' }],
+        ...((input as { operationId?: string }).operationId
+          ? { turn: { operationId: stoppedOperationId, status: statuses.shift() } }
+          : {}),
+      })) as never)
+    let handlers:
+      | {
+          onData: (event: unknown) => void
+          onError: (error: unknown) => void
+          onComplete: () => void
+        }
+      | undefined
+    const subscribe = vi.fn((input: unknown, nextHandlers: typeof handlers) => {
+      stoppedOperationId = (input as { operationId: string }).operationId
+      handlers = nextHandlers
+      return { unsubscribe: vi.fn() }
+    })
+    mocks.client.chat.stream = { subscribe }
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByText('Send test message'))
+    await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
+
+    await screen.findByRole('button', { name: 'Check conversation' })
+    expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
+    await screen.findByText(/current history could not be confirmed/u)
+    expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
+    await screen.findByText(/Conversation refreshed/u)
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+    fireEvent.click(screen.getByText('Send different message'))
+    expect(subscribe).toHaveBeenCalledTimes(2)
+    expect(handlers).toBeTruthy()
+  })
+
   it('does not admit route catalog reads until the public session is confirmed', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
     mocks.getBySlug.mockResolvedValue(activeVenue)
@@ -479,12 +644,17 @@ describe('VenueChatExperience presentation boundary', () => {
       mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174103'
       mocks.getBySlug.mockReset().mockResolvedValueOnce(activeVenue)
       mocks.client.chat.send.mutate.mockReset().mockRejectedValueOnce(codedError(code))
-      mocks.client.chat.history.query.mockReset().mockResolvedValue({
-        messages: [
-          { role: 'user', content: 'Where is the café?' },
-          { role: 'assistant', content: 'The café is downstairs.' },
-        ],
-      })
+      mocks.client.chat.history.query.mockReset().mockImplementation(((input: unknown) =>
+        Promise.resolve({
+          messages: [
+            { role: 'user', content: 'Where is the café?' },
+            { role: 'assistant', content: 'The café is downstairs.' },
+          ],
+          turn: {
+            operationId: (input as { operationId?: string }).operationId,
+            status: 'COMPLETE',
+          },
+        })) as never)
       render(<VenueChatExperience venueSlug="museum" />)
       await screen.findByRole('heading', { name: 'Museum Guide' })
       fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
@@ -493,6 +663,7 @@ describe('VenueChatExperience presentation boundary', () => {
         {
           venueId: activeVenue.id,
           anonymousToken: mocks.anonymousToken,
+          operationId: expect.any(String),
         },
         { signal: expect.any(AbortSignal) },
       )
@@ -504,7 +675,14 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174108'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     mocks.client.chat.send.mutate.mockRejectedValueOnce(codedError('PRECONDITION_FAILED'))
-    mocks.client.chat.history.query.mockResolvedValueOnce({ messages: [] })
+    mocks.client.chat.history.query.mockImplementationOnce(((input: unknown) =>
+      Promise.resolve({
+        messages: [],
+        turn: {
+          operationId: (input as { operationId?: string }).operationId,
+          status: 'AMBIGUOUS',
+        },
+      })) as never)
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
@@ -523,7 +701,14 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.client.chat.send.mutate.mockRejectedValueOnce(codedError('CONFLICT'))
     mocks.client.chat.history.query
       .mockRejectedValueOnce(new Error('history unavailable'))
-      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: 'Current history.' }] })
+      .mockImplementationOnce(((input: unknown) =>
+        Promise.resolve({
+          messages: [{ role: 'assistant', content: 'Current history.' }],
+          turn: {
+            operationId: (input as { operationId: string }).operationId,
+            status: 'COMPLETE',
+          },
+        })) as never)
     render(<VenueChatExperience venueSlug="museum" />)
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))

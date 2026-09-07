@@ -1716,6 +1716,18 @@ const chatReadRouter = router({
       return { messages: [] }
     }
 
+    const requestedTurn = input.operationId
+      ? await ctx.db.guestChatTurn.findFirst({
+          where: {
+            requestId: input.operationId,
+            sessionId: session.id,
+            tenantId: session.tenantId,
+            venueId: session.venueId,
+          },
+          select: { requestId: true, status: true },
+        })
+      : null
+
     const rows = await ctx.db.message.findMany({
       where: { sessionId: session.id, tenantId: session.tenantId },
       orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
@@ -1729,6 +1741,13 @@ const chatReadRouter = router({
     })
 
     return {
+      ...(input.operationId
+        ? {
+            turn: requestedTurn
+              ? { operationId: requestedTurn.requestId, status: requestedTurn.status }
+              : null,
+          }
+        : {}),
       messages: rows.reverse().map((m) => {
         const replay =
           m.role === 'assistant'

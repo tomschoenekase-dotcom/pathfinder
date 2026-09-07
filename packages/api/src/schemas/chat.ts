@@ -80,6 +80,7 @@ export const ChatHistoryInput = z
   .object({
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
+    operationId: z.string().uuid().optional(),
     secondLayerKey: z.string().uuid().optional(),
   })
   .strict()

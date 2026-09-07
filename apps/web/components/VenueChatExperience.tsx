@@ -24,7 +24,11 @@ import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
 import { LocationRoutePlanner } from './LocationRoutePlanner'
-import { getVisitorRecoveryCopy, localizeVisitorShellError } from './visitor-ui-copy'
+import {
+  getVisitorRecoveryCopy,
+  getVisitorStopCopy,
+  localizeVisitorShellError,
+} from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { GuestEntrySource } from '../lib/entry-prompt'
 
@@ -127,9 +131,9 @@ export function VenueChatExperience({
       : 'English'
   })
   const recoveryCopy = getVisitorRecoveryCopy(language)
+  const stopCopy = getVisitorStopCopy(language)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const conversationEpochRef = useRef(0)
-  const sendingEpochRef = useRef<number | null>(null)
   const activeOperationRef = useRef<string | null>(null)
   const activeStreamRef = useRef<{ operationId: string; unsubscribe: () => void } | null>(null)
   const reconciliationAbortRef = useRef<AbortController | null>(null)
@@ -137,6 +141,7 @@ export function VenueChatExperience({
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
   const reconciliationRequiredRef = useRef(false)
+  const stoppedOperationsRef = useRef(new Set<string>())
   const characterResetTimerRef = useRef<number | null>(null)
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
@@ -198,6 +203,7 @@ export function VenueChatExperience({
       activeStreamRef.current = null
       reconciliationAbortRef.current?.abort()
       reconciliationAbortRef.current = null
+      stoppedOperationsRef.current.clear()
     },
     [],
   )
@@ -220,6 +226,7 @@ export function VenueChatExperience({
       setSendError(null)
       setRecoveryMode(null)
       reconciliationRequiredRef.current = false
+      stoppedOperationsRef.current.clear()
       setIsSending(false)
       activeStreamRef.current?.unsubscribe()
       activeStreamRef.current = null
@@ -227,7 +234,6 @@ export function VenueChatExperience({
       reconciliationAbortRef.current = null
       activeOperationRef.current = null
       pendingTurnRef.current = null
-      sendingEpochRef.current = null
       lastSyncedPosRef.current = null
       resetAnalytics()
       try {
@@ -371,7 +377,7 @@ export function VenueChatExperience({
   }
 
   function applyStreamDelta(turn: PendingTurn, delta: string) {
-    if (!delta || !turnIsCurrent(turn)) return
+    if (!delta || stoppedOperationsRef.current.has(turn.operationId) || !turnIsCurrent(turn)) return
     setStableCharacterState('speaking')
     setMessages((current) => {
       const existingIndex = current.findIndex(
@@ -435,12 +441,20 @@ export function VenueChatExperience({
             {
               venueId: turn.venueId,
               anonymousToken: turn.anonymousToken,
+              operationId: turn.operationId,
               ...(secondLayerKey ? { secondLayerKey } : {}),
             },
             { signal },
           ),
       })
       if (!turnIsCurrent(turn)) return false
+      const scopedTurn = 'turn' in history ? history.turn : null
+      if (
+        !scopedTurn ||
+        scopedTurn.operationId !== turn.operationId ||
+        !['COMPLETE', 'FAILED', 'AMBIGUOUS'].includes(scopedTurn.status)
+      )
+        return false
       setMessages(history.messages as ChatMessage[])
       reconciliationRequiredRef.current = false
       return true
@@ -468,9 +482,9 @@ export function VenueChatExperience({
           pendingOperationId: turn.operationId,
         },
       ])
-    sendingEpochRef.current = turn.epoch
     try {
       const result = await sendTurnRequest(turn)
+      if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
       const response = result.response
       const resultPlaces = result.places
@@ -511,6 +525,7 @@ export function VenueChatExperience({
       setRecoveryMode(null)
       setTemporaryCharacterState('success', 900)
     } catch (error) {
+      if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
       const code = trpcErrorCode(error)
       const publicCode = publicGuestErrorCode(error)
@@ -569,9 +584,10 @@ export function VenueChatExperience({
         activeStreamRef.current.unsubscribe()
         activeStreamRef.current = null
       }
-      if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
-      if (turnScopeIsCurrent(turn)) setIsSending(false)
-      if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
+      if (activeOperationRef.current === turn.operationId) {
+        if (!reconciliationRequiredRef.current) setIsSending(false)
+        activeOperationRef.current = null
+      }
     }
   }
 
@@ -627,11 +643,10 @@ export function VenueChatExperience({
             reconciliationRequiredRef.current = false
             pendingTurnRef.current = null
             setRecoveryMode(null)
-            setSendError(
-              'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
-            )
+            stoppedOperationsRef.current.delete(turn.operationId)
+            setSendError(recoveryCopy[8])
           } else {
-            setSendError('The conversation still could not be confirmed. Try checking again.')
+            setSendError(recoveryCopy[9])
           }
         }
         if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
@@ -639,19 +654,57 @@ export function VenueChatExperience({
     } else if (recoveryMode === 'retry-turn') void dispatchTurn(turn, false)
   }
 
+  function handleStopResponse() {
+    const turn = pendingTurnRef.current
+    if (!turn || activeOperationRef.current !== turn.operationId) return
+    stoppedOperationsRef.current.add(turn.operationId)
+    if (stoppedOperationsRef.current.size > 8) {
+      const oldest = stoppedOperationsRef.current.values().next().value
+      if (oldest) stoppedOperationsRef.current.delete(oldest)
+    }
+    reconciliationRequiredRef.current = true
+    if (activeStreamRef.current?.operationId === turn.operationId) {
+      activeStreamRef.current.unsubscribe()
+      activeStreamRef.current = null
+    }
+    setSendError(stopCopy.checking)
+    setRecoveryMode('check-history')
+    setIsSending(true)
+    void reconcileTurn(turn).then((reconciled) => {
+      if (!turnIsCurrent(turn)) return
+      if (reconciled) {
+        pendingTurnRef.current = null
+        activeOperationRef.current = null
+        reconciliationRequiredRef.current = false
+        setRecoveryMode(null)
+        setSendError(stopCopy.refreshed)
+        stoppedOperationsRef.current.delete(turn.operationId)
+      } else {
+        activeOperationRef.current = null
+        reconciliationRequiredRef.current = true
+        setRecoveryMode('check-history')
+        setSendError(recoveryCopy[2])
+      }
+      setIsSending(false)
+    })
+  }
+
   function handleDraftChange(draft = '') {
     setStableCharacterState(draft.trim() ? 'listening' : 'idle')
-    if (
-      activeOperationRef.current !== null ||
-      !pendingTurnRef.current ||
-      reconciliationRequiredRef.current
-    )
-      return
+    if (activeOperationRef.current !== null || !pendingTurnRef.current) return
+    if (reconciliationRequiredRef.current) return
     abandonPendingOptimistic()
   }
 
   function handleNewConversation() {
-    if (!isOnline || !venue || !anonymousToken || isSending || activeOperationRef.current !== null)
+    if (
+      !isOnline ||
+      !venue ||
+      !anonymousToken ||
+      isSending ||
+      activeOperationRef.current !== null ||
+      reconciliationRequiredRef.current
+    )
       return
     if (messages.length && !window.confirm(recoveryCopy[10])) return
     const previousToken = anonymousToken
@@ -661,13 +714,13 @@ export function VenueChatExperience({
       return
     }
     conversationEpochRef.current += 1
-    sendingEpochRef.current = null
     activeOperationRef.current = null
     pendingTurnRef.current = null
     setMessages([])
     setSendError(null)
     setRecoveryMode(null)
     reconciliationRequiredRef.current = false
+    stoppedOperationsRef.current.clear()
     lastSyncedPosRef.current = null
     resetAnalytics()
     setTemporaryCharacterState('attention', 900)
@@ -728,6 +781,11 @@ export function VenueChatExperience({
       onDraftChange={handleDraftChange}
       onRetry={recoveryMode ? handleRetry : null}
       retryLabel={recoveryMode === 'check-history' ? recoveryCopy[12] : recoveryCopy[13]}
+      {...(isSending && recoveryMode !== 'check-history'
+        ? { onStopResponse: handleStopResponse }
+        : {})}
+      stopResponseLabel={stopCopy.stop}
+      conversationLocked={reconciliationRequiredRef.current || recoveryMode === 'check-history'}
       onNewConversation={handleNewConversation}
       onVoiceCharacterState={setStableCharacterState}
       onPlaceView={(placeId) => {

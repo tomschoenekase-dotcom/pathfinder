@@ -29,6 +29,9 @@ type ChatWindowProps = {
   onDraftChange?: (draft: string) => void
   onRetry?: () => void
   retryLabel?: string
+  onStopResponse?: () => void
+  stopResponseLabel?: string
+  conversationLocked?: boolean
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
@@ -55,6 +58,9 @@ export function ChatWindow({
   onDraftChange,
   onRetry,
   retryLabel = 'Retry same message',
+  onStopResponse,
+  stopResponseLabel = 'Stop response',
+  conversationLocked = false,
   isLoading,
   errorMessage = null,
   accentColor,
@@ -177,7 +183,7 @@ export function ChatWindow({
   function submit() {
     const nextMessage = draft.trim()
 
-    if (!nextMessage || isLoading || !isOnline) {
+    if (!nextMessage || isLoading || !isOnline || conversationLocked) {
       return
     }
 
@@ -220,7 +226,7 @@ export function ChatWindow({
               {...(message.id && onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
-              {...(message.role === 'assistant' && !isLoading && isOnline
+              {...(message.role === 'assistant' && !isLoading && isOnline && !conversationLocked
                 ? { onChoiceSelect: onSend }
                 : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
@@ -236,7 +242,7 @@ export function ChatWindow({
             <button
               type="button"
               onClick={onRequestMore}
-              disabled={isLoading || !isOnline}
+              disabled={isLoading || !isOnline || conversationLocked}
               className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
             >
               {requestMoreLabel}
@@ -324,12 +330,28 @@ export function ChatWindow({
                 isOnline && !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
-            disabled={!isOnline || isLoading || draft.trim().length === 0}
+            disabled={
+              !isOnline ||
+              conversationLocked ||
+              (isLoading ? !onStopResponse : draft.trim().length === 0)
+            }
             type="button"
-            aria-label={!isOnline ? reconnectLabel : isLoading ? sendingLabel : sendMessageLabel}
-            onClick={submit}
+            aria-label={
+              !isOnline
+                ? reconnectLabel
+                : isLoading
+                  ? onStopResponse
+                    ? stopResponseLabel
+                    : sendingLabel
+                  : sendMessageLabel
+            }
+            onClick={isLoading ? onStopResponse : submit}
           >
-            {isLoading ? (
+            {isLoading && onStopResponse ? (
+              <span className="text-base leading-none" aria-hidden="true">
+                ■
+              </span>
+            ) : isLoading ? (
               <svg
                 className="h-4 w-4 animate-spin motion-reduce:animate-none"
                 xmlns="http://www.w3.org/2000/svg"

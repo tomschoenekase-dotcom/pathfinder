@@ -97,6 +97,7 @@ const placeFindFirst = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
 const messageFindFirst = vi.fn()
+const guestChatTurnFindFirst = vi.fn()
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 const engagementQuestionFindFirst = vi.fn()
@@ -135,6 +136,7 @@ const mockDb = {
   operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
+  guestChatTurn: { findFirst: guestChatTurnFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
   $queryRaw: dbQueryRaw,
@@ -2244,6 +2246,71 @@ describe('chat router', () => {
           { role: 'assistant', content: 'Newest.' },
         ],
       })
+    })
+
+    it('returns the exact scoped turn status only when requested', async () => {
+      const operationId = '99999999-9999-4999-8999-999999999999'
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      guestChatTurnFindFirst.mockResolvedValueOnce({ requestId: operationId, status: 'GENERATING' })
+      messageFindMany.mockResolvedValueOnce([])
+
+      const result = await caller.chat.history({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        operationId,
+      })
+
+      expect(guestChatTurnFindFirst).toHaveBeenCalledWith({
+        where: {
+          requestId: operationId,
+          sessionId: SESSION_ID,
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+        },
+        select: { requestId: true, status: true },
+      })
+      expect(result).toEqual({
+        turn: { operationId, status: 'GENERATING' },
+        messages: [],
+      })
+    })
+
+    it('returns an unknown exact turn when the scoped operation is absent', async () => {
+      const operationId = '99999999-9999-4999-8999-999999999998'
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      guestChatTurnFindFirst.mockResolvedValueOnce(null)
+      messageFindMany.mockResolvedValueOnce([])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN, operationId }),
+      ).resolves.toEqual({ turn: null, messages: [] })
+    })
+
+    it('does not expose a turn returned outside the requested venue/session scope', async () => {
+      const operationId = '99999999-9999-4999-8999-999999999997'
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+      guestChatTurnFindFirst.mockResolvedValueOnce(null)
+      messageFindMany.mockResolvedValueOnce([])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN, operationId }),
+      ).resolves.toEqual({ turn: null, messages: [] })
+      expect(guestChatTurnFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            sessionId: SESSION_ID,
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            requestId: operationId,
+          }),
+        }),
+      )
     })
 
     it('does not load messages when no venue-scoped session exists', async () => {

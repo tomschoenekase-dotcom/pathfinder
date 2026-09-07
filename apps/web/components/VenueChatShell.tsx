@@ -66,6 +66,9 @@ export function VenueChatShell(props: {
   onDraftChange?: (draft: string) => void
   onRetry?: (() => void) | null
   retryLabel?: string
+  onStopResponse?: () => void
+  stopResponseLabel?: string
+  conversationLocked?: boolean
   onNewConversation: () => void
   onPlaceView: (placeId: string) => void
   onPlaceClick: (placeId: string) => void
@@ -97,6 +100,9 @@ export function VenueChatShell(props: {
     onDraftChange,
     onRetry,
     retryLabel,
+    onStopResponse,
+    stopResponseLabel,
+    conversationLocked = false,
     onNewConversation,
     onPlaceView,
     onPlaceClick,
@@ -215,7 +221,7 @@ export function VenueChatShell(props: {
             <button
               type="button"
               onClick={onNewConversation}
-              disabled={!isOnline || isSending || !anonymousToken}
+              disabled={!isOnline || isSending || !anonymousToken || conversationLocked}
               className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {newConversationLabel}
@@ -275,6 +281,9 @@ export function VenueChatShell(props: {
             {...(onDraftChange ? { onDraftChange } : {})}
             {...(onRetry ? { onRetry } : {})}
             {...(retryLabel ? { retryLabel } : {})}
+            {...(onStopResponse ? { onStopResponse } : {})}
+            {...(stopResponseLabel ? { stopResponseLabel } : {})}
+            conversationLocked={conversationLocked}
             isLoading={isSending}
             isOnline={isOnline}
             errorMessage={localizeVisitorShellError(sendError, language)}
@@ -304,7 +313,7 @@ export function VenueChatShell(props: {
                   venueCategory={venue.category ?? undefined}
                   guideMode={venue.guideMode}
                   locationAvailable={hasLocation}
-                  disabled={!isOnline}
+                  disabled={!isOnline || conversationLocked}
                   onSend={onSend}
                 />
               </div>
