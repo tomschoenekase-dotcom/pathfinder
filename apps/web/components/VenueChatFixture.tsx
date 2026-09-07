@@ -28,6 +28,7 @@ export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'st
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
 export type VisitorFixtureRoute = 'none' | 'ready'
+export type VisitorFixtureBranding = 'none' | 'approved'
 
 const FIXTURE_ROUTE_SOURCE = {
   catalog: async () => ({
@@ -242,6 +243,7 @@ export function VenueChatFixture({
   language = 'English',
   theme,
   accent,
+  branding = 'none',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -254,6 +256,7 @@ export function VenueChatFixture({
   language?: SupportedChatLanguage
   theme?: string | undefined
   accent?: string | undefined
+  branding?: VisitorFixtureBranding
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -266,12 +269,21 @@ export function VenueChatFixture({
         data-fixture-voice={voice}
         data-fixture-network={network}
         data-fixture-route={route}
+        data-fixture-branding={branding}
       >
         <VenueChatShell
           venue={{
             ...fixtureVenue(mode, asset),
             ...(theme ? { chatTheme: theme } : {}),
             ...(accent ? { chatAccentColor: accent } : {}),
+            ...(branding === 'approved'
+              ? {
+                  chatLogoUrl:
+                    '/api/venue-media/11111111-1111-4111-8111-111111111111/derivatives/22222222-2222-4222-8222-222222222222',
+                  chatBannerUrl:
+                    '/api/venue-media/33333333-3333-4333-8333-333333333333/derivatives/44444444-4444-4444-8444-444444444444',
+                }
+              : {}),
           }}
           venueSlug="fixture-great-lakes-museum"
           presentation="standalone"

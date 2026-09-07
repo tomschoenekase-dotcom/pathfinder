@@ -91,6 +91,55 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
 })
 
+test('approved chat branding fails closed on a short mobile viewport', async ({
+  page,
+}, testInfo) => {
+  let failImages = false
+  await page.setViewportSize({
+    width: Math.min(page.viewportSize()?.width ?? 390, 390),
+    height: 420,
+  })
+  await page.route('**/api/venue-media/**', async (route) => {
+    if (failImages) return route.fulfill({ status: 404, body: '' })
+    const banner = route.request().url().includes('44444444-4444-4444-8444-444444444444')
+    return route.fulfill({
+      contentType: 'image/svg+xml',
+      body: banner
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="240"><rect width="900" height="240" fill="#fff"/><path d="M0 170 Q220 70 450 170 T900 170 V240 H0Z" fill="#f8f4e8"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><circle cx="48" cy="48" r="44" fill="#f3d38a"/><path d="M28 56 Q48 72 68 56" fill="none" stroke="#245a4a" stroke-width="6"/></svg>',
+    })
+  })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=idle&conversation=empty&motion=reduced&branding=approved&theme=forest',
+  )
+  await hideFrameworkDevChrome(page)
+
+  const header = page.locator('header')
+  await expect(header).toHaveAttribute('data-branding-banner-state', 'ready')
+  await expect(header.locator('img')).toHaveCount(2)
+  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(/text-white/u)
+  await expect(page.getByRole('button', { name: 'New conversation' })).toHaveClass(/text-white/u)
+  await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
+  await expectTouchTargets(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'visitor-chat-approved-branding-short-mobile')
+
+  failImages = true
+  await page.reload()
+  await hideFrameworkDevChrome(page)
+  await expect(header).toHaveAttribute('data-branding-banner-state', 'failed')
+  await expect(header.locator('img')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toHaveClass(
+    /text-\[var\(--chat-text\)\]/u,
+  )
+  await expectViewportIntegrity(page)
+  await expectComposerReachable(page)
+  await expectTouchTargets(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'visitor-chat-failed-branding-short-mobile')
+})
+
 test('long RTL and CJK conversation remains usable while offline', async ({ page }, testInfo) => {
   const runtimeErrors = captureRuntimeErrors(page)
   await page.goto(

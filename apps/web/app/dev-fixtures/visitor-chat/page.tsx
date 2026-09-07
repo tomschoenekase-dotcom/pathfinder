@@ -4,6 +4,7 @@ import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 import {
   VenueChatFixture,
   type VisitorFixtureAsset,
+  type VisitorFixtureBranding,
   type VisitorFixtureConversation,
   type VisitorFixtureMode,
   type VisitorFixtureRoute,
@@ -51,6 +52,7 @@ export default async function VisitorChatVisualFixture({
     surface?: string | string[]
     theme?: string | string[]
     accent?: string | string[]
+    branding?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -68,6 +70,7 @@ export default async function VisitorChatVisualFixture({
   const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
   const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
+  const branding = oneOf(params.branding, ['none', 'approved'] as const, 'none')
   const language = oneOf(
     params.language,
     SUPPORTED_CHAT_LANGUAGES.map(({ label }) => label),
@@ -104,6 +107,7 @@ export default async function VisitorChatVisualFixture({
       language={language}
       theme={first(params.theme)}
       accent={first(params.accent)}
+      branding={branding satisfies VisitorFixtureBranding}
     />
   )
 }

@@ -152,6 +152,41 @@ describe('VenueChatFixture', () => {
     ).toBe(false)
   })
 
+  it('removes failed chat branding and restores the unbranded header treatment', () => {
+    const { container } = render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        branding="approved"
+      />,
+    )
+
+    const header = container.querySelector('header')!
+    const images = header.querySelectorAll('img')
+    expect(images).toHaveLength(2)
+
+    fireEvent.load(images[0]!)
+    expect(header.getAttribute('data-branding-banner-state')).toBe('ready')
+    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain('text-white')
+    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain(
+      'text-white',
+    )
+
+    fireEvent.error(images[0]!)
+    fireEvent.error(images[1]!)
+    expect(header.querySelectorAll('img')).toHaveLength(0)
+    expect(header.getAttribute('data-branding-banner-state')).toBe('failed')
+    expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain(
+      'text-[var(--chat-text)]',
+    )
+    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain(
+      'text-[var(--chat-text)]',
+    )
+  })
+
   it('exercises the production route planner with deterministic reviewed locations', async () => {
     render(
       <VenueChatFixture

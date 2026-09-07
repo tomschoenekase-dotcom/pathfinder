@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import type { CSSProperties, ReactNode } from 'react'
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
@@ -39,6 +39,26 @@ const LazyVenueCharacterStage = dynamic(
 function fontFamily(chatFont: string | null): string {
   const option = CHAT_FONT_OPTIONS.find((font) => font.value === chatFont) ?? CHAT_FONT_OPTIONS[0]!
   return `var(${option.cssVar})`
+}
+
+function ChatLogo({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  const inspectCachedImage = useCallback((image: HTMLImageElement | null) => {
+    if (image?.complete && image.naturalWidth === 0) setFailed(true)
+  }, [])
+
+  if (failed) return null
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={inspectCachedImage}
+      src={src}
+      alt=""
+      className="h-8 w-8 rounded-lg object-contain"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export function VenueChatShell(props: {
@@ -137,7 +157,23 @@ export function VenueChatShell(props: {
   const hasLocation =
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
-  const banner = Boolean(venue.chatBannerUrl)
+  const [bannerLoad, setBannerLoad] = useState<{
+    src: string | null
+    status: 'loading' | 'ready' | 'failed'
+  }>({ src: null, status: 'loading' })
+  const bannerUrl = venue.chatBannerUrl
+  const bannerStatus = bannerLoad.src === bannerUrl ? bannerLoad.status : 'loading'
+  const banner = Boolean(bannerUrl && bannerStatus === 'ready')
+  const inspectCachedBanner = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image?.complete || !bannerUrl) return
+      setBannerLoad({
+        src: bannerUrl,
+        status: image.naturalWidth > 0 ? 'ready' : 'failed',
+      })
+    },
+    [bannerUrl],
+  )
   const publicCharacter = venue.venueBotPresentation?.character
   const characterPresentation =
     venue.venueBotPresentation?.mode === 'CHARACTER' && publicCharacter
@@ -173,18 +209,23 @@ export function VenueChatShell(props: {
       }
     >
       <header
-        className={`${styles.header} border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6`}
-        style={
-          venue.chatBannerUrl
-            ? {
-                backgroundImage: `linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url(${venue.chatBannerUrl})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }
-            : undefined
-        }
+        className={`${styles.header} relative overflow-hidden border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6`}
+        data-branding-banner-state={bannerUrl ? bannerStatus : 'none'}
       >
-        <div className={`${styles.headerInner} mx-auto max-w-2xl`}>
+        {bannerUrl && bannerStatus !== 'failed' ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={bannerUrl}
+            ref={inspectCachedBanner}
+            src={bannerUrl}
+            alt=""
+            className={`absolute inset-0 h-full w-full object-cover ${banner ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setBannerLoad({ src: bannerUrl, status: 'ready' })}
+            onError={() => setBannerLoad({ src: bannerUrl, status: 'failed' })}
+          />
+        ) : null}
+        {banner ? <span aria-hidden="true" className="absolute inset-0 bg-black/65" /> : null}
+        <div className={`${styles.headerInner} relative z-10 mx-auto max-w-2xl`}>
           {presentation === 'standalone' ? (
             <Link
               href={`/${venueSlug}`}
@@ -198,8 +239,7 @@ export function VenueChatShell(props: {
           ) : null}
           <div className={`${styles.identity} flex items-center`}>
             {venue.chatLogoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
+              <ChatLogo key={venue.chatLogoUrl} src={venue.chatLogoUrl} />
             ) : null}
             <h1
               lang=""
@@ -222,7 +262,7 @@ export function VenueChatShell(props: {
               type="button"
               onClick={onNewConversation}
               disabled={!isOnline || isSending || !anonymousToken || conversationLocked}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className={`inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 ${banner ? 'text-white' : 'text-[var(--chat-text)]'}`}
             >
               {newConversationLabel}
             </button>
