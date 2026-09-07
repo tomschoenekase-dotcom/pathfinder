@@ -52,6 +52,7 @@ const APPEND_ONLY_MODELS = [
   'SupportPackageHandoff',
   'KnowledgeProposalPackageHandoff',
   'KnowledgeProposalOperationalUpdateHandoff',
+  'KnowledgeProposalUniversalContentHandoff',
   'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',

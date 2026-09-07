@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   createOperationalUpdate: vi.fn(),
   operationalFinalizer: vi.fn(),
   operationalHandoffFind: vi.fn(),
+  createUniversalDraft: vi.fn(),
   askQuestion: vi.fn(),
   identityFind: vi.fn(),
   identitiesFind: vi.fn(),
@@ -69,6 +70,9 @@ vi.mock('../../lib/semantic-venue-update-finalizer', () => ({
 }))
 vi.mock('../../lib/semantic-operational-update-finalizer', () => ({
   semanticOperationalUpdateDraftFinalizer: mocks.operationalFinalizer,
+}))
+vi.mock('../../lib/semantic-universal-content-handoff-service', () => ({
+  createSemanticUniversalContentDraftService: mocks.createUniversalDraft,
 }))
 vi.mock('../venue-package', () => ({
   createVenuePackageDraftService: mocks.createVenuePackageDraft,
@@ -148,6 +152,14 @@ describe('admin knowledge proposals', () => {
     mocks.createOperationalUpdate.mockResolvedValue({
       update: { id: '44444444-4444-4444-8444-444444444444', status: 'DRAFT' },
       preview: { lifecycle: 'DRAFT' },
+    })
+    mocks.createUniversalDraft.mockResolvedValue({
+      moduleId: '44444444-4444-4444-8444-444444444444',
+      revisionId: 'revision-2',
+      version: 2,
+      classification: 'CORRECTION',
+      draftHash: 'd'.repeat(64),
+      replayed: false,
     })
     mocks.semanticPreview.mockResolvedValue({
       proposalStatus: 'APPROVED',
@@ -759,5 +771,48 @@ describe('admin knowledge proposals', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.createVenuePackageDraft).not.toHaveBeenCalled()
+  })
+
+  it('routes a full typed semantic draft without granting publication authority', async () => {
+    const desired = {
+      title: 'Museum hours',
+      category: 'POLICY',
+      content: 'Open 9–5 daily.',
+      isEnabled: true,
+    }
+    await expect(
+      app.createCaller(context()).admin.createSemanticUniversalContentDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        proposalId: operationId,
+        expectedProposalUpdatedAt: '2026-08-25T13:00:00.000Z',
+        expectedPreviewHash: 'a'.repeat(64),
+        relation: 'CORRECTS',
+        desired,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: desired.title,
+            rule: desired.content,
+            appliesTo: [],
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      revisionId: 'revision-2',
+      requiresExplicitPublication: true,
+      autoPublished: false,
+    })
+    expect(mocks.createUniversalDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'admin-1',
+        input: expect.objectContaining({
+          desired,
+          draft: expect.objectContaining({ audience: 'PUBLIC' }),
+        }),
+      }),
+    )
   })
 })

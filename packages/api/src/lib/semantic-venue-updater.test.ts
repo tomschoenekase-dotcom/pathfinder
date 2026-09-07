@@ -166,4 +166,23 @@ describe('semantic venue updater', () => {
       ),
     ).toThrow()
   })
+
+  it('classifies a linked universal projection without forcing it through the legacy CUID patch', () => {
+    const projection = { ...current, id: `ucm_${'a'.repeat(32)}` }
+    const result = buildSemanticVenueUpdate(
+      {
+        ...base,
+        relation: 'CORRECTS',
+        targetKnowledgeEntryId: projection.id,
+        desired: changedHours,
+      },
+      [projection],
+    )
+    expect(result).toMatchObject({
+      classification: 'CORRECTION',
+      venuePackagePatch: null,
+      operationCount: 0,
+      requiresHumanReview: true,
+    })
+  })
 })

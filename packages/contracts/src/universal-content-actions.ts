@@ -183,3 +183,22 @@ export const WithdrawGeneralizedContentInput = z
     requestId: z.string().uuid(),
   })
   .strict()
+
+/**
+ * Human-authorized handoff from an approved semantic knowledge proposal to an
+ * append-only universal-content draft. Creating this draft grants no publish authority.
+ */
+export const CreateSemanticUniversalContentDraftInput = z
+  .object({
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    proposalId: z.string().uuid(),
+    expectedProposalUpdatedAt: z.string().datetime({ offset: true }),
+    expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
+    draft: GeneralizedContentRevisionDraft,
+  })
+  .strict()
+export type CreateSemanticUniversalContentDraftInput = z.infer<
+  typeof CreateSemanticUniversalContentDraftInput
+>

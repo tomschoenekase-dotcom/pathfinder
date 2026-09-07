@@ -14,6 +14,8 @@ import {
 } from '@pathfinder/db'
 import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
 import { runGuestRetrievalBaseline } from './evaluation/guest-retrieval-baseline'
+import { createSemanticUniversalContentDraftService } from './semantic-universal-content-handoff-service'
+import { previewSemanticVenueUpdateFromProposal } from './semantic-venue-updater-service'
 
 const enabled =
   process.env.RUN_V2_CUSTOMER_JOURNEY_DB_INTEGRATION === '1' &&
@@ -300,6 +302,212 @@ describe.skipIf(!enabled)('V2 customer journey on disposable PostgreSQL', () => 
           select: { authorship: true },
         }),
       ).toEqual({ authorship: 'UNKNOWN' })
+
+      const semanticTarget = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: published[3]!.moduleId },
+      })
+      const semanticProposal = await db.knowledgeChangeProposal.create({
+        data: {
+          tenantId,
+          venueId,
+          targetKnowledgeEntryId: semanticTarget.id,
+          proposedChange: 'Universal policy 3 now requires the west desk.',
+          reason: 'Reviewed official policy source.',
+          confidence: 0.98,
+          status: 'APPROVED',
+          createdByType: 'OPERATOR',
+          createdById: ownerUserId,
+          reviewerId: ownerUserId,
+          reviewedAt: new Date(),
+        },
+      })
+      const semanticDesired = {
+        title: 'Universal policy 3',
+        category: 'POLICY',
+        content: 'Fixture policy 3 now requires the west desk.',
+        isEnabled: true,
+      }
+      const semanticPreview = await previewSemanticVenueUpdateFromProposal({
+        db,
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedUpdatedAt: semanticProposal.updatedAt,
+        relation: 'CORRECTS',
+        desired: semanticDesired,
+      })
+      expect(semanticPreview.classification).toBe('CORRECTION')
+      const semanticInput = {
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedProposalUpdatedAt: semanticProposal.updatedAt.toISOString(),
+        expectedPreviewHash: semanticPreview.previewHash,
+        relation: 'CORRECTS' as const,
+        desired: semanticDesired,
+        draft: {
+          audience: 'PUBLIC' as const,
+          evidence: [
+            {
+              sourceId: 'official-policy.pdf',
+              locator: 'page:3',
+              capturedAt: '2026-09-07T12:00:00.000Z',
+              excerptHash: 'c'.repeat(64),
+            },
+          ],
+          payload: {
+            kind: 'POLICY' as const,
+            title: semanticDesired.title,
+            rule: semanticDesired.content,
+            appliesTo: [],
+          },
+        },
+      }
+      const semanticRace = await Promise.all([
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+      ])
+      expect(new Set(semanticRace.map((result) => result.revisionId)).size).toBe(1)
+      expect(semanticRace.filter((result) => result.replayed)).toHaveLength(1)
+      const semanticDraft = semanticRace[0]!
+      expect(semanticDraft.version).toBe(2)
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.count({
+          where: { proposalId: semanticProposal.id, tenantId, venueId },
+        }),
+      ).resolves.toBe(1)
+      await expect(
+        db.contentModulePublication.count({
+          where: {
+            tenantId,
+            venueId,
+            moduleId: published[3]!.moduleId,
+            revisionId: semanticDraft.revisionId,
+          },
+        }),
+      ).resolves.toBe(0)
+      await expect(
+        db.contentModuleEvidence.findMany({
+          where: { tenantId, venueId, revisionId: semanticDraft.revisionId },
+          select: { sourceId: true },
+        }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          { sourceId: 'official-policy.pdf' },
+          { sourceId: `knowledge-proposal:${semanticProposal.id}` },
+        ]),
+      )
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: semanticDraft.moduleId,
+        revisionId: semanticDraft.revisionId,
+        expectedLatestVersion: 2,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const unrelatedThird = await addUniversalContentRevisionAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: semanticDraft.moduleId,
+        expectedLatestVersion: 2,
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: semanticDesired.title,
+            rule: semanticDesired.content,
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: unrelatedThird.moduleId,
+        revisionId: unrelatedThird.revisionId,
+        expectedLatestVersion: 3,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const changedCorpusPreview = await previewSemanticVenueUpdateFromProposal({
+        db,
+        tenantId,
+        venueId,
+        proposalId: semanticProposal.id,
+        expectedUpdatedAt: semanticProposal.updatedAt,
+        relation: 'CORRECTS',
+        desired: semanticInput.desired,
+      })
+      expect(changedCorpusPreview.previewHash).not.toBe(semanticInput.expectedPreviewHash)
+      await expect(
+        createSemanticUniversalContentDraftService({
+          db,
+          actorId: ownerUserId,
+          input: semanticInput,
+        }),
+      ).resolves.toMatchObject({
+        moduleId: semanticDraft.moduleId,
+        revisionId: semanticDraft.revisionId,
+        version: 2,
+        replayed: true,
+      })
+      const immutableHandoff = await db.knowledgeProposalUniversalContentHandoff.findFirstOrThrow({
+        where: { proposalId: semanticProposal.id, tenantId, venueId },
+      })
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.update({
+          where: { id: immutableHandoff.id },
+          data: { draftHash: 'd'.repeat(64) },
+        }),
+      ).rejects.toThrow()
+      await expect(
+        db.knowledgeProposalUniversalContentHandoff.delete({
+          where: { id: immutableHandoff.id },
+        }),
+      ).rejects.toThrow()
+      const invalidBaseProposal = await db.knowledgeChangeProposal.create({
+        data: {
+          tenantId,
+          venueId,
+          targetKnowledgeEntryId: semanticTarget.id,
+          proposedChange: 'Invalid base fixture.',
+          reason: 'Prove the database rejects a mismatched stored base version.',
+          confidence: 0.99,
+          status: 'APPROVED',
+          createdByType: 'OPERATOR',
+          createdById: ownerUserId,
+          reviewerId: ownerUserId,
+          reviewedAt: new Date(),
+        },
+      })
+      await expect(
+        db.$executeRaw`
+          INSERT INTO knowledge_proposal_universal_content_handoffs (
+            tenant_id, venue_id, proposal_id, module_id, module_kind, revision_id,
+            classification, relation, preview_hash, draft_hash, proposal_updated_at,
+            expected_base_revision_id, expected_base_version, created_by
+          ) VALUES (
+            ${tenantId}, ${venueId}, ${invalidBaseProposal.id}::uuid, ${semanticDraft.moduleId},
+            'POLICY'::"NormalizedContentModuleKind", ${unrelatedThird.revisionId},
+            'CORRECTION', 'CORRECTS', ${'e'.repeat(64)}, ${'f'.repeat(64)},
+            ${invalidBaseProposal.updatedAt}, ${semanticDraft.revisionId}, 99, ${ownerUserId}
+          )
+        `,
+      ).rejects.toThrow()
       const backfillTarget = published[0]!
       await db.$executeRaw`SELECT sync_universal_content_search_projection(${backfillTarget.publicationId})`
       await expect(

@@ -10,6 +10,7 @@ import {
 } from './agent-approval-policy'
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
+import { GeneralizedContentRevisionDraft } from './universal-content-actions'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -638,6 +639,29 @@ export const McpSupportKnowledgeProposalInput = McpRequestedScope.extend({
 }).strict()
 export type McpSupportKnowledgeProposalInput = z.infer<typeof McpSupportKnowledgeProposalInput>
 
+export const McpSemanticUniversalContentDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  proposalId: z.string().uuid(),
+  expectedProposalUpdatedAt: z.string().datetime({ offset: true }),
+  expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
+  desired: z
+    .object({
+      title: z.string().trim().min(1).max(200),
+      category: z.string().trim().min(1).max(100),
+      content: z.string().trim().min(1).max(5000),
+      isEnabled: z.boolean(),
+    })
+    .strict(),
+  draft: GeneralizedContentRevisionDraft,
+}).strict()
+export type McpSemanticUniversalContentDraftInput = z.infer<
+  typeof McpSemanticUniversalContentDraftInput
+>
+
 export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1258,6 +1282,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.quality.preview_answer_attribution_agreement'
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.knowledge.prepare_from_support'
+  | 'torchiko.knowledge.create_typed_draft'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
@@ -1713,6 +1738,94 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'proposedChange',
         'reason',
         'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.create_typed_draft',
+    title: 'Create a typed draft from an approved proposal',
+    description:
+      'Create one append-only universal-content draft from an exact human-approved semantic proposal and preview. This never publishes, withdraws, or changes guest-visible knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', format: 'uuid' },
+        expectedProposalUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedPreviewHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        relation: { type: 'string', enum: ['NEW_FACT', 'CORRECTS', 'SUPERSEDES'] },
+        desired: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'category', 'content', 'isEnabled'],
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            category: { type: 'string', minLength: 1, maxLength: 100 },
+            content: { type: 'string', minLength: 1, maxLength: 5000 },
+            isEnabled: { type: 'boolean' },
+          },
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['audience', 'evidence', 'payload'],
+          properties: {
+            audience: { type: 'string', enum: ['PUBLIC', 'CLIENT', 'OPERATOR'] },
+            effectiveFrom: { type: ['string', 'null'], format: 'date-time' },
+            effectiveUntil: { type: ['string', 'null'], format: 'date-time' },
+            evidence: {
+              type: 'array',
+              maxItems: 100,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['sourceId', 'capturedAt'],
+                properties: {
+                  sourceId: { type: 'string', minLength: 1, maxLength: 500 },
+                  locator: { type: 'string', minLength: 1, maxLength: 2000 },
+                  capturedAt: { type: 'string', format: 'date-time' },
+                  excerptHash: { type: 'string', pattern: '^[a-fA-F0-9]{64}$' },
+                },
+              },
+            },
+            payload: {
+              type: 'object',
+              description:
+                'A complete ITEM, SERVICE, POLICY, EVENT, OPERATIONAL_FACT, or RELATIONSHIP payload as defined by the universal-content contract.',
+              required: ['kind'],
+              properties: {
+                kind: {
+                  type: 'string',
+                  enum: ['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'],
+                },
+              },
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'expectedProposalUpdatedAt',
+        'expectedPreviewHash',
+        'relation',
+        'desired',
+        'draft',
       ],
     ),
     outputSchema: resultSchema,

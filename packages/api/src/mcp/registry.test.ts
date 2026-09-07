@@ -22,6 +22,7 @@ const credential: VerifiedMcpCredentialScope = {
     'delegations:create',
     'accounts:read',
     'knowledge:read',
+    'knowledge:draft',
     'meetings:read',
     'meetings:process',
     'customer-access:prepare',
@@ -51,6 +52,7 @@ function actions(): PathfinderMcpDomainActions {
     previewGuestAnswerAttributionAgreement: vi.fn().mockResolvedValue(result),
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     prepareKnowledgeFromSupport: vi.fn().mockResolvedValue(result),
+    createSemanticUniversalContentDraft: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
     applySupportTriage: vi.fn().mockResolvedValue(result),
@@ -87,6 +89,55 @@ function actions(): PathfinderMcpDomainActions {
 }
 
 describe('PathFinder MCP server-side adapter registry', () => {
+  it('discovers and routes the scoped typed semantic draft without publication authority', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      proposalId: '22222222-2222-4222-8222-222222222222',
+      expectedProposalUpdatedAt: '2026-09-07T12:00:00.000Z',
+      expectedPreviewHash: 'a'.repeat(64),
+      relation: 'NEW_FACT' as const,
+      desired: {
+        title: 'Capacity',
+        category: 'admission',
+        content: 'Capacity is 137.',
+        isEnabled: true,
+      },
+      draft: {
+        audience: 'PUBLIC' as const,
+        evidence: [],
+        payload: {
+          kind: 'POLICY' as const,
+          title: 'Capacity',
+          rule: 'Capacity is 137.',
+          appliesTo: [],
+        },
+      },
+    }
+    expect(
+      registry.listTools().find((tool) => tool.name === 'torchiko.knowledge.create_typed_draft')
+        ?._meta['com.pathfinder/security'],
+    ).toMatchObject({ capability: 'knowledge:draft', scope: 'venue', approvalRequired: false })
+    await registry.callTool('torchiko.knowledge.create_typed_draft', input, { credential })
+    expect(domain.createSemanticUniversalContentDraft).toHaveBeenCalledWith(
+      input,
+      expect.objectContaining({ credential }),
+    )
+    await expect(
+      registry.callTool(
+        'torchiko.knowledge.create_typed_draft',
+        { ...input, venueId: 'venue-2' },
+        { credential },
+      ),
+    ).rejects.toThrow('Venue scope denied')
+  })
+
   it('exposes governed account and knowledge reads through the existing catalog', async () => {
     const domain = actions()
     const registry = createPathfinderMcpRegistry(domain)

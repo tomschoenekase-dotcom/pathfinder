@@ -232,6 +232,7 @@ export function buildSemanticVenueUpdate(
       evidence: evidenceRefs,
     }),
   )
+  const legacyPatchCompatibleTarget = !target || z.string().cuid().safeParse(target.id).success
 
   const venuePackagePatch =
     classification === 'ADDITION'
@@ -244,7 +245,9 @@ export function buildSemanticVenueUpdate(
             delete: [],
           },
         })
-      : (classification === 'CORRECTION' || classification === 'SUPERSESSION') && target
+      : (classification === 'CORRECTION' || classification === 'SUPERSESSION') &&
+          target &&
+          legacyPatchCompatibleTarget
         ? VenuePackagePayloadV3.parse({
             schemaVersion: 3,
             places: { create: [], update: [], delete: [] },

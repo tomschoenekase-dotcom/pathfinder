@@ -30,6 +30,7 @@ const {
   approvePackage,
   preparePackageApplication,
   applyPackage,
+  createSemanticDraft,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -60,6 +61,7 @@ const {
   approvePackage: vi.fn(),
   preparePackageApplication: vi.fn(),
   applyPackage: vi.fn(),
+  createSemanticDraft: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -104,6 +106,10 @@ vi.mock('../lib/support-package-application-actions', () => ({
 vi.mock('../lib/venue-package-core', () => ({
   approveVenuePackageLifecycle: approvePackage,
   applyVenuePackageLifecycle: applyPackage,
+}))
+
+vi.mock('../lib/semantic-universal-content-handoff-service', () => ({
+  createSemanticUniversalContentDraftService: createSemanticDraft,
 }))
 
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
@@ -155,6 +161,62 @@ describe('safe operational MCP composition', () => {
       ),
     ).rejects.toMatchObject({
       code: 'MCP_ACTION_UNAVAILABLE',
+    })
+  })
+
+  it('runs the approved semantic typed-draft handoff with agent attribution and no publication', async () => {
+    createSemanticDraft.mockResolvedValue({
+      moduleId: 'module-1',
+      revisionId: 'revision-1',
+      version: 2,
+      classification: 'CORRECTION',
+      draftHash: 'd'.repeat(64),
+      replayed: false,
+    })
+    const database = {
+      agentWorker: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ id: 'worker-id-1', modelProvider: 'test', modelName: 'fixture' }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    } as never
+    const registry = createSafeOperationalMcpRegistry(database)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      proposalId: '22222222-2222-4222-8222-222222222222',
+      expectedProposalUpdatedAt: '2026-09-07T12:00:00.000Z',
+      expectedPreviewHash: 'a'.repeat(64),
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Capacity',
+        category: 'admission',
+        content: 'Capacity is 137.',
+        isEnabled: true,
+      },
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: { kind: 'POLICY', title: 'Capacity', rule: 'Capacity is 137.', appliesTo: [] },
+      },
+    }
+    const result = await registry.callTool('torchiko.knowledge.create_typed_draft', input, {
+      credential: { ...credential, capabilities: ['knowledge:draft'] },
+    })
+    expect(createSemanticDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'agent-1',
+        agentActor: expect.objectContaining({ agentRunId: 'run-1', credentialId: 'credential-1' }),
+        input: expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      data: { requiresExplicitPublication: true, autoPublished: false },
     })
   })
 

@@ -78,6 +78,7 @@ import { VenuePackagePayloadV3 } from '../schemas/venue-package'
 import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
 import { requestWeeklyReportDraftAction } from '../lib/weekly-report-generation'
+import { createSemanticUniversalContentDraftService } from '../lib/semantic-universal-content-handoff-service'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -98,6 +99,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.quality.preview_answer_attribution_agreement',
   'torchiko.knowledge.propose_correction',
   'torchiko.knowledge.prepare_from_support',
+  'torchiko.knowledge.create_typed_draft',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
@@ -200,6 +202,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'previewGuestAnswerAttributionAgreement'
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
+    | 'createSemanticUniversalContentDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -248,6 +251,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
+    | 'createSemanticUniversalContentDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -1267,6 +1271,80 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           canonicalKnowledgeChanged: false,
           customerContacted: false,
           replayed: result.replayed,
+        }),
+      }
+    },
+    async createSemanticUniversalContentDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Typed knowledge drafts require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+      const result = await createSemanticUniversalContentDraftService({
+        db: database,
+        actorId: input.agentIdentityId,
+        agentActor: {
+          agentIdentityId: input.agentIdentityId,
+          agentRunId: input.agentRunId,
+          workerId: worker.id,
+          credentialId: context.credential.credentialId,
+          capability: 'knowledge:draft',
+          idempotencyKey: input.operationId,
+          ...(worker.modelProvider ? { modelProvider: worker.modelProvider } : {}),
+          ...(worker.modelName ? { modelName: worker.modelName } : {}),
+        },
+        input: {
+          tenantId: context.credential.tenantId,
+          venueId,
+          proposalId: input.proposalId,
+          expectedProposalUpdatedAt: input.expectedProposalUpdatedAt,
+          expectedPreviewHash: input.expectedPreviewHash,
+          relation: input.relation,
+          desired: input.desired,
+          draft: input.draft,
+        },
+      })
+      return {
+        kind: 'torchiko.semantic-universal-content-draft',
+        summary: result.replayed
+          ? 'Existing typed universal-content draft returned; publication remains separate.'
+          : 'Typed universal-content draft created from the approved proposal; publication remains separate.',
+        data: jsonData({
+          tenantId: context.credential.tenantId,
+          venueId,
+          proposalId: input.proposalId,
+          moduleId: result.moduleId,
+          revisionId: result.revisionId,
+          version: result.version,
+          classification: result.classification,
+          draftHash: result.draftHash,
+          replayed: result.replayed,
+          requiresExplicitPublication: true,
+          autoPublished: false,
         }),
       }
     },

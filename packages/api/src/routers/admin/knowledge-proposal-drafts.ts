@@ -2,9 +2,11 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
+import { CreateSemanticUniversalContentDraftInput } from '@pathfinder/contracts/universal-content-actions'
 
 import { router } from '../../core'
 import { semanticVenueUpdateDraftFinalizer } from '../../lib/semantic-venue-update-finalizer'
+import { createSemanticUniversalContentDraftService } from '../../lib/semantic-universal-content-handoff-service'
 import { semanticOperationalUpdateDraftFinalizer } from '../../lib/semantic-operational-update-finalizer'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
 import {
@@ -96,6 +98,27 @@ function exactOperationalDraftFromHandoff(
 }
 
 export const adminKnowledgeProposalDraftRouter = router({
+  createSemanticUniversalContentDraft: adminProcedure
+    .input(
+      CreateSemanticUniversalContentDraftInput.extend({ desired: SemanticUpdaterDesiredKnowledge }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await createSemanticUniversalContentDraftService({
+        db: ctx.db,
+        actorId: ctx.session.userId,
+        input,
+      })
+      return {
+        moduleId: result.moduleId,
+        revisionId: result.revisionId,
+        version: result.version,
+        classification: result.classification,
+        draftHash: result.draftHash,
+        replayed: result.replayed,
+        requiresExplicitPublication: true as const,
+        autoPublished: false as const,
+      }
+    }),
   createSemanticOperationalUpdateDraft: adminProcedure
     .input(
       z

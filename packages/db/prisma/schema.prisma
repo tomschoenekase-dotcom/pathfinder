@@ -141,162 +141,163 @@ model ClientCreateIntentEvent {
 }
 
 model Tenant {
-  id                                 String                                      @id
-  name                               String
-  slug                               String                                      @unique
-  planTier                           String                                      @default("free") @map("plan_tier")
-  status                             TenantStatus                                @default(ACTIVE)
-  config                             Json                                        @default("{}")
-  nextPaymentDue                     DateTime?                                   @map("next_payment_due")
-  engagementMode                     TenantEngagementMode                        @default(STOIC) @map("engagement_mode")
-  createdAt                          DateTime                                    @default(now()) @map("created_at")
-  updatedAt                          DateTime                                    @updatedAt @map("updated_at")
-  memberships                        TenantMembership[]
-  featureFlags                       TenantFeatureFlag[]
-  entitlementOverrides               ProductEntitlementOverride[]
-  billingAccount                     BillingAccount?
-  commercialAgreements               CommercialAgreement[]
-  commercialAgreementVenues          CommercialAgreementVenue[]
-  billingCheckoutAttempts            BillingCheckoutAttempt[]
-  billingInvoiceProjections          BillingInvoiceProjection[]
-  billingEventApplications           BillingEventApplication[]
-  billingReconciliationRuns          BillingReconciliationRun[]
-  billingAccessOverrides             BillingAccessOverride[]
-  billingCustomerRequests            BillingCustomerRequest[]
-  billingAgentCommands               BillingAgentCommand[]
-  venues                             Venue[]
-  characterFactoryJobs               CharacterFactoryJob[]
-  intakeSubmissionDrafts             IntakeSubmissionDraft[]
-  operationalUpdates                 OperationalUpdate[]
-  analyticsEvents                    AnalyticsEvent[]
-  dailyRollups                       DailyRollup[]
-  weeklyDigests                      WeeklyDigest[]
-  questionClusters                   QuestionCluster[]
-  engagementQuestions                EngagementQuestion[]
-  engagementQuestionResponses        EngagementQuestionResponse[]
-  adminChatlogNotes                  AdminChatlogNote[]
-  weeklyReports                      WeeklyReport[]
-  venueReportConfigurations          VenueReportConfiguration[]
-  answerAnalysisSnapshots            AnswerAnalysisSnapshot[]
-  guestAnswerAttributions            GuestAnswerAttribution[]
-  guestAnswerAttributionEvaluations  GuestAnswerAttributionEvaluationRequest[]
-  venueWeeklyThemes                  VenueWeeklyTheme[]
-  mediaIngestionProjects             MediaIngestionProject[]
-  aiUsageEvents                      AiUsageEvent[]
-  aiUsageDailyRollups                AiUsageDailyRollup[]
-  operatingCostEvidence              OperatingCostEvidence[]
-  operationalUsageEvidence           OperationalUsageEvidence[]
-  aiCostBudgets                      AiCostBudget[]
-  aiCostReservations                 AiCostReservation[]
-  conversationInsights               ConversationInsight[]
-  operationalEvents                  OperationalEvent[]
-  operationalEventDeliveries         OperationalEventDelivery[]
-  knowledgeChangeProposals           KnowledgeChangeProposal[]
-  knowledgeProposalPackageHandoffs   KnowledgeProposalPackageHandoff[]
-  knowledgeProposalUpdateHandoffs    KnowledgeProposalOperationalUpdateHandoff[]
-  messageFeedback                    MessageFeedback[]
-  venueFloors                        VenueFloor[]
-  venueLocations                     VenueLocation[]
-  venueLocationConnections           VenueLocationConnection[]
-  embeddingWorkClaims                EmbeddingWorkClaim[]
-  embeddingDispatches                EmbeddingDispatch[]
-  venueContentImportReceipts         VenueContentImportReceipt[]
-  venuePackages                      VenuePackage[]
-  venuePackageManifestArtifacts      VenuePackageManifestArtifact[]
-  nativeVenueDeploymentReleases      NativeVenueDeploymentRelease[]
-  nativeVenueDeploymentArtifacts     NativeVenueDeploymentArtifact[]
-  nativeVenueDeploymentEffects       NativeVenueDeploymentEffect[]
-  nativeVenueDeploymentHeads         NativeVenueDeploymentHead[]
-  nativeVenueDeploymentCommands      NativeVenueDeploymentCommand[]
-  nativeVenuePublicationLineages     NativeVenueDeploymentPublicationLineage[]
-  nativeDeploymentEvaluations        NativeVenueDeploymentEvaluationEvidence[]
-  venuePackageDuplicateAnalyses      VenuePackageDuplicateAnalysis[]
-  generationRequestDispatches        GenerationRequestDispatch[]
-  contentVersions                    ContentVersion[]
-  evalCases                          EvalCase[]
-  evalRuns                           EvalRun[]
-  evalResults                        EvalResult[]
-  evalReviews                        EvalReview[]
-  evalRunCostReservations            EvalRunCostReservation[]
-  onboardingMilestoneEvents          OnboardingMilestoneEvent[]
-  firstWeekAccountReviews            FirstWeekAccountReview[]
-  agentIdentities                    AgentIdentity[]
-  agentRuns                          AgentRun[]
-  agentActions                       AgentAction[]
-  agentTimelineEvents                AgentTimelineEvent[]
-  approvalRequests                   ApprovalRequest[]
-  agentQuestions                     AgentQuestion[]
-  onboardingQuestionLinks            OnboardingQuestionLink[]
-  agentMessages                      AgentMessage[]
-  agentOutcomeObservations           AgentOutcomeObservation[]
-  agentImprovementProposals          AgentImprovementProposal[]
-  agentImprovementEvidence           AgentImprovementProposalEvidence[]
-  agentImprovementValidations        AgentImprovementValidationEvidence[]
-  approvalGrantEvidence              ApprovalGrantEvidence[]
-  approvalDecisions                  ApprovalDecision[]
-  approvalGrants                     ApprovalGrant[]
-  approvalGrantConsumptions          ApprovalGrantConsumption[]
-  supportRequests                    SupportRequest[]
-  supportMessages                    SupportMessage[]
-  supportAttachments                 SupportMessageAttachment[]
-  supportAuditEvents                 SupportRequestAuditEvent[]
-  supportPackageHandoffs             SupportPackageHandoff[]
-  supportPackageHandoffSupersessions SupportPackageHandoffSupersession[]
-  supportPreviewFeedback             SupportPreviewFeedback[]
-  supportAgentRunLineages            SupportAgentRunLineage[]
-  supportRequestParticipants         SupportRequestParticipant[]
-  offboardingPlans                   OffboardingPlan[]
-  offboardingVenueTargets            OffboardingVenueTarget[]
-  offboardingRevocationEvidence      OffboardingRevocationEvidence[]
-  offboardingExportArtifacts         OffboardingExportArtifact[]
-  offboardingExportOperations        OffboardingExportOperation[]
-  contentModuleIdentities            ContentModuleIdentity[]
-  contentModuleRevisions             ContentModuleRevision[]
-  contentModuleEvidence              ContentModuleEvidence[]
-  contentModulePublications          ContentModulePublication[]
-  intakeRuns                         IntakeRun[]
-  intakeEvidence                     IntakeEvidenceRecord[]
-  intakeEvents                       IntakeRunEvent[]
-  intakeWebsiteResearchReceipts      IntakeWebsiteResearchReceipt[]
-  intakeFileExtractionReceipts       IntakeFileExtractionReceipt[]
-  intakeFileExtractionReviews        IntakeFileExtractionReview[]
-  intakeFileClarificationResolutions IntakeFileClarificationResolution[]
-  intakeInterviewResolutions         IntakeInterviewClarificationResolution[]
-  intakePackageHandoffs              IntakePackageHandoff[]
-  intakeUploads                      IntakeUpload[]
-  externalCredentials                ExternalAccessCredential[]
-  agentBridgeSessions                AgentBridgeSession[]
-  agentWorkers                       AgentWorker[]
-  credentialRotations                ExternalCredentialRotation[]
-  credentialRevocations              ExternalCredentialRevocation[]
-  credentialActivations              ExternalCredentialActivation[]
-  prospectCustomerRelationships      ProspectCustomerRelationship[]
-  prospectLocationConversions        ProspectLocationConversion[]
-  aiConfigurationOverrides           AiScopedWorkloadConfigurationOverride[]
-  aiConfigurationHistory             AiScopedWorkloadConfigurationHistory[]
-  venueBotConfigurations             VenueBotConfiguration[]
-  personalityProfiles                PersonalityProfile[]
-  customCharacters                   CustomCharacter[]
-  clientAssistantPreferences         ClientAssistantPreference[]
-  clientAssistantThreads             ClientAssistantThread[]
-  clientAssistantTurns               ClientAssistantTurn[]
-  clientAssistantSupportHandoffs     ClientAssistantSupportHandoff[]
-  voiceSessions                      VoiceSession[]
-  voiceTranscriptSegments            VoiceTranscriptSegment[]
-  prospectConversion                 ProspectConversion?
-  companyKnowledgeItems              CompanyKnowledgeItem[]
-  companyMeetings                    CompanyMeeting[]
-  accountRelationshipNotes           AccountRelationshipNote[]
-  accountMilestones                  AccountMilestone[]
-  accountOpenLoops                   AccountOpenLoop[]
-  accountCommitments                 AccountCommitment[]
-  accountSummaries                   AccountSummary[]
-  customerAccessRequests             CustomerAccessRequest[]
-  founderDirectiveTaskRequests       FounderDirectiveTaskRequest[]
-  venueMediaAssets                   VenueMediaAsset[]
+  id                                        String                                      @id
+  name                                      String
+  slug                                      String                                      @unique
+  planTier                                  String                                      @default("free") @map("plan_tier")
+  status                                    TenantStatus                                @default(ACTIVE)
+  config                                    Json                                        @default("{}")
+  nextPaymentDue                            DateTime?                                   @map("next_payment_due")
+  engagementMode                            TenantEngagementMode                        @default(STOIC) @map("engagement_mode")
+  createdAt                                 DateTime                                    @default(now()) @map("created_at")
+  updatedAt                                 DateTime                                    @updatedAt @map("updated_at")
+  memberships                               TenantMembership[]
+  featureFlags                              TenantFeatureFlag[]
+  entitlementOverrides                      ProductEntitlementOverride[]
+  billingAccount                            BillingAccount?
+  commercialAgreements                      CommercialAgreement[]
+  commercialAgreementVenues                 CommercialAgreementVenue[]
+  billingCheckoutAttempts                   BillingCheckoutAttempt[]
+  billingInvoiceProjections                 BillingInvoiceProjection[]
+  billingEventApplications                  BillingEventApplication[]
+  billingReconciliationRuns                 BillingReconciliationRun[]
+  billingAccessOverrides                    BillingAccessOverride[]
+  billingCustomerRequests                   BillingCustomerRequest[]
+  billingAgentCommands                      BillingAgentCommand[]
+  venues                                    Venue[]
+  characterFactoryJobs                      CharacterFactoryJob[]
+  intakeSubmissionDrafts                    IntakeSubmissionDraft[]
+  operationalUpdates                        OperationalUpdate[]
+  analyticsEvents                           AnalyticsEvent[]
+  dailyRollups                              DailyRollup[]
+  weeklyDigests                             WeeklyDigest[]
+  questionClusters                          QuestionCluster[]
+  engagementQuestions                       EngagementQuestion[]
+  engagementQuestionResponses               EngagementQuestionResponse[]
+  adminChatlogNotes                         AdminChatlogNote[]
+  weeklyReports                             WeeklyReport[]
+  venueReportConfigurations                 VenueReportConfiguration[]
+  answerAnalysisSnapshots                   AnswerAnalysisSnapshot[]
+  guestAnswerAttributions                   GuestAnswerAttribution[]
+  guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
+  venueWeeklyThemes                         VenueWeeklyTheme[]
+  mediaIngestionProjects                    MediaIngestionProject[]
+  mediaProviderOperations                   MediaProviderOperation[]
+  aiUsageEvents                             AiUsageEvent[]
+  aiUsageDailyRollups                       AiUsageDailyRollup[]
+  operatingCostEvidence                     OperatingCostEvidence[]
+  operationalUsageEvidence                  OperationalUsageEvidence[]
+  aiCostBudgets                             AiCostBudget[]
+  aiCostReservations                        AiCostReservation[]
+  conversationInsights                      ConversationInsight[]
+  operationalEvents                         OperationalEvent[]
+  operationalEventDeliveries                OperationalEventDelivery[]
+  knowledgeChangeProposals                  KnowledgeChangeProposal[]
+  knowledgeProposalPackageHandoffs          KnowledgeProposalPackageHandoff[]
+  knowledgeProposalUpdateHandoffs           KnowledgeProposalOperationalUpdateHandoff[]
+  knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  messageFeedback                           MessageFeedback[]
+  venueFloors                               VenueFloor[]
+  venueLocations                            VenueLocation[]
+  venueLocationConnections                  VenueLocationConnection[]
+  embeddingWorkClaims                       EmbeddingWorkClaim[]
+  embeddingDispatches                       EmbeddingDispatch[]
+  venueContentImportReceipts                VenueContentImportReceipt[]
+  venuePackages                             VenuePackage[]
+  venuePackageManifestArtifacts             VenuePackageManifestArtifact[]
+  nativeVenueDeploymentReleases             NativeVenueDeploymentRelease[]
+  nativeVenueDeploymentArtifacts            NativeVenueDeploymentArtifact[]
+  nativeVenueDeploymentEffects              NativeVenueDeploymentEffect[]
+  nativeVenueDeploymentHeads                NativeVenueDeploymentHead[]
+  nativeVenueDeploymentCommands             NativeVenueDeploymentCommand[]
+  nativeVenuePublicationLineages            NativeVenueDeploymentPublicationLineage[]
+  nativeDeploymentEvaluations               NativeVenueDeploymentEvaluationEvidence[]
+  venuePackageDuplicateAnalyses             VenuePackageDuplicateAnalysis[]
+  generationRequestDispatches               GenerationRequestDispatch[]
+  contentVersions                           ContentVersion[]
+  evalCases                                 EvalCase[]
+  evalRuns                                  EvalRun[]
+  evalResults                               EvalResult[]
+  evalReviews                               EvalReview[]
+  evalRunCostReservations                   EvalRunCostReservation[]
+  onboardingMilestoneEvents                 OnboardingMilestoneEvent[]
+  firstWeekAccountReviews                   FirstWeekAccountReview[]
+  agentIdentities                           AgentIdentity[]
+  agentRuns                                 AgentRun[]
+  agentActions                              AgentAction[]
+  agentTimelineEvents                       AgentTimelineEvent[]
+  approvalRequests                          ApprovalRequest[]
+  agentQuestions                            AgentQuestion[]
+  onboardingQuestionLinks                   OnboardingQuestionLink[]
+  agentMessages                             AgentMessage[]
+  agentOutcomeObservations                  AgentOutcomeObservation[]
+  agentImprovementProposals                 AgentImprovementProposal[]
+  agentImprovementEvidence                  AgentImprovementProposalEvidence[]
+  agentImprovementValidations               AgentImprovementValidationEvidence[]
+  approvalGrantEvidence                     ApprovalGrantEvidence[]
+  approvalDecisions                         ApprovalDecision[]
+  approvalGrants                            ApprovalGrant[]
+  approvalGrantConsumptions                 ApprovalGrantConsumption[]
+  supportRequests                           SupportRequest[]
+  supportMessages                           SupportMessage[]
+  supportAttachments                        SupportMessageAttachment[]
+  supportAuditEvents                        SupportRequestAuditEvent[]
+  supportPackageHandoffs                    SupportPackageHandoff[]
+  supportPackageHandoffSupersessions        SupportPackageHandoffSupersession[]
+  supportPreviewFeedback                    SupportPreviewFeedback[]
+  supportAgentRunLineages                   SupportAgentRunLineage[]
+  supportRequestParticipants                SupportRequestParticipant[]
+  offboardingPlans                          OffboardingPlan[]
+  offboardingVenueTargets                   OffboardingVenueTarget[]
+  offboardingRevocationEvidence             OffboardingRevocationEvidence[]
+  offboardingExportArtifacts                OffboardingExportArtifact[]
+  offboardingExportOperations               OffboardingExportOperation[]
+  contentModuleIdentities                   ContentModuleIdentity[]
+  contentModuleRevisions                    ContentModuleRevision[]
+  contentModuleEvidence                     ContentModuleEvidence[]
+  contentModulePublications                 ContentModulePublication[]
+  intakeRuns                                IntakeRun[]
+  intakeEvidence                            IntakeEvidenceRecord[]
+  intakeEvents                              IntakeRunEvent[]
+  intakeWebsiteResearchReceipts             IntakeWebsiteResearchReceipt[]
+  intakeFileExtractionReceipts              IntakeFileExtractionReceipt[]
+  intakeFileExtractionReviews               IntakeFileExtractionReview[]
+  intakeFileClarificationResolutions        IntakeFileClarificationResolution[]
+  intakeInterviewResolutions                IntakeInterviewClarificationResolution[]
+  intakePackageHandoffs                     IntakePackageHandoff[]
+  intakeUploads                             IntakeUpload[]
+  externalCredentials                       ExternalAccessCredential[]
+  agentBridgeSessions                       AgentBridgeSession[]
+  agentWorkers                              AgentWorker[]
+  credentialRotations                       ExternalCredentialRotation[]
+  credentialRevocations                     ExternalCredentialRevocation[]
+  credentialActivations                     ExternalCredentialActivation[]
+  prospectCustomerRelationships             ProspectCustomerRelationship[]
+  prospectLocationConversions               ProspectLocationConversion[]
+  aiConfigurationOverrides                  AiScopedWorkloadConfigurationOverride[]
+  aiConfigurationHistory                    AiScopedWorkloadConfigurationHistory[]
+  venueBotConfigurations                    VenueBotConfiguration[]
+  personalityProfiles                       PersonalityProfile[]
+  customCharacters                          CustomCharacter[]
+  clientAssistantPreferences                ClientAssistantPreference[]
+  clientAssistantThreads                    ClientAssistantThread[]
+  clientAssistantTurns                      ClientAssistantTurn[]
+  clientAssistantSupportHandoffs            ClientAssistantSupportHandoff[]
+  voiceSessions                             VoiceSession[]
+  voiceTranscriptSegments                   VoiceTranscriptSegment[]
+  prospectConversion                        ProspectConversion?
+  companyKnowledgeItems                     CompanyKnowledgeItem[]
+  companyMeetings                           CompanyMeeting[]
+  accountRelationshipNotes                  AccountRelationshipNote[]
+  accountMilestones                         AccountMilestone[]
+  accountOpenLoops                          AccountOpenLoop[]
+  accountCommitments                        AccountCommitment[]
+  accountSummaries                          AccountSummary[]
+  customerAccessRequests                    CustomerAccessRequest[]
+  founderDirectiveTaskRequests              FounderDirectiveTaskRequest[]
+  venueMediaAssets                          VenueMediaAsset[]
 
   @@map("tenants")
-  mediaProviderOperations                   MediaProviderOperation[]
 }
 
 model TenantMembership {
@@ -1353,161 +1354,162 @@ enum VenuePackageStatus {
 }
 
 model Venue {
-  id                                  String                                      @id @default(cuid())
-  tenantId                            String                                      @map("tenant_id")
-  name                                String
-  slug                                String
-  description                         String?
-  guideNotes                          String?                                     @map("guide_notes")
-  aiGuideNotes                        String?                                     @map("ai_guide_notes")
-  aiFeaturedPlaceId                   String?                                     @map("ai_featured_place_id")
-  aiTone                              String?                                     @default("FRIENDLY") @map("ai_tone")
-  tonePreset                          String?                                     @default("friendly") @map("tone_preset")
-  tonePresetVersion                   Int?                                        @default(1) @map("tone_preset_version")
-  aiGuideName                         String?                                     @map("ai_guide_name")
-  chatTheme                           String?                                     @default("default") @map("chat_theme")
-  chatAccentColor                     String?                                     @map("chat_accent_color")
-  chatFont                            String?                                     @default("jakarta") @map("chat_font")
-  chatLogoUrl                         String?                                     @map("chat_logo_url")
-  chatBannerUrl                       String?                                     @map("chat_banner_url")
-  category                            String?
-  guideMode                           String                                      @default("location_aware") @map("guide_mode")
-  defaultCenterLat                    Float?                                      @map("default_center_lat")
-  defaultCenterLng                    Float?                                      @map("default_center_lng")
-  geoBoundary                         Json?                                       @map("geo_boundary")
-  isActive                            Boolean                                     @default(true) @map("is_active")
-  secondLayerEnabled                  Boolean                                     @default(false) @map("second_layer_enabled")
-  secondLayerLabel                    String                                      @default("Employee") @map("second_layer_label")
-  secondLayerAccessKey                String?                                     @unique @map("second_layer_access_key")
-  createdAt                           DateTime                                    @default(now()) @map("created_at")
-  updatedAt                           DateTime                                    @updatedAt @map("updated_at")
-  tenant                              Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  characterFactoryJobs                CharacterFactoryJob[]
-  intakeSubmissionDrafts              IntakeSubmissionDraft[]
-  places                              Place[]
-  sessions                            VisitorSession[]
-  operationalUpdates                  OperationalUpdate[]
-  analyticsEvents                     AnalyticsEvent[]
-  dailyRollups                        DailyRollup[]
-  questionClusters                    QuestionCluster[]
-  knowledgeEntries                    VenueKnowledgeEntry[]
-  engagementResponses                 EngagementQuestionResponse[]
-  adminChatlogNotes                   AdminChatlogNote[]
-  weeklyReports                       WeeklyReport[]
-  reportConfiguration                 VenueReportConfiguration?
-  answerAnalysisSnapshots             AnswerAnalysisSnapshot[]
-  guestAnswerAttributions             GuestAnswerAttribution[]
-  guestAnswerAttributionEvaluations   GuestAnswerAttributionEvaluationRequest[]
-  weeklyThemes                        VenueWeeklyTheme[]
-  mediaIngestionProjects              MediaIngestionProject[]
-  aiUsageEvents                       AiUsageEvent[]
-  aiUsageDailyRollups                 AiUsageDailyRollup[]
-  operatingCostEvidence               OperatingCostEvidence[]
-  operationalUsageEvidence            OperationalUsageEvidence[]
-  aiCostReservations                  AiCostReservation[]
-  conversationInsights                ConversationInsight[]
-  operationalEvents                   OperationalEvent[]
-  knowledgeChangeProposals            KnowledgeChangeProposal[]
-  knowledgeProposalPackageHandoffs    KnowledgeProposalPackageHandoff[]
-  knowledgeProposalUpdateHandoffs     KnowledgeProposalOperationalUpdateHandoff[]
-  messageFeedback                     MessageFeedback[]
-  floors                              VenueFloor[]
-  structuredLocations                 VenueLocation[]
-  locationConnections                 VenueLocationConnection[]
-  embeddingWorkClaims                 EmbeddingWorkClaim[]
-  embeddingDispatches                 EmbeddingDispatch[]
-  contentImportReceipts               VenueContentImportReceipt[]
-  venuePackageManifestArtifacts       VenuePackageManifestArtifact[]
-  nativeDeploymentReleases            NativeVenueDeploymentRelease[]
-  nativeDeploymentArtifacts           NativeVenueDeploymentArtifact[]
-  nativeDeploymentEffects             NativeVenueDeploymentEffect[]
-  nativeDeploymentHead                NativeVenueDeploymentHead?
-  nativeDeploymentCommands            NativeVenueDeploymentCommand[]
-  nativeDeploymentPublicationLineages NativeVenueDeploymentPublicationLineage[]
-  nativeDeploymentEvaluations         NativeVenueDeploymentEvaluationEvidence[]
-  venuePackageDuplicateAnalyses       VenuePackageDuplicateAnalysis[]
-  generationRequestDispatches         GenerationRequestDispatch[]
-  evalCases                           EvalCase[]
-  evalRuns                            EvalRun[]
-  evalResults                         EvalResult[]
-  evalReviews                         EvalReview[]
-  evalRunCostReservations             EvalRunCostReservation[]
-  onboardingMilestoneEvents           OnboardingMilestoneEvent[]
-  firstWeekAccountReviews             FirstWeekAccountReview[]
-  agentIdentities                     AgentIdentity[]
-  agentRuns                           AgentRun[]
-  agentActions                        AgentAction[]
-  agentTimelineEvents                 AgentTimelineEvent[]
-  approvalRequests                    ApprovalRequest[]
-  customerAccessRequests              CustomerAccessRequest[]
-  founderDirectiveTaskRequests        FounderDirectiveTaskRequest[]
-  agentQuestions                      AgentQuestion[]
-  onboardingQuestionLinks             OnboardingQuestionLink[]
-  agentMessages                       AgentMessage[]
-  agentOutcomeObservations            AgentOutcomeObservation[]
-  agentImprovementProposals           AgentImprovementProposal[]
-  agentImprovementValidations         AgentImprovementValidationEvidence[]
-  approvalDecisions                   ApprovalDecision[]
-  approvalGrants                      ApprovalGrant[]
-  approvalGrantConsumptions           ApprovalGrantConsumption[]
-  supportRequests                     SupportRequest[]
-  supportMessages                     SupportMessage[]
-  supportAttachments                  SupportMessageAttachment[]
-  supportAuditEvents                  SupportRequestAuditEvent[]
-  supportPackageHandoffs              SupportPackageHandoff[]
-  supportPackageHandoffSupersessions  SupportPackageHandoffSupersession[]
-  supportPreviewFeedback              SupportPreviewFeedback[]
-  supportAgentRunLineages             SupportAgentRunLineage[]
-  supportRequestParticipants          SupportRequestParticipant[]
-  offboardingTargets                  OffboardingVenueTarget[]
-  contentModuleIdentities             ContentModuleIdentity[]
-  contentModuleRevisions              ContentModuleRevision[]
-  contentModuleEvidence               ContentModuleEvidence[]
-  contentModulePublications           ContentModulePublication[]
-  intakeRuns                          IntakeRun[]
-  intakeEvidence                      IntakeEvidenceRecord[]
-  intakeEvents                        IntakeRunEvent[]
-  intakeWebsiteResearchReceipts       IntakeWebsiteResearchReceipt[]
-  intakeFileExtractionReceipts        IntakeFileExtractionReceipt[]
-  intakeFileExtractionReviews         IntakeFileExtractionReview[]
-  intakeFileClarificationResolutions  IntakeFileClarificationResolution[]
-  intakeInterviewResolutions          IntakeInterviewClarificationResolution[]
-  intakePackageHandoffs               IntakePackageHandoff[]
-  intakeUploads                       IntakeUpload[]
-  externalCredentials                 ExternalAccessCredential[]
-  agentBridgeSessions                 AgentBridgeSession[]
-  credentialRotations                 ExternalCredentialRotation[]
-  credentialRevocations               ExternalCredentialRevocation[]
-  credentialActivations               ExternalCredentialActivation[]
-  aiConfigurationOverrides            AiScopedWorkloadConfigurationOverride[]
-  venueBotConfiguration               VenueBotConfiguration?
-  personalityProfiles                 PersonalityProfile[]                        @relation("VenuePersonalityProfiles")
-  customCharacters                    CustomCharacter[]
-  clientAssistantThreads              ClientAssistantThread[]
-  clientAssistantTurns                ClientAssistantTurn[]
-  clientAssistantSupportHandoffs      ClientAssistantSupportHandoff[]
-  entitlementOverrides                ProductEntitlementOverride[]
-  commercialAgreementCoverage         CommercialAgreementVenue[]
-  billingAccessOverrides              BillingAccessOverride[]
-  billingCustomerRequests             BillingCustomerRequest[]
-  billingAgentCommands                BillingAgentCommand[]
-  voiceSessions                       VoiceSession[]
-  voiceTranscriptSegments             VoiceTranscriptSegment[]
-  prospectConversion                  ProspectConversion?
-  prospectLocationConversions         ProspectLocationConversion[]
-  companyKnowledgeItems               CompanyKnowledgeItem[]
-  companyMeetings                     CompanyMeeting[]
-  accountRelationshipNotes            AccountRelationshipNote[]
-  accountMilestones                   AccountMilestone[]
-  accountOpenLoops                    AccountOpenLoop[]
-  accountCommitments                  AccountCommitment[]
-  venueMediaAssets                    VenueMediaAsset[]
+  id                                        String                                      @id @default(cuid())
+  tenantId                                  String                                      @map("tenant_id")
+  name                                      String
+  slug                                      String
+  description                               String?
+  guideNotes                                String?                                     @map("guide_notes")
+  aiGuideNotes                              String?                                     @map("ai_guide_notes")
+  aiFeaturedPlaceId                         String?                                     @map("ai_featured_place_id")
+  aiTone                                    String?                                     @default("FRIENDLY") @map("ai_tone")
+  tonePreset                                String?                                     @default("friendly") @map("tone_preset")
+  tonePresetVersion                         Int?                                        @default(1) @map("tone_preset_version")
+  aiGuideName                               String?                                     @map("ai_guide_name")
+  chatTheme                                 String?                                     @default("default") @map("chat_theme")
+  chatAccentColor                           String?                                     @map("chat_accent_color")
+  chatFont                                  String?                                     @default("jakarta") @map("chat_font")
+  chatLogoUrl                               String?                                     @map("chat_logo_url")
+  chatBannerUrl                             String?                                     @map("chat_banner_url")
+  category                                  String?
+  guideMode                                 String                                      @default("location_aware") @map("guide_mode")
+  defaultCenterLat                          Float?                                      @map("default_center_lat")
+  defaultCenterLng                          Float?                                      @map("default_center_lng")
+  geoBoundary                               Json?                                       @map("geo_boundary")
+  isActive                                  Boolean                                     @default(true) @map("is_active")
+  secondLayerEnabled                        Boolean                                     @default(false) @map("second_layer_enabled")
+  secondLayerLabel                          String                                      @default("Employee") @map("second_layer_label")
+  secondLayerAccessKey                      String?                                     @unique @map("second_layer_access_key")
+  createdAt                                 DateTime                                    @default(now()) @map("created_at")
+  updatedAt                                 DateTime                                    @updatedAt @map("updated_at")
+  tenant                                    Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  characterFactoryJobs                      CharacterFactoryJob[]
+  intakeSubmissionDrafts                    IntakeSubmissionDraft[]
+  places                                    Place[]
+  sessions                                  VisitorSession[]
+  operationalUpdates                        OperationalUpdate[]
+  analyticsEvents                           AnalyticsEvent[]
+  dailyRollups                              DailyRollup[]
+  questionClusters                          QuestionCluster[]
+  knowledgeEntries                          VenueKnowledgeEntry[]
+  engagementResponses                       EngagementQuestionResponse[]
+  adminChatlogNotes                         AdminChatlogNote[]
+  weeklyReports                             WeeklyReport[]
+  reportConfiguration                       VenueReportConfiguration?
+  answerAnalysisSnapshots                   AnswerAnalysisSnapshot[]
+  guestAnswerAttributions                   GuestAnswerAttribution[]
+  guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
+  weeklyThemes                              VenueWeeklyTheme[]
+  mediaIngestionProjects                    MediaIngestionProject[]
+  mediaProviderOperations                   MediaProviderOperation[]
+  aiUsageEvents                             AiUsageEvent[]
+  aiUsageDailyRollups                       AiUsageDailyRollup[]
+  operatingCostEvidence                     OperatingCostEvidence[]
+  operationalUsageEvidence                  OperationalUsageEvidence[]
+  aiCostReservations                        AiCostReservation[]
+  conversationInsights                      ConversationInsight[]
+  operationalEvents                         OperationalEvent[]
+  knowledgeChangeProposals                  KnowledgeChangeProposal[]
+  knowledgeProposalPackageHandoffs          KnowledgeProposalPackageHandoff[]
+  knowledgeProposalUpdateHandoffs           KnowledgeProposalOperationalUpdateHandoff[]
+  knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  messageFeedback                           MessageFeedback[]
+  floors                                    VenueFloor[]
+  structuredLocations                       VenueLocation[]
+  locationConnections                       VenueLocationConnection[]
+  embeddingWorkClaims                       EmbeddingWorkClaim[]
+  embeddingDispatches                       EmbeddingDispatch[]
+  contentImportReceipts                     VenueContentImportReceipt[]
+  venuePackageManifestArtifacts             VenuePackageManifestArtifact[]
+  nativeDeploymentReleases                  NativeVenueDeploymentRelease[]
+  nativeDeploymentArtifacts                 NativeVenueDeploymentArtifact[]
+  nativeDeploymentEffects                   NativeVenueDeploymentEffect[]
+  nativeDeploymentHead                      NativeVenueDeploymentHead?
+  nativeDeploymentCommands                  NativeVenueDeploymentCommand[]
+  nativeDeploymentPublicationLineages       NativeVenueDeploymentPublicationLineage[]
+  nativeDeploymentEvaluations               NativeVenueDeploymentEvaluationEvidence[]
+  venuePackageDuplicateAnalyses             VenuePackageDuplicateAnalysis[]
+  generationRequestDispatches               GenerationRequestDispatch[]
+  evalCases                                 EvalCase[]
+  evalRuns                                  EvalRun[]
+  evalResults                               EvalResult[]
+  evalReviews                               EvalReview[]
+  evalRunCostReservations                   EvalRunCostReservation[]
+  onboardingMilestoneEvents                 OnboardingMilestoneEvent[]
+  firstWeekAccountReviews                   FirstWeekAccountReview[]
+  agentIdentities                           AgentIdentity[]
+  agentRuns                                 AgentRun[]
+  agentActions                              AgentAction[]
+  agentTimelineEvents                       AgentTimelineEvent[]
+  approvalRequests                          ApprovalRequest[]
+  customerAccessRequests                    CustomerAccessRequest[]
+  founderDirectiveTaskRequests              FounderDirectiveTaskRequest[]
+  agentQuestions                            AgentQuestion[]
+  onboardingQuestionLinks                   OnboardingQuestionLink[]
+  agentMessages                             AgentMessage[]
+  agentOutcomeObservations                  AgentOutcomeObservation[]
+  agentImprovementProposals                 AgentImprovementProposal[]
+  agentImprovementValidations               AgentImprovementValidationEvidence[]
+  approvalDecisions                         ApprovalDecision[]
+  approvalGrants                            ApprovalGrant[]
+  approvalGrantConsumptions                 ApprovalGrantConsumption[]
+  supportRequests                           SupportRequest[]
+  supportMessages                           SupportMessage[]
+  supportAttachments                        SupportMessageAttachment[]
+  supportAuditEvents                        SupportRequestAuditEvent[]
+  supportPackageHandoffs                    SupportPackageHandoff[]
+  supportPackageHandoffSupersessions        SupportPackageHandoffSupersession[]
+  supportPreviewFeedback                    SupportPreviewFeedback[]
+  supportAgentRunLineages                   SupportAgentRunLineage[]
+  supportRequestParticipants                SupportRequestParticipant[]
+  offboardingTargets                        OffboardingVenueTarget[]
+  contentModuleIdentities                   ContentModuleIdentity[]
+  contentModuleRevisions                    ContentModuleRevision[]
+  contentModuleEvidence                     ContentModuleEvidence[]
+  contentModulePublications                 ContentModulePublication[]
+  intakeRuns                                IntakeRun[]
+  intakeEvidence                            IntakeEvidenceRecord[]
+  intakeEvents                              IntakeRunEvent[]
+  intakeWebsiteResearchReceipts             IntakeWebsiteResearchReceipt[]
+  intakeFileExtractionReceipts              IntakeFileExtractionReceipt[]
+  intakeFileExtractionReviews               IntakeFileExtractionReview[]
+  intakeFileClarificationResolutions        IntakeFileClarificationResolution[]
+  intakeInterviewResolutions                IntakeInterviewClarificationResolution[]
+  intakePackageHandoffs                     IntakePackageHandoff[]
+  intakeUploads                             IntakeUpload[]
+  externalCredentials                       ExternalAccessCredential[]
+  agentBridgeSessions                       AgentBridgeSession[]
+  credentialRotations                       ExternalCredentialRotation[]
+  credentialRevocations                     ExternalCredentialRevocation[]
+  credentialActivations                     ExternalCredentialActivation[]
+  aiConfigurationOverrides                  AiScopedWorkloadConfigurationOverride[]
+  venueBotConfiguration                     VenueBotConfiguration?
+  personalityProfiles                       PersonalityProfile[]                        @relation("VenuePersonalityProfiles")
+  customCharacters                          CustomCharacter[]
+  clientAssistantThreads                    ClientAssistantThread[]
+  clientAssistantTurns                      ClientAssistantTurn[]
+  clientAssistantSupportHandoffs            ClientAssistantSupportHandoff[]
+  entitlementOverrides                      ProductEntitlementOverride[]
+  commercialAgreementCoverage               CommercialAgreementVenue[]
+  billingAccessOverrides                    BillingAccessOverride[]
+  billingCustomerRequests                   BillingCustomerRequest[]
+  billingAgentCommands                      BillingAgentCommand[]
+  voiceSessions                             VoiceSession[]
+  voiceTranscriptSegments                   VoiceTranscriptSegment[]
+  prospectConversion                        ProspectConversion?
+  prospectLocationConversions               ProspectLocationConversion[]
+  companyKnowledgeItems                     CompanyKnowledgeItem[]
+  companyMeetings                           CompanyMeeting[]
+  accountRelationshipNotes                  AccountRelationshipNote[]
+  accountMilestones                         AccountMilestone[]
+  accountOpenLoops                          AccountOpenLoop[]
+  accountCommitments                        AccountCommitment[]
+  venueMediaAssets                          VenueMediaAsset[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
   @@index([tenantId])
   @@map("venues")
-  mediaProviderOperations                   MediaProviderOperation[]
 }
 
 model Place {
@@ -1603,18 +1605,19 @@ model VenueKnowledgeEntry {
 
 /// Stable identity only; all content payload remains in a typed module table.
 model ContentModuleIdentity {
-  id                     String                      @id @default(cuid())
-  tenantId               String                      @map("tenant_id")
-  venueId                String                      @map("venue_id")
-  kind                   NormalizedContentModuleKind
-  createdAt              DateTime                    @default(now()) @map("created_at")
-  tenant                 Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                  Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  revisions              ContentModuleRevision[]
-  publications           ContentModulePublication[]
-  knowledgeSearchEntries VenueKnowledgeEntry[]
-  outboundRelationships  RelationshipContent[]       @relation("relationship_from")
-  inboundRelationships   RelationshipContent[]       @relation("relationship_to")
+  id                                        String                                     @id @default(cuid())
+  tenantId                                  String                                     @map("tenant_id")
+  venueId                                   String                                     @map("venue_id")
+  kind                                      NormalizedContentModuleKind
+  createdAt                                 DateTime                                   @default(now()) @map("created_at")
+  tenant                                    Tenant                                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                                     Venue                                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  revisions                                 ContentModuleRevision[]
+  publications                              ContentModulePublication[]
+  knowledgeSearchEntries                    VenueKnowledgeEntry[]
+  knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  outboundRelationships                     RelationshipContent[]                      @relation("relationship_from")
+  inboundRelationships                      RelationshipContent[]                      @relation("relationship_to")
 
   @@unique([id, tenantId, venueId])
   @@unique([id, tenantId, venueId, kind])
@@ -1624,29 +1627,31 @@ model ContentModuleIdentity {
 
 /// Append-only version envelope shared by the separate typed module tables.
 model ContentModuleRevision {
-  id                     String                      @id @default(cuid())
-  tenantId               String                      @map("tenant_id")
-  venueId                String                      @map("venue_id")
-  moduleId               String                      @map("module_id")
-  kind                   NormalizedContentModuleKind
-  version                Int
-  audience               NormalizedContentAudience
-  effectiveFrom          DateTime?                   @map("effective_from")
-  effectiveUntil         DateTime?                   @map("effective_until")
-  createdBy              String                      @map("created_by") @db.VarChar(191)
-  createdAt              DateTime                    @default(now()) @map("created_at")
-  tenant                 Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                  Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  module                 ContentModuleIdentity       @relation(fields: [moduleId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
-  evidence               ContentModuleEvidence[]
-  publications           ContentModulePublication[]
-  service                ServiceContent?
-  item                   ItemContent?
-  policy                 PolicyContent?
-  event                  EventContent?
-  operationalFact        OperationalFactContent?
-  relationship           RelationshipContent?
-  knowledgeSearchEntries VenueKnowledgeEntry[]
+  id                           String                                     @id @default(cuid())
+  tenantId                     String                                     @map("tenant_id")
+  venueId                      String                                     @map("venue_id")
+  moduleId                     String                                     @map("module_id")
+  kind                         NormalizedContentModuleKind
+  version                      Int
+  audience                     NormalizedContentAudience
+  effectiveFrom                DateTime?                                  @map("effective_from")
+  effectiveUntil               DateTime?                                  @map("effective_until")
+  createdBy                    String                                     @map("created_by") @db.VarChar(191)
+  createdAt                    DateTime                                   @default(now()) @map("created_at")
+  tenant                       Tenant                                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue                                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  module                       ContentModuleIdentity                      @relation(fields: [moduleId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  evidence                     ContentModuleEvidence[]
+  publications                 ContentModulePublication[]
+  service                      ServiceContent?
+  item                         ItemContent?
+  policy                       PolicyContent?
+  event                        EventContent?
+  operationalFact              OperationalFactContent?
+  relationship                 RelationshipContent?
+  knowledgeSearchEntries       VenueKnowledgeEntry[]
+  semanticHandoffRevisions     KnowledgeProposalUniversalContentHandoff[] @relation("SemanticHandoffRevision")
+  semanticHandoffBaseRevisions KnowledgeProposalUniversalContentHandoff[] @relation("SemanticHandoffBaseRevision")
 
   @@unique([moduleId, tenantId, venueId, version])
   @@unique([id, tenantId, venueId], map: "content_module_revisions_id_scope_key")
@@ -3462,6 +3467,7 @@ model KnowledgeChangeProposal {
   publishedKnowledgeEntry   VenueKnowledgeEntry?                       @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   packageHandoff            KnowledgeProposalPackageHandoff?
   operationalUpdateHandoff  KnowledgeProposalOperationalUpdateHandoff?
+  universalContentHandoff   KnowledgeProposalUniversalContentHandoff?
 
   @@unique([id, tenantId, venueId])
   @@unique([supportRequestId, tenantId, venueId, supportRequestVersion], map: "knowledge_proposals_support_version_key")
@@ -3514,6 +3520,38 @@ model KnowledgeProposalOperationalUpdateHandoff {
   @@unique([operationalUpdateId, tenantId, venueId], map: "knowledge_proposal_update_handoffs_update_scope_key")
   @@index([tenantId, venueId, createdAt], map: "knowledge_proposal_update_handoffs_scope_created_idx")
   @@map("knowledge_proposal_operational_update_handoffs")
+}
+
+/// Immutable bridge from one approved semantic proposal to one append-only
+/// universal-content revision. It grants no publication authority.
+model KnowledgeProposalUniversalContentHandoff {
+  id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String                      @map("tenant_id")
+  venueId                String                      @map("venue_id")
+  proposalId             String                      @map("proposal_id") @db.Uuid
+  moduleId               String                      @map("module_id")
+  moduleKind             NormalizedContentModuleKind @map("module_kind")
+  revisionId             String                      @map("revision_id")
+  classification         String                      @db.VarChar(32)
+  relation               String                      @db.VarChar(32)
+  previewHash            String                      @map("preview_hash") @db.Char(64)
+  draftHash              String                      @map("draft_hash") @db.Char(64)
+  proposalUpdatedAt      DateTime                    @map("proposal_updated_at")
+  expectedBaseRevisionId String?                     @map("expected_base_revision_id")
+  expectedBaseVersion    Int?                        @map("expected_base_version")
+  createdBy              String                      @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  tenant                 Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal               KnowledgeChangeProposal     @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  module                 ContentModuleIdentity       @relation(fields: [moduleId, tenantId, venueId, moduleKind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  revision               ContentModuleRevision       @relation("SemanticHandoffRevision", fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  expectedBaseRevision   ContentModuleRevision?      @relation("SemanticHandoffBaseRevision", fields: [expectedBaseRevisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([proposalId, tenantId, venueId], map: "knowledge_proposal_universal_handoffs_proposal_scope_key")
+  @@unique([revisionId, tenantId, venueId], map: "knowledge_proposal_universal_handoffs_revision_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "knowledge_proposal_universal_handoffs_scope_created_idx")
+  @@map("knowledge_proposal_universal_content_handoffs")
 }
 
 enum VenueLocationKind {
