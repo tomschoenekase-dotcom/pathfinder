@@ -181,7 +181,13 @@ describe('customer billing requests', () => {
   it.each(['completion', 'notification'])(
     'does not relabel provider success or resend cancellation after %s fails',
     async (stage) => {
-      const processing = { id: 'request-1', status: 'PROCESSING' }
+      const processing = {
+        id: 'request-1',
+        status: 'PROCESSING',
+        kind: 'CANCELLATION',
+        requestedBy: 'owner-1',
+        reason: 'Seasonal closure',
+      }
       const completed = { ...processing, status: 'COMPLETED' }
       const failure = new Error(`Internal ${stage} unavailable`)
       const tx = {
@@ -272,5 +278,67 @@ describe('customer billing requests', () => {
         }),
       }),
     )
+  })
+
+  it.each([{ kind: 'ADD_ON_INTEREST' }, { requestedBy: 'owner-2' }, { reason: 'Changed reason' }])(
+    'rejects changed cancellation replay before contacting the provider: %j',
+    async (changed) => {
+      const replay = {
+        kind: 'CANCELLATION',
+        requestedBy: 'owner-1',
+        reason: 'Seasonal closure',
+        ...changed,
+      }
+      const tx = { billingCustomerRequest: { findFirst: vi.fn().mockResolvedValue(replay) } }
+      const provider = { cancelSubscriptionAtPeriodEnd: vi.fn() }
+      await expect(
+        requestTenantCancellation({
+          tenantId: 'tenant-1',
+          actorId: 'owner-1',
+          actorRole: 'OWNER',
+          operationId: 'operation-1',
+          reason: 'Seasonal closure',
+          environment,
+          provider: provider as never,
+          client: { $transaction: (action: (value: typeof tx) => unknown) => action(tx) } as never,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(provider.cancelSubscriptionAtPeriodEnd).not.toHaveBeenCalled()
+    },
+  )
+
+  it('replays exact add-on interest and rejects changed scope, feature, actor, note or kind', async () => {
+    const replay = {
+      id: 'request-1',
+      kind: 'ADD_ON_INTEREST',
+      requestedBy: 'owner-1',
+      featureKey: 'premium-voice',
+      venueId: 'venue-1',
+      reason: null,
+    }
+    const tx = { billingCustomerRequest: { findFirst: vi.fn().mockResolvedValue(replay) } }
+    const input = {
+      tenantId: 'tenant-1',
+      actorId: 'owner-1',
+      actorRole: 'OWNER',
+      operationId: 'operation-1',
+      featureKey: 'premium-voice',
+      venueId: 'venue-1',
+      client: { $transaction: (action: (value: typeof tx) => unknown) => action(tx) } as never,
+    }
+    await expect(recordTenantAddOnInterest(input)).resolves.toMatchObject({ request: replay })
+    for (const changed of [
+      { venueId: 'venue-2' },
+      { featureKey: 'custom-branding' },
+      { actorId: 'owner-2' },
+      { note: 'A different request' },
+    ]) {
+      await expect(recordTenantAddOnInterest({ ...input, ...changed })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      })
+    }
+    tx.billingCustomerRequest.findFirst.mockResolvedValue({ ...replay, kind: 'CANCELLATION' })
+    await expect(recordTenantAddOnInterest(input)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.event).toHaveBeenCalledTimes(1)
   })
 })

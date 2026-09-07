@@ -17,6 +17,7 @@ try {
         'immutable-effect-terms',
         'audit-once',
         'provider-dark',
+        'exact-customer-request-replay-kind-and-scope',
       ],
       integration: {
         packageDirectory: 'packages/billing',

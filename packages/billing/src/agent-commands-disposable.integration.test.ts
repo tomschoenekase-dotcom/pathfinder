@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { executeApprovedBillingAgentCommand, proposeBillingAgentCommand } from './agent-commands'
 import { parseBillingEnvironment } from './config'
 import { createBillingAccessOverride, createManualBillingArrangement } from './service'
+import { recordTenantAddOnInterest, requestTenantCancellation } from './customer-requests'
 
 const enabled =
   process.env.RUN_BILLING_COMMAND_DB_INTEGRATION === '1' &&
@@ -183,6 +184,60 @@ describe.skipIf(!enabled)('billing commands on disposable PostgreSQL', () => {
       expect(
         await db.auditLog.count({ where: { tenantId, action: 'billing.access-override.created' } }),
       ).toBe(4)
+      // The same operation namespace serves interest and cancellation. A retry
+      // must not reinterpret one as the other or silently change its scope.
+      const interestInput = {
+        tenantId,
+        venueId,
+        actorId: 'fixture',
+        actorRole: 'OWNER',
+        operationId: randomUUID(),
+        featureKey: 'premium-voice',
+        note: 'Synthetic optional interest',
+        client: db,
+      }
+      const interest = await recordTenantAddOnInterest(interestInput)
+      expect((await recordTenantAddOnInterest(interestInput)).request.id).toBe(interest.request.id)
+      await expect(
+        recordTenantAddOnInterest({ ...interestInput, venueId: null }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const provider = { cancelSubscriptionAtPeriodEnd: vi.fn().mockResolvedValue(undefined) }
+      const cancellationInput = {
+        tenantId,
+        actorId: 'fixture',
+        actorRole: 'OWNER',
+        operationId: interestInput.operationId,
+        reason: 'Synthetic seasonal closure',
+        provider: provider as never,
+        client: db,
+        environment: {
+          ...environment,
+          STRIPE_CANCELLATION_ENABLED: true,
+          STRIPE_SECRET_KEY: 'sk_test_fixture',
+        },
+      }
+      await expect(requestTenantCancellation(cancellationInput)).rejects.toMatchObject({
+        code: 'CONFLICT',
+      })
+      expect(provider.cancelSubscriptionAtPeriodEnd).not.toHaveBeenCalled()
+      await db.commercialAgreement.update({
+        where: { id: agreement.id },
+        data: {
+          stripeSubscriptionId: `sub_fixture_${suffix}`,
+          stripeMode: 'TEST',
+          stripeAccountId: 'acct_fixture',
+          billingMode: 'STRIPE_SUBSCRIPTION',
+        },
+      })
+      const exactInput = { ...cancellationInput, operationId: randomUUID() }
+      const cancellation = await requestTenantCancellation(exactInput)
+      expect(cancellation.request.status).toBe('COMPLETED')
+      expect((await requestTenantCancellation(exactInput)).request.id).toBe(cancellation.request.id)
+      await expect(
+        requestTenantCancellation({ ...exactInput, reason: 'Different terms' }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(provider.cancelSubscriptionAtPeriodEnd).toHaveBeenCalledTimes(1)
+      expect(await db.billingCustomerRequest.count({ where: { tenantId } })).toBe(2)
     })
   })
 })

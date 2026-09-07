@@ -52,7 +52,15 @@ export async function requestTenantCancellation(params: {
     const replay = await tx.billingCustomerRequest.findFirst({
       where: { tenantId: params.tenantId, operationId: params.operationId },
     })
-    if (replay) return { request: replay, agreement: null, replayed: true }
+    if (replay) {
+      if (
+        replay.kind !== 'CANCELLATION' ||
+        replay.requestedBy !== params.actorId ||
+        replay.reason !== params.reason
+      )
+        throw new BillingServiceError('CONFLICT', 'Operation belongs to another billing request.')
+      return { request: replay, agreement: null, replayed: true }
+    }
     const account = await tx.billingAccount.findUnique({
       where: { tenantId: params.tenantId },
       include: {
@@ -192,7 +200,17 @@ export async function recordTenantAddOnInterest(params: {
     const replay = await tx.billingCustomerRequest.findFirst({
       where: { tenantId: params.tenantId, operationId: params.operationId },
     })
-    if (replay) return replay
+    if (replay) {
+      if (
+        replay.kind !== 'ADD_ON_INTEREST' ||
+        replay.requestedBy !== params.actorId ||
+        replay.featureKey !== params.featureKey ||
+        replay.venueId !== (params.venueId ?? null) ||
+        replay.reason !== (params.note ?? null)
+      )
+        throw new BillingServiceError('CONFLICT', 'Operation belongs to another billing request.')
+      return replay
+    }
     const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
     if (!account) throw new BillingServiceError('NOT_FOUND', 'No billing account is linked.')
     if (params.venueId) {
