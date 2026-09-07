@@ -50,7 +50,7 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
-import { buildVenueSystemPromptParts, guestResponseWordLimit } from '../lib/venue-context'
+import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
@@ -157,15 +157,7 @@ type ChatStreamSink = {
 
 const chatStreamSink = new AsyncLocalStorage<ChatStreamSink>()
 
-export function boundedStreamingPrefix(text: string, maxWords: number): string {
-  const words = [...text.matchAll(/\S+/g)]
-  if (words.length <= maxWords) return text
-  const lastWord = words[maxWords - 1]
-  return lastWord ? text.slice(0, (lastWord.index ?? 0) + lastWord[0].length) : ''
-}
-
 export function createGuestStreamingProjection(options: {
-  maxWords: number
   onTextDelta: ChatStreamSink['onTextDelta']
 }) {
   let providerText = ''
@@ -186,10 +178,9 @@ export function createGuestStreamingProjection(options: {
         markerIndex >= 0
           ? markerIndex
           : Math.max(0, providerText.length - ENGAGEMENT_ASKED_MARKER.length)
-      const safePrefix = boundedStreamingPrefix(
-        providerText.slice(0, markerSafeLength),
-        options.maxWords,
-      )
+      // Generation is token-bounded by the gateway. A second word cutoff can
+      // hide a later qualification, so project all marker-safe provider text.
+      const safePrefix = providerText.slice(0, markerSafeLength)
       if (safePrefix.length <= emittedLength) return
       const safeDelta = safePrefix.slice(emittedLength)
       emittedLength = safePrefix.length
@@ -417,25 +408,6 @@ const admittedChatSendProcedure = publicProcedure
     return next()
   })
   .use(requireGlobalAi)
-
-// Exported for test coverage — trims to the last complete sentence that fits
-// within maxWords. Always keeps at least the first sentence, even if that
-// sentence alone runs over the cap, so a reply is never cut off mid-thought.
-export function enforceResponseWordCap(text: string, maxWords: number): string {
-  const trimmed = text.trim()
-  if (trimmed.split(/\s+/).length <= maxWords) return trimmed
-
-  const sentences = trimmed.match(/[^.!?]+[.!?]+[)'"]*|[^.!?]+$/g) ?? [trimmed]
-  let result = ''
-  let wordCount = 0
-  for (const sentence of sentences) {
-    const sentenceWords = sentence.trim().split(/\s+/).length
-    if (result && wordCount + sentenceWords > maxWords) break
-    result += (result ? ' ' : '') + sentence.trim()
-    wordCount += sentenceWords
-  }
-  return result
-}
 
 // Backend-only content-gap detection (no guest-facing change, no extra model call).
 // If even the best-matching place is semantically far from the question, the venue
@@ -1155,7 +1127,6 @@ const chatReadRouter = router({
     const activeStreamSink = chatStreamSink.getStore()
     const streamProjection = activeStreamSink
       ? createGuestStreamingProjection({
-          maxWords: guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
           onTextDelta: activeStreamSink.onTextDelta,
         })
       : null
@@ -1234,10 +1205,9 @@ const chatReadRouter = router({
       })
 
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
-      assistantResponse = enforceResponseWordCap(
-        strippedResponse,
-        guestResponseWordLimit(venue.responseDepth, input.responseIntent ?? 'DEFAULT'),
-      )
+      // Brevity belongs in generation guidance. Do not discard later sentences:
+      // a restriction or exception may change the meaning of an earlier answer.
+      assistantResponse = strippedResponse.trim()
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({

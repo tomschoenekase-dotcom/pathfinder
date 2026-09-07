@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { boundedStreamingPrefix, createGuestStreamingProjection } from './chat'
+import { createGuestStreamingProjection } from './chat'
 
 describe('guest chat streaming projection', () => {
   it('never exposes the internal engagement marker in transient fragments', async () => {
     const onTextDelta = vi.fn()
-    const projection = createGuestStreamingProjection({ maxWords: 40, onTextDelta })
+    const projection = createGuestStreamingProjection({ onTextDelta })
 
     await projection.push('A useful answer. [[ENGAGE', {
       providerFirstTextMs: 120,
@@ -22,16 +22,16 @@ describe('guest chat streaming projection', () => {
     expect(projection.requestFirstTextMs()).toBe(220)
   })
 
-  it('bounds transient text to the configured word ceiling before final authority arrives', async () => {
+  it('keeps later restrictions visible in transient text beyond the brevity target', async () => {
     const onTextDelta = vi.fn()
-    const projection = createGuestStreamingProjection({ maxWords: 3, onTextDelta })
+    const projection = createGuestStreamingProjection({ onTextDelta })
+    const answer = `${'The gallery has a flight display. '.repeat(20)}The lift is closed today.`
 
-    await projection.push('One two three four five six seven eight nine ten. Extra padding.', {
+    await projection.push(answer + ' [[ENGAGEMENT_ASKED]]', {
       providerFirstTextMs: 80,
       requestFirstTextMs: 180,
     })
 
-    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('One two three')
-    expect(boundedStreamingPrefix('One two three four', 3)).toBe('One two three')
+    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe(answer + ' ')
   })
 })

@@ -67,23 +67,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { SUPPORTED_CHAT_LANGUAGES } from '../schemas/chat'
-import { _setAnthropicClientForTesting, chatRouter, enforceResponseWordCap } from './chat'
-
-describe('enforceResponseWordCap', () => {
-  it('leaves short text untouched', () => {
-    expect(enforceResponseWordCap('Near the entrance.', 60)).toBe('Near the entrance.')
-  })
-
-  it('drops trailing sentences that push past the cap', () => {
-    const text = 'One two three four five. Six seven eight nine ten.'
-    expect(enforceResponseWordCap(text, 5)).toBe('One two three four five.')
-  })
-
-  it('keeps at least the first sentence even if it alone exceeds the cap', () => {
-    const text = 'One two three four five six seven. Eight nine.'
-    expect(enforceResponseWordCap(text, 3)).toBe('One two three four five six seven.')
-  })
-})
+import { _setAnthropicClientForTesting, chatRouter } from './chat'
 
 // ---------------------------------------------------------------------------
 // DB mock
@@ -1004,6 +988,19 @@ describe('chat router', () => {
           }),
         }),
       )
+    })
+
+    it('retains a later access restriction beyond the requested brevity target', async () => {
+      const answer = `${'The exhibition has displays about the history of flight. '.repeat(11)}Children below 1.2 metres cannot enter the simulator, and the lift is closed today.`
+      setupHappyPath(answer)
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.response).toBe(answer)
+      expect(result.response).toContain('Children below 1.2 metres cannot enter')
+      expect(result.response).toContain('the lift is closed today.')
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(anthropicCreate.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 512 })
     })
 
     it('returns a non-empty response string and sessionId', async () => {
