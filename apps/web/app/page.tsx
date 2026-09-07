@@ -13,7 +13,6 @@ import {
   UsersRound,
 } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 import React from 'react'
 
 import { FadeIn } from '@pathfinder/ui/fade-in'
@@ -44,15 +43,6 @@ export default function WebHomePage() {
       >
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-6 px-6 lg:px-10">
           <Link href="/" className="flex min-h-11 items-center gap-3" aria-label="Torchiko home">
-            <Image
-              src="/torchiko-logo.svg"
-              alt=""
-              aria-hidden="true"
-              width={44}
-              height={44}
-              priority
-              className="h-11 w-11 object-contain"
-            />
             <span className="text-xl font-semibold tracking-tight text-white">Torchiko</span>
           </Link>
           <nav className="flex items-center gap-2" aria-label="Primary navigation">

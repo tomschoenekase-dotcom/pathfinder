@@ -174,7 +174,7 @@ export function VenueChatShell(props: {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
             ) : (
-              <TorchikoIcon className="h-7 w-7 flex-shrink-0" />
+              <TorchikoIcon className="flex-shrink-0 text-xs" />
             )}
             <h1
               lang=""

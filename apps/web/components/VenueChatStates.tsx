@@ -22,7 +22,7 @@ export function VenueChatSkeleton({ language = 'English' }: { language?: Support
         lang={presentation.code}
         dir={presentation.direction}
       >
-        <TorchikoIcon className="h-10 w-10 animate-pulse motion-reduce:animate-none" />
+        <TorchikoIcon className="animate-pulse text-sm motion-reduce:animate-none" />
         <p className="text-sm font-medium text-pf-deep/75">{loading}</p>
       </div>
     </main>

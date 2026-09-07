@@ -10,8 +10,6 @@ import type {
   CharacterSize,
 } from './character-types'
 
-const NEUTRAL_TORCHIKO_BRAND_SOURCE = '/torchiko-logo.svg'
-
 export type StaticCharacterFallbackProps = {
   manifest: CharacterRenderableManifest
   preferredAssetId?: string | undefined
@@ -22,7 +20,7 @@ export type StaticCharacterFallbackProps = {
 
 type FallbackCandidate = {
   id: string
-  source: string
+  source?: string
   kind: 'pack' | 'brand'
 }
 
@@ -44,10 +42,7 @@ export function StaticCharacterFallback({
         ? [{ id: asset.id, source: getCharacterAssetSource(manifest, asset), kind: 'pack' }]
         : []
     })
-    return [
-      ...packCandidates,
-      { id: 'torchiko-brand', source: NEUTRAL_TORCHIKO_BRAND_SOURCE, kind: 'brand' } as const,
-    ]
+    return [...packCandidates, { id: 'torchiko-brand', kind: 'brand' } as const]
   }, [manifest, preferredAssetId])
   const [candidateIndex, setCandidateIndex] = useState(0)
 
@@ -64,26 +59,29 @@ export function StaticCharacterFallback({
       data-character-fallback={candidate.kind}
       aria-hidden="true"
     >
-      <img
-        className={styles.staticImage}
-        src={candidate.source}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        decoding="async"
-        onError={() => {
-          onAssetError?.({
-            code: candidate.kind === 'brand' ? 'brand-load-failed' : 'static-load-failed',
-            message:
-              candidate.kind === 'brand'
-                ? 'The neutral Torchiko brand fallback could not be loaded.'
-                : 'A static character fallback could not be loaded.',
-            assetId: candidate.id,
-            path: candidate.source,
-          })
-          setCandidateIndex((current) => current + 1)
-        }}
-      />
+      {candidate.kind === 'brand' ? (
+        <span className="inline-flex h-full w-full items-center justify-center px-2 text-center text-[clamp(0.65rem,2vw,0.9rem)] font-semibold leading-tight tracking-tight text-pf-deep">
+          Torchiko
+        </span>
+      ) : (
+        <img
+          className={styles.staticImage}
+          src={candidate.source}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          decoding="async"
+          onError={() => {
+            onAssetError?.({
+              code: 'static-load-failed',
+              message: 'A static character fallback could not be loaded.',
+              assetId: candidate.id,
+              path: candidate.source!,
+            })
+            setCandidateIndex((current) => current + 1)
+          }}
+        />
+      )}
     </span>
   )
 }
