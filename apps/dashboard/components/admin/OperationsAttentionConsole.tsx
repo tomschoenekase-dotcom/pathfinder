@@ -12,6 +12,7 @@ import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
 import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
+import { FounderTwoMinuteBoard } from './FounderTwoMinuteBoard'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -376,6 +377,8 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         </nav>
       </section>
 
+      <FounderTwoMinuteBoard data={data} />
+
       <FounderAbsenceReadiness data={data.founderAbsenceReadiness} />
 
       <FounderCostCoverage data={data.unitEconomics} />
@@ -577,7 +580,21 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                       <dt className="font-semibold text-slate-500">Model route</dt>
                       <dd className="mt-0.5 text-slate-700">
                         {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
-                          'Runtime managed'}
+                          'Unavailable — runtime did not report a route'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Capabilities</dt>
+                      <dd className="mt-0.5 text-slate-700">
+                        {worker.capabilities.length
+                          ? worker.capabilities.join(', ')
+                          : 'Unavailable — none reported'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Registered scope</dt>
+                      <dd className="mt-0.5 break-all text-slate-700">
+                        {worker.tenantId ? `Tenant ${worker.tenantId}` : 'Platform'}
                       </dd>
                     </div>
                     <div>
@@ -605,6 +622,12 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     <th scope="col" className="pb-2 pr-4">
                       Model route
                     </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Capabilities
+                    </th>
+                    <th scope="col" className="pb-2 pr-4">
+                      Scope
+                    </th>
                     <th scope="col" className="pb-2">
                       Heartbeat
                     </th>
@@ -624,7 +647,15 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                       </td>
                       <td className="py-3 pr-4 text-slate-600">
                         {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
-                          'Runtime managed'}
+                          'Unavailable — runtime did not report a route'}
+                      </td>
+                      <td className="py-3 pr-4 text-slate-600">
+                        {worker.tenantId ? `Tenant ${worker.tenantId}` : 'Platform'}
+                      </td>
+                      <td className="py-3 pr-4 text-slate-600">
+                        {worker.capabilities.length
+                          ? worker.capabilities.join(', ')
+                          : 'Unavailable — none reported'}
                       </td>
                       <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
                     </tr>

@@ -16,6 +16,9 @@ vi.mock('./OperationalEventActions', () => ({
 vi.mock('./FounderQuestionTriageBoard', () => ({
   FounderQuestionTriageBoard: () => <span>Founder question triage board</span>,
 }))
+vi.mock('./FounderTwoMinuteBoard', () => ({
+  FounderTwoMinuteBoard: () => <span>Founder two minute board</span>,
+}))
 vi.mock('./ApprovalDecisionForm', () => ({
   ApprovalDecisionForm: () => <span>Inline approval decision</span>,
 }))

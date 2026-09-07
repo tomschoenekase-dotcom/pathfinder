@@ -94,6 +94,7 @@ export function ChatWindow({
   const announcementWasLoadingRef = useRef(isLoading)
   const shouldRestoreComposerFocusRef = useRef(false)
   const previousMessageCountRef = useRef(messages.length)
+  const followLatestRef = useRef(true)
 
   useEffect(() => {
     const node = scrollRef.current
@@ -102,16 +103,15 @@ export function ChatWindow({
       return
     }
 
-    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+    if (messages.length < previousMessageCountRef.current) {
+      followLatestRef.current = true
+    }
 
-    if (distanceFromBottom < 120) {
-      const prefersReducedMotion =
-        typeof window.matchMedia === 'function' &&
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
+    if (followLatestRef.current) {
+      // Instant follow avoids animation events racing the reader's scroll position.
       node.scrollTo({
         top: node.scrollHeight,
-        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        behavior: 'auto',
       })
     }
   }, [isLoading, messages])
@@ -144,6 +144,7 @@ export function ChatWindow({
     announcementWasLoadingRef.current = isLoading
 
     if (messages.length < previousMessageCount) {
+      followLatestRef.current = true
       setLiveAnnouncement(null)
     } else if (responseCompleted && latestMessage?.role === 'assistant') {
       setLiveAnnouncement({
@@ -170,6 +171,7 @@ export function ChatWindow({
     }
 
     setDraft('')
+    followLatestRef.current = true
     shouldRestoreComposerFocusRef.current = true
     onSend(nextMessage)
   }
@@ -183,6 +185,10 @@ export function ChatWindow({
         aria-label={conversationLabel}
         aria-live="off"
         tabIndex={0}
+        onScroll={(event) => {
+          const node = event.currentTarget
+          followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120
+        }}
       >
         {messages.length === 0 && emptyState ? emptyState : null}
 
@@ -246,7 +252,10 @@ export function ChatWindow({
         ) : null}
       </div>
 
-      <div className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4">
+      <div
+        className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+      >
         {errorMessage ? (
           <div
             className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"

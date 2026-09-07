@@ -228,6 +228,75 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
   })
 
+  it('does not pull a reader back down while a streamed response grows', () => {
+    const view = render(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Tell me the full history.' },
+          { role: 'assistant', content: 'First fragment' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, value: 100 },
+    })
+    fireEvent.wheel(log, { deltaY: -100 })
+    fireEvent.scroll(log)
+    scrollTo.mockClear()
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'user', content: 'Tell me the full history.' },
+          { role: 'assistant', content: 'First fragment, followed by a much longer answer.' },
+        ]}
+        onSend={vi.fn()}
+        isLoading
+      />,
+    )
+
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('stops following when a continuous scroll gesture moves beyond the follow threshold', () => {
+    const props = { onSend: vi.fn(), isLoading: true }
+    const messages = [{ role: 'assistant' as const, content: 'First fragment' }]
+    const view = render(<ChatWindow {...props} messages={messages} />)
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 590 },
+    })
+    fireEvent.touchMove(log)
+    fireEvent.scroll(log)
+    log.scrollTop = 300
+    fireEvent.scroll(log)
+    scrollTo.mockClear()
+    view.rerender(
+      <ChatWindow {...props} messages={[{ role: 'assistant', content: 'More content' }]} />,
+    )
+    expect(scrollTo).not.toHaveBeenCalled()
+    log.scrollTop = 600
+    fireEvent.scroll(log)
+    view.rerender(
+      <ChatWindow {...props} messages={[{ role: 'assistant', content: 'Final fragment' }]} />,
+    )
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('reserves the mobile safe area beneath the composer', () => {
+    render(<ChatWindow messages={[]} onSend={vi.fn()} isLoading={false} />)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    const composerRegion = composer.parentElement?.parentElement
+    expect(composerRegion?.style.paddingBottom).toContain('safe-area-inset-bottom')
+  })
+
   it('submits trimmed text and clears the composer', () => {
     const onSend = vi.fn()
     render(<ChatWindow messages={[]} onSend={onSend} isLoading={false} />)

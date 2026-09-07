@@ -300,8 +300,17 @@ describe('ProspectCampaignWorkbench release safety', () => {
         },
       ],
     }
-    state.campaign.members = [firstMember] as never
-    state.campaign.page = { ...state.campaign.page, hasMoreMembers: true }
+    const campaign = state.campaign as unknown as {
+      members: (typeof firstMember)[]
+      page: {
+        hasMoreMembers: boolean
+        hasMoreBatches: boolean
+        memberLimit: number
+        batchLimit: number
+      }
+    }
+    campaign.members = [firstMember]
+    campaign.page = { ...campaign.page, hasMoreMembers: true }
     mocks.members.mockResolvedValue({
       detailVersion: 2,
       items: [
