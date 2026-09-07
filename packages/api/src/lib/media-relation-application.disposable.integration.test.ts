@@ -131,6 +131,7 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
         relationKind: 'TRAVERSABLE' | 'ADJACENT'
         confidence: 'confirmed' | 'probable'
         accessibility?: 'ACCESSIBLE' | 'UNKNOWN'
+        directions?: string
         fromCandidateId: string
         toCandidateId: string
       }) => {
@@ -163,7 +164,8 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
                       connectionKind: 'DOOR',
                       bidirectional: true,
                       accessibility: options.accessibility ?? 'ACCESSIBLE',
-                      directions: 'Use the reviewed doorway between the galleries.',
+                      directions:
+                        options.directions ?? 'Use the reviewed doorway between the galleries.',
                     },
                   }
                 : {}),
@@ -187,7 +189,7 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
             },
           },
         })
-        return { reviewRequestId }
+        return { proposalRequestId, reviewRequestId }
       }
       const valid = await addReviewedRelation({
         relationId: 'valid-route',
@@ -449,6 +451,130 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
         },
       })
       expect(withdrawn.revision).toBe(advanced.revision + 1)
+      await expect(
+        publicCaller.location.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          toLocationId: to.id,
+          accessibleOnly: false,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+      const activeConnection = await db.venueLocationConnection.findUniqueOrThrow({
+        where: { id: connection.id },
+      })
+      await adminCaller.admin.setVenueLocationConnectionAvailability({
+        tenantId,
+        venueId,
+        connectionId: connection.id,
+        expectedUpdatedAt: activeConnection.updatedAt,
+        active: false,
+        reason: 'Deactivate the withdrawn route before applying a new reviewed relation.',
+      })
+      result = withdrawn
+      const renewed = await addReviewedRelation({
+        relationId: 'renewed-valid-route',
+        relationKind: 'TRAVERSABLE',
+        confidence: 'confirmed',
+        fromCandidateId: 'west-gallery',
+        toCandidateId: 'east-gallery',
+        directions: 'Use the newly reviewed signed gallery doorway.',
+      })
+      const renewedRevision = await db.mediaEntityResolutionRevision.findUniqueOrThrow({
+        where: { id: result.id },
+      })
+      const inactiveConnection = await db.venueLocationConnection.findUniqueOrThrow({
+        where: { id: connection.id },
+      })
+      const renewalInput = {
+        ...applyInput,
+        revisionId: renewedRevision.id,
+        relationId: 'renewed-valid-route',
+        relationReviewRequestId: renewed.reviewRequestId,
+        requestId: randomUUID(),
+        existingConnection: {
+          id: connection.id,
+          expectedUpdatedAt: inactiveConnection.updatedAt.toISOString(),
+        },
+      }
+      const renewedApplication = await applyMediaRelationDraft({
+        client: db,
+        actorId,
+        input: renewalInput,
+      })
+      expect(renewedApplication).toMatchObject({
+        connectionId: connection.id,
+        replayed: false,
+        createdAs: 'INACTIVE_DRAFT',
+      })
+      expect(
+        await db.mediaRelationApplication.count({ where: { connectionId: connection.id } }),
+      ).toBe(2)
+      const renewedConnection = await db.venueLocationConnection.findUniqueOrThrow({
+        where: { id: connection.id },
+      })
+      expect(renewedConnection).toMatchObject({
+        id: connection.id,
+        isActive: false,
+        directions: 'Use the newly reviewed signed gallery doorway.',
+      })
+      await expect(
+        applyMediaRelationDraft({ client: db, actorId, input: renewalInput }),
+      ).resolves.toMatchObject({ receiptId: renewedApplication.receiptId, replayed: true })
+      await adminCaller.admin.setVenueLocationConnectionAvailability({
+        tenantId,
+        venueId,
+        connectionId: connection.id,
+        expectedUpdatedAt: renewedConnection.updatedAt,
+        active: true,
+        reason: 'Activate the separately reviewed renewed route.',
+      })
+      await expect(
+        publicCaller.location.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          toLocationId: to.id,
+          accessibleOnly: false,
+        }),
+      ).resolves.toMatchObject({
+        segments: [
+          {
+            connectionId: connection.id,
+            directions: 'Use the newly reviewed signed gallery doorway.',
+          },
+        ],
+      })
+      const renewedWithdrawn = await saveMediaResolution({
+        client: db,
+        actorId,
+        input: {
+          ...base,
+          requestId: randomUUID(),
+          expectedRevision: result.revision,
+          decision: {
+            kind: 'REVERT_RELATION',
+            reviewRequestId: renewed.reviewRequestId,
+            rationale: 'Withdraw the renewed relation review.',
+          },
+        },
+      })
+      await saveMediaResolution({
+        client: db,
+        actorId,
+        input: {
+          ...base,
+          requestId: randomUUID(),
+          expectedRevision: renewedWithdrawn.revision,
+          decision: {
+            kind: 'REVIEW_RELATION',
+            proposalRequestId: valid.proposalRequestId,
+            verdict: 'ACCEPTED',
+            rationale: 'Restore the original review without restoring its obsolete receipt.',
+          },
+        },
+      })
       await expect(
         publicCaller.location.route({
           venueId,

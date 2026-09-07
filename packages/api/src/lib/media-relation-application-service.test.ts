@@ -71,6 +71,22 @@ describe('route application receipt replay', () => {
       applyMediaRelationDraft({ client: client as never, input, actorId: 'admin' }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
+  it('replays a renewal receipt against the exact existing connection identity', async () => {
+    const { client, receipt } = fixture()
+    const renewedInput = {
+      ...input,
+      existingConnection: {
+        id: uuid(8),
+        expectedUpdatedAt: '2026-09-07T10:00:00.000Z',
+      },
+    }
+    receipt.connectionId = uuid(8)
+    receipt.requestHash = mediaIntakeHash({ input: renewedInput, actorId: 'admin' })
+    receipt.inputSnapshot = { input: renewedInput, actorId: 'admin' }
+    await expect(
+      applyMediaRelationDraft({ client: client as never, input: renewedInput, actorId: 'admin' }),
+    ).resolves.toMatchObject({ connectionId: uuid(8), replayed: true })
+  })
   it('rejects blank actor identities before any database operation', async () => {
     const { client } = fixture()
     await expect(

@@ -42,7 +42,7 @@ function fixture(options: { meta?: unknown[]; stateBytes?: number } = {}) {
     $queryRaw: vi
       .fn()
       .mockResolvedValueOnce(
-        options.meta ?? [{ connectionId: media.id, rowCount: 1, payloadBytes: 1024 }],
+        options.meta ?? [{ connectionId: media.id, historyCount: 2, payloadBytes: 1024 }],
       )
       .mockResolvedValueOnce([receipt])
       .mockResolvedValueOnce([{ totalBytes: options.stateBytes ?? 1024 }])
@@ -108,13 +108,13 @@ describe('filterEligibleMediaRouteConnections', () => {
 
   it.each([
     ['missing receipt', []],
-    ['duplicate receipt', [{ connectionId: uuid(1), rowCount: 2, payloadBytes: 2048 }]],
+    ['excess receipt history', [{ connectionId: uuid(1), historyCount: 101, payloadBytes: 2048 }]],
     [
       'receipt byte overflow',
       [
         {
           connectionId: uuid(1),
-          rowCount: 1,
+          historyCount: 1,
           payloadBytes: MEDIA_ROUTE_RECEIPT_BYTES_LIMIT + 1,
         },
       ],

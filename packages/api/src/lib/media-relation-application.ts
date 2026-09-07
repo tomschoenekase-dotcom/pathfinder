@@ -9,6 +9,7 @@ const uuid = z
   .uuid()
   .transform((value) => value.toLowerCase())
 const id = z.string().trim().min(1).max(191)
+export const MEDIA_RELATION_APPLICATION_HISTORY_LIMIT = 100
 
 /** Platform-human route only. This request creates an inactive draft, never a public route. */
 export const ApplyMediaRelationInput = z
@@ -27,6 +28,13 @@ export const ApplyMediaRelationInput = z
     toLocationId: uuid,
     toLocationUpdatedAt: z.string().datetime(),
     rationale: z.string().trim().min(1).max(2000),
+    existingConnection: z
+      .object({
+        id: uuid,
+        expectedUpdatedAt: z.string().datetime(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((input) => input.fromLocationId !== input.toLocationId, {

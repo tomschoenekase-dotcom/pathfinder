@@ -1,7 +1,11 @@
 import { db, lockVenueContentMutation, writeAuditLogStrict } from '@pathfinder/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { MediaResolutionStateSchema } from '@pathfinder/contracts/media-resolution-state'
-import { ApplyMediaRelationInput, reviewedTraversalDraft } from './media-relation-application'
+import {
+  ApplyMediaRelationInput,
+  reviewedTraversalDraft,
+  MEDIA_RELATION_APPLICATION_HISTORY_LIMIT,
+} from './media-relation-application'
 import { mediaIntakeHash } from './media-intake-snapshot'
 import { validateResolutionEvidence } from './media-resolution-evidence'
 
@@ -31,10 +35,13 @@ function replay(receipt: Receipt, requestHash: string, actorId: string) {
     )
   const snapshot = receipt.inputSnapshot as { input?: unknown; actorId?: unknown } | null
   const storedInput = ApplyMediaRelationInput.safeParse(snapshot?.input)
+  const expectedConnectionId = storedInput.success
+    ? (storedInput.data.existingConnection?.id ?? storedInput.data.requestId)
+    : null
   if (
     !snapshot ||
     !storedInput.success ||
-    receipt.connectionId !== storedInput.data.requestId ||
+    receipt.connectionId !== expectedConnectionId ||
     mediaIntakeHash({ input: snapshot.input, actorId: snapshot.actorId }) !== requestHash
   )
     throw new MediaRelationApplicationError(
@@ -206,23 +213,90 @@ export async function applyMediaRelationDraft(params: {
             'CONFLICT',
             'This reviewed relation already has a canonical draft; open that draft instead of applying it again.',
           )
-        const connection = await tx.venueLocationConnection.create({
-          data: {
-            id: input.requestId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            fromLocationId: input.fromLocationId,
-            toLocationId: input.toLocationId,
-            kind: reviewedDraft.kind,
-            bidirectional: reviewedDraft.bidirectional,
-            accessible: reviewedDraft.accessible,
-            directions: reviewedDraft.directions,
-            verifiedAt: new Date(),
-            verifiedBy: params.actorId,
-            isActive: false,
-          },
-          select: { id: true },
-        })
+        const existingConnection = input.existingConnection
+        const connection = existingConnection
+          ? await (async () => {
+              const locked = await tx.$queryRaw<
+                Array<{
+                  id: string
+                  fromLocationId: string
+                  toLocationId: string
+                  updatedAt: Date
+                  isActive: boolean
+                  applicationCount: bigint
+                }>
+              >`
+                SELECT id, from_location_id AS "fromLocationId", to_location_id AS "toLocationId",
+                  updated_at AS "updatedAt", is_active AS "isActive",
+                  (SELECT count(*) FROM media_relation_applications application WHERE application.connection_id = venue_location_connections.id
+                    AND application.tenant_id = ${input.tenantId} AND application.venue_id = ${input.venueId}) AS "applicationCount"
+                FROM venue_location_connections WHERE id = ${existingConnection.id}::uuid
+                  AND tenant_id = ${input.tenantId} AND venue_id = ${input.venueId} FOR UPDATE
+              `
+              const current = locked[0]
+              if (
+                current &&
+                Number(current.applicationCount) >= MEDIA_RELATION_APPLICATION_HISTORY_LIMIT
+              )
+                throw new MediaRelationApplicationError(
+                  'CONFLICT',
+                  'This route reached its retained review-history limit; review its history before creating another renewal.',
+                )
+              if (
+                !current ||
+                current.isActive ||
+                current.updatedAt.toISOString() !== existingConnection.expectedUpdatedAt ||
+                current.fromLocationId !== input.fromLocationId ||
+                current.toLocationId !== input.toLocationId
+              )
+                throw new MediaRelationApplicationError(
+                  'CONFLICT',
+                  'The existing route must remain the exact inactive reviewed connection.',
+                )
+              const updated = await tx.venueLocationConnection.updateMany({
+                where: {
+                  id: current.id,
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  fromLocationId: input.fromLocationId,
+                  toLocationId: input.toLocationId,
+                  isActive: false,
+                  updatedAt: current.updatedAt,
+                },
+                data: {
+                  kind: reviewedDraft.kind,
+                  bidirectional: reviewedDraft.bidirectional,
+                  accessible: reviewedDraft.accessible,
+                  directions: reviewedDraft.directions,
+                  verifiedAt: new Date(),
+                  verifiedBy: params.actorId,
+                  isActive: false,
+                },
+              })
+              if (updated.count !== 1)
+                throw new MediaRelationApplicationError(
+                  'CONFLICT',
+                  'The existing inactive route changed during renewal.',
+                )
+              return { id: current.id }
+            })()
+          : await tx.venueLocationConnection.create({
+              data: {
+                id: input.requestId,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                fromLocationId: input.fromLocationId,
+                toLocationId: input.toLocationId,
+                kind: reviewedDraft.kind,
+                bidirectional: reviewedDraft.bidirectional,
+                accessible: reviewedDraft.accessible,
+                directions: reviewedDraft.directions,
+                verifiedAt: new Date(),
+                verifiedBy: params.actorId,
+                isActive: false,
+              },
+              select: { id: true },
+            })
         const inputSnapshot = {
           input,
           actorId: params.actorId,
@@ -237,8 +311,11 @@ export async function applyMediaRelationDraft(params: {
             'The reviewed route application exceeds its retained receipt limit.',
           )
         const created = await tx.$queryRaw<Array<{ id: string }>>`
-        INSERT INTO media_relation_applications (tenant_id, venue_id, revision_id, relation_id, relation_review_request_id, request_id, request_hash, actor_id, connection_id, input_snapshot)
-        VALUES (${input.tenantId}, ${input.venueId}, ${input.revisionId}::uuid, ${input.relationId}, ${input.relationReviewRequestId}::uuid, ${input.requestId}::uuid, ${requestHash}, ${params.actorId}, ${connection.id}::uuid, ${snapshotText}::jsonb)
+        INSERT INTO media_relation_applications (tenant_id, venue_id, revision_id, relation_id, relation_review_request_id, request_id, request_hash, actor_id, connection_id, input_snapshot, created_at)
+        VALUES (${input.tenantId}, ${input.venueId}, ${input.revisionId}::uuid, ${input.relationId}, ${input.relationReviewRequestId}::uuid, ${input.requestId}::uuid, ${requestHash}, ${params.actorId}, ${connection.id}::uuid, ${snapshotText}::jsonb,
+          GREATEST(clock_timestamp(), COALESCE((SELECT max(created_at) + interval '1 millisecond'
+            FROM media_relation_applications WHERE tenant_id = ${input.tenantId} AND venue_id = ${input.venueId}
+              AND connection_id = ${connection.id}::uuid), clock_timestamp())))
         RETURNING id
       `
         if (!created[0]) throw new Error('Route application receipt was not retained.')
@@ -247,7 +324,9 @@ export async function applyMediaRelationDraft(params: {
             tenantId: input.tenantId,
             actorId: params.actorId,
             actorRole: 'PLATFORM_ADMIN',
-            action: 'media.relation.inactive-route-created',
+            action: input.existingConnection
+              ? 'media.relation.inactive-route-renewed'
+              : 'media.relation.inactive-route-created',
             targetType: 'VenueLocationConnection',
             targetId: connection.id,
             idempotencyKey: input.requestId,
@@ -256,6 +335,7 @@ export async function applyMediaRelationDraft(params: {
               revisionId: revision.id,
               relationId: input.relationId,
               isActive: false,
+              renewedExistingConnection: Boolean(input.existingConnection),
               evidenceSnapshotHash: revision.evidenceSnapshotHash,
               rationale: input.rationale,
             },

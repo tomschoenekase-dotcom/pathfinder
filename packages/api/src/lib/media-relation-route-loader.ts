@@ -3,10 +3,12 @@ import { z } from 'zod'
 import { db } from '@pathfinder/db'
 
 import { assessMediaRelationRouteEligibility } from './media-relation-route-eligibility'
+import { MEDIA_RELATION_APPLICATION_HISTORY_LIMIT } from './media-relation-application'
 
 export const MEDIA_ROUTE_RECEIPT_BYTES_LIMIT = 4 * 1024 * 1024
 export const MEDIA_ROUTE_STATE_BYTES_LIMIT = 16 * 1024 * 1024
 export const MEDIA_ROUTE_PROJECT_LIMIT = 100
+export const MEDIA_ROUTE_RECEIPT_HISTORY_LIMIT = MEDIA_RELATION_APPLICATION_HISTORY_LIMIT
 
 type Client = Pick<typeof db, '$transaction'>
 type RouteConnection = {
@@ -23,7 +25,7 @@ type RouteConnection = {
 
 type ReceiptMeta = {
   connectionId: string
-  rowCount: bigint | number
+  historyCount: bigint | number
   payloadBytes: bigint | number
 }
 type ReceiptRow = {
@@ -71,12 +73,15 @@ export async function filterEligibleMediaRouteConnections<T extends RouteConnect
     async (rawTx) => {
       const tx = rawTx as unknown as typeof db
       const meta = await tx.$queryRaw<ReceiptMeta[]>`
-        SELECT connection_id AS "connectionId", count(*) AS "rowCount",
-          sum(octet_length(input_snapshot::text)) AS "payloadBytes"
-        FROM media_relation_applications
-        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-          AND connection_id = ANY(${connectionIds}::uuid[])
-        GROUP BY connection_id
+        WITH ranked AS (
+          SELECT connection_id, octet_length(input_snapshot::text) AS payload_bytes,
+            row_number() OVER (PARTITION BY connection_id ORDER BY created_at DESC, id DESC) AS receipt_order
+          FROM media_relation_applications
+          WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+            AND connection_id = ANY(${connectionIds}::uuid[])
+        ) SELECT connection_id AS "connectionId", count(*) AS "historyCount",
+          max(payload_bytes) FILTER (WHERE receipt_order = 1) AS "payloadBytes"
+        FROM ranked GROUP BY connection_id
         LIMIT 1001
       `
       const metadata = new Map(meta.map((row) => [row.connectionId, row]))
@@ -87,7 +92,7 @@ export async function filterEligibleMediaRouteConnections<T extends RouteConnect
         mediaConnections
           .filter((connection) => {
             const row = metadata.get(connection.id)
-            return row && Number(row.rowCount) === 1
+            return row && Number(row.historyCount) <= MEDIA_ROUTE_RECEIPT_HISTORY_LIMIT
           })
           .map((connection) => connection.id),
       )
@@ -100,7 +105,8 @@ export async function filterEligibleMediaRouteConnections<T extends RouteConnect
 
       const receipts = validMetaIds.size
         ? await tx.$queryRaw<ReceiptRow[]>`
-            SELECT application.connection_id AS "connectionId", application.request_hash AS "requestHash",
+            SELECT DISTINCT ON (application.connection_id)
+              application.connection_id AS "connectionId", application.request_hash AS "requestHash",
               application.actor_id AS "actorId", application.input_snapshot AS "inputSnapshot",
               revision.id AS "revisionId", revision.tenant_id AS "tenantId", revision.venue_id AS "venueId",
               revision.project_id AS "projectId", revision.source_generation::text AS "sourceGeneration"
@@ -110,6 +116,7 @@ export async function filterEligibleMediaRouteConnections<T extends RouteConnect
                 AND revision.venue_id = application.venue_id
             WHERE application.tenant_id = ${tenantId} AND application.venue_id = ${venueId}
               AND application.connection_id = ANY(${[...validMetaIds]}::uuid[])
+            ORDER BY application.connection_id, application.created_at DESC, application.id DESC
           `
         : []
       if (!receipts.length)

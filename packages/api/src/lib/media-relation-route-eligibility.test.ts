@@ -131,6 +131,26 @@ describe('assessMediaRelationRouteEligibility', () => {
     })
   })
 
+  it('binds a renewal receipt to its existing canonical connection instead of the new request ID', () => {
+    const value = fixture()
+    const existingId = uuid(97)
+    const snapshot = value.receipt.inputSnapshot
+    snapshot.input = {
+      ...snapshot.input,
+      existingConnection: {
+        id: existingId,
+        expectedUpdatedAt: '2026-09-07T11:00:00.000Z',
+      },
+    } as typeof snapshot.input
+    value.receipt.connectionId = existingId
+    value.receipt.requestHash = mediaIntakeHash({ input: snapshot.input, actorId: 'admin' })
+    value.connection.id = existingId
+    expect(assessMediaRelationRouteEligibility(value)).toEqual({
+      eligible: true,
+      reason: 'ELIGIBLE',
+    })
+  })
+
   it('does not treat receipt metadata as activation', () => {
     const value = fixture()
     value.connection.isActive = false

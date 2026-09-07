@@ -103,6 +103,9 @@ export function assessMediaRelationRouteEligibility(
     stateHash?: unknown
   } | null
   const storedInput = ApplyMediaRelationInput.safeParse(snapshot?.input)
+  const expectedConnectionId = storedInput.success
+    ? (storedInput.data.existingConnection?.id ?? storedInput.data.requestId)
+    : null
   if (
     !snapshot ||
     !storedInput.success ||
@@ -111,7 +114,7 @@ export function assessMediaRelationRouteEligibility(
     !/^[a-f0-9]{64}$/u.test(snapshot.stateHash) ||
     mediaIntakeHash({ input: snapshot.input, actorId: snapshot.actorId }) !== receipt.requestHash ||
     receipt.connectionId !== native.id ||
-    receipt.connectionId !== storedInput.data.requestId ||
+    receipt.connectionId !== expectedConnectionId ||
     storedInput.data.tenantId !== receiptRevision.tenantId ||
     storedInput.data.venueId !== receiptRevision.venueId ||
     storedInput.data.projectId !== receiptRevision.projectId ||
