@@ -60,6 +60,8 @@ export const TENANTED_TABLES = [
   'KnowledgeProposalPackageHandoff',
   'KnowledgeProposalOperationalUpdateHandoff',
   'KnowledgeProposalUniversalContentHandoff',
+  'LegacyKnowledgeUniversalContentAdoption',
+  'LegacyKnowledgeAdoptionActivation',
   'VenueFloor',
   'VenueLocation',
   'VenueLocationConnection',

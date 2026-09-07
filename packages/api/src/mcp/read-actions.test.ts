@@ -103,6 +103,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   proposeKnowledgeCorrection: vi.fn(),
   prepareKnowledgeFromSupport: vi.fn(),
   createSemanticUniversalContentDraft: vi.fn(),
+  createLegacyKnowledgeAdoptionDraft: vi.fn(),
   proposeLocationDraft: vi.fn(),
   proposeSupportTriage: vi.fn(),
   applySupportTriage: vi.fn(),

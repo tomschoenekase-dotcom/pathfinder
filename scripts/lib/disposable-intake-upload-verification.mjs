@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -1455,6 +1455,49 @@ export async function runDisposableSemanticVenueUpdateShakedown(options = {}) {
         expectedPassed: 4,
         environment: {
           RUN_KNOWLEDGE_PROPOSAL_PACKAGE_HANDOFF_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableLegacyKnowledgeAdoptionShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'legacyadoption',
+      databasePrefix: 'pathfinder_disposable_legacy_knowledge_adoption_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_LEGACY_ADOPTION_SHAKEDOWN',
+      lifecycleEvent: 'test:legacy-knowledge-adoption:disposable',
+      successAction: 'legacy-knowledge-adoption.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'exact-approved-proposal-and-legacy-source-snapshot',
+        'concurrent-draft-idempotency',
+        'legacy-source-immutable-after-adoption',
+        'legacy-authoritative-before-explicit-publication',
+        'atomic-native-activation-on-explicit-publication',
+        'withdrawal-does-not-resurrect-legacy',
+      ],
+      failureScope: [
+        'no-live-provider',
+        'no-implicit-publication',
+        'activation-and-source-history-append-only',
+      ],
+      integration: {
+        packageDirectory: 'packages/api',
+        testFile: 'src/lib/legacy-knowledge-adoption.disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_LEGACY_KNOWLEDGE_ADOPTION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

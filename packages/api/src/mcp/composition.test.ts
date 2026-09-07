@@ -31,6 +31,7 @@ const {
   preparePackageApplication,
   applyPackage,
   createSemanticDraft,
+  createLegacyAdoptionDraft,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -62,6 +63,7 @@ const {
   preparePackageApplication: vi.fn(),
   applyPackage: vi.fn(),
   createSemanticDraft: vi.fn(),
+  createLegacyAdoptionDraft: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -110,6 +112,9 @@ vi.mock('../lib/venue-package-core', () => ({
 
 vi.mock('../lib/semantic-universal-content-handoff-service', () => ({
   createSemanticUniversalContentDraftService: createSemanticDraft,
+}))
+vi.mock('../lib/legacy-knowledge-adoption-service', () => ({
+  createLegacyKnowledgeAdoptionDraftService: createLegacyAdoptionDraft,
 }))
 
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
@@ -217,6 +222,66 @@ describe('safe operational MCP composition', () => {
     )
     expect(result.structuredContent).toMatchObject({
       data: { requiresExplicitPublication: true, autoPublished: false },
+    })
+  })
+
+  it('creates a scoped legacy adoption draft without publication authority', async () => {
+    createLegacyAdoptionDraft.mockResolvedValue({
+      moduleId: 'module-1',
+      revisionId: 'revision-1',
+      version: 1,
+      legacySnapshotHash: 'c'.repeat(64),
+      draftHash: 'd'.repeat(64),
+      replayed: false,
+    })
+    const database = {
+      agentWorker: { findFirst: vi.fn().mockResolvedValue({ id: 'worker-id-1' }) },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    } as never
+    const input = {
+      clientId: 'tenant-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      proposalId: '22222222-2222-4222-8222-222222222222',
+      legacyKnowledgeEntryId: 'legacy-1',
+      expectedProposalUpdatedAt: '2026-09-07T12:00:00.000Z',
+      expectedPreviewHash: 'a'.repeat(64),
+      expectedLegacyUpdatedAt: '2026-09-07T11:00:00.000Z',
+      expectedLegacySnapshotHash: 'c'.repeat(64),
+      relation: 'CORRECTS',
+      desired: {
+        title: 'Capacity',
+        category: 'POLICY',
+        content: 'Capacity is 137.',
+        isEnabled: true,
+      },
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: { kind: 'POLICY', title: 'Capacity', rule: 'Capacity was 120.', appliesTo: [] },
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database).callTool(
+      'torchiko.knowledge.adopt_legacy_draft',
+      input,
+      { credential: { ...credential, capabilities: ['knowledge:draft'] } },
+    )
+    expect(createLegacyAdoptionDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: expect.objectContaining({ type: 'AGENT', id: 'agent-1' }),
+        input: expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      data: {
+        legacyStillAuthoritative: true,
+        requiresExplicitPublication: true,
+        autoPublished: false,
+      },
     })
   })
 

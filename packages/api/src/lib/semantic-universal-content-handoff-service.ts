@@ -60,7 +60,7 @@ function planOrPrecondition(input: Parameters<typeof planSemanticUniversalConten
 }
 
 async function loadTarget(db: ScopedDb, input: { tenantId: string; venueId: string; id: string }) {
-  return db.venueKnowledgeEntry.findFirst({
+  const entry = await db.venueKnowledgeEntry.findFirst({
     where: { id: input.id, tenantId: input.tenantId, venueId: input.venueId },
     select: {
       id: true,
@@ -84,6 +84,38 @@ async function loadTarget(db: ScopedDb, input: { tenantId: string; venueId: stri
       },
     },
   })
+  if (!entry || entry.contentModuleId) return entry
+  const adoption = await db.legacyKnowledgeUniversalContentAdoption.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      legacyKnowledgeEntryId: input.id,
+      activation: { isNot: null },
+    },
+    select: {
+      moduleId: true,
+      activation: { select: { publicationId: true, revisionId: true } },
+      module: {
+        select: {
+          kind: true,
+          revisions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true } },
+          publications: {
+            orderBy: { eventOrder: 'desc' },
+            take: 1,
+            select: { id: true, revisionId: true, action: true },
+          },
+        },
+      },
+    },
+  })
+  if (!adoption?.activation) return entry
+  return {
+    ...entry,
+    contentModuleId: adoption.moduleId,
+    contentRevisionId: adoption.activation.revisionId,
+    contentPublicationId: adoption.activation.publicationId,
+    contentModule: adoption.module,
+  }
 }
 
 function exactReplay<

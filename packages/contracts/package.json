@@ -43,6 +43,7 @@
     "./agent-bridge": "./src/agent-bridge.ts",
     "./first-week-account-review": "./src/first-week-account-review.ts",
     "./media-entity-resolution": "./src/media-entity-resolution.ts",
+    "./legacy-knowledge-adoption": "./src/legacy-knowledge-adoption.ts",
     "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"
   },
   "types": "./src/index.ts",

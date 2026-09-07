@@ -53,6 +53,7 @@ function actions(): PathfinderMcpDomainActions {
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     prepareKnowledgeFromSupport: vi.fn().mockResolvedValue(result),
     createSemanticUniversalContentDraft: vi.fn().mockResolvedValue(result),
+    createLegacyKnowledgeAdoptionDraft: vi.fn().mockResolvedValue(result),
     proposeLocationDraft: vi.fn().mockResolvedValue(result),
     proposeSupportTriage: vi.fn().mockResolvedValue(result),
     applySupportTriage: vi.fn().mockResolvedValue(result),

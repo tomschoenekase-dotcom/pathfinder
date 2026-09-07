@@ -79,6 +79,7 @@ import { createVenuePackageDraftService } from '../routers/venue-package'
 import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
 import { requestWeeklyReportDraftAction } from '../lib/weekly-report-generation'
 import { createSemanticUniversalContentDraftService } from '../lib/semantic-universal-content-handoff-service'
+import { createLegacyKnowledgeAdoptionDraftService } from '../lib/legacy-knowledge-adoption-service'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -100,6 +101,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.propose_correction',
   'torchiko.knowledge.prepare_from_support',
   'torchiko.knowledge.create_typed_draft',
+  'torchiko.knowledge.adopt_legacy_draft',
   'torchiko.locations.propose_draft',
   'pathfinder.propose_support_triage',
   'pathfinder.apply_support_triage',
@@ -203,6 +205,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
     | 'createSemanticUniversalContentDraft'
+    | 'createLegacyKnowledgeAdoptionDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -252,6 +255,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'prepareKnowledgeFromSupport'
     | 'createSemanticUniversalContentDraft'
+    | 'createLegacyKnowledgeAdoptionDraft'
     | 'proposeLocationDraft'
     | 'proposeSupportTriage'
     | 'applySupportTriage'
@@ -1343,6 +1347,76 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           classification: result.classification,
           draftHash: result.draftHash,
           replayed: result.replayed,
+          requiresExplicitPublication: true,
+          autoPublished: false,
+        }),
+      }
+    },
+    async createLegacyKnowledgeAdoptionDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Legacy knowledge adoption requires venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+      const {
+        clientId: _clientId,
+        operationId: _operationId,
+        agentIdentityId: _agentIdentityId,
+        agentRunId: _agentRunId,
+        workerKey: _workerKey,
+        ...serviceInput
+      } = input
+      const result = await createLegacyKnowledgeAdoptionDraftService({
+        db: database,
+        actor: {
+          type: 'AGENT',
+          id: input.agentIdentityId,
+          role: 'AGENT',
+          authorization: 'APPROVED_SEMANTIC_PROPOSAL',
+        },
+        input: { ...serviceInput, tenantId: context.credential.tenantId, venueId },
+      })
+      return {
+        kind: 'torchiko.legacy-knowledge-adoption-draft',
+        summary: result.replayed
+          ? 'Existing legacy adoption draft returned; legacy publication state is unchanged.'
+          : 'Native adoption draft created; the legacy source remains authoritative until separate publication.',
+        data: jsonData({
+          tenantId: context.credential.tenantId,
+          venueId,
+          legacyKnowledgeEntryId: input.legacyKnowledgeEntryId,
+          moduleId: result.moduleId,
+          revisionId: result.revisionId,
+          version: result.version,
+          legacySnapshotHash: result.legacySnapshotHash,
+          draftHash: result.draftHash,
+          replayed: result.replayed,
+          legacyStillAuthoritative: true,
           requiresExplicitPublication: true,
           autoPublished: false,
         }),

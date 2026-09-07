@@ -360,6 +360,17 @@ export async function searchKnowledgeByEmbedding(params: {
       AND entry.is_enabled = true
       AND (${includeSecondLayer} = true OR entry.visibility = 'PUBLIC')
       AND entry.embedding  IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM legacy_knowledge_universal_content_adoptions adoption
+          JOIN legacy_knowledge_adoption_activations activation
+            ON activation.adoption_id = adoption.id
+           AND activation.tenant_id = adoption.tenant_id
+           AND activation.venue_id = adoption.venue_id
+         WHERE adoption.tenant_id = entry.tenant_id
+           AND adoption.venue_id = entry.venue_id
+           AND adoption.legacy_knowledge_entry_id = entry.id
+      )
       AND (
         entry.content_module_id IS NULL OR (
           publication.action = 'PUBLISH'::"ContentModulePublicationAction"

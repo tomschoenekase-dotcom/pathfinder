@@ -62,6 +62,11 @@ export type GuestKnowledgeReader = {
   venueKnowledgeEntry: {
     findMany(args: Record<string, unknown>): Promise<GuestKnowledgeRow[]>
   }
+  legacyKnowledgeAdoptionActivation?: {
+    findMany(
+      args: Record<string, unknown>,
+    ): Promise<Array<{ adoption: { legacyKnowledgeEntryId: string } }>>
+  }
 }
 
 export type GuestKnowledgeRow = {
@@ -288,18 +293,26 @@ export async function retrieveGuestKnowledge(params: {
       },
     ],
   }
+  const adoptionAuthority = {
+    OR: [
+      { contentModuleId: { not: null } },
+      { universalContentAdoption: { is: null } },
+      { universalContentAdoption: { is: { activation: { is: null } } } },
+    ],
+  }
   const scope = {
     tenantId: params.tenantId,
     venueId: params.venueId,
     isEnabled: true,
     ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
-    AND: [publicationAuthority],
+    AND: [publicationAuthority, adoptionAuthority],
   }
   const strictWhere = concepts.length
     ? {
         ...scope,
         AND: [
           publicationAuthority,
+          adoptionAuthority,
           ...concepts.map((group) => ({
             OR: group.map(textClause).flatMap((clause) => clause.OR),
           })),
@@ -312,7 +325,7 @@ export async function retrieveGuestKnowledge(params: {
         OR: concepts.flatMap((group) => group.map(textClause).flatMap((clause) => clause.OR)),
       }
     : { ...scope, id: '__no_query_terms__' }
-  const [strict, broad, semantic] = await Promise.all([
+  const [strict, broad, semantic, activated] = await Promise.all([
     reader.venueKnowledgeEntry.findMany({
       where: strictWhere,
       select: selectShape(),
@@ -334,7 +347,14 @@ export async function retrieveGuestKnowledge(params: {
           })
           .catch(() => [])
       : Promise.resolve([]),
+    reader.legacyKnowledgeAdoptionActivation
+      ? reader.legacyKnowledgeAdoptionActivation.findMany({
+          where: { tenantId: params.tenantId, venueId: params.venueId },
+          select: { adoption: { select: { legacyKnowledgeEntryId: true } } },
+        })
+      : Promise.resolve([]),
   ])
+  const activatedLegacyIds = new Set(activated.map((row) => row.adoption.legacyKnowledgeEntryId))
   const hasCurrentPublicationAuthority = (row: GuestKnowledgeRow) => {
     if (!row.contentModuleId) return true
     const latest = row.contentPublication?.module.publications[0]
@@ -346,6 +366,7 @@ export async function retrieveGuestKnowledge(params: {
   }
   const scoredLexical = [...new Map([...strict, ...broad].map((row) => [row.id, row])).values()]
     .filter(hasCurrentPublicationAuthority)
+    .filter((row) => !activatedLegacyIds.has(row.id))
     .map((row) => ({ row, score: lexicalScore(row, concepts) }))
   const policyExcludedIds = scoredLexical.filter(({ score }) => score <= 0).map(({ row }) => row.id)
   const lexical = scoredLexical
@@ -359,7 +380,7 @@ export async function retrieveGuestKnowledge(params: {
   const merged = new Map<string, SemanticKnowledgeEntry>()
   const policyExcluded = new Set(policyExcludedIds)
   for (const entry of semantic) {
-    if (!policyExcluded.has(entry.id)) {
+    if (!policyExcluded.has(entry.id) && !activatedLegacyIds.has(entry.id)) {
       merged.set(entry.id, {
         ...entry,
         content: boundedRelevantContent(entry.content, concepts),
@@ -397,6 +418,7 @@ export async function retrieveGuestKnowledge(params: {
       excludedSourceIds: [
         ...new Set([
           ...policyExcludedIds,
+          ...activatedLegacyIds,
           ...candidates.slice(RESULT_LIMIT).map((entry) => entry.id),
         ]),
       ],

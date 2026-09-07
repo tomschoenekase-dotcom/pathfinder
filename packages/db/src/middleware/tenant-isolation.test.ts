@@ -141,6 +141,8 @@ describe('tenantIsolationMiddleware', () => {
       'KnowledgeProposalPackageHandoff',
       'KnowledgeProposalOperationalUpdateHandoff',
       'KnowledgeProposalUniversalContentHandoff',
+      'LegacyKnowledgeUniversalContentAdoption',
+      'LegacyKnowledgeAdoptionActivation',
       'VenueFloor',
       'VenueLocation',
       'VenueLocationConnection',

@@ -196,6 +196,7 @@ model Tenant {
   knowledgeProposalPackageHandoffs          KnowledgeProposalPackageHandoff[]
   knowledgeProposalUpdateHandoffs           KnowledgeProposalOperationalUpdateHandoff[]
   knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  legacyKnowledgeAdoptions                  LegacyKnowledgeUniversalContentAdoption[]
   messageFeedback                           MessageFeedback[]
   venueFloors                               VenueFloor[]
   venueLocations                            VenueLocation[]
@@ -1371,11 +1372,11 @@ model Venue {
   chatFont                                  String?                                     @default("jakarta") @map("chat_font")
   chatLogoUrl                               String?                                     @map("chat_logo_url")
   chatBannerUrl                             String?                                     @map("chat_banner_url")
-  category                                  String?
   chatLogoDerivativeId                      String?                                     @db.Uuid @map("chat_logo_derivative_id")
   chatBannerDerivativeId                    String?                                     @db.Uuid @map("chat_banner_derivative_id")
   chatLogoDerivativeReceipt                 Json?                                       @map("chat_logo_derivative_receipt")
   chatBannerDerivativeReceipt               Json?                                       @map("chat_banner_derivative_receipt")
+  category                                  String?
   guideMode                                 String                                      @default("location_aware") @map("guide_mode")
   defaultCenterLat                          Float?                                      @map("default_center_lat")
   defaultCenterLng                          Float?                                      @map("default_center_lng")
@@ -1417,6 +1418,7 @@ model Venue {
   knowledgeProposalPackageHandoffs          KnowledgeProposalPackageHandoff[]
   knowledgeProposalUpdateHandoffs           KnowledgeProposalOperationalUpdateHandoff[]
   knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  legacyKnowledgeAdoptions                  LegacyKnowledgeUniversalContentAdoption[]
   messageFeedback                           MessageFeedback[]
   floors                                    VenueFloor[]
   structuredLocations                       VenueLocation[]
@@ -1509,10 +1511,10 @@ model Venue {
   accountOpenLoops                          AccountOpenLoop[]
   accountCommitments                        AccountCommitment[]
   venueMediaAssets                          VenueMediaAsset[]
-
-  @@unique([tenantId, slug])
   chatLogoDerivative                        VenueMediaDerivative? @relation("VenueChatLogoDerivative", fields: [chatLogoDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   chatBannerDerivative                      VenueMediaDerivative? @relation("VenueChatBannerDerivative", fields: [chatBannerDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, slug])
   @@unique([id, tenantId])
   @@index([tenantId])
   @@map("venues")
@@ -1597,6 +1599,7 @@ model VenueKnowledgeEntry {
   contentPublication     ContentModulePublication? @relation(fields: [contentPublicationId, tenantId, venueId, contentRevisionId, contentModuleId], references: [id, tenantId, venueId, revisionId, moduleId], onDelete: Restrict, onUpdate: Restrict)
   targetedByProposals    KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
   publishedFromProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalPublishedEntry")
+  universalContentAdoption LegacyKnowledgeUniversalContentAdoption?
   venueMediaLinks        VenueMediaKnowledgeLink[]
 
   @@unique([id, tenantId, venueId])
@@ -1622,6 +1625,7 @@ model ContentModuleIdentity {
   publications                              ContentModulePublication[]
   knowledgeSearchEntries                    VenueKnowledgeEntry[]
   knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
+  legacyKnowledgeAdoptions LegacyKnowledgeUniversalContentAdoption[]
   outboundRelationships                     RelationshipContent[]                      @relation("relationship_from")
   inboundRelationships                      RelationshipContent[]                      @relation("relationship_to")
 
@@ -1658,6 +1662,7 @@ model ContentModuleRevision {
   knowledgeSearchEntries       VenueKnowledgeEntry[]
   semanticHandoffRevisions     KnowledgeProposalUniversalContentHandoff[] @relation("SemanticHandoffRevision")
   semanticHandoffBaseRevisions KnowledgeProposalUniversalContentHandoff[] @relation("SemanticHandoffBaseRevision")
+  legacyKnowledgeAdoptions     LegacyKnowledgeUniversalContentAdoption[]
 
   @@unique([moduleId, tenantId, venueId, version])
   @@unique([id, tenantId, venueId], map: "content_module_revisions_id_scope_key")
@@ -1810,6 +1815,7 @@ model ContentModulePublication {
   revision                ContentModuleRevision                    @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
   nativeDeploymentLineage NativeVenueDeploymentPublicationLineage?
   knowledgeSearchEntries  VenueKnowledgeEntry[]
+  legacyAdoptionActivation LegacyKnowledgeAdoptionActivation?
 
   @@unique([tenantId, requestId])
   @@unique([id, tenantId, venueId], map: "content_module_publications_id_scope_key")
@@ -2428,14 +2434,14 @@ model VenueMediaDerivative {
   updatedAt              DateTime                    @updatedAt @map("updated_at")
   completedAt            DateTime?                   @map("completed_at")
   asset                  VenueMediaAsset             @relation(fields: [assetId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  logoVenues             Venue[]                     @relation("VenueChatLogoDerivative")
+  bannerVenues           Venue[]                     @relation("VenueChatBannerDerivative")
 
   @@unique([tenantId, requestId, variant], map: "venue_media_derivatives_request_variant_key")
   @@unique([assetId, variant, sourceObjectGeneration], map: "venue_media_derivatives_source_variant_key")
   @@unique([id, tenantId, venueId], map: "venue_media_derivatives_scope_key")
   @@index([tenantId, venueId, assetId, status], map: "venue_media_derivatives_scope_status_idx")
   @@map("venue_media_derivatives")
-  logoVenues             Venue[]                     @relation("VenueChatLogoDerivative")
-  bannerVenues           Venue[]                     @relation("VenueChatBannerDerivative")
 }
 
 /// Immutable verdict evidence for one exact quarantined object version. PRECHECK
@@ -3476,6 +3482,7 @@ model KnowledgeChangeProposal {
   packageHandoff            KnowledgeProposalPackageHandoff?
   operationalUpdateHandoff  KnowledgeProposalOperationalUpdateHandoff?
   universalContentHandoff   KnowledgeProposalUniversalContentHandoff?
+  legacyContentAdoption     LegacyKnowledgeUniversalContentAdoption?
 
   @@unique([id, tenantId, venueId])
   @@unique([supportRequestId, tenantId, venueId, supportRequestVersion], map: "knowledge_proposals_support_version_key")
@@ -3560,6 +3567,60 @@ model KnowledgeProposalUniversalContentHandoff {
   @@unique([revisionId, tenantId, venueId], map: "knowledge_proposal_universal_handoffs_revision_scope_key")
   @@index([tenantId, venueId, createdAt], map: "knowledge_proposal_universal_handoffs_scope_created_idx")
   @@map("knowledge_proposal_universal_content_handoffs")
+}
+
+/// Immutable receipt for adopting one exact legacy knowledge row as a native v1 draft.
+/// The legacy row remains authoritative until a separate publication creates an activation.
+model LegacyKnowledgeUniversalContentAdoption {
+  id                       String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                      @map("tenant_id")
+  venueId                  String                      @map("venue_id")
+  proposalId               String                      @map("proposal_id") @db.Uuid
+  legacyKnowledgeEntryId   String                      @map("legacy_knowledge_entry_id")
+  moduleId                 String                      @map("module_id")
+  moduleKind               NormalizedContentModuleKind @map("module_kind")
+  revisionId               String                      @map("revision_id")
+  proposalUpdatedAt        DateTime                    @map("proposal_updated_at")
+  legacyKnowledgeUpdatedAt DateTime                    @map("legacy_knowledge_updated_at")
+  legacySnapshot           Json                        @map("legacy_snapshot")
+  legacySnapshotHash       String                      @map("legacy_snapshot_hash") @db.Char(64)
+  draftHash                String                      @map("draft_hash") @db.Char(64)
+  createdBy                String                      @map("created_by") @db.VarChar(191)
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  tenant                   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal                 KnowledgeChangeProposal     @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  legacyKnowledgeEntry     VenueKnowledgeEntry         @relation(fields: [legacyKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  module                   ContentModuleIdentity       @relation(fields: [moduleId, tenantId, venueId, moduleKind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  revision                 ContentModuleRevision       @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  activation               LegacyKnowledgeAdoptionActivation?
+
+  @@unique([proposalId, tenantId, venueId], map: "legacy_knowledge_adoptions_proposal_scope_key")
+  @@unique([legacyKnowledgeEntryId, tenantId, venueId], map: "legacy_knowledge_adoptions_legacy_scope_key")
+  @@unique([moduleId, tenantId, venueId], map: "legacy_knowledge_adoptions_module_scope_key")
+  @@unique([id, tenantId, venueId, moduleId], map: "legacy_knowledge_adoptions_id_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "legacy_knowledge_adoptions_scope_created_idx")
+  @@map("legacy_knowledge_universal_content_adoptions")
+}
+
+/// Append-only transition created only by the first explicit PUBLISH ledger event.
+model LegacyKnowledgeAdoptionActivation {
+  id            String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String                                  @map("tenant_id")
+  venueId       String                                  @map("venue_id")
+  adoptionId    String                                  @map("adoption_id") @db.Uuid
+  moduleId      String                                  @map("module_id")
+  revisionId    String                                  @map("revision_id")
+  publicationId String                                  @unique @map("publication_id")
+  activatedAt   DateTime                                @default(now()) @map("activated_at")
+  adoption      LegacyKnowledgeUniversalContentAdoption @relation(fields: [adoptionId, tenantId, venueId, moduleId], references: [id, tenantId, venueId, moduleId], onDelete: Restrict, onUpdate: Restrict)
+  publication   ContentModulePublication                @relation(fields: [publicationId, tenantId, venueId, revisionId, moduleId], references: [id, tenantId, venueId, revisionId, moduleId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([adoptionId, tenantId, venueId], map: "legacy_knowledge_adoption_activations_scope_key")
+  @@unique([adoptionId, tenantId, venueId, moduleId], map: "legacy_knowledge_adoption_activations_adoption_scope_key")
+  @@unique([publicationId, tenantId, venueId, revisionId, moduleId], map: "legacy_knowledge_adoption_activations_publication_scope_key")
+  @@index([tenantId, venueId, activatedAt], map: "legacy_knowledge_adoption_activations_scope_created_idx")
+  @@map("legacy_knowledge_adoption_activations")
 }
 
 enum VenueLocationKind {

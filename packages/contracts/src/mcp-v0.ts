@@ -11,6 +11,7 @@ import {
 import { VenueLocationDraftFieldsSchema } from './location-authoring'
 import { SupportRequestCategory } from './support-workflow'
 import { GeneralizedContentRevisionDraft } from './universal-content-actions'
+import { CreateLegacyKnowledgeAdoptionDraftInput } from './legacy-knowledge-adoption'
 
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
@@ -662,6 +663,17 @@ export type McpSemanticUniversalContentDraftInput = z.infer<
   typeof McpSemanticUniversalContentDraftInput
 >
 
+export const McpLegacyKnowledgeAdoptionDraftInput = CreateLegacyKnowledgeAdoptionDraftInput.extend({
+  clientId: Identifier,
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+}).strict()
+export type McpLegacyKnowledgeAdoptionDraftInput = z.infer<
+  typeof McpLegacyKnowledgeAdoptionDraftInput
+>
+
 export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1283,6 +1295,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.knowledge.prepare_from_support'
   | 'torchiko.knowledge.create_typed_draft'
+  | 'torchiko.knowledge.adopt_legacy_draft'
   | 'torchiko.locations.propose_draft'
   | 'pathfinder.propose_support_triage'
   | 'pathfinder.apply_support_triage'
@@ -1823,6 +1836,62 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         'proposalId',
         'expectedProposalUpdatedAt',
         'expectedPreviewHash',
+        'relation',
+        'desired',
+        'draft',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.knowledge.adopt_legacy_draft',
+    title: 'Adopt an exact legacy knowledge source as a native draft',
+    description:
+      'Create one native v1 draft and immutable source receipt for an exact unlinked legacy row targeted by a human-approved semantic proposal. The legacy row remains public until a separate approved publication action.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        proposalId: { type: 'string', format: 'uuid' },
+        legacyKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 191 },
+        expectedProposalUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedPreviewHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedLegacyUpdatedAt: { type: 'string', format: 'date-time' },
+        expectedLegacySnapshotHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        relation: { type: 'string', enum: ['CORRECTS', 'SUPERSEDES'] },
+        desired: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'category', 'content', 'isEnabled'],
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['audience', 'evidence', 'payload'],
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'proposalId',
+        'legacyKnowledgeEntryId',
+        'expectedProposalUpdatedAt',
+        'expectedPreviewHash',
+        'expectedLegacyUpdatedAt',
+        'expectedLegacySnapshotHash',
         'relation',
         'desired',
         'draft',

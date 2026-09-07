@@ -137,4 +137,40 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.entries.map(({ id }) => id)).toEqual(['semantic', 'lexical'])
     expect(result.trace.path).toBe('semantic+lexical')
   })
+
+  it('permanently suppresses an activated legacy source across lexical and semantic paths', async () => {
+    const legacy = row('legacy-capacity', 'Capacity', 'Capacity was 120.')
+    const native = row('native-capacity', 'Capacity', 'Capacity is 137.', {
+      contentModuleId: 'module-1',
+    })
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce([legacy, native])
+      .mockResolvedValueOnce([legacy, native])
+    const result = await retrieveGuestKnowledge({
+      reader: {
+        venueKnowledgeEntry: { findMany },
+        legacyKnowledgeAdoptionActivation: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue([{ adoption: { legacyKnowledgeEntryId: legacy.id } }]),
+        },
+      },
+      query: 'What is the capacity?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: [0.1],
+      semanticSearch: vi.fn().mockResolvedValue([
+        { ...legacy, distance: 0.01 },
+        { ...native, distance: 0.02 },
+      ]),
+    })
+    expect(result.entries.map(({ id }) => id)).toContain('native-capacity')
+    expect(result.entries.map(({ id }) => id)).not.toContain('legacy-capacity')
+    expect(result.trace.excludedSourceIds).toContain('legacy-capacity')
+    expect(findMany.mock.calls[0]![0]).toMatchObject({
+      where: { AND: expect.arrayContaining([expect.objectContaining({ OR: expect.any(Array) })]) },
+    })
+  })
 })
