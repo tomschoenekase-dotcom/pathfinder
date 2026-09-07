@@ -15,12 +15,13 @@ async function run() {
         'validated-output-before-cleanup',
         'cleanup-only-retry',
         'no-provider-regeneration',
+        'full-ingestion-job-same-generation-retry',
       ],
       failureScope: ['migration-drift', 'receipt-fence-drift', 'provider-cleanup-retry-drift'],
       integration: {
         packageDirectory: 'apps/workers',
         testFile: 'src/processors/media-provider-operation.disposable.integration.test.ts',
-        expectedPassed: 2,
+        expectedPassed: 3,
         environment: {
           RUN_MEDIA_PROVIDER_OPERATION_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',

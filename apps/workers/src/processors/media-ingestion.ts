@@ -629,8 +629,18 @@ export function shouldPropagateFullVideoFailure(error: unknown, signal?: AbortSi
     error instanceof AiRequestBudgetCeilingExceededError ||
     error instanceof GeminiVideoDeletionUnconfirmedError ||
     error instanceof GeminiVideoAccountingPendingError ||
+    error instanceof MediaProviderOperationRecoveryError ||
     error instanceof UnrecoverableError
   )
+}
+
+export class MediaProviderOperationRecoveryError extends AggregateError {
+  readonly code = 'media-provider-operation-recovery-pending'
+
+  constructor(errors: unknown[]) {
+    super(errors, 'Gemini cleanup or accounting recovery remains pending')
+    this.name = 'MediaProviderOperationRecoveryError'
+  }
 }
 
 export async function analyzeVideoWithGemini(
@@ -727,9 +737,7 @@ export async function analyzeVideoWithGemini(
           recoveryErrors.push(error)
         }
       }
-      if (recoveryErrors.length === 1) throw recoveryErrors[0]
-      if (recoveryErrors.length > 1)
-        throw new AggregateError(recoveryErrors, 'Gemini cleanup and accounting recovery failed')
+      if (recoveryErrors.length > 0) throw new MediaProviderOperationRecoveryError(recoveryErrors)
       if (currentOperation.outcomeState === 'OBSERVED' && currentOperation.result)
         return parseMediaAnalysisResponse(JSON.stringify(currentOperation.result))
       throw new UnrecoverableError(
@@ -966,8 +974,7 @@ async function analyzeVideoBySampling(
         ).summary
       } catch (error) {
         assertMediaJobActive(signal)
-        if (isAiAdmissionControlError(error)) throw error
-        if (error instanceof UnrecoverableError) throw error
+        if (shouldPropagateFullVideoFailure(error, signal)) throw error
         transcript = ''
       }
     }
@@ -1432,8 +1439,7 @@ export async function processMediaIngestionJob(
         })
       } catch (error) {
         assertMediaJobActive(signal)
-        if (isAiAdmissionControlError(error)) throw error
-        if (error instanceof UnrecoverableError) throw error
+        if (shouldPropagateFullVideoFailure(error, signal)) throw error
         analysis = failedMediaAssetAnalysis()
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
         await persistMediaIngestionAsset({

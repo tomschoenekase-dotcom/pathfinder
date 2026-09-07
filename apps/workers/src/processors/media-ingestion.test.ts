@@ -78,11 +78,16 @@ import {
   parseMediaSynthesisResponse,
   persistMediaIngestionAsset,
   processMediaIngestionJob,
+  MediaProviderOperationRecoveryError,
   shouldPropagateFullVideoFailure,
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
-import { AiRequestBudgetCeilingExceededError } from '@pathfinder/ai'
+import {
+  AiRequestBudgetCeilingExceededError,
+  GeminiVideoAccountingPendingError,
+  GeminiVideoDeletionUnconfirmedError,
+} from '@pathfinder/ai'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -107,6 +112,17 @@ describe('media ingestion provider output validation', () => {
       true,
     )
     expect(shouldPropagateFullVideoFailure(new Error('ordinary provider failure'))).toBe(false)
+    expect(shouldPropagateFullVideoFailure(new GeminiVideoAccountingPendingError())).toBe(true)
+    expect(
+      shouldPropagateFullVideoFailure(
+        new GeminiVideoDeletionUnconfirmedError('files/exact-fixture'),
+      ),
+    ).toBe(true)
+    expect(
+      shouldPropagateFullVideoFailure(
+        new MediaProviderOperationRecoveryError([new Error('cleanup pending')]),
+      ),
+    ).toBe(true)
   })
 
   it('uses code-owned asset failure findings without exception detail', () => {
