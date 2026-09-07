@@ -112,7 +112,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-questions.ts', 4],
   // The reviewed improvement loop appends exact-scope outcome and validation evidence;
   // neither route can promote behavior or change worker authority.
-  ['packages/api/src/routers/admin/agent-outcomes.ts', 5],
+  ['packages/api/src/routers/admin/agent-outcomes.ts', 7],
+  // Platform-admin promotion assessments retain exact tenant+venue scope and append only
+  // evidence-derived review records; they do not activate or change workflow authority.
+  ['packages/api/src/routers/admin/agent-workflow-promotion-assessments.ts', 2],
   ['packages/api/src/routers/admin/agent-trust-signals.ts', 1],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],

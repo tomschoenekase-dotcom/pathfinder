@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-219-20260907',
+  approval: 'torchiko-staging-lineage-to-222-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 219,
+  migrationCount: 222,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -65,6 +65,16 @@ const EXPECTED = Object.freeze({
   prospectOnboardingPredecessorPublicTableCount: 243,
   prospectOnboardingPredecessorFinalMigration:
     '20260907021800_add_prospect_onboarding_delivery_attempts',
+  governedMediaPredecessorCount: 219,
+  governedMediaPredecessorPublicTableCount: 243,
+  governedMediaPredecessorFinalMigration:
+    '20260907021900_add_governed_guest_place_media_preferences',
+  workflowRegistryPredecessorCount: 220,
+  workflowRegistryPredecessorPublicTableCount: 244,
+  workflowRegistryPredecessorFinalMigration: '20260907022000_add_agent_workflow_versions',
+  usageObservationPredecessorCount: 221,
+  usageObservationPredecessorPublicTableCount: 244,
+  usageObservationPredecessorFinalMigration: '20260907022100_add_ai_usage_observation_status',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -84,10 +94,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907021900_add_governed_guest_place_media_preferences',
-  manifestHash: 'e94eca583f84d863b08c08bdbcdce12be8c8737dd2ef543eb07238dfcec0ad11',
-  // The 78-migration suffix after B.5 adds 50 public tables.
-  finalPublicTableCount: 243,
+  finalMigration: '20260907022200_add_agent_workflow_promotion_assessments',
+  manifestHash: 'ceff51dc605a1d4873c327f9ab667be4eef1523f2c131a5b1462f5ac0a74cd1d',
+  // The 81-migration suffix after B.5 adds 52 public tables.
+  finalPublicTableCount: 245,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -305,6 +315,24 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('prospect onboarding predecessor migration changed')
   }
+  if (
+    manifest.names[EXPECTED.governedMediaPredecessorCount - 1] !==
+    EXPECTED.governedMediaPredecessorFinalMigration
+  ) {
+    fail('governed media predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.workflowRegistryPredecessorCount - 1] !==
+    EXPECTED.workflowRegistryPredecessorFinalMigration
+  ) {
+    fail('workflow registry predecessor migration changed')
+  }
+  if (
+    manifest.names[EXPECTED.usageObservationPredecessorCount - 1] !==
+    EXPECTED.usageObservationPredecessorFinalMigration
+  ) {
+    fail('usage observation predecessor migration changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -331,6 +359,9 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.mediaResolutionPredecessorCount &&
     rows.length !== EXPECTED.mediaRelationPredecessorCount &&
     rows.length !== EXPECTED.prospectOnboardingPredecessorCount &&
+    rows.length !== EXPECTED.governedMediaPredecessorCount &&
+    rows.length !== EXPECTED.workflowRegistryPredecessorCount &&
+    rows.length !== EXPECTED.usageObservationPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -385,6 +416,12 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.mediaRelationPredecessorCount) return 'media-relation-predecessor'
   if (rows.length === EXPECTED.prospectOnboardingPredecessorCount)
     return 'prospect-onboarding-predecessor'
+  if (rows.length === EXPECTED.governedMediaPredecessorCount)
+    return 'governed-media-predecessor'
+  if (rows.length === EXPECTED.workflowRegistryPredecessorCount)
+    return 'workflow-registry-predecessor'
+  if (rows.length === EXPECTED.usageObservationPredecessorCount)
+    return 'usage-observation-predecessor'
   return 'complete'
 }
 
@@ -565,7 +602,13 @@ async function main() {
                                             ? EXPECTED.mediaRelationPredecessorPublicTableCount
                                             : initialState === 'prospect-onboarding-predecessor'
                                               ? EXPECTED.prospectOnboardingPredecessorPublicTableCount
-                                              : EXPECTED.stagingBaselinePublicTableCount
+                                              : initialState === 'governed-media-predecessor'
+                                                ? EXPECTED.governedMediaPredecessorPublicTableCount
+                                                : initialState === 'workflow-registry-predecessor'
+                                                  ? EXPECTED.workflowRegistryPredecessorPublicTableCount
+                                                  : initialState === 'usage-observation-predecessor'
+                                                    ? EXPECTED.usageObservationPredecessorPublicTableCount
+                                                    : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

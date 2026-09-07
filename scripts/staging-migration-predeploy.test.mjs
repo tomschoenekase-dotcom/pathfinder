@@ -131,9 +131,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 219-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 222-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 243)
+  assert.equal(EXPECTED.finalPublicTableCount, 245)
   assert.equal(EXPECTED.legacyAdoptionPredecessorCount, 214)
   assert.equal(EXPECTED.legacyAdoptionPredecessorPublicTableCount, 238)
   assert.equal(EXPECTED.mediaResolutionPredecessorCount, 215)
@@ -142,6 +142,12 @@ test('repository migration manifest remains frozen at the reviewed 219-file chai
   assert.equal(EXPECTED.mediaRelationPredecessorPublicTableCount, 240)
   assert.equal(EXPECTED.prospectOnboardingPredecessorCount, 218)
   assert.equal(EXPECTED.prospectOnboardingPredecessorPublicTableCount, 243)
+  assert.equal(EXPECTED.governedMediaPredecessorCount, 219)
+  assert.equal(EXPECTED.governedMediaPredecessorPublicTableCount, 243)
+  assert.equal(EXPECTED.workflowRegistryPredecessorCount, 220)
+  assert.equal(EXPECTED.workflowRegistryPredecessorPublicTableCount, 244)
+  assert.equal(EXPECTED.usageObservationPredecessorCount, 221)
+  assert.equal(EXPECTED.usageObservationPredecessorPublicTableCount, 244)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -197,6 +203,9 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -211,6 +220,9 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -224,6 +236,9 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -236,6 +251,9 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -244,7 +262,43 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.prospectOnboardingPredecessorCount), manifest),
-    ['20260907021900_add_governed_guest_place_media_preferences'],
+    [
+      '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.governedMediaPredecessorCount), manifest),
+    'governed-media-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.governedMediaPredecessorCount), manifest),
+    [
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.workflowRegistryPredecessorCount), manifest),
+    'workflow-registry-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.workflowRegistryPredecessorCount), manifest),
+    [
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
+    ],
+  )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.usageObservationPredecessorCount), manifest),
+    'usage-observation-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.usageObservationPredecessorCount), manifest),
+    ['20260907022200_add_agent_workflow_promotion_assessments'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
@@ -326,6 +380,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -358,6 +415,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -388,6 +448,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -417,6 +480,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -445,6 +511,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(
@@ -468,6 +537,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
@@ -485,6 +557,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     '20260907021700_add_media_temporal_review_receipts',
     '20260907021800_add_prospect_onboarding_delivery_attempts',
     '20260907021900_add_governed_guest_place_media_preferences',
+    '20260907022000_add_agent_workflow_versions',
+    '20260907022100_add_ai_usage_observation_status',
+    '20260907022200_add_agent_workflow_promotion_assessments',
   ])
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -505,6 +580,9 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -682,6 +760,9 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260907021700_add_media_temporal_review_receipts',
       '20260907021800_add_prospect_onboarding_delivery_attempts',
       '20260907021900_add_governed_guest_place_media_preferences',
+      '20260907022000_add_agent_workflow_versions',
+      '20260907022100_add_ai_usage_observation_status',
+      '20260907022200_add_agent_workflow_promotion_assessments',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -763,6 +844,9 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260907021700_add_media_temporal_review_receipts',
     '20260907021800_add_prospect_onboarding_delivery_attempts',
     '20260907021900_add_governed_guest_place_media_preferences',
+    '20260907022000_add_agent_workflow_versions',
+    '20260907022100_add_ai_usage_observation_status',
+    '20260907022200_add_agent_workflow_promotion_assessments',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

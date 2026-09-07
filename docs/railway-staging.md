@@ -229,7 +229,7 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-219-20260907`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-222-20260907`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma when migrations are pending. After the exact migration and hosted health pass, restore
 `PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
@@ -245,11 +245,13 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The campaign's draft candidate contains 219 migrations and 243 public tables, including governed
-guest place-media preferences. The measured 218-row/243-table prospect-onboarding candidate and
-216-row/240-table media-relation candidate remain admitted predecessors alongside the 215-row/239-table
-media-resolution candidate, 214-row/238-table legacy-adoption candidate, and 207-row/232-table
-campaign boundary. The post-migration guard freezes the exact topology along with the ordered
+The campaign's measured local candidate contains 222 migrations and 245 public tables, ending with
+immutable agent-workflow promotion assessments. The 221-row/244-table usage-observation and
+220-row/244-table workflow-registry states are admitted migration-derived predecessor boundaries.
+The measured 219-row/243-table governed-media, 218-row/243-table prospect-onboarding,
+216-row/240-table media-relation, 215-row/239-table media-resolution, 214-row/238-table
+legacy-adoption, and 207-row/232-table campaign boundaries remain admitted predecessors. The
+post-migration guard freezes the exact topology along with the ordered
 ledger, checksums, valid indexes, and validated constraints. These candidate expectations do not
 change historical hosted observations into evidence of a new deployment.
 
