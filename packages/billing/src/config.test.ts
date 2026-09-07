@@ -13,6 +13,13 @@ describe('billing environment', () => {
     expect(() =>
       parseBillingEnvironment({ ...base, BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true' }),
     ).toThrow(/approved payment recovery policy/u)
+    expect(() =>
+      parseBillingEnvironment({
+        ...base,
+        BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true',
+        BILLING_RECOVERY_POLICY_APPROVED: 'true',
+      }),
+    ).toThrow(/explicitly configured grace period/u)
     const environment = parseBillingEnvironment({
       ...base,
       BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: 'true',
