@@ -85,12 +85,13 @@ const payload: WeeklyReportJobPayload = {
 }
 
 const validReport = {
-  overview: 'Visitors had a positive week.',
-  visitorQuestionsAndInterests: 'Restroom locations came up repeatedly.',
-  specificAnalytics: 'One visitor answered the active satisfaction question.',
-  notableInsight: 'Wayfinding remains the clearest opportunity.',
-  quotes: ['A visitor appreciated the friendly staff.'],
   nextSteps: ['Review restroom signage.'],
+  findings: [
+    {
+      statement: 'A visitor asked about restroom locations.',
+      evidence: [{ sourceId: 'public-message:message_1', excerpt: 'Where are the restrooms?' }],
+    },
+  ],
 }
 
 describe('processWeeklyReportJob', () => {
@@ -118,16 +119,20 @@ describe('processWeeklyReportJob', () => {
     mocks.messageCount.mockResolvedValue(4)
     mocks.responseFindMany.mockResolvedValue([
       {
+        id: 'response_1',
+        engagementQuestionId: 'question_1',
         questionText: 'What did you enjoy?',
         answerText: 'Friendly staff',
         isAiInvented: false,
       },
     ])
     mocks.questionFindMany.mockResolvedValue([
-      { prompt: 'What did you enjoy?', questionType: 'TEXT' },
+      { id: 'question_1', prompt: 'What did you enjoy?', questionType: 'TEXT' },
     ])
     mocks.noteFindMany.mockResolvedValue([{ note: 'Guest needed help finding the restroom.' }])
-    mocks.messageFindMany.mockResolvedValue([{ content: 'Where are the restrooms?' }])
+    mocks.messageFindMany.mockResolvedValue([
+      { id: 'message_1', content: 'Where are the restrooms?' },
+    ])
     mocks.aiUsageEventCreate.mockResolvedValue({})
     anthropicCreate.mockResolvedValue({
       content: [{ type: 'text', text: JSON.stringify(validReport) }],
@@ -186,7 +191,90 @@ describe('processWeeklyReportJob', () => {
         executionLeaseExpiresAt: null,
       }),
     })
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Low sample:')
+    expect(content).toContain('public-message:message_1 — “Where are the restrooms?”')
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('labels a higher-activity report and omits fabricated evidence', async () => {
+    mocks.sessionCount.mockResolvedValueOnce(20)
+    anthropicCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...validReport,
+            findings: [
+              ...validReport.findings,
+              {
+                statement: 'Unsupported trend.',
+                evidence: [{ sourceId: 'public-message:999', excerpt: 'fabricated quote' }],
+              },
+              {
+                statement: 'Whitespace is not evidence.',
+                evidence: [{ sourceId: 'public-message:message_1', excerpt: '   ' }],
+              },
+            ],
+          }),
+        },
+      ],
+      usage: { input_tokens: 120, output_tokens: 50 },
+    })
+    await processWeeklyReportJob(payload)
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Observations reflect only the public interactions')
+    expect(content).toContain('A visitor asked about restroom locations.')
+    expect(content).not.toContain('Unsupported trend.')
+    expect(content).not.toContain('fabricated quote')
+    expect(content).not.toContain('Whitespace is not evidence.')
+    expect(content).toContain('2 generated finding(s) were omitted')
+  })
+
+  it('counts configured questions by durable ID when labels match and one has zero answers', async () => {
+    mocks.questionFindMany.mockResolvedValueOnce([
+      { id: 'question_1', prompt: 'Was this helpful?', questionType: 'TEXT' },
+      { id: 'question_2', prompt: 'Was this helpful?', questionType: 'TEXT' },
+    ])
+    await processWeeklyReportJob(payload)
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Was this helpful? [question:question_1]: 1 answer(s)')
+    expect(content).toContain('Was this helpful? [question:question_2]: 0 answer(s)')
+  })
+
+  it('creates an honest zero-activity draft without a provider call', async () => {
+    mocks.sessionCount.mockResolvedValueOnce(0)
+    mocks.messageCount.mockResolvedValueOnce(0)
+    mocks.responseFindMany.mockResolvedValueOnce([])
+    mocks.messageFindMany.mockResolvedValueOnce([])
+    await processWeeklyReportJob(payload)
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.renewWeeklyReportExecution).toHaveBeenCalledWith({
+      reportId: 'report_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      weekStart: new Date('2026-06-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-06-08T00:00:00.000Z'),
+      leaseToken: 'report_lease_1',
+    })
+    const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
+    expect(content).toContain('Sessions: 0 · Messages: 0')
+    expect(content).toContain('No public visitor activity was recorded')
+    expect(content).toContain('No source-supported observations were available')
+    expect(content).not.toContain('Visitors had a positive week')
+  })
+
+  it('fences zero-activity completion when lease ownership is lost', async () => {
+    mocks.sessionCount.mockResolvedValueOnce(0)
+    mocks.messageCount.mockResolvedValueOnce(0)
+    mocks.responseFindMany.mockResolvedValueOnce([])
+    mocks.messageFindMany.mockResolvedValueOnce([])
+    mocks.renewWeeklyReportExecution.mockResolvedValueOnce(false)
+    await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
+      code: 'execution-lease-ownership-lost',
+    })
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
   })
 
   it('excludes private notes and invented answers and redacts common identifiers', async () => {
@@ -195,16 +283,25 @@ describe('processWeeklyReportJob', () => {
     ])
     mocks.responseFindMany.mockResolvedValueOnce([
       {
+        id: 'response_private',
+        engagementQuestionId: 'question_private',
         questionText: 'Contact guest@example.test?',
         answerText: 'Call 312-555-0101 or visit https://private.example.test/path',
         isAiInvented: false,
       },
     ])
     mocks.questionFindMany.mockResolvedValueOnce([
-      { prompt: 'Send feedback to research@example.test', questionType: 'TEXT' },
+      {
+        id: 'question_private',
+        prompt: 'Send feedback to research@example.test',
+        questionType: 'TEXT',
+      },
     ])
     mocks.messageFindMany.mockResolvedValueOnce([
-      { content: `${'x'.repeat(488)} guest@example.test then call 3125550101 or (312)555-1212.` },
+      {
+        id: 'message_private',
+        content: `${'x'.repeat(488)} guest@example.test then call 3125550101 or (312)555-1212.`,
+      },
     ])
     anthropicCreate.mockResolvedValueOnce({
       content: [
@@ -212,7 +309,7 @@ describe('processWeeklyReportJob', () => {
           type: 'text',
           text: JSON.stringify({
             ...validReport,
-            overview: 'Contact guest@example.test, 3125550101, or (312)555-1212.',
+            nextSteps: ['Contact guest@example.test, 3125550101, or (312)555-1212.'],
           }),
         },
       ],
@@ -239,8 +336,6 @@ describe('processWeeklyReportJob', () => {
     expect(saved).not.toContain('312-555-0101')
     expect(saved).not.toContain('3125550101')
     expect(saved).not.toContain('(312)555-1212')
-    expect(saved).toContain('[email removed]')
-    expect(saved).toContain('[phone removed]')
   })
 
   it('fenced-releases its execution lease without recording failure when admission pauses', async () => {
@@ -384,10 +479,9 @@ describe('processWeeklyReportJob', () => {
     expect(mocks.updateJobRecord).not.toHaveBeenCalled()
   })
 
-  it('preserves fenced multi-block JSON parsing and defensive array truncation', async () => {
+  it('preserves fenced multi-block JSON parsing and defensive recommendation truncation', async () => {
     const oversizeReport = {
       ...validReport,
-      quotes: ['quote one', 'quote two', 'quote three', 'quote four'],
       nextSteps: ['step one', 'step two', 'step three'],
     }
     anthropicCreate.mockResolvedValueOnce({
@@ -403,8 +497,6 @@ describe('processWeeklyReportJob', () => {
     const draftCall = mocks.reportUpdateMany.mock.calls.at(-1)?.[0] as {
       data: { content: string }
     }
-    expect(draftCall.data.content).toContain('- "quote three"')
-    expect(draftCall.data.content).not.toContain('quote four')
     expect(draftCall.data.content).toContain('2. step two')
     expect(draftCall.data.content).not.toContain('step three')
   })
