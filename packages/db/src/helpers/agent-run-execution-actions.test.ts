@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   claimAgentRunExecution,
+  completeAgentRunExecution,
   failAgentRunExecution,
   heartbeatAgentRunExecution,
 } from './agent-run-execution-actions'
@@ -34,11 +35,31 @@ const baseRun = {
   },
   questions: [],
   messages: [],
+  workflowBindings: [],
 }
 
 function client(transaction: object) {
   return {
-    $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    $transaction: vi.fn(async (operation: (tx: unknown) => unknown) =>
+      operation({
+        agentWorkflowRunBinding: { findMany: vi.fn(async () => []) },
+        $queryRaw: vi.fn(async (parts: readonly string[]) =>
+          parts.join('').includes('clock_timestamp() AS now')
+            ? [{ now: new Date(Date.now() - 1_000) }]
+            : [
+                {
+                  venueId: baseRun.venueId,
+                  agentIdentityId: baseRun.agentIdentityId,
+                  attemptNumber: baseRun.attemptNumber,
+                  maxAttempts: baseRun.maxAttempts,
+                  cancelRequestedAt: baseRun.cancelRequestedAt,
+                  executionLeaseExpiresAt: new Date(Date.now() + 60_000),
+                },
+              ],
+        ),
+        ...transaction,
+      }),
+    ),
   }
 }
 
@@ -170,6 +191,8 @@ describe('agent run execution actions', () => {
         const thisTransaction = transactionNumber
         const observedAttempt = state.attemptNumber
         return operation({
+          $queryRaw: vi.fn(async () => []),
+          agentWorkflowRunBinding: { findMany: vi.fn(async () => []) },
           agentRun: {
             findFirst: vi.fn().mockResolvedValue({ ...baseRun, attemptNumber: observedAttempt }),
             updateMany: vi.fn(async (input: { where: { attemptNumber: number }; data: object }) => {
@@ -315,6 +338,58 @@ describe('agent run execution actions', () => {
         }),
       }),
     )
+  })
+
+  it('finalizes cancellation without consulting expired workflow authority and denies completion', async () => {
+    const bindingLookup = vi
+      .fn()
+      .mockResolvedValueOnce([{ registryKey: 'review', venueId: 'venue-1' }])
+      .mockRejectedValue(new Error('workflow authority must not be consulted for cancellation'))
+    const transaction = {
+      agentWorkflowRunBinding: { findMany: bindingLookup },
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          venueId: 'venue-1',
+          attemptNumber: 1,
+          maxAttempts: 3,
+          cancelRequestedAt: new Date(),
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+    }
+    await expect(
+      failAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'run-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          errorCode: 'TASK_EXECUTOR_FAILED',
+          retryable: false,
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ status: 'CANCELLED' })
+    expect(bindingLookup).toHaveBeenCalledTimes(1)
+
+    const completionBindingLookup = vi
+      .fn()
+      .mockResolvedValueOnce([{ registryKey: 'review', venueId: 'venue-1' }])
+      .mockRejectedValue(new Error('expired workflow authority denied'))
+    await expect(
+      completeAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'run-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          summary: 'Must not complete.',
+        },
+        client({
+          ...transaction,
+          agentWorkflowRunBinding: { findMany: completionBindingLookup },
+        }) as never,
+      ),
+    ).rejects.toThrow('expired workflow authority denied')
   })
 
   it('rejects unknown uppercase failure codes before opening a transaction', async () => {

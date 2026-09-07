@@ -156,8 +156,8 @@ export function assertMcpScope(
   })
   if (request.clientId !== credential.clientId) throw new McpScopeError('Client scope denied')
   if (!credential.capabilities.includes(capability)) throw new McpScopeError('Capability denied')
-  if (level === 'venue') {
-    if (!request.venueId) throw new McpScopeError('Venue scope is required')
+  if (level === 'venue' && !request.venueId) throw new McpScopeError('Venue scope is required')
+  if ((level === 'venue' || level === 'client-or-venue') && request.venueId) {
     if (!credential.venueIds.includes(request.venueId))
       throw new McpScopeError('Venue scope denied')
   }
@@ -1135,6 +1135,7 @@ export const McpUpdateDraftInput = McpRequestedScope.extend({
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160),
   body: z.string().trim().min(1).max(4_000),
   startsAt: z.string().datetime({ offset: true }),
@@ -1157,6 +1158,7 @@ export const McpSupportDraftInput = McpRequestedScope.extend({
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(20_000),
   category: z.enum([
@@ -1185,6 +1187,7 @@ export const McpSupportInternalNoteInput = McpRequestedScope.extend({
   agentIdentityId: Identifier,
   agentRunId: Identifier,
   workerKey: Identifier,
+  executionLeaseToken: z.string().uuid().optional(),
   requestId: Identifier,
   expectedVersion: z.number().int().positive(),
   body: z.string().trim().min(1).max(20_000),
@@ -3358,6 +3361,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         title: { type: 'string', minLength: 1, maxLength: 160 },
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         startsAt: { type: 'string', format: 'date-time' },
@@ -3396,6 +3405,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         subject: { type: 'string', minLength: 1, maxLength: 200 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },
         category: {
@@ -3478,6 +3493,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
         agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
         workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: {
+          type: 'string',
+          format: 'uuid',
+          description:
+            'Caller-held execution lease from the run claim; required for workflow-bound runs.',
+        },
         requestId: { type: 'string', minLength: 1, maxLength: 120 },
         expectedVersion: { type: 'integer', minimum: 1 },
         body: { type: 'string', minLength: 1, maxLength: 20000 },

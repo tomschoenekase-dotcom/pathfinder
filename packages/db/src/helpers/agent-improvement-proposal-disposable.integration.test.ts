@@ -25,6 +25,7 @@ import {
   readCompatibleAgentWorkflowVersions,
   registerAgentWorkflowVersion,
 } from './agent-workflow-registry-actions'
+import { activateAgentWorkflowVersion } from './agent-workflow-activation-actions'
 
 const enabled =
   process.env.RUN_AGENT_IMPROVEMENT_DB_INTEGRATION === '1' &&
@@ -1070,6 +1071,83 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       await expect(
         createAgentWorkflowPromotionAssessment(assessmentRequest),
       ).resolves.toMatchObject({ replayed: true, assessment: { id: assessment.assessment.id } })
+
+      const activationEvidence = await db.$transaction((tx) =>
+        revalidateAgentWorkflowPromotionAssessment(tx, {
+          tenantId,
+          venueId,
+          workflowVersionId: registered.version.id,
+          assessmentId: assessment.assessment.id,
+        }),
+      )
+      const activationPolicy = {
+        numerator: 1,
+        denominator: 1,
+        salt: `reviewed-activation-${suffix}`,
+        startsAt: new Date(Date.now() - 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 3_600_000).toISOString(),
+        maxSelectedRuns: 1,
+        eligibleRunTypes: ['QUALITY_REVIEW'],
+        eligibleOperations: ['operator_task'],
+        skippedBaseline: { kind: 'NO_WORKFLOW' as const },
+        supportedActionClasses: ['RUN_TERMINAL_WRITE' as const],
+      }
+      const activationOperationId = randomUUID()
+      const activationRequest = await db.approvalRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          requestedByType: 'HUMAN',
+          requestedById: actor.id,
+          proposedAction: 'agent-workflow.activate',
+          scopeSnapshot: {
+            registryKey: registered.version.registryKey,
+            workflowVersionId: registered.version.id,
+            promotionAssessmentId: assessment.assessment.id,
+            expectedHeadRevision: 0,
+            canaryPolicy: activationPolicy,
+            evidenceDigest: activationEvidence.evidenceDigest,
+          },
+          reason: 'Review exact workflow activation evidence.',
+          riskCategory: 'HIGH',
+        },
+      })
+      const activationDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: activationRequest.id,
+        decision: 'APPROVED',
+        reason: 'Approve this exact bounded workflow canary.',
+        actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const activationInput = {
+        operationId: activationOperationId,
+        tenantId,
+        venueId,
+        registryKey: registered.version.registryKey,
+        workflowVersionId: registered.version.id,
+        promotionAssessmentId: assessment.assessment.id,
+        approvalDecisionId: activationDecision.id,
+        expectedHeadRevision: 0,
+        canaryPolicy: activationPolicy,
+        reason: 'Activate exact reviewed canary.',
+        actor,
+      }
+      const activated = await activateAgentWorkflowVersion(
+        activationInput,
+        new Set(['resources:read']),
+      )
+      expect(activated).toMatchObject({ replayed: false, event: { kind: 'ACTIVATE' } })
+      await expect(
+        activateAgentWorkflowVersion(activationInput, new Set(['resources:read'])),
+      ).resolves.toMatchObject({ replayed: true, event: { id: activated.event.id } })
+      await expect(
+        activateAgentWorkflowVersion(
+          { ...activationInput, venueId: `wrong-${venueId}` },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
 
       const heldoutCandidateRun = await db.evalRun.findFirstOrThrow({
         where: { id: heldoutValidation.candidateEvalRunId, tenantId, venueId },

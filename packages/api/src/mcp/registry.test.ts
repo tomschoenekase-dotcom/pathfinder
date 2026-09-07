@@ -121,6 +121,107 @@ describe('scoped workflow inspection', () => {
 })
 
 describe('PathFinder MCP server-side adapter registry', () => {
+  it('rejects an unauthorized optional integration-health venue before reading records', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: false })
+    const context = { credential: { ...credential, capabilities: ['integrations:read' as const] } }
+    await expect(
+      registry.callTool(
+        'torchiko.integrations.health',
+        {
+          clientId: 'client-1',
+          venueId: 'venue-2',
+        },
+        context,
+      ),
+    ).rejects.toThrow('Venue scope denied')
+    expect(domain.integrationHealth).not.toHaveBeenCalled()
+    await registry.callTool('torchiko.integrations.health', { clientId: 'client-1' }, context)
+    await registry.callTool(
+      'torchiko.integrations.health',
+      {
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      },
+      context,
+    )
+    expect(domain.integrationHealth).toHaveBeenCalledTimes(2)
+  })
+
+  it('runs the pre-action boundary only after validation and before domain effects', async () => {
+    const domain = actions()
+    const beforeAction = vi.fn().mockRejectedValue(new Error('Workflow lease denied'))
+    const registry = createPathfinderMcpRegistry(domain, {
+      writeToolsEnabled: true,
+      beforeAction,
+    })
+    const input = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      title: 'Temporary closure',
+      body: 'The east entrance is closed this afternoon.',
+      startsAt: '2030-01-01T12:00:00.000Z',
+      expiresAt: '2030-01-01T18:00:00.000Z',
+    }
+    const updateCredential = {
+      ...credential,
+      capabilities: [...credential.capabilities, 'updates:draft' as const],
+    }
+
+    await expect(
+      registry.callTool('pathfinder.create_update_draft', input, {
+        credential: updateCredential,
+        approvalGrantId: 'grant-update-1',
+      }),
+    ).rejects.toThrow('Workflow lease denied')
+    expect(beforeAction).toHaveBeenCalledWith(
+      'pathfinder.create_update_draft',
+      input,
+      expect.objectContaining({ credential: updateCredential }),
+    )
+    expect(domain.createUpdateDraft).not.toHaveBeenCalled()
+
+    beforeAction.mockClear()
+    for (const invalid of [
+      { ...input, venueId: 'venue-2' },
+      { ...input, title: '' },
+    ]) {
+      await expect(
+        registry.callTool('pathfinder.create_update_draft', invalid, {
+          credential: updateCredential,
+          approvalGrantId: 'grant-update-1',
+        }),
+      ).rejects.toThrow()
+    }
+    expect(beforeAction).not.toHaveBeenCalled()
+    expect(domain.createUpdateDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps validated read routing normal when the optional pre-action boundary allows it', async () => {
+    const domain = actions()
+    const beforeAction = vi.fn().mockResolvedValue(undefined)
+    const registry = createPathfinderMcpRegistry(domain, { beforeAction })
+    const input = {
+      resource: 'content' as const,
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      limit: 5,
+    }
+
+    await registry.callTool('pathfinder.read', input, { credential })
+
+    expect(beforeAction).toHaveBeenCalledWith(
+      'pathfinder.read',
+      expect.objectContaining(input),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.read).toHaveBeenCalledOnce()
+  })
+
   it('discovers and routes the scoped typed semantic draft without publication authority', async () => {
     const domain = actions()
     const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })

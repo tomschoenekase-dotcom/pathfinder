@@ -11,7 +11,9 @@ import {
 } from '@pathfinder/contracts'
 import {
   activateAgentBridgeCredentialAction,
+  agentWorkflowActivationEventHash,
   claimAgentRunExecution,
+  createAgentTaskAction,
   createCompanyKnowledgeCandidateAction,
   db,
   issueApprovalGrantAction,
@@ -19,9 +21,11 @@ import {
   listAgentWorkerHealth,
   promoteCompanyKnowledgeAction,
   registerAgentWorkerAction,
+  registerAgentWorkflowVersion,
   recordApprovalDecisionAction,
   recordAgentOutcomeAction,
   revokeApprovalGrantAction,
+  revokeExternalCredentialAction,
   searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
   verifyAgentBridgeCredential,
@@ -1416,6 +1420,433 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           capability: 'reports:draft',
         },
       })
+
+      const workflowCapabilities = ['updates:draft', 'support:draft', 'support:note']
+      const registryKey = `approved-domain-effects-${suffix}`
+      const registeredWorkflow = await registerAgentWorkflowVersion(
+        {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          manifest: {
+            schemaVersion: 1,
+            registryKey,
+            version: 1,
+            kind: 'WORKFLOW',
+            description: 'Exercise approved MCP draft effects under one caller-held run lease.',
+            examples: [],
+            requiredTools: workflowCapabilities.map((capability) => ({
+              capability,
+              reason: `Exercise ${capability} inside the canonical effect transaction.`,
+            })),
+            testedCases: ['selected', 'capacity-skipped', 'stale-lease', 'capability-loss'],
+            rollback: null,
+            license: null,
+          },
+          portableText: 'Create only the exact reviewed internal drafts authorized by the grant.',
+          provenance: {
+            sourceType: 'HUMAN_AUTHORED',
+            sourceReferences: ['fixture:mcp-workflow-domain-effects'],
+            capturedAt: new Date().toISOString(),
+          },
+          actor: { type: 'HUMAN', id: human.actorId, role: 'PLATFORM_ADMIN' },
+        },
+        new Set(workflowCapabilities),
+      )
+      const canaryPolicy = {
+        numerator: 1,
+        denominator: 1,
+        salt: `approved-domain-effects-${suffix}`,
+        startsAt: new Date(Date.now() - 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        maxSelectedRuns: 1,
+        eligibleRunTypes: ['OPERATIONS'],
+        eligibleOperations: ['operator_task'],
+        skippedBaseline: { kind: 'NO_WORKFLOW' as const },
+        supportedActionClasses: ['APPROVAL_BACKED_DOMAIN_EFFECT' as const],
+      }
+      const workflowSeedApprovalRequest = await db.approvalRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          requestedByType: 'HUMAN',
+          requestedById: human.actorId,
+          proposedAction: 'agent-workflow.rollback',
+          scopeSnapshot: {
+            fixtureKind: 'LOW_LEVEL_SELECTION_BOUNDARY',
+            registryKey,
+            resultingVersionId: registeredWorkflow.version.id,
+          },
+          reason: 'Fixture-only reviewed authority lineage for the low-level selection boundary.',
+          riskCategory: 'HIGH',
+        },
+      })
+      const workflowSeedApprovalDecision = await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: workflowSeedApprovalRequest.id,
+        decision: 'APPROVED',
+        reason: 'Approve the exact scoped fixture rollback seed.',
+        actor: { actorType: 'HUMAN', actorId: human.actorId, auditRole: 'PLATFORM_ADMIN' },
+      })
+      const activationIdentity = {
+        tenantId,
+        venueId,
+        registryKey,
+        kind: 'ROLLBACK' as const,
+        priorVersionId: null,
+        resultingVersionId: registeredWorkflow.version.id,
+        promotionAssessmentId: null,
+        approvalDecisionId: workflowSeedApprovalDecision.id,
+        priorRevision: 0,
+        resultingRevision: 1,
+        evidenceDigest: 'a'.repeat(64),
+        canaryPolicy,
+        requiredCapabilities: workflowCapabilities,
+        reason:
+          'Fixture-only reviewed workflow rollback seed; canonical activation is proven separately.',
+        createdBy: human.actorId,
+      }
+      const activationEvent = await db.agentWorkflowActivationEvent.create({
+        data: {
+          operationId: randomUUID(),
+          ...activationIdentity,
+          eventHash: agentWorkflowActivationEventHash(activationIdentity),
+        },
+      })
+      await db.agentWorkflowActivationHead.create({
+        data: {
+          tenantId,
+          venueId,
+          registryKey,
+          activeVersionId: registeredWorkflow.version.id,
+          activationEventId: activationEvent.id,
+          revision: 1,
+        },
+      })
+      const createWorkflowRun = () =>
+        createAgentTaskAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          prompt: 'Exercise the exact reviewed MCP draft effects.',
+          actor: {
+            actorType: 'HUMAN',
+            actorId: human.actorId,
+            auditRole: 'PLATFORM_ADMIN',
+          },
+        })
+      const selectedTask = await createWorkflowRun()
+      const skippedTask = await createWorkflowRun()
+      const selectedBinding = await db.agentWorkflowRunBinding.findFirstOrThrow({
+        where: { agentRunId: selectedTask.run.id },
+      })
+      const skippedBinding = await db.agentWorkflowRunBinding.findFirstOrThrow({
+        where: { agentRunId: skippedTask.run.id },
+      })
+      expect(selectedBinding.outcome).toBe('SELECTED')
+      expect(skippedBinding).toMatchObject({
+        outcome: 'CANARY_SKIPPED_NO_WORKFLOW',
+        selectionReason: 'CAPACITY_EXHAUSTED',
+      })
+      const selectedClaim = await claimAgentRunExecution({
+        tenantId,
+        runId: selectedTask.run.id,
+        executionWorkerId: secondary.id,
+      })
+      const skippedClaim = await claimAgentRunExecution({
+        tenantId,
+        runId: skippedTask.run.id,
+        executionWorkerId: secondary.id,
+      })
+
+      const exactGrant = async (
+        actionName:
+          | 'pathfinder.create_update_draft'
+          | 'pathfinder.create_support_draft'
+          | 'pathfinder.add_support_internal_note',
+        capability: 'updates:draft' | 'support:draft' | 'support:note',
+        parameters: Record<string, unknown>,
+        agentRunId: string,
+      ) => {
+        const request = await db.approvalRequest.create({
+          data: {
+            tenantId,
+            venueId,
+            agentIdentityId: identityId,
+            agentRunId,
+            requestedByType: 'AGENT',
+            requestedById: identityId,
+            proposedAction: actionName,
+            scopeSnapshot: { tenantId, venueId, parameters },
+            reason: 'Fixture exact approved workflow effect.',
+            riskCategory: 'LOW',
+          },
+        })
+        const decision = await recordApprovalDecisionAction({
+          tenantId,
+          venueId,
+          approvalRequestId: request.id,
+          decision: 'APPROVED',
+          reason: 'Fixture exact approved workflow effect.',
+          actor: { actorType: 'HUMAN', actorId: human.actorId, auditRole: 'PLATFORM_ADMIN' },
+        })
+        return issueApprovalGrantAction({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          actionName,
+          capability,
+          mode: 'ONE_SHOT',
+          scope: { tenantId, venueId },
+          parameters,
+          approvalDecisionId: decision.id,
+          issueReason: 'Fixture exact approved workflow effect.',
+          actor: credentialActor,
+        })
+      }
+
+      const selectedUpdateParameters = {
+        clientId: tenantId,
+        venueId,
+        updateType: 'GENERAL_NOTICE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: 'Workflow-selected map review',
+        body: 'This internal draft proves the selected workflow lease boundary.',
+        startsAt,
+        expiresAt,
+      }
+      const selectedUpdateGrant = await exactGrant(
+        'pathfinder.create_update_draft',
+        'updates:draft',
+        selectedUpdateParameters,
+        selectedTask.run.id,
+      )
+      const selectedUpdateInput = {
+        clientId: tenantId,
+        venueId,
+        operationId: randomUUID(),
+        agentIdentityId: identityId,
+        agentRunId: selectedTask.run.id,
+        workerKey: secondaryKey,
+        executionLeaseToken: selectedClaim.leaseToken,
+        title: selectedUpdateParameters.title,
+        body: selectedUpdateParameters.body,
+        startsAt,
+        expiresAt,
+      }
+      const selectedUpdateContext = { credential, approvalGrantId: selectedUpdateGrant.id }
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          { ...selectedUpdateInput, executionLeaseToken: undefined },
+          selectedUpdateContext,
+        ),
+      ).rejects.toThrow('caller execution lease')
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          { ...selectedUpdateInput, executionLeaseToken: randomUUID() },
+          selectedUpdateContext,
+        ),
+      ).rejects.toThrow()
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: selectedUpdateGrant.id },
+        }),
+      ).toBe(0)
+      await registry.callTool(
+        'pathfinder.create_update_draft',
+        selectedUpdateInput,
+        selectedUpdateContext,
+      )
+
+      const skippedParameters = {
+        ...selectedUpdateParameters,
+        title: 'Capacity-skipped normal draft',
+        body: 'A NO_WORKFLOW binding retains the legacy approved behavior without a token.',
+      }
+      const skippedGrant = await exactGrant(
+        'pathfinder.create_update_draft',
+        'updates:draft',
+        skippedParameters,
+        skippedTask.run.id,
+      )
+      await registry.callTool(
+        'pathfinder.create_update_draft',
+        {
+          ...selectedUpdateInput,
+          operationId: randomUUID(),
+          agentRunId: skippedTask.run.id,
+          title: skippedParameters.title,
+          body: skippedParameters.body,
+          executionLeaseToken: undefined,
+        },
+        { credential, approvalGrantId: skippedGrant.id },
+      )
+
+      const boundSupportParameters = {
+        clientId: tenantId,
+        venueId,
+        category: 'GENERAL',
+        subject: 'Workflow-selected support review',
+        body: 'Private workflow-selected support draft.',
+      }
+      const boundSupportGrant = await exactGrant(
+        'pathfinder.create_support_draft',
+        'support:draft',
+        boundSupportParameters,
+        selectedTask.run.id,
+      )
+      const boundSupport = await registry.callTool(
+        'pathfinder.create_support_draft',
+        {
+          clientId: tenantId,
+          venueId,
+          operationId: randomUUID(),
+          agentIdentityId: identityId,
+          agentRunId: selectedTask.run.id,
+          workerKey: secondaryKey,
+          executionLeaseToken: selectedClaim.leaseToken,
+          subject: boundSupportParameters.subject,
+          body: boundSupportParameters.body,
+          category: 'GENERAL',
+        },
+        { credential, approvalGrantId: boundSupportGrant.id },
+      )
+      const boundSupportId = (boundSupport.structuredContent.data as { id: string }).id
+      const boundNoteParameters = {
+        clientId: tenantId,
+        venueId,
+        requestId: boundSupportId,
+        expectedVersion: 1,
+        visibility: 'INTERNAL_ONLY',
+        body: 'Private workflow-selected internal note.',
+        attachmentCount: 0,
+      }
+      const boundNoteGrant = await exactGrant(
+        'pathfinder.add_support_internal_note',
+        'support:note',
+        boundNoteParameters,
+        selectedTask.run.id,
+      )
+      await registry.callTool(
+        'pathfinder.add_support_internal_note',
+        {
+          clientId: tenantId,
+          venueId,
+          operationId: randomUUID(),
+          agentIdentityId: identityId,
+          agentRunId: selectedTask.run.id,
+          workerKey: secondaryKey,
+          executionLeaseToken: selectedClaim.leaseToken,
+          requestId: boundSupportId,
+          expectedVersion: 1,
+          body: boundNoteParameters.body,
+        },
+        { credential, approvalGrantId: boundNoteGrant.id },
+      )
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: {
+            approvalGrantId: {
+              in: [
+                selectedUpdateGrant.id,
+                skippedGrant.id,
+                boundSupportGrant.id,
+                boundNoteGrant.id,
+              ],
+            },
+          },
+        }),
+      ).toBe(4)
+      const capabilityLossParameters = {
+        ...selectedUpdateParameters,
+        title: 'Capability-loss rejected draft',
+      }
+      const capabilityLossGrant = await exactGrant(
+        'pathfinder.create_update_draft',
+        'updates:draft',
+        capabilityLossParameters,
+        selectedTask.run.id,
+      )
+      const currentWorkerCapabilities = (
+        await db.agentWorker.findUniqueOrThrow({
+          where: { id: secondary.id },
+          select: { capabilities: true },
+        })
+      ).capabilities
+      await db.agentWorker.update({
+        where: { id: secondary.id },
+        data: {
+          capabilities: currentWorkerCapabilities.filter((item) => item !== 'support:note'),
+        },
+      })
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...selectedUpdateInput,
+            operationId: randomUUID(),
+            title: capabilityLossParameters.title,
+          },
+          { credential, approvalGrantId: capabilityLossGrant.id },
+        ),
+      ).rejects.toThrow('capability inventory')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: capabilityLossGrant.id },
+        }),
+      ).toBe(0)
+      await db.agentWorker.update({
+        where: { id: secondary.id },
+        data: { capabilities: currentWorkerCapabilities },
+      })
+      const revokedCredentialParameters = {
+        ...selectedUpdateParameters,
+        title: 'Revoked-credential rejected draft',
+      }
+      const revokedCredentialGrant = await exactGrant(
+        'pathfinder.create_update_draft',
+        'updates:draft',
+        revokedCredentialParameters,
+        selectedTask.run.id,
+      )
+      const credentialBeforeRevoke = await db.externalAccessCredential.findUniqueOrThrow({
+        where: { id: credential.credentialId },
+        select: { updatedAt: true },
+      })
+      await revokeExternalCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        credentialId: credential.credentialId,
+        expectedUpdatedAt: credentialBeforeRevoke.updatedAt,
+        reasonCode: 'FIXTURE_IMMEDIATE_STOP',
+        actor: credentialActor,
+      })
+      await expect(
+        registry.callTool(
+          'pathfinder.create_update_draft',
+          {
+            ...selectedUpdateInput,
+            operationId: randomUUID(),
+            title: revokedCredentialParameters.title,
+          },
+          { credential, approvalGrantId: revokedCredentialGrant.id },
+        ),
+      ).rejects.toThrow('credential')
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { approvalGrantId: revokedCredentialGrant.id },
+        }),
+      ).toBe(0)
+      expect(skippedClaim.leaseToken).toMatch(/^[0-9a-f-]{36}$/u)
 
       // This entire proof uses only Torchiko's disposable PostgreSQL state. No Obsidian bridge,
       // Tom-local worker, private prompt memory, external provider, or raw transcript is required.

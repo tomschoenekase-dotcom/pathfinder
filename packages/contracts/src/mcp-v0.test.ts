@@ -7,6 +7,8 @@ import {
   McpPackageDraftInput,
   McpSupportInformationRequestApplyInput,
   McpSupportCompletionApplyInput,
+  McpSupportDraftInput,
+  McpSupportInternalNoteInput,
   McpSupportPackageDraftApplyInput,
   McpSupportPackageDraftProposalInput,
   McpSupportPackageApprovalApplyInput,
@@ -15,6 +17,7 @@ import {
   McpSupportPackageApplicationProposalInput,
   McpSupportPackageHandoffSupersessionApplyInput,
   McpSupportPackageHandoffSupersessionProposalInput,
+  McpUpdateDraftInput,
   McpScopeError,
   PATHFINDER_MCP_RESOURCES,
   PATHFINDER_MCP_TOOLS,
@@ -32,6 +35,74 @@ const credential: VerifiedMcpCredentialScope = {
 }
 
 describe('Torchiko MCP v0 contracts', () => {
+  it('keeps the optional execution lease UUID aligned across validators and tool JSON schemas', () => {
+    const lease = '11111111-1111-4111-8111-111111111111'
+    const cases = [
+      {
+        schema: McpUpdateDraftInput,
+        tool: 'pathfinder.create_update_draft',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          title: 'Closure',
+          body: 'East entrance closed.',
+          startsAt: '2030-01-01T12:00:00.000Z',
+          expiresAt: '2030-01-01T18:00:00.000Z',
+        },
+      },
+      {
+        schema: McpSupportDraftInput,
+        tool: 'pathfinder.create_support_draft',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          subject: 'Review closure',
+          body: 'Please review the closure.',
+          category: 'GENERAL',
+        },
+      },
+      {
+        schema: McpSupportInternalNoteInput,
+        tool: 'pathfinder.add_support_internal_note',
+        input: {
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          operationId: lease,
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          workerKey: 'worker-1',
+          requestId: 'request-1',
+          expectedVersion: 1,
+          body: 'Internal note.',
+        },
+      },
+    ] as const
+
+    for (const testCase of cases) {
+      expect(testCase.schema.parse(testCase.input)).not.toHaveProperty('executionLeaseToken')
+      expect(
+        testCase.schema.parse({ ...testCase.input, executionLeaseToken: lease }),
+      ).toHaveProperty('executionLeaseToken', lease)
+      expect(() =>
+        testCase.schema.parse({ ...testCase.input, executionLeaseToken: 'not-a-uuid' }),
+      ).toThrow()
+
+      const definition = PATHFINDER_MCP_TOOLS.find(({ name }) => name === testCase.tool)!
+      expect(definition.inputSchema).toMatchObject({
+        properties: { executionLeaseToken: { type: 'string', format: 'uuid' } },
+        required: expect.not.arrayContaining(['executionLeaseToken']),
+      })
+    }
+  })
+
   it('publishes a valid deterministic resource and tool catalog with explicit security metadata', () => {
     expect(() => validatePathfinderMcpCatalog()).not.toThrow()
     expect(PATHFINDER_MCP_RESOURCES.map(({ name }) => name)).toEqual([
@@ -121,6 +192,25 @@ describe('Torchiko MCP v0 contracts', () => {
   })
 
   it('rejects cross-client, cross-venue, and missing-capability scope attempts', () => {
+    expect(() =>
+      assertMcpScope(credential, { clientId: 'client-1' }, 'content:read', 'client-or-venue'),
+    ).not.toThrow()
+    expect(() =>
+      assertMcpScope(
+        credential,
+        { clientId: 'client-1', venueId: 'venue-1' },
+        'content:read',
+        'client-or-venue',
+      ),
+    ).not.toThrow()
+    expect(() =>
+      assertMcpScope(
+        credential,
+        { clientId: 'client-1', venueId: 'venue-2' },
+        'content:read',
+        'client-or-venue',
+      ),
+    ).toThrow(McpScopeError)
     expect(() =>
       assertMcpScope(
         credential,

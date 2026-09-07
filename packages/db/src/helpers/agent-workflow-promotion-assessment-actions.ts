@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
 import { AgentWorkflowPromotionAssessmentDiagnosticsSchema } from '@pathfinder/contracts/agent-workflow-promotion-assessment'
 import { canonicalEvaluationJson, EvalCaseManifestSchema } from '@pathfinder/contracts/evaluation'
 import { db } from '../client'
@@ -374,11 +373,11 @@ export async function revalidateAgentWorkflowPromotionAssessment(
   // A review INSERT takes FK KEY SHARE on its result. Locking the exact result
   // rows serializes that canonical write with the activation transaction. READY
   // requires all manifest results already present; each of four runs is <=50 cases.
-  const lockedResults = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+  const lockedResults = await tx.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM eval_results
     WHERE tenant_id = ${input.tenantId} AND venue_id = ${input.venueId}
-      AND run_id IN (${Prisma.join(runIds.map((id) => Prisma.sql`${id}::uuid`))})
-    ORDER BY id LIMIT 201 FOR UPDATE`)
+      AND run_id = ANY(${runIds}::uuid[])
+    ORDER BY id LIMIT 201 FOR UPDATE`
   if (lockedResults.length > 200)
     throw new AgentWorkflowPromotionAssessmentError(
       'CONFLICT',

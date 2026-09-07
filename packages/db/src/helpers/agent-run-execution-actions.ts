@@ -7,6 +7,7 @@ import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 
 import { db } from '../client'
 import { buildBoundedAgentRunExecutionContext } from './agent-run-execution-context'
+import { assertEligibleWorkflowRunLease } from './agent-workflow-run-lease'
 
 export type AgentRunExecutionClient = Pick<typeof db, '$transaction'>
 
@@ -35,6 +36,59 @@ const leaseSchema = scopeSchema.extend({
 })
 const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
 
+async function lockAndValidateTerminalLease(
+  transaction: typeof db,
+  input: { tenantId: string; runId: string; leaseToken: string },
+  allowCancellationFinalization = false,
+) {
+  const bindings = await transaction.agentWorkflowRunBinding.findMany({
+    where: { tenantId: input.tenantId, agentRunId: input.runId },
+    select: { registryKey: true, venueId: true },
+    orderBy: { registryKey: 'asc' },
+    take: 51,
+  })
+  if (bindings.length > 50)
+    throw new AgentRunExecutionError('LEASE_LOST', 'Workflow binding limit exceeded')
+  for (const binding of bindings)
+    await transaction.$queryRaw`SELECT id FROM agent_workflow_activation_heads
+      WHERE tenant_id=${input.tenantId} AND venue_id=${binding.venueId}
+      AND registry_key=${binding.registryKey} FOR UPDATE`
+  const rows = await transaction.$queryRaw<
+    Array<{ id: string; executionLeaseExpiresAt: Date }>
+  >`SELECT id,
+    execution_lease_expires_at AS "executionLeaseExpiresAt"
+    FROM agent_runs WHERE id=${input.runId} AND tenant_id=${input.tenantId}
+      AND status='RUNNING' AND execution_lease_token=${input.leaseToken}::uuid
+      AND execution_lease_expires_at > clock_timestamp() FOR UPDATE`
+  if (!rows[0]) throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+  const run = await transaction.agentRun.findFirst({
+    where: { id: input.runId, tenantId: input.tenantId },
+    select: {
+      venueId: true,
+      agentIdentityId: true,
+      attemptNumber: true,
+      maxAttempts: true,
+      cancelRequestedAt: true,
+    },
+  })
+  if (!run) throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+  const clockRows = await transaction.$queryRaw<Array<{ now: Date }>>`
+    SELECT clock_timestamp() AS now`
+  const now = clockRows[0]?.now
+  if (!now || !Number.isFinite(now.getTime()) || rows[0].executionLeaseExpiresAt <= now)
+    throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+  if (run.cancelRequestedAt && allowCancellationFinalization) return run
+  if (bindings.length)
+    await assertEligibleWorkflowRunLease(transaction, {
+      tenantId: input.tenantId,
+      venueId: run.venueId!,
+      agentRunId: input.runId,
+      executionLeaseToken: input.leaseToken,
+      actionClass: 'RUN_TERMINAL_WRITE',
+    })
+  return run
+}
+
 /** Atomically claims a queued run or takes over a running run whose lease expired. */
 export async function claimAgentRunExecution(
   rawInput: z.input<typeof scopeSchema> & {
@@ -58,6 +112,18 @@ export async function claimAgentRunExecution(
     .parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
+    const bindingKeys = await transaction.agentWorkflowRunBinding.findMany({
+      where: { tenantId: input.tenantId, agentRunId: input.runId },
+      select: { registryKey: true, venueId: true },
+      orderBy: { registryKey: 'asc' },
+      take: 51,
+    })
+    if (bindingKeys.length > 50)
+      throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Workflow binding limit exceeded')
+    for (const binding of bindingKeys)
+      await transaction.$queryRaw`SELECT id FROM agent_workflow_activation_heads
+        WHERE tenant_id=${input.tenantId} AND venue_id=${binding.venueId}
+        AND registry_key=${binding.registryKey} FOR UPDATE`
     const now = new Date()
     const leaseToken = randomUUID()
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs)
@@ -123,9 +189,31 @@ export async function claimAgentRunExecution(
             createdAt: true,
           },
         },
+        workflowBindings: {
+          where: { workflowVersionId: { not: null } },
+          orderBy: { registryKey: 'asc' },
+          take: 51,
+          select: {
+            registryKey: true,
+            outcome: true,
+            bindingHash: true,
+            workflowVersion: {
+              select: { id: true, contentHash: true, portableText: true },
+            },
+          },
+        },
       },
     })
     if (!run) throw new AgentRunExecutionError('NOT_FOUND', 'Agent run not found')
+    const workflowChars = run.workflowBindings.reduce(
+      (total, binding) => total + (binding.workflowVersion?.portableText.length ?? 0),
+      0,
+    )
+    if (run.workflowBindings.length > 50 || workflowChars > 50_000)
+      throw new AgentRunExecutionError(
+        'NOT_CLAIMABLE',
+        'Selected workflow artifacts exceed the complete context budget',
+      )
     if (run.cancelRequestedAt) {
       if (!(terminalStatuses as readonly string[]).includes(run.status)) {
         await transaction.agentRun.updateMany({
@@ -167,6 +255,30 @@ export async function claimAgentRunExecution(
     if (changed.count !== 1) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run is already claimed')
     }
+    if (bindingKeys.length) {
+      const workerCapabilities = input.executionWorkerId
+        ? ((
+            await transaction.agentWorker.findFirst({
+              where: {
+                id: input.executionWorkerId,
+                tenantId: run.tenantId,
+                status: 'ONLINE',
+              },
+              select: { capabilities: true },
+            })
+          )?.capabilities ?? [])
+        : []
+      const availableCapabilities = run.agentIdentity.accessCapabilities.filter((capability) =>
+        workerCapabilities.includes(capability),
+      )
+      await assertEligibleWorkflowRunLease(transaction, {
+        tenantId: run.tenantId,
+        venueId: run.venueId!,
+        agentRunId: run.id,
+        executionLeaseToken: leaseToken,
+        availableCapabilities,
+      })
+    }
     await transaction.agentTimelineEvent.create({
       data: {
         tenantId: run.tenantId,
@@ -205,12 +317,25 @@ export async function heartbeatAgentRunExecution(
   const input = leaseSchema.parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
-    const now = new Date()
-    const run = await transaction.agentRun.findFirst({
+    const rows = await transaction.$queryRaw<
+      Array<{ cancelRequestedAt: Date | null; executionLeaseExpiresAt: Date }>
+    >`
+      SELECT cancel_requested_at AS "cancelRequestedAt",
+        execution_lease_expires_at AS "executionLeaseExpiresAt" FROM agent_runs
+      WHERE id=${input.runId} AND tenant_id=${input.tenantId} AND status='RUNNING'
+        AND execution_lease_token=${input.leaseToken}::uuid
+        AND execution_lease_expires_at > clock_timestamp() FOR UPDATE`
+    const run = rows[0]
+    if (!run) throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+    const clockRows = await transaction.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS now`
+    const now = clockRows[0]?.now
+    if (!now || !Number.isFinite(now.getTime()) || run.executionLeaseExpiresAt <= now)
+      throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+    const current = await transaction.agentRun.findFirst({
       where: { id: input.runId, tenantId: input.tenantId },
       select: { cancelRequestedAt: true },
     })
-    if (!run) throw new AgentRunExecutionError('NOT_FOUND', 'Agent run not found')
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs)
     const changed = await transaction.agentRun.updateMany({
       where: {
@@ -223,7 +348,7 @@ export async function heartbeatAgentRunExecution(
     })
     if (changed.count !== 1)
       throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
-    return { cancelRequested: run.cancelRequestedAt !== null, leaseExpiresAt }
+    return { cancelRequested: current?.cancelRequestedAt !== null, leaseExpiresAt }
   })
 }
 
@@ -253,6 +378,7 @@ export async function completeAgentRunExecution(
   return client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
     const now = new Date()
+    const run = await lockAndValidateTerminalLease(transaction, input)
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -275,10 +401,6 @@ export async function completeAgentRunExecution(
     })
     if (changed.count !== 1)
       throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
-    const run = await transaction.agentRun.findFirstOrThrow({
-      where: { id: input.runId, tenantId: input.tenantId },
-      select: { venueId: true, agentIdentityId: true },
-    })
     await transaction.agentTimelineEvent.create({
       data: {
         tenantId: input.tenantId,
@@ -330,16 +452,7 @@ export async function failAgentRunExecution(
     .parse(rawInput)
   return client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
-    const run = await transaction.agentRun.findFirst({
-      where: {
-        id: input.runId,
-        tenantId: input.tenantId,
-        status: 'RUNNING',
-        executionLeaseToken: input.leaseToken,
-      },
-      select: { venueId: true, attemptNumber: true, maxAttempts: true, cancelRequestedAt: true },
-    })
-    if (!run) throw new AgentRunExecutionError('LEASE_LOST', 'Execution lease was lost')
+    const run = await lockAndValidateTerminalLease(transaction, input, true)
     const status = run.cancelRequestedAt
       ? 'CANCELLED'
       : input.retryable && run.attemptNumber < run.maxAttempts

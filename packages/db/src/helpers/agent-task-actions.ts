@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { bindEligibleAgentWorkflows } from './agent-workflow-run-binding'
 
 export type AgentTaskClient = Pick<typeof db, '$transaction'>
 
@@ -169,6 +170,13 @@ export async function createAgentTaskAction(
         status: true,
         createdAt: true,
       },
+    })
+    await bindEligibleAgentWorkflows(transaction, {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: run.id,
+      runType: identity.agentType,
+      operation: 'operator_task',
     })
     await transaction.agentTimelineEvent.create({
       data: {

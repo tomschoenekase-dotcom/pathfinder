@@ -63,6 +63,7 @@ import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
+import { assertMcpWorkflowEffectLease, assertMcpWorkflowToolSupported } from './workflow-boundary'
 import { supportAgentReviewedDraftFinalizer } from '../lib/admin-reviewed-draft-finalizers'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { prepareSupportPackageApprovalProposalAction } from '../lib/support-package-approval-actions'
@@ -363,6 +364,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         expiresAt: input.expiresAt,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -486,6 +494,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         body: input.body,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -743,6 +758,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         attachmentCount: 0 as const,
       }
       const result = await database.$transaction(async (tx) => {
+        await assertMcpWorkflowEffectLease(tx, {
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentRunId: input.agentRunId,
+          executionLeaseToken: input.executionLeaseToken,
+          availableCapabilities: context.credential.capabilities,
+        })
         const sameTransaction = {
           $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
         } as never
@@ -4690,5 +4712,9 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     { ...unavailableActions, ...companyBrainReads, ...approvedWrites },
   )
   const actions = createPathfinderMcpAgentActions(database, reads)
-  return createPathfinderMcpRegistry(actions, { writeToolsEnabled: true })
+  return createPathfinderMcpRegistry(actions, {
+    writeToolsEnabled: true,
+    beforeAction: (name, input, context) =>
+      assertMcpWorkflowToolSupported(database, name, input, context),
+  })
 }

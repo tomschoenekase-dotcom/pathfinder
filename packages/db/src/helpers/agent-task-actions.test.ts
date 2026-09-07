@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+vi.mock('./agent-workflow-run-binding', () => ({
+  bindEligibleAgentWorkflows: vi.fn(async () => ({ bindings: [], replayed: false })),
+}))
 
 import { createAgentTaskAction } from './agent-task-actions'
 

@@ -276,6 +276,9 @@ model Tenant {
   agentWorkers                              AgentWorker[]
   agentWorkflowVersions                     AgentWorkflowVersion[]
   agentWorkflowPromotionAssessments         AgentWorkflowPromotionAssessment[]
+  agentWorkflowActivationHeads              AgentWorkflowActivationHead[]
+  agentWorkflowActivationEvents             AgentWorkflowActivationEvent[]
+  agentWorkflowRunBindings                  AgentWorkflowRunBinding[]
   credentialRotations                       ExternalCredentialRotation[]
   credentialRevocations                     ExternalCredentialRevocation[]
   credentialActivations                     ExternalCredentialActivation[]
@@ -1499,6 +1502,9 @@ model Venue {
   agentBridgeSessions                       AgentBridgeSession[]
   agentWorkflowVersions                     AgentWorkflowVersion[]
   agentWorkflowPromotionAssessments         AgentWorkflowPromotionAssessment[]
+  agentWorkflowActivationHeads              AgentWorkflowActivationHead[]
+  agentWorkflowActivationEvents             AgentWorkflowActivationEvent[]
+  agentWorkflowRunBindings                  AgentWorkflowRunBinding[]
   credentialRotations                       ExternalCredentialRotation[]
   credentialRevocations                     ExternalCredentialRevocation[]
   credentialActivations                     ExternalCredentialActivation[]
@@ -5452,6 +5458,7 @@ model AgentRun {
   executionWorker           AgentWorker?                 @relation(fields: [executionWorkerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   approvalGrantConsumptions ApprovalGrantConsumption[]
   founderDirectiveTask      FounderDirectiveTaskRequest?
+  workflowBindings          AgentWorkflowRunBinding[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
@@ -5735,29 +5742,33 @@ enum AgentWorkflowVersionStatus {
 /// Immutable portable skill/workflow text. Registration proves storage and
 /// compatibility only; it grants no activation or execution authority.
 model AgentWorkflowVersion {
-  id                       String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  operationId              String                             @map("operation_id") @db.Uuid
-  tenantId                 String                             @map("tenant_id")
-  venueId                  String                             @map("venue_id")
-  registryKey              String                             @map("registry_key") @db.VarChar(191)
-  version                  Int
-  kind                     AgentWorkflowVersionKind
-  status                   AgentWorkflowVersionStatus         @default(REGISTERED_UNACTIVATED)
-  manifest                 Json
-  manifestHash             String                             @map("manifest_hash") @db.Char(64)
-  portableText             String                             @map("portable_text") @db.Text
-  contentHash              String                             @map("content_hash") @db.Char(64)
-  provenance               Json
-  requiredToolCapabilities String[]                           @default([]) @map("required_tool_capabilities")
-  supersedesVersionId      String?                            @map("supersedes_version_id") @db.Uuid
-  createdByType            ActorType                          @map("created_by_type")
-  createdById              String                             @map("created_by_id") @db.VarChar(191)
-  createdAt                DateTime                           @default(now()) @map("created_at")
-  tenant                   Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supersedesVersion        AgentWorkflowVersion?              @relation("AgentWorkflowVersionHistory", fields: [supersedesVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  supersededByVersions     AgentWorkflowVersion[]             @relation("AgentWorkflowVersionHistory")
-  promotionAssessments     AgentWorkflowPromotionAssessment[]
+  id                        String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId               String                             @map("operation_id") @db.Uuid
+  tenantId                  String                             @map("tenant_id")
+  venueId                   String                             @map("venue_id")
+  registryKey               String                             @map("registry_key") @db.VarChar(191)
+  version                   Int
+  kind                      AgentWorkflowVersionKind
+  status                    AgentWorkflowVersionStatus         @default(REGISTERED_UNACTIVATED)
+  manifest                  Json
+  manifestHash              String                             @map("manifest_hash") @db.Char(64)
+  portableText              String                             @map("portable_text") @db.Text
+  contentHash               String                             @map("content_hash") @db.Char(64)
+  provenance                Json
+  requiredToolCapabilities  String[]                           @default([]) @map("required_tool_capabilities")
+  supersedesVersionId       String?                            @map("supersedes_version_id") @db.Uuid
+  createdByType             ActorType                          @map("created_by_type")
+  createdById               String                             @map("created_by_id") @db.VarChar(191)
+  createdAt                 DateTime                           @default(now()) @map("created_at")
+  tenant                    Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersedesVersion         AgentWorkflowVersion?              @relation("AgentWorkflowVersionHistory", fields: [supersedesVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supersededByVersions      AgentWorkflowVersion[]             @relation("AgentWorkflowVersionHistory")
+  promotionAssessments      AgentWorkflowPromotionAssessment[]
+  activationHeads           AgentWorkflowActivationHead[]
+  priorActivationEvents     AgentWorkflowActivationEvent[]     @relation("AgentWorkflowPriorVersion")
+  resultingActivationEvents AgentWorkflowActivationEvent[]     @relation("AgentWorkflowResultingVersion")
+  runBindings               AgentWorkflowRunBinding[]
 
   @@unique([id, tenantId, venueId], map: "agent_workflow_versions_id_scope_key")
   @@unique([tenantId, operationId], map: "agent_workflow_versions_tenant_operation_key")
@@ -5793,11 +5804,118 @@ model AgentWorkflowPromotionAssessment {
   proposal                AgentImprovementProposal                @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   developmentValidation   AgentImprovementValidationEvidence      @relation("WorkflowAssessmentDevelopment", fields: [developmentValidationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   heldoutValidation       AgentImprovementValidationEvidence      @relation("WorkflowAssessmentHeldout", fields: [heldoutValidationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  activationEvents        AgentWorkflowActivationEvent[]
 
+  @@unique([id, tenantId, venueId], map: "agent_workflow_promotion_assessments_id_scope_key")
   @@unique([tenantId, operationId], map: "agent_workflow_promotion_assessments_tenant_operation_key")
   @@unique([workflowVersionId, developmentValidationId, heldoutValidationId], map: "agent_workflow_promotion_assessments_evidence_key")
   @@index([tenantId, venueId, createdAt, id], map: "agent_workflow_promotion_assessments_scope_created_idx")
   @@map("agent_workflow_promotion_assessments")
+}
+
+enum AgentWorkflowActivationEventKind {
+  ACTIVATE
+  ROLLBACK
+  REVOKE
+}
+
+enum AgentWorkflowSelectionOutcome {
+  SELECTED
+  CANARY_SKIPPED_NO_WORKFLOW
+  CANARY_SKIPPED_PRIOR_VERSION
+}
+
+enum AgentWorkflowSelectionReason {
+  HASH_SELECTED
+  HASH_SKIPPED
+  CAPACITY_EXHAUSTED
+  NO_ACTIVE_WORKFLOW
+  INELIGIBLE_RUN
+  WINDOW_INACTIVE
+}
+
+model AgentWorkflowActivationHead {
+  id                String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                        @map("tenant_id")
+  venueId           String                        @map("venue_id")
+  registryKey       String                        @map("registry_key") @db.VarChar(191)
+  activeVersionId   String?                       @map("active_version_id") @db.Uuid
+  activationEventId String?                       @map("activation_event_id") @db.Uuid
+  revision          Int                           @default(0)
+  selectedRunCount  Int                           @default(0) @map("selected_run_count")
+  updatedAt         DateTime                      @updatedAt @map("updated_at")
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  activeVersion     AgentWorkflowVersion?         @relation(fields: [activeVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  activationEvent   AgentWorkflowActivationEvent? @relation("AgentWorkflowCurrentEvent", fields: [activationEventId, tenantId, venueId, registryKey], references: [id, tenantId, venueId, registryKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, registryKey], map: "agent_workflow_activation_heads_scope_key")
+  @@unique([id, tenantId, venueId], map: "agent_workflow_activation_heads_id_scope_key")
+  @@map("agent_workflow_activation_heads")
+}
+
+model AgentWorkflowActivationEvent {
+  id                    String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId           String                            @map("operation_id") @db.Uuid
+  tenantId              String                            @map("tenant_id")
+  venueId               String                            @map("venue_id")
+  registryKey           String                            @map("registry_key") @db.VarChar(191)
+  kind                  AgentWorkflowActivationEventKind
+  priorVersionId        String?                           @map("prior_version_id") @db.Uuid
+  resultingVersionId    String?                           @map("resulting_version_id") @db.Uuid
+  promotionAssessmentId String?                           @map("promotion_assessment_id")
+  approvalDecisionId    String                            @map("approval_decision_id")
+  priorRevision         Int                               @map("prior_revision")
+  resultingRevision     Int                               @map("resulting_revision")
+  evidenceDigest        String                            @map("evidence_digest") @db.Char(64)
+  canaryPolicy          Json                              @map("canary_policy")
+  requiredCapabilities  String[]                          @default([]) @map("required_capabilities")
+  eventHash             String                            @map("event_hash") @db.Char(64)
+  reason                String                            @db.VarChar(2000)
+  createdBy             String                            @map("created_by") @db.VarChar(191)
+  createdAt             DateTime                          @default(now()) @map("created_at")
+  tenant                Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                             @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  priorVersion          AgentWorkflowVersion?             @relation("AgentWorkflowPriorVersion", fields: [priorVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  resultingVersion      AgentWorkflowVersion?             @relation("AgentWorkflowResultingVersion", fields: [resultingVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  promotionAssessment   AgentWorkflowPromotionAssessment? @relation(fields: [promotionAssessmentId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision      ApprovalDecision                  @relation(fields: [approvalDecisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  bindings              AgentWorkflowRunBinding[]
+  currentHeads          AgentWorkflowActivationHead[]     @relation("AgentWorkflowCurrentEvent")
+
+  @@unique([tenantId, operationId], map: "agent_workflow_activation_events_tenant_operation_key")
+  @@unique([id, tenantId, venueId], map: "agent_workflow_activation_events_id_scope_key")
+  @@unique([id, tenantId, venueId, registryKey], map: "agent_workflow_activation_events_id_registry_scope_key")
+  @@unique([tenantId, venueId, registryKey, resultingRevision], map: "agent_workflow_activation_events_scope_revision_key")
+  @@map("agent_workflow_activation_events")
+}
+
+model AgentWorkflowRunBinding {
+  id                   String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                        @map("tenant_id")
+  venueId              String                        @map("venue_id")
+  agentRunId           String                        @map("agent_run_id")
+  registryKey          String                        @map("registry_key") @db.VarChar(191)
+  outcome              AgentWorkflowSelectionOutcome
+  workflowVersionId    String?                       @map("workflow_version_id") @db.Uuid
+  activationEventId    String?                       @map("activation_event_id") @db.Uuid
+  headRevision         Int                           @map("head_revision")
+  selectionProof       String                        @map("selection_proof") @db.Char(64)
+  selectionReason      AgentWorkflowSelectionReason  @map("selection_reason")
+  selectionOrdinal     Int?                          @map("selection_ordinal")
+  bindingHash          String                        @map("binding_hash") @db.Char(64)
+  requiredCapabilities String[]                      @default([]) @map("required_capabilities")
+  createdAt            DateTime                      @default(now()) @map("created_at")
+  tenant               Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun             AgentRun                      @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  workflowVersion      AgentWorkflowVersion?         @relation(fields: [workflowVersionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  activationEvent      AgentWorkflowActivationEvent? @relation(fields: [activationEventId, tenantId, venueId, registryKey], references: [id, tenantId, venueId, registryKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([agentRunId, registryKey], map: "agent_workflow_run_bindings_run_key")
+  @@unique([id, tenantId, venueId], map: "agent_workflow_run_bindings_id_scope_key")
+  @@index([tenantId, venueId, activationEventId], map: "agent_workflow_run_bindings_event_idx")
+  @@map("agent_workflow_run_bindings")
 }
 
 enum AgentImprovementImplementationKind {
@@ -5932,8 +6050,10 @@ model ApprovalDecision {
   resultingAction             AgentAction?
   grant                       ApprovalGrant?
   agentImprovementValidations AgentImprovementValidationEvidence[]
+  workflowActivationEvents    AgentWorkflowActivationEvent[]
 
   @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId], map: "approval_decisions_id_scope_key")
   @@unique([approvalRequestId, tenantId])
   @@index([tenantId, createdAt])
   @@index([tenantId, venueId, createdAt])

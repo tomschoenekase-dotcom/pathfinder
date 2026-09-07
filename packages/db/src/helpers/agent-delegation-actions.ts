@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { db } from '../client'
+import { bindEligibleAgentWorkflows } from './agent-workflow-run-binding'
 
 export type AgentDelegationClient = Pick<typeof db, '$transaction'>
 
@@ -40,8 +41,11 @@ export async function delegateAgentTaskAction(
       where: { tenantId: input.tenantId, operationId: input.operationId },
       select: {
         id: true,
+        venueId: true,
         parentAgentRunId: true,
         agentIdentityId: true,
+        initiatedByType: true,
+        initiatedById: true,
         requestPrompt: true,
         status: true,
         createdAt: true,
@@ -49,8 +53,11 @@ export async function delegateAgentTaskAction(
     })
     if (replay) {
       if (
+        replay.venueId !== input.venueId ||
         replay.parentAgentRunId !== input.parentAgentRunId ||
         replay.agentIdentityId !== input.specialistAgentIdentityId ||
+        replay.initiatedByType !== 'AGENT' ||
+        replay.initiatedById !== input.requestingAgentIdentityId ||
         replay.requestPrompt !== input.instructions
       ) {
         throw new AgentDelegationError(
@@ -131,6 +138,13 @@ export async function delegateAgentTaskAction(
         status: true,
         createdAt: true,
       },
+    })
+    await bindEligibleAgentWorkflows(transaction, {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: child.id,
+      runType: specialist.agentType,
+      operation: 'specialist_delegation',
     })
     await transaction.agentTimelineEvent.createMany({
       data: [

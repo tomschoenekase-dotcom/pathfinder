@@ -25,6 +25,7 @@
     "dashboard:hosted-authenticated-surfaces": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-authenticated-surfaces.mjs",
     "visitor:hosted-performance": "pnpm --dir apps/dashboard exec node scripts/measure-hosted-visitor-performance.mjs",
     "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
+    "test:agent-workflow-activation:disposable": "node scripts/run-disposable-agent-workflow-activation.mjs",
     "test:operating-cost:disposable": "node scripts/run-disposable-operating-cost.mjs",
     "test:public-interest-conversion:disposable": "node scripts/run-disposable-public-interest-conversion.mjs",
     "test:platform-release-evidence:disposable": "node scripts/run-disposable-platform-release-evidence.mjs",

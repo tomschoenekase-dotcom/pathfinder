@@ -37,6 +37,7 @@
     "./actor": "./src/actor.ts",
     "./agent-workflow-registry": "./src/agent-workflow-registry.ts",
     "./agent-workflow-promotion-assessment": "./src/agent-workflow-promotion-assessment.ts",
+    "./agent-workflow-activation": "./src/agent-workflow-activation.ts",
     "./company-brain": "./src/company-brain.ts",
     "./platform-worker-policy": "./src/platform-worker-policy.ts",
     "./google-workspace-source": "./src/google-workspace-source.ts",

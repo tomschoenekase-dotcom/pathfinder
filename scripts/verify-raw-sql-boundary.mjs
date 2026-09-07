@@ -12,6 +12,10 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-workflow-execution-lease',
+  'tenant-workflow-authority-share-lock',
+  'tenant-workflow-activation-revoke',
+
   'tenant-media-identity-request-lock',
   'tenant-media-identity-exact-receipt',
   'tenant-media-project-source-lock',
@@ -80,6 +84,118 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Reviewed workflow activation: sorted scoped heads precede exact leased runs;
+  // SHARE-locked authority is rechecked with PostgreSQL time after locks. Revoke
+  // touches only effective bindings of one scoped activation; clocks read no data.
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '82699e7ac0ed8ab5c7c185f5a172fa8e17fcf973330fc8e1c1e2b67d27009d47',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '4b92f5672746aa13786582e9916bd33a42f201517639607b9d136188c35573cc',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '7086af287fd812bcc8249640510fe18a0e63afce3c6a72848dd021c87ec815d4',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '47ed31eefb6ae4cffb2461299c36659acdcf08ec834364dadf20725ea02effad',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '96016eb58000a4a2f98fe91bf601e052fb9cf9770450e6c53c6c768f5626f80a',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: '5090f953102fe80ae5c5102351db598a95fa21d6e3b2b3cc467a0c31e08d9739',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
+    method: '$queryRaw',
+    hash: '36f9a1731ba9589cae5e734475d2123bfc5cae5fae3d83eb8f29a5e49e781ec0',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
+    method: '$executeRaw',
+    hash: 'e33060b71ac9505b3b7bb896727ae889b8abffa9186db7b0543903e9c4cdefe5',
+    policy: 'tenant-workflow-activation-revoke',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-promotion-assessment-actions.ts',
+    method: '$queryRaw',
+    hash: '516577282936e1ce33a4dda8ea9fdceba95974887691e3836a95678c3b7ab189',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: 'e060f48e58c4b3a646b235175e35f7a9f051a8c8baa8ea75fa6fea980e1ba100',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: '46269797090cef44dd9ad0a8889461022a9113836c5cea2cae7552e11eca7d02',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-binding.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '78d80b823c8d1599f99fe0a43a736a734e7e02c25aa2bc0064b1cd6d3b9cb78e',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '2355e0b6fb70275ad24b7c1ad687c8cacf646fef89976f60b34bcc9caee0ddb4',
+    policy: 'tenant-workflow-execution-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: 'e31cc90439ba273289b5f87bdbf68e03e0581fa601afb106b7381523c7c560c8',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '475d11139e965652f52e42fa44267a5d41c9c418614b2f9de2973f2003c02701',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-workflow-run-lease.ts',
+    method: '$queryRaw',
+    hash: '44296a1afaaf2c1ee40110d1edf9e267a591dd2b7f58f8532d4076e3dd869332',
+    policy: 'tenant-workflow-authority-share-lock',
+  },
+
   // Serialize question creation/resolution on the exact tenant+venue run so
   // simultaneous final answers cannot strand an otherwise resumable run.
   {

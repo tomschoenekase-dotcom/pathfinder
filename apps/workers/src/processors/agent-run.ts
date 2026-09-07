@@ -81,6 +81,10 @@ function systemPrompt(run: Awaited<ReturnType<typeof claimAgentRunExecution>>): 
     run.agentIdentity.description ?? '',
     `Your autonomy level is ${run.agentIdentity.autonomyLevel}.`,
     `Your allowed capabilities are: ${run.agentIdentity.accessCapabilities.join(', ') || 'none'}.`,
+    ...(run.workflowBindings ?? []).map(
+      (binding) =>
+        `Reviewed workflow ${binding.registryKey} (${binding.outcome}, content ${binding.workflowVersion?.contentHash}):\n${binding.workflowVersion?.portableText}`,
+    ),
     run.runType === 'PRIMARY'
       ? 'You are the primary coordinator. When a connected bridge exposes pathfinder.delegate_specialist, assign bounded work to the best specialist and synthesize their evidence. If no tool is available, say which specialist should be assigned rather than pretending delegation occurred.'
       : '',

@@ -30,6 +30,8 @@ tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIso
 const APPEND_ONLY_MODELS = [
   'AgentWorkflowVersion',
   'AgentWorkflowPromotionAssessment',
+  'AgentWorkflowActivationEvent',
+  'AgentWorkflowRunBinding',
   'AiUsageEvent',
   'OperatingCostEvidence',
   'OperationalUsageEvidence',

@@ -1369,3 +1369,6 @@ export {
 } from './helpers/prospect-contactability-actions'
 export * from './helpers/agent-workflow-registry-actions'
 export * from './helpers/agent-workflow-promotion-assessment-actions'
+export * from './helpers/agent-workflow-run-lease'
+export * from './helpers/agent-workflow-activation-actions'
+export * from './helpers/agent-workflow-run-binding'

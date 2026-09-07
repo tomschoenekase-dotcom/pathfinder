@@ -240,6 +240,7 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi
           .fn()
@@ -296,6 +297,7 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: { findFirst: vi.fn().mockResolvedValue({ id: 'worker-id-1' }) },
       agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
     } as never
@@ -358,6 +360,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -429,6 +432,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -503,6 +507,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -591,6 +596,7 @@ describe('safe operational MCP composition', () => {
       supportRequest: { findFirst: vi.fn() },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: {
         findFirst: vi.fn().mockResolvedValue({ id: 'grant-1', maxUses: 1, useCount: 0 }),
       },
@@ -675,6 +681,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -748,6 +755,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -858,6 +866,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -927,6 +936,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1010,6 +1020,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({ id: 'event-1' })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -1087,6 +1098,7 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -1161,14 +1173,13 @@ describe('safe operational MCP composition', () => {
         provenanceVerification: 'DECLARED_NOT_VERIFIED',
       })
       const database = {
+        agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
         agentWorker: {
-          findFirst: vi
-            .fn()
-            .mockResolvedValue({
-              id: 'worker-id-1',
-              modelProvider: 'openai',
-              modelName: 'gpt-test',
-            }),
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'worker-id-1',
+            modelProvider: 'openai',
+            modelName: 'gpt-test',
+          }),
         },
       }
       const registry = createSafeOperationalMcpRegistry(database as never)
@@ -1246,10 +1257,12 @@ describe('safe operational MCP composition', () => {
       preview: { lifecycle: 'DRAFT', guestVisibleNow: false },
     })
     const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       operationalUpdate: { findFirst: vi.fn() },
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: {
         findFirst: vi.fn().mockResolvedValue({ id: 'grant-1', maxUses: 1, useCount: 0 }),
       },
@@ -1337,6 +1350,84 @@ describe('safe operational MCP composition', () => {
     )
   })
 
+  it.each([
+    [
+      'pathfinder.create_update_draft',
+      'updates:draft',
+      {
+        title: 'Opening change',
+        body: 'Review the current hours.',
+        startsAt: '2026-09-07T10:00:00Z',
+        expiresAt: '2026-09-08T10:00:00Z',
+      },
+    ],
+    [
+      'pathfinder.create_support_draft',
+      'support:draft',
+      {
+        subject: 'Review visitor answer',
+        body: 'Internal review.',
+        category: 'GENERAL',
+      },
+    ],
+    [
+      'pathfinder.add_support_internal_note',
+      'support:note',
+      {
+        requestId: 'request-1',
+        expectedVersion: 1,
+        body: 'Internal review.',
+      },
+    ],
+  ])(
+    'requires workflow caller lease inside the %s effect transaction before consuming approval',
+    async (name, capability, fields) => {
+      const tx = {
+        agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue({ id: 'binding-1' }) },
+      }
+      const database = {
+        approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+        agentWorker: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'worker-id-1', workerKey: 'worker-1' }),
+        },
+        agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+        $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
+      }
+      await expect(
+        createSafeOperationalMcpRegistry(database as never).callTool(
+          name as string,
+          {
+            clientId: 'tenant-1',
+            venueId: 'venue-1',
+            operationId: '1c5f9673-d43d-4e40-a01d-cf188431ab81',
+            agentIdentityId: 'agent-1',
+            agentRunId: 'run-1',
+            workerKey: 'worker-1',
+            ...(fields as object),
+          },
+          {
+            credential: { ...credential, capabilities: [capability] } as VerifiedMcpCredentialScope,
+            approvalGrantId: 'grant-1',
+          },
+        ),
+      ).rejects.toThrow('caller execution lease')
+      expect(database.$transaction).toHaveBeenCalledOnce()
+      expect(tx.agentWorkflowRunBinding.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentRunId: 'run-1',
+          outcome: { in: ['SELECTED', 'CANARY_SKIPPED_PRIOR_VERSION'] },
+        },
+        select: { id: true },
+      })
+      expect(consumeApproval).not.toHaveBeenCalled()
+      expect(createUpdate).not.toHaveBeenCalled()
+      expect(createSupport).not.toHaveBeenCalled()
+      expect(appendSupportMessage).not.toHaveBeenCalled()
+    },
+  )
+
   it('creates only an internal support draft through exact machine and grant scope', async () => {
     consumeApproval.mockResolvedValue({
       replayed: false,
@@ -1348,9 +1439,11 @@ describe('safe operational MCP composition', () => {
       replayed: false,
     })
     const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-support' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1445,6 +1538,7 @@ describe('safe operational MCP composition', () => {
       supportRequest: { findFirst: vi.fn() },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-open' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1525,8 +1619,12 @@ describe('safe operational MCP composition', () => {
       clientVersion: 1,
       replayed: false,
     })
-    const tx = { approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) } }
+    const tx = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
+    }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-note' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1634,6 +1732,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({}) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-intake' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1730,6 +1829,7 @@ describe('safe operational MCP composition', () => {
       return result
     })
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-report' }) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
@@ -1841,6 +1941,7 @@ describe('safe operational MCP composition', () => {
 
   it('returns bounded evaluator-attributed answer evidence without adding release authority', async () => {
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       guestAnswerAttribution: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -1939,6 +2040,7 @@ describe('safe operational MCP composition', () => {
       },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       guestAnswerAttribution: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -1995,6 +2097,7 @@ describe('safe operational MCP composition', () => {
   it('returns explicit bounded incident-control health without reasons, actors, or recovery authority', async () => {
     const now = new Date('2030-01-01T12:00:00.000Z')
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       correspondenceProviderAccount: { findMany: vi.fn().mockResolvedValue([]) },
       billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },
       agentWorker: { findMany: vi.fn().mockResolvedValue([]) },
@@ -2082,6 +2185,7 @@ describe('safe operational MCP composition', () => {
 
   it('returns a coherent report lifecycle without content, raw sources, provider errors, or publication authority', async () => {
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       weeklyReport: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'report-1',
@@ -2200,6 +2304,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({})
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2274,6 +2379,7 @@ describe('safe operational MCP composition', () => {
     })
     publishEvent.mockResolvedValue({})
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2380,6 +2486,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',
@@ -2522,6 +2629,7 @@ describe('safe operational MCP composition', () => {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
     const database = {
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
       agentWorker: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'worker-id-1',

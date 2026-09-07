@@ -126,4 +126,29 @@ describe('MCP JSON-RPC dispatcher', () => {
       ),
     ).resolves.toBeNull()
   })
+
+  it.each(['WORKFLOW_LEASE_REQUIRED', 'WORKFLOW_EFFECT_UNSUPPORTED', 'LEASE_LOST', 'REVOKED'])(
+    'returns actionable %s without internal authority details',
+    async (code) => {
+      const target = registry()
+      target.callTool.mockRejectedValue(
+        Object.assign(new Error('private lease and policy details'), { code }),
+      )
+      const result = await dispatchMcpJsonRpc(
+        {
+          jsonrpc: '2.0',
+          id: 'workflow',
+          method: 'tools/call',
+          params: { name: 'pathfinder.create_update_draft', arguments: {} },
+        },
+        { credential: credential as never },
+        target as never,
+      )
+      expect(result).toEqual({
+        jsonrpc: '2.0',
+        id: 'workflow',
+        error: { code: -32001, message: 'Tool call rejected', data: { code } },
+      })
+    },
+  )
 })

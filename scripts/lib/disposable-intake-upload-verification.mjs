@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|aiusage|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption|mediaresolution|mediarelation|mediatemporal)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|venuemedia|webresearch|golden|improvement|costs|aiusage|publicinterest|attribution|retention|supporttriage|supportinfo|supknow|suppdone|suppkg|semanticupdate|approvalpolicy|convergence|guestread|agentbridge|releaseevidence|opsreadiness|custaccess|billingcmd|v2journey|characterfactory|firstweek|founderconversation|foundertask|voicerecovery|mediaop|legacyadoption|mediaresolution|mediarelation|mediatemporal|wfactivation)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
 const DATABASE_PATTERN =
-  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|ai_usage_observation|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption|media_resolution|media_relation_application|media_temporal)_[a-f0-9]{12}$/u
+  /^pathfinder_disposable_(?:intake_worker|venue_media|intake_website_research|golden_venue|agent_improvement|operating_cost|ai_usage_observation|public_interest|answer_attribution|retention_preview|support_triage|support_information|support_knowledge|support_completion|support_package_draft|semantic_update|agent_approval_policy|content_convergence|native_guest_read|agent_bridge|release_evidence|operations_readiness|customer_access|billing_command|v2_journey|character_factory|first_week_learning|founder_conversation|founder_task|voice_recovery|media_provider_operation|legacy_knowledge_adoption|media_resolution|media_relation_application|media_temporal|workflow_activation)_[a-f0-9]{12}$/u
 const GOLDEN_VENUE_FIXTURE = JSON.parse(
   readFileSync(new URL('../golden-venue/fixture.json', import.meta.url), 'utf8'),
 )
@@ -753,6 +753,8 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
         'same-corpus-before-after-evaluation',
         'declared-change-only-comparability',
         'no-automatic-promotion',
+        'dedicated-workflow-activation-approval',
+        'activation-current-evaluation-revalidation',
       ],
       integration: {
         packageDirectory: 'packages/db',
@@ -768,6 +770,38 @@ export async function runDisposableAgentImprovementShakedown(options = {}) {
           OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
           STRIPE_MODE: 'test',
           STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableAgentWorkflowActivationShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'wfactivation',
+      databasePrefix: 'pathfinder_disposable_workflow_activation_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_WORKFLOW_ACTIVATION_SHAKEDOWN',
+      lifecycleEvent: 'test:agent-workflow-activation:disposable',
+      successAction: 'agent-workflow.activation.disposable-shakedown.passed',
+      proofScope: [
+        'fresh-migration-chain',
+        'provider-dark',
+        'bounded-concurrent-selection',
+        'immutable-binding',
+        'complete-artifact-claim',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/agent-workflow-activation-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_AGENT_WORKFLOW_ACTIVATION_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
         },
       },
     },
@@ -1734,6 +1768,11 @@ export async function runDisposableAgentApprovalPolicyShakedown(options = {}) {
         'policy-consumption-machine-lineage',
         'parameter-boundary-rejection',
         'one-shot-approval-compatibility',
+        'selected-workflow-caller-lease-three-supported-effects',
+        'missing-and-stale-workflow-lease-no-consumption',
+        'capacity-skipped-no-workflow-legacy-compatibility',
+        'workflow-required-capability-loss-no-consumption',
+        'already-verified-revoked-credential-no-consumption',
         'no-publication-or-customer-contact',
       ],
       integration: {
