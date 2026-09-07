@@ -145,6 +145,8 @@ function formatReportContent(params: {
   sessionCount: number
   messageCount: number
   answerCount: number
+  helpfulCount: number
+  notHelpfulCount: number
   parsed: WeeklyReportResponse
   validatedFindings: ReturnType<typeof validateFindings>
   configuredQuestions: Array<{ id: string; prompt: string }>
@@ -157,6 +159,8 @@ function formatReportContent(params: {
     sessionCount,
     messageCount,
     answerCount,
+    helpfulCount,
+    notHelpfulCount,
     parsed,
     validatedFindings,
     configuredQuestions,
@@ -205,6 +209,7 @@ function formatReportContent(params: {
     // captured engagement answers, which are a different, often-empty metric.
     `Sessions: ${sessionCount} · Messages: ${messageCount}`,
     `Captured answers: ${answerCount}`,
+    `Feedback: ${helpfulCount} helpful · ${notHelpfulCount} not helpful`,
     '',
     'Evidence scope and limitations',
     limitation,
@@ -266,64 +271,90 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
   const weekEnd = new Date(payload.weekEnd)
 
   return withTenantIsolationBypass(async () => {
-    const [venue, sessionCount, messageCount, responses, activeQuestions, generalMessages] =
-      await Promise.all([
-        db.venue.findFirst({
-          where: { id: payload.venueId, tenantId: payload.tenantId },
-          select: { name: true, category: true },
-        }),
-        db.visitorSession.count({
-          where: {
-            tenantId: payload.tenantId,
-            venueId: payload.venueId,
-            experienceScope: 'PUBLIC',
-            messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
-          },
-        }),
-        db.message.count({
-          where: {
-            tenantId: payload.tenantId,
-            createdAt: { gte: weekStart, lte: weekEnd },
-            session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
-          },
-        }),
-        db.engagementQuestionResponse.findMany({
-          where: {
-            tenantId: payload.tenantId,
-            venueId: payload.venueId,
-            answeredAt: { gte: weekStart, lte: weekEnd },
-            isAiInvented: false,
-            session: { experienceScope: 'PUBLIC' },
-          },
-          orderBy: { answeredAt: 'asc' },
-          select: {
-            id: true,
-            engagementQuestionId: true,
-            questionText: true,
-            answerText: true,
-            isAiInvented: true,
-          },
-        }),
-        db.engagementQuestion.findMany({
-          where: { tenantId: payload.tenantId, isActive: true },
-          orderBy: { createdAt: 'asc' },
-          select: { id: true, prompt: true, questionType: true },
-        }),
-        // Ordinary guest chat, not tied to any configured/invented engagement question — this
-        // is what makes "Visitor Questions & Interests" reflect real conversation content
-        // instead of just session/message counts.
-        db.message.findMany({
-          where: {
-            tenantId: payload.tenantId,
-            role: 'user',
-            createdAt: { gte: weekStart, lte: weekEnd },
-            session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
-          },
-          orderBy: { createdAt: 'asc' },
-          take: MAX_GENERAL_MESSAGES,
-          select: { id: true, content: true },
-        }),
-      ])
+    const [
+      venue,
+      sessionCount,
+      messageCount,
+      responses,
+      activeQuestions,
+      generalMessages,
+      helpfulCount,
+      notHelpfulCount,
+    ] = await Promise.all([
+      db.venue.findFirst({
+        where: { id: payload.venueId, tenantId: payload.tenantId },
+        select: { name: true, category: true },
+      }),
+      db.visitorSession.count({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          experienceScope: 'PUBLIC',
+          messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
+        },
+      }),
+      db.message.count({
+        where: {
+          tenantId: payload.tenantId,
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+        },
+      }),
+      db.engagementQuestionResponse.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          answeredAt: { gte: weekStart, lte: weekEnd },
+          isAiInvented: false,
+          session: { experienceScope: 'PUBLIC' },
+        },
+        orderBy: { answeredAt: 'asc' },
+        select: {
+          id: true,
+          engagementQuestionId: true,
+          questionText: true,
+          answerText: true,
+          isAiInvented: true,
+        },
+      }),
+      db.engagementQuestion.findMany({
+        where: { tenantId: payload.tenantId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, prompt: true, questionType: true },
+      }),
+      // Ordinary guest chat, not tied to any configured/invented engagement question — this
+      // is what makes "Visitor Questions & Interests" reflect real conversation content
+      // instead of just session/message counts.
+      db.message.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          role: 'user',
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: MAX_GENERAL_MESSAGES,
+        select: { id: true, content: true },
+      }),
+      db.messageFeedback.count({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          rating: 'HELPFUL',
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { experienceScope: 'PUBLIC' },
+        },
+      }),
+      db.messageFeedback.count({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          rating: 'NOT_HELPFUL',
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { experienceScope: 'PUBLIC' },
+        },
+      }),
+    ])
 
     if (!venue) {
       throw new Error(`Venue ${payload.venueId} not found`)
@@ -346,6 +377,8 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
         id: message.id,
         excerpt: trimMessageContent(redactCommonIdentifiers(message.content)),
       })),
+      helpfulCount,
+      notHelpfulCount,
     }
   })
 }
@@ -393,6 +426,8 @@ function buildReportPrompt(params: {
   weekEnd: string
   sessionCount: number
   messageCount: number
+  helpfulCount: number
+  notHelpfulCount: number
   responses: Awaited<ReturnType<typeof loadReportData>>['responses']
   activeQuestions: Awaited<ReturnType<typeof loadReportData>>['activeQuestions']
   generalMessages: Array<{ id: string; excerpt: string }>
@@ -417,6 +452,8 @@ function buildReportPrompt(params: {
     `Session count: ${params.sessionCount}`,
     `Message count: ${params.messageCount}`,
     `Captured answer count: ${params.responses.length}`,
+    `Helpful rating count: ${params.helpfulCount}`,
+    `Not-helpful rating count: ${params.notHelpfulCount}`,
     '',
     'Return JSON only with keys: findings and nextSteps.',
     'Write concise plain English, not corporate language. Write like someone who actually read the conversations.',
@@ -426,6 +463,7 @@ function buildReportPrompt(params: {
     'Findings may merge common questions, interests, and confusion points from ordinary public messages and captured answers.',
     'findings and nextSteps must always be JSON arrays. nextSteps must contain at least one recommendation.',
     'If answers or sessions are low this week, say so honestly and avoid overclaiming.',
+    'Feedback ratings are explicit control counts, not sentiment. Do not infer a finding from a rating count without cited textual evidence.',
     'Every material observation must appear in findings with a statement and evidence array. Each evidence item must use an exact provided sourceId and an exact supporting substring from that source excerpt. Do not invent source IDs or excerpts. Recommendations belong only in nextSteps and must not be phrased as observed facts.',
     '',
     'Active configured engagement questions JSON:',
@@ -502,7 +540,13 @@ export async function processWeeklyReportJob(
 
     const data = await loadReportData(payload)
     let parsed: WeeklyReportResponse
-    if (data.sessionCount === 0 && data.messageCount === 0 && data.responses.length === 0) {
+    if (
+      data.sessionCount === 0 &&
+      data.messageCount === 0 &&
+      data.responses.length === 0 &&
+      data.helpfulCount === 0 &&
+      data.notHelpfulCount === 0
+    ) {
       parsed = {
         findings: [],
         nextSteps: ['Continue collecting public visitor interactions before drawing conclusions.'],
@@ -515,6 +559,8 @@ export async function processWeeklyReportJob(
         weekEnd: payload.weekEnd,
         sessionCount: data.sessionCount,
         messageCount: data.messageCount,
+        helpfulCount: data.helpfulCount,
+        notHelpfulCount: data.notHelpfulCount,
         responses: data.responses,
         activeQuestions: data.activeQuestions,
         generalMessages: data.generalMessages,
@@ -564,6 +610,8 @@ export async function processWeeklyReportJob(
       sessionCount: data.sessionCount,
       messageCount: data.messageCount,
       answerCount: data.responses.length,
+      helpfulCount: data.helpfulCount,
+      notHelpfulCount: data.notHelpfulCount,
       parsed,
       validatedFindings,
       configuredQuestions: data.activeQuestions,

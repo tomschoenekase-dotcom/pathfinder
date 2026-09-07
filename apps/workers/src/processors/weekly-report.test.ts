@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
   messageCount: vi.fn(),
+  feedbackCount: vi.fn(),
   responseFindMany: vi.fn(),
   questionFindMany: vi.fn(),
   noteFindMany: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock('@pathfinder/db', () => ({
     venue: { findFirst: mocks.venueFindFirst },
     visitorSession: { count: mocks.sessionCount },
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
+    messageFeedback: { count: mocks.feedbackCount },
     engagementQuestionResponse: { findMany: mocks.responseFindMany },
     engagementQuestion: { findMany: mocks.questionFindMany },
     adminChatlogNote: { findMany: mocks.noteFindMany },
@@ -117,6 +119,9 @@ describe('processWeeklyReportJob', () => {
     mocks.venueFindFirst.mockResolvedValue({ name: 'City Zoo', category: 'zoo' })
     mocks.sessionCount.mockResolvedValue(2)
     mocks.messageCount.mockResolvedValue(4)
+    mocks.feedbackCount.mockImplementation(({ where }: { where: { rating: string } }) =>
+      where.rating === 'HELPFUL' ? Promise.resolve(3) : Promise.resolve(1),
+    )
     mocks.responseFindMany.mockResolvedValue([
       {
         id: 'response_1',
@@ -193,7 +198,32 @@ describe('processWeeklyReportJob', () => {
     })
     const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
     expect(content).toContain('Low sample:')
+    expect(content).toContain('Feedback: 3 helpful · 1 not helpful')
     expect(content).toContain('public-message:message_1 — “Where are the restrooms?”')
+    expect(mocks.feedbackCount).toHaveBeenNthCalledWith(1, {
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rating: 'HELPFUL',
+        createdAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: { experienceScope: 'PUBLIC' },
+      },
+    })
+    expect(mocks.feedbackCount).toHaveBeenNthCalledWith(2, {
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rating: 'NOT_HELPFUL',
+        createdAt: {
+          gte: new Date('2026-06-01T00:00:00.000Z'),
+          lte: new Date('2026-06-08T00:00:00.000Z'),
+        },
+        session: { experienceScope: 'PUBLIC' },
+      },
+    })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
@@ -247,6 +277,7 @@ describe('processWeeklyReportJob', () => {
     mocks.messageCount.mockResolvedValueOnce(0)
     mocks.responseFindMany.mockResolvedValueOnce([])
     mocks.messageFindMany.mockResolvedValueOnce([])
+    mocks.feedbackCount.mockResolvedValue(0)
     await processWeeklyReportJob(payload)
     expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.renewWeeklyReportExecution).toHaveBeenCalledWith({
@@ -259,6 +290,7 @@ describe('processWeeklyReportJob', () => {
     })
     const content = mocks.reportUpdateMany.mock.calls.at(-1)?.[0]?.data?.content as string
     expect(content).toContain('Sessions: 0 · Messages: 0')
+    expect(content).toContain('Feedback: 0 helpful · 0 not helpful')
     expect(content).toContain('No public visitor activity was recorded')
     expect(content).toContain('No source-supported observations were available')
     expect(content).not.toContain('Visitors had a positive week')
@@ -269,6 +301,7 @@ describe('processWeeklyReportJob', () => {
     mocks.messageCount.mockResolvedValueOnce(0)
     mocks.responseFindMany.mockResolvedValueOnce([])
     mocks.messageFindMany.mockResolvedValueOnce([])
+    mocks.feedbackCount.mockResolvedValue(0)
     mocks.renewWeeklyReportExecution.mockResolvedValueOnce(false)
     await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
       code: 'execution-lease-ownership-lost',
