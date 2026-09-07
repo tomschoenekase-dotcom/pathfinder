@@ -51,6 +51,7 @@ export type RetentionPolicyDecision = z.infer<typeof RetentionPolicyDecision>
 export type RetentionInventoryEntry = {
   model: string
   decisionKey: RetentionDecisionKey
+  /** True means the schema can retain personal data; it is not a row-level content scan. */
   containsPersonalData: boolean
   clientExportEligible: boolean
   lifecycle: 'MUTABLE' | 'VERSIONED' | 'APPEND_ONLY' | 'EXTERNAL_REFERENCE'
@@ -71,29 +72,32 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
   {
     model: 'Venue',
     decisionKey: 'approved-venue-content',
-    containsPersonalData: false,
+    containsPersonalData: true,
     clientExportEligible: true,
     lifecycle: 'VERSIONED',
     deletionBoundary: 'VENUE_ROOT',
-    notes: 'Approved venue identity and configuration are exportable.',
+    notes:
+      'Approved venue identity and configuration are exportable; free-text notes and contact details may contain personal data.',
   },
   {
     model: 'Place',
     decisionKey: 'approved-venue-content',
-    containsPersonalData: false,
+    containsPersonalData: true,
     clientExportEligible: true,
     lifecycle: 'VERSIONED',
     deletionBoundary: 'VENUE_ROOT',
-    notes: 'Granular approved content remains independently exportable.',
+    notes:
+      'Granular approved content remains independently exportable; descriptions and source attribution may identify people.',
   },
   {
     model: 'VenueKnowledgeEntry',
     decisionKey: 'approved-venue-content',
-    containsPersonalData: false,
+    containsPersonalData: true,
     clientExportEligible: true,
     lifecycle: 'VERSIONED',
     deletionBoundary: 'VENUE_ROOT',
-    notes: 'Knowledge is part of the approved-content export.',
+    notes:
+      'Knowledge is part of the approved-content export; free-text facts and source attribution may contain personal data.',
   },
   {
     model: 'ContentModuleIdentity',
