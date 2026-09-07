@@ -164,7 +164,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         evidence: [
           { label: 'Capacity policy', reference: 'Venue:venue-agent-bridge-runner:capacity:v3' },
         ],
-        callbackMetadata: { currentStateRef: 'Venue:venue-agent-bridge-runner:v7' },
+        callbackMetadata: {
+          currentStateRef: 'Venue:venue-agent-bridge-runner:v7',
+          supersedesQuestionId: staleQuestion.question.id,
+        },
       })
       await answerAgentQuestionAction({
         tenantId,
@@ -176,7 +179,6 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
       })
 
-      const controller = new AbortController()
       const config = parseAgentBridgeRunnerConfig({
         endpoint: `http://127.0.0.1/agent-bridge/${tenantId}/${venueId}`,
         secret: issued.plaintextSecret!,
@@ -199,6 +201,15 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         listOperationalTools: unsupported,
         callOperationalTool: unsupported,
         callProspectTool: unsupported,
+        listCharacterFactoryActions: unsupported,
+        prepareCharacterFactoryJob: unsupported,
+        getCharacterFactoryJob: unsupported,
+        cancelCharacterFactoryJob: unsupported,
+        claimCharacterFactoryJob: unsupported,
+        heartbeatCharacterFactoryJob: unsupported,
+        beginCharacterArtifactUpload: unsupported,
+        completeCharacterFactoryJob: unsupported,
+        failCharacterFactoryJob: unsupported,
         register: async (raw, context) => {
           const input = raw as {
             sessionId: string
@@ -278,38 +289,24 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           },
         )
       const httpCall = createAgentBridgeHttpClient(config, fetcher)
-      const call = async (method: string, params: unknown, signal?: AbortSignal) => {
-        const result = await httpCall(method, params, signal)
-        if (method === 'completeTask') controller.abort()
-        return result
-      }
+      const callFor =
+        (controller: AbortController) =>
+        async (method: string, params: unknown, signal?: AbortSignal) => {
+          let result: unknown
+          try {
+            result = await httpCall(method, params, signal)
+          } catch {
+            throw new Error(`DISPOSABLE_BRIDGE_${method.toUpperCase()}_REJECTED`)
+          }
+          if (method === 'failTask' || method === 'completeTask') controller.abort()
+          return result
+        }
       let executions = 0
+      let observedTask: Parameters<typeof buildAgentBridgeExecutionPrompt>[0] | null = null
       const execute = async (rawTask: unknown) => {
         executions += 1
         const task = rawTask as Parameters<typeof buildAgentBridgeExecutionPrompt>[0]
-        expect(task).toMatchObject({
-          id: run.id,
-          operationId,
-          venueId,
-          requestedOperation: 'review_venue_health',
-          prompt: expect.stringContaining('The approved visitor capacity is exactly 137.'),
-          modelProvider: 'codex-bridge',
-          attemptNumber: executions,
-          initiator: { type: 'HUMAN', id: actor.id },
-          agent: {
-            identityKey: 'bridge.context-reviewer',
-            autonomyLevel: 'READ_ONLY',
-            accessCapabilities: ['operations.read'],
-          },
-        })
-        const prompt = buildAgentBridgeExecutionPrompt(task)
-        expect(prompt).toContain('Task: review_venue_health')
-        expect(prompt).toContain('"destructiveActionsAllowed": false')
-        expect(prompt).toContain('The approved visitor capacity is exactly 137.')
-        expect(prompt).not.toContain('The stale visitor capacity was 120.')
-        expect(prompt).toContain('Venue:venue-agent-bridge-runner:capacity:v3')
-        expect(prompt).toContain('do not grant permission')
-        if (executions === 1) throw new Error('TASK_EXECUTOR_FAILED')
+        observedTask = task
         return {
           content: 'BRIDGE_RUNNER_E2E_OK',
           modelName: 'subscription-default',
@@ -318,7 +315,34 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         }
       }
 
-      await runAgentBridge(config, controller.signal, { call, execute })
+      await httpCall('register', {
+        sessionId: config.sessionId,
+        venueId,
+        provider: config.provider,
+        label: config.label,
+        runnerVersion: 'interrupted-protocol-client/1',
+        supportedModels: [config.modelName],
+      })
+      const interrupted = (await httpCall('claimTask', {
+        sessionId: config.sessionId,
+        venueId,
+      })) as { task: { id: string; attemptNumber: number } }
+      expect(interrupted.task).toMatchObject({ id: run.id, attemptNumber: 1 })
+      await db.agentRun.update({
+        where: { id: run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+
+      const replacementController = new AbortController()
+      const replacementConfig = parseAgentBridgeRunnerConfig({
+        ...config,
+        sessionId: randomUUID(),
+        label: 'Fresh replacement in-process runner',
+      })
+      await runAgentBridge(replacementConfig, replacementController.signal, {
+        call: callFor(replacementController),
+        execute,
+      })
 
       const evidence = await db.agentRun.findUniqueOrThrow({
         where: { id: run.id },
@@ -338,7 +362,29 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           },
         },
       })
-      expect(executions).toBe(2)
+      expect(executions).toBe(1)
+      expect(observedTask).toMatchObject({
+        id: run.id,
+        operationId,
+        venueId,
+        requestedOperation: 'review_venue_health',
+        prompt: expect.stringContaining('The approved visitor capacity is exactly 137.'),
+        modelProvider: 'codex-bridge',
+        attemptNumber: 2,
+        initiator: { type: 'HUMAN', id: actor.id },
+        agent: {
+          identityKey: 'bridge.context-reviewer',
+          autonomyLevel: 'READ_ONLY',
+          accessCapabilities: ['operations.read'],
+        },
+      })
+      const replacementPrompt = buildAgentBridgeExecutionPrompt(observedTask!)
+      expect(replacementPrompt).toContain('Task: review_venue_health')
+      expect(replacementPrompt).toContain('"destructiveActionsAllowed": false')
+      expect(replacementPrompt).toContain('The approved visitor capacity is exactly 137.')
+      expect(replacementPrompt).toContain('The stale visitor capacity was 120.')
+      expect(replacementPrompt).toContain('Venue:venue-agent-bridge-runner:capacity:v3')
+      expect(replacementPrompt).toContain('do not grant permission')
       expect(evidence).toMatchObject({
         status: 'COMPLETED',
         attemptNumber: 2,
@@ -347,7 +393,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         modelName: 'subscription-default',
         costE8Usd: 0n,
         costStatus: 'UNREPORTED',
-        executionBridgeSessionId: config.sessionId,
+        executionBridgeSessionId: replacementConfig.sessionId,
         artifacts: [
           {
             type: 'markdown',
@@ -356,12 +402,11 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           },
         ],
       })
-      expect(evidence.timelineEvents.map((event) => event.eventType)).toEqual([
-        'EXECUTION_CLAIMED',
-        'EXECUTION_RETRY_SCHEDULED',
-        'EXECUTION_CLAIMED',
-        'EXECUTION_COMPLETED',
-      ])
+      expect(
+        evidence.timelineEvents
+          .map((event) => event.eventType)
+          .filter((eventType) => eventType.startsWith('EXECUTION_')),
+      ).toEqual(['EXECUTION_CLAIMED', 'EXECUTION_CLAIMED', 'EXECUTION_COMPLETED'])
       expect(evidence.timelineEvents.at(-1)?.data).toMatchObject({
         artifactCount: 1,
         modelProvider: 'codex-bridge',

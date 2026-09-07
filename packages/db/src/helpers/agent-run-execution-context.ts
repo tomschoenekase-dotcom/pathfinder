@@ -46,6 +46,9 @@ export function buildBoundedAgentRunExecutionContext(
   run: AgentRunExecutionContextSource,
   maxChars = DEFAULT_CONTEXT_MAX_CHARS,
 ) {
+  // callbackMetadata is agent-supplied workflow data, not a governed authority record.
+  // Preserve every answered record (with its timestamps) until the data model has a
+  // trusted supersession relation; otherwise arbitrary metadata could hide founder input.
   const questions = run.questions.filter((question) => question.answer && question.answeredAt)
   const context = {
     contextVersion: EXECUTION_CONTEXT_VERSION,

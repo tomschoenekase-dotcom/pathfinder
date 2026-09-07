@@ -55,6 +55,84 @@ const bridgeTask = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('desktop agent bridge runner', () => {
+  it('lets a fresh protocol client take over a retry and consume persisted answer context', async () => {
+    const task = bridgeTask({
+      prompt:
+        'Resume capacity planning.\n\nBounded persisted execution context:\nCurrent answer: capacity is 137 visitors.',
+      attemptNumber: 2,
+    })
+    let available = true
+    const durableArtifacts: unknown[] = []
+    const firstController = new AbortController()
+    const firstCall = vi.fn(async (method: string) => {
+      if (method === 'claimTask' && available) {
+        available = false
+        return { task }
+      }
+      if (method === 'failTask') {
+        available = true
+        firstController.abort()
+      }
+      return method === 'claimTask' ? { task: null } : {}
+    })
+    await runAgentBridge(
+      parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' }),
+      firstController.signal,
+      {
+        call: firstCall as never,
+        execute: vi.fn().mockRejectedValue(new Error('TASK_EXECUTOR_FAILED')),
+      },
+    )
+
+    const freshController = new AbortController()
+    const secondCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'claimTask' && available) {
+        available = false
+        return {
+          task: { ...task, leaseToken: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', attemptNumber: 3 },
+        }
+      }
+      if (method === 'completeTask') {
+        durableArtifacts.push(...(params.artifacts as unknown[]))
+        freshController.abort()
+      }
+      return method === 'claimTask' ? { task: null } : {}
+    })
+    const freshExecutor = vi.fn(async (claimed: ReturnType<typeof bridgeTask>) => ({
+      content: claimed.prompt.includes('capacity is 137 visitors')
+        ? 'Capacity artifact: 137 visitors.'
+        : 'Missing persisted answer.',
+      modelName: 'protocol-double',
+      costE8Usd: '0',
+      costStatus: 'UNREPORTED' as const,
+    }))
+    await runAgentBridge(
+      parseAgentBridgeRunnerConfig({
+        ...base,
+        sessionId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        provider: 'CODEX_SUBSCRIPTION',
+      }),
+      freshController.signal,
+      { call: secondCall as never, execute: freshExecutor as never },
+    )
+
+    expect(freshExecutor).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptNumber: 3 }),
+      expect.anything(),
+      expect.any(AbortSignal),
+    )
+    expect(durableArtifacts).toEqual([
+      { type: 'markdown', title: 'Agent result', content: 'Capacity artifact: 137 visitors.' },
+    ])
+    expect(
+      parseAgentBridgeRunnerConfig({
+        ...base,
+        provider: 'OPENAI_COMPATIBLE',
+        localInferenceUrl: 'http://127.0.0.1:11434/v1',
+      }).provider,
+    ).toBe('OPENAI_COMPATIBLE')
+  })
+
   it('builds fixed no-shell read-only Codex and plan-only Claude invocations', () => {
     const codex = buildAgentCliInvocation(
       parseAgentBridgeRunnerConfig({ ...base, provider: 'CODEX_SUBSCRIPTION' }),

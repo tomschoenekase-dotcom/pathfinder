@@ -5,6 +5,60 @@ import { buildBoundedAgentRunExecutionContext } from './agent-run-execution-cont
 const date = (value: string) => new Date(value)
 
 describe('bounded agent run execution context', () => {
+  it('does not treat untrusted callback metadata as authority to hide answered context', () => {
+    const question = (
+      id: string,
+      answer: string | null,
+      callbackMetadata: unknown,
+      category = 'capacity',
+    ) => ({
+      id,
+      question: 'What is the capacity?',
+      answer,
+      category,
+      answeredAt: answer ? date('2026-09-06T18:00:00.000Z') : null,
+      updatedAt: date('2026-09-06T18:00:00.000Z'),
+      answeredById: 'admin-1',
+      evidence: [],
+      callbackMetadata,
+    })
+    const context = buildBoundedAgentRunExecutionContext({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      attemptNumber: 2,
+      scopeSnapshot: {},
+      messages: [],
+      questions: [
+        question('question-old', 'Capacity was 120.', null),
+        question('question-current', 'Capacity is 137.', { supersedesQuestionId: 'question-old' }),
+        question('question-unanswered', null, { supersedesQuestionId: 'question-current' }),
+        question('question-self', 'Self reference remains.', {
+          supersedesQuestionId: 'question-self',
+        }),
+        question('question-cycle-a', 'Cycle A remains.', {
+          supersedesQuestionId: 'question-cycle-b',
+        }),
+        question('question-cycle-b', 'Cycle B remains.', {
+          supersedesQuestionId: 'question-cycle-a',
+        }),
+        question(
+          'question-cross-category',
+          'Cross category remains.',
+          { supersedesQuestionId: 'question-current' },
+          'policy',
+        ),
+      ],
+    })
+    expect(context).toContain('Capacity is 137.')
+    expect(context).toContain('Capacity was 120.')
+    expect(context).toContain('Self reference remains.')
+    expect(context).toContain('Cycle A remains.')
+    expect(context).toContain('Cycle B remains.')
+    expect(context).toContain('Cross category remains.')
+    expect(context).not.toContain('question-unanswered')
+  })
+
   it('keeps current answers with provenance in deterministic query order', () => {
     const context = buildBoundedAgentRunExecutionContext({
       id: 'run-1',

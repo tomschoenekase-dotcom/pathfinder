@@ -107,17 +107,54 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
           initiatedById: actor.id,
         },
       })
-      const claimed = await claimAgentBridgeTask({ sessionId, venueId, credential })
-      expect(claimed.task?.id).toBe(run.id)
+      await db.agentQuestion.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          agentRunId: run.id,
+          question: 'What is the approved visitor capacity?',
+          category: 'capacity',
+          status: 'ANSWERED',
+          answer: 'The approved capacity is 137 visitors.',
+          answeredById: actor.id,
+          answeredAt: new Date(),
+          evidence: [{ source: 'founder-answer' }],
+        },
+      })
+      const interrupted = await claimAgentBridgeTask({ sessionId, venueId, credential })
+      expect(interrupted.task?.id).toBe(run.id)
+      await db.agentRun.update({
+        where: { id: run.id },
+        data: { executionLeaseExpiresAt: new Date(Date.now() - 1_000) },
+      })
+      const replacementSessionId = randomUUID()
+      await registerAgentBridgeSession({
+        sessionId: replacementSessionId,
+        venueId,
+        provider: 'CODEX_SUBSCRIPTION',
+        label: 'Fresh replacement runner',
+        runnerVersion: 'integration/2',
+        supportedModels: ['subscription-default'],
+        credential,
+      })
+      const claimed = await claimAgentBridgeTask({
+        sessionId: replacementSessionId,
+        venueId,
+        credential,
+      })
+      expect(claimed.task).toMatchObject({ id: run.id, attemptNumber: 2 })
+      expect(claimed.task?.prompt).toContain('The approved capacity is 137 visitors.')
       await heartbeatAgentBridgeTask({
-        sessionId,
+        sessionId: replacementSessionId,
         venueId,
         runId: run.id,
         leaseToken: claimed.task!.leaseToken,
         credential,
       })
       await completeAgentBridgeTask({
-        sessionId,
+        sessionId: replacementSessionId,
         venueId,
         runId: run.id,
         leaseToken: claimed.task!.leaseToken,
@@ -134,7 +171,7 @@ describe.skipIf(!enabled)('agent bridge disposable lifecycle', () => {
       })
       expect(evidence).toMatchObject({
         status: 'COMPLETED',
-        executionBridgeSessionId: sessionId,
+        executionBridgeSessionId: replacementSessionId,
         artifacts: [{ type: 'markdown', title: 'Proof', content: 'BRIDGE_E2E_OK' }],
       })
       expect(
