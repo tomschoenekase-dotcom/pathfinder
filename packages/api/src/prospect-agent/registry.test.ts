@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   organizationFindFirst: vi.fn(),
   memberFindMany: vi.fn(),
   memberFindFirst: vi.fn(),
+  knowledgeFindFirst: vi.fn(),
   saveDraft: vi.fn(),
   askQuestion: vi.fn(),
   claimResearch: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@pathfinder/db', () => ({
       findMany: mocks.memberFindMany,
       findFirst: mocks.memberFindFirst,
     },
+    companyKnowledgeItem: { findFirst: mocks.knowledgeFindFirst },
     venue: { findFirst: vi.fn() },
     place: { findMany: vi.fn() },
     venueKnowledgeEntry: { findMany: vi.fn() },
@@ -239,6 +241,78 @@ describe('prospect agent registry', () => {
         }),
       }),
     )
+  })
+
+  it('resolves approved copy identity from current platform knowledge instead of caller assertions', async () => {
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1' })
+    mocks.knowledgeFindFirst.mockResolvedValue({
+      id: 'copy-1',
+      currentRevision: 3,
+      revisions: [{ sourceDigest: 'a'.repeat(64), structuredData: { allowedUses: ['OUTREACH'] } }],
+    })
+    mocks.saveDraft.mockResolvedValue({ id: 'draft-1' })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    await registry.callTool(
+      'torchiko.prospects.save_outreach_draft',
+      {
+        memberId: 'member-1',
+        subject: 'Hello',
+        textBody: 'A grounded introduction.',
+        evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+        template: { id: 'intro', version: '1' },
+        prompt: { id: 'draft', version: '1' },
+        copySources: [{ id: 'copy-1', version: '3' }],
+      },
+      invocation,
+    )
+    expect(mocks.knowledgeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'copy-1',
+          currentRevision: 3,
+          promotionStatus: 'PROMOTED',
+          authority: 'AUTHORITATIVE_CURRENT',
+        }),
+      }),
+    )
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groundingSnapshot: expect.objectContaining({
+          copyHandoff: expect.objectContaining({
+            copySources: [expect.objectContaining({ provenance: 'a'.repeat(64) })],
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('rejects a stale or unpromoted copy-bank reference before saving a draft', async () => {
+    mocks.knowledgeFindFirst.mockResolvedValue(null)
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    await expect(
+      registry.callTool(
+        'torchiko.prospects.save_outreach_draft',
+        {
+          memberId: 'member-1',
+          subject: 'Hello',
+          textBody: 'A grounded introduction.',
+          evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+          template: { id: 'intro', version: '1' },
+          prompt: { id: 'draft', version: '1' },
+          copySources: [{ id: 'copy-1', version: '2' }],
+        },
+        invocation,
+      ),
+    ).rejects.toMatchObject({ code: 'OUT_OF_SCOPE' })
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
   })
 
   it('claims and completes only through frozen research authority and scope', async () => {

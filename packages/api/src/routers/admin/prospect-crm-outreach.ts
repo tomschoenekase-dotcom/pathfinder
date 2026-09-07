@@ -6,10 +6,8 @@ import {
   approveProspectSendBatchAction,
   approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
-  db,
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
-  getProspectOutreachAnalyticsAction,
   ProspectOutreachError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
   publishCrmOperationalSignal,
@@ -21,12 +19,13 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { getProspectNoSendRehearsalProjection } from './prospect-outreach-rehearsal'
+import { adminProspectCrmOutreachReadRouter } from './prospect-crm-outreach-read'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const id = z.string().min(1).max(191)
@@ -41,7 +40,7 @@ function mapError(error: unknown): never {
   throw new TRPCError({ code, message: error.message })
 }
 
-export const adminProspectCrmOutreachRouter = router({
+const adminProspectCrmOutreachActionsRouter = router({
   admitProspectStagingPackage: adminProcedure
     .use(requireCrmProspectOutreach)
     .input(z.object({ package: z.unknown() }).strict())
@@ -65,75 +64,6 @@ export const adminProspectCrmOutreachRouter = router({
         })
         await enqueueProspectImportCommit({ importId: input.importId })
         return approved
-      }),
-    ),
-
-  listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>
-    withTenantIsolationBypass(() =>
-      db.prospectOutreachCampaign.findMany({
-        orderBy: { updatedAt: 'desc' },
-        take: 200,
-        include: { _count: { select: { members: true, drafts: true, sendBatches: true } } },
-      }),
-    ),
-  ),
-
-  getProspectOutreachAnalytics: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ campaignId: id.optional() }).strict())
-    .query(({ input }) =>
-      withTenantIsolationBypass(() =>
-        getProspectOutreachAnalyticsAction(
-          input.campaignId === undefined ? {} : { campaignId: input.campaignId },
-        ),
-      ),
-    ),
-
-  getProspectCampaign: adminProcedure
-    .use(requireCrmProspectOutreach)
-    .input(z.object({ campaignId: id }).strict())
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const campaign = await db.prospectOutreachCampaign.findUnique({
-          where: { id: input.campaignId },
-          include: {
-            members: {
-              orderBy: { createdAt: 'asc' },
-              include: {
-                organization: {
-                  select: { canonicalName: true, relationshipTier: true, priority: true },
-                },
-                venue: { select: { name: true, city: true, region: true } },
-                contact: {
-                  select: { fullName: true, title: true, email: true, doNotContact: true },
-                },
-                drafts: { orderBy: { version: 'desc' }, take: 1 },
-              },
-            },
-            sendBatches: {
-              orderBy: { createdAt: 'desc' },
-              include: {
-                _count: { select: { items: true } },
-                items: {
-                  orderBy: { createdAt: 'asc' },
-                  select: {
-                    id: true,
-                    status: true,
-                    recipientEmailSnapshot: true,
-                    subjectSnapshot: true,
-                    textBodySnapshot: true,
-                    htmlBodySnapshot: true,
-                    contentHashSnapshot: true,
-                    providerAccountId: true,
-                    providerMessageId: true,
-                  },
-                },
-              },
-            },
-          },
-        })
-        if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found' })
-        return campaign
       }),
     ),
 
@@ -361,3 +291,8 @@ export const adminProspectCrmOutreachRouter = router({
       ),
     ),
 })
+
+export const adminProspectCrmOutreachRouter = mergeRouters(
+  adminProspectCrmOutreachReadRouter,
+  adminProspectCrmOutreachActionsRouter,
+)

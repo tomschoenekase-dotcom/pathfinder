@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   approve: vi.fn(),
   queue: vi.fn(),
   campaign: vi.fn(),
+  deliveryBody: vi.fn(),
+  members: vi.fn(),
+  deliveries: vi.fn(),
   readiness: vi.fn(),
   rehearsal: vi.fn(),
 }))
@@ -28,6 +31,9 @@ vi.mock('../../lib/trpc', () => {
       approveProspectSendBatch: { mutate: mocks.approve },
       queueProspectSendBatch: { mutate: mocks.queue },
       getProspectCampaign: { query: mocks.campaign },
+      getProspectDeliveryMessageBody: { query: mocks.deliveryBody },
+      listProspectCampaignMembers: { query: mocks.members },
+      listProspectCampaignDeliveries: { query: mocks.deliveries },
       getProspectOutreachReadiness: { query: mocks.readiness },
       getProspectNoSendRehearsal: { query: mocks.rehearsal },
       saveProspectOutreachDraft: { mutate: vi.fn() },
@@ -58,6 +64,7 @@ function fixture(batchStatus: 'STAGED' | 'APPROVED') {
       status: 'DRAFT',
       playbookVersion: 'fixture-v1',
       members: [],
+      page: { hasMoreMembers: false, hasMoreBatches: false, memberLimit: 50, batchLimit: 20 },
       sendBatches: [
         {
           id: 'batch-1',
@@ -175,12 +182,19 @@ describe('ProspectCampaignWorkbench release safety', () => {
   })
 
   it('shows the exact frozen recipient/content and keeps approval separate from release', async () => {
+    mocks.deliveryBody.mockResolvedValue({ textBodySnapshot: 'Exact frozen body' })
     render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={fixture('STAGED')} />)
 
     fireEvent.click(screen.getByText('Inspect exact frozen recipients and content'))
     expect(screen.getByText('To: internal@example.com')).toBeTruthy()
     expect(screen.getByText('Exact frozen subject')).toBeTruthy()
-    expect(screen.getByText('Exact frozen body')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Load full frozen message' }))
+    expect(await screen.findByText('Exact frozen body')).toBeTruthy()
+    expect(mocks.deliveryBody).toHaveBeenCalledWith({
+      campaignId: 'campaign-1',
+      sendItemId: 'item-1',
+      detailVersion: 2,
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve exact batch' }))
     const dialog = screen.getByRole('dialog')
@@ -264,6 +278,56 @@ describe('ProspectCampaignWorkbench release safety', () => {
       { campaignId: 'campaign-1' },
       { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('loads recipient and delivery pages while retaining explicit draft selection', async () => {
+    const state = fixture('STAGED')
+    const firstMember = {
+      id: 'member-1',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      status: 'READY',
+      organization: { canonicalName: 'First museum', relationshipTier: 'NEW', priority: 1 },
+      venue: null,
+      contact: { fullName: 'One', email: 'one@example.com', doNotContact: false },
+      drafts: [
+        {
+          id: 'draft-1',
+          version: 1,
+          status: 'APPROVED',
+          subject: 'One',
+          textBody: 'One',
+          escalationFlags: [],
+        },
+      ],
+    }
+    state.campaign.members = [firstMember] as never
+    state.campaign.page = { ...state.campaign.page, hasMoreMembers: true }
+    mocks.members.mockResolvedValue({
+      detailVersion: 2,
+      items: [
+        {
+          ...firstMember,
+          id: 'member-2',
+          organization: { ...firstMember.organization, canonicalName: 'Second museum' },
+          drafts: [{ ...firstMember.drafts[0], id: 'draft-2' }],
+        },
+      ],
+      nextCursor: null,
+    })
+    mocks.deliveries.mockResolvedValue({
+      detailVersion: 2,
+      items: [{ ...frozenItem, batchId: 'batch-1', createdAt: new Date('2026-09-01T00:00:00Z') }],
+      nextCursor: null,
+    })
+
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={state} />)
+    fireEvent.click(screen.getByLabelText('Include in batch'))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more recipients' }))
+    expect(await screen.findByText('First museum', { selector: 'h3' })).toBeTruthy()
+    expect(screen.getByText('Stage 1 approved draft')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse deliveries' }))
+    expect(await screen.findByText('Exact frozen subject', { selector: 'p' })).toBeTruthy()
+    expect(mocks.deliveries).toHaveBeenCalledWith({ campaignId: 'campaign-1', detailVersion: 2 })
   })
 
   it('aborts every in-flight evidence transport on unmount', async () => {
