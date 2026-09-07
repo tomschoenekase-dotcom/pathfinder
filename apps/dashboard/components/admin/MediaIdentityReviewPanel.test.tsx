@@ -3,6 +3,7 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
+import { mediaEvidenceLocatorId } from '@pathfinder/contracts/media-entity-resolution'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ readEvidence: vi.fn() }))
@@ -58,12 +59,14 @@ const review = {
       representativeId: item.candidateId,
     })),
     activeMergeIds: [],
+    relations: [],
     decisionCount: 0,
   },
   candidates: candidates.map((item) => ({
     candidateId: item.candidateId,
     label: item.label,
     kind: item.kind,
+    evidenceLocatorIds: item.evidence.map(mediaEvidenceLocatorId),
     sourceIds: item.evidence.map((entry) => entry.sourceId),
   })),
   decisions: [],
@@ -335,7 +338,7 @@ describe('MediaIdentityReviewPanel', () => {
     newPreview.resolve({ candidates, truncated: false, expectedUpdatedAt: updatedAt })
     newReview.resolve(replacementReview)
     expect(await screen.findByText('Revision 7')).toBeTruthy()
-    expect(screen.getByText('Replacement scope candidate')).toBeTruthy()
+    expect(screen.getAllByText('Replacement scope candidate').length).toBeGreaterThan(0)
   })
 
   it('does not surface a late prior-scope read error in the replacement scope', async () => {

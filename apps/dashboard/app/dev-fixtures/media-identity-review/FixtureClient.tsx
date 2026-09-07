@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef } from 'react'
+import { mediaEvidenceLocatorId } from '@pathfinder/contracts/media-entity-resolution'
 import type { MediaIdentityReviewDataSource } from '../../../components/admin/MediaIdentityReviewPanel'
 import { MediaIdentityReviewPanel } from '../../../components/admin/MediaIdentityReviewPanel'
 
@@ -25,7 +26,8 @@ const candidates = rawCandidates.map(([candidateId, label, sourceId]) => ({
   contextKeys: [],
   evidence: [
     {
-      ...scope,
+      tenantId: scope.tenantId,
+      projectId: scope.projectId,
       uploadAttemptId,
       sourceId,
       sourceSha256: 'a'.repeat(64),
@@ -60,12 +62,16 @@ export function FixtureClient() {
                 representativeId: item.candidateId,
               })),
               activeMergeIds: [],
+              relations: [],
               decisionCount: 0,
             },
             candidates: rawCandidates.map(([candidateId, label, sourceId]) => ({
               candidateId,
               label,
               kind: 'extracted-entity',
+              evidenceLocatorIds: candidates
+                .find((candidate) => candidate.candidateId === candidateId)!
+                .evidence.map(mediaEvidenceLocatorId),
               sourceIds: [sourceId],
             })),
             decisions: [],
@@ -101,6 +107,93 @@ export function FixtureClient() {
                   : reference,
               ),
               activeMergeIds: [...current.current.projection.activeMergeIds, input.requestId],
+              relations: current.current.projection.relations,
+              decisionCount: current.current.decisions.length + 1,
+            },
+          }
+        } else if (current.current && input.decision?.kind === 'PROPOSE_RELATION') {
+          const proposal = input.decision
+          const decision = {
+            ...proposal,
+            requestId: input.requestId,
+            reviewerId: 'fixture-reviewer',
+          }
+          const representatives = new Map(
+            current.current.projection.references.map((item) => [
+              item.candidateId,
+              item.representativeId,
+            ]),
+          )
+          const fromCandidateId = representatives.get(proposal.fromCandidateId)!
+          const toCandidateId = representatives.get(proposal.toCandidateId)!
+          const { traversal, ...proposalWithoutTraversal } = proposal
+          current.current = {
+            ...current.current,
+            revision: current.current.revision + 1,
+            decisions: [...current.current.decisions, decision],
+            projection: {
+              ...current.current.projection,
+              relations: [
+                ...current.current.projection.relations,
+                {
+                  ...proposalWithoutTraversal,
+                  ...(traversal ? { traversal } : {}),
+                  proposalRequestId: input.requestId,
+                  originalFromCandidateId: proposal.fromCandidateId,
+                  originalToCandidateId: proposal.toCandidateId,
+                  fromCandidateId,
+                  toCandidateId,
+                  reviewStatus: 'PENDING',
+                  reviewRequestId: null,
+                  endpointState:
+                    fromCandidateId === toCandidateId
+                      ? ('COLLAPSED' as const)
+                      : ('RESOLVED' as const),
+                  ambiguity: 'NONE',
+                },
+              ],
+              decisionCount: current.current.decisions.length + 1,
+            },
+          }
+        } else if (current.current && input.decision?.kind === 'REVIEW_RELATION') {
+          const relationReview = input.decision
+          current.current = {
+            ...current.current,
+            revision: current.current.revision + 1,
+            decisions: [
+              ...current.current.decisions,
+              { ...relationReview, requestId: input.requestId, reviewerId: 'fixture-reviewer' },
+            ],
+            projection: {
+              ...current.current.projection,
+              relations: current.current.projection.relations.map((relation) =>
+                relation.proposalRequestId === relationReview.proposalRequestId
+                  ? {
+                      ...relation,
+                      reviewStatus: relationReview.verdict,
+                      reviewRequestId: input.requestId,
+                    }
+                  : relation,
+              ),
+              decisionCount: current.current.decisions.length + 1,
+            },
+          }
+        } else if (current.current && input.decision?.kind === 'REVERT_RELATION') {
+          const reversion = input.decision
+          current.current = {
+            ...current.current,
+            revision: current.current.revision + 1,
+            decisions: [
+              ...current.current.decisions,
+              { ...reversion, requestId: input.requestId, reviewerId: 'fixture-reviewer' },
+            ],
+            projection: {
+              ...current.current.projection,
+              relations: current.current.projection.relations.map((relation) =>
+                relation.reviewRequestId === reversion.reviewRequestId
+                  ? { ...relation, reviewStatus: 'PENDING', reviewRequestId: null }
+                  : relation,
+              ),
               decisionCount: current.current.decisions.length + 1,
             },
           }

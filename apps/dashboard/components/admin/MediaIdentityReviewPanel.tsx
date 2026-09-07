@@ -7,6 +7,10 @@ import type { AppRouter } from '@pathfinder/api'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
 import { MediaIntakeEvidenceReader } from './MediaIntakeEvidenceReader'
+import {
+  MediaRelationReviewControls,
+  type MediaRelationDecision,
+} from './MediaRelationReviewControls'
 
 type Inputs = inferRouterInputs<AppRouter>['mediaIngestion']
 type Outputs = inferRouterOutputs<AppRouter>['mediaIngestion']
@@ -295,6 +299,24 @@ export function MediaIdentityReviewPanel({
         },
       },
       'Merge reverted. Original mention identities and source references were restored.',
+    )
+  }
+
+  function recordRelationDecision(decision: MediaRelationDecision) {
+    if (!review || controlsLocked) return
+    void submit(
+      {
+        ...scope,
+        requestId: crypto.randomUUID(),
+        expectedUpdatedAt: preview?.expectedUpdatedAt ?? expectedUpdatedAt,
+        expectedRevision: review.revision,
+        decision,
+      },
+      decision.kind === 'PROPOSE_RELATION'
+        ? 'Relation evidence proposal recorded for review.'
+        : decision.kind === 'REVIEW_RELATION'
+          ? 'Relation evidence review recorded.'
+          : 'Relation evidence review reverted to pending.',
     )
   }
 
@@ -613,6 +635,13 @@ export function MediaIdentityReviewPanel({
               </div>
             </div>
           ) : null}
+
+          <MediaRelationReviewControls
+            key={`relations-${review.revision}`}
+            review={review}
+            disabled={controlsLocked}
+            onDecision={recordRelationDecision}
+          />
         </div>
       ) : null}
     </section>
