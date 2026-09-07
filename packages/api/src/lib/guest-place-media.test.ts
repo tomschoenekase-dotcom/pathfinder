@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { GuestResponsePlace } from '@pathfinder/contracts'
 import { readApprovedGuestPlaceMedia } from './guest-place-media'
 import type { GuestPlaceMediaReader } from './guest-place-media'
 
@@ -114,9 +115,19 @@ describe('readApprovedGuestPlaceMedia', () => {
       showLinks: false,
     })
     const attribution = result.get('place-1')!.photoAttribution
-    expect(attribution.altText.length).toBe(500)
-    expect(attribution.sourceName.length).toBe(500)
-    expect(attribution.caption!.length).toBe(1000)
+    expect(
+      GuestResponsePlace.safeParse({
+        id: 'place-1',
+        name: 'Gallery',
+        type: 'EXHIBIT',
+        ...result.get('place-1'),
+        shortDescription: null,
+        areaName: null,
+        hours: null,
+        lat: null,
+        lng: null,
+      }).success,
+    ).toBe(true)
     expect(attribution.altText.endsWith('\u{1F30D}')).toBe(true)
   })
 

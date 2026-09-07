@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 
 import { ChatDesignFixtureClient } from './FixtureClient'
 
+export const metadata = { title: 'Client chat design fixture' }
+
 export default async function ChatDesignFixturePage({
   searchParams,
 }: {

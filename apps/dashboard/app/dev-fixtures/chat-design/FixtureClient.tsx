@@ -15,6 +15,8 @@ const venues = [
     chatFont: 'inter',
     chatLogoUrl: 'https://cdn.example.test/harbor-logo.png',
     chatBannerUrl: 'https://cdn.example.test/harbor-banner.png',
+    chatShowPhotos: false,
+    chatShowLinks: false,
     updatedAt: new Date('2026-08-19T12:00:00.000Z'),
   },
   {
@@ -81,6 +83,8 @@ type FixtureDesign = {
   chatBannerUrl?: string | null
   chatLogoDerivativeId?: string | null
   chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: Date
 }
 
@@ -161,6 +165,8 @@ export function ChatDesignFixtureClient({ canEdit }: { canEdit: boolean }) {
                 chatBannerUrl: input.chatBannerUrl ?? null,
                 chatLogoDerivativeId: input.chatLogoDerivativeId ?? null,
                 chatBannerDerivativeId: input.chatBannerDerivativeId ?? null,
+                chatShowPhotos: input.chatShowPhotos,
+                chatShowLinks: input.chatShowLinks,
                 updatedAt: new Date(BASE_REVISION + ++revision.current),
               }
               const next = new Map(savedDesigns).set(input.venueId, saved)

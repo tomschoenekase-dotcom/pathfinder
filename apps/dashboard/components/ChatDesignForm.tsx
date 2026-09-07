@@ -23,6 +23,8 @@ type Venue = {
   chatBannerUrl?: string | null
   chatLogoDerivativeId?: string | null
   chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: string | Date
 }
 
@@ -43,6 +45,8 @@ type ChatDesignFormProps = {
     chatBannerDerivativeId?: string | null
     chatLogoDerivativeReceipt?: BrandingDerivativeReceipt | null
     chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null
+    chatShowPhotos: boolean
+    chatShowLinks: boolean
   }) => Promise<SavedChatDesign>
 }
 
@@ -90,6 +94,8 @@ type SavedChatDesign = {
   hasBanner?: boolean
   chatLogoDerivativeId?: string | null
   chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: Date
 }
 
@@ -124,6 +130,8 @@ function designStateForVenue(venue: Venue | undefined) {
     chatBannerUrl: venue?.chatBannerUrl ?? null,
     chatLogoDerivativeId: venue?.chatLogoDerivativeId ?? null,
     chatBannerDerivativeId: venue?.chatBannerDerivativeId ?? null,
+    chatShowPhotos: venue?.chatShowPhotos ?? false,
+    chatShowLinks: venue?.chatShowLinks ?? false,
   }
 }
 
@@ -164,6 +172,8 @@ export function ChatDesignForm({
   const [chatBannerDerivativeId, setChatBannerDerivativeId] = useState(
     initialDesign.chatBannerDerivativeId ?? null,
   )
+  const [chatShowPhotos, setChatShowPhotos] = useState(initialDesign.chatShowPhotos)
+  const [chatShowLinks, setChatShowLinks] = useState(initialDesign.chatShowLinks)
   const [savedDesign, setSavedDesign] = useState(initialDesign)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -185,7 +195,9 @@ export function ChatDesignForm({
     chatLogoUrl !== savedDesign.chatLogoUrl ||
     chatBannerUrl !== savedDesign.chatBannerUrl ||
     chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null) ||
-    chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null)
+    chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null) ||
+    chatShowPhotos !== savedDesign.chatShowPhotos ||
+    chatShowLinks !== savedDesign.chatShowLinks
 
   function markDirty() {
     setSaveError(null)
@@ -223,6 +235,8 @@ export function ChatDesignForm({
     setChatBannerUrl(next.chatBannerUrl)
     setChatLogoDerivativeId(next.chatLogoDerivativeId ?? null)
     setChatBannerDerivativeId(next.chatBannerDerivativeId ?? null)
+    setChatShowPhotos(next.chatShowPhotos)
+    setChatShowLinks(next.chatShowLinks)
     setSavedDesign(next)
     setSaveError(null)
     setSaved(false)
@@ -284,6 +298,8 @@ export function ChatDesignForm({
         chatTheme: effectiveTheme,
         chatAccentColor: accentOverride,
         chatFont,
+        chatShowPhotos,
+        chatShowLinks,
         ...(venue.chatLogoUrl !== undefined ? { chatLogoUrl } : {}),
         ...(venue.chatBannerUrl !== undefined ? { chatBannerUrl } : {}),
         ...(venue.chatLogoDerivativeId !== undefined &&
@@ -316,6 +332,10 @@ export function ChatDesignForm({
       setChatFont(savedFont)
       setChatLogoUrl(savedLogoUrl)
       setChatBannerUrl(savedBannerUrl)
+      const savedShowPhotos = saved.chatShowPhotos ?? chatShowPhotos
+      const savedShowLinks = saved.chatShowLinks ?? chatShowLinks
+      setChatShowPhotos(savedShowPhotos)
+      setChatShowLinks(savedShowLinks)
       const canonicalDesign = {
         chatTheme: savedTheme,
         darkMode: savedDarkMode,
@@ -325,6 +345,8 @@ export function ChatDesignForm({
         chatBannerUrl: savedBannerUrl,
         chatLogoDerivativeId: saved.chatLogoDerivativeId ?? chatLogoDerivativeId,
         chatBannerDerivativeId: saved.chatBannerDerivativeId ?? chatBannerDerivativeId,
+        chatShowPhotos: savedShowPhotos,
+        chatShowLinks: savedShowLinks,
       }
       savedDesigns.current.set(venue.id, canonicalDesign)
       setSavedDesign(canonicalDesign)
@@ -340,7 +362,7 @@ export function ChatDesignForm({
   }
 
   if (venues.length === 0) {
-    return <p className="text-sm text-pf-deep/50">No venues found. Create a venue first.</p>
+    return <p className="text-sm text-pf-deep/70">No venues found. Create a venue first.</p>
   }
 
   return (
@@ -366,7 +388,7 @@ export function ChatDesignForm({
 
       <div className="rounded-2xl border border-pf-light bg-pf-white p-4">
         <p className="text-sm font-semibold text-pf-deep">Reviewed branding assets</p>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
           Only assets already reviewed for this venue can be retained. This editor cannot upload or
           accept arbitrary URLs.
         </p>
@@ -408,7 +430,7 @@ export function ChatDesignForm({
               return (
                 <label
                   key={role}
-                  className="block text-xs font-semibold uppercase tracking-wide text-pf-deep/60"
+                  className="block text-xs font-semibold uppercase tracking-wide text-pf-deep/70"
                 >
                   {role} asset
                   <select
@@ -458,7 +480,7 @@ export function ChatDesignForm({
 
       <div>
         <p className="text-sm font-semibold text-pf-deep">Colour theme</p>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
           Choose a preset for light mode. The custom colour below overrides its accent.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -491,6 +513,41 @@ export function ChatDesignForm({
         </div>
       </div>
 
+      <fieldset className="border-y border-pf-light py-5" disabled={!canEdit || isSaving}>
+        <legend className="text-sm font-semibold text-pf-deep">Place card references</legend>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
+          Photos appear only for a place mentioned in the answer and only while its review remains
+          valid.
+        </p>
+        <label className="mt-3 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+          <input
+            type="checkbox"
+            checked={chatShowPhotos}
+            onChange={(event) => {
+              markDirty()
+              setChatShowPhotos(event.target.checked)
+              if (!event.target.checked) setChatShowLinks(false)
+            }}
+          />
+          Show reviewed photos for places mentioned in an answer
+        </label>
+        <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+          <input
+            type="checkbox"
+            checked={chatShowLinks}
+            disabled={!canEdit || isSaving || !chatShowPhotos}
+            onChange={(event) => {
+              markDirty()
+              setChatShowLinks(event.target.checked)
+            }}
+          />
+          Link photo credits to their source
+        </label>
+        <p className="text-xs leading-5 text-pf-deep/70">
+          Photo credits remain visible as text when source links are off.
+        </p>
+      </fieldset>
+
       <div className="flex items-start justify-between gap-4 rounded-2xl border border-pf-light bg-pf-white p-4">
         <div className="flex items-center gap-3">
           <div
@@ -505,7 +562,7 @@ export function ChatDesignForm({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-pf-deep">Dark mode (Neon)</p>
-            <p className="mt-0.5 text-xs leading-5 text-pf-deep/50">
+            <p className="mt-0.5 text-xs leading-5 text-pf-deep/70">
               Replaces the light preset with a glowing dark palette derived from your accent colour.
               Turn dark mode off before choosing a light preset.
             </p>
@@ -537,7 +594,7 @@ export function ChatDesignForm({
         <label className="block text-sm font-semibold text-pf-deep" htmlFor="accent-color">
           Custom accent colour
         </label>
-        <p id="accent-color-help" className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p id="accent-color-help" className="mt-1 text-xs leading-5 text-pf-deep/70">
           Hex value e.g. <code>#3A7BD5</code>. Overrides the theme accent, and is the colour Dark
           mode derives its neon palette from. Leave blank to use the theme colour.
         </p>
@@ -564,6 +621,7 @@ export function ChatDesignForm({
           <div
             className="h-10 w-10 flex-shrink-0 rounded-full border border-pf-light"
             style={{ backgroundColor: palettePreview.accent }}
+            role="img"
             aria-label="Colour preview"
           />
         </div>
@@ -571,7 +629,7 @@ export function ChatDesignForm({
 
       <div>
         <p className="text-sm font-semibold text-pf-deep">Font</p>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+        <p className="mt-1 text-xs leading-5 text-pf-deep/70">
           Choose the typeface used throughout the guest chat.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -642,6 +700,8 @@ export function ChatDesignForm({
               setChatBannerUrl(savedDesign.chatBannerUrl)
               setChatLogoDerivativeId(savedDesign.chatLogoDerivativeId ?? null)
               setChatBannerDerivativeId(savedDesign.chatBannerDerivativeId ?? null)
+              setChatShowPhotos(savedDesign.chatShowPhotos)
+              setChatShowLinks(savedDesign.chatShowLinks)
               setSaveError(null)
               setSaved(false)
             }}

@@ -51,6 +51,29 @@ describe('ChatDesignForm', () => {
     vi.restoreAllMocks()
   })
 
+  it('saves dependent governed photo preferences and keeps credits visible when links are off', async () => {
+    render(<ChatDesignForm venues={venues} />)
+    const links = screen.getByLabelText('Link photo credits to their source') as HTMLInputElement
+    expect(links.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText('Show reviewed photos for places mentioned in an answer'))
+    expect(links.disabled).toBe(false)
+    fireEvent.click(links)
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await waitFor(() =>
+      expect(mocks.updateChatDesign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueId: venues[0]!.id,
+          expectedUpdatedAt: venues[0]!.updatedAt,
+          chatShowPhotos: true,
+          chatShowLinks: true,
+        }),
+      ),
+    )
+    expect(
+      screen.getByText('Photo credits remain visible as text when source links are off.'),
+    ).toBeTruthy()
+  })
+
   it('submits an exact venue-scoped design payload and exposes selected states', async () => {
     render(<ChatDesignForm venues={venues} />)
 
@@ -73,6 +96,8 @@ describe('ChatDesignForm', () => {
         chatTheme: 'sunset',
         chatAccentColor: '#ABCDEF',
         chatFont: 'poppins',
+        chatShowPhotos: false,
+        chatShowLinks: false,
       }),
     )
     expect((await screen.findByRole('status')).textContent).toContain('Design saved')
@@ -160,6 +185,8 @@ describe('ChatDesignForm', () => {
         chatTheme: 'dark',
         chatAccentColor: '#D4607A',
         chatFont: 'playfair',
+        chatShowPhotos: false,
+        chatShowLinks: false,
       }),
     )
   })
