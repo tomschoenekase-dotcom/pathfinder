@@ -29,6 +29,7 @@ const history: Exchanges = [
     snapshot: {},
     snapshotHash: 'a'.repeat(64),
     createdAt: new Date('2026-08-25T12:00:00.000Z'),
+    directiveTaskRequest: null,
   },
 ]
 
@@ -72,6 +73,93 @@ describe('FounderOperatingConversation', () => {
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])
+  })
+
+  it('shows the current scoped agent run without rewriting the initial triage exchange', () => {
+    render(
+      <FounderOperatingConversation
+        exchanges={[
+          {
+            ...history[0]!,
+            directiveTaskRequest: {
+              id: 'request-1',
+              status: 'MATERIALIZED',
+              tenantId: 'tenant one',
+              venueId: 'venue/one',
+              approvalRequestId: 'approval-1',
+              updatedAt: new Date('2026-08-25T12:02:00.000Z'),
+              agentIdentity: { id: 'agent-1', name: 'Venue research agent' },
+              agentRun: {
+                id: 'run one',
+                status: 'QUEUED',
+                requestedOperation: 'Prepare the reviewed venue segment.',
+                startedAt: null,
+                completedAt: null,
+              },
+            },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText(/recorded for triage · not executed/i)).toBeTruthy()
+    expect(screen.getByText(/initial response · recorded for triage/i)).toBeTruthy()
+    expect(screen.getByText('queued')).toBeTruthy()
+    expect(screen.getByText(/Venue research agent/i)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open real agent run' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant%20one/venues/venue%2Fone/agents/runs/run%20one',
+    )
+  })
+
+  it.each([
+    ['AWAITING_APPROVAL', 'Approval pending'],
+    ['REJECTED', 'Rejected'],
+    ['CANCELLED', 'Cancelled'],
+  ] as const)('renders %s without implying a run exists', (status, expected) => {
+    render(
+      <FounderOperatingConversation
+        exchanges={[
+          {
+            ...history[0]!,
+            directiveTaskRequest: {
+              id: 'request-1',
+              status,
+              tenantId: 'tenant-1',
+              venueId: 'venue-1',
+              approvalRequestId: 'approval-1',
+              updatedAt: new Date(),
+              agentIdentity: { id: 'agent-1', name: 'Venue research agent' },
+              agentRun: null,
+            },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText(new RegExp(expected, 'i'))).toBeTruthy()
+    expect(screen.getByText('No agent run has been created.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Open real agent run' })).toBeNull()
+  })
+
+  it('describes a materialized request with a missing run as unavailable readback', () => {
+    render(
+      <FounderOperatingConversation
+        exchanges={[
+          {
+            ...history[0]!,
+            directiveTaskRequest: {
+              id: 'request-1',
+              status: 'MATERIALIZED',
+              tenantId: 'tenant-1',
+              venueId: 'venue-1',
+              approvalRequestId: 'approval-1',
+              updatedAt: new Date(),
+              agentIdentity: { id: 'agent-1', name: 'Venue research agent' },
+              agentRun: null,
+            },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Run details are unavailable.')).toBeTruthy()
   })
 
   it('keeps the same operation id after an unknown outcome for safe unchanged retry', async () => {

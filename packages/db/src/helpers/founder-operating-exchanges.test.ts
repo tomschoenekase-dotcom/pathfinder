@@ -162,5 +162,17 @@ describe('founder operating exchange actions', () => {
     expect(exchange.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: 50, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
     )
+    expect(exchange.findMany.mock.calls[0]?.[0].select).toMatchObject({
+      directiveTaskRequest: {
+        select: {
+          id: true,
+          status: true,
+          tenantId: true,
+          venueId: true,
+          agentIdentity: { select: { id: true, name: true } },
+          agentRun: { select: { id: true, status: true, requestedOperation: true } },
+        },
+      },
+    })
   })
 })

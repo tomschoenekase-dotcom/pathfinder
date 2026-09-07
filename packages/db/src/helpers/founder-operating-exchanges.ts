@@ -159,6 +159,26 @@ const projection = {
   snapshot: true,
   snapshotHash: true,
   createdAt: true,
+  directiveTaskRequest: {
+    select: {
+      id: true,
+      status: true,
+      tenantId: true,
+      venueId: true,
+      approvalRequestId: true,
+      updatedAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+      agentRun: {
+        select: {
+          id: true,
+          status: true,
+          requestedOperation: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      },
+    },
+  },
 } as const
 
 function replayExisting<T extends { operatorUserId: string; prompt: string }>(

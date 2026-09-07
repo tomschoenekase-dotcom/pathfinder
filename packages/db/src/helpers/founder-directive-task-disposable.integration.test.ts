@@ -10,7 +10,10 @@ import {
   proposeFounderDirectiveTaskAction,
   readFounderDirectiveTasks,
 } from './founder-directive-task-actions'
-import { recordFounderOperatingExchange } from './founder-operating-exchanges'
+import {
+  listFounderOperatingExchanges,
+  recordFounderOperatingExchange,
+} from './founder-operating-exchanges'
 import {
   activatePlatformWorkerPolicyCredentialAction,
   issuePlatformWorkerPolicyCredentialAction,
@@ -195,6 +198,20 @@ describe.skipIf(!enabled)('founder directive task disposable lifecycle', () => {
       await expect(materializeFounderDirectiveTaskAction(materializeInput)).resolves.toMatchObject({
         replayed: true,
         run: { id: materialized.run.id },
+      })
+      const retainedExchange = (await listFounderOperatingExchanges(20)).find(
+        (item) => item.id === directive.exchange.id,
+      )
+      expect(retainedExchange).toMatchObject({
+        disposition: 'RECORDED_FOR_TRIAGE',
+        directiveTaskRequest: {
+          id: proposed.request.id,
+          status: 'MATERIALIZED',
+          tenantId,
+          venueId,
+          agentIdentity: { id: identityId },
+          agentRun: { id: materialized.run.id, status: 'QUEUED' },
+        },
       })
       const run = await db.agentRun.findUniqueOrThrow({
         where: { id: materialized.run.id },
