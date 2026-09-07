@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
-import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import {
+  VenuePackagePayloadV1,
+  MediaVideoMethodSchema,
+  mediaVideoMethodLabel,
+} from '@pathfinder/contracts'
 
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
@@ -23,7 +27,7 @@ type Finding = {
   sourceId: string
   filename: string
   mediaType: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
-  videoAnalysisMethod?: 'GOOGLE_COMPLETE_VIDEO' | 'SAMPLED_VIDEO' | 'SAMPLED_VIDEO_FALLBACK'
+  videoAnalysisMethod?: ReturnType<typeof MediaVideoMethodSchema.parse>
   summary: string
   uncertainties: string[]
   review?: FindingReview
@@ -68,13 +72,8 @@ function normalizeFindings(value: unknown): Finding[] {
     ) {
       return []
     }
-    const videoAnalysisMethod = [
-      'GOOGLE_COMPLETE_VIDEO',
-      'SAMPLED_VIDEO',
-      'SAMPLED_VIDEO_FALLBACK',
-    ].includes(String(finding.videoAnalysisMethod))
-      ? (finding.videoAnalysisMethod as Finding['videoAnalysisMethod'])
-      : undefined
+    const method = MediaVideoMethodSchema.safeParse(finding.videoAnalysisMethod)
+    const videoAnalysisMethod = method.success ? method.data : undefined
     const rawReview = finding.review
     let review: FindingReview | undefined
     if (rawReview && typeof rawReview === 'object') {
@@ -418,11 +417,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
                       </p>
                       {finding.videoAnalysisMethod ? (
                         <p className="mt-1 text-xs text-pf-deep/55">
-                          {finding.videoAnalysisMethod === 'GOOGLE_COMPLETE_VIDEO'
-                            ? 'Google complete-video analysis'
-                            : finding.videoAnalysisMethod === 'SAMPLED_VIDEO_FALLBACK'
-                              ? 'Sampled analysis after Google fallback'
-                              : 'Sampled video analysis'}
+                          {mediaVideoMethodLabel(finding.videoAnalysisMethod)}
                         </p>
                       ) : null}
                     </div>

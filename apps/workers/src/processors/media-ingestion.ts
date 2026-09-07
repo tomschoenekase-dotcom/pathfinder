@@ -15,6 +15,7 @@ import { z } from 'zod'
 
 import {
   MEDIA_SOURCE_FILENAME_LIMIT,
+  MediaObservationSchema,
   VENUE_PACKAGE_ITEM_LIMIT,
   VenuePackagePayloadV1,
   VenuePackagePayloadV1Object,
@@ -166,16 +167,7 @@ type Analysis = {
   uncertainties: string[]
   videoAnalysisMethod?: VideoAnalysisMethod
   videoAnalysisCoverage?: VideoAnalysisCoverage
-  observations?: Array<{
-    kind: 'entity_candidate' | 'visible_text' | 'narrated_fact' | 'spatial_relation'
-    statement: string
-    evidenceChannel: 'visual' | 'visible_text' | 'speech' | 'mixed'
-    directness: 'observed' | 'inferred'
-    confidence: 'confirmed' | 'probable' | 'unverified'
-    startSeconds: number
-    endSeconds: number
-    region?: { x: number; y: number; width: number; height: number } | undefined
-  }>
+  observations?: Array<z.infer<typeof MediaObservationSchema>>
 }
 
 const analysisSchema = z
@@ -194,37 +186,7 @@ const analysisSchema = z
       .max(1_000),
     spatialClues: z.array(z.string().max(10_000)).max(1_000),
     uncertainties: z.array(z.string().max(10_000)).max(1_000),
-    observations: z
-      .array(
-        z
-          .object({
-            kind: z.enum(['entity_candidate', 'visible_text', 'narrated_fact', 'spatial_relation']),
-            statement: z.string().min(1).max(10_000),
-            evidenceChannel: z.enum(['visual', 'visible_text', 'speech', 'mixed']),
-            directness: z.enum(['observed', 'inferred']),
-            confidence: z.enum(['confirmed', 'probable', 'unverified']),
-            startSeconds: z.number().finite().min(0),
-            endSeconds: z.number().finite().min(0),
-            region: z
-              .object({
-                x: z.number().finite().min(0).max(1),
-                y: z.number().finite().min(0).max(1),
-                width: z.number().finite().min(0).max(1),
-                height: z.number().finite().min(0).max(1),
-              })
-              .strict()
-              .refine((region) => region.x + region.width <= 1 && region.y + region.height <= 1, {
-                message: 'Observation region must fit within the image.',
-              })
-              .optional(),
-          })
-          .strict()
-          .refine((value) => value.endSeconds >= value.startSeconds, {
-            message: 'Observation end must not precede its start.',
-          }),
-      )
-      .max(2_000)
-      .optional(),
+    observations: z.array(MediaObservationSchema).max(2_000).optional(),
   })
   .strict()
 
