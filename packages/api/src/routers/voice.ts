@@ -107,6 +107,50 @@ async function resolveOwnedVoiceSession(
   return { scope, voiceSession }
 }
 
+async function requireUsableVoiceSession(
+  ctx: TRPCContext,
+  resolved: Awaited<ReturnType<typeof resolveOwnedVoiceSession>>,
+) {
+  const { scope, voiceSession } = resolved
+  if (!['READY', 'ACTIVE'].includes(voiceSession.status)) {
+    throw new TRPCError({ code: 'CONFLICT', message: 'Voice session is not active.' })
+  }
+  const now = new Date()
+  // The ephemeral secret expires as a credential for establishing the WebRTC call.
+  // Once connected, the provider session has its own lifecycle and must not be
+  // terminated merely because that one-time connection window elapsed.
+  const authorizationExpired =
+    voiceSession.status === 'READY' &&
+    voiceSession.clientSecretExpiresAt instanceof Date &&
+    voiceSession.clientSecretExpiresAt <= now
+  const durationExpired =
+    voiceSession.connectedAt instanceof Date &&
+    now.getTime() - voiceSession.connectedAt.getTime() >= voiceSession.maxDurationSeconds * 1_000
+  if (!authorizationExpired && !durationExpired) return resolved
+
+  const errorCode = authorizationExpired ? 'AUTHORIZATION_EXPIRED' : 'SESSION_DURATION_EXCEEDED'
+  await ctx.db.voiceSession.updateMany({
+    where: {
+      id: voiceSession.id,
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      visitorSessionId: scope.sessionId,
+      status: { in: ['READY', 'ACTIVE'] },
+    },
+    data: {
+      status: 'FAILED',
+      errorCode,
+      endedAt: now,
+      lastActiveAt: now,
+      fallbackToText: true,
+    },
+  })
+  throw new TRPCError({
+    code: 'CONFLICT',
+    message: 'Voice session expired. Continue in text or start voice again.',
+  })
+}
+
 function quotaError(): TRPCError {
   return new TRPCError({
     code: 'TOO_MANY_REQUESTS',
@@ -450,7 +494,10 @@ export const voiceRouter = router({
   }),
 
   connected: publicProcedure.input(VoiceSessionConnectedInput).mutation(async ({ ctx, input }) => {
-    const { scope } = await resolveOwnedVoiceSession(ctx, input)
+    const { scope } = await requireUsableVoiceSession(
+      ctx,
+      await resolveOwnedVoiceSession(ctx, input),
+    )
     const connectedAt = new Date()
     const updated = await ctx.db.voiceSession.updateMany({
       where: {
@@ -467,10 +514,10 @@ export const voiceRouter = router({
   transcript: publicProcedure
     .input(VoiceTranscriptSegmentInput)
     .mutation(async ({ ctx, input }) => {
-      const { scope, voiceSession } = await resolveOwnedVoiceSession(ctx, input)
-      if (!['READY', 'ACTIVE'].includes(voiceSession.status)) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'Voice session is not active.' })
-      }
+      const { scope } = await requireUsableVoiceSession(
+        ctx,
+        await resolveOwnedVoiceSession(ctx, input),
+      )
       const created = await ctx.db.voiceTranscriptSegment.createMany({
         data: [
           {
@@ -494,10 +541,10 @@ export const voiceRouter = router({
     }),
 
   usage: publicProcedure.input(VoiceUsageInput).mutation(async ({ ctx, input }) => {
-    const { scope, voiceSession } = await resolveOwnedVoiceSession(ctx, input)
-    if (!['READY', 'ACTIVE'].includes(voiceSession.status)) {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Voice session is not active.' })
-    }
+    const { scope, voiceSession } = await requireUsableVoiceSession(
+      ctx,
+      await resolveOwnedVoiceSession(ctx, input),
+    )
     const estimatedCostUsd = estimateRealtimeVoiceCostUsd(voiceSession.model, {
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
@@ -568,7 +615,7 @@ export const voiceRouter = router({
         venueId: scope.venueId,
       },
     })
-    await ctx.db.voiceSession.updateMany({
+    const ended = await ctx.db.voiceSession.updateMany({
       where: {
         id: input.voiceSessionId,
         tenantId: scope.tenantId,
@@ -584,21 +631,22 @@ export const voiceRouter = router({
         ...(input.errorCode ? { errorCode: input.errorCode } : {}),
       },
     })
-    void emitEvent({
-      tenantId: scope.tenantId,
-      venueId: scope.venueId,
-      sessionId: scope.sessionId,
-      eventType: input.errorCode ? 'voice.session.failed' : 'voice.session.ended',
-      metadata: {
-        voiceSessionId: input.voiceSessionId,
-        durationSeconds,
-        locale: voiceSession.locale,
-        provider: voiceSession.provider,
-        model: voiceSession.model,
-        transcriptAvailable: transcriptCount > 0,
-      },
-    })
-    if (input.fallbackToText) {
+    if (ended.count === 1)
+      void emitEvent({
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        sessionId: scope.sessionId,
+        eventType: input.errorCode ? 'voice.session.failed' : 'voice.session.ended',
+        metadata: {
+          voiceSessionId: input.voiceSessionId,
+          durationSeconds,
+          locale: voiceSession.locale,
+          provider: voiceSession.provider,
+          model: voiceSession.model,
+          transcriptAvailable: transcriptCount > 0,
+        },
+      })
+    if (ended.count === 1 && input.fallbackToText) {
       void emitEvent({
         tenantId: scope.tenantId,
         venueId: scope.venueId,
@@ -607,6 +655,6 @@ export const voiceRouter = router({
         metadata: { voiceSessionId: input.voiceSessionId },
       })
     }
-    return { ended: true, durationSeconds }
+    return { ended: ended.count === 1, durationSeconds }
   }),
 })

@@ -13,8 +13,8 @@ const mocks = vi.hoisted(() => ({
   getUserMedia: vi.fn(),
 }))
 
-vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({
+vi.mock('../lib/trpc', () => {
+  const client = {
     voice: {
       availability: { query: mocks.availability },
       start: { mutate: mocks.start },
@@ -23,8 +23,9 @@ vi.mock('../lib/trpc', () => ({
       usage: { mutate: mocks.usage },
       end: { mutate: mocks.end },
     },
-  }),
-}))
+  }
+  return { useTRPCClient: () => client }
+})
 
 import {
   MICROPHONE_REQUEST_TIMEOUT_MS,
@@ -132,6 +133,162 @@ describe('VoiceControl', () => {
 
     expect(stop).toHaveBeenCalledOnce()
     expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it('cancels the active response on barge-in, marks unplayed speech interrupted, and tears down media', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.end.mockResolvedValue({ ended: true })
+    const stop = vi.fn()
+    mocks.getUserMedia.mockResolvedValue({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    const closeChannel = vi.fn()
+    const channel = {
+      readyState: 'open',
+      send,
+      close: closeChannel,
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    const closePeer = vi.fn()
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      close: closePeer,
+      ontrack: null,
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+
+    const providerEvent = (event: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+    act(() => {
+      providerEvent({
+        type: 'response.created',
+        event_id: 'created-1',
+        response: { id: 'response-1' },
+      })
+      providerEvent({ type: 'response.output_audio.delta', event_id: 'audio-1' })
+      providerEvent({ type: 'input_audio_buffer.speech_started', event_id: 'speech-1' })
+      providerEvent({
+        type: 'output_audio_buffer.cleared',
+        event_id: 'clear-1',
+        response_id: 'response-1',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'transcript-1',
+        response_id: 'response-1',
+        transcript: 'The gallery is on the second floor.',
+      })
+    })
+
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ])
+    expect(await screen.findByText('(interrupted)')).toBeTruthy()
+    expect(mocks.transcript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerEventId: 'transcript-1',
+        text: '[Interrupted] The gallery is on the second floor.',
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'End voice conversation' }))
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce())
+    expect(stop).toHaveBeenCalledOnce()
+    expect(closeChannel).toHaveBeenCalledOnce()
+    expect(closePeer).toHaveBeenCalledOnce()
+  })
+
+  it('clears completed generation without cancelling it and never reclassifies an interrupted caption', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    const channel = {
+      send,
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    const peer = {
+      addTrack: vi.fn(),
+      createDataChannel: () => channel,
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+      setLocalDescription: vi.fn(),
+      setRemoteDescription: vi.fn(),
+      close: vi.fn(),
+      ontrack: null,
+    }
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn() }],
+    } as unknown as MediaStream)
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => peer),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    const event = (payload: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(payload) } as MessageEvent<string>)
+    act(() => {
+      event({ type: 'response.created', response: { id: 'response-2' } })
+      event({ type: 'output_audio_buffer.started', response_id: 'response-2' })
+    })
+    expect(screen.getByRole('status').textContent).toContain('Speaking')
+    act(() => {
+      event({ type: 'response.done', response: { id: 'response-2' } })
+      event({ type: 'input_audio_buffer.speech_started' })
+      event({ type: 'output_audio_buffer.cleared', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'transcript-2',
+        response_id: 'response-2',
+        transcript: 'Partly heard.',
+      })
+      event({ type: 'output_audio_buffer.stopped', response_id: 'response-2' })
+      event({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'transcript-2-duplicate',
+        response_id: 'response-2',
+        transcript: 'Partly heard.',
+      })
+    })
+
+    expect(send.mock.calls.map(([value]) => JSON.parse(value as string))).toEqual([
+      { type: 'output_audio_buffer.clear' },
+    ])
+    expect(screen.getAllByText('(interrupted)')).toHaveLength(1)
+    expect(mocks.transcript).toHaveBeenCalledTimes(1)
   })
 })
 

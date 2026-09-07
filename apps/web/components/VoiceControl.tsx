@@ -17,7 +17,11 @@ type VoiceState =
   | 'thinking'
   | 'speaking'
   | 'error'
-export type VoiceTranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: string }
+export type VoiceTranscriptLine = {
+  speaker: 'VISITOR' | 'ASSISTANT'
+  text: string
+  delivery?: 'PLAYED' | 'INTERRUPTED'
+}
 
 export const MICROPHONE_REQUEST_TIMEOUT_MS = 15_000
 export const REALTIME_SDP_REQUEST_TIMEOUT_MS = 30_000
@@ -182,11 +186,20 @@ export function VoiceControl({
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const channelRef = useRef<RTCDataChannel | null>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const sequenceRef = useRef(0)
   const stopTimerRef = useRef<number | null>(null)
   const realtimeRequestRef = useRef<AbortController | null>(null)
   const endingRef = useRef(false)
+  const activeResponseIdRef = useRef<string | null>(null)
+  const pendingAssistantTranscriptRef = useRef<
+    Map<string, { text: string; providerEventId: string }>
+  >(new Map())
+  const interruptedResponseIdsRef = useRef(new Set<string>())
+  const playedResponseIdsRef = useRef(new Set<string>())
+  const generatingResponseIdsRef = useRef(new Set<string>())
+  const finalizedResponseIdsRef = useRef(new Set<string>())
 
   const setVoiceState = useCallback(
     (next: VoiceState) => {
@@ -203,10 +216,19 @@ export function VoiceControl({
     realtimeRequestRef.current = null
     channelRef.current?.close()
     peerRef.current?.close()
+    remoteAudioRef.current?.pause()
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     channelRef.current = null
     peerRef.current = null
     streamRef.current = null
+    remoteAudioRef.current = null
+    activeResponseIdRef.current = null
+    pendingAssistantTranscriptRef.current.clear()
+    interruptedResponseIdsRef.current.clear()
+    playedResponseIdsRef.current.clear()
+    generatingResponseIdsRef.current.clear()
+    finalizedResponseIdsRef.current.clear()
   }, [])
 
   const endSession = useCallback(
@@ -277,12 +299,19 @@ export function VoiceControl({
   )
 
   const saveTranscript = useCallback(
-    (speaker: 'VISITOR' | 'ASSISTANT', text: string, providerEventId: string) => {
+    (
+      speaker: 'VISITOR' | 'ASSISTANT',
+      text: string,
+      providerEventId: string,
+      delivery?: 'PLAYED' | 'INTERRUPTED',
+    ) => {
       const clean = text.trim()
       const voiceSessionId = sessionIdRef.current
       if (!clean || !voiceSessionId || !anonymousToken) return
       const sequence = sequenceRef.current++
-      setTranscript((lines) => [...lines, { speaker, text: clean }].slice(-12))
+      setTranscript((lines) =>
+        [...lines, { speaker, text: clean, ...(delivery ? { delivery } : {}) }].slice(-12),
+      )
       void client.voice.transcript
         .mutate({
           venueId,
@@ -291,12 +320,26 @@ export function VoiceControl({
           providerEventId,
           sequence,
           speaker,
-          text: clean,
+          text: delivery === 'INTERRUPTED' ? `[Interrupted] ${clean}` : clean,
           language: getChatLanguagePresentation(language).code,
         })
         .catch(() => undefined)
     },
     [anonymousToken, client.voice.transcript, language, venueId],
+  )
+
+  const finishAssistantTranscript = useCallback(
+    (responseId: string, delivery: 'PLAYED' | 'INTERRUPTED') => {
+      const pending = pendingAssistantTranscriptRef.current.get(responseId)
+      if (!pending) return
+      pendingAssistantTranscriptRef.current.delete(responseId)
+      interruptedResponseIdsRef.current.delete(responseId)
+      playedResponseIdsRef.current.delete(responseId)
+      finalizedResponseIdsRef.current.add(responseId)
+      saveTranscript('ASSISTANT', pending.text, pending.providerEventId, delivery)
+      if (activeResponseIdRef.current === responseId) activeResponseIdRef.current = null
+    },
+    [saveTranscript],
   )
 
   const saveUsage = useCallback(
@@ -350,21 +393,75 @@ export function VoiceControl({
         const event = JSON.parse(raw.data) as Record<string, unknown>
         const type = typeof event.type === 'string' ? event.type : ''
         const eventId = typeof event.event_id === 'string' ? event.event_id : crypto.randomUUID()
-        if (type === 'input_audio_buffer.speech_started') setVoiceState('listening')
-        else if (type === 'input_audio_buffer.speech_stopped' || type === 'response.created') {
+        if (type === 'input_audio_buffer.speech_started') {
+          const responseId = activeResponseIdRef.current
+          if (responseId && channelRef.current) {
+            interruptedResponseIdsRef.current.add(responseId)
+            if (generatingResponseIdsRef.current.has(responseId)) {
+              channelRef.current.send(
+                JSON.stringify({ type: 'response.cancel', response_id: responseId }),
+              )
+            }
+            channelRef.current.send(JSON.stringify({ type: 'output_audio_buffer.clear' }))
+          }
+          setVoiceState('listening')
+        } else if (type === 'response.created') {
+          const response = event.response as { id?: unknown } | undefined
+          if (typeof response?.id === 'string') {
+            activeResponseIdRef.current = response.id
+            generatingResponseIdsRef.current.add(response.id)
+          }
           setVoiceState('thinking')
-        } else if (type.includes('output_audio') && type.endsWith('.delta')) {
+        } else if (type === 'input_audio_buffer.speech_stopped') {
+          setVoiceState('thinking')
+        } else if (
+          type === 'output_audio_buffer.started' ||
+          (type.includes('output_audio') && type.endsWith('.delta'))
+        ) {
           setVoiceState('speaking')
         } else if (type === 'response.done') {
+          const response = event.response as { id?: unknown } | undefined
+          if (typeof response?.id === 'string') generatingResponseIdsRef.current.delete(response.id)
           saveUsage(event, eventId)
-          setVoiceState('listening')
         } else if (type === 'conversation.item.input_audio_transcription.completed') {
           saveTranscript('VISITOR', String(event.transcript ?? ''), eventId)
         } else if (
           type === 'response.output_audio_transcript.done' ||
           type === 'response.audio_transcript.done'
         ) {
-          saveTranscript('ASSISTANT', String(event.transcript ?? ''), eventId)
+          const responseId =
+            typeof event.response_id === 'string' ? event.response_id : activeResponseIdRef.current
+          if (responseId) {
+            if (finalizedResponseIdsRef.current.has(responseId)) return
+            pendingAssistantTranscriptRef.current.set(responseId, {
+              text: String(event.transcript ?? ''),
+              providerEventId: eventId,
+            })
+            if (interruptedResponseIdsRef.current.has(responseId)) {
+              finishAssistantTranscript(responseId, 'INTERRUPTED')
+            } else if (playedResponseIdsRef.current.has(responseId)) {
+              playedResponseIdsRef.current.delete(responseId)
+              finishAssistantTranscript(responseId, 'PLAYED')
+            }
+          }
+        } else if (
+          type === 'output_audio_buffer.stopped' &&
+          typeof event.response_id === 'string'
+        ) {
+          if (finalizedResponseIdsRef.current.has(event.response_id)) return
+          if (pendingAssistantTranscriptRef.current.has(event.response_id)) {
+            finishAssistantTranscript(event.response_id, 'PLAYED')
+          } else {
+            playedResponseIdsRef.current.add(event.response_id)
+          }
+          setVoiceState('listening')
+        } else if (
+          type === 'output_audio_buffer.cleared' &&
+          typeof event.response_id === 'string'
+        ) {
+          if (finalizedResponseIdsRef.current.has(event.response_id)) return
+          interruptedResponseIdsRef.current.add(event.response_id)
+          finishAssistantTranscript(event.response_id, 'INTERRUPTED')
         } else if (type === 'error') {
           setError('The voice connection reported an error. Continue in text or try again.')
           void endSession({ fallbackToText: true, errorCode: 'PROVIDER_EVENT_ERROR' })
@@ -373,7 +470,7 @@ export function VoiceControl({
         // Ignore provider events this client version does not understand.
       }
     },
-    [endSession, saveTranscript, saveUsage, setVoiceState],
+    [endSession, finishAssistantTranscript, saveTranscript, saveUsage, setVoiceState],
   )
 
   async function startSession() {
@@ -402,6 +499,7 @@ export function VoiceControl({
       peerRef.current = peer
       const audio = document.createElement('audio')
       audio.autoplay = true
+      remoteAudioRef.current = audio
       peer.ontrack = (event) => {
         audio.srcObject = event.streams[0] ?? new MediaStream([event.track])
       }
@@ -524,6 +622,11 @@ export function VoiceControlPanel({
             <p key={`${line.speaker}-${index}`} dir="auto" className="text-[var(--chat-text)]">
               <span className="font-semibold">{line.speaker === 'VISITOR' ? 'You' : 'Guide'}:</span>{' '}
               {line.text}
+              {line.delivery === 'INTERRUPTED' ? (
+                <span className="ml-1 text-xs font-medium text-[var(--chat-text-muted)]">
+                  (interrupted)
+                </span>
+              ) : null}
             </p>
           ))}
         </div>

@@ -235,6 +235,127 @@ describe('voice router', () => {
     })
   })
 
+  it('terminally fences an expired ephemeral authorization before accepting transcript text', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'READY',
+      clientSecretExpiresAt: new Date('2000-01-01T00:00:00Z'),
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+
+    await expect(
+      caller.voice.transcript({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: VOICE_ID,
+        providerEventId: 'transcript-after-expiry',
+        sequence: 1,
+        speaker: 'ASSISTANT',
+        text: 'This must not be retained.',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(dbMocks.transcriptCreateMany).not.toHaveBeenCalled()
+    expect(dbMocks.voiceUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: VOICE_ID,
+        tenantId: 'tenant-1',
+        venueId: VENUE_ID,
+        visitorSessionId: 'session-1',
+        status: { in: ['READY', 'ACTIVE'] },
+      },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        errorCode: 'AUTHORIZATION_EXPIRED',
+        fallbackToText: true,
+      }),
+    })
+  })
+
+  it('does not mistake the connection credential expiry for an active call expiry', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      clientSecretExpiresAt: new Date('2000-01-01T00:00:00Z'),
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    dbMocks.transcriptCreateMany.mockResolvedValue({ count: 1 })
+
+    await expect(
+      caller.voice.transcript({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: VOICE_ID,
+        providerEventId: 'active-after-handshake-window',
+        sequence: 2,
+        speaker: 'VISITOR',
+        text: 'The active call remains valid.',
+      }),
+    ).resolves.toEqual({ accepted: true })
+    expect(dbMocks.transcriptCreateMany).toHaveBeenCalledOnce()
+  })
+
+  it('rejects usage after the maximum connected duration and does not record cost', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      provider: 'openai',
+      model: 'gpt-realtime-2.1-mini',
+      capability: 'REALTIME_VOICE_ECONOMY',
+      clientSecretExpiresAt: new Date('2999-01-01T00:00:00Z'),
+      connectedAt: new Date(Date.now() - 601_000),
+      maxDurationSeconds: 600,
+    })
+
+    await expect(
+      caller.voice.usage({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: VOICE_ID,
+        providerEventId: 'usage-after-duration',
+        inputTokens: 10,
+        outputTokens: 10,
+        cachedInputTokens: 0,
+        cachedAudioInputTokens: 0,
+        audioInputTokens: 10,
+        audioOutputTokens: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(dbMocks.usageCreate).not.toHaveBeenCalled()
+    expect(dbMocks.voiceUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ errorCode: 'SESSION_DURATION_EXCEEDED' }),
+      }),
+    )
+  })
+
+  it('makes repeated close idempotent and emits the terminal event only for the winning close', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ENDED',
+      provider: 'openai',
+      model: 'gpt-realtime-2.1-mini',
+      locale: 'en',
+      connectedAt: new Date(),
+      createdAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    dbMocks.voiceUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      caller.voice.end({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        voiceSessionId: VOICE_ID,
+        fallbackToText: false,
+      }),
+    ).resolves.toMatchObject({ ended: false })
+    expect(mocks.emitEvent).not.toHaveBeenCalled()
+  })
+
   it('fails closed and publishes an actionable incident when authorization changes route identity', async () => {
     provider.authorizeSession = vi.fn().mockResolvedValue({
       provider: 'openai',
