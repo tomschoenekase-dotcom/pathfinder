@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-222-20260907',
+  approval: 'torchiko-staging-lineage-to-223-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 222,
+  migrationCount: 223,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -75,6 +75,10 @@ const EXPECTED = Object.freeze({
   usageObservationPredecessorCount: 221,
   usageObservationPredecessorPublicTableCount: 244,
   usageObservationPredecessorFinalMigration: '20260907022100_add_ai_usage_observation_status',
+  promotionAssessmentPredecessorCount: 222,
+  promotionAssessmentPredecessorPublicTableCount: 245,
+  promotionAssessmentPredecessorFinalMigration:
+    '20260907022200_add_agent_workflow_promotion_assessments',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -94,10 +98,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907022200_add_agent_workflow_promotion_assessments',
-  manifestHash: 'ceff51dc605a1d4873c327f9ab667be4eef1523f2c131a5b1462f5ac0a74cd1d',
-  // The 81-migration suffix after B.5 adds 52 public tables.
-  finalPublicTableCount: 245,
+  finalMigration: '20260907022300_add_agent_workflow_activations',
+  manifestHash: 'f643a5f40f0e205f8664eb36f42cddad22e66527bc1b47f663cd3f75f5d69be1',
+  // The 82-migration suffix after B.5 adds 55 public tables.
+  finalPublicTableCount: 248,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -362,6 +366,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.governedMediaPredecessorCount &&
     rows.length !== EXPECTED.workflowRegistryPredecessorCount &&
     rows.length !== EXPECTED.usageObservationPredecessorCount &&
+    rows.length !== EXPECTED.promotionAssessmentPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -416,12 +421,13 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.mediaRelationPredecessorCount) return 'media-relation-predecessor'
   if (rows.length === EXPECTED.prospectOnboardingPredecessorCount)
     return 'prospect-onboarding-predecessor'
-  if (rows.length === EXPECTED.governedMediaPredecessorCount)
-    return 'governed-media-predecessor'
+  if (rows.length === EXPECTED.governedMediaPredecessorCount) return 'governed-media-predecessor'
   if (rows.length === EXPECTED.workflowRegistryPredecessorCount)
     return 'workflow-registry-predecessor'
   if (rows.length === EXPECTED.usageObservationPredecessorCount)
     return 'usage-observation-predecessor'
+  if (rows.length === EXPECTED.promotionAssessmentPredecessorCount)
+    return 'promotion-assessment-predecessor'
   return 'complete'
 }
 
@@ -608,7 +614,10 @@ async function main() {
                                                   ? EXPECTED.workflowRegistryPredecessorPublicTableCount
                                                   : initialState === 'usage-observation-predecessor'
                                                     ? EXPECTED.usageObservationPredecessorPublicTableCount
-                                                    : EXPECTED.stagingBaselinePublicTableCount
+                                                    : initialState ===
+                                                        'promotion-assessment-predecessor'
+                                                      ? EXPECTED.promotionAssessmentPredecessorPublicTableCount
+                                                      : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
