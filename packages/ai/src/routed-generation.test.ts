@@ -144,13 +144,19 @@ describe('routed text generation', () => {
       },
     })
     setOpenAiResponsesClientForTesting({ responses: { create } })
+    const fallbackCreate = vi.fn()
+    setAnthropicClientForTesting({ messages: { create: fallbackCreate } })
     const configuration = resolveAiWorkloadConfiguration({
       workloadId: 'guest-chat',
       overrides: [
         {
           activation: 'ENABLED',
           scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
-          values: { primaryModelKey: 'guest-chat-openai', maxAttempts: 1 },
+          values: {
+            primaryModelKey: 'guest-chat-openai',
+            maxAttempts: 1,
+            fallback: { enabled: true, modelKeys: ['agent-run'] },
+          },
           unsafeChangesEnabled: true,
           reason: 'bounded OpenAI text canary',
         },
@@ -173,6 +179,8 @@ describe('routed text generation', () => {
         budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toMatchObject({ code: 'provider-incomplete-response', attempts: 1 })
+    expect(fallbackCreate).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(1)
     expect(usageSink).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,

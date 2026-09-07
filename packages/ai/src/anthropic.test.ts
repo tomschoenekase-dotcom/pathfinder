@@ -52,6 +52,76 @@ describe('generateText', () => {
     setAnthropicClientForTesting(client)
   })
 
+  it.each(['max_tokens', 'model_context_window_exceeded', 'pause_turn', 'tool_use', null])(
+    'rejects an incomplete Anthropic result (%s), settles observed usage, and does not retry',
+    async (stop_reason) => {
+      const gate = budgetGate()
+      const parseResponse = vi.fn()
+      create.mockResolvedValueOnce({
+        stop_reason,
+        content: [{ type: 'text', text: 'The lift is available except' }],
+        usage: { input_tokens: 8, output_tokens: 4 },
+      })
+      await expect(
+        generateText({
+          modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+          system: [{ type: 'text', text: 'Guide.' }],
+          messages: [{ role: 'user', content: 'Can I use the lift?' }],
+          usageSink,
+          admissionGuard,
+          budgetGate: gate,
+          maxAttempts: 3,
+          parseResponse,
+        }),
+      ).rejects.toMatchObject({ code: 'provider-incomplete-response', attempts: 1 })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(parseResponse).not.toHaveBeenCalled()
+      expect(gate.settleExact).toHaveBeenCalledTimes(1)
+      expect(gate.settleAmbiguous).not.toHaveBeenCalled()
+      expect(usageSink).toHaveBeenCalledTimes(1)
+      expect(usageSink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          errorCode: 'provider-incomplete-response',
+          usage: expect.objectContaining({ inputTokens: 8, outputTokens: 4 }),
+        }),
+      )
+    },
+  )
+
+  it('rejects a streamed token-limit ending after fragments without claiming final success', async () => {
+    const source = anthropicStream({
+      deltas: ['The lift is available except'],
+      finalText: 'The lift is available except',
+    })
+    source.finalMessage.mockResolvedValueOnce({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'The lift is available except' }],
+      usage: { input_tokens: 8, output_tokens: 4 },
+    })
+    stream.mockReturnValueOnce(source)
+    const onTextDelta = vi.fn()
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [{ type: 'text', text: 'Guide.' }],
+        messages: [{ role: 'user', content: 'Can I use the lift?' }],
+        usageSink,
+        admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
+        maxAttempts: 3,
+        onTextDelta,
+      }),
+    ).rejects.toMatchObject({
+      code: 'provider-incomplete-response',
+      textEmitted: true,
+      attempts: 1,
+    })
+    expect(stream).toHaveBeenCalledTimes(1)
+    expect(onTextDelta).toHaveBeenCalledTimes(1)
+    expect(usageSink).toHaveBeenCalledWith(expect.objectContaining({ success: false }))
+  })
+
   it('validates text, captures usage, and estimates cached-token cost', async () => {
     create.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'Welcome!' }],

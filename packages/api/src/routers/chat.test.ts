@@ -1045,6 +1045,30 @@ describe('chat router', () => {
       expect(readApprovedGuestPlaceMedia).not.toHaveBeenCalled()
     })
 
+    it('does not finalize token-limit partial text as a successful visitor answer', async () => {
+      setupHappyPath('The lift is available except')
+      anthropicCreate.mockReset()
+      anthropicCreate.mockResolvedValueOnce({
+        stop_reason: 'max_tokens',
+        content: [{ type: 'text', text: 'The lift is available except' }],
+        usage: { input_tokens: 20, output_tokens: 512 },
+      })
+      const result = await caller.chat.send(sendInput)
+      expect(result.response).toBe("I'm having trouble right now. Please try again in a moment.")
+      expect(result.response).not.toContain('The lift is available')
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            feature: 'guest-chat',
+            success: false,
+            outputTokens: 512,
+          }),
+        }),
+      )
+      expect(guestTurnActions.finalize).toHaveBeenCalledTimes(1)
+    })
+
     it('retains a later access restriction beyond the requested brevity target', async () => {
       const answer = `${'The exhibition has displays about the history of flight. '.repeat(11)}Children below 1.2 metres cannot enter the simulator, and the lift is closed today.`
       setupHappyPath(answer)

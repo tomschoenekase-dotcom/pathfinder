@@ -118,6 +118,7 @@ export class AiGatewayError extends Error {
 }
 
 const responseSchema = z.object({
+  stop_reason: z.string().nullable().optional(),
   content: z.array(
     z
       .object({
@@ -154,6 +155,14 @@ export function setAnthropicClientForTesting(client: AnthropicMessagesClient | n
   anthropicClient = client
 }
 
+function isIncompleteAnthropicResponse(stopReason: string | null | undefined): boolean {
+  // Legacy response fixtures omit this metadata. An explicit non-terminal
+  // reason (including null) must never be accepted as a completed text answer.
+  return (
+    stopReason !== undefined && !['end_turn', 'stop_sequence', 'refusal'].includes(stopReason ?? '')
+  )
+}
+
 async function createProviderResponse(params: {
   spec: ReturnType<typeof getAiModelSpec>
   system: AiSystemBlock[]
@@ -162,7 +171,7 @@ async function createProviderResponse(params: {
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
   if (params.spec.provider === 'openai') {
     return params.onTextDelta
@@ -201,6 +210,7 @@ async function createProviderResponse(params: {
     }
     const response = responseSchema.parse(await stream.finalMessage())
     return {
+      incomplete: isIncompleteAnthropicResponse(response.stop_reason),
       text: response.content
         .filter(
           (block): block is typeof block & { text: string } =>
@@ -229,6 +239,7 @@ async function createProviderResponse(params: {
   )
   const response = responseSchema.parse(raw)
   return {
+    incomplete: isIncompleteAnthropicResponse(response.stop_reason),
     text: response.content
       .filter(
         (block): block is typeof block & { text: string } =>
@@ -436,12 +447,17 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       const text = response.text
-      if (!text) {
-        const gatewayError = new AiGatewayError('Provider response contained no text block', {
-          attempts: attempt,
-          code: 'missing-text-block',
-          usageRecorded: true,
-        })
+      if (response.incomplete || !text) {
+        const gatewayError = new AiGatewayError(
+          response.incomplete
+            ? 'Provider response did not complete'
+            : 'Provider response contained no text block',
+          {
+            attempts: attempt,
+            code: response.incomplete ? 'provider-incomplete-response' : 'missing-text-block',
+            usageRecorded: true,
+          },
+        )
         await recordUsageBestEffort(params.usageSink, {
           provider: spec.provider,
           model: spec.model,

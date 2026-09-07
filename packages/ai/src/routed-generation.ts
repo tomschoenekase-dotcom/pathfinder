@@ -111,7 +111,12 @@ export async function generateTextForCapability<TParsed = string>(params: {
       // Route fallbacks are for provider/model failures. Admission, budget,
       // policy, accounting, and dispatch-fence failures must fail closed so a
       // second candidate cannot bypass the rejected control.
-      if (!(error instanceof AiGatewayError) || error.textEmitted) throw error
+      if (
+        !(error instanceof AiGatewayError) ||
+        error.textEmitted ||
+        error.code === 'provider-incomplete-response'
+      )
+        throw error
       budgetAttemptNumberOffset += error.attempts
     }
   }
