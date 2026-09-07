@@ -23,10 +23,15 @@ provider. Existing provider recovery and first-send approval requirements remain
   expiration during reply lookup, and first-attempt versus retry ambiguity.
 - 10 related worker tests and 13 disposable-runner isolation/reporting tests pass.
 - Database typecheck and scoped lint pass; SQL and bypass inventories are unchanged.
-- An earlier first-attempt PostgreSQL fixture passed, before the final retry and
-  lease refinements. The extended fixture is implemented but **its final PostgreSQL
-  rerun is pending** because the local Docker engine is unavailable. The failed
-  runner attempt's cleanup state is unknown until the engine can be inspected.
+- The final extended fixture passed on a fresh, isolated native Windows
+  PostgreSQL 16.15 / pgvector 0.8.6 database after all 223 migrations. Exactly one
+  integration test passed, none failed or skipped. This includes synthetic retry
+  ambiguity and batch terminal-state readback, with no provider dispatch.
+  The server was stopped and its loopback port released; the database directory
+  and logs were deliberately retained. See the [native proof record](evidence/prospect-native-postgres-2026-09-07.json).
+- Docker remains unavailable. The earlier Docker runner attempt's cleanup state
+  is still unknown until that engine can be inspected; the separate native proof
+  does not establish Docker resource removal.
 
 When Docker is available, run `pnpm test:prospect-outreach:disposable` with
 `PATHFINDER_ALLOW_DISPOSABLE_PROSPECT_OUTREACH=1`. The runner requires a fresh,
