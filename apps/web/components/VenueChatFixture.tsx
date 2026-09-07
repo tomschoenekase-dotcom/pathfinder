@@ -26,7 +26,13 @@ export const VISITOR_FIXTURE_STATES = [
 export type VisitorFixtureMode = 'classic' | 'character'
 export type VisitorFixtureConversation = 'empty' | 'long' | 'multilingual' | 'streaming'
 export type VisitorFixtureAsset = 'ok' | 'missing'
-export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
+export type VisitorFixtureVoice =
+  | 'none'
+  | 'idle'
+  | 'listening'
+  | 'speaking'
+  | 'interrupted'
+  | 'error'
 export type VisitorFixtureRoute = 'none' | 'ready'
 export type VisitorFixtureBranding = 'none' | 'approved'
 
@@ -318,7 +324,7 @@ export function VenueChatFixture({
           voiceControl={
             voice === 'none' ? null : (
               <VoiceControlPanel
-                state={voice}
+                state={voice === 'interrupted' ? 'speaking' : voice}
                 disabled={false}
                 error={
                   voice === 'error'
@@ -326,10 +332,34 @@ export function VenueChatFixture({
                     : null
                 }
                 transcript={
-                  voice === 'listening'
-                    ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
-                    : []
+                  voice === 'speaking' || voice === 'interrupted'
+                    ? [
+                        { speaker: 'VISITOR', text: 'Where should we begin?' },
+                        {
+                          speaker: 'ASSISTANT',
+                          text: 'Start in the lake gallery.',
+                          delivery: 'PLAYED',
+                        },
+                        { speaker: 'VISITOR', text: 'Is there a quieter route?' },
+                        {
+                          speaker: 'ASSISTANT',
+                          text: 'Yes. Take the east lift and follow the blue signs.',
+                          delivery: 'PLAYED',
+                        },
+                      ]
+                    : voice === 'listening'
+                      ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
+                      : []
                 }
+                {...(voice === 'speaking' || voice === 'interrupted'
+                  ? {
+                      liveAssistantCaption: {
+                        responseId: 'fixture-live-caption',
+                        text: 'The quieter route continues past the family lounge, then turns left toward the accessible east lift.',
+                        interrupted: voice === 'interrupted',
+                      },
+                    }
+                  : {})}
                 onStart={() => undefined}
                 onEnd={() => undefined}
               />

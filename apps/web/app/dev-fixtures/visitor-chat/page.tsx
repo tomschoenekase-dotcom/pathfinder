@@ -69,7 +69,11 @@ export default async function VisitorChatVisualFixture({
   )
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
-  const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
+  const voice = oneOf(
+    params.voice,
+    ['none', 'idle', 'listening', 'speaking', 'interrupted', 'error'] as const,
+    'none',
+  )
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
   const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
   const branding = oneOf(params.branding, ['none', 'approved'] as const, 'none')

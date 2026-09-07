@@ -22,11 +22,18 @@ export type VoiceTranscriptLine = {
   text: string
   delivery?: 'PLAYED' | 'INTERRUPTED'
 }
+type LiveAssistantCaption = {
+  responseId: string
+  text: string
+  interrupted: boolean
+}
 
 export const MICROPHONE_REQUEST_TIMEOUT_MS = 15_000
 export const REALTIME_SDP_REQUEST_TIMEOUT_MS = 30_000
 export const REALTIME_SDP_RESPONSE_MAX_BYTES = 1024 * 1024
 export const VOICE_AVAILABILITY_TIMEOUT_MS = 15_000
+const RECENT_CAPTION_DELTA_EVENT_LIMIT = 2_048
+const VOICE_TRANSCRIPT_TEXT_LIMIT = 8_000
 
 async function cancelResponseBody(response: Response): Promise<void> {
   try {
@@ -184,6 +191,9 @@ export function VoiceControl({
   const [state, setState] = useState<VoiceState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<VoiceTranscriptLine[]>([])
+  const [liveAssistantCaption, setLiveAssistantCaption] = useState<LiveAssistantCaption | null>(
+    null,
+  )
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const channelRef = useRef<RTCDataChannel | null>(null)
@@ -204,6 +214,7 @@ export function VoiceControl({
   const playedResponseIdsRef = useRef(new Set<string>())
   const generatingResponseIdsRef = useRef(new Set<string>())
   const finalizedResponseIdsRef = useRef(new Set<string>())
+  const handledCaptionDeltaEventIdsRef = useRef(new Set<string>())
   const pendingGroundingCallsRef = useRef(new Set<string>())
   const completedGroundingCallsRef = useRef(new Set<string>())
   const groundingTurnRef = useRef(0)
@@ -245,6 +256,7 @@ export function VoiceControl({
     playedResponseIdsRef.current.clear()
     generatingResponseIdsRef.current.clear()
     finalizedResponseIdsRef.current.clear()
+    handledCaptionDeltaEventIdsRef.current.clear()
     pendingGroundingCallsRef.current.clear()
     completedGroundingCallsRef.current.clear()
     groundingTurnRef.current += 1
@@ -280,6 +292,7 @@ export function VoiceControl({
       const endingScopeKey = scopeKeyRef.current
       const voiceSessionId = sessionIdRef.current
       sessionIdRef.current = null
+      setLiveAssistantCaption(null)
       releaseBrowserMedia()
       if (endingGenerationRef.current === endingGeneration) {
         endingGenerationRef.current = null
@@ -320,6 +333,7 @@ export function VoiceControl({
         setVoiceState('idle')
         setError(null)
         setTranscript([])
+        setLiveAssistantCaption(null)
         sequenceRef.current = 0
         setAvailable(result.enabled)
         setPremiumAvailable(result.enabled && result.premiumAvailable)
@@ -330,6 +344,7 @@ export function VoiceControl({
           setVoiceState('idle')
           setError(null)
           setTranscript([])
+          setLiveAssistantCaption(null)
           sequenceRef.current = 0
           setAvailable(false)
           setPremiumAvailable(false)
@@ -384,7 +399,10 @@ export function VoiceControl({
           providerEventId,
           sequence,
           speaker,
-          text: delivery === 'INTERRUPTED' ? `[Interrupted] ${clean}` : clean,
+          text:
+            delivery === 'INTERRUPTED'
+              ? `[Interrupted] ${clean.slice(0, VOICE_TRANSCRIPT_TEXT_LIMIT - 14)}`
+              : clean.slice(0, VOICE_TRANSCRIPT_TEXT_LIMIT),
           language: getChatLanguagePresentation(language).code,
         })
         .catch(() => undefined)
@@ -400,6 +418,7 @@ export function VoiceControl({
       interruptedResponseIdsRef.current.delete(responseId)
       playedResponseIdsRef.current.delete(responseId)
       finalizedResponseIdsRef.current.add(responseId)
+      setLiveAssistantCaption((caption) => (caption?.responseId === responseId ? null : caption))
       saveTranscript('ASSISTANT', pending.text, pending.providerEventId, delivery)
       if (activeResponseIdRef.current === responseId) activeResponseIdRef.current = null
     },
@@ -480,6 +499,35 @@ export function VoiceControl({
           setVoiceState('thinking')
         } else if (type === 'input_audio_buffer.speech_stopped') {
           setVoiceState('thinking')
+        } else if (
+          type === 'response.output_audio_transcript.delta' ||
+          type === 'response.audio_transcript.delta'
+        ) {
+          const responseId =
+            typeof event.response_id === 'string' ? event.response_id : activeResponseIdRef.current
+          const delta = typeof event.delta === 'string' ? event.delta : ''
+          if (
+            responseId &&
+            responseId === activeResponseIdRef.current &&
+            delta &&
+            !finalizedResponseIdsRef.current.has(responseId) &&
+            !handledCaptionDeltaEventIdsRef.current.has(eventId)
+          ) {
+            if (handledCaptionDeltaEventIdsRef.current.size >= RECENT_CAPTION_DELTA_EVENT_LIMIT) {
+              const oldestEventId = handledCaptionDeltaEventIdsRef.current.values().next().value
+              if (typeof oldestEventId === 'string') {
+                handledCaptionDeltaEventIdsRef.current.delete(oldestEventId)
+              }
+            }
+            handledCaptionDeltaEventIdsRef.current.add(eventId)
+            setLiveAssistantCaption((caption) => ({
+              responseId,
+              text: `${caption?.responseId === responseId ? caption.text : ''}${delta}`.slice(
+                -VOICE_TRANSCRIPT_TEXT_LIMIT,
+              ),
+              interrupted: interruptedResponseIdsRef.current.has(responseId),
+            }))
+          }
         } else if (
           type === 'output_audio_buffer.started' ||
           (type.includes('output_audio') && type.endsWith('.delta'))
@@ -613,8 +661,22 @@ export function VoiceControl({
             typeof event.response_id === 'string' ? event.response_id : activeResponseIdRef.current
           if (responseId) {
             if (finalizedResponseIdsRef.current.has(responseId)) return
+            const completedText = String(event.transcript ?? '')
+              .trim()
+              .slice(-VOICE_TRANSCRIPT_TEXT_LIMIT)
+            if (completedText) {
+              setLiveAssistantCaption((caption) =>
+                responseId === activeResponseIdRef.current || caption?.responseId === responseId
+                  ? {
+                      responseId,
+                      text: completedText,
+                      interrupted: interruptedResponseIdsRef.current.has(responseId),
+                    }
+                  : caption,
+              )
+            }
             pendingAssistantTranscriptRef.current.set(responseId, {
-              text: String(event.transcript ?? ''),
+              text: completedText,
               providerEventId: eventId,
             })
             if (interruptedResponseIdsRef.current.has(responseId)) {
@@ -640,8 +702,12 @@ export function VoiceControl({
           typeof event.response_id === 'string'
         ) {
           if (finalizedResponseIdsRef.current.has(event.response_id)) return
-          interruptedResponseIdsRef.current.add(event.response_id)
-          finishAssistantTranscript(event.response_id, 'INTERRUPTED')
+          const responseId = event.response_id
+          interruptedResponseIdsRef.current.add(responseId)
+          setLiveAssistantCaption((caption) =>
+            caption?.responseId === responseId ? { ...caption, interrupted: true } : caption,
+          )
+          finishAssistantTranscript(responseId, 'INTERRUPTED')
         } else if (type === 'error') {
           setError('The voice connection reported an error. Continue in text or try again.')
           void endSession({ fallbackToText: true, errorCode: 'PROVIDER_EVENT_ERROR' })
@@ -701,6 +767,7 @@ export function VoiceControl({
     }
     setError(null)
     setTranscript([])
+    setLiveAssistantCaption(null)
     sequenceRef.current = 0
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') {
@@ -877,6 +944,7 @@ export function VoiceControl({
       disabled={disabled}
       error={error}
       transcript={transcript}
+      liveAssistantCaption={liveAssistantCaption}
       onStart={() => void startSession()}
       onEnd={() => void endSession()}
     />
@@ -888,6 +956,7 @@ export function VoiceControlPanel({
   disabled,
   error,
   transcript,
+  liveAssistantCaption,
   onStart,
   onEnd,
 }: {
@@ -895,11 +964,18 @@ export function VoiceControlPanel({
   disabled: boolean
   error: string | null
   transcript: VoiceTranscriptLine[]
+  liveAssistantCaption?: LiveAssistantCaption | null
   onStart: () => void
   onEnd: () => void
 }) {
   const active = state !== 'idle' && state !== 'error'
   const canRetry = state === 'error'
+  const transcriptViewportRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const viewport = transcriptViewportRef.current
+    if (viewport) viewport.scrollTop = viewport.scrollHeight
+  }, [liveAssistantCaption?.interrupted, liveAssistantCaption?.text, transcript.length])
 
   return (
     <div className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-2">
@@ -944,10 +1020,12 @@ export function VoiceControlPanel({
           {error}
         </p>
       ) : null}
-      {transcript.length ? (
+      {transcript.length || liveAssistantCaption ? (
         <div
-          className="mt-2 max-h-28 space-y-1 overflow-y-auto border-t border-[var(--chat-border)] pt-2 text-sm"
+          ref={transcriptViewportRef}
+          className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-sm border-t border-[var(--chat-border)] pt-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--chat-accent)]"
           aria-label="Voice transcript"
+          tabIndex={0}
         >
           {transcript.map((line, index) => (
             <p key={`${line.speaker}-${index}`} dir="auto" className="text-[var(--chat-text)]">
@@ -960,6 +1038,16 @@ export function VoiceControlPanel({
               ) : null}
             </p>
           ))}
+          {liveAssistantCaption ? (
+            <p dir="auto" className="text-[var(--chat-text)]">
+              <span className="font-semibold">Guide:</span> {liveAssistantCaption.text}
+              <span className="ml-1 text-xs font-medium text-[var(--chat-text-muted)]">
+                {liveAssistantCaption.interrupted
+                  ? '(interrupted; finalizing)'
+                  : '(caption in progress)'}
+              </span>
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

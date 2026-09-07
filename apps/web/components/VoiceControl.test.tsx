@@ -488,6 +488,132 @@ describe('VoiceControl', () => {
     expect(screen.getByRole('status').textContent).toContain('Listening')
   })
 
+  it('renders ordered rolling captions and replaces them with one played transcript line', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      clientSecret: 'ephemeral',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.transcript.mockResolvedValue({ accepted: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    } as unknown as MediaStream)
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const channel = {
+      close: vi.fn(),
+      addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+        listeners.set(type, listener),
+    }
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => channel,
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer')))
+
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    const providerEvent = (payload: Record<string, unknown>) =>
+      listeners.get('message')?.({ data: JSON.stringify(payload) } as MessageEvent<string>)
+
+    act(() => {
+      providerEvent({ type: 'response.created', response: { id: 'response-caption' } })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-1',
+        response_id: 'response-caption',
+        delta: 'The gallery ',
+      })
+    })
+    const transcriptViewport = screen.getByLabelText('Voice transcript')
+    Object.defineProperties(transcriptViewport, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 300 },
+    })
+    act(() => {
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-caption',
+        delta: 'is open.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-delta-2',
+        response_id: 'response-caption',
+        delta: 'is open.',
+      })
+    })
+
+    expect(screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Guide: The gallery is open.(caption in progress)',
+    )
+    expect(transcriptViewport.scrollTop).toBe(300)
+    expect(screen.getByRole('status').textContent).toContain('Thinking')
+    expect(mocks.transcript).not.toHaveBeenCalled()
+
+    act(() => {
+      providerEvent({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'response-caption',
+      })
+      providerEvent({ type: 'response.created', response: { id: 'response-newer' } })
+      providerEvent({ type: 'output_audio_buffer.started', response_id: 'response-newer' })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'newer-caption-delta',
+        response_id: 'response-newer',
+        delta: 'The cafe is downstairs.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'late-old-caption-delta',
+        response_id: 'response-caption',
+        delta: ' This must not replace the new caption.',
+      })
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'caption-done',
+        response_id: 'response-caption',
+        transcript: 'The gallery is open.',
+      })
+    })
+
+    expect(screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Guide: The gallery is open.Guide: The cafe is downstairs.(caption in progress)',
+    )
+    expect(screen.getByLabelText('Voice transcript').textContent).not.toContain('must not replace')
+    expect(screen.getByRole('status').textContent).toContain('Speaking')
+    expect(mocks.transcript).toHaveBeenCalledOnce()
+    expect(mocks.transcript).toHaveBeenCalledWith(
+      expect.objectContaining({ providerEventId: 'caption-done', text: 'The gallery is open.' }),
+    )
+
+    act(() => {
+      providerEvent({
+        type: 'response.output_audio_transcript.done',
+        event_id: 'newer-caption-done',
+        response_id: 'response-newer',
+        transcript: 'The cafe is downstairs.',
+      })
+      providerEvent({ type: 'output_audio_buffer.stopped', response_id: 'response-newer' })
+    })
+    expect(screen.getByLabelText('Voice transcript').textContent).not.toContain(
+      'caption in progress',
+    )
+    expect(mocks.transcript).toHaveBeenCalledTimes(2)
+  })
+
   it('cancels the active response on barge-in, marks unplayed speech interrupted, and tears down media', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
@@ -550,6 +676,12 @@ describe('VoiceControl', () => {
         response: { id: 'response-1' },
       })
       providerEvent({ type: 'response.output_audio.delta', event_id: 'audio-1' })
+      providerEvent({
+        type: 'response.output_audio_transcript.delta',
+        event_id: 'caption-partial-1',
+        response_id: 'response-1',
+        delta: 'The gallery is on ',
+      })
       providerEvent({
         type: 'response.output_item.done',
         item: {
@@ -694,6 +826,12 @@ describe('VoiceControl', () => {
         event_id: 'clear-1',
         response_id: 'response-1',
       })
+    })
+    expect(screen.getByLabelText('Voice transcript').textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Guide: The gallery is on (interrupted; finalizing)',
+    )
+    expect(mocks.transcript).not.toHaveBeenCalled()
+    act(() => {
       providerEvent({
         type: 'response.output_audio_transcript.done',
         event_id: 'transcript-1',
