@@ -2,13 +2,15 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { FAMILY_RIG_STATES, resolveFamilyRigMotion } from './FamilyRigRenderer'
+import { CHARACTER_STATES } from '@pathfinder/contracts/character-system'
+
+import { resolveFamilyRigMotion } from './FamilyRigRenderer'
 
 const css = readFileSync(fileURLToPath(new URL('./family-rig.module.css', import.meta.url)), 'utf8')
 
 describe('family rig renderer', () => {
   it('defines playback selectors for every semantic state', () => {
-    for (const state of FAMILY_RIG_STATES) {
+    for (const state of CHARACTER_STATES) {
       expect(css).toContain(`data-rig-state='${state}'`)
     }
   })

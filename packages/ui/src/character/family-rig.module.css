@@ -16,7 +16,8 @@
   transform-origin: 50% 88%;
 }
 
-.skin {
+.skin,
+.layerStack {
   z-index: 1;
   display: block;
   width: 86%;
@@ -24,6 +25,36 @@
   object-fit: contain;
   transform-origin: 50% 82%;
   filter: drop-shadow(0 0.65rem 0.55rem rgb(15 23 42 / 16%));
+}
+
+.layerStack,
+.layer {
+  position: absolute;
+  inset: 7%;
+  width: 86%;
+  height: 86%;
+}
+
+.layer {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 82%;
+}
+
+.neutralFallback {
+  display: grid;
+  width: 44%;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 2px solid #946224;
+  border-radius: 50%;
+  color: #946224;
+  background: #fffaf0;
+  font:
+    500 3rem/1 Georgia,
+    serif;
 }
 
 .ground {
@@ -37,6 +68,7 @@
 }
 
 .rig[data-rig-motion='reduced'] .skin,
+.rig[data-rig-motion='reduced'] .layer,
 .rig[data-rig-motion='reduced'] .stage {
   animation: none !important;
   transform: none;
@@ -46,6 +78,33 @@
   animation: family-breathe 3.2s ease-in-out infinite;
 }
 
+.rig[data-rig-state='processing']:not([data-rig-motion='reduced']) .stage,
+.rig[data-rig-state='uploadReceiving']:not([data-rig-motion='reduced']) .stage {
+  animation: family-breathe 1.15s ease-in-out infinite;
+}
+
+.rig[data-rig-state='uploadComplete']:not([data-rig-motion='reduced']) .stage {
+  animation: family-react 680ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.rig[data-rig-state='question']:not([data-rig-motion='reduced']) .stage {
+  animation: family-question 1.4s ease-in-out infinite;
+}
+
+.rig[data-rig-state='handoff']:not([data-rig-motion='reduced']) .stage {
+  animation: family-handoff 1.7s ease-in-out infinite;
+}
+
+.rig[data-rig-state='sleeping']:not([data-rig-motion='reduced']) .stage {
+  animation: family-sleep 3.5s ease-in-out infinite;
+  opacity: 0.72;
+}
+
+.rig[data-rig-state='minimized']:not([data-rig-motion='reduced']) .stage {
+  transform: scale(0.78) translateY(12%);
+  opacity: 0.82;
+}
+
 .compact-creature-v1[data-rig-state='attention']:not([data-rig-motion='reduced']) .skin,
 .compact-creature-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .skin {
   animation: owl-head-read 1.25s ease-in-out infinite alternate;
@@ -53,6 +112,10 @@
 
 .compact-creature-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .skin {
   animation: owl-call 560ms ease-in-out infinite;
+}
+
+.compact-creature-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_wing {
+  animation: owl-wing 560ms ease-in-out infinite;
 }
 
 .compact-creature-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
@@ -69,6 +132,11 @@
   animation: astronaut-speak 920ms ease-in-out infinite;
 }
 
+.humanoid-v1[data-rig-state='listening']:not([data-rig-motion='reduced']) .layer_head,
+.humanoid-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_head {
+  animation: astronaut-head 920ms ease-in-out infinite alternate;
+}
+
 .humanoid-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
 .humanoid-v1[data-rig-state='success']:not([data-rig-motion='reduced']) .skin {
   animation: astronaut-celebrate 760ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
@@ -81,6 +149,14 @@
 
 .morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .skin {
   animation: morph-speak 650ms ease-in-out infinite;
+}
+
+.morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_body {
+  animation: morph-speak 650ms ease-in-out infinite;
+}
+
+.morph-v1[data-rig-state='speaking']:not([data-rig-motion='reduced']) .layer_face {
+  animation: morph-face 650ms ease-in-out infinite;
 }
 
 .morph-v1[data-rig-state='happy']:not([data-rig-motion='reduced']) .skin,
@@ -133,6 +209,21 @@
     transform: translateY(-7%) scale(1.055);
   }
 }
+@keyframes family-question {
+  50% {
+    transform: rotate(2deg) translateY(-1.5%);
+  }
+}
+@keyframes family-handoff {
+  50% {
+    transform: translateX(2%);
+  }
+}
+@keyframes family-sleep {
+  50% {
+    transform: scale(0.98) translateY(1.5%);
+  }
+}
 @keyframes owl-head-read {
   to {
     transform: rotate(3deg) translateY(-1%);
@@ -141,6 +232,11 @@
 @keyframes owl-call {
   50% {
     transform: scaleX(1.025) scaleY(0.975);
+  }
+}
+@keyframes owl-wing {
+  50% {
+    transform: rotate(-3deg) translateY(-1%);
   }
 }
 @keyframes owl-hop {
@@ -156,6 +252,11 @@
 @keyframes astronaut-speak {
   50% {
     transform: rotate(-1deg) translateY(-1.5%);
+  }
+}
+@keyframes astronaut-head {
+  to {
+    transform: rotate(1.5deg) translateY(-1%);
   }
 }
 @keyframes astronaut-celebrate {
@@ -174,6 +275,11 @@
       scaleY(calc(1 - var(--family-rig-intensity) * 0.025));
   }
 }
+@keyframes morph-face {
+  50% {
+    transform: translateY(2%) scaleY(0.96);
+  }
+}
 @keyframes morph-celebrate {
   55% {
     transform: translateY(-7%) scaleX(1.07) scaleY(0.96);
@@ -182,6 +288,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .rig[data-rig-motion='system'] .skin,
+  .rig[data-rig-motion='system'] .layer,
   .rig[data-rig-motion='system'] .stage {
     animation: none !important;
     transform: none;

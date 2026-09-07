@@ -2,31 +2,21 @@
 
 import { useState, type CSSProperties } from 'react'
 
+import type { CharacterState } from '@pathfinder/contracts/character-system'
+
 import styles from './family-rig.module.css'
 
-export const FAMILY_RIG_STATES = [
-  'idle',
-  'attention',
-  'listening',
-  'thinking',
-  'speaking',
-  'happy',
-  'sad',
-  'success',
-  'error',
-  'reaction',
-] as const
-
-export type FamilyRigState = (typeof FAMILY_RIG_STATES)[number]
 export type FamilyRigName = 'morph-v1' | 'compact-creature-v1' | 'humanoid-v1'
+export type FamilyRigLayerRole = 'body' | 'face' | 'head' | 'wing' | 'torso' | 'accent'
 
 export type FamilyRigRendererProps = {
   name: string
   source: string
   fallbackSource: string
   family: FamilyRigName
-  state: FamilyRigState
+  state: CharacterState
   motion: 'system' | 'reduced' | 'full'
+  layers?: readonly { source: string; role: FamilyRigLayerRole }[] | undefined
   intensity?: number | undefined
   className?: string | undefined
   onAssetError?: (() => void) | undefined
@@ -56,11 +46,19 @@ export function FamilyRigRenderer({
   family,
   state,
   motion,
+  layers,
   intensity = 0.6,
   className,
   onAssetError,
 }: FamilyRigRendererProps) {
-  const [failed, setFailed] = useState(false)
+  const layerKey = layers?.map((layer) => `${layer.role}:${layer.source}`).join('|')
+  const assetIdentity = `${source}|${fallbackSource}|${layerKey ?? ''}`
+  const [assetStates, setAssetStates] = useState<
+    Record<string, { failed: boolean; fallbackFailed: boolean }>
+  >({})
+  const assetState = assetStates[assetIdentity]
+  const failed = assetState?.failed ?? false
+  const fallbackFailed = assetState?.fallbackFailed ?? false
   const resolvedMotion = resolveFamilyRigMotion(motion, failed)
   const style = { '--family-rig-intensity': String(clamp(intensity)) } as CSSProperties
 
@@ -76,19 +74,60 @@ export function FamilyRigRenderer({
       data-asset-capability="rigid-source"
     >
       <span className={styles.stage} aria-hidden="true">
-        <img
-          className={styles.skin}
-          src={failed ? fallbackSource : source}
-          alt=""
-          draggable={false}
-          decoding="async"
-          onError={() => {
-            if (!failed) {
-              setFailed(true)
+        {fallbackFailed ? (
+          <span className={styles.neutralFallback}>T</span>
+        ) : failed ? (
+          <img
+            className={styles.skin}
+            src={fallbackSource}
+            alt=""
+            draggable={false}
+            decoding="async"
+            onError={() => {
+              setAssetStates((current) => ({
+                ...current,
+                [assetIdentity]: { failed: true, fallbackFailed: true },
+              }))
               onAssetError?.()
-            }
-          }}
-        />
+            }}
+          />
+        ) : !layers?.length ? (
+          <img
+            className={styles.skin}
+            src={source}
+            alt=""
+            draggable={false}
+            decoding="async"
+            onError={() => {
+              setAssetStates((current) => ({
+                ...current,
+                [assetIdentity]: { failed: true, fallbackFailed: false },
+              }))
+              onAssetError?.()
+            }}
+          />
+        ) : (
+          <span className={styles.layerStack}>
+            {layers.map((layer) => (
+              <img
+                key={`${layer.role}:${layer.source}`}
+                className={[styles.layer, styles[`layer_${layer.role}`]].join(' ')}
+                data-rig-layer={layer.role}
+                src={layer.source}
+                alt=""
+                draggable={false}
+                decoding="async"
+                onError={() => {
+                  setAssetStates((current) => ({
+                    ...current,
+                    [assetIdentity]: { failed: true, fallbackFailed: false },
+                  }))
+                  onAssetError?.()
+                }}
+              />
+            ))}
+          </span>
+        )}
         <span className={styles.ground} />
       </span>
     </span>

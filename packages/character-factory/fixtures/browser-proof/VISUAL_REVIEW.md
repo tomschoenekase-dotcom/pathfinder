@@ -2,12 +2,17 @@
 
 ## Captured evidence
 
+The current evidence uses the real Next.js dashboard fixture route and imported
+`FamilyRigRenderer`. The earlier self-contained HTML captures are retained as superseded interim
+evidence and are not the basis of the current claim.
+
 Chromium rendered the self-contained fixture directly from the repository:
 
-- `speaking-desktop.png`: 1440 × 1000, full motion, speaking state.
-- `success-mobile.png`: iPhone 13 emulation (390 × 844 CSS viewport), full motion, success state.
-- `reduced-tablet.png`: 1024 × 768, explicit reduced motion, thinking state.
-- `asset-fallback-tablet.png`: 1024 × 768, missing source assets and neutral fallback.
+- `react-speaking-desktop.png`: 1440 × 1000, segmented full motion, speaking state.
+- `react-success-mobile.png`: iPhone 13 emulation, segmented full motion, success state.
+- `react-reduced-tablet.png`: 1024 × 768, explicit reduced motion, thinking state.
+- `react-double-fallback-tablet.png`: 1024 × 768, failed layers and failed static assets resolving
+  to the accessible neutral fallback.
 
 The desktop comparison has no clipping or horizontal overflow. The mobile layout changes to a
 compact image-and-description row and retains readable source/rig labels. The fallback remains
@@ -21,11 +26,11 @@ card grid. The warm paper palette and restrained dividers keep attention on the 
 spacing, and hierarchy hold at the inspected widths.
 
 The imported OpenMoji fixtures are visually coherent enough to compare motion families but are not
-production character candidates. Whole-image transforms read as an owl pivot/hop, upright astronaut
-lean/lift, and elastic morph squash/stretch. Speaking remains weak because mouths and beaks are not
-separate. The astronaut cannot gesture with an arm, and the owl cannot flap independently. Repeating
-these moves for a long voice session would look mechanical. A segmented raster or trusted deforming
-mesh is still required before a commercial-quality runtime decision.
+production character candidates. Deterministic source-derived layers now provide an owl wing pivot,
+astronaut helmet/head nod, and morph body/face separation. The source does not provide astronaut arm
+parts, and speaking remains weak without mouth/beak segmentation. Repeating the small motion set for
+a long voice session would still look mechanical. A richer segmented raster or trusted deforming
+mesh remains necessary before a commercial-quality runtime decision.
 
 ## Limits
 
