@@ -466,6 +466,7 @@ export async function analyzeGeminiVideo<TParsed>(params: {
   const accountingPending = reservation !== null && dispatched && usageObserved
   const outcomeError = outcome.ok ? undefined : outcome.error
   await recordUsage(params.usageSink, {
+    usageObservationStatus: usageObserved ? 'OBSERVED' : dispatched ? 'UNKNOWN' : 'NOT_DISPATCHED',
     provider: 'google',
     model: params.model,
     pricingVersion: pricing.version,

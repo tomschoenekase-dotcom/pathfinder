@@ -46,6 +46,7 @@ export function createApiAiUsageRecorder(params: {
           provider: usage.provider,
           model: usage.model,
           pricingVersion: usage.pricingVersion,
+          usageObservationStatus: usage.usageObservationStatus ?? null,
           inputTokens: usage.usage.inputTokens,
           outputTokens: usage.usage.outputTokens,
           cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,

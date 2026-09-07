@@ -137,13 +137,13 @@ export async function readFounderUnitEconomics(
 
   const [currentAiRows, previousAiRows, evidenceRows, usage] = await Promise.all([
     client.aiUsageEvent.groupBy({
-      by: ['tenantId'],
+      by: ['tenantId', 'usageObservationStatus'],
       where: { createdAt: { gte: currentStart, lt: now } },
       _sum: { estimatedCostUsd: true },
       _count: { _all: true },
     }),
     client.aiUsageEvent.groupBy({
-      by: ['tenantId'],
+      by: ['tenantId', 'usageObservationStatus'],
       where: { createdAt: { gte: previousStart, lt: currentStart } },
       _sum: { estimatedCostUsd: true },
       _count: { _all: true },
@@ -171,6 +171,11 @@ export async function readFounderUnitEconomics(
   const usageRows = usage.rows
 
   const currentAiUnits = sumCostUnits(currentAiRows.map((row) => row._sum.estimatedCostUsd ?? '0'))
+  const currentObservedAiUnits = sumCostUnits(
+    currentAiRows
+      .filter((row) => row.usageObservationStatus === 'OBSERVED')
+      .map((row) => row._sum.estimatedCostUsd ?? '0'),
+  )
   const previousAiUnits = sumCostUnits(
     previousAiRows.map((row) => row._sum.estimatedCostUsd ?? '0'),
   )
@@ -179,6 +184,26 @@ export async function readFounderUnitEconomics(
   const currentTotalUnits = currentAiUnits + currentEvidence.totalUnits
   const previousTotalUnits = previousAiUnits + previousEvidence.totalUnits
   const deltaUnits = currentTotalUnits - previousTotalUnits
+  const aiUsageCoverage = {
+    observedRequestCount: currentAiRows
+      .filter((row) => row.usageObservationStatus === 'OBSERVED')
+      .reduce((total, row) => total + row._count._all, 0),
+    unknownRequestCount: currentAiRows
+      .filter((row) => row.usageObservationStatus === 'UNKNOWN')
+      .reduce((total, row) => total + row._count._all, 0),
+    notDispatchedRequestCount: currentAiRows
+      .filter((row) => row.usageObservationStatus === 'NOT_DISPATCHED')
+      .reduce((total, row) => total + row._count._all, 0),
+    legacyUnclassifiedRequestCount: Math.max(
+      0,
+      currentAiRows.reduce((total, row) => total + row._count._all, 0) -
+        currentAiRows
+          .filter((row) =>
+            ['OBSERVED', 'UNKNOWN', 'NOT_DISPATCHED'].includes(row.usageObservationStatus ?? ''),
+          )
+          .reduce((total, row) => total + row._count._all, 0),
+    ),
+  }
 
   const categoryBreakdown = categories.map((category) => {
     const rows = currentEvidence.included.filter((row) => row.category === category)
@@ -239,8 +264,17 @@ export async function readFounderUnitEconomics(
     },
     ai: {
       estimatedCostUsd: aiCostUnitsToDecimal(currentAiUnits),
+      observedEstimatedCostUsd: aiCostUnitsToDecimal(currentObservedAiUnits),
       requestCount: currentAiRows.reduce((total, row) => total + row._count._all, 0),
-      attributedTenantCount: currentAiRows.length,
+      attributedTenantCount: new Set(currentAiRows.map((row) => row.tenantId)).size,
+      usageCoverage: aiUsageCoverage,
+      observationCompleteness:
+        currentAiRows.length === 0
+          ? ('NO_RECORDED_USAGE' as const)
+          : aiUsageCoverage.unknownRequestCount === 0 &&
+              aiUsageCoverage.legacyUnclassifiedRequestCount === 0
+            ? ('COMPLETE_RECORDED_USAGE' as const)
+            : ('PARTIAL_RECORDED_USAGE' as const),
       completeness: 'PROVIDER_PRICING_ESTIMATE' as const,
     },
     nonAi: {

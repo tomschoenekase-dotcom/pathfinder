@@ -74,6 +74,7 @@ describe('API AI usage recorder', () => {
         provider: 'openai',
         model: 'text-embedding-3-small',
         pricingVersion: '2026-08-01',
+        usageObservationStatus: null,
         inputTokens: 100,
         outputTokens: 50,
         cacheCreationInputTokens: 25,

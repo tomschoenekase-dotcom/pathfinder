@@ -88,6 +88,8 @@ export type AiUsageRecord = {
   requestType?: string
   routeModelKey?: string
   fallbackUsed?: boolean
+  /** Absent is reserved for legacy producers and must never be interpreted as observed. */
+  usageObservationStatus?: 'OBSERVED' | 'UNKNOWN' | 'NOT_DISPATCHED'
 }
 
 export type AiUsageSink = (record: AiUsageRecord) => Promise<void>
@@ -360,6 +362,7 @@ export async function generateText<TParsed = string>(params: {
     } catch (admissionError) {
       if (lastError !== undefined) {
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'NOT_DISPATCHED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -459,6 +462,7 @@ export async function generateText<TParsed = string>(params: {
           },
         )
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -486,6 +490,7 @@ export async function generateText<TParsed = string>(params: {
           },
         )
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -510,6 +515,7 @@ export async function generateText<TParsed = string>(params: {
         attempts: attempt,
       }
       await recordUsageBestEffort(params.usageSink, {
+        usageObservationStatus: 'OBSERVED',
         provider: result.provider,
         model: result.model,
         pricingVersion: result.pricingVersion,
@@ -543,6 +549,7 @@ export async function generateText<TParsed = string>(params: {
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
           await recordUsageBestEffort(params.usageSink, {
+            usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
             pricingVersion: spec.pricingVersion,
@@ -573,6 +580,7 @@ export async function generateText<TParsed = string>(params: {
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
           await recordUsageBestEffort(params.usageSink, {
+            usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
             pricingVersion: spec.pricingVersion,
@@ -590,6 +598,25 @@ export async function generateText<TParsed = string>(params: {
           })
         }
         throw gatewayError
+      }
+      if (!(error instanceof AiGatewayError && error.usageRecorded)) {
+        await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'UNKNOWN',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: error instanceof AiGatewayError ? error.code : errorCode(error),
+        })
       }
       await wait((params.retryDelayMs ?? 100) * 2 ** (attempt - 1))
     }

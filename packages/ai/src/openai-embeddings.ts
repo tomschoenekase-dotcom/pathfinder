@@ -185,6 +185,7 @@ export async function generateEmbeddings(params: {
     } catch (admissionError) {
       if (lastError !== undefined) {
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'NOT_DISPATCHED',
           provider: 'openai',
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -270,10 +271,15 @@ export async function generateEmbeddings(params: {
           latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
           attempts: attempt,
         }
-        await recordUsageBestEffort(params.usageSink, { ...result, success: true })
+        await recordUsageBestEffort(params.usageSink, {
+          ...result,
+          success: true,
+          usageObservationStatus: 'OBSERVED',
+        })
         return result
       } catch (error) {
         await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
           provider: 'openai',
           model: spec.model,
           pricingVersion: spec.pricingVersion,
@@ -309,6 +315,7 @@ export async function generateEmbeddings(params: {
       const code =
         error instanceof z.ZodError ? 'invalid-provider-response' : providerErrorCode(error)
       await recordUsageBestEffort(params.usageSink, {
+        usageObservationStatus: 'UNKNOWN',
         provider: 'openai',
         model: spec.model,
         pricingVersion: spec.pricingVersion,

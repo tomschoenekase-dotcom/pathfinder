@@ -37,6 +37,7 @@ type AiUsageRow = {
   totalTokens: number
   estimatedCostUsd: unknown
   success: boolean
+  usageObservationStatus?: string | null
 }
 
 type AiCostRollupRow = {
@@ -47,6 +48,10 @@ type AiCostRollupRow = {
   requestCount: number
   successfulRequestCount: number
   failedRequestCount: number
+  observedUsageRequestCount: number
+  unknownUsageRequestCount: number
+  notDispatchedRequestCount: number
+  legacyUnclassifiedRequestCount: number
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
@@ -56,6 +61,8 @@ type AiCostRollupRow = {
   cachedAudioInputTokens: number
   totalTokens: number
   estimatedCostUsd: string
+  observedTotalTokens: number
+  observedEstimatedCostUsd: string
 }
 
 type ChatReliabilityEvent = { eventType: string; metadata: unknown }
@@ -135,7 +142,10 @@ export function buildAiCostRollups(params: {
 }): AiCostRollupRow[] {
   const grouped = new Map<
     string,
-    Omit<AiCostRollupRow, 'estimatedCostUsd'> & { costUnits: bigint }
+    Omit<AiCostRollupRow, 'estimatedCostUsd' | 'observedEstimatedCostUsd'> & {
+      costUnits: bigint
+      observedCostUnits: bigint
+    }
   >()
 
   for (const event of params.events) {
@@ -148,6 +158,10 @@ export function buildAiCostRollups(params: {
       requestCount: 0,
       successfulRequestCount: 0,
       failedRequestCount: 0,
+      observedUsageRequestCount: 0,
+      unknownUsageRequestCount: 0,
+      notDispatchedRequestCount: 0,
+      legacyUnclassifiedRequestCount: 0,
       inputTokens: 0,
       outputTokens: 0,
       cacheCreationInputTokens: 0,
@@ -157,11 +171,24 @@ export function buildAiCostRollups(params: {
       cachedAudioInputTokens: 0,
       totalTokens: 0,
       costUnits: 0n,
+      observedCostUnits: 0n,
+      observedTotalTokens: 0,
     }
 
     existing.requestCount += event.requestCount
     existing.successfulRequestCount += event.success ? event.requestCount : 0
     existing.failedRequestCount += event.success ? 0 : event.requestCount
+    if (event.usageObservationStatus === 'OBSERVED') {
+      existing.observedUsageRequestCount += event.requestCount
+      existing.observedTotalTokens += event.totalTokens
+      existing.observedCostUnits += aiCostDecimalToUnits(event.estimatedCostUsd)
+    } else if (event.usageObservationStatus === 'UNKNOWN') {
+      existing.unknownUsageRequestCount += event.requestCount
+    } else if (event.usageObservationStatus === 'NOT_DISPATCHED') {
+      existing.notDispatchedRequestCount += event.requestCount
+    } else {
+      existing.legacyUnclassifiedRequestCount += event.requestCount
+    }
     existing.inputTokens += event.inputTokens
     existing.outputTokens += event.outputTokens
     existing.cacheCreationInputTokens += event.cacheCreationInputTokens
@@ -180,9 +207,10 @@ export function buildAiCostRollups(params: {
         ? left.feature.localeCompare(right.feature)
         : (left.venueId ?? '').localeCompare(right.venueId ?? ''),
     )
-    .map(({ costUnits, ...rollup }) => ({
+    .map(({ costUnits, observedCostUnits, ...rollup }) => ({
       ...rollup,
       estimatedCostUsd: aiCostUnitsToDecimal(costUnits),
+      observedEstimatedCostUsd: aiCostUnitsToDecimal(observedCostUnits),
     }))
 }
 
@@ -406,7 +434,7 @@ export async function processDailyRollupJob(
       buildTenantRollups(payload),
       withTenantIsolationBypass(() =>
         db.aiUsageEvent.groupBy({
-          by: ['venueId', 'feature', 'success'],
+          by: ['venueId', 'feature', 'success', 'usageObservationStatus'],
           where: {
             tenantId: payload.tenantId,
             createdAt: { gte: date, lt: nextDate },
@@ -433,6 +461,7 @@ export async function processDailyRollupJob(
         venueId: group.venueId,
         feature: group.feature,
         success: group.success,
+        usageObservationStatus: group.usageObservationStatus,
         requestCount: group._count._all,
         inputTokens: group._sum.inputTokens ?? 0,
         outputTokens: group._sum.outputTokens ?? 0,

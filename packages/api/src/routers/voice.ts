@@ -573,6 +573,7 @@ export const voiceRouter = router({
           provider: voiceSession.provider,
           model: voiceSession.model,
           pricingVersion: REALTIME_VOICE_PRICING_VERSION,
+          usageObservationStatus: 'OBSERVED',
           inputTokens: input.inputTokens,
           outputTokens: input.outputTokens,
           audioInputTokens: input.audioInputTokens,

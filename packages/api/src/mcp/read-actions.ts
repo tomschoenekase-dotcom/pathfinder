@@ -731,6 +731,10 @@ async function readAiUsage(
         requestCount: true,
         successfulRequestCount: true,
         failedRequestCount: true,
+        observedUsageRequestCount: true,
+        unknownUsageRequestCount: true,
+        notDispatchedRequestCount: true,
+        legacyUnclassifiedRequestCount: true,
         inputTokens: true,
         outputTokens: true,
         cacheCreationInputTokens: true,
@@ -740,6 +744,8 @@ async function readAiUsage(
         cachedAudioInputTokens: true,
         totalTokens: true,
         estimatedCostUsd: true,
+        observedTotalTokens: true,
+        observedEstimatedCostUsd: true,
       },
     }),
     db.aiCostBudget.findFirst({
@@ -808,12 +814,16 @@ async function readAiUsage(
       customerPricingImpact: 'NONE',
       operatorReasonIncluded: false,
       operatorIdentityIncluded: false,
+      usageObservationCoverageIncluded: true,
     },
     ...paged,
     items: paged.items.map((row) => ({
       ...row,
       date: row.date.toISOString(),
       estimatedCostUsd: aiCostUnitsToDecimal(aiCostDecimalToUnits(row.estimatedCostUsd)),
+      observedEstimatedCostUsd: aiCostUnitsToDecimal(
+        aiCostDecimalToUnits(row.observedEstimatedCostUsd),
+      ),
     })),
   })
 }

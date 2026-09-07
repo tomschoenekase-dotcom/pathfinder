@@ -2963,6 +2963,7 @@ model AiUsageEvent {
   provider                 String
   model                    String
   pricingVersion           String               @map("pricing_version")
+  usageObservationStatus   String?              @map("usage_observation_status") @db.VarChar(32)
   inputTokens              Int                  @default(0) @map("input_tokens")
   outputTokens             Int                  @default(0) @map("output_tokens")
   audioInputTokens         Int                  @default(0) @map("audio_input_tokens")
@@ -3756,6 +3757,12 @@ model AiUsageDailyRollup {
   requestCount             Int      @default(0) @map("request_count")
   successfulRequestCount   Int      @default(0) @map("successful_request_count")
   failedRequestCount       Int      @default(0) @map("failed_request_count")
+  observedUsageRequestCount Int     @default(0) @map("observed_usage_request_count")
+  unknownUsageRequestCount Int      @default(0) @map("unknown_usage_request_count")
+  notDispatchedRequestCount Int     @default(0) @map("not_dispatched_request_count")
+  legacyUnclassifiedRequestCount Int @default(0) @map("legacy_unclassified_request_count")
+  observedTotalTokens      Int      @default(0) @map("observed_total_tokens")
+  observedEstimatedCostUsd Decimal  @default(0) @map("observed_estimated_cost_usd") @db.Decimal(18, 8)
   inputTokens              Int      @default(0) @map("input_tokens")
   outputTokens             Int      @default(0) @map("output_tokens")
   cacheCreationInputTokens Int      @default(0) @map("cache_creation_input_tokens")

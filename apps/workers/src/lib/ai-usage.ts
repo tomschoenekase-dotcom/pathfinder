@@ -36,6 +36,7 @@ function createScopedWorkerAiUsageSink(params: WorkerAiAccountingScope): AiUsage
           provider: usage.provider,
           model: usage.model,
           pricingVersion: usage.pricingVersion,
+          usageObservationStatus: usage.usageObservationStatus ?? null,
           inputTokens: usage.usage.inputTokens,
           outputTokens: usage.usage.outputTokens,
           audioInputTokens: usage.usage.audioInputTokens ?? 0,

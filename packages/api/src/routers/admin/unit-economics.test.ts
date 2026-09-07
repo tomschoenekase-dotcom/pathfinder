@@ -3,6 +3,58 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFounderUnitEconomics } from './unit-economics'
 
 describe('readFounderUnitEconomics', () => {
+  it.each([
+    { statuses: [], expected: 'NO_RECORDED_USAGE', observed: '0.00000000', legacy: 0 },
+    {
+      statuses: ['OBSERVED', 'NOT_DISPATCHED'],
+      expected: 'COMPLETE_RECORDED_USAGE',
+      observed: '2.00000000',
+      legacy: 0,
+    },
+    {
+      statuses: ['OBSERVED', 'UNKNOWN', null, undefined],
+      expected: 'PARTIAL_RECORDED_USAGE',
+      observed: '2.00000000',
+      legacy: 2,
+    },
+  ])(
+    'reports $expected for the recorded usage window',
+    async ({ statuses, expected, observed, legacy }) => {
+      const result = await readFounderUnitEconomics(new Date('2026-09-07T00:00:00Z'), {
+        aiUsageEvent: {
+          groupBy: vi
+            .fn()
+            .mockResolvedValueOnce(
+              statuses.map((status) => ({
+                tenantId: 'tenant-1',
+                usageObservationStatus: status,
+                _sum: { estimatedCostUsd: status === 'OBSERVED' ? '2.00000000' : '0' },
+                _count: { _all: 1 },
+              })),
+            )
+            .mockResolvedValueOnce([]),
+        },
+        operatingCostEvidence: { findMany: vi.fn().mockResolvedValue([]) },
+        operationalUsageEvidence: {
+          findMany: vi.fn().mockResolvedValue([]),
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      } as never)
+      expect(result.ai).toMatchObject({
+        observationCompleteness: expected,
+        observedEstimatedCostUsd: observed,
+        requestCount: statuses.length,
+        attributedTenantCount: statuses.length ? 1 : 0,
+        usageCoverage: {
+          observedRequestCount: statuses.filter((status) => status === 'OBSERVED').length,
+          unknownRequestCount: statuses.filter((status) => status === 'UNKNOWN').length,
+          notDispatchedRequestCount: statuses.filter((status) => status === 'NOT_DISPATCHED')
+            .length,
+          legacyUnclassifiedRequestCount: legacy,
+        },
+      })
+    },
+  )
   it('combines AI estimates with contained current evidence and exposes coverage limits', async () => {
     const now = new Date('2026-08-25T00:00:00.000Z')
     const groupBy = vi
