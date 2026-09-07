@@ -178,6 +178,67 @@ describe('customer billing requests', () => {
     expect(tx.billingCustomerRequest.create).not.toHaveBeenCalled()
   })
 
+  it.each(['completion', 'notification'])(
+    'does not relabel provider success or resend cancellation after %s fails',
+    async (stage) => {
+      const processing = { id: 'request-1', status: 'PROCESSING' }
+      const completed = { ...processing, status: 'COMPLETED' }
+      const failure = new Error(`Internal ${stage} unavailable`)
+      const tx = {
+        billingCustomerRequest: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(processing),
+          update:
+            stage === 'completion'
+              ? vi.fn().mockRejectedValue(failure)
+              : vi.fn().mockResolvedValue(completed),
+        },
+        billingAccount: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'account-1',
+            commercialAgreements: [
+              {
+                id: 'agreement-1',
+                stripeSubscriptionId: 'sub_test',
+                minimumCommitmentEndsAt: null,
+                cancelAtPeriodEnd: false,
+                status: 'ACTIVE',
+              },
+            ],
+          }),
+        },
+      }
+      const markFailed = vi.fn()
+      const client = {
+        $transaction: (action: (value: typeof tx) => unknown) => action(tx),
+        billingCustomerRequest: { update: markFailed },
+      }
+      const provider = { cancelSubscriptionAtPeriodEnd: vi.fn().mockResolvedValue(undefined) }
+      if (stage === 'notification') mocks.event.mockRejectedValueOnce(failure)
+      const input = {
+        tenantId: 'tenant-1',
+        actorId: 'owner-1',
+        actorRole: 'OWNER',
+        operationId: '44a1e58c-670c-47d5-b02d-24c56b0e7747',
+        reason: 'Seasonal closure',
+        provider: provider as never,
+        environment,
+        client: client as never,
+      }
+      await expect(requestTenantCancellation(input)).rejects.toBe(failure)
+      expect(markFailed).not.toHaveBeenCalled()
+      tx.billingCustomerRequest.findFirst.mockResolvedValue(
+        stage === 'completion' ? processing : completed,
+      )
+      await expect(requestTenantCancellation(input)).resolves.toMatchObject({
+        replayed: true,
+        awaitingWebhook: true,
+        request: { status: stage === 'completion' ? 'PROCESSING' : 'COMPLETED' },
+      })
+      expect(provider.cancelSubscriptionAtPeriodEnd).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('records approved catalog interest without charging or sending an email', async () => {
     const request = { id: 'request-1', featureKey: 'premium-voice', status: 'OPEN' }
     const tx = {
