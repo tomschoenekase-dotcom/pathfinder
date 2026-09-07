@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 
 function findStandaloneServer(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -21,18 +22,27 @@ function findStandaloneServer(dir) {
   return null
 }
 
-const standaloneRoot = join(process.cwd(), '.next', 'standalone')
-const serverDir = existsSync(standaloneRoot) ? findStandaloneServer(standaloneRoot) : null
+export function copyNextStandaloneAssets(
+  cwd = process.cwd(),
+  distDir = process.env.NEXT_DIST_DIR || '.next',
+) {
+  const standaloneRoot = join(cwd, distDir, 'standalone')
+  const serverDir = existsSync(standaloneRoot) ? findStandaloneServer(standaloneRoot) : null
 
-if (!serverDir) {
-  throw new Error('Could not find standalone Next.js server.js')
+  if (!serverDir) {
+    throw new Error('Could not find standalone Next.js server.js')
+  }
+
+  const publicDir = join(cwd, 'public')
+  if (existsSync(publicDir)) {
+    cpSync(publicDir, join(serverDir, 'public'), { recursive: true })
+  }
+
+  const nextOutputDir = join(serverDir, distDir)
+  mkdirSync(nextOutputDir, { recursive: true })
+  cpSync(join(cwd, distDir, 'static'), join(nextOutputDir, 'static'), { recursive: true })
 }
 
-const publicDir = join(process.cwd(), 'public')
-if (existsSync(publicDir)) {
-  cpSync(publicDir, join(serverDir, 'public'), { recursive: true })
+if (process.argv[1] && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1])) {
+  copyNextStandaloneAssets()
 }
-
-const nextOutputDir = join(serverDir, '.next')
-mkdirSync(nextOutputDir, { recursive: true })
-cpSync(join(process.cwd(), '.next', 'static'), join(nextOutputDir, 'static'), { recursive: true })
