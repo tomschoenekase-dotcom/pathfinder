@@ -17,6 +17,10 @@ import {
   AgentWorkflowActivationLedger,
   type AgentWorkflowActivationLedgerPage,
 } from './AgentWorkflowActivationLedger'
+import {
+  AgentWorkflowActivationReviewPanel,
+  type AgentWorkflowActivationReviewPage,
+} from './AgentWorkflowActivationReviewPanel'
 
 type Cursor = { createdAt: string; id: string } | null
 
@@ -151,6 +155,7 @@ type Props = {
     _count: { agentRuns: number }
   }>
   workflowActivations?: AgentWorkflowActivationLedgerPage
+  workflowActivationReview?: AgentWorkflowActivationReviewPage
 }
 
 export function formatE8Usd(value: bigint) {
@@ -215,6 +220,7 @@ export function AgentOperationsOverview({
     nextHeadAfterRegistryKey: null,
     nextEventBefore: null,
   },
+  workflowActivationReview,
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/agents`
   const now = new Date()
@@ -332,6 +338,13 @@ export function AgentOperationsOverview({
         venueId={venueId}
         initialPage={workflowActivations}
       />
+      {workflowActivationReview ? (
+        <AgentWorkflowActivationReviewPanel
+          tenantId={tenantId}
+          venueId={venueId}
+          initialPage={workflowActivationReview}
+        />
+      ) : null}
 
       <section id="team" className="space-y-4" aria-labelledby="agent-identities-heading">
         <div>

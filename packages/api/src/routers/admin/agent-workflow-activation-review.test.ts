@@ -159,6 +159,7 @@ describe('workflow activation review read model', () => {
         registryKey: receipt.registryKey,
         revision: 1,
         activeVersionId: versionId,
+        activeVersion: { id: versionId, version: 3, contentHash: 'a'.repeat(64) },
         activationEventId: 'event-one',
       },
     ])
@@ -180,6 +181,16 @@ describe('workflow activation review read model', () => {
       appliedEvent: { id: 'event-one' },
     })
     expect(JSON.stringify(mocks.versions.mock.calls[0]?.[0].select)).not.toContain('portableText')
+    expect(result.heads[0]?.activeVersion).toEqual({
+      id: versionId,
+      version: 3,
+      contentHash: 'a'.repeat(64),
+    })
+    expect(mocks.heads.mock.calls[0]?.[0]).toMatchObject({
+      where: scope,
+      select: { activeVersion: { select: { id: true, version: true, contentHash: true } } },
+    })
+    expect(JSON.stringify(mocks.heads.mock.calls[0]?.[0].select)).not.toContain('portableText')
     expect(mocks.versions.mock.calls[0]?.[0]).toMatchObject({
       where: scope,
       take: 21,

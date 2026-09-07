@@ -219,6 +219,9 @@ export const adminAgentWorkflowActivationReviewRouter = router({
                 revision: true,
                 activeVersionId: true,
                 activationEventId: true,
+                activeVersion: {
+                  select: { id: true, version: true, contentHash: true },
+                },
               },
             })
           : []
