@@ -36,6 +36,13 @@ const routeInput = {
   fromLocationId: 'entrance',
   toLocationId: 'gallery',
 }
+const reachableInput = {
+  venueId: input.venueId,
+  anonymousToken: input.anonymousToken,
+  fromLocationId: 'entrance',
+  kind: 'RESTROOM' as const,
+  accessibleOnly: false,
+}
 const locations = [
   {
     id: 'location-entrance',
@@ -342,5 +349,183 @@ describe('public structured location resolver', () => {
       code: 'PRECONDITION_FAILED',
     })
     expect(connectionFindMany).not.toHaveBeenCalled()
+  })
+
+  it('resolves visitor scope and entitlement before reading reachable topology', async () => {
+    findMany.mockResolvedValue([
+      locations[0],
+      { ...locations[1], id: 'restroom', stableKey: 'restroom', kind: 'RESTROOM' },
+    ])
+    connectionFindMany.mockResolvedValue([])
+
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toEqual({
+      destination: null,
+      ranking: null,
+    })
+
+    expect(entitlement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        capability: 'location-plus',
+      }),
+    )
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      entitlement.mock.invocationCallOrder[0],
+    )
+    expect(entitlement.mock.invocationCallOrder[0]).toBeLessThan(
+      findMany.mock.invocationCallOrder[0],
+    )
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          visibility: 'PUBLIC',
+          isActive: true,
+        }),
+        take: 501,
+      }),
+    )
+  })
+
+  it('selects a reachable restroom rather than a nearer disconnected coordinate', async () => {
+    findMany.mockResolvedValue([
+      { ...locations[0], latitude: 41, longitude: -87 },
+      {
+        ...locations[1],
+        id: 'restroom-near',
+        stableKey: 'restroom-near',
+        displayName: 'Near disconnected restroom',
+        kind: 'RESTROOM',
+        latitude: 41.00001,
+        longitude: -87,
+      },
+      {
+        ...locations[2],
+        id: 'restroom-far',
+        stableKey: 'restroom-far',
+        displayName: 'Far reachable restroom',
+        kind: 'RESTROOM',
+        latitude: 41.001,
+        longitude: -87,
+      },
+    ])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'connection-restroom',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom-far',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Follow the reviewed corridor.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+    ])
+
+    const result = await caller.location.reachableDestination(reachableInput)
+    expect(result).toMatchObject({
+      destination: { id: 'restroom-far', stableKey: 'restroom-far' },
+      ranking: {
+        basis: 'STRAIGHT_LINE_AMONG_REACHABLE',
+        reachableOptionCount: 1,
+        reviewedSegmentCount: 1,
+        walkingDistanceMeters: null,
+        walkingMinutes: null,
+      },
+    })
+  })
+
+  it('removes a media-derived destination when its source review loses eligibility', async () => {
+    findMany.mockResolvedValue([
+      locations[0],
+      { ...locations[1], id: 'restroom', stableKey: 'restroom', kind: 'RESTROOM' },
+    ])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'media-restroom-route',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom',
+        kind: 'DOOR',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Use the reviewed door.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 1 },
+      },
+    ])
+    routeEligibility.mockResolvedValueOnce([])
+
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toEqual({
+      destination: null,
+      ranking: null,
+    })
+    expect(routeEligibility).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+    )
+  })
+
+  it('requires explicitly accessible connections when accessibleOnly is requested', async () => {
+    findMany.mockResolvedValue([
+      locations[0],
+      { ...locations[1], id: 'restroom', stableKey: 'restroom', kind: 'RESTROOM' },
+    ])
+    connectionFindMany.mockResolvedValue([])
+
+    await expect(
+      caller.location.reachableDestination({ ...reachableInput, accessibleOnly: true }),
+    ).resolves.toEqual({ destination: null, ranking: null })
+    expect(connectionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ accessible: true }) }),
+    )
+  })
+
+  it('does not disclose an unknown or non-public origin and returns null for no candidate', async () => {
+    findMany.mockResolvedValue(locations)
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toEqual({
+      destination: null,
+      ranking: null,
+    })
+    expect(connectionFindMany).toHaveBeenCalledOnce()
+
+    connectionFindMany.mockClear()
+    await expect(
+      caller.location.reachableDestination({ ...reachableInput, fromLocationId: 'private-room' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(connectionFindMany).not.toHaveBeenCalled()
+  })
+
+  it('fails closed at both bounded topology caps', async () => {
+    findMany.mockResolvedValue(
+      Array.from({ length: 501 }, (_, index) => ({
+        ...locations[0],
+        id: `location-${index}`,
+        stableKey: index === 0 ? 'entrance' : `location-${index}`,
+      })),
+    )
+    await expect(caller.location.reachableDestination(reachableInput)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    })
+    expect(connectionFindMany).not.toHaveBeenCalled()
+
+    findMany.mockResolvedValue(locations)
+    connectionFindMany.mockResolvedValue(
+      Array.from({ length: 1001 }, (_, index) => ({
+        id: `connection-${index}`,
+        fromLocationId: 'location-entrance',
+        toLocationId: 'location-gallery',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: null,
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      })),
+    )
+    await expect(caller.location.reachableDestination(reachableInput)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    })
   })
 })

@@ -914,7 +914,7 @@ const chatReadRouter = router({
     // 4. Retrieve relevant places and knowledge entries.
     //    When an embedding is available both searches run in parallel (same query embedding,
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
-    //    knowledge entries fall back to empty (no non-semantic fallback needed).
+    //    Knowledge uses bounded lexical excerpts when embeddings are unavailable.
     const retrievalStartedAt = performance.now()
     const nativeReadSnapshotPromise = resolveNativeGuestReadSnapshotAction({
       client: ctx.db,

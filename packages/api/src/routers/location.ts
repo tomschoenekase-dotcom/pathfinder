@@ -8,6 +8,7 @@ import type { TRPCContext } from '../context'
 import { publicProcedure } from '../trpc'
 import { findDeterministicRoutePlan, projectRouteLocation } from './location-route'
 import { loadPublicLocationScope } from './location-public-scope'
+import { selectReachableLocation } from './location-reachable'
 import { filterEligibleMediaRouteConnections } from '../lib/media-relation-route-loader'
 
 const safeExternalMap = z
@@ -43,6 +44,8 @@ async function loadPublicRouteLocations(
       stableKey: true,
       kind: true,
       displayName: true,
+      latitude: true,
+      longitude: true,
       floor: { select: { id: true, stableKey: true, name: true, level: true } },
     },
   })
@@ -52,6 +55,53 @@ async function loadPublicRouteLocations(
       message: 'This venue topology exceeds the supported route size.',
     })
   return locations
+}
+
+async function loadPublicRouteConnections(
+  db: TRPCContext['db'],
+  scope: { tenantId: string; venueId: string },
+  now: Date,
+  accessibleOnly: boolean,
+) {
+  const connections = await db.venueLocationConnection.findMany({
+    where: {
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      isActive: true,
+      verifiedAt: { lte: now },
+      ...(accessibleOnly ? { accessible: true } : {}),
+    },
+    orderBy: [{ id: 'asc' }],
+    take: 1001,
+    select: {
+      id: true,
+      fromLocationId: true,
+      toLocationId: true,
+      kind: true,
+      bidirectional: true,
+      accessible: true,
+      directions: true,
+      verifiedAt: true,
+      isActive: true,
+      _count: { select: { mediaRelationApplications: true } },
+    },
+  })
+  if (connections.length > 1000)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This venue topology exceeds the supported route size.',
+    })
+  return filterEligibleMediaRouteConnections({
+    client: db,
+    tenantId: scope.tenantId,
+    venueId: scope.venueId,
+    connections: connections.map(
+      ({ _count = { mediaRelationApplications: 0 }, ...connection }) => ({
+        ...connection,
+        mediaApplicationCount: _count.mediaRelationApplications,
+      }),
+    ),
+  })
 }
 
 async function requirePublicLocationEntitlement(
@@ -70,6 +120,56 @@ async function requirePublicLocationEntitlement(
 }
 
 export const locationRouter = router({
+  reachableDestination: publicProcedure
+    .input(
+      z
+        .object({
+          venueId: z.string().min(1).max(191),
+          anonymousToken: z.string().uuid(),
+          fromLocationId: z.string().min(1).max(191),
+          kind: z.enum(['RESTROOM', 'FOOD', 'EXIT', 'SERVICE_DESK', 'ACCESSIBILITY_POINT']),
+          accessibleOnly: z.boolean().default(false),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const scope = await loadPublicLocationScope(ctx.db, input)
+      if (!scope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found.' })
+      await requirePublicLocationEntitlement(ctx.db, scope, 'Location not found.')
+      const now = new Date()
+      const locations = await loadPublicRouteLocations(ctx.db, scope, now)
+      const origin = locations.find(
+        (location) =>
+          location.id === input.fromLocationId || location.stableKey === input.fromLocationId,
+      )
+      if (!origin) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found.' })
+      const connections = await loadPublicRouteConnections(ctx.db, scope, now, input.accessibleOnly)
+      const selected = selectReachableLocation({
+        locations: locations.map((location) => ({
+          ...location,
+          latitude: location.latitude == null ? null : Number(location.latitude),
+          longitude: location.longitude == null ? null : Number(location.longitude),
+        })),
+        connections,
+        fromLocationId: origin.id,
+        kind: input.kind,
+        accessibleOnly: input.accessibleOnly,
+      })
+      if (!selected) return { destination: null, ranking: null }
+      return {
+        destination: projectRouteLocation(selected.location),
+        ranking: {
+          basis: selected.rankingBasis,
+          straightLineMeters: selected.straightLineMeters,
+          reachableOptionCount: selected.reachableOptionCount,
+          reviewedSegmentCount: selected.plan.steps.length,
+          walkingDistanceMeters: selected.walkingDistanceMeters,
+          walkingMinutes: selected.walkingMinutes,
+          alreadyHere: selected.location.id === origin.id,
+        },
+      }
+    }),
+
   resolve: publicProcedure
     .input(
       z
@@ -202,45 +302,12 @@ export const locationRouter = router({
           message: 'Choose two different locations.',
         })
 
-      const connections = await ctx.db.venueLocationConnection.findMany({
-        where: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          isActive: true,
-          verifiedAt: { lte: now },
-          ...(input.accessibleOnly ? { accessible: true } : {}),
-        },
-        orderBy: [{ id: 'asc' }],
-        take: 1001,
-        select: {
-          id: true,
-          fromLocationId: true,
-          toLocationId: true,
-          kind: true,
-          bidirectional: true,
-          accessible: true,
-          directions: true,
-          verifiedAt: true,
-          isActive: true,
-          _count: { select: { mediaRelationApplications: true } },
-        },
-      })
-      if (connections.length > 1000)
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This venue topology exceeds the supported route size.',
-        })
-      const eligibleConnections = await filterEligibleMediaRouteConnections({
-        client: ctx.db,
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        connections: connections.map(
-          ({ _count = { mediaRelationApplications: 0 }, ...connection }) => ({
-            ...connection,
-            mediaApplicationCount: _count.mediaRelationApplications,
-          }),
-        ),
-      })
+      const eligibleConnections = await loadPublicRouteConnections(
+        ctx.db,
+        scope,
+        now,
+        input.accessibleOnly,
+      )
       const routePlan = findDeterministicRoutePlan({
         locations,
         connections: eligibleConnections,

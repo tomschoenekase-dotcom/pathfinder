@@ -240,7 +240,7 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
             tenantId,
             venueId,
             stableKey: `east-${suffix}`,
-            kind: 'ROOM',
+            kind: 'RESTROOM',
             displayName: 'East gallery',
             visibility: 'PUBLIC',
             verifiedAt: new Date(),
@@ -346,6 +346,15 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
           accessibleOnly: false,
         }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(
+        publicCaller.location.reachableDestination({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          kind: 'RESTROOM',
+          accessibleOnly: false,
+        }),
+      ).resolves.toEqual({ destination: null, ranking: null })
       const adminCaller = app.createCaller({
         db,
         headers: new Headers(),
@@ -368,6 +377,23 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
       })
       expect(route.segments).toHaveLength(1)
       expect(route.segments[0]).toMatchObject({ connectionId: connection.id, kind: 'DOOR' })
+      await expect(
+        publicCaller.location.reachableDestination({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          kind: 'RESTROOM',
+          accessibleOnly: false,
+        }),
+      ).resolves.toMatchObject({
+        destination: { id: to.id, kind: 'RESTROOM' },
+        ranking: {
+          reachableOptionCount: 1,
+          reviewedSegmentCount: 1,
+          walkingDistanceMeters: null,
+          walkingMinutes: null,
+        },
+      })
 
       const unrelatedProposalRequestId = randomUUID()
       const advanced = await saveMediaResolution({
@@ -460,6 +486,15 @@ describe.skipIf(!enabled)('media relation application service on disposable Post
           accessibleOnly: false,
         }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(
+        publicCaller.location.reachableDestination({
+          venueId,
+          anonymousToken,
+          fromLocationId: from.id,
+          kind: 'RESTROOM',
+          accessibleOnly: false,
+        }),
+      ).resolves.toEqual({ destination: null, ranking: null })
 
       const activeConnection = await db.venueLocationConnection.findUniqueOrThrow({
         where: { id: connection.id },
