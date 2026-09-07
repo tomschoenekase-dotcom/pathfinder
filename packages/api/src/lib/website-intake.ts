@@ -23,6 +23,12 @@ const DEFAULT_MAX_REDIRECTS = 5
 const MAX_RESOLVED_ADDRESSES = 64
 const MAX_EXTRACTED_LINKS_PER_PAGE = 500
 const MAX_EXTRACTED_FACTS_PER_PAGE = 500
+/**
+ * Engineering work estimate only: one unit for each dispatched HTTP fetch plus
+ * one unit for each started 100 kB of successfully observed response body.
+ * It is neither a provider charge nor a claim about bytes in unread redirects.
+ */
+export const WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION = 2
 const SENSITIVE_QUERY_KEY =
   /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
 
@@ -128,6 +134,13 @@ export type WebsiteIntakeResult = {
     fetchedBytes: number
     estimatedCostUnits: number
   }
+}
+
+export function websiteIntakeEngineeringCostUnits(input: {
+  attemptedFetches: number
+  observedBodyBytes: number
+}) {
+  return input.attemptedFetches + Math.ceil(input.observedBodyBytes / 100_000)
 }
 
 type AdmittedUrl = { canonicalUrl: string; hostname: string }
@@ -603,7 +616,10 @@ export async function buildWebsiteIntakeProposal(
       attemptedFetches,
       fetchedPages: pages.length,
       fetchedBytes,
-      estimatedCostUnits: pages.length + Math.ceil(fetchedBytes / 100_000),
+      estimatedCostUnits: websiteIntakeEngineeringCostUnits({
+        attemptedFetches,
+        observedBodyBytes: fetchedBytes,
+      }),
     },
   }
 }
