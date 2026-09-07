@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { NativeCoreVisibleState } from '@pathfinder/contracts'
 import type { SemanticPlace } from '@pathfinder/db'
 import type { GuestKnowledgeRow } from './guest-knowledge-retrieval'
 import { buildVoiceGroundingContext } from './voice-grounding-context'
@@ -212,5 +213,90 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).not.toContain('x'.repeat(100))
     expect(result.sourceIds).toEqual(['small'])
     expect(result.omittedSourceIds).toContain('place:oversized')
+  })
+
+  it('reports the effective legacy fallback separately from native snapshot eligibility', async () => {
+    const known = row('known', 'Known capacity', 'Legacy capacity is 120.')
+    const missing = row('missing', 'Missing policy', 'Legacy policy remains selected.')
+    const state = {
+      venue: {
+        name: 'Native Venue',
+        slug: 'native-venue',
+        description: null,
+        guideNotes: null,
+        aiGuideNotes: null,
+        aiFeaturedPlaceId: null,
+        aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        aiGuideName: null,
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatFont: 'jakarta',
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        category: null,
+        guideMode: 'location_aware',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+        geoBoundary: null,
+        isActive: true,
+      },
+      venueBotConfiguration: {
+        presentationMode: 'CLASSIC',
+        personalityMode: 'PRESET',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        responseDepth: 'BALANCED',
+        personalityProfileId: null,
+        characterKey: null,
+        customCharacterId: null,
+        publicDisplayName: null,
+        greeting: null,
+        voiceProfileId: null,
+      },
+      places: [],
+      knowledgeEntries: [
+        {
+          id: known.id,
+          title: 'Known capacity',
+          category: 'Known capacity',
+          content: 'Native capacity is 137.',
+          sourceType: 'FOUNDER',
+          sourceName: null,
+          sourceUrl: null,
+          isEnabled: true,
+          authorship: 'HUMAN',
+          importedAt: null,
+          humanConfirmedAt: null,
+          humanConfirmedBy: null,
+          lastReviewedAt: null,
+          lastReviewedBy: null,
+          sourcePackageId: null,
+        },
+      ],
+      generalizedModules: [],
+    } as unknown as NativeCoreVisibleState
+
+    const result = await buildVoiceGroundingContext({
+      reader: { venueKnowledgeEntry: { findMany: async () => [known, missing] } },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What is the known capacity and missing policy?',
+      nativeSnapshot: {
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        state,
+      },
+    })
+
+    expect(result.nativeProjection).toMatchObject({
+      path: 'NATIVE',
+      effectiveContentPath: 'LEGACY',
+      reason: 'NATIVE_READY',
+    })
+    expect(result.context).toContain('Legacy capacity is 120.')
+    expect(result.context).not.toContain('Native capacity is 137.')
   })
 })

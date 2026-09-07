@@ -117,7 +117,7 @@ export async function buildVoiceGroundingContext(input: {
         legacyPlaces: places,
         legacyKnowledgeEntries: compatibilityKnowledge,
       })
-    : { places, knowledgeEntries: compatibilityKnowledge }
+    : { path: 'NOT_REQUESTED' as const, places, knowledgeEntries: compatibilityKnowledge }
   const candidates = [
     ...updates.map((update) => ({
       id: `update:${String(update.id)}`,
@@ -155,13 +155,20 @@ export async function buildVoiceGroundingContext(input: {
     nativeProjection: input.nativeSnapshot
       ? {
           path: input.nativeSnapshot.path,
+          effectiveContentPath: authorized.path,
           reason: input.nativeSnapshot.reason,
           releaseId: input.nativeSnapshot.releaseId,
           stateHash: input.nativeSnapshot.state
             ? nativeCoreVisibleStateHash(input.nativeSnapshot.state)
             : null,
         }
-      : { path: 'NOT_REQUESTED' as const, reason: null, releaseId: null, stateHash: null },
+      : {
+          path: 'NOT_REQUESTED' as const,
+          effectiveContentPath: 'NOT_REQUESTED' as const,
+          reason: null,
+          releaseId: null,
+          stateHash: null,
+        },
     measurements: {
       retrievalMs: retrieved.trace.retrievalMs,
       retrievalAndAssemblyMs: Math.max(0, performance.now() - assemblyStarted),

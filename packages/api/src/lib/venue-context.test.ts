@@ -522,24 +522,18 @@ describe('buildVenueSystemPrompt', () => {
         knowledgeEntries: body
           ? [
               {
-                id: 'entry-capacity',
                 title: 'Gallery capacity',
                 category: 'visitor policy',
                 content: body,
-                sourceType: 'FOUNDER_PROVIDED',
-                sourceName: null,
-                sourceUrl: null,
-                distance: 0,
               },
             ]
           : [],
         activeUpdates: body
           ? [
               {
-                id: 'update-capacity',
                 updateType: 'NOTICE',
                 severity: 'INFO',
-                priority: 1,
+                priority: 'NORMAL',
                 title: 'Capacity notice',
                 body,
                 redirectTo: null,
