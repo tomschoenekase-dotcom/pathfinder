@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { AgentWorkflowPromotionAssessmentDiagnosticsSchema } from '@pathfinder/contracts/agent-workflow-promotion-assessment'
 import { canonicalEvaluationJson, EvalCaseManifestSchema } from '@pathfinder/contracts/evaluation'
 import { db } from '../client'
@@ -141,6 +142,273 @@ function summary(
   }
 }
 
+type PromotionEvidenceInput = Pick<
+  CreateAgentWorkflowPromotionAssessmentInput,
+  | 'tenantId'
+  | 'venueId'
+  | 'workflowVersionId'
+  | 'proposalId'
+  | 'developmentValidationId'
+  | 'heldoutValidationId'
+>
+type PromotionEvidenceClient = Pick<
+  typeof db,
+  'agentWorkflowVersion' | 'agentImprovementProposal' | 'agentImprovementValidationEvidence'
+> &
+  NonNullable<Parameters<typeof compareEvaluationRuns>[1]>
+
+/** Shared read path for initial assessment and activation-time evidence revalidation. */
+async function evaluateCurrentPromotionEvidence(
+  tx: PromotionEvidenceClient,
+  input: PromotionEvidenceInput,
+) {
+  const workflow = await tx.agentWorkflowVersion.findFirst({
+    where: { id: input.workflowVersionId, tenantId: input.tenantId, venueId: input.venueId },
+  })
+  const proposal = await tx.agentImprovementProposal.findFirst({
+    where: { id: input.proposalId, tenantId: input.tenantId, venueId: input.venueId },
+    select: {
+      id: true,
+      approvalRequest: { select: { decision: { select: { decision: true } } } },
+    },
+  })
+  const validations = await tx.agentImprovementValidationEvidence.findMany({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      id: { in: [input.developmentValidationId, input.heldoutValidationId] },
+    },
+    include: { candidateEvalRun: { select: { caseManifestSnapshot: true } } },
+  })
+  if (!workflow || !proposal || validations.length !== 2)
+    throw new AgentWorkflowPromotionAssessmentError(
+      'NOT_FOUND',
+      'Scoped workflow, proposal, or validation evidence was not found',
+    )
+  if (
+    !isAgentWorkflowArtifactIntact(workflow) ||
+    proposal.approvalRequest.decision?.decision !== 'APPROVED'
+  )
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Workflow integrity and approved proposal are required',
+    )
+  const expectedKind = workflow.kind === 'SKILL' ? 'SKILL_VERSION' : 'WORKFLOW_VERSION'
+  const ordered = [input.developmentValidationId, input.heldoutValidationId].map(
+    (id) => validations.find((item) => item.id === id)!,
+  )
+  for (const validation of ordered)
+    if (
+      validation.proposalId !== proposal.id ||
+      validation.implementationKind !== expectedKind ||
+      validation.implementationRef !== `AgentWorkflowVersion:${workflow.id}` ||
+      validation.implementationVersion !== String(workflow.version) ||
+      validation.implementationHash !== workflow.contentHash
+    )
+      throw new AgentWorkflowPromotionAssessmentError(
+        'CONFLICT',
+        'Validation identity or immutable comparison receipt does not match the workflow',
+      )
+  const manifests = ordered.map((item) =>
+    EvalCaseManifestSchema.safeParse(item.candidateEvalRun.caseManifestSnapshot),
+  )
+  if (manifests.some((item) => !item.success))
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Validation case manifest integrity is invalid',
+    )
+  const comparisons = await Promise.all(
+    ordered.map((item) =>
+      compareEvaluationRuns(
+        {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          baselineRunId: item.baselineEvalRunId,
+          candidateRunId: item.candidateEvalRunId,
+          allowedMismatchReasons: item.changeDimensions,
+        },
+        tx,
+      ),
+    ),
+  )
+  for (const [index, validation] of ordered.entries()) {
+    const currentSnapshot = {
+      contractVersion: 1,
+      interpretation: 'evidence-only-no-promotion-threshold',
+      ...comparisons[index]!,
+    }
+    const persistedCurrentSnapshot = JSON.parse(JSON.stringify(currentSnapshot))
+    const oversized = manifests[index]!.data!.length > 50
+    const receiptHash = persistedValidationReceiptDigest(validation.comparisonSnapshot)
+    if (
+      receiptHash !== validation.comparisonHash ||
+      (!oversized &&
+        (digest(currentSnapshot) !== validation.comparisonHash ||
+          canonicalEvaluationJson(persistedCurrentSnapshot) !==
+            canonicalEvaluationJson(validation.comparisonSnapshot as never)))
+    )
+      throw new AgentWorkflowPromotionAssessmentError(
+        'CONFLICT',
+        'Immutable validation comparison evidence no longer matches its current result set',
+      )
+  }
+  const development = summary(ordered[0]!.id, comparisons[0]!, manifests[0]!.data!)
+  const heldout = summary(ordered[1]!.id, comparisons[1]!, manifests[1]!.data!)
+  const developmentIds = new Set(manifests[0]!.data!.map((item) => item.caseId))
+  const disjointCaseSets = manifests[1]!.data!.every((item) => !developmentIds.has(item.caseId))
+  const targetImprovementObserved = Boolean(development && development.resolvedFailures > 0)
+  const allRunsCompleted = comparisons.every(
+    (comparison) =>
+      comparison.baseline.status === 'COMPLETED' && comparison.candidate.status === 'COMPLETED',
+  )
+  const oversizedEvidence = manifests.some((manifest) => manifest.data!.length > 50)
+  const incomplete =
+    !development ||
+    !heldout ||
+    development.missingResults > 0 ||
+    heldout.missingResults > 0 ||
+    !allRunsCompleted ||
+    oversizedEvidence
+  const regression = Boolean((development?.newFailures ?? 0) > 0 || (heldout?.newFailures ?? 0) > 0)
+  const outcome = decideAgentWorkflowPromotionAssessmentOutcome({
+    disjointCaseSets,
+    hasRegression: regression,
+    hasIncompleteEvidence: incomplete,
+    targetImprovementObserved,
+  })
+  const diagnostics = AgentWorkflowPromotionAssessmentDiagnosticsSchema.parse({
+    contractVersion: 1,
+    interpretation: 'evidence-only-no-activation',
+    development: development ?? {
+      validationId: ordered[0]!.id,
+      caseCount: manifests[0]!.data!.length,
+      resolvedFailures: 0,
+      newFailures: 0,
+      missingResults: manifests[0]!.data!.length,
+      caseIdentityHash: digest(manifests[0]!.data),
+      latencyDeltaMs: null,
+      costDeltaE8Usd: null,
+    },
+    heldout: heldout ?? {
+      validationId: ordered[1]!.id,
+      caseCount: manifests[1]!.data!.length,
+      resolvedFailures: 0,
+      newFailures: 0,
+      missingResults: manifests[1]!.data!.length,
+      caseIdentityHash: digest(manifests[1]!.data),
+      latencyDeltaMs: null,
+      costDeltaE8Usd: null,
+    },
+    disjointCaseSets,
+    targetImprovementObserved,
+    thresholdResolution: 'UNRESOLVED',
+    autonomousPromotionEligible: false,
+    limitations: [
+      'Resolved development failures show fixture-level improvement only; target-task relevance still requires human review.',
+      'No reviewed latency or cost threshold is bound, so autonomous promotion is ineligible.',
+      ...(!allRunsCompleted
+        ? ['Only COMPLETED evaluation runs can support promotion review readiness.']
+        : []),
+      ...(oversizedEvidence
+        ? [
+            'At least one evaluation manifest exceeds the 50-case comparison boundary; its full case count is retained but it is not treated as compared evidence.',
+          ]
+        : []),
+    ],
+  })
+  return { workflow, proposal, ordered, outcome, diagnostics }
+}
+
+/** Re-read current comparison results; an immutable assessment ID is not a freshness check.
+ * Call in the activation transaction before comparing its dedicated approval receipt. */
+export async function revalidateAgentWorkflowPromotionAssessment(
+  tx: PromotionEvidenceClient & Pick<typeof db, 'agentWorkflowPromotionAssessment' | '$queryRaw'>,
+  input: { tenantId: string; venueId: string; workflowVersionId: string; assessmentId: string },
+) {
+  const assessment = await tx.agentWorkflowPromotionAssessment.findFirst({
+    where: {
+      id: input.assessmentId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      workflowVersionId: input.workflowVersionId,
+    },
+    select,
+  })
+  if (!assessment)
+    throw new AgentWorkflowPromotionAssessmentError('NOT_FOUND', 'Scoped assessment was not found')
+  const expectedIdentityHash = digest({
+    tenantId: assessment.tenantId,
+    venueId: assessment.venueId,
+    workflowVersionId: assessment.workflowVersionId,
+    proposalId: assessment.proposalId,
+    developmentValidationId: assessment.developmentValidationId,
+    heldoutValidationId: assessment.heldoutValidationId,
+    actorId: assessment.createdById,
+  })
+  if (assessment.createdByType !== 'HUMAN' || assessment.assessmentHash !== expectedIdentityHash)
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Assessment identity integrity failed',
+    )
+  const validations = await tx.agentImprovementValidationEvidence.findMany({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      id: { in: [assessment.developmentValidationId, assessment.heldoutValidationId] },
+    },
+    select: { baselineEvalRunId: true, candidateEvalRunId: true },
+  })
+  if (validations.length !== 2)
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Exact validation pair is unavailable',
+    )
+  const runIds = [
+    ...new Set(
+      validations.flatMap((validation) => [
+        validation.baselineEvalRunId,
+        validation.candidateEvalRunId,
+      ]),
+    ),
+  ].sort()
+  // A review INSERT takes FK KEY SHARE on its result. Locking the exact result
+  // rows serializes that canonical write with the activation transaction. READY
+  // requires all manifest results already present; each of four runs is <=50 cases.
+  const lockedResults = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM eval_results
+    WHERE tenant_id = ${input.tenantId} AND venue_id = ${input.venueId}
+      AND run_id IN (${Prisma.join(runIds.map((id) => Prisma.sql`${id}::uuid`))})
+    ORDER BY id LIMIT 201 FOR UPDATE`)
+  if (lockedResults.length > 200)
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Activation comparison result bound exceeded',
+    )
+  const current = await evaluateCurrentPromotionEvidence(tx, assessment)
+  if (
+    current.outcome !== 'EVIDENCE_READY_REVIEW_REQUIRED' ||
+    assessment.outcome !== current.outcome ||
+    canonicalEvaluationJson(assessment.diagnostics as never) !==
+      canonicalEvaluationJson(current.diagnostics as never)
+  )
+    throw new AgentWorkflowPromotionAssessmentError(
+      'CONFLICT',
+      'Assessment diagnostics no longer match current evidence',
+    )
+  return {
+    assessment,
+    evidenceDigest: digest({
+      diagnostics: current.diagnostics,
+      developmentValidationId: assessment.developmentValidationId,
+      heldoutValidationId: assessment.heldoutValidationId,
+      comparisonHashes: current.ordered.map((validation) => ({
+        id: validation.id,
+        hash: validation.comparisonHash,
+      })),
+    }),
+  }
+}
+
 export async function createAgentWorkflowPromotionAssessment(
   raw: CreateAgentWorkflowPromotionAssessmentInput,
   client: Pick<typeof db, '$transaction'> = db,
@@ -175,162 +443,8 @@ export async function createAgentWorkflowPromotionAssessment(
           )
         return { assessment: replay, replayed: true as const }
       }
-      const workflow = await tx.agentWorkflowVersion.findFirst({
-        where: { id: input.workflowVersionId, tenantId: input.tenantId, venueId: input.venueId },
-      })
-      const proposal = await tx.agentImprovementProposal.findFirst({
-        where: { id: input.proposalId, tenantId: input.tenantId, venueId: input.venueId },
-        select: {
-          id: true,
-          approvalRequest: { select: { decision: { select: { decision: true } } } },
-        },
-      })
-      const validations = await tx.agentImprovementValidationEvidence.findMany({
-        where: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          id: { in: [input.developmentValidationId, input.heldoutValidationId] },
-        },
-        include: { candidateEvalRun: { select: { caseManifestSnapshot: true } } },
-      })
-      if (!workflow || !proposal || validations.length !== 2)
-        throw new AgentWorkflowPromotionAssessmentError(
-          'NOT_FOUND',
-          'Scoped workflow, proposal, or validation evidence was not found',
-        )
-      if (
-        !isAgentWorkflowArtifactIntact(workflow) ||
-        proposal.approvalRequest.decision?.decision !== 'APPROVED'
-      )
-        throw new AgentWorkflowPromotionAssessmentError(
-          'CONFLICT',
-          'Workflow integrity and approved proposal are required',
-        )
-      const expectedKind = workflow.kind === 'SKILL' ? 'SKILL_VERSION' : 'WORKFLOW_VERSION'
-      const ordered = [input.developmentValidationId, input.heldoutValidationId].map(
-        (id) => validations.find((item) => item.id === id)!,
-      )
-      for (const validation of ordered)
-        if (
-          validation.proposalId !== proposal.id ||
-          validation.implementationKind !== expectedKind ||
-          validation.implementationRef !== `AgentWorkflowVersion:${workflow.id}` ||
-          validation.implementationVersion !== String(workflow.version) ||
-          validation.implementationHash !== workflow.contentHash
-        )
-          throw new AgentWorkflowPromotionAssessmentError(
-            'CONFLICT',
-            'Validation identity or immutable comparison receipt does not match the workflow',
-          )
-      const manifests = ordered.map((item) =>
-        EvalCaseManifestSchema.safeParse(item.candidateEvalRun.caseManifestSnapshot),
-      )
-      if (manifests.some((item) => !item.success))
-        throw new AgentWorkflowPromotionAssessmentError(
-          'CONFLICT',
-          'Validation case manifest integrity is invalid',
-        )
-      const comparisons = await Promise.all(
-        ordered.map((item) =>
-          compareEvaluationRuns(
-            {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              baselineRunId: item.baselineEvalRunId,
-              candidateRunId: item.candidateEvalRunId,
-              allowedMismatchReasons: item.changeDimensions,
-            },
-            tx,
-          ),
-        ),
-      )
-      for (const [index, validation] of ordered.entries()) {
-        const currentSnapshot = {
-          contractVersion: 1,
-          interpretation: 'evidence-only-no-promotion-threshold',
-          ...comparisons[index]!,
-        }
-        const persistedCurrentSnapshot = JSON.parse(JSON.stringify(currentSnapshot))
-        const oversized = manifests[index]!.data!.length > 50
-        const receiptHash = persistedValidationReceiptDigest(validation.comparisonSnapshot)
-        if (
-          receiptHash !== validation.comparisonHash ||
-          (!oversized &&
-            (digest(currentSnapshot) !== validation.comparisonHash ||
-              canonicalEvaluationJson(persistedCurrentSnapshot) !==
-                canonicalEvaluationJson(validation.comparisonSnapshot as never)))
-        )
-          throw new AgentWorkflowPromotionAssessmentError(
-            'CONFLICT',
-            'Immutable validation comparison evidence no longer matches its current result set',
-          )
-      }
-      const development = summary(ordered[0]!.id, comparisons[0]!, manifests[0]!.data!)
-      const heldout = summary(ordered[1]!.id, comparisons[1]!, manifests[1]!.data!)
-      const developmentIds = new Set(manifests[0]!.data!.map((item) => item.caseId))
-      const disjointCaseSets = manifests[1]!.data!.every((item) => !developmentIds.has(item.caseId))
-      const targetImprovementObserved = Boolean(development && development.resolvedFailures > 0)
-      const allRunsCompleted = comparisons.every(
-        (comparison) =>
-          comparison.baseline.status === 'COMPLETED' && comparison.candidate.status === 'COMPLETED',
-      )
-      const oversizedEvidence = manifests.some((manifest) => manifest.data!.length > 50)
-      const incomplete =
-        !development ||
-        !heldout ||
-        development.missingResults > 0 ||
-        heldout.missingResults > 0 ||
-        !allRunsCompleted ||
-        oversizedEvidence
-      const regression = Boolean(
-        (development?.newFailures ?? 0) > 0 || (heldout?.newFailures ?? 0) > 0,
-      )
-      const outcome = decideAgentWorkflowPromotionAssessmentOutcome({
-        disjointCaseSets,
-        hasRegression: regression,
-        hasIncompleteEvidence: incomplete,
-        targetImprovementObserved,
-      })
-      const diagnostics = AgentWorkflowPromotionAssessmentDiagnosticsSchema.parse({
-        contractVersion: 1,
-        interpretation: 'evidence-only-no-activation',
-        development: development ?? {
-          validationId: ordered[0]!.id,
-          caseCount: manifests[0]!.data!.length,
-          resolvedFailures: 0,
-          newFailures: 0,
-          missingResults: manifests[0]!.data!.length,
-          caseIdentityHash: digest(manifests[0]!.data),
-          latencyDeltaMs: null,
-          costDeltaE8Usd: null,
-        },
-        heldout: heldout ?? {
-          validationId: ordered[1]!.id,
-          caseCount: manifests[1]!.data!.length,
-          resolvedFailures: 0,
-          newFailures: 0,
-          missingResults: manifests[1]!.data!.length,
-          caseIdentityHash: digest(manifests[1]!.data),
-          latencyDeltaMs: null,
-          costDeltaE8Usd: null,
-        },
-        disjointCaseSets,
-        targetImprovementObserved,
-        thresholdResolution: 'UNRESOLVED',
-        autonomousPromotionEligible: false,
-        limitations: [
-          'Resolved development failures show fixture-level improvement only; target-task relevance still requires human review.',
-          'No reviewed latency or cost threshold is bound, so autonomous promotion is ineligible.',
-          ...(!allRunsCompleted
-            ? ['Only COMPLETED evaluation runs can support promotion review readiness.']
-            : []),
-          ...(oversizedEvidence
-            ? [
-                'At least one evaluation manifest exceeds the 50-case comparison boundary; its full case count is retained but it is not treated as compared evidence.',
-              ]
-            : []),
-        ],
-      })
+      const { workflow, proposal, ordered, outcome, diagnostics } =
+        await evaluateCurrentPromotionEvidence(tx, input)
       const created = await tx.agentWorkflowPromotionAssessment.create({
         data: {
           operationId: input.operationId,

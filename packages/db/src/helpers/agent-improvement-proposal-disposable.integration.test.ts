@@ -8,7 +8,11 @@ import { prepareAgentImprovementProposalAction } from './agent-improvement-propo
 import { recordAgentImprovementValidationAction } from './agent-improvement-validation-actions'
 import { recordAgentOutcomeAction, recordAgentTrustSignalAction } from './agent-outcome-actions'
 import { recordApprovalDecisionAction } from './approval-decisions'
-import { createAgentWorkflowPromotionAssessment } from './agent-workflow-promotion-assessment-actions'
+import {
+  createAgentWorkflowPromotionAssessment,
+  revalidateAgentWorkflowPromotionAssessment,
+} from './agent-workflow-promotion-assessment-actions'
+import { appendEvaluationReviewAction } from './evaluation-review-actions'
 import { claimAgentBridgeTask, registerAgentBridgeSession } from './agent-bridge-actions'
 import { delegateAgentTaskAction } from './agent-delegation-actions'
 import { createAgentTaskAction } from './agent-task-actions'
@@ -1066,6 +1070,93 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
       await expect(
         createAgentWorkflowPromotionAssessment(assessmentRequest),
       ).resolves.toMatchObject({ replayed: true, assessment: { id: assessment.assessment.id } })
+
+      const heldoutCandidateRun = await db.evalRun.findFirstOrThrow({
+        where: { id: heldoutValidation.candidateEvalRunId, tenantId, venueId },
+        select: { id: true, identityHash: true },
+      })
+      const heldoutCandidateResult = await db.evalResult.findFirstOrThrow({
+        where: { tenantId, venueId, runId: heldoutCandidateRun.id },
+        select: { id: true },
+      })
+      const revalidationInput = {
+        tenantId,
+        venueId,
+        workflowVersionId: registered.version.id,
+        assessmentId: assessment.assessment.id,
+      }
+      await expect(
+        db.$transaction((tx) => revalidateAgentWorkflowPromotionAssessment(tx, revalidationInput)),
+      ).resolves.toMatchObject({
+        assessment: { id: assessment.assessment.id },
+        evidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      })
+
+      let announceLocked!: () => void
+      const locked = new Promise<void>((resolve) => {
+        announceLocked = resolve
+      })
+      let releaseLocks!: () => void
+      const release = new Promise<void>((resolve) => {
+        releaseLocks = resolve
+      })
+      const lockHoldingRevalidation = db.$transaction(
+        async (tx) => {
+          const result = await revalidateAgentWorkflowPromotionAssessment(tx, revalidationInput)
+          announceLocked()
+          await release
+          return result
+        },
+        { timeout: 15_000 },
+      )
+      await Promise.race([locked, lockHoldingRevalidation])
+      const reviewPromise = appendEvaluationReviewAction({
+        tenantId,
+        venueId,
+        runId: heldoutCandidateRun.id,
+        expectedRunIdentityHash: heldoutCandidateRun.identityHash,
+        resultId: heldoutCandidateResult.id,
+        expectedRevision: 0,
+        operationId: randomUUID(),
+        decision: 'ACCEPTED',
+        conclusion: 'The heldout result remains suitable after human review.',
+        rubricVersion: 'promotion-v1',
+        actor,
+      })
+      const reviewOutcome = reviewPromise.then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      )
+      let blockedReviewWrites = 0n
+      try {
+        for (let attempt = 0; attempt < 50 && blockedReviewWrites === 0n; attempt += 1) {
+          const [observation] = await db.$queryRaw<Array<{ blocked: bigint }>>`
+            SELECT COUNT(*)::bigint AS blocked
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%eval_reviews%'
+          `
+          blockedReviewWrites = observation?.blocked ?? 0n
+          if (blockedReviewWrites === 0n)
+            await new Promise<void>((resolve) => setTimeout(resolve, 20))
+        }
+        expect(blockedReviewWrites).toBeGreaterThan(0n)
+      } finally {
+        releaseLocks()
+      }
+      await expect(lockHoldingRevalidation).resolves.toMatchObject({
+        assessment: { id: assessment.assessment.id },
+      })
+      await expect(reviewOutcome).resolves.toMatchObject({
+        ok: true,
+        value: { revision: 1, replayed: false },
+      })
+      await expect(
+        db.$transaction((tx) => revalidateAgentWorkflowPromotionAssessment(tx, revalidationInput)),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+
       await expect(
         createAgentWorkflowPromotionAssessment({
           ...assessmentRequest,
