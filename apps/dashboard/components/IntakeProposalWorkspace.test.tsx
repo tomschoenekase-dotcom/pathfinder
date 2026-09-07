@@ -1,30 +1,37 @@
 /* @vitest-environment jsdom */
-import React from 'react'
+import React, { createRef } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
 
-const mocks = vi.hoisted(() => ({
-  mutate: vi.fn(),
-  adminMutate: vi.fn(),
-  draftQuery: vi.fn(),
-  draftSave: vi.fn(),
-  refresh: vi.fn(),
-}))
-vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({
+const mocks = vi.hoisted(() => {
+  const values = {
+    mutate: vi.fn(),
+    adminMutate: vi.fn(),
+    draftQuery: vi.fn(),
+    draftSave: vi.fn(),
+    refresh: vi.fn(),
+  }
+  const client = {
     intake: {
-      createProposal: { mutate: mocks.mutate },
-      getSubmissionDraft: { query: mocks.draftQuery },
-      saveSubmissionDraft: { mutate: mocks.draftSave },
+      createProposal: { mutate: values.mutate },
+      getSubmissionDraft: { query: values.draftQuery },
+      saveSubmissionDraft: { mutate: values.draftSave },
     },
-    admin: { createIntakeProposal: { mutate: mocks.adminMutate } },
-  }),
+    admin: { createIntakeProposal: { mutate: values.adminMutate } },
+  }
+  return { ...values, client, currentClient: client }
+})
+vi.mock('../lib/trpc', () => ({
+  useTRPCClient: () => mocks.currentClient,
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
-import { IntakeProposalWorkspace } from './IntakeProposalWorkspace'
+import {
+  IntakeProposalWorkspace,
+  type IntakeProposalWorkspaceController,
+} from './IntakeProposalWorkspace'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 function deferred<T>() {
@@ -35,6 +42,7 @@ function deferred<T>() {
 
 describe('IntakeProposalWorkspace', () => {
   beforeEach(() => {
+    mocks.currentClient = mocks.client
     mocks.draftQuery.mockResolvedValue(null)
     mocks.draftSave.mockResolvedValue({ id: 'draft-1', revision: 1, updatedAt: new Date() })
   })
@@ -243,6 +251,167 @@ describe('IntakeProposalWorkspace', () => {
     await new Promise((resolve) => setTimeout(resolve, 750))
     expect(mocks.draftSave).not.toHaveBeenCalled()
     expect(mocks.draftQuery).toHaveBeenCalledWith({ venueId: 'venue-2', sourceKind: 'NOTES' })
+  })
+
+  it('flushes a pending private draft once and returns its exact saved revision', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    mocks.draftSave.mockResolvedValue({ id: 'draft-1', revision: 8, updatedAt: new Date() })
+    render(<IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />)
+    await screen.findByText('Share more information')
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Private pending note' } })
+
+    const first = controller.current!.prepareV1Drafts()
+    const second = controller.current!.prepareV1Drafts()
+    expect(second).toBe(first)
+    await expect(first).resolves.toEqual([{ sourceKind: 'NOTES', expectedRevision: 8 }])
+    expect(mocks.draftSave).toHaveBeenCalledTimes(1)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('returns all three already saved private draft revisions in stable source order', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    mocks.draftQuery.mockImplementation(async ({ sourceKind }: { sourceKind: string }) => ({
+      content:
+        sourceKind === 'WEBSITE'
+          ? { kind: 'WEBSITE', displayName: 'Museum', websiteUri: 'https://museum.example' }
+          : sourceKind === 'INTERVIEW'
+            ? {
+                kind: 'INTERVIEW',
+                displayName: 'Staff knowledge',
+                role: 'EXECUTIVE',
+                consent: false,
+                draftsByRole: {},
+              }
+            : { kind: 'NOTES', notes: 'Private notes' },
+      revision: sourceKind === 'WEBSITE' ? 4 : sourceKind === 'INTERVIEW' ? 5 : 6,
+      submittedAt: null,
+    }))
+    render(<IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />)
+    await screen.findByDisplayValue('Museum')
+
+    await expect(controller.current!.prepareV1Drafts()).resolves.toEqual([
+      { sourceKind: 'WEBSITE', expectedRevision: 4 },
+      { sourceKind: 'INTERVIEW', expectedRevision: 5 },
+      { sourceKind: 'NOTES', expectedRevision: 6 },
+    ])
+    expect(mocks.draftSave).not.toHaveBeenCalled()
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('rejects preparation while drafts are loading or conflicted', async () => {
+    const loading = deferred<null>()
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    mocks.draftQuery.mockReturnValue(loading.promise)
+    render(<IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />)
+    await expect(controller.current!.prepareV1Drafts()).rejects.toThrow(/still loading/i)
+    loading.resolve(null)
+    await screen.findByText('Share more information')
+
+    mocks.draftSave.mockRejectedValue(new Error('Draft state changed; conflict.'))
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Keep this text' } })
+    await screen.findByText(/changed elsewhere/)
+    await expect(controller.current!.prepareV1Drafts()).rejects.toThrow(/changed elsewhere/i)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a late save result after the venue scope changes', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    const save = deferred<{ id: string; revision: number; updatedAt: Date }>()
+    mocks.draftSave.mockReturnValue(save.promise)
+    const rendered = render(
+      <IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />,
+    )
+    await screen.findByText('Share more information')
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Old venue text' } })
+    const preparation = controller.current!.prepareV1Drafts()
+    rendered.rerender(<IntakeProposalWorkspace ref={controller} venueId="venue-2" proposals={[]} />)
+    save.resolve({ id: 'draft-old', revision: 3, updatedAt: new Date() })
+
+    await expect(preparation).rejects.toThrow(/scope changed/i)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('reloads drafts from a replaced client and returns only the replacement revision', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    mocks.draftQuery.mockImplementation(async ({ sourceKind }: { sourceKind: string }) =>
+      sourceKind === 'NOTES'
+        ? { content: { kind: 'NOTES', notes: 'First client' }, revision: 2, submittedAt: null }
+        : null,
+    )
+    const rendered = render(
+      <IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />,
+    )
+    await screen.findByDisplayValue('First client')
+    await expect(controller.current!.prepareV1Drafts()).resolves.toEqual([
+      { sourceKind: 'NOTES', expectedRevision: 2 },
+    ])
+
+    const replacementQuery = vi.fn(async ({ sourceKind }: { sourceKind: string }) =>
+      sourceKind === 'NOTES'
+        ? {
+            content: { kind: 'NOTES', notes: 'Replacement client' },
+            revision: 9,
+            submittedAt: null,
+          }
+        : null,
+    )
+    mocks.currentClient = {
+      ...mocks.client,
+      intake: {
+        ...mocks.client.intake,
+        getSubmissionDraft: { query: replacementQuery },
+      },
+    }
+    rendered.rerender(<IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />)
+    await screen.findByDisplayValue('Replacement client')
+    await expect(controller.current!.prepareV1Drafts()).resolves.toEqual([
+      { sourceKind: 'NOTES', expectedRevision: 9 },
+    ])
+    expect(replacementQuery).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects an empty preparation through a retained controller after unmount', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    const rendered = render(
+      <IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />,
+    )
+    await waitFor(() => expect(mocks.draftQuery).toHaveBeenCalledTimes(3))
+    const retainedController = controller.current!
+    await expect(retainedController.prepareV1Drafts()).resolves.toEqual([])
+    rendered.unmount()
+
+    await expect(retainedController.prepareV1Drafts()).rejects.toThrow(/scope changed/i)
+  })
+
+  it('disables editing and sharing while a parent reviews the frozen selection', async () => {
+    render(<IntakeProposalWorkspace suspendEditing venueId="venue-1" proposals={[]} />)
+    await screen.findByText('Share more information')
+    expect(screen.getByLabelText('Website name').matches(':disabled')).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Share website' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(screen.queryByText('Sharing…')).toBeNull()
+  })
+
+  it('rejects preparation while an individual source submit is in flight', async () => {
+    const controller = createRef<IntakeProposalWorkspaceController>()
+    const submission = deferred<{ id: string }>()
+    mocks.mutate.mockReturnValue(submission.promise)
+    render(<IntakeProposalWorkspace ref={controller} venueId="venue-1" proposals={[]} />)
+    fireEvent.change(screen.getByLabelText('Website name'), { target: { value: 'Museum' } })
+    fireEvent.change(screen.getByLabelText('Website URL'), {
+      target: { value: 'https://museum.example' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Share website' }))
+
+    expect(screen.getByRole('button', { name: 'Sharing…' })).toBeTruthy()
+
+    await expect(controller.current!.prepareV1Drafts()).rejects.toThrow(/currently being shared/i)
+    submission.resolve({ id: 'run-1' })
+    await screen.findByText(/Information received/)
   })
 
   it('preserves separate staff answers when changing roles and source types', () => {

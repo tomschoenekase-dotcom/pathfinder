@@ -13,7 +13,8 @@ import type { ClientJourneyStage, TorchikoCoreState } from './ClientPortalPrimit
 import { IntakeFileUploadWorkspace } from './IntakeFileUpload'
 import { IntakeCorrectionForm } from './IntakeCorrectionForm'
 import { IntakeProposalReview } from './IntakeProposalReview'
-import { IntakeProposalWorkspace, type IntakeProposalSummary } from './IntakeProposalWorkspace'
+import type { IntakeProposalSummary } from './IntakeProposalWorkspace'
+import { IntakeV1SubmissionWorkspace } from './IntakeV1SubmissionWorkspace'
 import styles from './RemoteOnboardingJourney.module.css'
 
 type JourneyData = {
@@ -174,11 +175,13 @@ function clientJourney(data: JourneyData): {
 }
 
 export function RemoteOnboardingJourney({
+  ownerId,
   data,
   uploads = [],
   nextCursor = null,
   proposals = [],
 }: {
+  ownerId: string
   data: JourneyData
   uploads?: SafeUpload[]
   nextCursor?: { createdAt: string; id: string } | null
@@ -268,7 +271,11 @@ export function RemoteOnboardingJourney({
               A website, a few staff answers, or a plain-language note can give Torchiko useful
               context. Sharing them does not publish anything to visitors.
             </p>
-            <IntakeProposalWorkspace venueId={data.venue.id} proposals={proposals} />
+            <IntakeV1SubmissionWorkspace
+              ownerId={ownerId}
+              venueId={data.venue.id}
+              proposals={proposals}
+            />
           </section>
         </div>
 

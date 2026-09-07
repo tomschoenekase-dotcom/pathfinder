@@ -14,6 +14,9 @@ vi.mock('./IntakeFileUpload', () => ({
 vi.mock('./IntakeProposalWorkspace', () => ({
   IntakeProposalWorkspace: () => <div>Website or staff contribution form</div>,
 }))
+vi.mock('./IntakeV1SubmissionWorkspace', () => ({
+  IntakeV1SubmissionWorkspace: () => <div>Website or staff contribution form</div>,
+}))
 vi.mock('./IntakeCorrectionForm', () => ({
   IntakeCorrectionForm: ({ sourceLabel }: { sourceLabel: string }) => (
     <button>Suggest a correction to {sourceLabel}</button>
@@ -108,6 +111,7 @@ describe('RemoteOnboardingJourney', () => {
   it('keeps upload primary while progressively disclosing the durable journey', () => {
     const html = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={data}
         proposals={[
           {
@@ -155,7 +159,9 @@ describe('RemoteOnboardingJourney', () => {
   })
 
   it('renders the five-stage client journey with one truthful current step', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
     const rail = root.querySelector('section[aria-label="Onboarding progress"]')
 
     expect(rail).not.toBeNull()
@@ -170,7 +176,9 @@ describe('RemoteOnboardingJourney', () => {
   })
 
   it('does not spend client attention on an empty questions section', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
 
     expect(root.querySelector('#questions')).toBeNull()
     expect(root.textContent).not.toContain('Focused questions')
@@ -181,6 +189,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -220,6 +229,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -248,6 +258,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -275,6 +286,7 @@ describe('RemoteOnboardingJourney', () => {
   it('links a focused question to its exact durable discussion and return point', () => {
     const html = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
           ...data,
           questions: {
@@ -326,6 +338,7 @@ describe('RemoteOnboardingJourney', () => {
 
     const singular = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
           ...data,
           questions: { open: 4, items: questions, additionalQuestionCount: 1 },
@@ -334,6 +347,7 @@ describe('RemoteOnboardingJourney', () => {
     )
     const plural = renderToStaticMarkup(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
           ...data,
           questions: { open: 28, items: questions, additionalQuestionCount: 25 },
@@ -350,6 +364,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -390,6 +405,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             preview: { state: 'SUPERSEDED' as const, packageId: 'stale-package' },
@@ -407,6 +423,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -447,6 +464,7 @@ describe('RemoteOnboardingJourney', () => {
     const root = markupRoot(
       renderToStaticMarkup(
         <RemoteOnboardingJourney
+          ownerId="test-owner"
           data={{
             ...data,
             projection: {
@@ -494,7 +512,9 @@ describe('RemoteOnboardingJourney', () => {
   })
 
   it('keeps internal workflow jargon out of the primary client journey', () => {
-    const root = markupRoot(renderToStaticMarkup(<RemoteOnboardingJourney data={data} />))
+    const root = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
     const clientCopy = root.textContent ?? ''
 
     expect(clientCopy).not.toMatch(

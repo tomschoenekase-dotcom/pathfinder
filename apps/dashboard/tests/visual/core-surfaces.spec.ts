@@ -6,6 +6,23 @@ const visitorBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  await page.route('**/api/trpc/**', async (route) => {
+    const url = new URL(route.request().url())
+    const procedures = decodeURIComponent(url.pathname.split('/api/trpc/')[1]!).split(',')
+    if (
+      !procedures.every((name) =>
+        ['intake.getSubmissionDraft', 'intake.getLatestV1'].includes(name),
+      )
+    ) {
+      await route.fallback()
+      return
+    }
+    const results = procedures.map(() => ({ result: { data: { json: null } } }))
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(url.searchParams.get('batch') === '1' ? results : results[0]),
+    })
+  })
 })
 
 function captureRuntimeErrors(page: Page): string[] {
@@ -187,12 +204,6 @@ test('remote onboarding checkpoint distinguishes private drafts from shared sour
   page,
 }, testInfo) => {
   const runtimeErrors = captureRuntimeErrors(page)
-  await page.route('**/api/trpc/intake.getSubmissionDraft**', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify(Array.from({ length: 3 }, () => ({ result: { data: { json: null } } }))),
-    })
-  })
   await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=share`)
   await hideFrameworkDevChrome(page, { clerk: true })
 
@@ -526,3 +537,192 @@ test('bounded venue feature access is readable and keyboard reachable', async ({
   await saveViewportEvidence(page, testInfo, 'venue-feature-access')
   expect(runtimeErrors).toEqual([])
 })
+
+for (const mode of ['shared', 'private-draft', 'retry'] as const) {
+  const ambiguousRetry = mode === 'retry'
+  const includePrivateDraft = mode === 'private-draft'
+  test(`V1 onboarding reviews a frozen selection and reads its saved receipt${ambiguousRetry ? ' after interrupted response and reload' : includePrivateDraft ? ' with a flushed private draft' : ''}`, async ({
+    page,
+  }, testInfo) => {
+    const runtimeErrors = captureRuntimeErrors(page)
+    const mutations: unknown[] = []
+    const member = {
+      kind: 'INTAKE_RUN',
+      intakeRunId: 'v1-source',
+      intakeUploadId: null,
+      linkedIntakeRunId: null,
+      displayName: 'Visitor access and arrival information',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+    }
+    let saved = false
+    const draftWrites: unknown[] = []
+    let draftRevision = 0
+    let dropNextMutationResponse = ambiguousRetry
+    const receipt = () => ({
+      id: 'v1-submission',
+      status: 'AWAITING_CANONICAL_REVIEW',
+      revision: 1,
+      revisions: [
+        {
+          revision: 1,
+          criticalMissing: [],
+          members: includePrivateDraft
+            ? [
+                member,
+                {
+                  ...member,
+                  intakeRunId: 'materialized-website',
+                  sourceKind: 'WEBSITE',
+                  displayName: 'Museum website',
+                },
+              ]
+            : [member],
+        },
+      ],
+    })
+    await page.route('**/api/trpc/**', async (route) => {
+      const url = new URL(route.request().url())
+      const procedures = decodeURIComponent(url.pathname.split('/api/trpc/')[1]!).split(',')
+      const results = procedures.map((procedure, index) => {
+        let json: unknown
+        if (procedure === 'intake.getSubmissionDraft') json = null
+        else if (procedure === 'intake.saveSubmissionDraft') {
+          const input = route.request().postDataJSON()[String(index)].json
+          draftWrites.push(input)
+          expect(input.expectedRevision).toBe(draftRevision)
+          draftRevision += 1
+          json = { revision: draftRevision }
+        } else if (procedure === 'intake.getLatestV1') json = saved ? receipt() : null
+        else if (procedure === 'intake.listV1Candidates')
+          json = {
+            items: [
+              {
+                id: 'v1-source',
+                displayName: member.displayName,
+                sourceKind: 'STRUCTURED_BOOTSTRAP',
+                status: 'AWAITING_REVIEW',
+                createdAt: '2026-09-07T12:00:00.000Z',
+              },
+            ],
+            nextCursor: null,
+          }
+        else if (procedure === 'intake.listV1UploadCandidates')
+          json = { items: [], nextCursor: null }
+        else if (procedure === 'intake.submitV1') {
+          mutations.push(route.request().postDataJSON())
+          saved = true
+          json = { submissionId: 'v1-submission', revision: 1, criticalMissing: [] }
+        } else if (procedure === 'intake.getV1') json = receipt()
+        else throw new Error(`Unexpected fixture procedure: ${procedure}`)
+        return { result: { data: { json } } }
+      })
+      if (dropNextMutationResponse && procedures.includes('intake.submitV1')) {
+        dropNextMutationResponse = false
+        await route.abort('failed')
+        return
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(url.searchParams.get('batch') === '1' ? results : results[0]),
+      })
+    })
+    await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=share&v1=1`)
+    await hideFrameworkDevChrome(page, { clerk: true })
+    const prepare = page.getByRole('button', { name: 'Review my materials' })
+    await expect(prepare).toBeEnabled()
+    if (includePrivateDraft) {
+      await page.getByLabel('Website name', { exact: true }).fill('Museum website')
+      await page.getByLabel('Website URL', { exact: true }).fill('https://museum.example.org')
+    }
+    await prepare.focus()
+    await prepare.press('Enter')
+    await expect(
+      page.getByRole('heading', { name: 'Choose what goes into this version.' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('checkbox', { name: /Visitor access and arrival information/ }),
+    ).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Send what is complete/ })).not.toBeChecked()
+    await expectViewportIntegrity(page)
+    await expectAccessiblePage(page)
+    await page
+      .getByRole('heading', { name: 'Choose what goes into this version.' })
+      .scrollIntoViewIfNeeded()
+    await saveViewportEvidence(page, testInfo, 'intake-v1-review')
+    await page.getByRole('button', { name: 'Submit this version' }).click()
+    if (ambiguousRetry) {
+      await expect(page.getByRole('button', { name: 'Check this submission again' })).toBeEnabled()
+      await page.reload()
+      await hideFrameworkDevChrome(page, { clerk: true })
+      await page.getByRole('button', { name: 'Check this submission again' }).click()
+    }
+    await expect(page.getByText('Version 1 received')).toBeVisible()
+    await expect(
+      page.getByText(
+        includePrivateDraft
+          ? '2 selected items saved for review.'
+          : '1 selected item saved for review.',
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(mutations).toHaveLength(ambiguousRetry ? 2 : 1)
+    if (ambiguousRetry) expect(mutations[1]).toEqual(mutations[0])
+    if (includePrivateDraft) {
+      expect(draftWrites.length).toBeGreaterThan(0)
+      expect(draftWrites.at(-1)).toMatchObject({
+        content: {
+          kind: 'WEBSITE',
+          displayName: 'Museum website',
+          websiteUri: 'https://museum.example.org',
+        },
+      })
+    }
+    const submitted = mutations[0] as Record<string, { json: { selection: unknown } }>
+    expect(submitted['0']?.json.selection).toEqual({
+      operationId: expect.any(String),
+      partialAcknowledged: false,
+      drafts: includePrivateDraft
+        ? { WEBSITE: { include: true, expectedRevision: draftRevision } }
+        : {},
+      intakeRunIds: ['v1-source'],
+      intakeUploadIds: [],
+    })
+    await expect(page.getByRole('button', { name: 'Review an update' })).toBeEnabled()
+    await page.getByText('Version 1 received').scrollIntoViewIfNeeded()
+    await saveViewportEvidence(page, testInfo, 'intake-v1-receipt')
+    await expectAccessiblePage(page)
+    await page.reload()
+    await hideFrameworkDevChrome(page, { clerk: true })
+    await expect(page.getByText('Version 1 received')).toBeVisible()
+    await page.getByRole('button', { name: 'Review an update' }).click()
+    await expect(
+      page.getByRole('checkbox', { name: /Visitor access and arrival information/ }),
+    ).toBeChecked()
+    await expect(page.getByRole('button', { name: 'Submit this update' })).toBeEnabled()
+    if (testInfo.project.name === 'phone-390x844') {
+      await page.setViewportSize({ width: 320, height: 568 })
+      await expectViewportIntegrity(page)
+      await expectAccessiblePage(page)
+      await page
+        .getByRole('heading', { name: 'Choose what goes into this version.' })
+        .scrollIntoViewIfNeeded()
+      await saveViewportEvidence(page, testInfo, 'intake-v1-amendment-320')
+      await page.getByRole('button', { name: 'Submit this update' }).scrollIntoViewIfNeeded()
+      await saveViewportEvidence(page, testInfo, 'intake-v1-amendment-actions-320')
+    }
+    const expectedMutationErrors = runtimeErrors.filter(
+      (error) =>
+        error.includes('intake.submitV1') && error.includes('TRPCClientError: Failed to fetch'),
+    )
+    expect(expectedMutationErrors).toHaveLength(ambiguousRetry ? 1 : 0)
+    expect(
+      runtimeErrors.filter(
+        (error) =>
+          !(
+            ambiguousRetry &&
+            (error.includes('net::ERR_FAILED') || expectedMutationErrors.includes(error))
+          ),
+      ),
+    ).toEqual([])
+  })
+}

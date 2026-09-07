@@ -64,6 +64,7 @@ function hasMeaningfulDrafts(
 
 export function StaffInterviewCapture({
   disabled,
+  busy = disabled,
   clientFacing = false,
   onSubmit,
   onDirtyChange,
@@ -71,6 +72,7 @@ export function StaffInterviewCapture({
   onDraftChange,
 }: {
   disabled: boolean
+  busy?: boolean
   clientFacing?: boolean
   onSubmit: (input: {
     displayName: string
@@ -358,7 +360,7 @@ export function StaffInterviewCapture({
         disabled={disabled || incomplete || !consent || !displayName.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled
+        {busy
           ? clientFacing
             ? 'Sharing…'
             : 'Recording…'

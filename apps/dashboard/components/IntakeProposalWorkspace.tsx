@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import type { StaffInterviewSubmission } from '@pathfinder/contracts/staff-interview'
 import { normalizeTorchikoBrandText } from '@pathfinder/ui'
@@ -15,6 +15,11 @@ import { StaffInterviewCapture, type StaffInterviewDraft } from './StaffIntervie
 type WebsiteDraft = { kind: 'WEBSITE'; displayName: string; websiteUri: string }
 type NotesDraft = { kind: 'NOTES'; notes: string }
 type DraftContent = WebsiteDraft | NotesDraft | StaffInterviewDraft
+type DraftSourceKind = DraftContent['kind']
+
+export type IntakeProposalWorkspaceController = {
+  prepareV1Drafts(): Promise<Array<{ sourceKind: DraftSourceKind; expectedRevision: number }>>
+}
 
 export type IntakeProposalSummary = {
   id: string
@@ -50,6 +55,7 @@ function proposalSourceLabel(proposal: IntakeProposalSummary): string {
 
 function WebsiteProposalCapture({
   disabled,
+  busy,
   clientFacing,
   onSubmit,
   onDirtyChange,
@@ -57,6 +63,7 @@ function WebsiteProposalCapture({
   onDraftChange,
 }: {
   disabled: boolean
+  busy: boolean
   clientFacing: boolean
   onSubmit: (input: { displayName: string; websiteUri: string; requestId: string }) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
@@ -142,7 +149,7 @@ function WebsiteProposalCapture({
         disabled={disabled || !displayName.trim() || !websiteUri.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled
+        {busy
           ? clientFacing
             ? 'Sharing…'
             : 'Recording…'
@@ -156,6 +163,7 @@ function WebsiteProposalCapture({
 
 function OptionalNotesCapture({
   disabled,
+  busy,
   clientFacing,
   onSubmit,
   onDirtyChange,
@@ -163,6 +171,7 @@ function OptionalNotesCapture({
   onDraftChange,
 }: {
   disabled: boolean
+  busy: boolean
   clientFacing: boolean
   onSubmit: (input: { notes: string; requestId: string }) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
@@ -228,23 +237,29 @@ function OptionalNotesCapture({
         disabled={disabled || !notes.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled ? 'Sharing…' : clientFacing ? 'Share notes' : 'Record optional notes'}
+        {busy ? 'Sharing…' : clientFacing ? 'Share notes' : 'Record optional notes'}
       </button>
     </form>
   )
 }
 
-export function IntakeProposalWorkspace({
-  venueId,
-  proposals,
-  adminTenantId,
-}: {
-  venueId: string
-  proposals: IntakeProposalSummary[]
-  adminTenantId?: string
-}) {
+export const IntakeProposalWorkspace = forwardRef<
+  IntakeProposalWorkspaceController,
+  {
+    venueId: string
+    proposals: IntakeProposalSummary[]
+    adminTenantId?: string
+    suspendEditing?: boolean
+  }
+>(function IntakeProposalWorkspace(
+  { venueId, proposals, adminTenantId, suspendEditing = false },
+  ref,
+) {
   const client = useTRPCClient()
-  const stableClient = useRef(client).current
+  const clientRef = useRef(client)
+  const venueRef = useRef(venueId)
+  clientRef.current = client
+  venueRef.current = venueId
   const router = useRouter()
   const clientFacing = !adminTenantId
   const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW' | 'NOTES'>('WEBSITE')
@@ -259,7 +274,20 @@ export function IntakeProposalWorkspace({
   const revisionsRef = useRef<Record<string, number>>({})
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const writesRef = useRef<Record<string, Promise<number>>>({})
+  const persistedDraftsRef = useRef<Partial<Record<DraftSourceKind, DraftContent>>>({})
+  const preparationRef = useRef<{
+    client: typeof client
+    venueId: string
+    generation: number
+    promise: Promise<Array<{ sourceKind: DraftSourceKind; expectedRevision: number }>>
+  } | null>(null)
   const scopeGenerationRef = useRef(0)
+  const loadedScopeRef = useRef<{
+    client: typeof client
+    venueId: string
+    generation: number
+  } | null>(null)
+  const mountedRef = useRef(true)
   const latestDraftsRef = useRef<Partial<Record<'WEBSITE' | 'INTERVIEW' | 'NOTES', DraftContent>>>(
     {},
   )
@@ -269,6 +297,7 @@ export function IntakeProposalWorkspace({
   const [saveState, setSaveState] = useState<
     'LOADING' | 'IDLE' | 'SAVING' | 'SAVED' | 'ERROR' | 'CONFLICT'
   >(clientFacing ? 'LOADING' : 'IDLE')
+  const saveStateRef = useRef(saveState)
   const hasUnfinishedDraft = Object.values(dirtySources).some(Boolean)
 
   const setDraftDirty = useCallback((draftSource: keyof typeof dirtySources, dirty: boolean) => {
@@ -305,14 +334,17 @@ export function IntakeProposalWorkspace({
     Object.values(timersRef.current).forEach(clearTimeout)
     timersRef.current = {}
     writesRef.current = {}
+    persistedDraftsRef.current = {}
     revisionsRef.current = {}
     latestDraftsRef.current = {}
+    loadedScopeRef.current = null
     setSavedDrafts({})
+    saveStateRef.current = 'LOADING'
     setSaveState('LOADING')
     let active = true
     void Promise.all(
       (['WEBSITE', 'INTERVIEW', 'NOTES'] as const).map(async (sourceKind) => {
-        const draft = await stableClient.intake.getSubmissionDraft.query({ venueId, sourceKind })
+        const draft = await client.intake.getSubmissionDraft.query({ venueId, sourceKind })
         return [sourceKind, draft] as const
       }),
     )
@@ -324,45 +356,68 @@ export function IntakeProposalWorkspace({
             contents[sourceKind] = draft.content as DraftContent
             revisionsRef.current[sourceKind] = draft.revision
             latestDraftsRef.current[sourceKind] = draft.content as DraftContent
+            persistedDraftsRef.current[sourceKind] = draft.content as DraftContent
           }
         }
         setSavedDrafts(contents)
+        loadedScopeRef.current = { client, venueId, generation: scopeGeneration }
+        saveStateRef.current = 'IDLE'
         setSaveState('IDLE')
       })
       .catch(() => {
-        if (active) setSaveState('ERROR')
+        if (active) {
+          saveStateRef.current = 'ERROR'
+          setSaveState('ERROR')
+        }
       })
     return () => {
       active = false
     }
-  }, [clientFacing, stableClient, venueId])
+  }, [client, clientFacing, venueId])
 
   const persistDraft = useCallback(
     async (sourceKind: 'WEBSITE' | 'INTERVIEW' | 'NOTES', content: DraftContent) => {
       const generation = scopeGenerationRef.current
+      const scopedClient = client
+      const scopedVenueId = venueId
       const previous = writesRef.current[sourceKind]
       const write = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(
         async () => {
-          if (scopeGenerationRef.current !== generation) throw new Error('Draft scope changed')
+          if (
+            scopeGenerationRef.current !== generation ||
+            clientRef.current !== scopedClient ||
+            venueRef.current !== scopedVenueId
+          )
+            throw new Error('Draft scope changed')
+          saveStateRef.current = 'SAVING'
           setSaveState('SAVING')
           try {
-            const saved = await stableClient.intake.saveSubmissionDraft.mutate({
-              venueId,
+            const saved = await scopedClient.intake.saveSubmissionDraft.mutate({
+              venueId: scopedVenueId,
               sourceKind,
               content,
               expectedRevision: revisionsRef.current[sourceKind] ?? 0,
             })
-            if (scopeGenerationRef.current !== generation) throw new Error('Draft scope changed')
+            if (
+              scopeGenerationRef.current !== generation ||
+              clientRef.current !== scopedClient ||
+              venueRef.current !== scopedVenueId
+            )
+              throw new Error('Draft scope changed')
             revisionsRef.current[sourceKind] = saved.revision
+            persistedDraftsRef.current[sourceKind] = content
+            saveStateRef.current = 'SAVED'
             setSaveState('SAVED')
             return saved.revision
           } catch (error) {
-            if (scopeGenerationRef.current === generation)
-              setSaveState(
+            if (scopeGenerationRef.current === generation) {
+              const next =
                 error instanceof Error && /changed|conflict/iu.test(error.message)
                   ? 'CONFLICT'
-                  : 'ERROR',
-              )
+                  : 'ERROR'
+              saveStateRef.current = next
+              setSaveState(next)
+            }
             throw error
           }
         },
@@ -370,7 +425,7 @@ export function IntakeProposalWorkspace({
       writesRef.current[sourceKind] = write
       return write
     },
-    [stableClient, venueId],
+    [client, venueId],
   )
 
   const queueDraft = useCallback(
@@ -378,6 +433,7 @@ export function IntakeProposalWorkspace({
       if (!clientFacing) return
       latestDraftsRef.current[sourceKind] = content
       clearTimeout(timersRef.current[sourceKind])
+      saveStateRef.current = 'SAVING'
       setSaveState('SAVING')
       timersRef.current[sourceKind] = setTimeout(() => {
         void persistDraft(sourceKind, content).catch(() => undefined)
@@ -398,12 +454,101 @@ export function IntakeProposalWorkspace({
     [queueDraft],
   )
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
       scopeGenerationRef.current += 1
       Object.values(timersRef.current).forEach(clearTimeout)
-    },
-    [],
+    }
+  }, [])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      prepareV1Drafts() {
+        const generation = scopeGenerationRef.current
+        const scopedClient = client
+        const scopedVenueId = venueId
+        if (
+          preparationRef.current?.generation === generation &&
+          preparationRef.current.client === scopedClient &&
+          preparationRef.current.venueId === scopedVenueId
+        )
+          return preparationRef.current.promise
+        const preparation = (async () => {
+          if (
+            !mountedRef.current ||
+            clientRef.current !== scopedClient ||
+            venueRef.current !== scopedVenueId
+          )
+            throw new Error('Draft scope changed while preparing the submission.')
+          if (!clientFacing) throw new Error('V1 draft preparation is available to clients only.')
+          if (creatingRef.current) throw new Error('A source is currently being shared.')
+          if (saveStateRef.current === 'LOADING') throw new Error('Saved drafts are still loading.')
+          if (saveStateRef.current === 'CONFLICT')
+            throw new Error('A saved draft changed elsewhere.')
+          if (saveStateRef.current === 'ERROR')
+            throw new Error('A saved draft could not be prepared.')
+          if (
+            loadedScopeRef.current?.client !== scopedClient ||
+            loadedScopeRef.current.venueId !== scopedVenueId ||
+            loadedScopeRef.current.generation !== generation
+          )
+            throw new Error('Draft scope changed while preparing the submission.')
+
+          const prepared: Array<{ sourceKind: DraftSourceKind; expectedRevision: number }> = []
+          for (const sourceKind of ['WEBSITE', 'INTERVIEW', 'NOTES'] as const) {
+            clearTimeout(timersRef.current[sourceKind])
+            delete timersRef.current[sourceKind]
+            const content = latestDraftsRef.current[sourceKind]
+            if (!content) continue
+            if (
+              !mountedRef.current ||
+              scopeGenerationRef.current !== generation ||
+              clientRef.current !== scopedClient ||
+              venueRef.current !== scopedVenueId
+            )
+              throw new Error('Draft scope changed while preparing the submission.')
+            const revision =
+              persistedDraftsRef.current[sourceKind] === content &&
+              revisionsRef.current[sourceKind] !== undefined
+                ? revisionsRef.current[sourceKind]!
+                : await persistDraft(sourceKind, content)
+            if (
+              !mountedRef.current ||
+              scopeGenerationRef.current !== generation ||
+              clientRef.current !== scopedClient ||
+              venueRef.current !== scopedVenueId
+            )
+              throw new Error('Draft scope changed while preparing the submission.')
+            prepared.push({ sourceKind, expectedRevision: revision })
+          }
+          if (
+            !mountedRef.current ||
+            scopeGenerationRef.current !== generation ||
+            clientRef.current !== scopedClient ||
+            venueRef.current !== scopedVenueId
+          )
+            throw new Error('Draft scope changed while preparing the submission.')
+          return prepared
+        })()
+        const record = {
+          client: scopedClient,
+          venueId: scopedVenueId,
+          generation,
+          promise: preparation,
+        }
+        preparationRef.current = record
+        void preparation
+          .finally(() => {
+            if (preparationRef.current === record) preparationRef.current = null
+          })
+          .catch(() => undefined)
+        return preparation
+      },
+    }),
+    [client, clientFacing, persistDraft, venueId],
   )
 
   async function create(
@@ -438,13 +583,13 @@ export function IntakeProposalWorkspace({
         if (content) draftRevision = await persistDraft(proposal.kind, content)
       }
       if (adminTenantId) {
-        await stableClient.admin.createIntakeProposal.mutate({
+        await client.admin.createIntakeProposal.mutate({
           tenantId: adminTenantId,
           venueId,
           ...proposal,
         })
       } else {
-        await stableClient.intake.createProposal.mutate({
+        await client.intake.createProposal.mutate({
           venueId,
           ...proposal,
           ...(draftRevision !== undefined ? { draftRevision } : {}),
@@ -487,7 +632,7 @@ export function IntakeProposalWorkspace({
         <h2 id="new-intake-source" className="font-semibold text-pf-deep">
           {clientFacing ? 'Share more information' : 'New draft proposal'}
         </h2>
-        <fieldset className="mt-3" disabled={busy}>
+        <fieldset className="mt-3" disabled={busy || suspendEditing}>
           <legend className="sr-only">Choose source type</legend>
           <div className="flex flex-wrap gap-4">
             <label className="flex min-h-11 items-center gap-2">
@@ -539,7 +684,8 @@ export function IntakeProposalWorkspace({
         <div className="mt-4">
           <div hidden={source !== 'WEBSITE'}>
             <WebsiteProposalCapture
-              disabled={busy}
+              disabled={busy || suspendEditing}
+              busy={busy}
               clientFacing={clientFacing}
               onDirtyChange={setWebsiteDirty}
               {...(savedDrafts.WEBSITE
@@ -551,7 +697,8 @@ export function IntakeProposalWorkspace({
           </div>
           <div hidden={source !== 'INTERVIEW'}>
             <StaffInterviewCapture
-              disabled={busy}
+              disabled={busy || suspendEditing}
+              busy={busy}
               clientFacing={clientFacing}
               onDirtyChange={setInterviewDirty}
               {...(savedDrafts.INTERVIEW
@@ -563,7 +710,8 @@ export function IntakeProposalWorkspace({
           </div>
           <div hidden={source !== 'NOTES'}>
             <OptionalNotesCapture
-              disabled={busy}
+              disabled={busy || suspendEditing}
+              busy={busy}
               clientFacing={clientFacing}
               onDirtyChange={setNotesDirty}
               {...(savedDrafts.NOTES ? { initialDraft: savedDrafts.NOTES as NotesDraft } : {})}
@@ -646,4 +794,4 @@ export function IntakeProposalWorkspace({
       </section>
     </div>
   )
-}
+})

@@ -24,6 +24,14 @@ The manifest retains source identities and hashes rather than raw draft content 
 
 `getLatestV1` discovers the latest owned submission after reload. Revision reads return at most 20 revisions per page, with safe member labels. Source and upload candidate lists use separate bounded cursor pages, at most 50 items each. List results are candidates; final eligibility is checked again on submission.
 
+The client onboarding workspace flushes pending private draft saves before opening an explicit selection review. Editing pauses while that snapshot is reviewed. Amendments retain the previous selected members, including those outside the first candidate page; a linked upload and its source cannot both be selected. New selections and partial acknowledgements receive a new operation UUID.
+
+An uncertain response keeps the same operation UUID and exact selected IDs/revisions in owner-and-venue-scoped session storage. Reload restores that retry before allowing edits. No raw draft text is placed in this retry record. Client, owner, venue, and unmount changes fence late responses. The protected server page supplies the authenticated owner namespace; it does not grant API access through a browser prop.
+
+After a confirmed save, the workspace reloads the exact returned revision using the bounded revision cursor, even when a later amendment already exists. A receipt-read failure still reports the confirmed save and refreshes the private draft workspace. It does not invite an accidental second submission under the pre-save draft revision.
+
 Canonical review and package-building integration remain separate work. The presence of a V1 receipt is not evidence that generation has started or that a visitor-facing artifact exists.
 
 The retained [native PostgreSQL journey](evidence/intake-v1-native-postgres-2026-09-07.json) passed through 224 fresh migrations and 251 public tables in UTC. Focused source-snapshot tests additionally reject mismatched receipt generation, SHA-256, byte size, and storage version before aggregate writes. These are local fixture proofs, not provider or deployment evidence.
+
+The [coordinated client browser proof](evidence/intake-v1-client-browser-2026-09-07.json) covers private draft flushing, explicit review, confirmed receipt read-back, reload and exact retry after a lost response at phone/tablet/desktop widths. Narrow320px keyboard, accessibility and overflow checks are retained. It uses synthetic transport; it is not hosted or provider evidence.

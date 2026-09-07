@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic'
 
 import type { Metadata } from 'next'
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
 
 import { RemoteOnboardingJourney } from '../../../../../components/RemoteOnboardingJourney'
 import { createDashboardCaller } from '../../../../../lib/server-caller'
@@ -15,6 +17,8 @@ export default async function RemoteOnboardingPage({
   params: Promise<{ venueId: string }>
 }) {
   const { venueId } = await params
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
   const caller = await createDashboardCaller(`/venues/${venueId}/onboarding`)
   const [data, uploadPage, proposals] = await Promise.all([
     caller.portal.getOnboardingJourney({ venueId }),
@@ -23,6 +27,7 @@ export default async function RemoteOnboardingPage({
   ])
   return (
     <RemoteOnboardingJourney
+      ownerId={userId}
       data={data}
       uploads={uploadPage.items}
       nextCursor={uploadPage.nextCursor}

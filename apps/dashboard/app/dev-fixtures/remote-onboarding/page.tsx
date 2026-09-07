@@ -334,17 +334,43 @@ function scenario(state: FixtureState): {
 export default async function RemoteOnboardingVisualFixture({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string | string[] }>
+  searchParams: Promise<{ state?: string | string[]; v1?: string }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
 
-  const state = fixtureState((await searchParams).state)
+  const query = await searchParams
+  const state = fixtureState(query.state)
   const fixture = scenario(state)
 
   return (
     <div data-fixture="remote-onboarding" data-fixture-state={state}>
       <TRPCProvider scopeKey={`fixture:onboarding:${state}`}>
-        <RemoteOnboardingJourney data={fixture.data} uploads={fixture.uploads} />
+        <RemoteOnboardingJourney
+          ownerId="fixture-remote-onboarding-owner"
+          data={fixture.data}
+          uploads={fixture.uploads}
+          proposals={
+            query.v1 === '1'
+              ? [
+                  {
+                    id: 'v1-source',
+                    sourceKind: 'STRUCTURED_BOOTSTRAP',
+                    status: 'AWAITING_REVIEW',
+                    displayName: 'Visitor access and arrival information',
+                    websiteUri: null,
+                    interviewRole: null,
+                    structuredBootstrap: {
+                      kind: 'OPTIONAL_NOTES',
+                      notes: 'The accessible entrance is on the east side.',
+                    },
+                    createdAt: new Date('2026-09-07T12:00:00.000Z'),
+                    _count: { evidence: 1, events: 1 },
+                    packageHandoff: null,
+                  },
+                ]
+              : []
+          }
+        />
       </TRPCProvider>
     </div>
   )

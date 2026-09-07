@@ -43,6 +43,9 @@ vi.mock('@clerk/nextjs', () => ({
   useOrganization: () => ({ organization: { name: 'Museum Group' } }),
   useUser: () => ({ user: { publicMetadata: {} } }),
 }))
+vi.mock('./IntakeV1SubmissionWorkspace', () => ({
+  IntakeV1SubmissionWorkspace: () => <div>Website or staff contribution form</div>,
+}))
 
 import { resolveClientPortalLifecycle } from '@pathfinder/contracts/client-portal-lifecycle'
 import { resolveRemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
@@ -163,6 +166,7 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
     }
     const { container } = render(
       <RemoteOnboardingJourney
+        ownerId="test-owner"
         data={{
           venue: { id: 'venue-1', name: 'East Museum' },
           lifecycle,
