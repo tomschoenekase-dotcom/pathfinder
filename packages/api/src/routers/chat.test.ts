@@ -109,6 +109,7 @@ const aiCostBudgetFindFirst = vi.fn()
 const operationalEventUpsert = vi.fn()
 const venueFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
+const venueKnowledgeEntryFindMany = vi.fn()
 const dbTransaction = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
@@ -135,6 +136,7 @@ const mockDb = {
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
+  venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
   $queryRaw: dbQueryRaw,
   $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
@@ -210,6 +212,7 @@ describe('chat router', () => {
     })
     semanticSearch.places.mockResolvedValue(placeRows)
     semanticSearch.knowledge.mockResolvedValue([])
+    venueKnowledgeEntryFindMany.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
     resolvePublishedUniversalContent.mockResolvedValue([])
     readActiveUnhealthyAiProviders.mockResolvedValue([])
@@ -1422,6 +1425,19 @@ describe('chat router', () => {
     it('skips excluded OpenAI embeddings and preserves text chat through safe fallback retrieval', async () => {
       setupHappyPath('The elephants are near the entrance.')
       readActiveUnhealthyAiProviders.mockResolvedValueOnce(['openai'])
+      venueKnowledgeEntryFindMany.mockResolvedValue([
+        {
+          id: 'knowledge-elephants',
+          title: 'Elephant location',
+          category: 'animals',
+          content: 'The elephants are near the entrance.',
+          sourceType: 'FOUNDER_PROVIDED',
+          sourceName: 'Zoo guide',
+          sourceUrl: null,
+          updatedAt: new Date('2026-08-01T00:00:00Z'),
+          lastReviewedAt: new Date('2026-08-01T00:00:00Z'),
+        },
+      ])
 
       await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
         response: 'The elephants are near the entrance.',
@@ -1439,6 +1455,17 @@ describe('chat router', () => {
       )
       expect(anthropicCreate).toHaveBeenCalledOnce()
       expect(placeFindMany).toHaveBeenCalled()
+      expect(venueKnowledgeEntryFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            isEnabled: true,
+            visibility: 'PUBLIC',
+          }),
+          take: expect.any(Number),
+        }),
+      )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',

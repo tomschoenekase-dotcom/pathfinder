@@ -53,6 +53,7 @@ import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts, guestResponseWordLimit } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
+import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -933,13 +934,22 @@ const chatReadRouter = router({
           limit: NEAREST_PLACES_LIMIT,
           includeSecondLayer,
         }),
-        searchKnowledgeByEmbedding({
+        retrieveGuestKnowledge({
+          reader: ctx.db,
+          query: trimmedInput,
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
-          limit: KNOWLEDGE_ENTRIES_LIMIT,
           includeSecondLayer,
-        }).catch(() => []),
+          semanticSearch: () =>
+            searchKnowledgeByEmbedding({
+              queryEmbedding,
+              venueId: input.venueId,
+              tenantId: venue.tenantId,
+              limit: KNOWLEDGE_ENTRIES_LIMIT,
+              includeSecondLayer,
+            }),
+        }),
       ])
       relevantPlaces = hasLiveLocation
         ? places
@@ -947,9 +957,18 @@ const chatReadRouter = router({
             void distanceMeters
             return place
           })
-      relevantKnowledgeEntries = knowledge
+      relevantKnowledgeEntries = knowledge.entries
     } else {
-      relevantKnowledgeEntries = []
+      relevantKnowledgeEntries = (
+        await retrieveGuestKnowledge({
+          reader: ctx.db,
+          query: trimmedInput,
+          queryEmbedding: null,
+          venueId: input.venueId,
+          tenantId: venue.tenantId,
+          includeSecondLayer,
+        })
+      ).entries
       const fallbackPlaces = await ctx.db.place.findMany({
         where: {
           venueId: input.venueId,

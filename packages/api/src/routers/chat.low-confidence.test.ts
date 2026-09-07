@@ -94,6 +94,7 @@ const messageCreate = vi.fn()
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
+const venueKnowledgeEntryFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   visitorSession: { upsert: sessionUpsert },
@@ -103,6 +104,7 @@ const mockDb = {
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
   operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
+  venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
 
@@ -203,6 +205,7 @@ function lowConfidenceCalls() {
 describe('chat.send low-confidence flag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    venueKnowledgeEntryFindMany.mockResolvedValue([])
     _setAnthropicClientForTesting(mockAnthropicClient)
   })
 
