@@ -5,6 +5,7 @@ import { mediaIngestionCompleteUploadRouter } from './media-ingestion-complete-u
 import { mediaIngestionExpiryRouter } from './media-ingestion-expiry'
 import { mediaIngestionLifecycleRouter } from './media-ingestion-lifecycle'
 import { mediaIngestionHandoffRouter } from './media-ingestion-handoff'
+import { mediaIngestionResolutionRouter } from './media-ingestion-resolution'
 import { mediaIngestionProjectsRouter } from './media-ingestion-projects'
 import { mediaIngestionReconcileUploadRouter } from './media-ingestion-reconcile-upload'
 
@@ -16,4 +17,5 @@ export const mediaIngestionRouter = mergeRouters(
   mediaIngestionReconcileUploadRouter,
   mediaIngestionLifecycleRouter,
   mediaIngestionHandoffRouter,
+  mediaIngestionResolutionRouter,
 )

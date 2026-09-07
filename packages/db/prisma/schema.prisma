@@ -182,6 +182,7 @@ model Tenant {
   guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
   venueWeeklyThemes                         VenueWeeklyTheme[]
   mediaIngestionProjects                    MediaIngestionProject[]
+  mediaEntityResolutionRevisions            MediaEntityResolutionRevision[]
   mediaProviderOperations                   MediaProviderOperation[]
   aiUsageEvents                             AiUsageEvent[]
   aiUsageDailyRollups                       AiUsageDailyRollup[]
@@ -1406,6 +1407,7 @@ model Venue {
   guestAnswerAttributionEvaluations         GuestAnswerAttributionEvaluationRequest[]
   weeklyThemes                              VenueWeeklyTheme[]
   mediaIngestionProjects                    MediaIngestionProject[]
+  mediaEntityResolutionRevisions            MediaEntityResolutionRevision[]
   mediaProviderOperations                   MediaProviderOperation[]
   aiUsageEvents                             AiUsageEvent[]
   aiUsageDailyRollups                       AiUsageDailyRollup[]
@@ -5051,12 +5053,40 @@ model MediaIngestionProject {
   venue                      Venue                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
   assets                     MediaIngestionAsset[]
   providerOperations         MediaProviderOperation[]
+  entityResolutionRevisions  MediaEntityResolutionRevision[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
   @@index([status, createdAt])
   @@index([status, stage, uploadStartedAt])
   @@map("media_ingestion_projects")
+}
+
+/// Immutable, review-only state revisions for one exact media ingestion generation. These rows
+/// grant no content, publication, provider, or deployment authority.
+model MediaEntityResolutionRevision {
+  id                   String                @id @default(uuid()) @db.Uuid
+  tenantId             String                @map("tenant_id")
+  venueId              String                @map("venue_id")
+  projectId            String                @map("project_id")
+  sourceGeneration     String                @map("source_generation") @db.Uuid
+  revision             Int
+  requestId            String                @map("request_id") @db.Uuid
+  requestHash          String                @map("request_hash") @db.Char(64)
+  evidenceSnapshotHash String                @map("evidence_snapshot_hash") @db.Char(64)
+  evidenceSnapshot     Json                  @map("evidence_snapshot")
+  state                Json
+  actorId              String                @map("actor_id") @db.VarChar(191)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  project              MediaIngestionProject @relation(fields: [projectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "media_entity_resolution_revisions_request_key")
+  @@unique([projectId, tenantId, venueId, sourceGeneration, revision], map: "media_entity_resolution_revisions_generation_revision_key")
+  @@unique([id, tenantId, venueId], map: "media_entity_resolution_revisions_scope_key")
+  @@index([tenantId, venueId, projectId, sourceGeneration, createdAt], map: "media_entity_resolution_revisions_scope_created_idx")
+  @@map("media_entity_resolution_revisions")
 }
 
 model MediaIngestionAsset {

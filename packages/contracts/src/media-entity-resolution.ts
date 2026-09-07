@@ -11,7 +11,10 @@ export const MediaEvidenceLocatorSchema = z
   .object({
     tenantId: stableId,
     projectId: stableId,
-    uploadAttemptId: z.string().uuid(),
+    uploadAttemptId: z
+      .string()
+      .uuid()
+      .transform((value) => value.toLowerCase()),
     sourceId: z
       .string()
       .min(1)

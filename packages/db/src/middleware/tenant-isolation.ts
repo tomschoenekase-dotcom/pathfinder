@@ -55,6 +55,7 @@ const APPEND_ONLY_MODELS = [
   'KnowledgeProposalUniversalContentHandoff',
   'LegacyKnowledgeUniversalContentAdoption',
   'LegacyKnowledgeAdoptionActivation',
+  'MediaEntityResolutionRevision',
   'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',

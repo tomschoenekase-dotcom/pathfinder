@@ -84,6 +84,7 @@ export const TENANTED_TABLES = [
   'GenerationRequestDispatch',
   'VenueWeeklyTheme',
   'MediaIngestionProject',
+  'MediaEntityResolutionRevision',
   'MediaIngestionAsset',
   'EmbeddingWorkClaim',
   'EmbeddingDispatch',
