@@ -44,7 +44,23 @@ export const GuestResponsePlace = z
     id: nonEmptyText,
     name: nonEmptyText,
     type: nonEmptyText,
-    photoUrl: webHref.nullable(),
+    photoUrl: z.preprocess(
+      (value) => (typeof value === 'string' && /^https?:\/\//iu.test(value) ? null : value),
+      z
+        .string()
+        .regex(/^\/api\/venue-media\/[0-9a-f-]{36}\?venue=[^&?#]+$/u)
+        .nullable(),
+    ),
+    photoAttribution: z
+      .object({
+        altText: nonEmptyText.max(500),
+        caption: z.string().trim().max(1_000).nullable(),
+        sourceName: nonEmptyText.max(500),
+        sourceUrl: safeHttpsHref.nullable(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     shortDescription: z.string().nullable(),
     areaName: z.string().nullable(),
     hours: z.string().nullable(),

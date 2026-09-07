@@ -1380,6 +1380,8 @@ model Venue {
   chatBannerDerivativeId                    String?                                     @map("chat_banner_derivative_id") @db.Uuid
   chatLogoDerivativeReceipt                 Json?                                       @map("chat_logo_derivative_receipt")
   chatBannerDerivativeReceipt               Json?                                       @map("chat_banner_derivative_receipt")
+  chatShowPhotos                            Boolean                                     @default(false) @map("chat_show_photos")
+  chatShowLinks                             Boolean                                     @default(false) @map("chat_show_links")
   category                                  String?
   guideMode                                 String                                      @default("location_aware") @map("guide_mode")
   defaultCenterLat                          Float?                                      @map("default_center_lat")

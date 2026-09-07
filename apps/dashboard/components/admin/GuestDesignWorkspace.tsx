@@ -25,6 +25,8 @@ type GuestDesign = {
   chatBannerUrl: string | null
   chatLogoDerivativeId?: string | null
   chatBannerDerivativeId?: string | null
+  chatShowPhotos?: boolean
+  chatShowLinks?: boolean
   updatedAt: Date
 }
 
@@ -85,6 +87,8 @@ export function GuestDesignWorkspace({
     initial.chatBannerDerivativeId ?? null,
   )
   const [brandingAssets, setBrandingAssets] = useState(initialBrandingAssets)
+  const [showPhotos, setShowPhotos] = useState(initial.chatShowPhotos ?? false)
+  const [showLinks, setShowLinks] = useState(initial.chatShowLinks ?? false)
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [revision, setRevision] = useState(initial.updatedAt)
   const [busy, setBusy] = useState(false)
@@ -110,6 +114,8 @@ export function GuestDesignWorkspace({
     setSavedLogoDerivativeId(initial.chatLogoDerivativeId ?? null)
     setSavedBannerDerivativeId(initial.chatBannerDerivativeId ?? null)
     setBrandingAssets(initialBrandingAssets)
+    setShowPhotos(initial.chatShowPhotos ?? false)
+    setShowLinks(initial.chatShowLinks ?? false)
     setRevision(initial.updatedAt)
     setBusy(false)
     setNotice(null)
@@ -167,6 +173,8 @@ export function GuestDesignWorkspace({
           chatTheme,
           chatAccentColor: accentValue,
           chatFont,
+          chatShowPhotos: showPhotos,
+          chatShowLinks: showLinks,
           chatLogoUrl: keepLogo ? logoUrl : null,
           chatBannerUrl: keepBanner ? bannerUrl : null,
           ...(logoDerivativeId !== savedLogoDerivativeId
@@ -278,6 +286,31 @@ export function GuestDesignWorkspace({
         <p id="guest-accent-help" className="mt-1 text-xs text-pf-deep/65">
           Leave blank to use the selected theme&apos;s reviewed default.
         </p>
+
+        <fieldset className="mt-6 rounded-2xl border border-pf-light p-4" disabled={busy}>
+          <legend className="px-1 text-sm font-semibold text-pf-deep">Place card references</legend>
+          <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={showPhotos}
+              onChange={(event) => setShowPhotos(event.target.checked)}
+            />
+            Show reviewed photos for places mentioned in an answer
+          </label>
+          <label className="flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={showLinks}
+              disabled={!showPhotos || busy}
+              onChange={(event) => setShowLinks(event.target.checked)}
+            />
+            Link photo credits to their approved source
+          </label>
+          <p className="mt-1 text-xs leading-5 text-pf-deep/65">
+            Credits remain visible as text when source links are off. Revoked media disappears
+            automatically.
+          </p>
+        </fieldset>
         {invalidAccent ? (
           <p id="guest-accent-error" className="mt-1 text-xs text-rose-700">
             Enter a six-digit hex colour such as #3A7BD5.

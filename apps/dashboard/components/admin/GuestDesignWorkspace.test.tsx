@@ -23,6 +23,8 @@ const initial = {
   chatFont: 'inter',
   chatLogoUrl: 'https://cdn.example.test/reviewed-logo.png',
   chatBannerUrl: 'https://cdn.example.test/reviewed-banner.png',
+  chatShowPhotos: false,
+  chatShowLinks: false,
   updatedAt: new Date('2026-08-12T12:00:00.000Z'),
 }
 
@@ -56,6 +58,8 @@ describe('GuestDesignWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Accent colour'), { target: { value: '#ABCDEF' } })
     fireEvent.change(screen.getByLabelText('Font'), { target: { value: 'poppins' } })
     fireEvent.click(screen.getByLabelText('Keep current reviewed banner'))
+    fireEvent.click(screen.getByLabelText('Show reviewed photos for places mentioned in an answer'))
+    fireEvent.click(screen.getByLabelText('Link photo credits to their approved source'))
     fireEvent.click(screen.getByRole('button', { name: 'Save guest design' }))
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({
@@ -66,6 +70,8 @@ describe('GuestDesignWorkspace', () => {
           chatTheme: 'dark',
           chatAccentColor: '#ABCDEF',
           chatFont: 'poppins',
+          chatShowPhotos: true,
+          chatShowLinks: true,
           chatLogoUrl: initial.chatLogoUrl,
           chatBannerUrl: null,
         },

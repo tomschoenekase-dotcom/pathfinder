@@ -49,6 +49,7 @@ import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-qu
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards } from '../lib/guest-place-card'
+import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
@@ -237,6 +238,9 @@ class AsyncPushQueue<T> {
 }
 
 type PublicChatVenue = {
+  slug: string
+  chatShowPhotos: boolean
+  chatShowLinks: boolean
   id: string
   tenantId: string
   name: string
@@ -319,6 +323,9 @@ const admittedChatSendProcedure = publicProcedure
     // prevents arbitrary venue IDs from expanding Redis key cardinality.
     const [chatVenue] = await ctx.db.$queryRaw<PublicChatVenue[]>`
       SELECT v.id,
+             v.slug,
+             v.chat_show_photos AS "chatShowPhotos",
+             v.chat_show_links AS "chatShowLinks",
              v.tenant_id AS "tenantId",
              v.name,
              v.description,
@@ -1275,11 +1282,31 @@ const chatReadRouter = router({
 
     // 7. Commit the entire visible turn and engagement/session transition atomically.
     const persistenceStartedAt = performance.now()
-    const mentionedPlaces = buildGuestPlaceCards({
+    let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
       hasLiveLocation,
       places: relevantPlaces,
     })
+    if (venue.chatShowPhotos && mentionedPlaces.length > 0) {
+      try {
+        const approvedMedia = await readApprovedGuestPlaceMedia({
+          reader: ctx.db,
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          venueSlug: venue.slug,
+          placeIds: mentionedPlaces.map((place) => place.id),
+          showPhotos: venue.chatShowPhotos,
+          showLinks: venue.chatShowLinks,
+        })
+        mentionedPlaces = mentionedPlaces.map((place) => ({
+          ...place,
+          ...approvedMedia.get(place.id),
+        }))
+      } catch {
+        // Optional media failure must not lose an already generated, grounded answer.
+        logger.warn({ action: 'guest-place-media-unavailable', venueId: venue.id })
+      }
+    }
     const citations = buildGuestCitations({
       assistantResponse,
       candidates: [

@@ -47,7 +47,13 @@ describe('PlaceCard', () => {
         id="place_1"
         name="Elephant House"
         type="EXHIBIT"
-        photoUrl="https://images.example.com/elephants.jpg"
+        photoUrl="/api/venue-media/11111111-1111-4111-8111-111111111111?venue=museum"
+        photoAttribution={{
+          altText: 'Elephants walking through their habitat',
+          caption: null,
+          sourceName: 'Museum archive',
+          sourceUrl: null,
+        }}
         shortDescription={null}
         areaName={null}
         hours={null}
@@ -58,9 +64,12 @@ describe('PlaceCard', () => {
     )
 
     expect(screen.getByRole('link', { name: 'Get directions to Elephant House' })).toBeTruthy()
-    expect(screen.getByRole('img', { name: 'Elephant House' }).getAttribute('referrerpolicy')).toBe(
-      'no-referrer',
-    )
+    expect(
+      screen
+        .getByRole('img', { name: 'Elephants walking through their habitat' })
+        .getAttribute('referrerpolicy'),
+    ).toBe('no-referrer')
+    expect(screen.getByText('Museum archive')).toBeTruthy()
 
     rerender(
       <PlaceCard

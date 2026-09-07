@@ -35,6 +35,9 @@ const { checkRateLimit } = vi.hoisted(() => ({
 
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
 
+const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
+vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
+
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
@@ -988,6 +991,58 @@ describe('chat router', () => {
           }),
         }),
       )
+    })
+
+    it('projects reviewed media only for mentioned places using the resolved venue preferences', async () => {
+      setupHappyPath('The Elephants habitat is open.', {
+        ...venueRow,
+        slug: 'city-zoo',
+        chatShowPhotos: true,
+        chatShowLinks: false,
+      })
+      const approved = {
+        photoUrl: '/api/venue-media/approved-card?venue=city-zoo',
+        photoAttribution: {
+          altText: 'An elephant',
+          caption: null,
+          sourceName: 'Zoo team',
+          sourceUrl: null,
+        },
+      }
+      readApprovedGuestPlaceMedia.mockResolvedValueOnce(new Map([['p1', approved]]))
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(readApprovedGuestPlaceMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          venueSlug: 'city-zoo',
+          placeIds: ['p1'],
+          showPhotos: true,
+          showLinks: false,
+        }),
+      )
+      expect(result.places).toEqual([expect.objectContaining(approved)])
+    })
+
+    it('preserves a completed text answer when optional approved media cannot be read', async () => {
+      const answer = 'The Elephants habitat is open.'
+      setupHappyPath(answer, { ...venueRow, slug: 'city-zoo', chatShowPhotos: true })
+      readApprovedGuestPlaceMedia.mockRejectedValueOnce(new Error('fixture media read failure'))
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.response).toBe(answer)
+      expect(result.places).toEqual([expect.objectContaining({ photoUrl: null })])
+      expect(guestTurnActions.finalize).toHaveBeenCalledTimes(1)
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not query optional media when photo customization is disabled', async () => {
+      setupHappyPath('The Elephants habitat is open.', { ...venueRow, chatShowPhotos: false })
+      await caller.chat.send(sendInput)
+      expect(readApprovedGuestPlaceMedia).not.toHaveBeenCalled()
     })
 
     it('retains a later access restriction beyond the requested brevity target', async () => {

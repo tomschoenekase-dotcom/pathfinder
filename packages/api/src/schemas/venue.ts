@@ -162,6 +162,8 @@ export const UpdateVenueChatDesignInput = z
       .strict()
       .nullable()
       .optional(),
+    chatShowPhotos: z.boolean().optional(),
+    chatShowLinks: z.boolean().optional(),
   })
   .strict()
 

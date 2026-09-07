@@ -18,6 +18,7 @@
     "./guest-answer-attribution-evaluation": "./src/lib/evaluation/guest-answer-attribution.ts",
     "./deployment-storage-key": "./src/lib/deployment-storage-key.ts",
     "./venue-media-delivery": "./src/lib/venue-media-delivery.ts",
+    "./guest-place-media": "./src/lib/guest-place-media.ts",
     "./founder-absence-observation": "./src/founder-absence-observation.ts"
   },
   "types": "./src/index.ts",

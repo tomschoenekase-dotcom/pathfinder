@@ -42,6 +42,8 @@ const fields = z
     chatBannerDerivativeId: z.string().uuid().nullable().optional(),
     chatLogoDerivativeReceipt: brandingReceipt.nullable().optional(),
     chatBannerDerivativeReceipt: brandingReceipt.nullable().optional(),
+    chatShowPhotos: z.boolean().optional(),
+    chatShowLinks: z.boolean().optional(),
   })
   .strict()
 
@@ -60,6 +62,8 @@ const designSelect = {
   chatBannerDerivativeId: true,
   chatLogoDerivativeReceipt: true,
   chatBannerDerivativeReceipt: true,
+  chatShowPhotos: true,
+  chatShowLinks: true,
   updatedAt: true,
 } as const
 

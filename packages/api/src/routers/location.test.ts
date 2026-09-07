@@ -370,11 +370,11 @@ describe('public structured location resolver', () => {
         capability: 'location-plus',
       }),
     )
-    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      entitlement.mock.invocationCallOrder[0],
+    expect(queryRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+      entitlement.mock.invocationCallOrder[0]!,
     )
-    expect(entitlement.mock.invocationCallOrder[0]).toBeLessThan(
-      findMany.mock.invocationCallOrder[0],
+    expect(entitlement.mock.invocationCallOrder[0]!).toBeLessThan(
+      findMany.mock.invocationCallOrder[0]!,
     )
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({

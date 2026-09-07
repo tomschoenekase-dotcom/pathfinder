@@ -7,6 +7,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 import { readControlledVenueMediaDerivative } from '@pathfinder/api/venue-media-delivery'
+import { readApprovedGuestPlaceMedia } from '@pathfinder/api/guest-place-media'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import sharp from 'sharp'
 
@@ -57,6 +58,7 @@ describe.runIf(enabled)('controlled venue media derivative disposable shakedown'
   const derivativeId = randomUUID()
   const sourceGeneration = randomUUID()
   const sourceObjectKey = `intake-quarantine/${randomUUID()}`
+  const placeId = `place-media-${suffix}`
   const sourceBytesPromise = sharp({
     create: { width: 1024, height: 640, channels: 3, background: '#246a73' },
   })
@@ -111,7 +113,16 @@ describe.runIf(enabled)('controlled venue media derivative disposable shakedown'
       data: { id: tenantId, name: 'Disposable venue media tenant', slug: tenantId },
     })
     await database.db.venue.create({
-      data: { id: venueId, tenantId, name: 'Disposable venue media venue', slug: venueSlug },
+      data: {
+        id: venueId,
+        tenantId,
+        name: 'Disposable venue media venue',
+        slug: venueSlug,
+        chatShowPhotos: true,
+      },
+    })
+    await database.db.place.create({
+      data: { id: placeId, tenantId, venueId, name: 'Teal Gallery', type: 'EXHIBIT', tags: [] },
     })
     const actor = {
       type: 'HUMAN' as const,
@@ -198,9 +209,11 @@ describe.runIf(enabled)('controlled venue media derivative disposable shakedown'
         altText: 'Synthetic teal verification image',
         importance: 'PRIMARY',
         sourceName: 'Disposable shakedown fixture',
+        sourceUrl: 'https://museum.example.test/archive/teal-gallery',
         createdBy: 'disposable-shakedown',
       },
     })
+    await database.db.venueMediaPlaceLink.create({ data: { tenantId, venueId, assetId, placeId } })
     await database.db.venueMediaReview.create({
       data: {
         tenantId,
@@ -244,6 +257,19 @@ describe.runIf(enabled)('controlled venue media derivative disposable shakedown'
       width: 768,
       height: 480,
     })
+    const approvedPlaceMedia = await readApprovedGuestPlaceMedia({
+      reader: database.db,
+      tenantId,
+      venueId,
+      venueSlug,
+      placeIds: [placeId],
+      showPhotos: true,
+      showLinks: false,
+    })
+    expect(approvedPlaceMedia.get(placeId)).toMatchObject({
+      photoUrl: `/api/venue-media/${derivativeId}?venue=${venueSlug}`,
+      photoAttribution: { sourceName: 'Disposable shakedown fixture', sourceUrl: null },
+    })
 
     await database.db.venueMediaReview.create({
       data: {
@@ -260,5 +286,18 @@ describe.runIf(enabled)('controlled venue media derivative disposable shakedown'
     await expect(readControlledVenueMediaDerivative({ derivativeId, venueSlug })).rejects.toThrow(
       'Venue media is unavailable.',
     )
+    expect(
+      (
+        await readApprovedGuestPlaceMedia({
+          reader: database.db,
+          tenantId,
+          venueId,
+          venueSlug,
+          placeIds: [placeId],
+          showPhotos: true,
+          showLinks: true,
+        })
+      ).size,
+    ).toBe(0)
   }, 120_000)
 })

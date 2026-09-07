@@ -37,6 +37,8 @@ export const venueChatDesignSelect = {
   chatBannerDerivativeId: true,
   chatLogoDerivativeReceipt: true,
   chatBannerDerivativeReceipt: true,
+  chatShowPhotos: true,
+  chatShowLinks: true,
   updatedAt: true,
 } as const
 
@@ -346,6 +348,8 @@ export type UpdateVenueChatDesignFields = {
   chatBannerDerivativeId?: string | null | undefined
   chatLogoDerivativeReceipt?: BrandingDerivativeReceipt | null | undefined
   chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null | undefined
+  chatShowPhotos?: boolean | undefined
+  chatShowLinks?: boolean | undefined
 }
 
 type BrandingDerivativeReceipt = {
@@ -366,6 +370,8 @@ function safeChat(value: {
   chatBannerDerivativeId: string | null
   chatLogoDerivativeReceipt: unknown
   chatBannerDerivativeReceipt: unknown
+  chatShowPhotos: boolean
+  chatShowLinks: boolean
   updatedAt: Date
 }) {
   return {
@@ -374,6 +380,8 @@ function safeChat(value: {
     chatFont: value.chatFont,
     hasLogo: value.chatLogoUrl !== null || value.chatLogoDerivativeId !== null,
     hasBanner: value.chatBannerUrl !== null || value.chatBannerDerivativeId !== null,
+    chatShowPhotos: value.chatShowPhotos,
+    chatShowLinks: value.chatShowLinks,
     updatedAt: value.updatedAt.toISOString(),
   }
 }

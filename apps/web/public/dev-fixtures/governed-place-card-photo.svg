@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 768 480" role="img" aria-label="East Gallery entrance">
+  <defs><linearGradient id="wall" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ead9bd"/><stop offset="1" stop-color="#c7d8d0"/></linearGradient></defs>
+  <rect width="768" height="480" fill="url(#wall)"/><path fill="#34584f" d="M92 86h584v394H92z"/><path fill="#f4ead7" d="M134 118h500v362H134z"/><path fill="#9d5438" d="M290 170h188v310H290z"/><path fill="#5e382b" d="M322 204h124v276H322z"/><circle cx="421" cy="340" r="7" fill="#e8c26b"/><path fill="#486f64" d="M0 408h768v72H0z"/><path fill="#d6b980" d="M0 420h768v12H0z"/>
+</svg>

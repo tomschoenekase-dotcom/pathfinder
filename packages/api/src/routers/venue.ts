@@ -301,6 +301,8 @@ const venueListSelect = {
   chatBannerDerivativeId: true,
   chatLogoDerivativeReceipt: true,
   chatBannerDerivativeReceipt: true,
+  chatShowPhotos: true,
+  chatShowLinks: true,
   isActive: true,
   secondLayerEnabled: true,
   secondLayerLabel: true,
