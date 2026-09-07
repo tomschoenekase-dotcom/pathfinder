@@ -184,6 +184,8 @@ model Tenant {
   mediaIngestionProjects                    MediaIngestionProject[]
   mediaEntityResolutionRevisions            MediaEntityResolutionRevision[]
   mediaRelationApplications                 MediaRelationApplication[]
+  mediaTemporalReviewReceipts               MediaTemporalReviewReceipt[]
+  mediaTemporalOperationalHandoffs          MediaTemporalOperationalHandoff[]
   mediaProviderOperations                   MediaProviderOperation[]
   aiUsageEvents                             AiUsageEvent[]
   aiUsageDailyRollups                       AiUsageDailyRollup[]
@@ -1374,8 +1376,8 @@ model Venue {
   chatFont                                  String?                                     @default("jakarta") @map("chat_font")
   chatLogoUrl                               String?                                     @map("chat_logo_url")
   chatBannerUrl                             String?                                     @map("chat_banner_url")
-  chatLogoDerivativeId                      String?                                     @db.Uuid @map("chat_logo_derivative_id")
-  chatBannerDerivativeId                    String?                                     @db.Uuid @map("chat_banner_derivative_id")
+  chatLogoDerivativeId                      String?                                     @map("chat_logo_derivative_id") @db.Uuid
+  chatBannerDerivativeId                    String?                                     @map("chat_banner_derivative_id") @db.Uuid
   chatLogoDerivativeReceipt                 Json?                                       @map("chat_logo_derivative_receipt")
   chatBannerDerivativeReceipt               Json?                                       @map("chat_banner_derivative_receipt")
   category                                  String?
@@ -1410,6 +1412,8 @@ model Venue {
   mediaIngestionProjects                    MediaIngestionProject[]
   mediaEntityResolutionRevisions            MediaEntityResolutionRevision[]
   mediaRelationApplications                 MediaRelationApplication[]
+  mediaTemporalReviewReceipts               MediaTemporalReviewReceipt[]
+  mediaTemporalOperationalHandoffs          MediaTemporalOperationalHandoff[]
   mediaProviderOperations                   MediaProviderOperation[]
   aiUsageEvents                             AiUsageEvent[]
   aiUsageDailyRollups                       AiUsageDailyRollup[]
@@ -1515,8 +1519,8 @@ model Venue {
   accountOpenLoops                          AccountOpenLoop[]
   accountCommitments                        AccountCommitment[]
   venueMediaAssets                          VenueMediaAsset[]
-  chatLogoDerivative                        VenueMediaDerivative? @relation("VenueChatLogoDerivative", fields: [chatLogoDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  chatBannerDerivative                      VenueMediaDerivative? @relation("VenueChatBannerDerivative", fields: [chatBannerDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  chatLogoDerivative                        VenueMediaDerivative?                       @relation("VenueChatLogoDerivative", fields: [chatLogoDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  chatBannerDerivative                      VenueMediaDerivative?                       @relation("VenueChatBannerDerivative", fields: [chatBannerDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -1573,38 +1577,38 @@ model Place {
 }
 
 model VenueKnowledgeEntry {
-  id                     String                    @id @default(cuid())
-  tenantId               String                    @map("tenant_id")
-  venueId                String                    @map("venue_id")
-  title                  String
-  category               String
-  content                String
-  isEnabled              Boolean                   @default(true) @map("is_enabled")
-  visibility             String                    @default("PUBLIC")
-  sourceType             String                    @default("UNKNOWN") @map("source_type")
-  authorship             String                    @default("UNKNOWN")
-  sourceName             String?                   @map("source_name")
-  sourceUrl              String?                   @map("source_url")
-  importedAt             DateTime?                 @map("imported_at")
-  humanConfirmedAt       DateTime?                 @map("human_confirmed_at")
-  humanConfirmedBy       String?                   @map("human_confirmed_by")
-  lastReviewedAt         DateTime?                 @map("last_reviewed_at")
-  lastReviewedBy         String?                   @map("last_reviewed_by")
-  sourcePackageId        String?                   @map("source_package_id")
-  contentModuleId        String?                   @map("content_module_id")
-  contentRevisionId      String?                   @map("content_revision_id")
-  contentPublicationId   String?                   @map("content_publication_id")
-  createdAt              DateTime                  @default(now()) @map("created_at")
-  updatedAt              DateTime                  @updatedAt @map("updated_at")
-  venue                  Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  sourcePackage          VenuePackage?             @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  contentModule          ContentModuleIdentity?    @relation(fields: [contentModuleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  contentRevision        ContentModuleRevision?    @relation(fields: [contentRevisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  contentPublication     ContentModulePublication? @relation(fields: [contentPublicationId, tenantId, venueId, contentRevisionId, contentModuleId], references: [id, tenantId, venueId, revisionId, moduleId], onDelete: Restrict, onUpdate: Restrict)
-  targetedByProposals    KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
-  publishedFromProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalPublishedEntry")
+  id                       String                                   @id @default(cuid())
+  tenantId                 String                                   @map("tenant_id")
+  venueId                  String                                   @map("venue_id")
+  title                    String
+  category                 String
+  content                  String
+  isEnabled                Boolean                                  @default(true) @map("is_enabled")
+  visibility               String                                   @default("PUBLIC")
+  sourceType               String                                   @default("UNKNOWN") @map("source_type")
+  authorship               String                                   @default("UNKNOWN")
+  sourceName               String?                                  @map("source_name")
+  sourceUrl                String?                                  @map("source_url")
+  importedAt               DateTime?                                @map("imported_at")
+  humanConfirmedAt         DateTime?                                @map("human_confirmed_at")
+  humanConfirmedBy         String?                                  @map("human_confirmed_by")
+  lastReviewedAt           DateTime?                                @map("last_reviewed_at")
+  lastReviewedBy           String?                                  @map("last_reviewed_by")
+  sourcePackageId          String?                                  @map("source_package_id")
+  contentModuleId          String?                                  @map("content_module_id")
+  contentRevisionId        String?                                  @map("content_revision_id")
+  contentPublicationId     String?                                  @map("content_publication_id")
+  createdAt                DateTime                                 @default(now()) @map("created_at")
+  updatedAt                DateTime                                 @updatedAt @map("updated_at")
+  venue                    Venue                                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  sourcePackage            VenuePackage?                            @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  contentModule            ContentModuleIdentity?                   @relation(fields: [contentModuleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  contentRevision          ContentModuleRevision?                   @relation(fields: [contentRevisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  contentPublication       ContentModulePublication?                @relation(fields: [contentPublicationId, tenantId, venueId, contentRevisionId, contentModuleId], references: [id, tenantId, venueId, revisionId, moduleId], onDelete: Restrict, onUpdate: Restrict)
+  targetedByProposals      KnowledgeChangeProposal[]                @relation("KnowledgeProposalTarget")
+  publishedFromProposals   KnowledgeChangeProposal[]                @relation("KnowledgeProposalPublishedEntry")
   universalContentAdoption LegacyKnowledgeUniversalContentAdoption?
-  venueMediaLinks        VenueMediaKnowledgeLink[]
+  venueMediaLinks          VenueMediaKnowledgeLink[]
 
   @@unique([id, tenantId, venueId])
   @@unique([tenantId, venueId, contentModuleId], map: "venue_knowledge_entries_content_module_scope_key")
@@ -1629,7 +1633,7 @@ model ContentModuleIdentity {
   publications                              ContentModulePublication[]
   knowledgeSearchEntries                    VenueKnowledgeEntry[]
   knowledgeProposalUniversalContentHandoffs KnowledgeProposalUniversalContentHandoff[]
-  legacyKnowledgeAdoptions LegacyKnowledgeUniversalContentAdoption[]
+  legacyKnowledgeAdoptions                  LegacyKnowledgeUniversalContentAdoption[]
   outboundRelationships                     RelationshipContent[]                      @relation("relationship_from")
   inboundRelationships                      RelationshipContent[]                      @relation("relationship_to")
 
@@ -1802,23 +1806,23 @@ model ContentModuleEvidence {
 /// authoritative guest-publication state; authoring a PUBLIC revision alone
 /// never publishes it.
 model ContentModulePublication {
-  id                      String                                   @id @default(cuid())
-  tenantId                String                                   @map("tenant_id")
-  venueId                 String                                   @map("venue_id")
-  moduleId                String                                   @map("module_id")
-  revisionId              String                                   @map("revision_id")
-  moduleKind              NormalizedContentModuleKind              @map("module_kind")
-  action                  ContentModulePublicationAction
-  eventOrder              BigInt                                   @unique @default(autoincrement()) @map("event_order")
-  requestId               String                                   @map("request_id") @db.Uuid
-  actorId                 String                                   @map("actor_id") @db.VarChar(191)
-  createdAt               DateTime                                 @default(now()) @map("created_at")
-  tenant                  Tenant                                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                   Venue                                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  module                  ContentModuleIdentity                    @relation(fields: [moduleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  revision                ContentModuleRevision                    @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
-  nativeDeploymentLineage NativeVenueDeploymentPublicationLineage?
-  knowledgeSearchEntries  VenueKnowledgeEntry[]
+  id                       String                                   @id @default(cuid())
+  tenantId                 String                                   @map("tenant_id")
+  venueId                  String                                   @map("venue_id")
+  moduleId                 String                                   @map("module_id")
+  revisionId               String                                   @map("revision_id")
+  moduleKind               NormalizedContentModuleKind              @map("module_kind")
+  action                   ContentModulePublicationAction
+  eventOrder               BigInt                                   @unique @default(autoincrement()) @map("event_order")
+  requestId                String                                   @map("request_id") @db.Uuid
+  actorId                  String                                   @map("actor_id") @db.VarChar(191)
+  createdAt                DateTime                                 @default(now()) @map("created_at")
+  tenant                   Tenant                                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  module                   ContentModuleIdentity                    @relation(fields: [moduleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  revision                 ContentModuleRevision                    @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  nativeDeploymentLineage  NativeVenueDeploymentPublicationLineage?
+  knowledgeSearchEntries   VenueKnowledgeEntry[]
   legacyAdoptionActivation LegacyKnowledgeAdoptionActivation?
 
   @@unique([tenantId, requestId])
@@ -3576,27 +3580,27 @@ model KnowledgeProposalUniversalContentHandoff {
 /// Immutable receipt for adopting one exact legacy knowledge row as a native v1 draft.
 /// The legacy row remains authoritative until a separate publication creates an activation.
 model LegacyKnowledgeUniversalContentAdoption {
-  id                       String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                 String                      @map("tenant_id")
-  venueId                  String                      @map("venue_id")
-  proposalId               String                      @map("proposal_id") @db.Uuid
-  legacyKnowledgeEntryId   String                      @map("legacy_knowledge_entry_id")
-  moduleId                 String                      @map("module_id")
-  moduleKind               NormalizedContentModuleKind @map("module_kind")
-  revisionId               String                      @map("revision_id")
-  proposalUpdatedAt        DateTime                    @map("proposal_updated_at")
-  legacyKnowledgeUpdatedAt DateTime                    @map("legacy_knowledge_updated_at")
-  legacySnapshot           Json                        @map("legacy_snapshot")
-  legacySnapshotHash       String                      @map("legacy_snapshot_hash") @db.Char(64)
-  draftHash                String                      @map("draft_hash") @db.Char(64)
-  createdBy                String                      @map("created_by") @db.VarChar(191)
-  createdAt                DateTime                    @default(now()) @map("created_at")
-  tenant                   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  proposal                 KnowledgeChangeProposal     @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  legacyKnowledgeEntry     VenueKnowledgeEntry         @relation(fields: [legacyKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  module                   ContentModuleIdentity       @relation(fields: [moduleId, tenantId, venueId, moduleKind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
-  revision                 ContentModuleRevision       @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  id                       String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                             @map("tenant_id")
+  venueId                  String                             @map("venue_id")
+  proposalId               String                             @map("proposal_id") @db.Uuid
+  legacyKnowledgeEntryId   String                             @map("legacy_knowledge_entry_id")
+  moduleId                 String                             @map("module_id")
+  moduleKind               NormalizedContentModuleKind        @map("module_kind")
+  revisionId               String                             @map("revision_id")
+  proposalUpdatedAt        DateTime                           @map("proposal_updated_at")
+  legacyKnowledgeUpdatedAt DateTime                           @map("legacy_knowledge_updated_at")
+  legacySnapshot           Json                               @map("legacy_snapshot")
+  legacySnapshotHash       String                             @map("legacy_snapshot_hash") @db.Char(64)
+  draftHash                String                             @map("draft_hash") @db.Char(64)
+  createdBy                String                             @map("created_by") @db.VarChar(191)
+  createdAt                DateTime                           @default(now()) @map("created_at")
+  tenant                   Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  proposal                 KnowledgeChangeProposal            @relation(fields: [proposalId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  legacyKnowledgeEntry     VenueKnowledgeEntry                @relation(fields: [legacyKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  module                   ContentModuleIdentity              @relation(fields: [moduleId, tenantId, venueId, moduleKind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  revision                 ContentModuleRevision              @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
   activation               LegacyKnowledgeAdoptionActivation?
 
   @@unique([proposalId, tenantId, venueId], map: "legacy_knowledge_adoptions_proposal_scope_key")
@@ -3715,24 +3719,24 @@ model VenueLocation {
 }
 
 model VenueLocationConnection {
-  id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String                      @map("tenant_id")
-  venueId        String                      @map("venue_id")
-  fromLocationId String                      @map("from_location_id") @db.Uuid
-  toLocationId   String                      @map("to_location_id") @db.Uuid
-  kind           VenueLocationConnectionKind
-  bidirectional  Boolean                     @default(true)
-  accessible     Boolean                     @default(false)
-  directions     String?                     @db.VarChar(2000)
-  verifiedAt     DateTime                    @map("verified_at")
-  verifiedBy     String                      @map("verified_by") @db.VarChar(191)
-  isActive       Boolean                     @default(true) @map("is_active")
-  createdAt      DateTime                    @default(now()) @map("created_at")
-  updatedAt      DateTime                    @updatedAt @map("updated_at")
-  tenant         Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue          Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  fromLocation   VenueLocation               @relation("LocationConnectionFrom", fields: [fromLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  toLocation     VenueLocation               @relation("LocationConnectionTo", fields: [toLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String                      @map("tenant_id")
+  venueId                   String                      @map("venue_id")
+  fromLocationId            String                      @map("from_location_id") @db.Uuid
+  toLocationId              String                      @map("to_location_id") @db.Uuid
+  kind                      VenueLocationConnectionKind
+  bidirectional             Boolean                     @default(true)
+  accessible                Boolean                     @default(false)
+  directions                String?                     @db.VarChar(2000)
+  verifiedAt                DateTime                    @map("verified_at")
+  verifiedBy                String                      @map("verified_by") @db.VarChar(191)
+  isActive                  Boolean                     @default(true) @map("is_active")
+  createdAt                 DateTime                    @default(now()) @map("created_at")
+  updatedAt                 DateTime                    @updatedAt @map("updated_at")
+  tenant                    Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  fromLocation              VenueLocation               @relation("LocationConnectionFrom", fields: [fromLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  toLocation                VenueLocation               @relation("LocationConnectionTo", fields: [toLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   mediaRelationApplications MediaRelationApplication[]
 
   @@unique([tenantId, venueId, fromLocationId, toLocationId, kind])
@@ -4683,6 +4687,7 @@ model OperationalUpdate {
   venue                    Venue                                      @relation(fields: [venueId], references: [id], onDelete: Restrict)
   place                    Place?                                     @relation(fields: [placeId], references: [id], onDelete: Restrict)
   knowledgeProposalHandoff KnowledgeProposalOperationalUpdateHandoff?
+  mediaTemporalHandoff     MediaTemporalOperationalHandoff?
 
   @@unique([id, tenantId, venueId], map: "operational_updates_id_scope_key")
   @@index([tenantId])
@@ -5020,44 +5025,45 @@ enum GenerationDispatchStatus {
 /// import-ready Torchiko JSON. Raw media stays in object storage; the DB
 /// contains only orchestration state, evidence, questions, and drafts.
 model MediaIngestionProject {
-  id                         String                   @id @default(cuid())
-  tenantId                   String                   @map("tenant_id")
-  venueId                    String                   @map("venue_id")
+  id                         String                          @id @default(cuid())
+  tenantId                   String                          @map("tenant_id")
+  venueId                    String                          @map("venue_id")
   name                       String
-  context                    String                   @default("")
-  mode                       MediaIngestionMode       @default(BALANCED)
-  status                     MediaIngestionStatus     @default(DRAFT)
-  stage                      String                   @default("setup")
-  progress                   Int                      @default(0)
-  sourceObjectKey            String?                  @map("source_object_key")
-  sourceFileName             String?                  @map("source_file_name")
-  sourceBytes                BigInt?                  @map("source_bytes")
-  sourceLastModified         BigInt?                  @map("source_last_modified")
-  sourceFingerprintAlgorithm String?                  @map("source_fingerprint_algorithm") @db.VarChar(48)
-  sourceFingerprint          String?                  @map("source_fingerprint") @db.Char(64)
-  sourceObjectGeneration     String?                  @map("source_object_generation") @db.Uuid
-  uploadAttemptId            String?                  @map("upload_attempt_id") @db.Uuid
-  storageUploadId            String?                  @map("storage_upload_id")
-  uploadStartedAt            DateTime?                @map("upload_started_at")
-  sourceContentType          String?                  @map("source_content_type")
-  settings                   Json                     @default("{}")
-  coverage                   Json                     @default("{}")
-  questions                  Json                     @default("[]")
-  findings                   Json                     @default("[]")
-  draftJson                  Json?                    @map("draft_json")
-  estimatedCostCents         Int?                     @map("estimated_cost_cents")
-  actualCostCents            Int                      @default(0) @map("actual_cost_cents")
-  providerOperationCount     Int                      @default(0) @map("provider_operation_count")
+  context                    String                          @default("")
+  mode                       MediaIngestionMode              @default(BALANCED)
+  status                     MediaIngestionStatus            @default(DRAFT)
+  stage                      String                          @default("setup")
+  progress                   Int                             @default(0)
+  sourceObjectKey            String?                         @map("source_object_key")
+  sourceFileName             String?                         @map("source_file_name")
+  sourceBytes                BigInt?                         @map("source_bytes")
+  sourceLastModified         BigInt?                         @map("source_last_modified")
+  sourceFingerprintAlgorithm String?                         @map("source_fingerprint_algorithm") @db.VarChar(48)
+  sourceFingerprint          String?                         @map("source_fingerprint") @db.Char(64)
+  sourceObjectGeneration     String?                         @map("source_object_generation") @db.Uuid
+  uploadAttemptId            String?                         @map("upload_attempt_id") @db.Uuid
+  storageUploadId            String?                         @map("storage_upload_id")
+  uploadStartedAt            DateTime?                       @map("upload_started_at")
+  sourceContentType          String?                         @map("source_content_type")
+  settings                   Json                            @default("{}")
+  coverage                   Json                            @default("{}")
+  questions                  Json                            @default("[]")
+  findings                   Json                            @default("[]")
+  draftJson                  Json?                           @map("draft_json")
+  estimatedCostCents         Int?                            @map("estimated_cost_cents")
+  actualCostCents            Int                             @default(0) @map("actual_cost_cents")
+  providerOperationCount     Int                             @default(0) @map("provider_operation_count")
   error                      String?
-  createdBy                  String                   @map("created_by")
-  createdAt                  DateTime                 @default(now()) @map("created_at")
-  updatedAt                  DateTime                 @updatedAt @map("updated_at")
-  completedAt                DateTime?                @map("completed_at")
-  tenant                     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                      Venue                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  createdBy                  String                          @map("created_by")
+  createdAt                  DateTime                        @default(now()) @map("created_at")
+  updatedAt                  DateTime                        @updatedAt @map("updated_at")
+  completedAt                DateTime?                       @map("completed_at")
+  tenant                     Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                      Venue                           @relation(fields: [venueId], references: [id], onDelete: Restrict)
   assets                     MediaIngestionAsset[]
   providerOperations         MediaProviderOperation[]
   entityResolutionRevisions  MediaEntityResolutionRevision[]
+  temporalReviewReceipts     MediaTemporalReviewReceipt[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
@@ -5069,22 +5075,22 @@ model MediaIngestionProject {
 /// Immutable, review-only state revisions for one exact media ingestion generation. These rows
 /// grant no content, publication, provider, or deployment authority.
 model MediaEntityResolutionRevision {
-  id                   String                @id @default(uuid()) @db.Uuid
-  tenantId             String                @map("tenant_id")
-  venueId              String                @map("venue_id")
-  projectId            String                @map("project_id")
-  sourceGeneration     String                @map("source_generation") @db.Uuid
+  id                   String                     @id @default(uuid()) @db.Uuid
+  tenantId             String                     @map("tenant_id")
+  venueId              String                     @map("venue_id")
+  projectId            String                     @map("project_id")
+  sourceGeneration     String                     @map("source_generation") @db.Uuid
   revision             Int
-  requestId            String                @map("request_id") @db.Uuid
-  requestHash          String                @map("request_hash") @db.Char(64)
-  evidenceSnapshotHash String                @map("evidence_snapshot_hash") @db.Char(64)
-  evidenceSnapshot     Json                  @map("evidence_snapshot")
+  requestId            String                     @map("request_id") @db.Uuid
+  requestHash          String                     @map("request_hash") @db.Char(64)
+  evidenceSnapshotHash String                     @map("evidence_snapshot_hash") @db.Char(64)
+  evidenceSnapshot     Json                       @map("evidence_snapshot")
   state                Json
-  actorId              String                @map("actor_id") @db.VarChar(191)
-  createdAt            DateTime              @default(now()) @map("created_at")
-  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                Venue                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  project              MediaIngestionProject @relation(fields: [projectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  actorId              String                     @map("actor_id") @db.VarChar(191)
+  createdAt            DateTime                   @default(now()) @map("created_at")
+  tenant               Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  project              MediaIngestionProject      @relation(fields: [projectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   relationApplications MediaRelationApplication[]
 
   @@unique([tenantId, requestId], map: "media_entity_resolution_revisions_request_key")
@@ -5097,20 +5103,20 @@ model MediaEntityResolutionRevision {
 /// Immutable evidence binding one reviewed media relation to an inactive canonical connection.
 /// This receipt grants no activation or publication authority.
 model MediaRelationApplication {
-  id                      String                         @id @default(uuid()) @db.Uuid
-  tenantId                String                         @map("tenant_id")
-  venueId                 String                         @map("venue_id")
-  revisionId              String                         @map("revision_id") @db.Uuid
-  relationId              String                         @map("relation_id") @db.VarChar(191)
-  relationReviewRequestId String                         @map("relation_review_request_id") @db.Uuid
-  requestId               String                         @map("request_id") @db.Uuid
-  requestHash             String                         @map("request_hash") @db.Char(64)
-  actorId                 String                         @map("actor_id") @db.VarChar(191)
-  connectionId            String                         @map("connection_id") @db.Uuid
-  inputSnapshot           Json                           @map("input_snapshot")
-  createdAt               DateTime                       @default(now()) @map("created_at")
-  tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                   Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                      String                        @id @default(uuid()) @db.Uuid
+  tenantId                String                        @map("tenant_id")
+  venueId                 String                        @map("venue_id")
+  revisionId              String                        @map("revision_id") @db.Uuid
+  relationId              String                        @map("relation_id") @db.VarChar(191)
+  relationReviewRequestId String                        @map("relation_review_request_id") @db.Uuid
+  requestId               String                        @map("request_id") @db.Uuid
+  requestHash             String                        @map("request_hash") @db.Char(64)
+  actorId                 String                        @map("actor_id") @db.VarChar(191)
+  connectionId            String                        @map("connection_id") @db.Uuid
+  inputSnapshot           Json                          @map("input_snapshot")
+  createdAt               DateTime                      @default(now()) @map("created_at")
+  tenant                  Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   revision                MediaEntityResolutionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   connection              VenueLocationConnection       @relation(fields: [connectionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
@@ -5118,6 +5124,58 @@ model MediaRelationApplication {
   @@unique([tenantId, venueId, relationReviewRequestId], map: "media_relation_applications_review_key")
   @@index([tenantId, venueId, revisionId, createdAt], map: "media_relation_applications_scope_created_idx")
   @@map("media_relation_applications")
+}
+
+/// Compact immutable review of source-bound temporal claims. This receipt grants no content,
+/// scheduling, publication, or provider authority.
+model MediaTemporalReviewReceipt {
+  id                  String                            @id @default(uuid()) @db.Uuid
+  tenantId            String                            @map("tenant_id")
+  venueId             String                            @map("venue_id")
+  projectId           String                            @map("project_id")
+  sourceGeneration    String                            @map("source_generation") @db.Uuid
+  uploadAttemptId     String                            @map("upload_attempt_id") @db.Uuid
+  requestId           String                            @map("request_id") @db.Uuid
+  requestHash         String                            @map("request_hash") @db.Char(64)
+  snapshotHash        String                            @map("snapshot_hash") @db.Char(64)
+  snapshot            Json
+  actorId             String                            @map("actor_id") @db.VarChar(191)
+  evaluatedAt         DateTime                          @map("evaluated_at")
+  createdAt           DateTime                          @default(now()) @map("created_at")
+  tenant              Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                             @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  project             MediaIngestionProject             @relation(fields: [projectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  operationalHandoffs MediaTemporalOperationalHandoff[]
+
+  @@unique([tenantId, requestId], map: "media_temporal_review_receipts_request_key")
+  @@unique([id, tenantId, venueId], map: "media_temporal_review_receipts_scope_key")
+  @@index([tenantId, venueId, projectId, sourceGeneration, createdAt], map: "media_temporal_review_receipts_scope_created_idx")
+  @@map("media_temporal_review_receipts")
+}
+
+/// Immutable binding from one reviewed temporal claim to one inactive operational-update draft.
+model MediaTemporalOperationalHandoff {
+  id                  String                     @id @default(uuid()) @db.Uuid
+  tenantId            String                     @map("tenant_id")
+  venueId             String                     @map("venue_id")
+  reviewReceiptId     String                     @map("review_receipt_id") @db.Uuid
+  claimId             String                     @map("claim_id") @db.VarChar(191)
+  requestId           String                     @map("request_id") @db.Uuid
+  requestHash         String                     @map("request_hash") @db.Char(64)
+  operationalUpdateId String                     @map("operational_update_id")
+  actorId             String                     @map("actor_id") @db.VarChar(191)
+  inputSnapshot       Json                       @map("input_snapshot")
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  reviewReceipt       MediaTemporalReviewReceipt @relation(fields: [reviewReceiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  operationalUpdate   OperationalUpdate          @relation(fields: [operationalUpdateId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "media_temporal_operational_handoffs_request_key")
+  @@unique([operationalUpdateId, tenantId, venueId], map: "media_temporal_handoffs_update_scope_key")
+  @@unique([tenantId, venueId, reviewReceiptId, claimId], map: "media_temporal_operational_handoffs_claim_key")
+  @@index([tenantId, venueId, createdAt], map: "media_temporal_operational_handoffs_scope_created_idx")
+  @@map("media_temporal_operational_handoffs")
 }
 
 model MediaIngestionAsset {
@@ -7174,59 +7232,60 @@ model ProspectDeliveryControl {
 }
 
 model ProspectOrganization {
-  id                    String                            @id @default(cuid())
-  canonicalName         String                            @map("canonical_name")
-  normalizedName        String                            @map("normalized_name")
-  aliases               Json                              @default("[]")
-  website               String?
-  normalizedDomain      String?                           @map("normalized_domain")
-  organizationType      String?                           @map("organization_type")
-  description           String?
-  headquartersCity      String?                           @map("headquarters_city")
-  headquartersRegion    String?                           @map("headquarters_region")
-  headquartersCountry   String?                           @map("headquarters_country")
-  territoryId           String?                           @map("territory_id")
-  source                String?
-  researchProvenance    Json                              @default("[]") @map("research_provenance")
+  id                         String                              @id @default(cuid())
+  canonicalName              String                              @map("canonical_name")
+  normalizedName             String                              @map("normalized_name")
+  aliases                    Json                                @default("[]")
+  website                    String?
+  normalizedDomain           String?                             @map("normalized_domain")
+  organizationType           String?                             @map("organization_type")
+  description                String?
+  headquartersCity           String?                             @map("headquarters_city")
+  headquartersRegion         String?                             @map("headquarters_region")
+  headquartersCountry        String?                             @map("headquarters_country")
+  territoryId                String?                             @map("territory_id")
+  source                     String?
+  researchProvenance         Json                                @default("[]") @map("research_provenance")
   /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
-  ownerId               String?                           @map("owner_id")
+  ownerId                    String?                             @map("owner_id")
   /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
-  priority              ProspectPriority                  @default(NORMAL)
-  relationshipTier      ProspectRelationshipTier          @default(STANDARD) @map("relationship_tier")
-  notes                 String?
+  priority                   ProspectPriority                    @default(NORMAL)
+  relationshipTier           ProspectRelationshipTier            @default(STANDARD) @map("relationship_tier")
+  notes                      String?
   /// Deprecated compatibility projection. Normalized ProspectTag associations are canonical.
-  tags                  Json                              @default("[]")
-  archivedAt            DateTime?                         @map("archived_at")
-  createdBy             String                            @map("created_by")
-  updatedBy             String                            @map("updated_by")
-  createdAt             DateTime                          @default(now()) @map("created_at")
-  updatedAt             DateTime                          @updatedAt @map("updated_at")
-  territory             ProspectTerritory?                @relation(fields: [territoryId], references: [id], onDelete: Restrict)
-  venues                ProspectVenue[]
-  contacts              ProspectContact[]
-  opportunity           ProspectOpportunity?
-  activities            ProspectActivity[]
-  inboundReplyReviews   ProspectInboundReplyReview[]
-  sources               ProspectSourceEvidence[]
-  duplicateCandidatesA  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_a")
-  duplicateCandidatesB  ProspectDuplicateCandidate[]      @relation("prospect_duplicate_b")
-  conversion            ProspectConversion?
-  customerRelationships ProspectCustomerRelationship[]
-  tagAssignments        ProspectOrganizationTag[]
-  campaignMembers       ProspectCampaignMember[]
-  outreachDrafts        ProspectOutreachDraft[]
-  emailThreads          ProspectEmailThread[]
-  emailMessages         ProspectEmailMessage[]
-  followups             ProspectFollowup[]
-  companyKnowledgeItems CompanyKnowledgeItem[]
-  companyMeetings       CompanyMeeting[]
-  relationshipNotes     AccountRelationshipNote[]
-  milestones            AccountMilestone[]
-  openLoops             AccountOpenLoop[]
-  commitments           AccountCommitment[]
-  summaries             AccountSummary[]
-  researchJob           ProspectResearchJob?
-  interestConversion    PublicInterestProspectConversion?
+  tags                       Json                                @default("[]")
+  archivedAt                 DateTime?                           @map("archived_at")
+  createdBy                  String                              @map("created_by")
+  updatedBy                  String                              @map("updated_by")
+  createdAt                  DateTime                            @default(now()) @map("created_at")
+  updatedAt                  DateTime                            @updatedAt @map("updated_at")
+  territory                  ProspectTerritory?                  @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  venues                     ProspectVenue[]
+  contacts                   ProspectContact[]
+  opportunity                ProspectOpportunity?
+  activities                 ProspectActivity[]
+  inboundReplyReviews        ProspectInboundReplyReview[]
+  sources                    ProspectSourceEvidence[]
+  duplicateCandidatesA       ProspectDuplicateCandidate[]        @relation("prospect_duplicate_a")
+  duplicateCandidatesB       ProspectDuplicateCandidate[]        @relation("prospect_duplicate_b")
+  conversion                 ProspectConversion?
+  customerRelationships      ProspectCustomerRelationship[]
+  tagAssignments             ProspectOrganizationTag[]
+  campaignMembers            ProspectCampaignMember[]
+  outreachDrafts             ProspectOutreachDraft[]
+  emailThreads               ProspectEmailThread[]
+  emailMessages              ProspectEmailMessage[]
+  followups                  ProspectFollowup[]
+  companyKnowledgeItems      CompanyKnowledgeItem[]
+  companyMeetings            CompanyMeeting[]
+  relationshipNotes          AccountRelationshipNote[]
+  milestones                 AccountMilestone[]
+  openLoops                  AccountOpenLoop[]
+  commitments                AccountCommitment[]
+  summaries                  AccountSummary[]
+  researchJob                ProspectResearchJob?
+  interestConversion         PublicInterestProspectConversion?
+  onboardingDeliveryAttempts ProspectOnboardingDeliveryAttempt[]
 
   @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
@@ -7288,50 +7347,51 @@ model ProspectResearchAttempt {
 }
 
 model ProspectVenue {
-  id                  String                            @id @default(cuid())
-  organizationId      String                            @map("organization_id")
-  territoryId         String?                           @map("territory_id")
-  name                String
-  normalizedName      String                            @map("normalized_name")
-  website             String?
-  normalizedDomain    String?                           @map("normalized_domain")
-  venueType           String?                           @map("venue_type")
-  addressLine1        String?                           @map("address_line_1")
-  addressLine2        String?                           @map("address_line_2")
-  city                String?
-  region              String?
-  postalCode          String?                           @map("postal_code")
-  country             String?
-  estimatedSize       String?                           @map("estimated_size")
-  fitAttributes       Json                              @default("{}") @map("fit_attributes")
-  visitorOperations   Json                              @default("{}") @map("visitor_operations")
-  notes               String?
-  researchSources     Json                              @default("[]") @map("research_sources")
+  id                         String                              @id @default(cuid())
+  organizationId             String                              @map("organization_id")
+  territoryId                String?                             @map("territory_id")
+  name                       String
+  normalizedName             String                              @map("normalized_name")
+  website                    String?
+  normalizedDomain           String?                             @map("normalized_domain")
+  venueType                  String?                             @map("venue_type")
+  addressLine1               String?                             @map("address_line_1")
+  addressLine2               String?                             @map("address_line_2")
+  city                       String?
+  region                     String?
+  postalCode                 String?                             @map("postal_code")
+  country                    String?
+  estimatedSize              String?                             @map("estimated_size")
+  fitAttributes              Json                                @default("{}") @map("fit_attributes")
+  visitorOperations          Json                                @default("{}") @map("visitor_operations")
+  notes                      String?
+  researchSources            Json                                @default("[]") @map("research_sources")
   /// Deprecated compatibility projections. ProspectOpportunity is the sole writer.
-  stage               ProspectStage                     @default(DISCOVERED)
-  priority            ProspectPriority                  @default(NORMAL)
-  nextAction          String?                           @map("next_action")
-  nextActionAt        DateTime?                         @map("next_action_at")
-  lastActivityAt      DateTime?                         @map("last_activity_at")
-  archivedAt          DateTime?                         @map("archived_at")
-  sourceImportRowId   String?                           @map("source_import_row_id")
-  createdBy           String                            @map("created_by")
-  updatedBy           String                            @map("updated_by")
-  createdAt           DateTime                          @default(now()) @map("created_at")
-  updatedAt           DateTime                          @updatedAt @map("updated_at")
-  organization        ProspectOrganization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  territory           ProspectTerritory?                @relation(fields: [territoryId], references: [id], onDelete: Restrict)
-  contacts            ProspectContact[]
-  activities          ProspectActivity[]
-  sources             ProspectSourceEvidence[]
-  sourceImportRow     ProspectImportRow?                @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
-  conversion          ProspectConversion?
-  locationConversions ProspectLocationConversion[]
-  campaignMembers     ProspectCampaignMember[]
-  outreachDrafts      ProspectOutreachDraft[]
-  emailThreads        ProspectEmailThread[]
-  emailMessages       ProspectEmailMessage[]
-  interestConversion  PublicInterestProspectConversion?
+  stage                      ProspectStage                       @default(DISCOVERED)
+  priority                   ProspectPriority                    @default(NORMAL)
+  nextAction                 String?                             @map("next_action")
+  nextActionAt               DateTime?                           @map("next_action_at")
+  lastActivityAt             DateTime?                           @map("last_activity_at")
+  archivedAt                 DateTime?                           @map("archived_at")
+  sourceImportRowId          String?                             @map("source_import_row_id")
+  createdBy                  String                              @map("created_by")
+  updatedBy                  String                              @map("updated_by")
+  createdAt                  DateTime                            @default(now()) @map("created_at")
+  updatedAt                  DateTime                            @updatedAt @map("updated_at")
+  organization               ProspectOrganization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  territory                  ProspectTerritory?                  @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  contacts                   ProspectContact[]
+  activities                 ProspectActivity[]
+  sources                    ProspectSourceEvidence[]
+  sourceImportRow            ProspectImportRow?                  @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  conversion                 ProspectConversion?
+  locationConversions        ProspectLocationConversion[]
+  campaignMembers            ProspectCampaignMember[]
+  outreachDrafts             ProspectOutreachDraft[]
+  emailThreads               ProspectEmailThread[]
+  emailMessages              ProspectEmailMessage[]
+  interestConversion         PublicInterestProspectConversion?
+  onboardingDeliveryAttempts ProspectOnboardingDeliveryAttempt[]
 
   @@index([organizationId, archivedAt])
   @@index([normalizedName])
@@ -7343,46 +7403,47 @@ model ProspectVenue {
 }
 
 model ProspectContact {
-  id                     String                            @id @default(cuid())
-  organizationId         String                            @map("organization_id")
-  venueId                String?                           @map("venue_id")
-  fullName               String?
-  title                  String?
-  email                  String?
-  normalizedEmail        String?                           @map("normalized_email")
-  phone                  String?
-  source                 String?
-  provenance             Json                              @default("[]")
-  preferredCommunication String?                           @map("preferred_communication")
-  emailReadiness         ProspectContactReadiness          @default(UNKNOWN) @map("email_readiness")
-  permissionState        ProspectPermissionState           @default(UNKNOWN) @map("permission_state")
-  permissionEvidence     Json                              @default("{}") @map("permission_evidence")
-  doNotContact           Boolean                           @default(false) @map("do_not_contact")
-  suppressionReason      String?                           @map("suppression_reason")
-  suppressedAt           DateTime?                         @map("suppressed_at")
-  unsubscribedAt         DateTime?                         @map("unsubscribed_at")
-  complainedAt           DateTime?                         @map("complained_at")
-  lastHardBounceAt       DateTime?                         @map("last_hard_bounce_at")
-  lastSoftBounceAt       DateTime?                         @map("last_soft_bounce_at")
-  notes                  String?
-  sourceImportRowId      String?                           @map("source_import_row_id")
-  archivedAt             DateTime?                         @map("archived_at")
-  createdBy              String                            @map("created_by")
-  updatedBy              String                            @map("updated_by")
-  createdAt              DateTime                          @default(now()) @map("created_at")
-  updatedAt              DateTime                          @updatedAt @map("updated_at")
-  organization           ProspectOrganization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue                  ProspectVenue?                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  activities             ProspectActivity[]
-  sources                ProspectSourceEvidence[]
-  sourceImportRow        ProspectImportRow?                @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
-  campaignMembers        ProspectCampaignMember[]
-  outreachDrafts         ProspectOutreachDraft[]
-  emailThreads           ProspectEmailThread[]
-  emailMessages          ProspectEmailMessage[]
-  suppressionEvents      ProspectContactSuppressionEvent[]
-  meetingParticipants    CompanyMeetingParticipant[]
-  interestConversion     PublicInterestProspectConversion?
+  id                         String                              @id @default(cuid())
+  organizationId             String                              @map("organization_id")
+  venueId                    String?                             @map("venue_id")
+  fullName                   String?
+  title                      String?
+  email                      String?
+  normalizedEmail            String?                             @map("normalized_email")
+  phone                      String?
+  source                     String?
+  provenance                 Json                                @default("[]")
+  preferredCommunication     String?                             @map("preferred_communication")
+  emailReadiness             ProspectContactReadiness            @default(UNKNOWN) @map("email_readiness")
+  permissionState            ProspectPermissionState             @default(UNKNOWN) @map("permission_state")
+  permissionEvidence         Json                                @default("{}") @map("permission_evidence")
+  doNotContact               Boolean                             @default(false) @map("do_not_contact")
+  suppressionReason          String?                             @map("suppression_reason")
+  suppressedAt               DateTime?                           @map("suppressed_at")
+  unsubscribedAt             DateTime?                           @map("unsubscribed_at")
+  complainedAt               DateTime?                           @map("complained_at")
+  lastHardBounceAt           DateTime?                           @map("last_hard_bounce_at")
+  lastSoftBounceAt           DateTime?                           @map("last_soft_bounce_at")
+  notes                      String?
+  sourceImportRowId          String?                             @map("source_import_row_id")
+  archivedAt                 DateTime?                           @map("archived_at")
+  createdBy                  String                              @map("created_by")
+  updatedBy                  String                              @map("updated_by")
+  createdAt                  DateTime                            @default(now()) @map("created_at")
+  updatedAt                  DateTime                            @updatedAt @map("updated_at")
+  organization               ProspectOrganization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue                      ProspectVenue?                      @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  activities                 ProspectActivity[]
+  sources                    ProspectSourceEvidence[]
+  sourceImportRow            ProspectImportRow?                  @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  campaignMembers            ProspectCampaignMember[]
+  outreachDrafts             ProspectOutreachDraft[]
+  emailThreads               ProspectEmailThread[]
+  emailMessages              ProspectEmailMessage[]
+  suppressionEvents          ProspectContactSuppressionEvent[]
+  meetingParticipants        CompanyMeetingParticipant[]
+  interestConversion         PublicInterestProspectConversion?
+  onboardingDeliveryAttempts ProspectOnboardingDeliveryAttempt[]
 
   @@index([organizationId, archivedAt])
   @@index([venueId, archivedAt])
@@ -8022,8 +8083,10 @@ model ProspectEmailMessage {
   attachmentRetentionRequests ProspectEmailAttachmentRetentionRequest[]
   inboundReplyReviews         ProspectInboundReplyReview[]              @relation("ProspectInboundReplyReviewMessage")
   currentInboundReplyReview   ProspectInboundReplyReview?               @relation("ProspectInboundReplyCurrentReview", fields: [inboundReplyReviewId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  onboardingDeliveryAttempts  ProspectOnboardingDeliveryAttempt[]
 
   @@unique([providerAccountId, providerMessageId], map: "prospect_email_messages_provider_message_key")
+  @@unique([id, organizationId, venueId, contactId], map: "prospect_email_messages_onboarding_scope_key")
   @@index([threadId, occurredAt])
   @@index([organizationId, occurredAt])
   @@index([inboundReplyDisposition, inboundReplyReviewedAt], map: "prospect_email_messages_reply_disposition_idx")
@@ -8034,24 +8097,62 @@ model ProspectEmailMessage {
 /// Append-only human review evidence for one canonical inbound prospect reply. The email message
 /// carries the mutable current-truth pointer; every prior review remains immutable here.
 model ProspectInboundReplyReview {
-  id             String                          @id @default(uuid()) @db.Uuid
-  operationId    String                          @unique @map("operation_id") @db.Uuid
-  messageId      String                          @map("message_id")
-  organizationId String                          @map("organization_id")
-  disposition    ProspectInboundReplyDisposition
-  reason         String                          @db.VarChar(2000)
-  reviewerId     String                          @map("reviewer_id") @db.VarChar(191)
-  revision       Int
-  inputHash      String                          @map("input_hash") @db.Char(64)
-  createdAt      DateTime                        @default(now()) @map("created_at")
-  message        ProspectEmailMessage            @relation("ProspectInboundReplyReviewMessage", fields: [messageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  currentFor     ProspectEmailMessage?           @relation("ProspectInboundReplyCurrentReview")
-  organization   ProspectOrganization            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  id                         String                              @id @default(uuid()) @db.Uuid
+  operationId                String                              @unique @map("operation_id") @db.Uuid
+  messageId                  String                              @map("message_id")
+  organizationId             String                              @map("organization_id")
+  disposition                ProspectInboundReplyDisposition
+  reason                     String                              @db.VarChar(2000)
+  reviewerId                 String                              @map("reviewer_id") @db.VarChar(191)
+  revision                   Int
+  inputHash                  String                              @map("input_hash") @db.Char(64)
+  createdAt                  DateTime                            @default(now()) @map("created_at")
+  message                    ProspectEmailMessage                @relation("ProspectInboundReplyReviewMessage", fields: [messageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  currentFor                 ProspectEmailMessage?               @relation("ProspectInboundReplyCurrentReview")
+  organization               ProspectOrganization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  onboardingDeliveryAttempts ProspectOnboardingDeliveryAttempt[]
 
   @@unique([messageId, revision], map: "prospect_inbound_reply_reviews_message_revision_key")
+  @@unique([id, messageId, organizationId, disposition], map: "prospect_inbound_reply_reviews_onboarding_scope_key")
   @@index([organizationId, createdAt, id], map: "prospect_inbound_reply_reviews_org_created_idx")
   @@index([disposition, createdAt, id], map: "prospect_inbound_reply_reviews_disposition_created_idx")
   @@map("prospect_inbound_reply_reviews")
+}
+
+enum ProspectOnboardingDeliveryAttemptStatus {
+  DRAFT
+}
+
+/// Provider-dark invitation draft derived from one positive inbound reply review. This row is
+/// not a send request, provider operation, customer conversion, or delivery effect.
+model ProspectOnboardingDeliveryAttempt {
+  id                     String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotencyKey         String                                  @unique(map: "prospect_onboarding_delivery_attempts_idempotency_key") @map("idempotency_key") @db.VarChar(191)
+  status                 ProspectOnboardingDeliveryAttemptStatus @default(DRAFT)
+  organizationId         String                                  @map("organization_id")
+  prospectVenueId        String                                  @map("prospect_venue_id")
+  contactId              String                                  @map("contact_id")
+  sourceMessageId        String                                  @map("source_message_id")
+  sourceReviewId         String                                  @map("source_review_id") @db.Uuid
+  sourceReference        String?                                 @map("source_reference") @db.VarChar(1000)
+  recipientEmailSnapshot String                                  @map("recipient_email_snapshot") @db.VarChar(320)
+  recipientIdentityHash  String                                  @map("recipient_identity_hash") @db.Char(64)
+  templateVersion        String                                  @map("template_version") @db.VarChar(64)
+  subject                String                                  @db.VarChar(998)
+  textBody               String                                  @map("text_body") @db.Text
+  createdBy              String                                  @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                                @default(now()) @map("created_at")
+  updatedAt              DateTime                                @updatedAt @map("updated_at")
+  organization           ProspectOrganization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  prospectVenue          ProspectVenue                           @relation(fields: [prospectVenueId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  contact                ProspectContact                         @relation(fields: [contactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  sourceMessage          ProspectEmailMessage                    @relation(fields: [sourceMessageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  sourceReview           ProspectInboundReplyReview              @relation(fields: [sourceReviewId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([sourceMessageId, prospectVenueId], map: "prospect_onboarding_delivery_attempts_message_venue_key")
+  @@index([organizationId, status, createdAt], map: "prospect_onboarding_delivery_attempts_org_status_idx")
+  @@index([prospectVenueId, status, createdAt], map: "prospect_onboarding_delivery_attempts_venue_status_idx")
+  @@map("prospect_onboarding_delivery_attempts")
 }
 
 enum ProspectEmailAttachmentRetentionCategory {

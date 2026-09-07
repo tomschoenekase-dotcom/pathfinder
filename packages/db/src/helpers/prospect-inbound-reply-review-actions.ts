@@ -3,6 +3,10 @@ import type { ProspectInboundReplyDisposition } from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import {
+  preparePositiveInterestDeliveryDraft,
+  prospectOnboardingDeliveryAttemptSelect,
+} from './prospect-onboarding-delivery-attempt'
 import { ProspectActionError, type ProspectActor } from './prospect-actions'
 
 type Client = typeof db
@@ -139,7 +143,20 @@ export async function reviewProspectInboundReplyAction(
             'Inbound reply review operation ID was already used for different input',
           )
         }
-        return { review: replay, replayed: true as const }
+        const deliveryAttempt =
+          replay.disposition === 'POSITIVE_INTEREST'
+            ? await tx.prospectOnboardingDeliveryAttempt.findFirst({
+                where: { sourceMessageId: replay.messageId },
+                select: prospectOnboardingDeliveryAttemptSelect,
+              })
+            : null
+        if (replay.disposition === 'POSITIVE_INTEREST' && !deliveryAttempt) {
+          throw new ProspectActionError(
+            'CONFLICT',
+            'Positive-interest review is missing its onboarding delivery draft',
+          )
+        }
+        return { review: replay, deliveryAttempt, replayed: true as const }
       }
 
       const message = await tx.prospectEmailMessage.findUnique({
@@ -147,10 +164,23 @@ export async function reviewProspectInboundReplyAction(
         select: {
           id: true,
           organizationId: true,
+          venueId: true,
+          contactId: true,
+          fromAddress: true,
           direction: true,
           sourceReference: true,
           inboundReplyDisposition: true,
           inboundReplyReviewId: true,
+          organization: { select: { canonicalName: true } },
+          venue: { select: { id: true, name: true } },
+          contact: {
+            select: {
+              id: true,
+              organizationId: true,
+              venueId: true,
+              normalizedEmail: true,
+            },
+          },
         },
       })
       if (!message) throw new ProspectActionError('NOT_FOUND', 'Email message was not found')
@@ -189,6 +219,63 @@ export async function reviewProspectInboundReplyAction(
         },
       })
 
+      let deliveryAttempt = null
+      if (review.disposition === 'POSITIVE_INTEREST') {
+        if (!message.venue || !message.venueId || !message.contact || !message.contactId) {
+          throw new ProspectActionError(
+            'INVALID_INPUT',
+            'Positive-interest onboarding requires an explicitly matched venue and contact',
+          )
+        }
+        const draft = preparePositiveInterestDeliveryDraft({
+          organizationId: message.organizationId,
+          organizationName: message.organization.canonicalName,
+          prospectVenueId: message.venueId,
+          venueName: message.venue.name,
+          contactId: message.contactId,
+          contactOrganizationId: message.contact.organizationId,
+          contactVenueId: message.contact.venueId,
+          contactNormalizedEmail: message.contact.normalizedEmail,
+          messageId,
+          messageOrganizationId: message.organizationId,
+          messageVenueId: message.venueId,
+          messageContactId: message.contactId,
+          messageFromAddress: message.fromAddress,
+          sourceReviewId: review.id,
+          sourceReviewDisposition: review.disposition,
+          sourceReference: message.sourceReference,
+          reviewerId: review.reviewerId,
+        })
+        const existingAttempt = await tx.prospectOnboardingDeliveryAttempt.findUnique({
+          where: {
+            sourceMessageId_prospectVenueId: {
+              sourceMessageId: messageId,
+              prospectVenueId: message.venueId,
+            },
+          },
+          select: prospectOnboardingDeliveryAttemptSelect,
+        })
+        if (existingAttempt) {
+          if (
+            existingAttempt.organizationId !== draft.organizationId ||
+            existingAttempt.contactId !== draft.contactId ||
+            existingAttempt.recipientIdentityHash !== draft.recipientIdentityHash ||
+            existingAttempt.status !== 'DRAFT'
+          ) {
+            throw new ProspectActionError(
+              'CONFLICT',
+              'Existing onboarding delivery draft does not match current retained identity',
+            )
+          }
+          deliveryAttempt = existingAttempt
+        } else {
+          deliveryAttempt = await tx.prospectOnboardingDeliveryAttempt.create({
+            data: draft,
+            select: prospectOnboardingDeliveryAttemptSelect,
+          })
+        }
+      }
+
       const copy = attentionCopy(review.disposition)
       await tx.platformOperationalEvent.updateMany({
         where: {
@@ -209,6 +296,9 @@ export async function reviewProspectInboundReplyAction(
           sourceReferences: [
             { type: 'ProspectEmailMessage', id: messageId, ref: message.sourceReference },
             { type: 'ProspectInboundReplyReview', id: review.id },
+            ...(deliveryAttempt
+              ? [{ type: 'ProspectOnboardingDeliveryAttempt', id: deliveryAttempt.id }]
+              : []),
           ],
           structuredReason: { disposition: review.disposition, reason },
           beforeState: {
@@ -222,11 +312,15 @@ export async function reviewProspectInboundReplyAction(
             inferredFromMessageText: false,
             emailSent: false,
             pipelineStageChanged: false,
+            onboardingDeliveryAttemptId: deliveryAttempt?.id ?? null,
+            onboardingInvitationStatus: deliveryAttempt?.status ?? null,
+            providerCalled: false,
+            invitationSent: false,
           },
         },
         tx,
       )
-      return { review, replayed: false as const }
+      return { review, deliveryAttempt, replayed: false as const }
     })
   } catch (error) {
     if (error instanceof ProspectActionError) throw error

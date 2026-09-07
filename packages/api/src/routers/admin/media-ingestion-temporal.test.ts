@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ available: vi.fn(), preview: vi.fn(), clarify: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  available: vi.fn(),
+  preview: vi.fn(),
+  clarify: vi.fn(),
+  operational: vi.fn(),
+}))
 vi.mock('@pathfinder/config', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
@@ -16,6 +21,11 @@ vi.mock('../../lib/media-temporal-review', async (original) => {
 vi.mock('../../lib/media-temporal-clarification', async (original) => {
   const actual = await original<typeof import('../../lib/media-temporal-clarification')>()
   return { ...actual, createMediaTemporalClarification: mocks.clarify }
+})
+
+vi.mock('../../lib/media-temporal-operational-service', async (original) => {
+  const actual = await original<typeof import('../../lib/media-temporal-operational-service')>()
+  return { ...actual, createMediaTemporalOperationalHandoff: mocks.operational }
 })
 
 import { createHash } from 'node:crypto'
@@ -62,6 +72,39 @@ function caller(isPlatformAdmin = true) {
 
 beforeEach(() => vi.clearAllMocks())
 describe('media temporal review admin route', () => {
+  it('gates dated drafts and binds the authenticated actor without activation input', async () => {
+    const draft = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      reviewReceiptId: '11111111-1111-4111-8111-111111111111',
+      requestId: '22222222-2222-4222-8222-222222222222',
+      claimId: 'hours',
+      expectedSnapshotHash: 'a'.repeat(64),
+      rationale: 'Reviewed current hours',
+      title: 'Holiday hours',
+      updateType: 'CHANGED_HOURS' as const,
+      severity: 'INFO' as const,
+      priority: 'NORMAL' as const,
+    }
+    await expect(
+      caller(false).mediaIngestion.createTemporalOperationalDraft(draft),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.operational).not.toHaveBeenCalled()
+    mocks.available.mockRejectedValueOnce(new Error('Venue unavailable'))
+    await expect(caller().mediaIngestion.createTemporalOperationalDraft(draft)).rejects.toThrow(
+      'Venue unavailable',
+    )
+    expect(mocks.operational).not.toHaveBeenCalled()
+    await expect(
+      caller().mediaIngestion.createTemporalOperationalDraft({ ...draft, isActive: true } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    mocks.operational.mockResolvedValue({ createdAs: 'INACTIVE_DRAFT' })
+    await expect(caller().mediaIngestion.createTemporalOperationalDraft(draft)).resolves.toEqual({
+      createdAs: 'INACTIVE_DRAFT',
+    })
+    expect(mocks.operational).toHaveBeenCalledWith({ client: {}, input: draft, actorId: 'admin-a' })
+  })
+
   it('requires platform authority and venue availability before creating a local clarification', async () => {
     const clarification = {
       tenantId: 'tenant-a',

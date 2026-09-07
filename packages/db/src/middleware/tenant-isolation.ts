@@ -57,6 +57,8 @@ const APPEND_ONLY_MODELS = [
   'LegacyKnowledgeAdoptionActivation',
   'MediaEntityResolutionRevision',
   'MediaRelationApplication',
+  'MediaTemporalReviewReceipt',
+  'MediaTemporalOperationalHandoff',
   'SupportPackageHandoffSupersession',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
@@ -103,6 +105,7 @@ const APPEND_ONLY_MODELS = [
   'ProspectContactSuppressionEvent',
   'ProspectEmailEvent',
   'ProspectInboundReplyReview',
+  'ProspectOnboardingDeliveryAttempt',
   'ProspectImportReportEntry',
   'PlatformReleaseEvidence',
 ] as const
