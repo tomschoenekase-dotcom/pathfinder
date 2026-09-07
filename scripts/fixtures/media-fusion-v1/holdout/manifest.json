@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "media-fusion-v1",
+  "split": "holdout",
+  "synthetic": true,
+  "fictionalVenueNotice": "All names, facts, diagrams, and media were generated for this benchmark.",
+  "providerStatus": "NOT_RUN",
+  "providerStatusMeaning": "No model or external provider has processed these source bytes.",
+  "generator": {
+    "version": "media-fusion-fixture-generator/1.0.0",
+    "seed": 1007,
+    "command": "python scripts/generate-media-fusion-fixtures.py",
+    "toolchain": {
+      "python": "3.12.14",
+      "pillow": "12.3.0",
+      "reportlab": "4.4.9",
+      "ffmpeg": "8.1.2-full_build-www.gyan.dev"
+    }
+  },
+  "measurementBoundary": {
+    "proves": [
+      "fixture byte integrity",
+      "expected evidence locator bounds",
+      "deterministic provider-dark reducer inputs"
+    ],
+    "doesNotProve": [
+      "model vision, OCR, or extraction accuracy",
+      "provider cost, latency, or repeatability",
+      "complete video-frame coverage"
+    ]
+  },
+  "cases": [
+    {
+      "caseId": "mf-h02-lookalike-conservatories",
+      "title": "Lookalike rooms with conflicting durable identifiers",
+      "scope": {
+        "tenantId": "synthetic-holdout-tenant",
+        "venueId": "linden-garden",
+        "projectId": "mf-holdout-project",
+        "sourceGeneration": "20000000-0000-4000-8000-000000000002"
+      },
+      "assets": [
+        {
+          "path": "holdout/sources/twin-conservatories.png",
+          "mediaType": "IMAGE",
+          "sha256": "29e0be2ab3cc5262f7240241f12ccdd1088b842f3dcf1737ac63835e0782fbee",
+          "bytes": 9656,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "png",
+          "width": 640,
+          "height": 360
+        },
+        {
+          "path": "holdout/sources/conservatory-register.pdf",
+          "mediaType": "DOCUMENT",
+          "sha256": "cf993b49df515ab1659243387132c7a4ae27ddbceed750db654c1cd494c2284c",
+          "bytes": 2206,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "pdf",
+          "pages": 1
+        },
+        {
+          "path": "holdout/sources/conservatory-walkthrough.mp4",
+          "mediaType": "VIDEO",
+          "sha256": "b1bcc7e8fa107bd186a165dfc7fa3cf7c2fffeceb70da8066ad2af91a56ed410",
+          "bytes": 12373,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "mp4",
+          "durationSeconds": 2.0,
+          "hasAudio": false
+        }
+      ],
+      "expected": {
+        "observations": [
+          {
+            "observationId": "twins-image",
+            "kind": "entity_candidate",
+            "statement": "Two Palm House rooms labeled GH-N and GH-S",
+            "evidenceChannel": "visible_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "holdout/sources/twin-conservatories.png",
+              "locator": {
+                "type": "whole_source"
+              }
+            }
+          },
+          {
+            "observationId": "twins-register",
+            "kind": "visible_text",
+            "statement": "GH-N and GH-S are separate inventory records",
+            "evidenceChannel": "document_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "holdout/sources/conservatory-register.pdf",
+              "locator": {
+                "type": "document_page",
+                "page": 1
+              }
+            }
+          },
+          {
+            "observationId": "twins-video",
+            "kind": "entity_candidate",
+            "statement": "Two similar conservatory rooms",
+            "evidenceChannel": "visual",
+            "directness": "observed",
+            "confidence": "probable",
+            "evidence": {
+              "source": "holdout/sources/conservatory-walkthrough.mp4",
+              "locator": {
+                "type": "video_interval",
+                "startSeconds": 0,
+                "endSeconds": 2
+              }
+            }
+          }
+        ],
+        "entities": {
+          "candidateIds": ["north-palm-house", "south-palm-house"],
+          "assessment": "KEEP_DISTINCT",
+          "conflictingIdentifiers": [
+            {
+              "scheme": "inventory_id",
+              "values": ["GH-N", "GH-S"]
+            }
+          ],
+          "automaticMerge": false
+        },
+        "relations": [],
+        "temporal": {
+          "outcome": "NO_HOLDS",
+          "heldTargetKeys": []
+        },
+        "evidence": {
+          "expectedLocatorCount": 3,
+          "staleGenerationAccepted": false,
+          "allSourceHashesRequired": true
+        },
+        "privacy": {
+          "publicAssetPaths": [],
+          "privateEvidenceOnly": true
+        }
+      }
+    },
+    {
+      "caseId": "mf-h06-special-week-hours",
+      "title": "Dated special-week placard versus archived regular hours",
+      "scope": {
+        "tenantId": "synthetic-holdout-tenant",
+        "venueId": "marigold-history",
+        "projectId": "mf-holdout-project",
+        "sourceGeneration": "20000000-0000-4000-8000-000000000002"
+      },
+      "assets": [
+        {
+          "path": "holdout/sources/special-week-placard.png",
+          "mediaType": "IMAGE",
+          "sha256": "db452dfaf97c1c99091e4167ddf4d02725d0f626a0a3bcb83a078544a02ce34e",
+          "bytes": 19557,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "png",
+          "width": 640,
+          "height": 360
+        },
+        {
+          "path": "holdout/sources/visitor-guide-archive.pdf",
+          "mediaType": "DOCUMENT",
+          "sha256": "d42e4488c3f9867859bdff4ce5ca4f7d978255c03fa6b2edb1e21c49b7732044",
+          "bytes": 2237,
+          "synthetic": true,
+          "rights": "self-created synthetic fixture; no people, customer data, or real venue facts",
+          "format": "pdf",
+          "pages": 1
+        }
+      ],
+      "expected": {
+        "observations": [
+          {
+            "observationId": "week-placard",
+            "kind": "visible_text",
+            "statement": "September 7-13 open 10 AM-4 PM",
+            "evidenceChannel": "visible_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "holdout/sources/special-week-placard.png",
+              "locator": {
+                "type": "image_region",
+                "x": 0.13,
+                "y": 0.22,
+                "width": 0.74,
+                "height": 0.62
+              }
+            }
+          },
+          {
+            "observationId": "archive-hours",
+            "kind": "visible_text",
+            "statement": "Archived guide says regular hours are 9 AM-5 PM",
+            "evidenceChannel": "document_text",
+            "directness": "observed",
+            "confidence": "confirmed",
+            "evidence": {
+              "source": "holdout/sources/visitor-guide-archive.pdf",
+              "locator": {
+                "type": "document_page",
+                "page": 1
+              }
+            }
+          }
+        ],
+        "entities": {
+          "candidateIds": ["marigold-hours"],
+          "assessment": "KEEP_DISTINCT",
+          "automaticMerge": false
+        },
+        "relations": [],
+        "temporal": {
+          "outcome": "HELD",
+          "heldTargetKeys": ["venue:marigold-history:hours"],
+          "holdReasons": ["DATE_BOUND"],
+          "staticCandidateIncludesTarget": false,
+          "requiresCurrentAuthorityQuestion": true
+        },
+        "evidence": {
+          "expectedLocatorCount": 2,
+          "staleGenerationAccepted": false,
+          "allSourceHashesRequired": true
+        },
+        "privacy": {
+          "publicAssetPaths": [],
+          "privateEvidenceOnly": true
+        }
+      }
+    }
+  ]
+}
