@@ -232,6 +232,60 @@ describe('admin attention console', () => {
     ])
     expect(mocks.agents.mock.calls[3]![0].where.status).toBe('COMPLETED')
     expect(mocks.questions.mock.calls[0]![0].where.status).toBe('PENDING')
+    expect(mocks.questions).toHaveBeenCalledTimes(2)
+    expect(mocks.questions.mock.calls[1]![0]).toMatchObject({
+      where: {
+        status: 'PENDING',
+        OR: [{ blocking: true }, { urgency: 'URGENT' }],
+      },
+      take: 8,
+      select: expect.any(Object),
+      orderBy: [{ urgency: 'desc' }, { blocking: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    })
+  })
+
+  it('returns an independently bounded priority projection beyond the chronological page', async () => {
+    const createdAt = new Date('2025-01-01T00:00:00.000Z')
+    const urgent = {
+      id: 'old-urgent',
+      tenantId: 'tenant-500',
+      venueId: 'venue-500',
+      agentRunId: null,
+      question: 'Visitor answers are unavailable',
+      context: null,
+      questionType: 'YES_NO',
+      category: 'availability',
+      urgency: 'URGENT',
+      choices: [],
+      dueAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      blocking: true,
+      createdAt,
+      updatedAt: createdAt,
+      agentIdentity: { name: 'Availability observer' },
+      agentRun: null,
+    }
+    const recentNormalBlockers = Array.from({ length: 25 }, (_, index) => ({
+      ...urgent,
+      id: `recent-normal-blocker-${index}`,
+      question: `Normal blocker ${index}`,
+      urgency: 'NORMAL',
+      createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
+    }))
+    mocks.questions
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([urgent, ...recentNormalBlockers])
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 25 })
+
+    expect(result.questions.items).toHaveLength(25)
+    expect(result.questions.items[0]?.id).toBe('old-urgent')
+    expect(result.questions.items.some((item) => item.id === 'recent-normal-blocker-24')).toBe(
+      false,
+    )
+    expect(result.questions.nextCursor).toBeNull()
+    expect(mocks.questions.mock.calls[1]![0].take).toBe(26)
   })
 
   it('classifies expired leases and approvals and emits deterministic cursors', async () => {

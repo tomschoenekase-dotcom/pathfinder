@@ -15,6 +15,40 @@ import { listAttentionWorkers } from './attention-worker-health'
 import { readFounderUnitEconomics } from './unit-economics'
 import { customerAccessApprovalSelect } from './customer-access-approval-select'
 import { readFounderAbsenceReadinessWithHistory } from './attention-founder-absence-query'
+
+const attentionQuestionSelect = {
+  id: true,
+  tenantId: true,
+  venueId: true,
+  agentRunId: true,
+  question: true,
+  context: true,
+  questionType: true,
+  category: true,
+  urgency: true,
+  choices: true,
+  dueAt: true,
+  evidence: true,
+  proposedAnswer: true,
+  blocking: true,
+  createdAt: true,
+  updatedAt: true,
+  agentIdentity: { select: { name: true } },
+  agentRun: { select: { id: true, status: true, requestedOperation: true } },
+} as const
+
+export function mergePriorityQuestions<T extends { id: string; createdAt: Date }>(
+  chronologicalRows: T[],
+  priorityRows: T[],
+  limit: number,
+) {
+  const chronologicalPage = page(chronologicalRows, limit)
+  const items = new Map<string, T>()
+  for (const item of page(priorityRows, limit).items) items.set(item.id, item)
+  for (const item of chronologicalPage.items) items.set(item.id, item)
+  return { items: [...items.values()], nextCursor: chronologicalPage.nextCursor }
+}
+
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -26,6 +60,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       support,
       agents,
       questions,
+      priorityQuestions,
       workingAgents,
       blockedAgents,
       completedAgents,
@@ -159,26 +194,16 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
         where: { status: 'PENDING', ...after(query.questionsCursor) },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take,
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          agentRunId: true,
-          question: true,
-          context: true,
-          questionType: true,
-          category: true,
-          urgency: true,
-          choices: true,
-          dueAt: true,
-          evidence: true,
-          proposedAnswer: true,
-          blocking: true,
-          createdAt: true,
-          updatedAt: true,
-          agentIdentity: { select: { name: true } },
-          agentRun: { select: { id: true, status: true, requestedOperation: true } },
+        select: attentionQuestionSelect,
+      }),
+      db.agentQuestion.findMany({
+        where: {
+          status: 'PENDING',
+          OR: [{ blocking: true }, { urgency: 'URGENT' }],
         },
+        orderBy: [{ urgency: 'desc' }, { blocking: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        take,
+        select: attentionQuestionSelect,
       }),
       db.agentRun.findMany({
         where: {
@@ -341,7 +366,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       },
       support: page(support, query.limit),
       agents: page(agents, query.limit),
-      questions: page(questions, query.limit),
+      questions: mergePriorityQuestions(questions, priorityQuestions, query.limit),
       workingAgents: page(workingAgents, query.limit),
       blockedAgents: page(blockedAgents, query.limit),
       completedAgents: page(completedAgents, query.limit),

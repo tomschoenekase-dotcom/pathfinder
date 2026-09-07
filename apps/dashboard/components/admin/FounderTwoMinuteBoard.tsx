@@ -27,17 +27,27 @@ export function deriveTwoMinuteItems(data: Attention) {
     const item: Item = {
       id: `question:${question.id}`,
       title: question.question,
-      detail: `${question.agentIdentity.name} · ${question.blocking ? 'work is waiting for this answer' : 'advisory question'}`,
-      label: question.blocking ? 'Answer required' : 'Can wait',
+      detail: `${question.agentIdentity.name} · ${question.blocking ? 'work is waiting for this answer' : question.urgency === 'URGENT' ? 'urgent review requested' : 'advisory question'}`,
+      label:
+        question.urgency === 'URGENT'
+          ? question.blocking
+            ? 'Urgent answer required'
+            : 'Urgent review'
+          : question.blocking
+            ? 'Answer required'
+            : 'Can wait',
       href: '#needs-you-heading',
       venueId: question.venueId,
-      rank: question.blocking
-        ? 90
-        : question.urgency === 'URGENT'
-          ? 80
-          : question.urgency === 'HIGH'
-            ? 60
-            : 20,
+      rank:
+        question.urgency === 'URGENT'
+          ? question.blocking
+            ? 92
+            : 91
+          : question.blocking
+            ? 90
+            : question.urgency === 'HIGH'
+              ? 60
+              : 20,
     }
     ;(question.blocking || question.urgency === 'URGENT' ? now : later).push(item)
   }
@@ -121,10 +131,19 @@ function hasMore(data: Attention) {
 
 export function FounderTwoMinuteBoard({ data }: { data: Attention }) {
   const [view, setView] = useState<View>('NOW')
+  const [filter, setFilter] = useState('')
   const groups = useMemo(() => deriveTwoMinuteItems(data), [data])
   const items = view === 'NOW' ? groups.now : view === 'LATER' ? groups.later : groups.completed
-  const visible = items.slice(0, 6)
-  const venueCount = new Set(items.map((item) => item.venueId).filter(Boolean)).size
+  const normalizedFilter = filter.trim().toLocaleLowerCase()
+  const filteredItems = normalizedFilter
+    ? items.filter((item) =>
+        [item.title, item.detail, item.label, item.venueId]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.toLocaleLowerCase().includes(normalizedFilter)),
+      )
+    : items
+  const visible = filteredItems.slice(0, 6)
+  const venueCount = new Set(filteredItems.map((item) => item.venueId).filter(Boolean)).size
 
   return (
     <section
@@ -146,6 +165,28 @@ export function FounderTwoMinuteBoard({ data }: { data: Attention }) {
         <p className="text-xs text-slate-500">
           {venueCount} {venueCount === 1 ? 'venue' : 'venues'} represented in this view
         </p>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <label className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+          Filter loaded items
+          <input
+            type="search"
+            value={filter}
+            onChange={(event) => setFilter(event.currentTarget.value)}
+            placeholder="Venue ID, issue, agent, or status"
+            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal text-slate-950 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          />
+        </label>
+        {filter ? (
+          <button
+            type="button"
+            onClick={() => setFilter('')}
+            className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          >
+            Clear filter
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -230,6 +271,11 @@ export function FounderTwoMinuteBoard({ data }: { data: Attention }) {
               </li>
             ))}
           </ol>
+        ) : normalizedFilter ? (
+          <p className="mt-4 rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-600">
+            No loaded items in this view match “{filter.trim()}”. Clear the filter or choose another
+            view.
+          </p>
         ) : (
           <p className="mt-4 rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-600">
             {view === 'NOW'
@@ -242,8 +288,11 @@ export function FounderTwoMinuteBoard({ data }: { data: Attention }) {
       </div>
 
       <p className="mt-3 text-xs leading-5 text-slate-500" role="status">
-        Showing {visible.length} of {items.length} loaded items in this view
-        {items.length > visible.length ? '; open the linked queue for the remainder' : ''}
+        Showing {visible.length} of {filteredItems.length} matching loaded items in this view
+        {normalizedFilter ? ` (${items.length} loaded before filtering)` : ''}
+        {filteredItems.length > visible.length
+          ? '; refine the filter or open the linked queue'
+          : ''}
         {hasMore(data) ? '; older records exist beyond this bounded snapshot' : ''}. Counts are not
         venue health scores.
       </p>

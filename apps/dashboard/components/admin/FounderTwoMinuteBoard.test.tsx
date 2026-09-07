@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { deriveTwoMinuteItems, FounderTwoMinuteBoard } from './FounderTwoMinuteBoard'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-function fixture(size: number) {
+function fixture(
+  size: number,
+  options: { urgentBlocking?: boolean; normalBlockingIndex?: number } = {},
+) {
   const questions = Array.from({ length: size }, (_, index) => ({
     id: `question-${index}`,
     tenantId: `tenant-${index}`,
@@ -24,7 +27,9 @@ function fixture(size: number) {
     dueAt: null,
     evidence: [],
     proposedAnswer: null,
-    blocking: index === size - 1,
+    blocking:
+      (index === size - 1 && options.urgentBlocking !== false) ||
+      index === options.normalBlockingIndex,
     createdAt: new Date('2026-09-07T10:00:00.000Z'),
     updatedAt: new Date('2026-09-07T10:00:00.000Z'),
     agentIdentity: { name: 'Fixture observer' },
@@ -83,6 +88,20 @@ describe('FounderTwoMinuteBoard', () => {
     expect(groups.later).toHaveLength(size - 1)
   })
 
+  it('ranks and labels an urgent advisory ahead of a normal blocking question', () => {
+    const data = fixture(5, { urgentBlocking: false, normalBlockingIndex: 0 })
+
+    const groups = deriveTwoMinuteItems(data)
+    expect(groups.now.map((item) => item.id).slice(0, 2)).toEqual([
+      'question:question-4',
+      'question:question-0',
+    ])
+
+    render(<FounderTwoMinuteBoard data={data} />)
+    expect(screen.getByText('Urgent review')).toBeTruthy()
+    expect(screen.getByText(/urgent review requested/)).toBeTruthy()
+  })
+
   it('moves between action, lower priority, and completed summaries without losing boundedness', async () => {
     const { container } = render(<FounderTwoMinuteBoard data={fixture(50)} />)
     expect(screen.getByText('Visitor chat is failing at the west entrance')).toBeTruthy()
@@ -90,7 +109,7 @@ describe('FounderTwoMinuteBoard', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /Can wait/ }))
     expect(screen.getByText('Confirm non-blocking label 0')).toBeTruthy()
-    expect(screen.getByText(/Showing 6 of 49 loaded items/)).toBeTruthy()
+    expect(screen.getByText(/Showing 6 of 49 matching loaded items/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('tab', { name: /Completed/ }))
     expect(screen.getByText('Review retained source')).toBeTruthy()
@@ -98,5 +117,26 @@ describe('FounderTwoMinuteBoard', () => {
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])
+  })
+
+  it('finds deferred venue work beyond the first six without expanding the bounded board', () => {
+    render(<FounderTwoMinuteBoard data={fixture(500)} />)
+    fireEvent.click(screen.getByRole('tab', { name: /Can wait/ }))
+
+    expect(screen.queryByText('Confirm non-blocking label 410')).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter loaded items' }), {
+      target: { value: 'venue-410' },
+    })
+
+    expect(screen.getByText('Confirm non-blocking label 410')).toBeTruthy()
+    expect(screen.getByText(/Showing 1 of 1 matching loaded items/)).toBeTruthy()
+    expect(screen.getByText(/499 loaded before filtering/)).toBeTruthy()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter loaded items' }), {
+      target: { value: 'missing venue' },
+    })
+    expect(screen.getByText(/No loaded items in this view match/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filter' }))
+    expect(screen.getByText('Confirm non-blocking label 0')).toBeTruthy()
   })
 })
