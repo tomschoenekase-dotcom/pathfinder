@@ -5,10 +5,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({ updateChatDesign: vi.fn() }))
+const mocks = vi.hoisted(() => ({ updateChatDesign: vi.fn(), listBrandingAssets: vi.fn() }))
 
 vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({ venue: { updateChatDesign: { mutate: mocks.updateChatDesign } } }),
+  useTRPCClient: () => ({
+    venue: {
+      updateChatDesign: { mutate: mocks.updateChatDesign },
+      listApprovedBrandingAssets: { query: mocks.listBrandingAssets },
+    },
+  }),
 }))
 
 import { ChatDesignForm } from './ChatDesignForm'
@@ -38,6 +43,7 @@ describe('ChatDesignForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.updateChatDesign.mockResolvedValue({ updatedAt: new Date('2026-08-11T14:31:00.000Z') })
+    mocks.listBrandingAssets.mockResolvedValue({ items: [], nextCursor: null })
   })
 
   afterEach(() => {
@@ -274,5 +280,58 @@ describe('ChatDesignForm', () => {
       true,
     )
     expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('loads later reviewed assets and submits their exact immutable receipt', async () => {
+    const brandedVenue = { ...venues[0]!, chatLogoDerivativeId: null, chatBannerDerivativeId: null }
+    const first = {
+      derivativeId: '11111111-1111-4111-8111-111111111111',
+      assetId: '22222222-2222-4222-8222-222222222222',
+      altText: 'First approved logo',
+      caption: null,
+      deliveryPath: '/api/venue-media/first',
+      sourceObjectGeneration: '33333333-3333-4333-8333-333333333333',
+      sha256: 'a'.repeat(64),
+      approvedReviewSequence: 1,
+    }
+    const later = {
+      derivativeId: '44444444-4444-4444-8444-444444444444',
+      assetId: '55555555-5555-4555-8555-555555555555',
+      altText: 'Later approved logo',
+      caption: null,
+      deliveryPath: '/api/venue-media/later',
+      sourceObjectGeneration: '66666666-6666-4666-8666-666666666666',
+      sha256: 'b'.repeat(64),
+      approvedReviewSequence: 3,
+    }
+    mocks.listBrandingAssets.mockResolvedValueOnce({ items: [later], nextCursor: null })
+    render(
+      <ChatDesignForm
+        venues={[brandedVenue]}
+        brandingAssetsByVenue={{ [brandedVenue.id]: { items: [], nextCursor: first.derivativeId } }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    expect(await screen.findAllByRole('option', { name: later.altText })).toHaveLength(2)
+    fireEvent.change(screen.getByLabelText('logo asset'), { target: { value: later.derivativeId } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save design' }))
+    await waitFor(() =>
+      expect(mocks.updateChatDesign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatLogoDerivativeId: later.derivativeId,
+          chatLogoDerivativeReceipt: {
+            assetId: later.assetId,
+            derivativeId: later.derivativeId,
+            sourceObjectGeneration: later.sourceObjectGeneration,
+            sha256: later.sha256,
+            approvedReviewSequence: later.approvedReviewSequence,
+          },
+        }),
+      ),
+    )
+    expect(mocks.listBrandingAssets).toHaveBeenCalledWith({
+      venueId: brandedVenue.id,
+      cursor: first.derivativeId,
+    })
   })
 })

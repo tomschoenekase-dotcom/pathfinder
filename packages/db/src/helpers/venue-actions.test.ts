@@ -46,6 +46,7 @@ function fixture() {
     venueBotConfiguration: {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
+    venueMediaDerivative: { findMany: vi.fn(async () => []) },
     place: { findFirst: vi.fn(async () => ({ id: 'place-1' })) },
     auditLog: {
       create: vi.fn(async (input: unknown) => {
@@ -58,6 +59,62 @@ function fixture() {
 }
 
 describe('canonical venue actions', () => {
+  it('rejects a new raw branding URL through the direct action boundary', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce({
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      chatLogoDerivativeId: null,
+      chatBannerDerivativeId: null,
+      updatedAt: revision,
+    })
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor,
+          fields: { chatLogoUrl: 'https://unreviewed.example/logo.png' },
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.venue.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects every partial derivative ID and receipt update before writing', async () => {
+    for (const fields of [
+      { chatLogoDerivativeId: '11111111-1111-4111-8111-111111111111' },
+      { chatLogoDerivativeReceipt: null },
+      { chatLogoDerivativeId: null },
+    ]) {
+      const { tx, client } = fixture()
+      tx.venue.findFirst.mockResolvedValueOnce({
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatFont: 'jakarta',
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        chatLogoDerivativeId: null,
+        chatBannerDerivativeId: null,
+        chatLogoDerivativeReceipt: null,
+        chatBannerDerivativeReceipt: null,
+        updatedAt: revision,
+      })
+      await expect(
+        updateVenueChatDesignAction(
+          { tenantId: 'tenant-1', venueId: 'venue-1', expectedUpdatedAt: revision, actor, fields },
+          client as never,
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(tx.venue.updateMany).not.toHaveBeenCalled()
+    }
+  })
+
   it('changes availability with exact CAS and strict same-transaction audit', async () => {
     const { tx, client } = fixture()
     tx.venue.findFirst.mockResolvedValueOnce({

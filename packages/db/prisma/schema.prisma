@@ -1372,6 +1372,10 @@ model Venue {
   chatLogoUrl                               String?                                     @map("chat_logo_url")
   chatBannerUrl                             String?                                     @map("chat_banner_url")
   category                                  String?
+  chatLogoDerivativeId                      String?                                     @db.Uuid @map("chat_logo_derivative_id")
+  chatBannerDerivativeId                    String?                                     @db.Uuid @map("chat_banner_derivative_id")
+  chatLogoDerivativeReceipt                 Json?                                       @map("chat_logo_derivative_receipt")
+  chatBannerDerivativeReceipt               Json?                                       @map("chat_banner_derivative_receipt")
   guideMode                                 String                                      @default("location_aware") @map("guide_mode")
   defaultCenterLat                          Float?                                      @map("default_center_lat")
   defaultCenterLng                          Float?                                      @map("default_center_lng")
@@ -1507,6 +1511,8 @@ model Venue {
   venueMediaAssets                          VenueMediaAsset[]
 
   @@unique([tenantId, slug])
+  chatLogoDerivative                        VenueMediaDerivative? @relation("VenueChatLogoDerivative", fields: [chatLogoDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  chatBannerDerivative                      VenueMediaDerivative? @relation("VenueChatBannerDerivative", fields: [chatBannerDerivativeId, tenantId, id], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   @@unique([id, tenantId])
   @@index([tenantId])
   @@map("venues")
@@ -2428,6 +2434,8 @@ model VenueMediaDerivative {
   @@unique([id, tenantId, venueId], map: "venue_media_derivatives_scope_key")
   @@index([tenantId, venueId, assetId, status], map: "venue_media_derivatives_scope_status_idx")
   @@map("venue_media_derivatives")
+  logoVenues             Venue[]                     @relation("VenueChatLogoDerivative")
+  bannerVenues           Venue[]                     @relation("VenueChatBannerDerivative")
 }
 
 /// Immutable verdict evidence for one exact quarantined object version. PRECHECK

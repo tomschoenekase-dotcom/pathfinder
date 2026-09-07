@@ -138,6 +138,30 @@ export const UpdateVenueChatDesignInput = z
       .optional(),
     chatLogoUrl: z.string().url().max(500).nullable().optional(),
     chatBannerUrl: z.string().url().max(500).nullable().optional(),
+    chatLogoDerivativeId: z.string().uuid().nullable().optional(),
+    chatBannerDerivativeId: z.string().uuid().nullable().optional(),
+    chatLogoDerivativeReceipt: z
+      .object({
+        assetId: z.string().uuid(),
+        derivativeId: z.string().uuid(),
+        sourceObjectGeneration: z.string().uuid(),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        approvedReviewSequence: z.number().int().positive(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    chatBannerDerivativeReceipt: z
+      .object({
+        assetId: z.string().uuid(),
+        derivativeId: z.string().uuid(),
+        sourceObjectGeneration: z.string().uuid(),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        approvedReviewSequence: z.number().int().positive(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict()
 

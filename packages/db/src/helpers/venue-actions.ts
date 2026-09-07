@@ -4,6 +4,7 @@ import {
   TONE_PRESET_TO_LEGACY_AI_TONE,
   type TonePresetId,
 } from '@pathfinder/contracts/tone-presets'
+import * as prismaClient from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -32,6 +33,10 @@ export const venueChatDesignSelect = {
   chatFont: true,
   chatLogoUrl: true,
   chatBannerUrl: true,
+  chatLogoDerivativeId: true,
+  chatBannerDerivativeId: true,
+  chatLogoDerivativeReceipt: true,
+  chatBannerDerivativeReceipt: true,
   updatedAt: true,
 } as const
 
@@ -337,6 +342,18 @@ export type UpdateVenueChatDesignFields = {
   chatFont?: 'jakarta' | 'inter' | 'poppins' | 'spaceGrotesk' | 'dmSans' | 'playfair' | undefined
   chatLogoUrl?: string | null | undefined
   chatBannerUrl?: string | null | undefined
+  chatLogoDerivativeId?: string | null | undefined
+  chatBannerDerivativeId?: string | null | undefined
+  chatLogoDerivativeReceipt?: BrandingDerivativeReceipt | null | undefined
+  chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null | undefined
+}
+
+type BrandingDerivativeReceipt = {
+  assetId: string
+  derivativeId: string
+  sourceObjectGeneration: string
+  sha256: string
+  approvedReviewSequence: number
 }
 
 function safeChat(value: {
@@ -345,14 +362,18 @@ function safeChat(value: {
   chatFont: string | null
   chatLogoUrl: string | null
   chatBannerUrl: string | null
+  chatLogoDerivativeId: string | null
+  chatBannerDerivativeId: string | null
+  chatLogoDerivativeReceipt: unknown
+  chatBannerDerivativeReceipt: unknown
   updatedAt: Date
 }) {
   return {
     chatTheme: value.chatTheme,
     chatAccentColor: value.chatAccentColor,
     chatFont: value.chatFont,
-    hasLogo: value.chatLogoUrl !== null,
-    hasBanner: value.chatBannerUrl !== null,
+    hasLogo: value.chatLogoUrl !== null || value.chatLogoDerivativeId !== null,
+    hasBanner: value.chatBannerUrl !== null || value.chatBannerDerivativeId !== null,
     updatedAt: value.updatedAt.toISOString(),
   }
 }
@@ -374,15 +395,144 @@ export async function updateVenueChatDesignAction(
       select: venueChatDesignSelect,
     })
     if (!before) throw new VenueActionError('NOT_FOUND', 'Venue not found')
-    const requestedEntries = Object.entries(input.fields).filter(([, value]) => value !== undefined)
-    const exactReplay = requestedEntries.every(
-      ([key, value]) => before[key as keyof typeof before] === value,
+    for (const key of ['chatLogoUrl', 'chatBannerUrl'] as const) {
+      const requested = input.fields[key]
+      const current = before[key]
+      if (requested !== undefined && requested !== null && requested !== current) {
+        throw new VenueActionError(
+          'INVALID_INPUT',
+          'New branding URLs are not accepted; select a reviewed media derivative.',
+        )
+      }
+    }
+    const requestedEntries: Array<[string, unknown]> = Object.entries(input.fields).filter(
+      ([key, value]) => value !== undefined && !key.endsWith('DerivativeReceipt'),
     )
+    for (const key of ['chatLogo', 'chatBanner'] as const) {
+      const id = input.fields[`${key}DerivativeId`]
+      const receipt = input.fields[`${key}DerivativeReceipt`]
+      const validPair =
+        (id === undefined && receipt === undefined) ||
+        (id === null && receipt === null) ||
+        (typeof id === 'string' && receipt !== undefined && receipt !== null)
+      if (!validPair) {
+        throw new VenueActionError(
+          'INVALID_INPUT',
+          'Branding media ID and receipt must change together.',
+        )
+      }
+    }
+    const derivativeIds = requestedEntries
+      .filter(
+        ([key, value]) =>
+          (key === 'chatLogoDerivativeId' || key === 'chatBannerDerivativeId') && value !== null,
+      )
+      .map(([, value]) => value as string)
+    if (derivativeIds.length) {
+      const approved = await tx.venueMediaDerivative.findMany({
+        where: {
+          id: { in: derivativeIds },
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'READY',
+          mimeType: 'image/webp',
+        },
+        select: {
+          id: true,
+          assetId: true,
+          approvedReviewSequence: true,
+          sourceObjectGeneration: true,
+          sha256: true,
+          asset: {
+            select: {
+              kind: true,
+              reviews: {
+                orderBy: { sequence: 'desc' },
+                take: 1,
+                select: { sequence: true, action: true, rightsBasis: true },
+              },
+            },
+          },
+        },
+      })
+      const valid = approved.filter((row) => {
+        const latest = row.asset.reviews[0]
+        return (
+          row.asset.kind === 'IMAGE' &&
+          latest?.sequence === row.approvedReviewSequence &&
+          latest.action === 'APPROVE_CONTENT_USE' &&
+          latest.rightsBasis !== null
+        )
+      })
+      if (valid.length !== new Set(derivativeIds).size) {
+        throw new VenueActionError(
+          'CONFLICT',
+          'The selected branding media is unavailable or its approval has changed.',
+        )
+      }
+      for (const key of ['chatLogo', 'chatBanner'] as const) {
+        const id = input.fields[`${key}DerivativeId`]
+        const receipt = input.fields[`${key}DerivativeReceipt`]
+        if (id && (!receipt || receipt.derivativeId !== id)) {
+          throw new VenueActionError('CONFLICT', 'The branding media receipt is incomplete.')
+        }
+        if (id && receipt) {
+          const row = approved.find((candidate) => candidate.id === id)
+          if (
+            !row ||
+            row.assetId !== receipt.assetId ||
+            row.sourceObjectGeneration !== receipt.sourceObjectGeneration ||
+            row.sha256 !== receipt.sha256 ||
+            row.approvedReviewSequence !== receipt.approvedReviewSequence
+          ) {
+            throw new VenueActionError('CONFLICT', 'The branding media receipt is stale.')
+          }
+        }
+      }
+    }
+    requestedEntries.push(
+      ...(['chatLogo', 'chatBanner'] as const)
+        .map(
+          (key) =>
+            [`${key}DerivativeReceipt`, input.fields[`${key}DerivativeReceipt`]] as [
+              string,
+              unknown,
+            ],
+        )
+        .filter(([, value]) => value !== undefined),
+    )
+    if (input.fields.chatLogoDerivativeId !== undefined) {
+      requestedEntries.push(['chatLogoUrl', null])
+    }
+    if (input.fields.chatBannerDerivativeId !== undefined) {
+      requestedEntries.push(['chatBannerUrl', null])
+    }
+    const exactReplay = requestedEntries.every(([key, value]) => {
+      const current = before[key as keyof typeof before]
+      if (current === value) return true
+      return (
+        current !== null &&
+        value !== null &&
+        typeof current === 'object' &&
+        typeof value === 'object' &&
+        JSON.stringify(
+          Object.entries(current).sort(([left], [right]) => left.localeCompare(right)),
+        ) ===
+          JSON.stringify(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
+      )
+    })
     if (exactReplay) return { ...before, replayed: true as const }
     if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
       conflict('Venue design changed; refresh and try again.')
     const data = {
-      ...Object.fromEntries(requestedEntries),
+      ...Object.fromEntries(
+        requestedEntries.map(([key, value]) => [
+          key,
+          key.endsWith('DerivativeReceipt') && value === null
+            ? prismaClient['Prisma']['DbNull']
+            : value,
+        ]),
+      ),
       updatedAt: nextUpdatedAt(before.updatedAt),
     }
     const changed = await tx.venue.updateMany({

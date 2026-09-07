@@ -297,6 +297,10 @@ const venueListSelect = {
   chatFont: true,
   chatLogoUrl: true,
   chatBannerUrl: true,
+  chatLogoDerivativeId: true,
+  chatBannerDerivativeId: true,
+  chatLogoDerivativeReceipt: true,
+  chatBannerDerivativeReceipt: true,
   isActive: true,
   secondLayerEnabled: true,
   secondLayerLabel: true,
@@ -374,6 +378,10 @@ export const venueRouter = router({
           chatFont: string | null
           chatLogoUrl: string | null
           chatBannerUrl: string | null
+          chatLogoDerivativeId: string | null
+          chatBannerDerivativeId: string | null
+          chatLogoDerivativeReceipt: Record<string, unknown> | null
+          chatBannerDerivativeReceipt: Record<string, unknown> | null
           isActive: boolean
           secondLayerEnabled: boolean
           secondLayerLabel: string
@@ -396,6 +404,10 @@ export const venueRouter = router({
                chat_font             AS "chatFont",
                chat_logo_url         AS "chatLogoUrl",
                chat_banner_url       AS "chatBannerUrl",
+               chat_logo_derivative_id AS "chatLogoDerivativeId",
+               chat_banner_derivative_id AS "chatBannerDerivativeId",
+               chat_logo_derivative_receipt AS "chatLogoDerivativeReceipt",
+               chat_banner_derivative_receipt AS "chatBannerDerivativeReceipt",
                is_active             AS "isActive"
                ,second_layer_enabled AS "secondLayerEnabled"
                ,second_layer_label AS "secondLayerLabel"
@@ -415,8 +427,81 @@ export const venueRouter = router({
       if (!venue) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
-      const { isActive, ...publicVenue } = venue
+      const {
+        isActive,
+        chatLogoDerivativeId,
+        chatBannerDerivativeId,
+        chatLogoDerivativeReceipt,
+        chatBannerDerivativeReceipt,
+        ...publicVenue
+      } = venue
       if (!isActive) throw publicVenueUnavailable()
+      const derivativeIds = [chatLogoDerivativeId, chatBannerDerivativeId].filter(
+        (id): id is string => Boolean(id),
+      )
+      const derivatives = derivativeIds.length
+        ? await ctx.db.venueMediaDerivative.findMany({
+            where: {
+              id: { in: derivativeIds },
+              tenantId: venue.tenantId,
+              venueId: venue.id,
+              status: 'READY',
+            },
+            select: {
+              id: true,
+              assetId: true,
+              approvedReviewSequence: true,
+              sourceObjectGeneration: true,
+              sha256: true,
+              asset: {
+                select: {
+                  kind: true,
+                  reviews: {
+                    orderBy: { sequence: 'desc' },
+                    take: 1,
+                    select: { sequence: true, action: true, rightsBasis: true },
+                  },
+                },
+              },
+            },
+          })
+        : []
+      const matchesReceipt = (id: string | null, receipt: Record<string, unknown> | null) => {
+        if (!id || !receipt) return false
+        const row = derivatives.find((candidate) => candidate.id === id)
+        return Boolean(
+          row &&
+          receipt.derivativeId === row.id &&
+          receipt.assetId === row.assetId &&
+          receipt.sourceObjectGeneration === row.sourceObjectGeneration &&
+          receipt.sha256 === row.sha256 &&
+          receipt.approvedReviewSequence === row.approvedReviewSequence,
+        )
+      }
+      const isValidBinding = (id: string | null, receipt: Record<string, unknown> | null) => {
+        if (!matchesReceipt(id, receipt)) return false
+        const row = derivatives.find((candidate) => candidate.id === id)
+        const latest = row?.asset.reviews[0]
+        return Boolean(
+          row?.asset.kind === 'IMAGE' &&
+          latest?.sequence === row.approvedReviewSequence &&
+          latest.action === 'APPROVE_CONTENT_USE' &&
+          latest.rightsBasis !== null,
+        )
+      }
+      const projectedBrandingVenue = {
+        ...publicVenue,
+        chatLogoUrl: chatLogoDerivativeId
+          ? isValidBinding(chatLogoDerivativeId, chatLogoDerivativeReceipt)
+            ? `/api/venue-media/${chatLogoDerivativeId}?venue=${encodeURIComponent(input.slug)}`
+            : null
+          : venue.chatLogoUrl,
+        chatBannerUrl: chatBannerDerivativeId
+          ? isValidBinding(chatBannerDerivativeId, chatBannerDerivativeReceipt)
+            ? `/api/venue-media/${chatBannerDerivativeId}?venue=${encodeURIComponent(input.slug)}`
+            : null
+          : venue.chatBannerUrl,
+      }
 
       const isSecondLayer = input.secondLayerKey !== undefined
       if (
@@ -442,7 +527,7 @@ export const venueRouter = router({
         venueBotPublicDisplayName: _venueBotPublicDisplayName,
         venueBotGreeting: _venueBotGreeting,
         ...safeVenue
-      } = publicVenue
+      } = projectedBrandingVenue
       void _secret
       void _enabled
       void _label
@@ -735,6 +820,110 @@ export const venueRouter = router({
       }
 
       return venue
+    }),
+
+  listApprovedBrandingAssets: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          cursor: z.string().uuid().optional(),
+          limit: z.number().int().min(1).max(50).default(50),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId },
+        select: { id: true, tenantId: true, slug: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      const approved = [] as Array<{
+        id: string
+        assetId: string
+        variant: string
+        approvedReviewSequence: number
+        sha256: string | null
+        sourceObjectGeneration: string
+        asset: {
+          kind: string
+          altText: string
+          caption: string | null
+          reviews: Array<{ sequence: number; action: string; rightsBasis: string | null }>
+        }
+      }>
+      let scanCursor = input.cursor
+      let scannedPages = 0
+      const maxScanPages = 5
+      while (approved.length <= input.limit && scannedPages < maxScanPages) {
+        const rows = await ctx.db.venueMediaDerivative.findMany({
+          where: {
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            status: 'READY',
+            mimeType: 'image/webp',
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
+          take: input.limit + 1,
+          select: {
+            id: true,
+            assetId: true,
+            variant: true,
+            approvedReviewSequence: true,
+            sha256: true,
+            sourceObjectGeneration: true,
+            asset: {
+              select: {
+                kind: true,
+                altText: true,
+                caption: true,
+                reviews: {
+                  orderBy: { sequence: 'desc' },
+                  take: 1,
+                  select: { sequence: true, action: true, rightsBasis: true },
+                },
+              },
+            },
+          },
+        })
+        scannedPages += 1
+        approved.push(
+          ...rows.filter((row) => {
+            const latest = row.asset.reviews[0]
+            return (
+              row.asset.kind === 'IMAGE' &&
+              latest?.sequence === row.approvedReviewSequence &&
+              latest.action === 'APPROVE_CONTENT_USE' &&
+              latest.rightsBasis !== null &&
+              row.sha256 !== null
+            )
+          }),
+        )
+        if (rows.length < input.limit + 1) break
+        scanCursor = rows.at(-1)!.id
+      }
+      const items = approved.slice(0, input.limit)
+      return {
+        items: items.map((row) => ({
+          derivativeId: row.id,
+          assetId: row.assetId,
+          variant: row.variant,
+          altText: row.asset.altText,
+          caption: row.asset.caption,
+          approvedReviewSequence: row.approvedReviewSequence,
+          sourceObjectGeneration: row.sourceObjectGeneration,
+          sha256: row.sha256!,
+          deliveryPath: `/api/venue-media/${row.id}?venue=${encodeURIComponent(venue.slug)}`,
+        })),
+        nextCursor:
+          approved.length > input.limit
+            ? (items.at(-1)?.id ?? null)
+            : scannedPages === maxScanPages
+              ? (scanCursor ?? null)
+              : null,
+      }
     }),
 
   create: tenantProcedure

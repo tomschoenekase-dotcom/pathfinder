@@ -21,19 +21,75 @@ type Venue = {
   chatFont?: string | null
   chatLogoUrl?: string | null
   chatBannerUrl?: string | null
+  chatLogoDerivativeId?: string | null
+  chatBannerDerivativeId?: string | null
   updatedAt: string | Date
 }
 
 type ChatDesignFormProps = {
   venues: Venue[]
+  brandingAssetsByVenue?: Record<string, BrandingAssetPage>
   canEdit?: boolean
   initialVenueId?: string
+  updateDesign?: (input: {
+    venueId: string
+    expectedUpdatedAt: Date
+    chatTheme: (typeof CHAT_THEME_PRESETS)[number]['value'] | 'dark'
+    chatAccentColor: string | null
+    chatFont: ChatFontValue
+    chatLogoUrl?: string | null
+    chatBannerUrl?: string | null
+    chatLogoDerivativeId?: string | null
+    chatBannerDerivativeId?: string | null
+    chatLogoDerivativeReceipt?: BrandingDerivativeReceipt | null
+    chatBannerDerivativeReceipt?: BrandingDerivativeReceipt | null
+  }) => Promise<SavedChatDesign>
+}
+
+type BrandingAsset = {
+  derivativeId: string
+  assetId: string
+  altText: string
+  caption: string | null
+  deliveryPath: string
+  sourceObjectGeneration?: string
+  sha256?: string | null
+  approvedReviewSequence?: number
+}
+
+type BrandingAssetPage = {
+  items: readonly BrandingAsset[]
+  nextCursor: string | null
+}
+
+type BrandingDerivativeReceipt = {
+  assetId: string
+  derivativeId: string
+  sourceObjectGeneration: string
+  sha256: string
+  approvedReviewSequence: number
+}
+
+function toReceipt(asset: BrandingAsset | undefined): BrandingDerivativeReceipt | null {
+  if (!asset) return null
+  if (!asset.sourceObjectGeneration || !asset.sha256 || !asset.approvedReviewSequence) return null
+  return {
+    assetId: asset.assetId,
+    derivativeId: asset.derivativeId,
+    sourceObjectGeneration: asset.sourceObjectGeneration,
+    sha256: asset.sha256,
+    approvedReviewSequence: asset.approvedReviewSequence,
+  }
 }
 
 type SavedChatDesign = {
   chatTheme?: string | null
   chatAccentColor?: string | null
   chatFont?: string | null
+  hasLogo?: boolean
+  hasBanner?: boolean
+  chatLogoDerivativeId?: string | null
+  chatBannerDerivativeId?: string | null
   updatedAt: Date
 }
 
@@ -64,10 +120,20 @@ function designStateForVenue(venue: Venue | undefined) {
     darkMode,
     chatAccentColor: venue?.chatAccentColor ?? '',
     chatFont: isFontValue(venue?.chatFont) ? venue.chatFont : ('jakarta' as const),
+    chatLogoUrl: venue?.chatLogoUrl ?? null,
+    chatBannerUrl: venue?.chatBannerUrl ?? null,
+    chatLogoDerivativeId: venue?.chatLogoDerivativeId ?? null,
+    chatBannerDerivativeId: venue?.chatBannerDerivativeId ?? null,
   }
 }
 
-export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatDesignFormProps) {
+export function ChatDesignForm({
+  venues,
+  brandingAssetsByVenue = {},
+  canEdit = true,
+  initialVenueId,
+  updateDesign,
+}: ChatDesignFormProps) {
   const client = useTRPCClient()
   const revisions = useRef(
     new Map(venues.map((candidate) => [candidate.id, new Date(candidate.updatedAt)])),
@@ -82,27 +148,44 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
       : (venues[0]?.id ?? ''),
   )
   const venue = venues.find((candidate) => candidate.id === selectedVenueId)
+  const [brandingPages, setBrandingPages] = useState(brandingAssetsByVenue)
+  const brandingPage = brandingPages[selectedVenueId] ?? { items: [], nextCursor: null }
+  const brandingAssets = brandingPage.items
   const initialDesign = designStateForVenue(venue)
   const [chatTheme, setChatTheme] = useState<LightThemeValue>(initialDesign.chatTheme)
   const [darkMode, setDarkMode] = useState(initialDesign.darkMode)
   const [chatAccentColor, setChatAccentColor] = useState(initialDesign.chatAccentColor)
   const [chatFont, setChatFont] = useState<ChatFontValue>(initialDesign.chatFont)
+  const [chatLogoUrl, setChatLogoUrl] = useState(initialDesign.chatLogoUrl)
+  const [chatBannerUrl, setChatBannerUrl] = useState(initialDesign.chatBannerUrl)
+  const [chatLogoDerivativeId, setChatLogoDerivativeId] = useState(
+    initialDesign.chatLogoDerivativeId ?? null,
+  )
+  const [chatBannerDerivativeId, setChatBannerDerivativeId] = useState(
+    initialDesign.chatBannerDerivativeId ?? null,
+  )
   const [savedDesign, setSavedDesign] = useState(initialDesign)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [isLoadingAssets, setIsLoadingAssets] = useState(false)
+  const [assetLoadError, setAssetLoadError] = useState<string | null>(null)
   const mutationInFlight = useRef(false)
 
   const normalizedAccent = chatAccentColor.trim()
   const invalidAccent = normalizedAccent !== '' && !isHexColor(normalizedAccent)
   const accentOverride = isHexColor(normalizedAccent) ? normalizedAccent : null
-  const effectiveTheme = darkMode ? 'dark' : chatTheme
+  const effectiveTheme: LightThemeValue | 'dark' = darkMode ? 'dark' : chatTheme
   const palettePreview = getChatPalette(effectiveTheme, accentOverride)
   const isDirty =
     chatTheme !== savedDesign.chatTheme ||
     darkMode !== savedDesign.darkMode ||
     chatAccentColor !== savedDesign.chatAccentColor ||
-    chatFont !== savedDesign.chatFont
+    chatFont !== savedDesign.chatFont ||
+    chatLogoUrl !== savedDesign.chatLogoUrl ||
+    chatBannerUrl !== savedDesign.chatBannerUrl ||
+    chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null) ||
+    chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null)
 
   function markDirty() {
     setSaveError(null)
@@ -136,9 +219,43 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
     setDarkMode(next.darkMode)
     setChatAccentColor(next.chatAccentColor)
     setChatFont(next.chatFont)
+    setChatLogoUrl(next.chatLogoUrl)
+    setChatBannerUrl(next.chatBannerUrl)
+    setChatLogoDerivativeId(next.chatLogoDerivativeId ?? null)
+    setChatBannerDerivativeId(next.chatBannerDerivativeId ?? null)
     setSavedDesign(next)
     setSaveError(null)
     setSaved(false)
+    setAssetLoadError(null)
+  }
+
+  async function loadMoreAssets() {
+    if (!venue?.id || !brandingPage.nextCursor || isLoadingAssets) return
+    setIsLoadingAssets(true)
+    setAssetLoadError(null)
+    try {
+      const next = await client.venue.listApprovedBrandingAssets.query({
+        venueId: venue.id,
+        cursor: brandingPage.nextCursor,
+      })
+      setBrandingPages((current) => {
+        const page = current[venue.id] ?? { items: [], nextCursor: null }
+        const seen = new Set(page.items.map((asset) => asset.derivativeId))
+        return {
+          ...current,
+          [venue.id]: {
+            items: [...page.items, ...next.items.filter((asset) => !seen.has(asset.derivativeId))],
+            nextCursor: next.nextCursor,
+          },
+        }
+      })
+    } catch (error) {
+      setAssetLoadError(
+        error instanceof Error ? error.message : 'More reviewed assets could not be loaded.',
+      )
+    } finally {
+      setIsLoadingAssets(false)
+    }
   }
 
   async function handleSave() {
@@ -155,13 +272,32 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
     setIsSaving(true)
 
     try {
-      const saved = (await client.venue.updateChatDesign.mutate({
+      const selectedLogoReceipt = toReceipt(
+        brandingAssets.find((asset) => asset.derivativeId === chatLogoDerivativeId)!,
+      )
+      const selectedBannerReceipt = toReceipt(
+        brandingAssets.find((asset) => asset.derivativeId === chatBannerDerivativeId)!,
+      )
+      const saveInput = {
         venueId: venue.id,
         expectedUpdatedAt: revisions.current.get(venue.id) ?? new Date(venue.updatedAt),
         chatTheme: effectiveTheme,
         chatAccentColor: accentOverride,
         chatFont,
-      })) as SavedChatDesign
+        ...(venue.chatLogoUrl !== undefined ? { chatLogoUrl } : {}),
+        ...(venue.chatBannerUrl !== undefined ? { chatBannerUrl } : {}),
+        ...(venue.chatLogoDerivativeId !== undefined &&
+        chatLogoDerivativeId !== (savedDesign.chatLogoDerivativeId ?? null)
+          ? { chatLogoDerivativeId, chatLogoDerivativeReceipt: selectedLogoReceipt }
+          : {}),
+        ...(venue.chatBannerDerivativeId !== undefined &&
+        chatBannerDerivativeId !== (savedDesign.chatBannerDerivativeId ?? null)
+          ? { chatBannerDerivativeId, chatBannerDerivativeReceipt: selectedBannerReceipt }
+          : {}),
+      }
+      const saved = updateDesign
+        ? await updateDesign(saveInput)
+        : ((await client.venue.updateChatDesign.mutate(saveInput)) as SavedChatDesign)
       revisions.current.set(venue.id, saved.updatedAt)
       const savedTheme =
         saved.chatTheme === 'dark'
@@ -172,15 +308,23 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
       const savedDarkMode = saved.chatTheme ? saved.chatTheme === 'dark' : darkMode
       const savedAccentColor = saved.chatAccentColor ?? accentOverride ?? ''
       const savedFont = isFontValue(saved.chatFont) ? saved.chatFont : chatFont
+      const savedLogoUrl = saved.hasLogo === false ? null : chatLogoUrl
+      const savedBannerUrl = saved.hasBanner === false ? null : chatBannerUrl
       setChatTheme(savedTheme)
       setDarkMode(savedDarkMode)
       setChatAccentColor(savedAccentColor)
       setChatFont(savedFont)
+      setChatLogoUrl(savedLogoUrl)
+      setChatBannerUrl(savedBannerUrl)
       const canonicalDesign = {
         chatTheme: savedTheme,
         darkMode: savedDarkMode,
         chatAccentColor: savedAccentColor,
         chatFont: savedFont,
+        chatLogoUrl: savedLogoUrl,
+        chatBannerUrl: savedBannerUrl,
+        chatLogoDerivativeId: saved.chatLogoDerivativeId ?? chatLogoDerivativeId,
+        chatBannerDerivativeId: saved.chatBannerDerivativeId ?? chatBannerDerivativeId,
       }
       savedDesigns.current.set(venue.id, canonicalDesign)
       setSavedDesign(canonicalDesign)
@@ -218,6 +362,98 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="rounded-2xl border border-pf-light bg-pf-white p-4">
+        <p className="text-sm font-semibold text-pf-deep">Reviewed branding assets</p>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+          Only assets already reviewed for this venue can be retained. This editor cannot upload or
+          accept arbitrary URLs.
+        </p>
+        {chatLogoUrl ? (
+          <label className="mt-3 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={Boolean(chatLogoUrl)}
+              disabled={!canEdit || isSaving}
+              onChange={(event) => {
+                markDirty()
+                if (!event.target.checked) setChatLogoUrl(null)
+              }}
+            />
+            Keep current reviewed logo
+          </label>
+        ) : null}
+        {chatBannerUrl ? (
+          <label className="mt-2 flex min-h-11 items-center gap-3 text-sm text-pf-deep">
+            <input
+              type="checkbox"
+              checked={Boolean(chatBannerUrl)}
+              disabled={!canEdit || isSaving}
+              onChange={(event) => {
+                markDirty()
+                if (!event.target.checked) setChatBannerUrl(null)
+              }}
+            />
+            Keep current reviewed banner
+          </label>
+        ) : null}
+        {!chatLogoUrl && !chatBannerUrl ? (
+          <p className="mt-3 text-sm text-pf-deep/65">No reviewed branding assets are attached.</p>
+        ) : null}
+        {brandingAssets.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {(['logo', 'banner'] as const).map((role) => {
+              const selected = role === 'logo' ? chatLogoDerivativeId : chatBannerDerivativeId
+              return (
+                <label
+                  key={role}
+                  className="block text-xs font-semibold uppercase tracking-wide text-pf-deep/60"
+                >
+                  {role} asset
+                  <select
+                    className="mt-2 min-h-11 w-full rounded-xl border border-pf-light bg-pf-white px-3 text-sm font-normal normal-case tracking-normal text-pf-deep"
+                    value={selected ?? ''}
+                    disabled={!canEdit || isSaving}
+                    onChange={(event) => {
+                      markDirty()
+                      const value = event.target.value || null
+                      if (role === 'logo') {
+                        setChatLogoDerivativeId(value)
+                        setChatLogoUrl(null)
+                      } else {
+                        setChatBannerDerivativeId(value)
+                        setChatBannerUrl(null)
+                      }
+                    }}
+                  >
+                    <option value="">No reviewed asset</option>
+                    {brandingAssets.map((asset) => (
+                      <option key={asset.derivativeId} value={asset.derivativeId}>
+                        {asset.altText}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })}
+          </div>
+        ) : null}
+        {brandingPage.nextCursor ? (
+          <button
+            type="button"
+            disabled={!canEdit || isSaving || isLoadingAssets}
+            onClick={loadMoreAssets}
+            className="mt-4 min-h-11 rounded-xl border border-pf-light bg-pf-white px-4 text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent disabled:opacity-50"
+          >
+            {isLoadingAssets ? 'Loading reviewed assets…' : 'Load more reviewed assets'}
+          </button>
+        ) : null}
+        {assetLoadError ? (
+          <p className="mt-2 text-sm text-rose-700" role="alert">
+            {assetLoadError}
+          </p>
+        ) : null}
       </div>
 
       <div>
@@ -402,6 +638,10 @@ export function ChatDesignForm({ venues, canEdit = true, initialVenueId }: ChatD
               setDarkMode(savedDesign.darkMode)
               setChatAccentColor(savedDesign.chatAccentColor)
               setChatFont(savedDesign.chatFont)
+              setChatLogoUrl(savedDesign.chatLogoUrl)
+              setChatBannerUrl(savedDesign.chatBannerUrl)
+              setChatLogoDerivativeId(savedDesign.chatLogoDerivativeId ?? null)
+              setChatBannerDerivativeId(savedDesign.chatBannerDerivativeId ?? null)
               setSaveError(null)
               setSaved(false)
             }}

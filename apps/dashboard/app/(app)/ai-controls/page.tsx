@@ -73,6 +73,14 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       profiles: await caller.venue.listPersonalityProfiles({ venueId: venue.id }),
     })),
   )
+  const brandingAssetsByVenue = Object.fromEntries(
+    await Promise.all(
+      venues.map(
+        async (venue) =>
+          [venue.id, await caller.venue.listApprovedBrandingAssets({ venueId: venue.id })] as const,
+      ),
+    ),
+  )
 
   const characterRolloutVisible =
     isFeatureEnabled('venueCharacterMode') &&
@@ -123,6 +131,7 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
               venues={venues}
               canEdit={canEditBranding}
               initialVenueId={initialVenueId}
+              brandingAssetsByVenue={brandingAssetsByVenue}
             />
           </div>
         </section>

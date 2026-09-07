@@ -10,8 +10,18 @@ export default async function GuestDesignPage({ params }: Props) {
   const caller = await createAdminCaller()
 
   try {
-    const design = await caller.admin.getGuestDesign({ tenantId, venueId })
-    return <GuestDesignWorkspace tenantId={tenantId} venueId={venueId} initial={design} />
+    const [design, brandingAssets] = await Promise.all([
+      caller.admin.getGuestDesign({ tenantId, venueId }),
+      caller.admin.listGuestBrandingAssets({ tenantId, venueId }),
+    ])
+    return (
+      <GuestDesignWorkspace
+        tenantId={tenantId}
+        venueId={venueId}
+        initial={design}
+        initialBrandingAssets={brandingAssets}
+      />
+    )
   } catch {
     return (
       <section className="rounded-3xl border border-rose-200 bg-white p-8 shadow-sm" role="alert">
