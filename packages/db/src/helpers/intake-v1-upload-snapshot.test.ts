@@ -44,7 +44,19 @@ function clientFor(receipt: typeof exactReceipt) {
       findFirst: vi.fn().mockResolvedValue(null),
       create: createRevision,
     },
-    intakeV1SubmissionMember: { createMany: createMembers },
+    intakeV1SubmissionMember: {
+      createMany: createMembers,
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: 'member-1',
+          immutableHash: 'd'.repeat(64),
+          intakeRunId: null,
+          intakeUpload: { intakeRunId: upload.intakeRunId },
+          intakeRun: null,
+        },
+      ]),
+    },
+    intakeV1ProcessingDispatch: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     intakeSubmissionDraft: { findMany: vi.fn().mockResolvedValue([]) },
     intakeRun: { findMany: vi.fn().mockResolvedValue([]) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([upload]) },

@@ -74,6 +74,9 @@ export {
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
   INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB,
+  INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
+  INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
   VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
   VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
@@ -124,6 +127,7 @@ export {
   enqueueProspectImportStaging,
   enqueueGmailSync,
   enqueueIntakeUploadVerification,
+  enqueueIntakeV1SourceProcessing,
   enqueueVenueMediaDerivative,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
@@ -152,5 +156,6 @@ export type {
   GmailSyncJobPayload,
   BillingReconciliationJobPayload,
   IntakeUploadVerificationJobPayload,
+  IntakeV1SourceProcessingJobPayload,
   VenueMediaDerivativeJobPayload,
 } from './types'

@@ -12,6 +12,10 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'platform-intake-v1-processing-discovery',
+  'platform-intake-v1-source-lease',
+  'tenant-intake-v1-processing-exact-lease',
+
   'tenant-intake-v1-operation-lock',
   'tenant-intake-v1-owner-revision-lock',
   'tenant-intake-v1-selected-source-snapshot',
@@ -89,6 +93,46 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Bounded internal discovery yields opaque IDs; claim locks the canonical source
+  // before exact dispatch mutation. Receipt transitions lock exact tenant/venue rows,
+  // use the post-lock database clock, and retain immutable member/run/hash scope.
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '7a2a36db16086e38e986b473a4681c9a8db52de1bb3342ec65e2ecf0b0df5aec',
+    policy: 'platform-intake-v1-processing-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '04b6d025360a303ba039f70c14852f62af38d595a824e7452e57d76c8989cfa2',
+    policy: 'platform-intake-v1-source-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'a1369122a40b9d061924bb7cd33f7dac2c1278fc890303a270b4e345ec332683',
+    policy: 'platform-intake-v1-source-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '9b1a314bedad8d1fb89be3a932b704ac562cf8495ea3b9141e9840586dc3e181',
+    policy: 'tenant-intake-v1-processing-exact-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '12ac824e00b1e48d4f904be1aa2a0f4441b5db7ca2a4fa00b2e09ac4b00ad485',
+    policy: 'tenant-intake-v1-processing-exact-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-processing-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+
   // V1 uses READ COMMITTED: operation replay precedes current material reads.
   // Amendment locks exact owner/venue aggregate; bounded selected sources and
   // their scoped receipt rows stay SHARE-locked through immutable snapshot writes.

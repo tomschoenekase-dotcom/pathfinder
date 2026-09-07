@@ -115,6 +115,10 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'STRIPE_LIVE_MODE_ALLOWED',
     defaultEnabled: false,
   },
+  intakeV1WebsiteResearchWorker: {
+    environmentVariable: 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
+    defaultEnabled: false,
+  },
 } as const
 
 export type CrmFeatureClassification = 'public' | 'pilot' | 'internal' | 'off'

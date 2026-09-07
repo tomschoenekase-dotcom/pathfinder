@@ -90,6 +90,20 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits an isolated, explicitly enabled V1 website research runtime', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'intake-v1-website-research-only',
+      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
   it('permits an isolated evaluation runtime without enabling unrelated provider queues', () => {
     expect(
       resolveWorkerStartupPolicy({
@@ -190,6 +204,7 @@ describe('worker startup policy', () => {
         flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
+        flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
         flag !== 'EVALUATION_RUNNER_ENABLED' &&
         flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
         flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',

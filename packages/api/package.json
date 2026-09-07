@@ -14,6 +14,8 @@
     "./prospect-import-storage": "./src/prospect-import-storage.ts",
     "./google-workspace": "./src/google-workspace/index.ts",
     "./intake-upload-verification": "./src/intake-upload-verification.ts",
+    "./website-intake-research": "./src/lib/website-intake-research-service.ts",
+    "./website-intake-runtime": "./src/lib/website-intake-runtime.ts",
     "./venue-context": "./src/lib/venue-context.ts",
     "./guest-answer-attribution-evaluation": "./src/lib/evaluation/guest-answer-attribution.ts",
     "./deployment-storage-key": "./src/lib/deployment-storage-key.ts",

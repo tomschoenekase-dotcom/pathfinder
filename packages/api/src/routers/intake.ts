@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { env } from '@pathfinder/config'
+
 import {
   IntakeActionError,
   OnboardingBootstrapError,
@@ -8,8 +10,10 @@ import {
   getIntakeSubmissionDraft,
   getIntakeV1SubmissionAction,
   getLatestIntakeV1SubmissionAction,
+  getIntakeV1ProcessingRead,
   IntakeSubmissionDraftError,
   IntakeV1SubmissionError,
+  IntakeV1ProcessingReadError,
   getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
@@ -88,6 +92,17 @@ function mapActionError(error: unknown): never {
             : error.code === 'PRECONDITION_FAILED'
               ? 'PRECONDITION_FAILED'
               : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
+  if (error instanceof IntakeV1ProcessingReadError) {
+    throw new TRPCError({
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
       message: error.message,
     })
   }
@@ -241,6 +256,34 @@ export const intakeRouter = router({
           revisionLimit: input.revisionLimit,
           ...(input.revisionCursor ? { revisionCursor: input.revisionCursor } : {}),
         })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  getV1Processing: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      scope
+        .extend({
+          submissionId: z.string().min(1).max(191),
+          revision: z.number().int().min(1),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getIntakeV1ProcessingRead(
+          {
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            ownerUserId: ctx.session.userId,
+            submissionId: input.submissionId,
+            revision: input.revision,
+            websiteResearchEnabled: env.INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED,
+          },
+          ctx.db,
+        )
       } catch (error) {
         mapActionError(error)
       }

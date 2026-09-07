@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   draftUpdate: vi.fn(),
   draftFindRequired: vi.fn(),
   v1SubmissionFind: vi.fn(),
+  v1RevisionFind: vi.fn(),
   uploadFindMany: vi.fn(),
 }))
 const db = {
@@ -40,6 +41,7 @@ const db = {
     findUniqueOrThrow: mocks.draftFindRequired,
   },
   intakeV1Submission: { findFirst: mocks.v1SubmissionFind },
+  intakeV1SubmissionRevision: { findFirst: mocks.v1RevisionFind },
   intakeUpload: { findMany: mocks.uploadFindMany },
   $executeRaw: mocks.executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
@@ -73,6 +75,7 @@ describe('intake draft proposals', () => {
     mocks.draftUpdate.mockResolvedValue({ count: 1 })
     mocks.draftFindRequired.mockResolvedValue({ id: 'draft-1', revision: 2, updatedAt: new Date() })
     mocks.v1SubmissionFind.mockResolvedValue(null)
+    mocks.v1RevisionFind.mockResolvedValue(null)
     mocks.uploadFindMany.mockResolvedValue([])
   })
 
@@ -319,6 +322,52 @@ describe('intake draft proposals', () => {
       select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     })
+  })
+
+  it('returns bounded processing truth for the exact authenticated owner revision', async () => {
+    mocks.v1RevisionFind.mockResolvedValueOnce({
+      submissionId: 'submission-1',
+      revision: 3,
+      createdAt: new Date('2026-09-07T12:00:00.000Z'),
+      members: [
+        {
+          id: 'member-1',
+          ordinal: 0,
+          intakeRun: { displayName: 'Museum website', sourceKind: 'WEBSITE' },
+          intakeUpload: null,
+          processingDispatch: {
+            kind: 'WEBSITE_RESEARCH',
+            status: 'PENDING',
+            holdReason: null,
+          },
+        },
+      ],
+    })
+    const result = await caller.createCaller(context('tenant-a')).intake.getV1Processing({
+      venueId: 'venue-a',
+      submissionId: 'submission-1',
+      revision: 3,
+    })
+
+    expect(mocks.v1RevisionFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          submissionId: 'submission-1',
+          revision: 3,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          submission: { ownerUserId: 'user-1' },
+        },
+      }),
+    )
+    expect(result).toMatchObject({
+      submissionId: 'submission-1',
+      revision: 3,
+      publicationCreated: false,
+      counts: { total: 1 },
+      members: [{ displayName: 'Museum website', processingKind: 'WEBSITE_RESEARCH' }],
+    })
+    expect(JSON.stringify(result)).not.toMatch(/lastError|leaseToken|sourceHash/iu)
   })
 
   it('lists bounded owner-scoped upload candidates without storage metadata', async () => {

@@ -38,6 +38,26 @@ describe('Packet 2 dark-launch boundaries', () => {
   })
 })
 
+describe('V1 website research worker boundary', () => {
+  it('uses the centralized exact default-off worker capability', () => {
+    expect(FEATURE_FLAGS.intakeV1WebsiteResearchWorker).toEqual({
+      environmentVariable: 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('intakeV1WebsiteResearchWorker', {})).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1WebsiteResearchWorker', {
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'TRUE',
+      }),
+    ).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1WebsiteResearchWorker', {
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'true',
+      }),
+    ).toBe(true)
+  })
+})
+
 describe('Tochi and Character Mode rollout boundaries', () => {
   it('keeps every new product surface behind an exact default-off kill switch', () => {
     expect(FEATURE_FLAGS.clientTochi).toEqual({

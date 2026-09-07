@@ -105,6 +105,14 @@ export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verificatio
 export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
   'intake-upload-verification-reconciliation'
 
+/**
+ * Opaque canonical V1 processing-dispatch identifiers only. The worker reloads
+ * scope, frozen source hash, fixed policy, and the lease from Postgres.
+ */
+export const INTAKE_V1_SOURCE_PROCESSING_QUEUE = queueName('intake-v1-source-processing')
+export const INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB = 'intake-v1-source-processing-process'
+export const INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB = 'intake-v1-source-processing-recovery'
+
 export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
 export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
 export const VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF = 'venue-media-derivative-retry'
@@ -137,5 +145,6 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   VOICE_SESSION_RECOVERY_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  INTAKE_V1_SOURCE_PROCESSING_QUEUE,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
 ] as const)

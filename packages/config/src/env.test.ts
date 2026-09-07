@@ -30,6 +30,7 @@ const requiredEnvironment = {
   GENERATION_DISPATCH_ENABLED: 'false',
   GENERATION_RECOVERY_ENABLED: 'false',
   EVALUATION_RUNNER_ENABLED: 'false',
+  INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'false',
 }
 
 const stagingResourceIdentity = {
@@ -530,6 +531,34 @@ describe('GENERATION_DISPATCH_ENABLED', () => {
         ...requiredEnvironment,
         RAILWAY_ENVIRONMENT: 'staging',
         GENERATION_DISPATCH_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
+describe('INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED', () => {
+  it('defaults disabled and accepts only an explicit boolean enable', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: undefined,
+      }).INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED,
+    ).toBe(false)
+
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'true',
+      }).INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED,
+    ).toBe(true)
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'yes',
       }),
     ).toThrow()
   })

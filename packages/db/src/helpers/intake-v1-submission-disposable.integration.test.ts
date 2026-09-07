@@ -2,10 +2,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   claimIntakeUploadVerificationAction,
+  claimIntakeV1WebsiteResearchDispatch,
   createIntakeProposal,
   db,
   recordIntakeUploadPrecheckAction,
+  recordWebsiteResearchReceiptAction,
   reserveIntakeUploadAction,
+  assertIntakeV1WebsiteResearchDispatchActive,
   saveIntakeSubmissionDraft,
   settleIntakeUploadAuthoritativeVerificationAction,
   submitIntakeV1Action,
@@ -156,6 +159,167 @@ describe.skipIf(!enabled)('intake V1 disposable aggregate', () => {
       ])
       expect(new Set(concurrent.map((result) => result.submissionId)).size).toBe(1)
       expect(concurrent.filter((result) => !result.replayed)).toHaveLength(1)
+      const websiteRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: { submissionId: concurrent[0]!.submissionId, revision: 1 },
+      })
+      const websiteDispatch = await db.intakeV1ProcessingDispatch.findFirstOrThrow({
+        where: { revisionId: websiteRevision.id },
+      })
+      expect(websiteDispatch).toMatchObject({
+        kind: 'WEBSITE_RESEARCH',
+        status: 'PENDING',
+        attempts: 0,
+      })
+      const carriedWebsite = await submitIntakeV1Action({
+        tenantId,
+        venueId,
+        ownerUserId,
+        actorRole: 'MANAGER',
+        selection: {
+          operationId: randomUUID(),
+          partialAcknowledged: false,
+          drafts: {},
+          intakeRunIds: [websiteDispatch.intakeRunId],
+          intakeUploadIds: [],
+        },
+      })
+      const carriedRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: { submissionId: carriedWebsite.submissionId, revision: 1 },
+      })
+      const carriedDispatch = await db.intakeV1ProcessingDispatch.findFirstOrThrow({
+        where: { revisionId: carriedRevision.id },
+      })
+      const independentWebsite = await createIntakeProposal({
+        db,
+        tenantId,
+        venueId,
+        actor: { type: 'HUMAN', id: ownerUserId, role: 'MANAGER' },
+        requestId: randomUUID(),
+        proposal: {
+          kind: 'WEBSITE',
+          displayName: 'Independent site',
+          websiteUri: 'https://independent.example.test',
+        },
+      })
+      const independentSubmission = await submitIntakeV1Action({
+        tenantId,
+        venueId,
+        ownerUserId,
+        actorRole: 'MANAGER',
+        selection: {
+          operationId: randomUUID(),
+          partialAcknowledged: false,
+          drafts: {},
+          intakeRunIds: [independentWebsite.id],
+          intakeUploadIds: [],
+        },
+      })
+      const independentRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: { submissionId: independentSubmission.submissionId, revision: 1 },
+      })
+      const independentDispatch = await db.intakeV1ProcessingDispatch.findFirstOrThrow({
+        where: { revisionId: independentRevision.id },
+      })
+      const competingClaims = await Promise.all([
+        claimIntakeV1WebsiteResearchDispatch({
+          dispatchId: websiteDispatch.id,
+          leaseOwner: 'v1-disposable-worker-a',
+        }),
+        claimIntakeV1WebsiteResearchDispatch({
+          dispatchId: carriedDispatch.id,
+          leaseOwner: 'v1-disposable-worker-b',
+        }),
+        claimIntakeV1WebsiteResearchDispatch({
+          dispatchId: independentDispatch.id,
+          leaseOwner: 'v1-disposable-worker-c',
+        }),
+      ])
+      expect(competingClaims.filter(Boolean)).toHaveLength(2)
+      expect(competingClaims[2]).toMatchObject({ intakeRunId: independentWebsite.id })
+      const claimedWebsite = competingClaims.slice(0, 2).find(Boolean)!
+      expect(claimedWebsite).toMatchObject({ attempts: 1 })
+      const claimedDispatchId = claimedWebsite.id
+      const exactWebsite = {
+        id: claimedWebsite!.id,
+        tenantId: claimedWebsite!.tenantId,
+        venueId: claimedWebsite!.venueId,
+        operationId: claimedWebsite!.operationId,
+        leaseToken: claimedWebsite!.leaseToken,
+        sourceHash: claimedWebsite!.sourceHash,
+        policyVersion: claimedWebsite!.policyVersion,
+      }
+      await expect(
+        assertIntakeV1WebsiteResearchDispatchActive({
+          ...exactWebsite,
+          sourceHash: 'f'.repeat(64),
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        assertIntakeV1WebsiteResearchDispatchActive(exactWebsite),
+      ).resolves.toMatchObject({ id: claimedDispatchId })
+      await db.intakeV1ProcessingDispatch.update({
+        where: { id: claimedDispatchId },
+        data: { attempts: 2, leaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+      })
+      const recoveredWebsite = await claimIntakeV1WebsiteResearchDispatch({
+        dispatchId: claimedDispatchId,
+        leaseOwner: 'v1-recovery-worker',
+      })
+      expect(recoveredWebsite).toMatchObject({ attempts: 3 })
+      await expect(
+        db.$executeRaw`UPDATE intake_runs SET website_uri='https://changed-after-lease.example.test' WHERE id=${recoveredWebsite!.intakeRunId}`,
+      ).rejects.toThrow(/append.only/iu)
+      await recordWebsiteResearchReceiptAction({
+        operationId: recoveredWebsite!.operationId,
+        tenantId,
+        venueId,
+        runId: recoveredWebsite!.intakeRunId,
+        requestHash: createHash('sha256').update('crash-after-receipt').digest('hex'),
+        sourceUriHash: createHash('sha256').update('https://fixture.example.test').digest('hex'),
+        bounds: {
+          maxPages: 5,
+          maxDepth: 1,
+          maxBytesPerPage: 1_000_000,
+          allowedHosts: ['fixture.example.test'],
+          respectRobots: true,
+          publishMode: 'DRAFT_ONLY',
+        },
+        outcome: 'SUCCEEDED',
+        researchSnapshot: {
+          schemaVersion: 1,
+          sourceId: recoveredWebsite!.intakeRunId,
+          pages: [],
+          citations: [],
+          evidence: [],
+          discrepancies: [],
+        },
+        candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+        evidence: [],
+        discrepancies: [],
+        attemptedFetches: 1,
+        fetchedPages: 1,
+        fetchedBytes: 100,
+        estimatedCostUnits: 0,
+        latencyMs: 1,
+        createdBy: ownerUserId,
+      })
+      await db.intakeV1ProcessingDispatch.update({
+        where: { id: claimedDispatchId },
+        data: { leaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+      })
+      await expect(
+        claimIntakeV1WebsiteResearchDispatch({
+          dispatchId: claimedDispatchId,
+          leaseOwner: 'v1-exhausted-worker',
+        }),
+      ).resolves.toBeNull()
+      await expect(
+        db.intakeV1ProcessingDispatch.findUniqueOrThrow({ where: { id: claimedDispatchId } }),
+      ).resolves.toMatchObject({
+        status: 'COMPLETED',
+        receiptId: recoveredWebsite!.operationId,
+        attempts: 3,
+      })
 
       const amendInputs = [randomUUID(), randomUUID()].map((operationId) => ({
         operationId,
@@ -259,6 +423,75 @@ describe.skipIf(!enabled)('intake V1 disposable aggregate', () => {
           },
         }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+      const researchedWebsite = await createIntakeProposal({
+        db,
+        tenantId,
+        venueId,
+        actor: { type: 'HUMAN', id: ownerUserId, role: 'MANAGER' },
+        requestId: randomUUID(),
+        proposal: {
+          kind: 'WEBSITE',
+          displayName: 'Already researched',
+          websiteUri: 'https://researched.example.test',
+        },
+      })
+      const inheritedReceiptId = randomUUID()
+      await recordWebsiteResearchReceiptAction({
+        operationId: inheritedReceiptId,
+        tenantId,
+        venueId,
+        runId: researchedWebsite.id,
+        requestHash: createHash('sha256').update('inherited-request').digest('hex'),
+        sourceUriHash: createHash('sha256').update('https://researched.example.test').digest('hex'),
+        bounds: {
+          maxPages: 5,
+          maxDepth: 1,
+          maxBytesPerPage: 1_000_000,
+          allowedHosts: ['researched.example.test'],
+          respectRobots: true,
+          publishMode: 'DRAFT_ONLY',
+        },
+        outcome: 'SUCCEEDED',
+        researchSnapshot: {
+          schemaVersion: 1,
+          sourceId: researchedWebsite.id,
+          pages: [],
+          citations: [],
+          evidence: [],
+          discrepancies: [],
+        },
+        candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+        evidence: [],
+        discrepancies: [],
+        attemptedFetches: 1,
+        fetchedPages: 1,
+        fetchedBytes: 100,
+        estimatedCostUnits: 0,
+        latencyMs: 1,
+        createdBy: ownerUserId,
+      })
+      const inheritedSubmission = await submitIntakeV1Action({
+        tenantId,
+        venueId,
+        ownerUserId,
+        actorRole: 'MANAGER',
+        selection: {
+          operationId: randomUUID(),
+          partialAcknowledged: false,
+          drafts: {},
+          intakeRunIds: [researchedWebsite.id],
+          intakeUploadIds: [],
+        },
+      })
+      const inheritedRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: { submissionId: inheritedSubmission.submissionId, revision: 1 },
+      })
+      await expect(
+        db.intakeV1ProcessingDispatch.findFirstOrThrow({
+          where: { revisionId: inheritedRevision.id },
+        }),
+      ).resolves.toMatchObject({ status: 'COMPLETED', receiptId: inheritedReceiptId, attempts: 0 })
 
       const outsiderRun = await createIntakeProposal({
         db,
@@ -484,6 +717,9 @@ describe.skipIf(!enabled)('intake V1 disposable aggregate', () => {
         where: { tenantId, venueId, sourceKind: 'WEBSITE' },
       })
       const beforeEvidence = await db.intakeEvidenceRecord.count({ where: { tenantId, venueId } })
+      const beforeProcessing = await db.intakeV1ProcessingDispatch.count({
+        where: { tenantId, venueId },
+      })
       const injectedClient = new Proxy(db, {
         get(target, property, receiver) {
           if (property !== '$transaction') return Reflect.get(target, property, receiver)
@@ -535,6 +771,9 @@ describe.skipIf(!enabled)('intake V1 disposable aggregate', () => {
       ).toBe(beforeRuns)
       expect(await db.intakeEvidenceRecord.count({ where: { tenantId, venueId } })).toBe(
         beforeEvidence,
+      )
+      expect(await db.intakeV1ProcessingDispatch.count({ where: { tenantId, venueId } })).toBe(
+        beforeProcessing,
       )
       expect(
         await db.intakeSubmissionDraft.findUniqueOrThrow({

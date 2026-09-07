@@ -1,10 +1,10 @@
 # V1 onboarding submissions
 
-A V1 submission freezes an explicit set of onboarding sources for review. It has a stable identity and append-only revisions. Saving a V1 does not run website research, invoke a model, build a venue package, approve content, or publish to visitors. Its current state is `AWAITING_CANONICAL_REVIEW`.
+A V1 submission freezes an explicit set of onboarding sources for review. It has a stable identity and append-only revisions. Saving a V1 atomically records per-member processing dispatches. Website research runs only when its dedicated worker policy is enabled; saving does not invoke a model, build a venue package, approve content, or publish to visitors. Its current state is `AWAITING_CANONICAL_REVIEW`.
 
 ## Submit and amend
 
-The tenant intake API exposes `submitV1`, `amendV1`, `getV1`, `getLatestV1`, `listV1Candidates`, and `listV1UploadCandidates`. Tenant managers and owners use their authenticated user identity; callers cannot supply a different owner. Current human roles are tenant-wide, while each source selection is fenced to the exact tenant, venue, and owner.
+The tenant intake API exposes `submitV1`, `amendV1`, `getV1`, `getLatestV1`, `listV1Candidates`, `listV1UploadCandidates`, and `getV1Processing`. Tenant managers and owners use their authenticated user identity; callers cannot supply a different owner. Current human roles are tenant-wide, while each source selection is fenced to the exact tenant, venue, and owner.
 
 An initial request supplies an operation UUID, selected private draft kinds with their expected revisions, explicit source/upload IDs, and an optional partial-submission acknowledgement. The combined selection is limited to 50 members. Valid private drafts become canonical intake proposals inside the same real transaction as the V1 revision. A failed aggregate write rolls back those proposals and leaves the private drafts unsubmitted.
 
@@ -35,3 +35,17 @@ Canonical review and package-building integration remain separate work. The pres
 The retained [native PostgreSQL journey](evidence/intake-v1-native-postgres-2026-09-07.json) passed through 224 fresh migrations and 251 public tables in UTC. Focused source-snapshot tests additionally reject mismatched receipt generation, SHA-256, byte size, and storage version before aggregate writes. These are local fixture proofs, not provider or deployment evidence.
 
 The [coordinated client browser proof](evidence/intake-v1-client-browser-2026-09-07.json) covers private draft flushing, explicit review, confirmed receipt read-back, reload and exact retry after a lost response at phone/tablet/desktop widths. Narrow320px keyboard, accessibility and overflow checks are retained. It uses synthetic transport; it is not hosted or provider evidence.
+
+## Durable member processing
+
+Migration 225 adds one immutable-identity processing record per newly submitted member, in the same transaction as the source snapshot. Existing revisions are not silently backfilled. Staff answers and structured notes are ready for canonical review; files without an executable extraction path remain held. These states do not approve material.
+
+Website members use the existing bounded canonical research service. The default-off `INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED` flag gates startup, queue recovery, and execution. Work is limited to four pages, depth one, one megabyte per page, 30 seconds, and eight engineering cost units. A matching retained research receipt is reused; a prior unsuccessful receipt remains held.
+
+A database lease serializes processing of the same canonical website across revisions while independent sources can progress. Each dispatch keeps one operation ID and permits at most three attempts. Recovery checks retained receipts after an expired final attempt rather than granting a fourth attempt. Exact lease, source hash, scope, and database-clock checks fence preflight and completion. An uncertain transport result is not proof that no research occurred.
+
+BullMQ carries opaque dispatch IDs. Completed and terminally failed wakeups are removed so the durable database recovery scan can enqueue another wakeup when needed; processing history remains in PostgreSQL. The scan discovers at most 25 eligible records per cycle.
+
+`getV1Processing` reads the exact owned submission revision and at most 50 members, exposing safe labels and processing states only. Disabled website work and historical unscheduled members have distinct states. Material processing completion never means that a package or publication exists.
+
+The retained [processing PostgreSQL proof](evidence/intake-v1-processing-native-postgres-2026-09-07.json) passed 225 migrations and a 252-table UTC catalog, including atomic rollback, source serialization, receipt inheritance, and exhausted-lease recovery. The [Redis wakeup proof](evidence/intake-v1-redis-wakeup-2026-09-07.json) passed completed and failed wakeup removal/re-enqueue against isolated Redis. Both services were stopped after proof. Neither fixture calls a research provider or deploys the worker.

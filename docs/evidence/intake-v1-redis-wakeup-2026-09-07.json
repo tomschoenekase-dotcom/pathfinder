@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "kind": "disposable-redis-bullmq-v1-wakeup-proof",
+  "measuredAt": "2026-09-07T22:21:58.262610+00:00",
+  "backend": "Redis7.0.15 in Ubuntu WSL, fresh localhost-only port16391",
+  "result": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "exitCode": 0,
+    "port": 16391,
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-v1-redis-171c9fcc0b93"
+  },
+  "stopped": true,
+  "persistenceEnabled": false,
+  "assertions": [
+    "Completed stable-ID wakeup is removed and can be queued again",
+    "Exhausted failed stable-ID wakeup is removed and can be queued again",
+    "Fixture cases isolate their queue; no other Redis instance or data used"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\redis.conf",
+      "sha256": "3de2936aa4223c8d16c41d18bcb9fa4f1d214e66c7857836dccb6ea3adfa9d29"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\ownership.json",
+      "sha256": "a939d57eaeb204d01598083fa3f1503625226ab7e271eba620d77cc59514a486"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\redis.log",
+      "sha256": "4cbaa4bd33088849ee4446b6e9bd1c8ecf37c1581d39c9fcabdbca5955c4d8c3"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\vitest.json",
+      "sha256": "cf42ae8d34cc69591184d945961b6e5567cf27295504a4b9f1c9a2817f960a6c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\test-result.json",
+      "sha256": "f84a815ad1d005644fb36dea9ad685e2ba1469480ae81dddb1b6c65046746e60"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-v1-redis-proof.mjs",
+      "sha256": "deb1594d1bc5dea29b52d9fb72371a23222cc0c48240745a4924159883f9245e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-v1-redis-171c9fcc0b93\\measured-intake-v1-source-processing.integration.test.ts",
+      "sha256": "92823c830374dcbc23d7b254634febeb6752a731076fcaecb1e24fed56257f7f"
+    }
+  ],
+  "limitations": [
+    "Fixture uses synthetic BullMQ processors, not live website fetches.",
+    "Database canonical attempt and lease boundaries are tested separately on disposable PostgreSQL.",
+    "No exactly-once network guarantee is inferred.",
+    "Server stopped with NOSAVE after exact configured pidfile verification; port16391 read-back empty."
+  ]
+}

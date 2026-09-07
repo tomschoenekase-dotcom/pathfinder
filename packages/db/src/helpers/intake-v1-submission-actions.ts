@@ -12,6 +12,7 @@ import {
   type IntakeProposalInput,
 } from './intake-actions'
 import { intakeSubmissionDraftContent } from './intake-submission-draft-actions'
+import { createIntakeV1ProcessingDispatchesInTransaction } from './intake-v1-processing-dispatch-actions'
 
 const sourceKind = z.enum(['WEBSITE', 'INTERVIEW', 'NOTES'])
 const uuid = z.string().uuid()
@@ -494,6 +495,11 @@ export async function submitIntakeV1Action(input: {
           ? { intakeRunId: member.id }
           : { intakeUploadId: member.id }),
       })),
+    })
+    await createIntakeV1ProcessingDispatchesInTransaction(tx, {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      revisionId: revision.id,
     })
     return {
       submissionId: submission.id,

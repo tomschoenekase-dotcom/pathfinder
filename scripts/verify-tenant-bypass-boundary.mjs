@@ -12,6 +12,10 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Default-off V1 source processing discovers bounded opaque dispatch IDs, then
+  // re-enters exact tenant/venue/member/source/lease scope for canonical research
+  // and receipt transitions. No bypass grants package or publication authority.
+  ['apps/workers/src/processors/intake-v1-source-processing.ts', 7],
   // Platform-admin review reads bounded candidate summaries and exact scoped receipts;
   // no portable body is loaded and current activation authority is never inferred.
   ['packages/api/src/routers/admin/agent-workflow-activation-review.ts', 1],

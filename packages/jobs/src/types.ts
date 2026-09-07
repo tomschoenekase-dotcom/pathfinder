@@ -33,6 +33,11 @@ export type GenerationDispatchKickJobPayload = {
   dispatchId: string
 }
 
+/** Carries only a durable dispatch identity; all execution authority is re-read. */
+export type IntakeV1SourceProcessingJobPayload = {
+  dispatchId: string
+}
+
 export type DailyRollupJobPayload = {
   tenantId: string
   date: string

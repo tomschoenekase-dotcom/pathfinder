@@ -1372,6 +1372,8 @@ export {
   listIntakeV1UploadCandidatesAction,
   submitIntakeV1Action,
 } from './helpers/intake-v1-submission-actions'
+export * from './helpers/intake-v1-processing-dispatch-actions'
+export * from './helpers/intake-v1-processing-read'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

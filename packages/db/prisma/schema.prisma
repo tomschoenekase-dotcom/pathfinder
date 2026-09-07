@@ -169,6 +169,7 @@ model Tenant {
   characterFactoryJobs                      CharacterFactoryJob[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
   intakeV1Submissions                       IntakeV1Submission[]
+  intakeV1ProcessingDispatches              IntakeV1ProcessingDispatch[]
   operationalUpdates                        OperationalUpdate[]
   analyticsEvents                           AnalyticsEvent[]
   dailyRollups                              DailyRollup[]
@@ -1404,6 +1405,7 @@ model Venue {
   characterFactoryJobs                      CharacterFactoryJob[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
   intakeV1Submissions                       IntakeV1Submission[]
+  intakeV1ProcessingDispatches              IntakeV1ProcessingDispatch[]
   places                                    Place[]
   sessions                                  VisitorSession[]
   operationalUpdates                        OperationalUpdate[]
@@ -1902,6 +1904,7 @@ model IntakeRun {
   evidence                          IntakeEvidenceRecord[]
   events                            IntakeRunEvent[]
   websiteResearchReceipts           IntakeWebsiteResearchReceipt[]
+  intakeV1ProcessingDispatches       IntakeV1ProcessingDispatch[]
   fileExtractionReceipts            IntakeFileExtractionReceipt[]
   fileExtractionSourceReviews       IntakeFileExtractionReview[]             @relation("IntakeFileExtractionReviewSource")
   fileExtractionProposalReview      IntakeFileExtractionReview?              @relation("IntakeFileExtractionReviewProposal")
@@ -1984,6 +1987,7 @@ model IntakeWebsiteResearchReceipt {
   run                IntakeRun                      @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   priorReceipt       IntakeWebsiteResearchReceipt?  @relation("IntakeWebsiteResearchLineage", fields: [priorReceiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   retryReceipts      IntakeWebsiteResearchReceipt[] @relation("IntakeWebsiteResearchLineage")
+  intakeV1ProcessingDispatches IntakeV1ProcessingDispatch[]
 
   @@unique([id, tenantId, venueId], map: "intake_website_research_receipts_scope_key")
   @@index([tenantId, venueId, runId, createdAt], map: "intake_website_research_receipts_run_created_idx")
@@ -2219,6 +2223,20 @@ enum IntakeV1SubmissionMemberKind {
   INTAKE_UPLOAD
 }
 
+enum IntakeV1ProcessingKind {
+  WEBSITE_RESEARCH
+  REVIEW_READY
+  EXTRACTION_UNSUPPORTED
+}
+
+enum IntakeV1ProcessingStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  HELD
+  FAILED
+}
+
 /// Durable, private V1 material checkpoint. It freezes source identities in revisions;
 /// it neither creates a package nor grants publication or execution authority.
 model IntakeV1Submission {
@@ -2258,6 +2276,7 @@ model IntakeV1SubmissionRevision {
   createdAt         DateTime            @default(now()) @map("created_at")
   submission        IntakeV1Submission @relation(fields: [submissionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   members           IntakeV1SubmissionMember[]
+  processingDispatches IntakeV1ProcessingDispatch[]
 
   @@unique([submissionId, revision], map: "intake_v1_submission_revisions_number_key")
   @@unique([tenantId, operationId], map: "intake_v1_submission_revisions_tenant_operation_key")
@@ -2280,13 +2299,56 @@ model IntakeV1SubmissionMember {
   revision       IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   intakeRun      IntakeRun?                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   intakeUpload   IntakeUpload?             @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  processingDispatch IntakeV1ProcessingDispatch?
 
+  @@unique([id, tenantId, venueId], map: "intake_v1_submission_members_scope_key")
+  @@unique([id, revisionId, tenantId, venueId], map: "intake_v1_submission_members_revision_scope_key")
   @@unique([revisionId, ordinal], map: "intake_v1_submission_members_ordinal_key")
   @@unique([revisionId, intakeRunId], map: "intake_v1_submission_members_revision_run_key")
   @@unique([revisionId, intakeUploadId], map: "intake_v1_submission_members_revision_upload_key")
   @@index([tenantId, venueId, intakeRunId], map: "intake_v1_submission_members_run_idx")
   @@index([tenantId, venueId, intakeUploadId], map: "intake_v1_submission_members_upload_idx")
   @@map("intake_v1_submission_members")
+}
+
+/// Durable progression state for one immutable V1 member. Only WEBSITE_RESEARCH is executable;
+/// review-ready and unsupported extraction rows are explicit terminal projections.
+model IntakeV1ProcessingDispatch {
+  id                String                   @id @default(cuid())
+  tenantId          String                   @map("tenant_id")
+  venueId           String                   @map("venue_id")
+  revisionId        String                   @map("revision_id")
+  memberId          String                   @unique(map: "intake_v1_processing_dispatches_member_key") @map("member_id")
+  intakeRunId       String                   @map("intake_run_id")
+  operationId       String                   @map("operation_id") @db.Uuid
+  kind              IntakeV1ProcessingKind
+  status            IntakeV1ProcessingStatus
+  sourceHash        String                   @map("source_hash") @db.Char(64)
+  policyVersion     String                   @map("policy_version") @db.VarChar(64)
+  attempts          Int                      @default(0)
+  leaseToken        String?                  @map("lease_token") @db.Uuid
+  leaseOwner        String?                  @map("lease_owner") @db.VarChar(191)
+  leaseExpiresAt    DateTime?                @map("lease_expires_at")
+  receiptId         String?                  @map("receipt_id") @db.Uuid
+  holdReason        String?                  @map("hold_reason") @db.VarChar(64)
+  lastError         String?                  @map("last_error") @db.VarChar(500)
+  completedAt       DateTime?                @map("completed_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue             Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  revision          IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  member            IntakeV1SubmissionMember @relation(fields: [memberId, revisionId, tenantId, venueId], references: [id, revisionId, tenantId, venueId], onDelete: Restrict)
+  intakeRun         IntakeRun                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  receipt           IntakeWebsiteResearchReceipt? @relation(fields: [receiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+
+  @@unique([tenantId, operationId], map: "intake_v1_processing_dispatches_tenant_operation_key")
+  @@unique([memberId, tenantId, venueId], map: "intake_v1_processing_dispatches_member_scope_key")
+  @@unique([memberId, revisionId, tenantId, venueId], map: "intake_v1_processing_dispatches_member_revision_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_v1_processing_dispatches_scope_key")
+  @@index([status, leaseExpiresAt, createdAt], map: "intake_v1_processing_dispatches_lease_idx")
+  @@index([tenantId, venueId, revisionId], map: "intake_v1_processing_dispatches_revision_idx")
+  @@map("intake_v1_processing_dispatches")
 }
 
 enum IntakeEventKind {

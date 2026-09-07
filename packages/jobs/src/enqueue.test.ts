@@ -42,6 +42,7 @@ import {
   enqueueEmbedPlace,
   enqueueMediaIngestion,
   enqueueGenerationDispatchKick,
+  enqueueIntakeV1SourceProcessing,
   enqueueIntakeUploadVerification,
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
@@ -252,6 +253,39 @@ describe('job enqueues', () => {
       expect(mocks.loggerInfo).not.toHaveBeenCalled()
     },
   )
+
+  it.each(['', '   ', 'x'.repeat(201)])(
+    'rejects an invalid V1 source processing identity before touching a queue',
+    async (dispatchId) => {
+      await expect(enqueueIntakeV1SourceProcessing(dispatchId)).rejects.toThrow(
+        'Intake V1 source processing dispatch ID must be a nonempty opaque identifier',
+      )
+      expect(mocks.queue).not.toHaveBeenCalled()
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
+
+  it('enqueues opaque V1 source processing with stable bounded retries', async () => {
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_A)
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_A)
+    await enqueueIntakeV1SourceProcessing(DISPATCH_ID_B)
+
+    const [first, replay, distinct] = mocks.add.mock.calls
+    expect(replay![2].jobId).toBe(first![2].jobId)
+    expect(distinct![2].jobId).not.toBe(first![2].jobId)
+    expect(first).toEqual([
+      'intake-v1-source-processing-process',
+      { dispatchId: DISPATCH_ID_A },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+        jobId: expect.stringMatching(/^intake-v1-source-processing-[a-f0-9]{64}$/u),
+      },
+    ])
+    expect(first![2].jobId).not.toContain(DISPATCH_ID_A)
+  })
 
   it('derives stable, target-separated opaque dispatch job IDs', async () => {
     await enqueueGenerationDispatchKick(DISPATCH_ID_A)
