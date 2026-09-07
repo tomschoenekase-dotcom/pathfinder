@@ -129,6 +129,33 @@ for (const viewport of [
   })
 }
 
+test('a failed turn stays readable without collapsing short-phone conversation space', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 360 })
+  await page.goto(
+    '/dev-fixtures/visitor-chat?mode=classic&state=error&conversation=long&motion=reduced&theme=forest&accent=%23245A4A',
+  )
+  await hideFrameworkDevChrome(page)
+
+  const log = page.getByRole('log')
+  const alert = log.getByRole('alert')
+  const composer = page.getByRole('textbox')
+  await expect(alert).toContainText('The test response could not be loaded.')
+  await expect(composer).toBeVisible()
+
+  const logBounds = await log.boundingBox()
+  const composerBounds = await composer.boundingBox()
+  expect(logBounds).not.toBeNull()
+  expect(composerBounds).not.toBeNull()
+  expect(logBounds!.height).toBeGreaterThanOrEqual(80)
+  expect(composerBounds!.y + composerBounds!.height).toBeLessThanOrEqual(361)
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveEvidence(page, testInfo, 'chat-error-short-320')
+})
+
 test('chat theme and accent stay scoped to chat variables', async ({ page }) => {
   for (const [theme, accent] of [
     ['forest', '#245A4A'],

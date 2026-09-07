@@ -105,7 +105,9 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('The guide could not respond.')
+    expect(alert.closest('[role="log"]')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
 
@@ -224,6 +226,20 @@ describe('ChatWindow accessibility and motion behavior', () => {
         isLoading={false}
       />,
     )
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('brings a newly reported failure into view while following the latest turn', () => {
+    const props = {
+      messages: [{ role: 'assistant' as const, content: 'Earlier answer.' }],
+      onSend: vi.fn(),
+      isLoading: false,
+    }
+    const view = render(<ChatWindow {...props} />)
+    scrollTo.mockClear()
+
+    view.rerender(<ChatWindow {...props} errorMessage="The guide could not respond." />)
 
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
   })

@@ -131,7 +131,7 @@ export function ChatWindow({
         behavior: 'auto',
       })
     }
-  }, [isLoading, messages])
+  }, [errorMessage, isLoading, messages])
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && shouldRestoreComposerFocusRef.current) {
@@ -251,6 +251,25 @@ export function ChatWindow({
         ) : null}
 
         {isLoading && messages.at(-1)?.role !== 'assistant' ? <TypingIndicator /> : null}
+
+        {errorMessage ? (
+          <div
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-5 text-rose-700"
+            role="alert"
+          >
+            <p>{errorMessage}</p>
+            {onRetry ? (
+              <button
+                type="button"
+                disabled={isLoading || !isOnline}
+                onClick={onRetry}
+                className="mt-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
+              >
+                {retryLabel}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="sr-only" role="status" aria-atomic="true">
@@ -271,25 +290,6 @@ export function ChatWindow({
       </div>
 
       <div className={styles.composer}>
-        {errorMessage ? (
-          <div
-            className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
-            role="alert"
-          >
-            {errorMessage}
-            {onRetry ? (
-              <button
-                type="button"
-                disabled={isLoading || !isOnline}
-                onClick={onRetry}
-                className="ml-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
-              >
-                {retryLabel}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
         <div className={styles.composerField}>
           <label
             className="sr-only"
