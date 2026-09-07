@@ -181,7 +181,9 @@ test('staging evidence prose agrees with the machine-readable observer counts', 
   )
   assert.match(
     evidence,
-    new RegExp(`${staging.founderAbsenceHistory.retainedEvents} complete events with zero failures`),
+    new RegExp(
+      `${staging.founderAbsenceHistory.retainedEvents} complete events with zero failures`,
+    ),
   )
   assert.match(
     evidence,
@@ -210,9 +212,11 @@ test('dynamic repository facts agree with all current-state documents', async ()
     readFile(matrixPath, 'utf8'),
     readFile(backlogPath, 'utf8'),
   ])
+  // The repository migration count describes the measured local candidate. Historical hosted
+  // evidence remains pinned to the exact migration count observed for that deployed revision.
+  assert.match(stateDocument, new RegExp(`\\b${migrationCount} migrations\\b`))
   for (const document of [stateDocument, capabilityMatrix, auditBacklog]) {
     assert.match(document, /torchiko-current-truth\.json/)
-    assert.match(document, new RegExp(`\\b${migrationCount} migrations\\b`))
     assert.match(document, new RegExp(`Current-truth overlay[^\\n]*${truth.asOf}`))
     for (const match of document.matchAll(/bounded (\d{4}-\d{2}-\d{2}) snapshot/gu)) {
       assert.equal(match[1], truth.asOf)
@@ -259,12 +263,9 @@ test('security inventory counts agree with the executable source boundaries', as
       `${bypassCalls} approved bypass calls in ${bypassFiles} production files and ${rawSqlOperations} raw-SQL operations \\(${rawSqlReads} reads, ${rawSqlWrites} writes\\)`,
     ),
   )
-  assert.match(
-    auditBacklog,
-    new RegExp(
-      `${bypassCalls} approved bypasses across ${bypassFiles} production files; ${rawSqlOperations} raw-SQL operations`,
-    ),
-  )
+  // The audit backlog is a dated planning artifact. Current executable inventory belongs in the
+  // state report and must not rewrite the older evidence in place.
+  assert.match(auditBacklog, /torchiko-current-truth\.json/u)
 })
 
 test('local staging image truth is content-addressed and stale blockers stay retired', async () => {

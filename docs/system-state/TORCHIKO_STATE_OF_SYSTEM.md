@@ -1,12 +1,12 @@
 # Torchiko State of System
 
-| Snapshot field             | Value                                                                                                                                                                                           |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current-truth overlay      | 2026-09-02, America/Chicago                                                                                                                                                                     |
-| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                               |
-| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                             |
-| Current release evidence   | Exact active Railway staging release `a3e66de5...`; three Git-identified services; 207/207 migrations; 232 public tables; hosted profile 19/19; admissions closed; production untouched         |
-| Confidence                 | High for integrated code-supported behavior and the bounded exact staging snapshot; medium/unknown for production, provider-backed quality, customer contact, real billing, recovery, and usage |
+| Snapshot field             | Value                                                                                                                                                                                                                |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current-truth overlay      | 2026-09-02, America/Chicago                                                                                                                                                                                          |
+| Machine-readable authority | [`torchiko-current-truth.json`](./torchiko-current-truth.json), verified by `scripts/current-truth-docs.test.mjs`                                                                                                    |
+| Historical audit baseline  | 2026-08-19 on `codex/torchiko-cloud-staging-20260819` at `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b`                                                                                                                  |
+| Current release evidence   | Local candidate `be3052fd...`: 214 migrations and 238 public tables measured on disposable PostgreSQL. Hosted staging remains `a3e66de5...` at 207/207 migrations and 232 tables; no newer deployment was performed. |
+| Confidence                 | High for integrated code-supported behavior and the bounded exact staging snapshot; medium/unknown for production, provider-backed quality, customer contact, real billing, recovery, and usage                      |
 
 ## Current Truth Overlay
 
@@ -75,7 +75,7 @@ The highest immediate value is no longer creating the first provider-dark golden
 | Kind        | Bottleneck                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Operational | Provider-dark lifecycle evidence exists; the equivalent hosted/provider-backed lifecycle and current deployment parity remain unproven.           |
-| Technical   | Two content/deployment generations coexist, and 377 approved tenant-isolation bypass calls plus 111 raw-SQL operations increase review burden.    |
+| Technical   | Two content/deployment generations coexist, and 398 approved tenant-isolation bypass calls plus 120 raw-SQL operations increase review burden.    |
 | Product     | Clients intentionally have narrow configuration; CRM, billing, and communication foundations exist but external operation remains tightly gated.  |
 | UX          | Provider-backed chat/voice quality, authenticated hosted mobile workflows, and the final owner/legal privacy text remain unproven.                |
 | Scale       | Human review, onboarding, package approval, support, and exception handling still concentrate in a sophisticated but operator-heavy admin system. |
@@ -84,7 +84,7 @@ The highest immediate value is no longer creating the first provider-dark golden
 
 No earlier `docs/system-state/TORCHIKO_STATE_OF_SYSTEM.md` existed, so this is the baseline. Relative to older architecture and packet documents, the current working tree materially adds product entitlements, provider-neutral capability routing, realtime voice foundations, conversation insights, operational events, knowledge-change proposals, Location V1, message feedback, broader agent-question types, and multimodal/voice usage rollups. These additions are uncommitted at audit time and must not be described as deployed.
 
-Architecturally, the repository has moved from a venue CRUD/chat application toward immutable content revisions and manifests, native releases, durable job dispatch, evaluations, persistent agents, and a unified operations attention console. The older `Place`/`VenueKnowledgeEntry` and `VenuePackage` paths remain active compatibility systems. No regression was found by the automated suite, but the working tree is a large integration surface (61 tracked files changed plus many untracked files and migrations), so a clean review/commit boundary is still needed.
+Architecturally, the repository has moved from a venue CRUD/chat application toward immutable content revisions and manifests, native releases, durable job dispatch, evaluations, persistent agents, and a unified operations attention console. The older `Place`/`VenueKnowledgeEntry` and `VenuePackage` paths remain active compatibility systems. The current measured local candidate is rooted at `be3052fd`, including legacy-knowledge adoption at `977ee025`; that evidence does not make it the deployed staging release.
 
 ## System Map
 
@@ -117,7 +117,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 207 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 214 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -126,7 +126,7 @@ The repo contains 13 workspaces, 757 production source files, 565 test files, 73
 
 ### Public surfaces
 
-The canonical allowlist is `packages/api/src/testing/public-surface-manifest.json`: 18 public tRPC procedures, 18 HTTP route modules, and 10 dashboard public API path groups. Public tRPC covers health, venue lookup, chat, analytics collection, public-interest intake, feedback, location resolution, widget availability, and voice lifecycle. Clerk/Stripe/Resend/Gmail webhooks, agent and MCP bridges, separately authenticated platform-worker routes, web/dashboard tRPC, health, and widget readiness are the significant HTTP surfaces.
+The canonical allowlist is `packages/api/src/testing/public-surface-manifest.json`: 19 public tRPC procedures, 21 HTTP route modules, and 10 dashboard public API path groups. Public tRPC covers health, venue lookup, chat, analytics collection, public-interest intake, feedback, location resolution, widget availability, and voice lifecycle. Clerk/Stripe/Resend/Gmail webhooks, agent and MCP bridges, separately authenticated platform-worker routes, web/dashboard tRPC, health, and widget readiness are the significant HTTP surfaces.
 
 ## Product Surface Inventory
 
@@ -252,6 +252,8 @@ Local staging is a well-supported Docker-based environment. During the audit, Po
 
 Railway has separate dashboard, web, and worker configurations plus Dockerfiles and executable staging-config gates. The bounded 2026-09-02 snapshot proves that all three staging services are `SUCCESS`/`RUNNING` on exact Git revision `a3e66de5a1231aca6df5d150ca7bcd81831dd784`; guarded pre-deploy rechecked the complete 207/207 ledger against 232 public tables. The exact hosted profile passed 19/19, strict topology admitted every immutable image digest, the single-use migration admission returned to `0`, and production was not selected or mutated. Railway's separate web pre-deploy runtime requires the exact non-secret approval as a service variable rather than relying on image-only `ENV`; the verifier and runbook enforce that topology. A root Railway/Nixpacks configuration still coexists with the proven service-specific path and must not be removed until every remaining consumer or recovery use is ruled out. See [`TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md`](./TORCHIKO_STAGING_CURRENT_TRUTH_2026-09-01.md).
 
+The newer local candidate at `be3052fd` has a frozen 214-migration manifest ending at `20260907021400_add_legacy_knowledge_adoption`. A fresh disposable PostgreSQL deployment measured 214 completed ledger rows and 238 public tables, then verified cleanup. This is local release-candidate evidence only: no Railway service, hosted database, or production environment was changed, and the 207/232 hosted snapshot remains the latest observed deployment evidence.
+
 Supabase provides the PostgreSQL target. A password-prompted logical backup script pins PostgreSQL/pgvector client versions, requires SSL, refuses overwrite, uses a consistent snapshot, verifies `pg_restore --list`, and emits a hash/manifest. Older retained documentation records a successful archive and local restore rehearsal. It also records that the Supabase Free plan had no scheduled backups or PITR at that time. Current provider backup settings and a recent restore drill remain unknown.
 
 CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migration, integration, bundle-secret, accessibility, type, lint, test, and build gates. Exact local release candidates run a 27-gate assessment and can be projected as immutable platform evidence. Candidate-branch GitHub Actions run `33540059467` and staging-branch run `33543975717` both completed successfully for the exact active staging revision. Local compose pins all five service images by SHA-256 digest; tag text is retained only as human-readable context.
@@ -260,7 +262,7 @@ CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migratio
 
 Clerk supplies user and organization identity. `publicProcedure`, authenticated/tenant procedures, and platform-admin procedures provide backend boundaries; non-admin users cannot access internal routes merely by knowing URLs. Platform impersonation/tenant override is accepted only for platform admins and is cookie-scoped. Public guest routes revalidate venue, experience, visibility, and anonymous-session scope rather than trusting the browser.
 
-Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The current executable inventories contain 377 approved bypass calls in 129 production files and 111 raw-SQL operations (41 reads, 70 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap. Current-truth tests derive these counts from the same boundary verifiers so future drift fails the script suite.
+Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The current executable inventories contain 398 approved bypass calls in 133 production files and 120 raw-SQL operations (47 reads, 73 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap. Current-truth tests derive these counts from the same boundary verifiers so future drift fails the script suite.
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
 
