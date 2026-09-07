@@ -19,6 +19,7 @@ import {
   TerminalRedrivePostMutationAuditError,
 } from './terminal-redrive-cli'
 
+const testEnv = { NODE_ENV: 'test' } as const
 const writeAuditLog = vi.fn()
 const loadEvidence = vi.fn()
 const queue = { name: 'staging--weekly-report', getJob: vi.fn() }
@@ -81,7 +82,9 @@ describe('parseTerminalRedriveArgs', () => {
   const baseArgs = ['--actor-id', 'operator_1', '--queue', queue.name, '--job-id', 'job_1']
 
   it('defaults to preview in staging', () => {
-    expect(parseTerminalRedriveArgs(baseArgs, { RAILWAY_ENVIRONMENT: 'staging' })).toEqual({
+    expect(
+      parseTerminalRedriveArgs(baseArgs, { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' }),
+    ).toEqual({
       actorId: 'operator_1',
       queueName: queue.name,
       bullJobId: 'job_1',
@@ -93,13 +96,14 @@ describe('parseTerminalRedriveArgs', () => {
     expect(() =>
       parseTerminalRedriveArgs(
         [...baseArgs, '--execute', 'true', '--confirm', preview.confirmationToken],
-        { RAILWAY_ENVIRONMENT: 'staging' },
+        { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' },
       ),
     ).toThrow(/PATHFINDER_ALLOW_TERMINAL_REDRIVE/u)
     expect(
       parseTerminalRedriveArgs(
         [...baseArgs, '--execute', 'true', '--confirm', preview.confirmationToken],
         {
+          ...testEnv,
           RAILWAY_ENVIRONMENT: 'staging',
           PATHFINDER_ALLOW_TERMINAL_REDRIVE: 'staging-terminal-redrive',
         },
@@ -108,13 +112,21 @@ describe('parseTerminalRedriveArgs', () => {
   })
 
   it.each([
-    ['production environment', baseArgs, { RAILWAY_ENVIRONMENT: 'production' }],
-    ['unknown flag', [...baseArgs, '--force', 'true'], { RAILWAY_ENVIRONMENT: 'staging' }],
-    ['duplicate flag', [...baseArgs, '--job-id', 'job_2'], { RAILWAY_ENVIRONMENT: 'staging' }],
+    ['production environment', baseArgs, { ...testEnv, RAILWAY_ENVIRONMENT: 'production' }],
+    [
+      'unknown flag',
+      [...baseArgs, '--force', 'true'],
+      { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' },
+    ],
+    [
+      'duplicate flag',
+      [...baseArgs, '--job-id', 'job_2'],
+      { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' },
+    ],
     [
       'confirmation in preview',
       [...baseArgs, '--confirm', 'token'],
-      { RAILWAY_ENVIRONMENT: 'staging' },
+      { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' },
     ],
   ])('refuses %s', (_label, args, environment) => {
     expect(() => parseTerminalRedriveArgs(args, environment)).toThrow()
@@ -133,7 +145,7 @@ describe('runTerminalRedriveCommand', () => {
           bullJobId: 'job_1',
           execute: false,
         },
-        { RAILWAY_ENVIRONMENT: 'staging' },
+        { ...testEnv, RAILWAY_ENVIRONMENT: 'staging' },
         dependencies,
       ),
     ).resolves.toEqual({ mode: 'preview', ...preview })
@@ -151,6 +163,7 @@ describe('runTerminalRedriveCommand', () => {
         confirmationToken: preview.confirmationToken,
       },
       {
+        ...testEnv,
         RAILWAY_ENVIRONMENT: 'staging',
         PATHFINDER_ALLOW_TERMINAL_REDRIVE: 'staging-terminal-redrive',
       },
@@ -183,6 +196,7 @@ describe('runTerminalRedriveCommand', () => {
           confirmationToken: preview.confirmationToken,
         },
         {
+          ...testEnv,
           RAILWAY_ENVIRONMENT: 'staging',
           PATHFINDER_ALLOW_TERMINAL_REDRIVE: 'staging-terminal-redrive',
         },
@@ -204,6 +218,7 @@ describe('runTerminalRedriveCommand', () => {
           confirmationToken: preview.confirmationToken,
         },
         {
+          ...testEnv,
           RAILWAY_ENVIRONMENT: 'staging',
           PATHFINDER_ALLOW_TERMINAL_REDRIVE: 'staging-terminal-redrive',
         },
