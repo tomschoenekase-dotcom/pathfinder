@@ -177,6 +177,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 16px;
   min-height: 44px;
   font-size: 10px;
@@ -184,6 +185,13 @@
 }
 .guidance {
   position: relative;
+}
+.guidance[open] {
+  display: contents;
+}
+.guidance[open] p {
+  flex-basis: 100%;
+  order: 1;
 }
 .guidance summary {
   display: flex;
@@ -226,20 +234,45 @@
   }
 }
 .guidance p {
-  position: absolute;
-  z-index: 30;
-  inset-inline-end: 0;
-  bottom: 44px;
-  width: min(260px, calc(100vw - 40px));
-  padding: 16px;
+  margin: 0 0 8px;
+  padding: 12px 0 0;
   border: 1px solid var(--chat-border);
-  border-radius: 14px;
-  background: var(--chat-card);
-  box-shadow: 0 8px 32px rgb(0 0 0 / 12%);
+  border-width: 1px 0 0;
   color: var(--chat-text);
   font-size: 12px;
   line-height: 1.6;
   text-align: start;
+}
+@media (max-width: 420px) {
+  .character {
+    padding-top: 8px;
+  }
+  .welcome {
+    padding-block: 16px 12px;
+  }
+  .welcome p {
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+}
+@media (max-width: 420px) and (max-height: 640px) {
+  .conversation:has(.welcome) {
+    padding-top: 8px;
+  }
+  .conversation:has(.welcome) .welcome {
+    padding-block: 10px 6px;
+  }
+  .conversation:has(.welcome) .welcome h2 {
+    font-size: 1.65rem;
+  }
+  .conversation:has(.welcome) .welcome p {
+    margin-top: 8px;
+    line-height: 1.45;
+  }
+  .conversation:has(.welcome) .prompt {
+    min-height: 48px;
+    padding-block: 6px;
+  }
 }
 @media (min-width: 640px) {
   .headerInner {
