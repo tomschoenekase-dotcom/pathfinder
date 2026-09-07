@@ -10,11 +10,43 @@ import {
   scanProspectDuplicatesAction,
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
+  ProspectActionError,
 } from './prospect-actions'
+import { prospectSha256 } from './prospect-normalization'
 
 const actor = { type: 'HUMAN' as const, id: 'operator', role: 'PLATFORM_ADMIN' as const }
 
 describe('prospect action safety boundaries', () => {
+  it('reconciles an exact committed conversion after the losing transaction detects its duplicate', async () => {
+    const operationId = '11111111-1111-4111-8111-111111111111'
+    const submissionId = 'submission-concurrent'
+    const reason = 'Concurrent exact replay proof.'
+    const replay = {
+      operationId,
+      operationHash: prospectSha256({ submissionId, reason }),
+      organization: { id: 'organization-1' },
+      venue: { id: 'venue-1' },
+      contact: { id: 'contact-1' },
+    }
+    const client = {
+      $transaction: vi
+        .fn()
+        .mockRejectedValue(
+          new ProspectActionError('CONFLICT', 'A possible matching prospect already exists'),
+        ),
+      publicInterestProspectConversion: {
+        findUnique: vi.fn().mockResolvedValue(replay),
+      },
+    }
+
+    await expect(
+      convertPublicInterestToProspectAction(
+        { operationId, submissionId, reason, actor },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true, conversion: replay })
+  })
+
   it('rejects non-human or non-platform actors before database access', async () => {
     await expect(
       createProspectAction({

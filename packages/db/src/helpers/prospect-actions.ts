@@ -446,7 +446,9 @@ export async function convertPublicInterestToProspectAction(
   try {
     return await run()
   } catch (error) {
-    if ((error as { code?: string }).code !== 'P2002') throw error
+    const isUniqueConflict = (error as { code?: string }).code === 'P2002'
+    const isProspectConflict = error instanceof ProspectActionError && error.code === 'CONFLICT'
+    if (!isUniqueConflict && !isProspectConflict) throw error
     const replay = await client.publicInterestProspectConversion.findUnique({
       where: { operationId: input.operationId },
       include: { organization: true, venue: true, contact: true },
@@ -460,6 +462,7 @@ export async function convertPublicInterestToProspectAction(
         replayed: true,
       }
     }
+    if (!isUniqueConflict) throw error
     throw new ProspectActionError(
       'CONFLICT',
       replay ? 'Operation id was already used' : 'This submission has already been converted',
