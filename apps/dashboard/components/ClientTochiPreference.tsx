@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function ClientTochiPreference({
   initialEnabled,
@@ -14,20 +14,35 @@ export function ClientTochiPreference({
   const [enabled, setEnabled] = useState(initialEnabled)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const saveInFlightRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => setEnabled(initialEnabled), [initialEnabled])
 
   async function save(nextEnabled: boolean) {
+    if (saveInFlightRef.current) return
+    saveInFlightRef.current = true
     setSaving(true)
     setMessage(null)
     try {
       await onChange(nextEnabled)
-      setEnabled(nextEnabled)
-      setMessage(nextEnabled ? 'Tochi assistance is on.' : 'Tochi assistance is off.')
+      if (mountedRef.current) {
+        setEnabled(nextEnabled)
+        setMessage(nextEnabled ? 'Tochi assistance is on.' : 'Tochi assistance is off.')
+      }
     } catch {
-      setMessage('That preference was not saved. Please try again.')
+      if (mountedRef.current)
+        setMessage('That preference could not be confirmed. Reload and try again.')
     } finally {
-      setSaving(false)
+      saveInFlightRef.current = false
+      if (mountedRef.current) setSaving(false)
     }
   }
 

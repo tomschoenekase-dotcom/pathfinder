@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ClientTochiPreference } from './ClientTochiPreference'
@@ -43,7 +43,28 @@ describe('ClientTochiPreference', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Off' }))
-    expect(await screen.findByText(/preference was not saved/u)).toBeTruthy()
+    expect(await screen.findByText(/could not be confirmed/u)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'On' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('does not submit duplicate saves from same-tick activation', async () => {
+    let resolve: (() => void) | undefined
+    const onChange = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    render(<ClientTochiPreference initialEnabled available onChange={onChange} />)
+
+    const off = screen.getByRole('button', { name: 'Off' })
+    act(() => {
+      off.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      off.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onChange).toHaveBeenCalledOnce()
+    resolve?.()
+    expect(await screen.findByText('Tochi assistance is off.')).toBeTruthy()
   })
 })

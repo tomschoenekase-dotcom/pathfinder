@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -22,13 +22,23 @@ const trpcClient = vi.hoisted(() => ({
     setPreference: { mutate: mocks.setPreference },
   },
 }))
+const secondTrpcClient = vi.hoisted(() => ({
+  clientAssistant: {
+    bootstrap: { query: vi.fn() },
+    opened: { mutate: vi.fn() },
+    send: { mutate: vi.fn() },
+    confirmHandoff: { mutate: vi.fn() },
+    setPreference: { mutate: vi.fn() },
+  },
+}))
+const currentClient = vi.hoisted(() => ({ value: trpcClient }))
 
 vi.mock('../lib/browser-uuid', () => ({
   browserUuid: () => '11111111-1111-4111-8111-111111111111',
 }))
 vi.mock('next/navigation', () => ({ usePathname: () => '/' }))
 vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => trpcClient,
+  useTRPCClient: () => currentClient.value,
 }))
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -52,6 +62,7 @@ const bootstrap = {
 describe('ClientTochiWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    currentClient.value = trpcClient
     mocks.bootstrap.mockResolvedValue(bootstrap)
     mocks.opened.mockResolvedValue({ ok: true })
   })
@@ -180,6 +191,80 @@ describe('ClientTochiWorkspace', () => {
     view.unmount()
 
     expect(signal.aborted).toBe(true)
+  })
+
+  it('does not submit the previous venue while a replacement client bootstrap waits', async () => {
+    let resolveNext: ((value: typeof bootstrap) => void) | undefined
+    mocks.bootstrap.mockResolvedValueOnce(bootstrap)
+    secondTrpcClient.clientAssistant.bootstrap.query.mockReturnValueOnce(
+      new Promise<typeof bootstrap>((resolve) => {
+        resolveNext = resolve
+      }),
+    )
+    const view = render(<ClientTochiPreferenceWorkspace />)
+    await screen.findByRole('button', { name: 'Off' })
+
+    currentClient.value = secondTrpcClient
+    view.rerender(<ClientTochiPreferenceWorkspace />)
+    expect(screen.queryByRole('button', { name: 'Off' })).toBeNull()
+    expect(secondTrpcClient.clientAssistant.setPreference.mutate).not.toHaveBeenCalled()
+
+    resolveNext?.({ ...bootstrap, selectedVenueId: 'venue-2' })
+    await screen.findByRole('button', { name: 'Off' })
+    expect(secondTrpcClient.clientAssistant.setPreference.mutate).not.toHaveBeenCalled()
+  })
+
+  it('cannot let an old save overwrite the replacement client state', async () => {
+    let resolveSave:
+      | ((value: { enabled: boolean; minimized: boolean; revision: number }) => void)
+      | undefined
+    mocks.bootstrap.mockResolvedValueOnce(bootstrap)
+    mocks.setPreference.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      }),
+    )
+    secondTrpcClient.clientAssistant.bootstrap.query.mockResolvedValueOnce({
+      ...bootstrap,
+      selectedVenueId: 'venue-2',
+      preference: { enabled: true, minimized: true, revision: 8 },
+    })
+    const view = render(<ClientTochiPreferenceWorkspace />)
+    await screen.findByRole('button', { name: 'Off' })
+    fireEvent.click(screen.getByRole('button', { name: 'Off' }))
+
+    currentClient.value = secondTrpcClient
+    view.rerender(<ClientTochiPreferenceWorkspace />)
+    await screen.findByRole('button', { name: 'On' })
+    await act(async () => resolveSave?.({ enabled: false, minimized: false, revision: 3 }))
+    expect(screen.getByRole('button', { name: 'On' }).getAttribute('aria-pressed')).toBe('true')
+    expect(secondTrpcClient.clientAssistant.setPreference.mutate).not.toHaveBeenCalled()
+    secondTrpcClient.clientAssistant.setPreference.mutate.mockResolvedValueOnce({
+      enabled: false,
+      minimized: true,
+      revision: 9,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Off' }))
+    await screen.findByText('Tochi assistance is off.')
+    expect(secondTrpcClient.clientAssistant.setPreference.mutate).toHaveBeenCalledWith({
+      venueId: 'venue-2',
+      enabled: false,
+      minimized: true,
+      expectedRevision: 8,
+    })
+  })
+
+  it('loads and confirms preference saves through StrictMode effect replay', async () => {
+    mocks.setPreference.mockResolvedValueOnce({ enabled: false, minimized: false, revision: 3 })
+    render(
+      <React.StrictMode>
+        <ClientTochiPreferenceWorkspace />
+      </React.StrictMode>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Off' }))
+    expect(await screen.findByText('Tochi assistance is off.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Off' }).getAttribute('aria-pressed')).toBe('true')
+    expect(mocks.setPreference).toHaveBeenCalledOnce()
   })
 
   it('honors and persists the compact minimized preference without disabling Tochi', async () => {
