@@ -131,9 +131,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 209-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 214-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 234)
+  assert.equal(EXPECTED.finalPublicTableCount, 238)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -170,8 +170,22 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     rolled_back_at: null,
     logs: null,
   }))
-  assert.equal(ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), 'campaign-predecessor')
-  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), ['20260907000000_add_intake_submission_drafts', '20260907010000_add_character_factory_jobs'])
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
+    'campaign-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
+    [
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
+    ],
+  )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -242,6 +256,11 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(
@@ -264,6 +283,11 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(
@@ -284,6 +308,11 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(
@@ -303,6 +332,11 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(
@@ -321,6 +355,11 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(
@@ -334,16 +373,40 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), [
     '20260901020000_support_tenant_wide_ai_accounting',
+    '20260907000000_add_intake_submission_drafts',
+    '20260907010000_add_character_factory_jobs',
+    '20260907021000_add_universal_content_search_projection',
+    '20260907021100_add_semantic_universal_content_handoff',
+    '20260907021200_add_media_provider_operations',
+    '20260907021300_add_venue_chat_derivative_bindings',
+    '20260907021400_add_legacy_knowledge_adoption',
+  ])
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
+    'campaign-predecessor',
+  )
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
+    [
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
-  ])
-  assert.equal(ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), 'campaign-predecessor')
-  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), ['20260907000000_add_intake_submission_drafts', '20260907010000_add_character_factory_jobs'])
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
+    ],
+  )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
@@ -509,6 +572,11 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260901020000_support_tenant_wide_ai_accounting',
       '20260907000000_add_intake_submission_drafts',
       '20260907010000_add_character_factory_jobs',
+      '20260907021000_add_universal_content_search_projection',
+      '20260907021100_add_semantic_universal_content_handoff',
+      '20260907021200_add_media_provider_operations',
+      '20260907021300_add_venue_chat_derivative_bindings',
+      '20260907021400_add_legacy_knowledge_adoption',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -578,8 +646,13 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260829231500_enable_pdf_file_extraction',
     '20260830165000_add_prospect_inbound_reply_reviews',
     '20260901020000_support_tenant_wide_ai_accounting',
-      '20260907000000_add_intake_submission_drafts',
-      '20260907010000_add_character_factory_jobs',
+    '20260907000000_add_intake_submission_drafts',
+    '20260907010000_add_character_factory_jobs',
+    '20260907021000_add_universal_content_search_projection',
+    '20260907021100_add_semantic_universal_content_handoff',
+    '20260907021200_add_media_provider_operations',
+    '20260907021300_add_venue_chat_derivative_bindings',
+    '20260907021400_add_legacy_knowledge_adoption',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

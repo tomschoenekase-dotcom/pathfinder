@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-209-20260907',
+  approval: 'torchiko-staging-lineage-to-214-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 209,
+  migrationCount: 214,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -71,10 +71,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907010000_add_character_factory_jobs',
-  manifestHash: '9e5aeb128552dca3e597cb8bf8bcb0cb9e2bf49a518f47a644ec1dda03d23bff',
-  // The 67-migration suffix after B.5 adds 40 public tables.
-  finalPublicTableCount: 234,
+  finalMigration: '20260907021400_add_legacy_knowledge_adoption',
+  manifestHash: '0f3eaf8ad3b6da5323907a05f3188503da2cb9efd3c9e8e1c2f7049247475ea0',
+  // The 73-migration suffix after B.5 adds 45 public tables.
+  finalPublicTableCount: 238,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -262,7 +262,10 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.hostedReleaseCount - 1] !== EXPECTED.hostedReleaseFinalMigration) {
     fail('hosted release boundary changed')
   }
-  if (manifest.names[EXPECTED.campaignPredecessorCount - 1] !== EXPECTED.campaignPredecessorFinalMigration) {
+  if (
+    manifest.names[EXPECTED.campaignPredecessorCount - 1] !==
+    EXPECTED.campaignPredecessorFinalMigration
+  ) {
     fail('campaign predecessor migration changed')
   }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
