@@ -139,7 +139,12 @@ describe('venue package V3 content effects', () => {
       }),
     )
     expect(db.venueKnowledgeEntry.deleteMany).toHaveBeenCalledWith({
-      where: { id: 'knowledge-2', tenantId: 'tenant-1', venueId: 'venue-1' },
+      where: {
+        id: 'knowledge-2',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        contentModuleId: null,
+      },
     })
     expect(record).toHaveBeenCalledWith({
       itemKey: 'place-create',

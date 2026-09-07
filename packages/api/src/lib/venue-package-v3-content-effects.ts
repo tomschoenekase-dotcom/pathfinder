@@ -93,7 +93,11 @@ export async function applyVenuePackageV3ContentEffects(input: {
   for (const operation of input.payload.places.update) {
     await input.establishContext(operation.itemKey, operation.provenance)
     const changed = await input.db.place.updateMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      where: {
+        id: operation.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+      },
       data: { ...operation.value, ...provenanceFor(operation.provenance) },
     })
     if (changed.count !== 1) input.conflict('Place changed during package application')
@@ -107,7 +111,11 @@ export async function applyVenuePackageV3ContentEffects(input: {
   for (const operation of input.payload.places.delete) {
     await input.establishContext(operation.itemKey, operation.provenance)
     const changed = await input.db.place.deleteMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      where: {
+        id: operation.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+      },
     })
     if (changed.count !== 1) input.conflict('Place changed during package application')
     await input.record({
@@ -139,7 +147,12 @@ export async function applyVenuePackageV3ContentEffects(input: {
   for (const operation of input.payload.knowledgeEntries.update) {
     await input.establishContext(operation.itemKey, operation.provenance)
     const changed = await input.db.venueKnowledgeEntry.updateMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      where: {
+        id: operation.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        contentModuleId: null,
+      },
       data: { ...operation.value, ...provenanceFor(operation.provenance) },
     })
     if (changed.count !== 1) input.conflict('Knowledge entry changed during package application')
@@ -153,7 +166,12 @@ export async function applyVenuePackageV3ContentEffects(input: {
   for (const operation of input.payload.knowledgeEntries.delete) {
     await input.establishContext(operation.itemKey, operation.provenance)
     const changed = await input.db.venueKnowledgeEntry.deleteMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      where: {
+        id: operation.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        contentModuleId: null,
+      },
     })
     if (changed.count !== 1) input.conflict('Knowledge entry changed during package application')
     await input.record({

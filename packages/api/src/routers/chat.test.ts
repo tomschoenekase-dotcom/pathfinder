@@ -940,7 +940,7 @@ describe('chat router', () => {
       )
     })
 
-    it('continues chat without generalized content when bounded head resolution fails', async () => {
+    it('does not bulk-load generalized content outside query-relevant retrieval', async () => {
       setupHappyPath('The core venue context is still available.')
       vi.stubEnv('GENERALIZED_CONTENT_CAPABILITIES_ENABLED', 'true')
       resolvePublishedUniversalContent.mockRejectedValueOnce(
@@ -951,19 +951,11 @@ describe('chat router', () => {
         response: 'The core venue context is still available.',
       })
 
-      expect(resolvePublishedUniversalContent).toHaveBeenCalledWith({
-        db: mockDb,
-        tenantId: TENANT_ID,
-        venueId: VENUE_ID,
-        maximumModules: 50,
-      })
+      expect(resolvePublishedUniversalContent).not.toHaveBeenCalled()
       expect(getConcatenatedSystemPrompt()).not.toContain('private publication resolver detail')
-      expect(configLogger.warn).toHaveBeenCalledWith({
-        action: 'guest-chat.published-content-unavailable',
-        tenantId: TENANT_ID,
-        venueId: VENUE_ID,
-        errorName: 'Error',
-      })
+      expect(configLogger.warn).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'guest-chat.published-content-unavailable' }),
+      )
     })
 
     it('links retried embedding and generation receipts to their terminal successful usage events', async () => {

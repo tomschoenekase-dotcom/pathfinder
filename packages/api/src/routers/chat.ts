@@ -24,7 +24,6 @@ import {
   isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
-  resolveEffectivePublishedUniversalContent,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   skipGuestChatProviderOperationAction,
@@ -34,6 +33,7 @@ import {
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
   resolveNativeGuestReadSnapshotAction,
+  type EffectivePublishedUniversalContent,
   type GuestChatFallbackCode,
 } from '@pathfinder/db'
 
@@ -941,6 +941,7 @@ const chatReadRouter = router({
           venueId: input.venueId,
           tenantId: venue.tenantId,
           includeSecondLayer,
+          asOf: operationalNow,
           semanticSearch: () =>
             searchKnowledgeByEmbedding({
               queryEmbedding,
@@ -948,6 +949,7 @@ const chatReadRouter = router({
               tenantId: venue.tenantId,
               limit: KNOWLEDGE_ENTRIES_LIMIT,
               includeSecondLayer,
+              asOf: operationalNow,
             }),
         }),
       ])
@@ -967,6 +969,7 @@ const chatReadRouter = router({
           venueId: input.venueId,
           tenantId: venue.tenantId,
           includeSecondLayer,
+          asOf: operationalNow,
         })
       ).entries
       const fallbackPlaces = await ctx.db.place.findMany({
@@ -1098,22 +1101,9 @@ const chatReadRouter = router({
     const allowAiInventedQuestion = engagementGatePassed && engagementMode === 'CURIOUS'
 
     const promptAssemblyStartedAt = performance.now()
-    const publishedUniversalContent = isFeatureEnabled('generalizedContentCapabilities')
-      ? await resolveEffectivePublishedUniversalContent({
-          db: ctx.db,
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-          maximumModules: 50,
-        }).catch((error: unknown) => {
-          logger.warn({
-            action: 'guest-chat.published-content-unavailable',
-            tenantId: venue.tenantId,
-            venueId: input.venueId,
-            errorName: error instanceof Error ? error.name : 'UnknownError',
-          })
-          return []
-        })
-      : []
+    // Published universal content is materialized into the scoped knowledge search index.
+    // Avoid injecting every module into the prompt; only query-relevant projections belong here.
+    const publishedUniversalContent: EffectivePublishedUniversalContent[] = []
     const customPersonality = CustomPersonalityBoundsSchema.safeParse({
       warmth: (venue.customWarmth ?? -1) / 100,
       brevity: (venue.customBrevity ?? -1) / 100,

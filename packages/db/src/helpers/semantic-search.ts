@@ -107,6 +107,9 @@ export type SemanticKnowledgeEntry = {
   sourceName: string | null
   sourceUrl: string | null
   distance: number
+  contentModuleId?: string | null
+  contentRevisionId?: string | null
+  contentPublicationId?: string | null
 }
 
 type RawKnowledgeRow = {
@@ -118,6 +121,9 @@ type RawKnowledgeRow = {
   source_name: string | null
   source_url: string | null
   distance: number
+  content_module_id: string | null
+  content_revision_id: string | null
+  content_publication_id: string | null
 }
 
 export type SemanticCompanyKnowledge = {
@@ -309,6 +315,7 @@ export async function searchKnowledgeByEmbedding(params: {
   tenantId: string
   limit?: number
   includeSecondLayer?: boolean
+  asOf?: Date
 }): Promise<SemanticKnowledgeEntry[]> {
   const {
     queryEmbedding,
@@ -316,6 +323,7 @@ export async function searchKnowledgeByEmbedding(params: {
     tenantId,
     limit = KNOWLEDGE_DEFAULT_LIMIT,
     includeSecondLayer = false,
+    asOf = new Date(),
   } = params
 
   const vectorStr = `[${queryEmbedding.join(',')}]`
@@ -323,21 +331,54 @@ export async function searchKnowledgeByEmbedding(params: {
 
   const rows = await db.$queryRaw<RawKnowledgeRow[]>`
     SELECT
-      id,
-      title,
-      category,
-      content,
-      source_type,
-      source_name,
-      source_url,
-      embedding <=> ${vectorStr}::vector AS distance
-    FROM venue_knowledge_entries
-    WHERE venue_id   = ${venueId}
-      AND tenant_id  = ${tenantId}
-      AND is_enabled = true
-      AND (${includeSecondLayer} = true OR visibility = 'PUBLIC')
-      AND embedding  IS NOT NULL
-    ORDER BY embedding <=> ${vectorStr}::vector
+      entry.id,
+      entry.title,
+      entry.category,
+      entry.content,
+      entry.source_type,
+      entry.source_name,
+      entry.source_url,
+      entry.content_module_id,
+      entry.content_revision_id,
+      entry.content_publication_id,
+      entry.embedding <=> ${vectorStr}::vector AS distance
+    FROM venue_knowledge_entries entry
+    LEFT JOIN content_module_revisions revision
+      ON revision.id = entry.content_revision_id
+     AND revision.tenant_id = entry.tenant_id
+     AND revision.venue_id = entry.venue_id
+    LEFT JOIN operational_fact_content operational_fact
+      ON operational_fact.revision_id = revision.id
+     AND operational_fact.tenant_id = revision.tenant_id
+     AND operational_fact.venue_id = revision.venue_id
+    LEFT JOIN content_module_publications publication
+      ON publication.id = entry.content_publication_id
+     AND publication.tenant_id = entry.tenant_id
+     AND publication.venue_id = entry.venue_id
+    WHERE entry.venue_id   = ${venueId}
+      AND entry.tenant_id  = ${tenantId}
+      AND entry.is_enabled = true
+      AND (${includeSecondLayer} = true OR entry.visibility = 'PUBLIC')
+      AND entry.embedding  IS NOT NULL
+      AND (
+        entry.content_module_id IS NULL OR (
+          publication.action = 'PUBLISH'::"ContentModulePublicationAction"
+          AND publication.revision_id = revision.id
+          AND revision.audience = 'PUBLIC'::"NormalizedContentAudience"
+          AND (revision.effective_from IS NULL OR revision.effective_from <= ${asOf})
+          AND (revision.effective_until IS NULL OR revision.effective_until > ${asOf})
+          AND (revision.kind <> 'OPERATIONAL_FACT'::"NormalizedContentModuleKind"
+               OR operational_fact.expires_at IS NULL OR operational_fact.expires_at > ${asOf})
+          AND NOT EXISTS (
+            SELECT 1 FROM content_module_publications newer
+             WHERE newer.tenant_id = entry.tenant_id
+               AND newer.venue_id = entry.venue_id
+               AND newer.module_id = entry.content_module_id
+               AND newer.event_order > publication.event_order
+          )
+        )
+      )
+    ORDER BY entry.embedding <=> ${vectorStr}::vector
     LIMIT ${limitSafe}
   `
 
@@ -350,6 +391,9 @@ export async function searchKnowledgeByEmbedding(params: {
     sourceName: row.source_name,
     sourceUrl: row.source_url,
     distance: Number(row.distance),
+    contentModuleId: row.content_module_id,
+    contentRevisionId: row.content_revision_id,
+    contentPublicationId: row.content_publication_id,
   }))
 }
 

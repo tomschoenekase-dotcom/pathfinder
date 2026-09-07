@@ -49,7 +49,10 @@ function matches(row: FixtureRow, where: Record<string, unknown>): boolean {
     return false
   if (where.visibility && row.visibility !== where.visibility) return false
   const matchesOr = (items: Record<string, unknown>[]) =>
-    items.some((item) => contains(row, item as Record<string, { contains: string }>))
+    items.some((item) => {
+      if ('contentModuleId' in item) return row.contentModuleId == null
+      return contains(row, item as Record<string, { contains: string }>)
+    })
   if (
     Array.isArray(where.AND) &&
     !where.AND.every((group) => matchesOr((group as { OR: Record<string, unknown>[] }).OR))

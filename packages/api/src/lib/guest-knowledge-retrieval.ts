@@ -74,6 +74,18 @@ export type GuestKnowledgeRow = {
   sourceUrl: string | null
   updatedAt: Date
   lastReviewedAt: Date | null
+  contentModuleId?: string | null
+  contentRevisionId?: string | null
+  contentPublicationId?: string | null
+  contentRevision?: {
+    effectiveFrom: Date | null
+    effectiveUntil: Date | null
+    operationalFact: { expiresAt: Date | null } | null
+  } | null
+  contentPublication?: {
+    eventOrder: bigint
+    module: { publications: Array<{ id: string; eventOrder: bigint }> }
+  } | null
 }
 
 export type GuestKnowledgeRetrievalTrace = {
@@ -85,6 +97,14 @@ export type GuestKnowledgeRetrievalTrace = {
   limits: { strict: number; broad: number; result: number }
   partialCoverage: boolean
   truncatedSourceIds: string[]
+  publicationAuthority: Array<{
+    id: string
+    moduleId: string
+    revisionId: string
+    publicationId: string
+    effectiveFrom: string | null
+    effectiveUntil: string | null
+  }>
   retrievalMs: number
 }
 
@@ -189,6 +209,30 @@ function selectShape() {
     sourceUrl: true,
     updatedAt: true,
     lastReviewedAt: true,
+    contentModuleId: true,
+    contentRevisionId: true,
+    contentPublicationId: true,
+    contentRevision: {
+      select: {
+        effectiveFrom: true,
+        effectiveUntil: true,
+        operationalFact: { select: { expiresAt: true } },
+      },
+    },
+    contentPublication: {
+      select: {
+        eventOrder: true,
+        module: {
+          select: {
+            publications: {
+              select: { id: true, eventOrder: true },
+              orderBy: { eventOrder: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    },
   }
 }
 
@@ -216,22 +260,50 @@ export async function retrieveGuestKnowledge(params: {
     includeSecondLayer: boolean
   }) => Promise<SemanticKnowledgeEntry[]>
   now?: () => number
+  asOf?: Date
 }): Promise<{ entries: SemanticKnowledgeEntry[]; trace: GuestKnowledgeRetrievalTrace }> {
   const reader = params.reader as GuestKnowledgeReader
   const started = (params.now ?? performance.now.bind(performance))()
   const concepts = termsForQuery(params.query)
+  const asOf = params.asOf ?? new Date()
+  const publicationAuthority = {
+    OR: [
+      { contentModuleId: null },
+      {
+        contentPublication: { action: 'PUBLISH' },
+        contentRevision: {
+          audience: 'PUBLIC',
+          AND: [
+            { OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: asOf } }] },
+            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: asOf } }] },
+            {
+              OR: [
+                { kind: { not: 'OPERATIONAL_FACT' } },
+                { operationalFact: { expiresAt: null } },
+                { operationalFact: { expiresAt: { gt: asOf } } },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  }
   const scope = {
     tenantId: params.tenantId,
     venueId: params.venueId,
     isEnabled: true,
     ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
+    AND: [publicationAuthority],
   }
   const strictWhere = concepts.length
     ? {
         ...scope,
-        AND: concepts.map((group) => ({
-          OR: group.map(textClause).flatMap((clause) => clause.OR),
-        })),
+        AND: [
+          publicationAuthority,
+          ...concepts.map((group) => ({
+            OR: group.map(textClause).flatMap((clause) => clause.OR),
+          })),
+        ],
       }
     : scope
   const broadWhere = concepts.length
@@ -263,9 +335,18 @@ export async function retrieveGuestKnowledge(params: {
           .catch(() => [])
       : Promise.resolve([]),
   ])
-  const scoredLexical = [
-    ...new Map([...strict, ...broad].map((row) => [row.id, row])).values(),
-  ].map((row) => ({ row, score: lexicalScore(row, concepts) }))
+  const hasCurrentPublicationAuthority = (row: GuestKnowledgeRow) => {
+    if (!row.contentModuleId) return true
+    const latest = row.contentPublication?.module.publications[0]
+    return Boolean(
+      latest &&
+      latest.id === row.contentPublicationId &&
+      latest.eventOrder === row.contentPublication?.eventOrder,
+    )
+  }
+  const scoredLexical = [...new Map([...strict, ...broad].map((row) => [row.id, row])).values()]
+    .filter(hasCurrentPublicationAuthority)
+    .map((row) => ({ row, score: lexicalScore(row, concepts) }))
   const policyExcludedIds = scoredLexical.filter(({ score }) => score <= 0).map(({ row }) => row.id)
   const lexical = scoredLexical
     .filter(({ score }) => score > 0)
@@ -326,6 +407,21 @@ export async function retrieveGuestKnowledge(params: {
         broad.length === BROAD_LIMIT ||
         truncatedSourceIds.length > 0,
       truncatedSourceIds,
+      publicationAuthority: entries.flatMap((entry) => {
+        const row = lexical.find((candidate) => candidate.row.id === entry.id)?.row
+        return row?.contentModuleId && row.contentRevisionId && row.contentPublicationId
+          ? [
+              {
+                id: row.id,
+                moduleId: row.contentModuleId,
+                revisionId: row.contentRevisionId,
+                publicationId: row.contentPublicationId,
+                effectiveFrom: row.contentRevision?.effectiveFrom?.toISOString() ?? null,
+                effectiveUntil: row.contentRevision?.effectiveUntil?.toISOString() ?? null,
+              },
+            ]
+          : []
+      }),
       retrievalMs: Math.max(0, (params.now ?? performance.now.bind(performance))() - started),
     },
   }
