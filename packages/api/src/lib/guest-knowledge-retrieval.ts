@@ -3,6 +3,7 @@ import type { SemanticKnowledgeEntry } from '@pathfinder/db'
 const STRICT_LIMIT = 20
 const BROAD_LIMIT = 60
 const RESULT_LIMIT = 5
+const MAX_RESULT_CONTENT_CHARS = 4_000
 
 const STOP_WORDS = new Set([
   'a',
@@ -83,6 +84,7 @@ export type GuestKnowledgeRetrievalTrace = {
   candidateCounts: { strict: number; broad: number; semantic: number }
   limits: { strict: number; broad: number; result: number }
   partialCoverage: boolean
+  truncatedSourceIds: string[]
   retrievalMs: number
 }
 
@@ -116,10 +118,64 @@ function lexicalScore(row: GuestKnowledgeRow, concepts: string[][]): number {
     else if (concept.some((term) => category.includes(term))) score += 5
     else if (concept.some((term) => content.includes(term))) score += 2
   }
-  if (/\b(current|latest|effective|approved)\b/.test(`${title} ${category}`)) score += 3
-  if (/\b(stale|superseded|archived|obsolete|expired)\b/.test(`${title} ${category}`)) score -= 20
   const reviewed = row.lastReviewedAt?.getTime() ?? 0
   return score + Math.min(1, reviewed / 10 ** 15)
+}
+
+function normalizedWithOriginalOffsets(value: string) {
+  let text = ''
+  const offsets: number[] = []
+  let originalOffset = 0
+  for (const character of value) {
+    const normalizedCharacter = normalize(character)
+    text += normalizedCharacter
+    for (let index = 0; index < normalizedCharacter.length; index += 1) {
+      offsets.push(originalOffset)
+    }
+    originalOffset += character.length
+  }
+  offsets.push(value.length)
+  return { text, offsets }
+}
+
+function boundedRelevantContent(content: string, concepts: string[][]): string {
+  if (content.length <= MAX_RESULT_CONTENT_CHARS) return content
+  const normalizedContent = normalizedWithOriginalOffsets(content)
+  const matches = concepts
+    .flat()
+    .map((term) => {
+      const index = normalizedContent.text.indexOf(term)
+      if (index < 0) return null
+      let occurrences = 0
+      let cursor = index
+      while (cursor >= 0) {
+        occurrences += 1
+        cursor = normalizedContent.text.indexOf(term, cursor + term.length)
+      }
+      return { index: normalizedContent.offsets[index]!, occurrences, termLength: term.length }
+    })
+    .filter((match): match is { index: number; occurrences: number; termLength: number } =>
+      Boolean(match),
+    )
+  if (matches.length === 0) {
+    const marker = '\n...[source excerpt]...\n'
+    const available = MAX_RESULT_CONTENT_CHARS - marker.length
+    const head = Math.ceil(available / 2)
+    return `${content.slice(0, head)}${marker}${content.slice(-(available - head))}`
+  }
+  const center = [...matches].sort(
+    (a, b) => a.occurrences - b.occurrences || b.termLength - a.termLength || a.index - b.index,
+  )[0]!.index
+  const leadingMarker = '...[source excerpt]...\n'
+  const trailingMarker = '\n...[source excerpt]...'
+  const hasLeadingMarker = center > Math.floor(MAX_RESULT_CONTENT_CHARS / 3)
+  const start = hasLeadingMarker ? center - Math.floor(MAX_RESULT_CONTENT_CHARS / 3) : 0
+  const prefix = start > 0 ? leadingMarker : ''
+  const availableAfterPrefix = MAX_RESULT_CONTENT_CHARS - prefix.length
+  const provisionalEnd = Math.min(content.length, start + availableAfterPrefix)
+  const suffix = provisionalEnd < content.length ? trailingMarker : ''
+  const end = Math.min(content.length, start + availableAfterPrefix - suffix.length)
+  return `${prefix}${content.slice(start, end)}${suffix}`
 }
 
 function selectShape() {
@@ -153,7 +209,12 @@ export async function retrieveGuestKnowledge(params: {
   venueId: string
   includeSecondLayer: boolean
   queryEmbedding: number[] | null
-  semanticSearch?: () => Promise<SemanticKnowledgeEntry[]>
+  /** Must apply this exact tenant, venue, and visibility scope before returning candidates. */
+  semanticSearch?: (scope: {
+    tenantId: string
+    venueId: string
+    includeSecondLayer: boolean
+  }) => Promise<SemanticKnowledgeEntry[]>
   now?: () => number
 }): Promise<{ entries: SemanticKnowledgeEntry[]; trace: GuestKnowledgeRetrievalTrace }> {
   const reader = params.reader as GuestKnowledgeReader
@@ -193,7 +254,13 @@ export async function retrieveGuestKnowledge(params: {
       take: BROAD_LIMIT,
     }),
     params.queryEmbedding && params.semanticSearch
-      ? params.semanticSearch().catch(() => [])
+      ? params
+          .semanticSearch({
+            tenantId: params.tenantId,
+            venueId: params.venueId,
+            includeSecondLayer: params.includeSecondLayer,
+          })
+          .catch(() => [])
       : Promise.resolve([]),
   ])
   const scoredLexical = [
@@ -211,14 +278,32 @@ export async function retrieveGuestKnowledge(params: {
   const merged = new Map<string, SemanticKnowledgeEntry>()
   const policyExcluded = new Set(policyExcludedIds)
   for (const entry of semantic) {
-    if (!policyExcluded.has(entry.id)) merged.set(entry.id, entry)
+    if (!policyExcluded.has(entry.id)) {
+      merged.set(entry.id, {
+        ...entry,
+        content: boundedRelevantContent(entry.content, concepts),
+      })
+    }
   }
   for (const { row, score } of lexical) {
-    if (!merged.has(row.id)) merged.set(row.id, { ...row, distance: Math.max(0, 1 - score / 40) })
+    if (!merged.has(row.id)) {
+      merged.set(row.id, {
+        ...row,
+        content: boundedRelevantContent(row.content, concepts),
+        distance: Math.max(0, 1 - score / 40),
+      })
+    }
   }
   const candidates = [...merged.values()]
   const entries = candidates.slice(0, RESULT_LIMIT)
   const lexicalVersions = new Map(lexical.map(({ row }) => [row.id, row.updatedAt.toISOString()]))
+  const originalContent = new Map([
+    ...semantic.map((entry) => [entry.id, entry.content] as const),
+    ...lexical.map(({ row }) => [row.id, row.content] as const),
+  ])
+  const truncatedSourceIds = entries
+    .filter((entry) => originalContent.get(entry.id) !== entry.content)
+    .map((entry) => entry.id)
   return {
     entries,
     trace: {
@@ -236,7 +321,11 @@ export async function retrieveGuestKnowledge(params: {
       ],
       candidateCounts: { strict: strict.length, broad: broad.length, semantic: semantic.length },
       limits: { strict: STRICT_LIMIT, broad: BROAD_LIMIT, result: RESULT_LIMIT },
-      partialCoverage: strict.length === STRICT_LIMIT || broad.length === BROAD_LIMIT,
+      partialCoverage:
+        strict.length === STRICT_LIMIT ||
+        broad.length === BROAD_LIMIT ||
+        truncatedSourceIds.length > 0,
+      truncatedSourceIds,
       retrievalMs: Math.max(0, (params.now ?? performance.now.bind(performance))() - started),
     },
   }

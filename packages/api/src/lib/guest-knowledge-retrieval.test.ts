@@ -64,7 +64,7 @@ describe('retrieveGuestKnowledge', () => {
     }
   })
 
-  it('ranks current public policy above stale text and never requests internal rows', async () => {
+  it('retains conflicting public records because title words are not governed lifecycle state', async () => {
     const current = row(
       'photos-current',
       'Current approved photography policy',
@@ -88,8 +88,8 @@ describe('retrieveGuestKnowledge', () => {
       includeSecondLayer: false,
       queryEmbedding: null,
     })
-    expect(result.entries.map(({ id }) => id)).toEqual(['photos-current'])
-    expect(result.trace.excludedSourceIds).toContain('photos-stale')
+    expect(result.entries.map(({ id }) => id)).toEqual(['photos-stale', 'photos-current'])
+    expect(result.trace.excludedSourceIds).not.toContain('photos-stale')
     expect(findMany.mock.calls.every(([args]) => args.where.visibility === 'PUBLIC')).toBe(true)
   })
 
@@ -113,20 +113,18 @@ describe('retrieveGuestKnowledge', () => {
   it('merges semantic results through the same production function and preserves its bounded result', async () => {
     const lexical = row('lexical', 'Current hours', 'Open until 5 PM.')
     const findMany = vi.fn().mockResolvedValueOnce([lexical]).mockResolvedValueOnce([lexical])
-    const semanticSearch = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          id: 'semantic',
-          title: 'Hours',
-          category: 'hours',
-          content: 'Open until 5 PM.',
-          sourceType: 'WEBSITE',
-          sourceName: null,
-          sourceUrl: null,
-          distance: 0.1,
-        },
-      ])
+    const semanticSearch = vi.fn().mockResolvedValue([
+      {
+        id: 'semantic',
+        title: 'Hours',
+        category: 'hours',
+        content: 'Open until 5 PM.',
+        sourceType: 'WEBSITE',
+        sourceName: null,
+        sourceUrl: null,
+        distance: 0.1,
+      },
+    ])
     const result = await retrieveGuestKnowledge({
       reader: { venueKnowledgeEntry: { findMany } },
       query: 'When do you close?',
