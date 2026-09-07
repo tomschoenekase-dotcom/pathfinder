@@ -97,7 +97,11 @@
     "repository:index": "node scripts/generate-repository-index.mjs",
     "repository:index:verify": "node scripts/generate-repository-index.mjs --check",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:v2-journey:disposable": "node scripts/run-disposable-v2-customer-journey.mjs",
+    "staging:admit": "node scripts/admit-staging-release.mjs",
+    "test:character-factory:disposable": "node scripts/run-disposable-character-factory.mjs",
+    "test:character-artifact-storage:disposable": "node scripts/run-disposable-character-artifact-storage.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,json,md}": [

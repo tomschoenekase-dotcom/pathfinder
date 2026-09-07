@@ -5,15 +5,18 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 import { reportOperatorCliFailure } from './lib/operator-cli-failure.mjs'
-import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
+import {
+  assertStagingMigrationAdmission,
+  assertStagingReleaseIdentity,
+} from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-207-20260901',
+  approval: 'torchiko-staging-lineage-to-209-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 207,
+  migrationCount: 209,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -46,6 +49,9 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompletePublicTableCount: 227,
   replyReviewPredecessorCount: 205,
   replyReviewPredecessorPublicTableCount: 231,
+  campaignPredecessorCount: 207,
+  campaignPredecessorPublicTableCount: 232,
+  campaignPredecessorFinalMigration: '20260901020000_support_tenant_wide_ai_accounting',
   hostedReleaseCount: 206,
   hostedReleasePublicTableCount: 232,
   firstMigration: '001_identity_foundation',
@@ -65,10 +71,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260901020000_support_tenant_wide_ai_accounting',
-  manifestHash: '3c4a0f73e9bc5c40a5b1c32cd7b86a4446c1442269d9df87385dbba0dd23b21a',
-  // The reviewed 66-migration suffix after B.5 adds 39 public tables.
-  finalPublicTableCount: 232,
+  finalMigration: '20260907010000_add_character_factory_jobs',
+  manifestHash: '9e5aeb128552dca3e597cb8bf8bcb0cb9e2bf49a518f47a644ec1dda03d23bff',
+  // The 67-migration suffix after B.5 adds 40 public tables.
+  finalPublicTableCount: 234,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -108,7 +114,7 @@ function validatedUrl(raw, label) {
   return parsed
 }
 
-export function assertApprovedTarget(environment) {
+export function assertApprovedTarget(environment, { requireMigrationApproval = true } = {}) {
   if (environment.RAILWAY_ENVIRONMENT !== 'staging') fail('environment label is not staging')
   if (environment.RAILWAY_ENVIRONMENT_ID !== EXPECTED.environmentId) {
     fail('Railway environment identity mismatch')
@@ -119,7 +125,10 @@ export function assertApprovedTarget(environment) {
   if (environment.DATABASE_RESOURCE_ID !== EXPECTED.databaseResourceId) {
     fail('database resource identity mismatch')
   }
-  if (environment.PATHFINDER_STAGING_MIGRATION_APPROVAL !== EXPECTED.approval) {
+  if (
+    requireMigrationApproval &&
+    environment.PATHFINDER_STAGING_MIGRATION_APPROVAL !== EXPECTED.approval
+  ) {
     fail('exact migration approval token is missing')
   }
 
@@ -128,6 +137,19 @@ export function assertApprovedTarget(environment) {
   if (pooled.hostname !== direct.hostname || pooled.port !== direct.port) {
     fail('pooled and direct URLs do not identify the same staging host')
   }
+}
+
+/** A read-only current-schema check is distinct from authority to change the schema. */
+export function assertStagingSchemaReadAdmission(environment) {
+  assertApprovedTarget(environment, { requireMigrationApproval: false })
+  return { releaseSha: assertStagingReleaseIdentity(environment) }
+}
+
+export function admitPendingStagingMigrations(environment, initialState) {
+  assertStagingSchemaReadAdmission(environment)
+  if (initialState === 'complete') return null
+  assertApprovedTarget(environment)
+  return assertStagingMigrationAdmission(environment)
 }
 
 export async function readMigrationManifest(prismaDirectory) {
@@ -240,6 +262,9 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.hostedReleaseCount - 1] !== EXPECTED.hostedReleaseFinalMigration) {
     fail('hosted release boundary changed')
   }
+  if (manifest.names[EXPECTED.campaignPredecessorCount - 1] !== EXPECTED.campaignPredecessorFinalMigration) {
+    fail('campaign predecessor migration changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -261,6 +286,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.founderAbsenceCompleteCount &&
     rows.length !== EXPECTED.replyReviewPredecessorCount &&
     rows.length !== EXPECTED.hostedReleaseCount &&
+    rows.length !== EXPECTED.campaignPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -308,6 +334,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.founderAbsenceCompleteCount) return 'founder-absence-complete'
   if (rows.length === EXPECTED.replyReviewPredecessorCount) return 'reply-review-predecessor'
   if (rows.length === EXPECTED.hostedReleaseCount) return 'hosted-release'
+  if (rows.length === EXPECTED.campaignPredecessorCount) return 'campaign-predecessor'
   return 'complete'
 }
 
@@ -420,8 +447,7 @@ function runPrismaDeploy(cli, schema, environment) {
 }
 
 async function main() {
-  const admission = assertStagingMigrationAdmission(process.env)
-  assertApprovedTarget(process.env)
+  assertStagingSchemaReadAdmission(process.env)
   console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
@@ -434,7 +460,6 @@ async function main() {
   try {
     const initialLedger = await ledgerRows(database)
     const initialState = ledgerState(initialLedger, manifest)
-    assertBackupEvidenceMatchesLedger(admission, initialLedger)
     await assertVerifiedBaselineSchema(database, initialLedger)
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
@@ -444,6 +469,9 @@ async function main() {
       )
       return
     }
+
+    const admission = admitPendingStagingMigrations(process.env, initialState)
+    assertBackupEvidenceMatchesLedger(admission, initialLedger)
 
     const beforeCounts = await publicTableCounts(database)
     const expectedInitialTableCount =
@@ -477,7 +505,9 @@ async function main() {
                                   ? EXPECTED.replyReviewPredecessorPublicTableCount
                                   : initialState === 'hosted-release'
                                     ? EXPECTED.hostedReleasePublicTableCount
-                                    : EXPECTED.stagingBaselinePublicTableCount
+                                    : initialState === 'campaign-predecessor'
+                                      ? EXPECTED.campaignPredecessorPublicTableCount
+                                      : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

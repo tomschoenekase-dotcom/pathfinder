@@ -29,12 +29,28 @@ jobs:
         with:
           node-version: 20.19.5
 
-      - name: Wait for and admit the exact Railway staging revision
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+
+      - name: Wait for exact three-service staging admission
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_READ_TOKEN }}
         run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "A staging-scoped Railway token is required for three-service readback."
+            exit 1
+          fi
+          pnpm dlx @railway/cli@5.45.10 link \
+            --project 8621111a-4ac8-4d88-9566-4627c8a02059 \
+            --environment a7a394fc-aa4e-4a45-bd3c-904419a67818 \
+            --service 9fec9bdb-1915-4bee-8213-f6c3d434baa1 --json > /dev/null
+          topology="$RUNNER_TEMP/torchiko-staging-topology.json"
           for attempt in {1..60}; do
-            if node scripts/verify-staging-health.mjs \
+            if pnpm dlx @railway/cli@5.45.10 status --json > "$topology" && \
+              pnpm staging:admit \
+              --topology-file "$topology" \
               --url https://staging-web-staging-bbeb.up.railway.app/api/health \
               --expected-revision "$RELEASE_SHA" \
               --confirm-environment staging \
@@ -49,5 +65,5 @@ jobs:
             sleep 15
           done
 
-          echo "Exact staging revision did not become healthy within 15 minutes."
+          echo "The exact web, dashboard and worker release did not pass admission in time."
           exit 1

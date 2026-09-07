@@ -229,12 +229,15 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-207-20260901`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-209-20260907`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
-Prisma. After the exact migration and hosted health pass, restore
-`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. A normal
-deployment with the closed value is expected to stop at pre-deploy and is not a second migration
-proof.
+Prisma when migrations are pending. After the exact migration and hosted health pass, restore
+`PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
+deployments with a complete exact ledger run read-only integrity checks with that gate closed;
+they do not require fresh migration permission or backup attestations. A pending suffix still
+requires every migration admission and preservation check before Prisma runs. The provider Git
+SHA may identify the release without a configured override; any configured override must agree.
+Local uploads still require the exact local-upload attestation.
 
 The frozen manifest identity is computed from LF-normalized migration text so it is stable across
 checkouts. Ledger verification separately accepts only the exact raw-byte checksum Prisma records
@@ -242,9 +245,19 @@ for the same checked-in file, the normalized checksum, or an explicitly frozen h
 exception. This distinction preserves exact ledger verification when a reviewed migration is stored
 with CRLF bytes; it does not admit arbitrary checksum drift.
 
-The reviewed 206-migration state contains 232 public tables: the B.5 boundary contains 193 and the
-subsequent 64-migration suffix adds 38. The post-migration guard freezes that exact topology along
-with the ordered ledger, checksums, valid indexes, and validated constraints.
+The campaign's draft candidate contains 209 migrations and 234 public tables, including revisioned
+intake drafts. The prior 207-row/232-table boundary remains admitted as a predecessor, never as a
+complete candidate. The post-migration guard freezes the exact topology along with the ordered
+ledger, checksums, valid indexes, and validated constraints. These candidate expectations do not
+change historical hosted observations into evidence of a new deployment.
+
+The staging admission workflow now composes exact web/dashboard/worker topology, public health,
+and bounded runtime error/worker-identity checks through `scripts/admit-staging-release.mjs`.
+It requires `RAILWAY_STAGING_READ_TOKEN` in GitHub's secret store, scoped to the staging project;
+availability of that configuration must be verified through the authorized service interface.
+Missing access fails closed. The command grants no mutation or migration authority, and a healthy
+web response cannot admit a mismatched dashboard or worker. Founder-absence maturity remains a
+separate product-readiness assessment; release admission still rejects actual runtime errors.
 
 If staging contains valuable or difficult-to-reconstruct work, do not label it `synthetic-only`.
 Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remains blocked until the

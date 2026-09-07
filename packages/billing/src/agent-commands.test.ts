@@ -259,7 +259,7 @@ describe('approval-gated agent billing commands', () => {
     fixture.row().approvalRequest.scopeSnapshot = {
       tenantId: 'tenant-1',
       venueId: 'venue-1',
-      payload: { ...fixture.row().payload, expiresAt: '2027-01-01T00:00:00Z' },
+      payload: { ...fixture.row().payload, reason: 'Changed after human approval' },
     }
     await expect(fixture.invoke()).rejects.toThrow('does not match the exact command')
     expect(mocks.override).not.toHaveBeenCalled()

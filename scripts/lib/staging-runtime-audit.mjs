@@ -206,7 +206,8 @@ export function auditStagingRuntime(options, runRailway) {
   if (releaseAdmissions.some((row) => row.revision !== options.expectedRevision)) {
     fail('worker-release-identity-mismatch')
   }
-  if (retained.length === 0) fail('founder-absence-observation-missing')
+  if (retained.length === 0 && options.requireFounderAbsence !== false)
+    fail('founder-absence-observation-missing')
   if (
     retained.some(
       (row) =>

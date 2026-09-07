@@ -218,8 +218,8 @@ export function buildStagingHandoffManifest({
       requiredActions: [
         'Review and integrate this exact candidate into the local owner staging branch without pushing; resolve rolloutSafety.ownerIntegration.resultingRevision from the resulting owner HEAD and verify the candidate is its ancestor.',
         'Set PATHFINDER_RELEASE_SHA=<owner-staging-revision> on Railway web, dashboard, and workers with --skip-deploys before pushing the owner branch; it must match provider release metadata on every service and must not trigger a partial rollout.',
-        'Set the exact checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
-        'Set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before pushing the prepared owner revision; the pre-deploy migration rejects a closed or missing one-run gate.',
+        'If the exact ledger has pending migrations, set the checked-in PATHFINDER_STAGING_MIGRATION_APPROVAL as a Railway web service variable with --skip-deploys; image ENV alone does not reach pre-deploy.',
+        'Only when the exact ledger has pending migrations, set PATHFINDER_ALLOW_STAGING_MIGRATIONS=1 on Railway web with --skip-deploys immediately before pushing the prepared owner revision; a complete exact schema instead receives read-only integrity checks with the gate closed.',
         'If and only if provider Git metadata cannot be preserved and a reviewed local upload is required, set PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL to the exact checked-in admitted value on Railway web with --skip-deploys before upload, and use the exact per-service CLI messages in rolloutSafety.reviewedLocalUploadFallback.',
         'Push the prepared exact owner staging revision only after every required Railway variable is staged with --skip-deploys; require owner CI success before Railway releases waiting services, or use only the exact reviewed-local-upload fallback contract when provider Git metadata is unavailable. Railway must run the checked-in staging migration predeploy against preserved staging data before service startup.',
         'After successful migration, restore PATHFINDER_ALLOW_STAGING_MIGRATIONS=0 with --skip-deploys so closing the one-run gate does not replace the admitted active revision.',
@@ -232,7 +232,7 @@ export function buildStagingHandoffManifest({
       retainedGates: [
         'No production deployment or production migration is authorized by this manifest.',
         'No customer contact, live billing, pricing, legal commitment, or valuable-data destruction is authorized.',
-        'Current hosted staging is not admitted until its health endpoint reports the exact deployed revision.',
+        'Current hosted staging is not admitted until exact web/dashboard/worker topology, health, and bounded runtime checks all match the deployed revision.',
       ],
     },
   }

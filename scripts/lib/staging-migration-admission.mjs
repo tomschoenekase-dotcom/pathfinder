@@ -105,6 +105,31 @@ function preservedDataEvidence(environment, { releaseSha, resource }, now) {
   })
 }
 
+export function assertStagingReleaseIdentity(environment) {
+  const configured = environment.PATHFINDER_RELEASE_SHA?.trim().toLowerCase()
+  const provider = environment.RAILWAY_GIT_COMMIT_SHA?.trim().toLowerCase()
+  const releaseSha = provider || configured
+  if (
+    !releaseSha ||
+    !/^[a-f0-9]{40}$/u.test(releaseSha) ||
+    (configured && !/^[a-f0-9]{40}$/u.test(configured))
+  ) {
+    throw new Error('PATHFINDER_RELEASE_SHA or Railway identity must be a full Git commit SHA')
+  }
+  if (provider && configured && configured !== provider) {
+    throw new Error('PATHFINDER_RELEASE_SHA must equal the full Railway release commit SHA')
+  }
+  if (
+    !provider &&
+    environment.PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL !== STAGING_LOCAL_UPLOAD_APPROVAL
+  ) {
+    throw new Error(
+      'Local staging uploads require the exact one-time PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
+    )
+  }
+  return releaseSha
+}
+
 export function assertStagingMigrationAdmission(environment, now = new Date()) {
   if (environment.RAILWAY_ENVIRONMENT !== 'staging') {
     throw new Error('Staging migration requires RAILWAY_ENVIRONMENT=staging')
@@ -126,22 +151,7 @@ export function assertStagingMigrationAdmission(environment, now = new Date()) {
     throw new Error('Staging spend ceiling must be greater than 0 and no more than 10 USD')
   }
 
-  const releaseSha = required(environment, 'PATHFINDER_RELEASE_SHA').toLowerCase()
-  if (!/^[a-f0-9]{40}$/u.test(releaseSha)) {
-    throw new Error('PATHFINDER_RELEASE_SHA must be a full Git commit SHA')
-  }
-  const providerReleaseSha = environment.RAILWAY_GIT_COMMIT_SHA?.trim().toLowerCase()
-  if (providerReleaseSha) {
-    if (releaseSha !== providerReleaseSha) {
-      throw new Error('PATHFINDER_RELEASE_SHA must equal the full Railway release commit SHA')
-    }
-  } else if (
-    environment.PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL !== STAGING_LOCAL_UPLOAD_APPROVAL
-  ) {
-    throw new Error(
-      'Local staging uploads require the exact one-time PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
-    )
-  }
+  const releaseSha = assertStagingReleaseIdentity(environment)
 
   const resource = required(environment, 'PATHFINDER_STAGING_DATABASE_RESOURCE')
   const confirmedResource = required(environment, 'PATHFINDER_CONFIRM_STAGING_DATABASE_RESOURCE')

@@ -6,6 +6,8 @@ import {
   EXPECTED,
   VERIFIED_BASELINE_CHECKSUMS,
   assertApprovedTarget,
+  assertStagingSchemaReadAdmission,
+  admitPendingStagingMigrations,
   assertBackupEvidenceMatchesLedger,
   assertFrozenManifest,
   ledgerState,
@@ -22,6 +24,37 @@ const approved = {
   DATABASE_URL: 'postgresql://user:secret@pgvector.railway.internal:5432/pathfinder_staging',
   DIRECT_DATABASE_URL: 'postgresql://user:secret@pgvector.railway.internal:5432/pathfinder_staging',
 }
+
+test('code-only deployment reads exact current schema with migration gates closed', () => {
+  const environment = {
+    ...approved,
+    RAILWAY_GIT_COMMIT_SHA: 'a'.repeat(40),
+    PATHFINDER_ALLOW_STAGING_MIGRATIONS: '0',
+    PATHFINDER_STAGING_MIGRATION_APPROVAL: '',
+  }
+  assert.deepEqual(assertStagingSchemaReadAdmission(environment), { releaseSha: 'a'.repeat(40) })
+  assert.equal(admitPendingStagingMigrations(environment, 'complete'), null)
+  assert.throws(() => admitPendingStagingMigrations(environment, 'hosted-release'), /approval/u)
+  assert.throws(
+    () =>
+      assertStagingSchemaReadAdmission({ ...environment, RAILWAY_ENVIRONMENT_ID: 'production' }),
+    /identity mismatch/u,
+  )
+  assert.throws(
+    () =>
+      assertStagingSchemaReadAdmission({ ...environment, PATHFINDER_RELEASE_SHA: 'b'.repeat(40) }),
+    /must equal/u,
+  )
+  assert.throws(
+    () =>
+      assertStagingSchemaReadAdmission({
+        ...environment,
+        RAILWAY_GIT_COMMIT_SHA: '',
+        PATHFINDER_RELEASE_SHA: 'a'.repeat(40),
+      }),
+    /Local staging uploads/u,
+  )
+})
 
 test('accepts only the exact private Railway staging target', () => {
   assert.doesNotThrow(() => assertApprovedTarget(approved))
@@ -98,9 +131,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest remains frozen at the reviewed 207-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 209-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 232)
+  assert.equal(EXPECTED.finalPublicTableCount, 234)
   assert.equal(EXPECTED.hostedPredecessorCount, 195)
   assert.equal(EXPECTED.hostedPredecessorPublicTableCount, 221)
   assert.equal(EXPECTED.venueMediaPredecessorCount, 196)
@@ -137,6 +170,8 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     rolled_back_at: null,
     logs: null,
   }))
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), 'campaign-predecessor')
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), ['20260907000000_add_intake_submission_drafts', '20260907010000_add_character_factory_jobs'])
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -205,6 +240,8 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(
@@ -225,6 +262,8 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(
@@ -243,6 +282,8 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(
@@ -260,6 +301,8 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(
@@ -276,6 +319,8 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(
@@ -287,12 +332,18 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     [
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), [
     '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
   ])
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), 'campaign-predecessor')
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest), ['20260907000000_add_intake_submission_drafts', '20260907010000_add_character_factory_jobs'])
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
@@ -456,6 +507,8 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260829231500_enable_pdf_file_extraction',
       '20260830165000_add_prospect_inbound_reply_reviews',
       '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -525,6 +578,8 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260829231500_enable_pdf_file_extraction',
     '20260830165000_add_prospect_inbound_reply_reviews',
     '20260901020000_support_tenant_wide_ai_accounting',
+      '20260907000000_add_intake_submission_drafts',
+      '20260907010000_add_character_factory_jobs',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
