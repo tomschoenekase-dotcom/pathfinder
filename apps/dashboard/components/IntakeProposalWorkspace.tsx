@@ -10,7 +10,11 @@ import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
 import { IntakeProposalReview } from './IntakeProposalReview'
 import { IntakeBuilderLifecyclePanel } from './admin/IntakeBuilderLifecyclePanel'
-import { StaffInterviewCapture } from './StaffInterviewCapture'
+import { StaffInterviewCapture, type StaffInterviewDraft } from './StaffInterviewCapture'
+
+type WebsiteDraft = { kind: 'WEBSITE'; displayName: string; websiteUri: string }
+type NotesDraft = { kind: 'NOTES'; notes: string }
+type DraftContent = WebsiteDraft | NotesDraft | StaffInterviewDraft
 
 export type IntakeProposalSummary = {
   id: string
@@ -49,20 +53,28 @@ function WebsiteProposalCapture({
   clientFacing,
   onSubmit,
   onDirtyChange,
+  initialDraft,
+  onDraftChange,
 }: {
   disabled: boolean
   clientFacing: boolean
   onSubmit: (input: { displayName: string; websiteUri: string; requestId: string }) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
+  initialDraft?: WebsiteDraft
+  onDraftChange?: (draft: WebsiteDraft) => void
 }) {
-  const [displayName, setDisplayName] = useState('')
-  const [websiteUri, setWebsiteUri] = useState('')
+  const [displayName, setDisplayName] = useState(initialDraft?.displayName ?? '')
+  const [websiteUri, setWebsiteUri] = useState(initialDraft?.websiteUri ?? '')
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
   const dirty = Boolean(displayName || websiteUri)
 
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
-
+  useEffect(() => {
+    if (!initialDraft) return
+    setDisplayName(initialDraft.displayName)
+    setWebsiteUri(initialDraft.websiteUri)
+  }, [initialDraft])
   return (
     <form
       className="space-y-4"
@@ -70,6 +82,7 @@ function WebsiteProposalCapture({
         event.preventDefault()
         if (submittingRef.current) return
         submittingRef.current = true
+        onDraftChange?.({ kind: 'WEBSITE', displayName, websiteUri })
         void onSubmit({ displayName: displayName.trim(), websiteUri, requestId })
           .then(() => {
             setDisplayName('')
@@ -99,7 +112,9 @@ function WebsiteProposalCapture({
             maxLength={255}
             value={displayName}
             onChange={(event) => {
-              setDisplayName(event.target.value)
+              const next = event.target.value
+              setDisplayName(next)
+              onDraftChange?.({ kind: 'WEBSITE', displayName: next, websiteUri })
               setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3"
@@ -113,7 +128,9 @@ function WebsiteProposalCapture({
             maxLength={2000}
             value={websiteUri}
             onChange={(event) => {
-              setWebsiteUri(event.target.value)
+              const next = event.target.value
+              setWebsiteUri(next)
+              onDraftChange?.({ kind: 'WEBSITE', displayName, websiteUri: next })
               setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3"
@@ -142,19 +159,25 @@ function OptionalNotesCapture({
   clientFacing,
   onSubmit,
   onDirtyChange,
+  initialDraft,
+  onDraftChange,
 }: {
   disabled: boolean
   clientFacing: boolean
   onSubmit: (input: { notes: string; requestId: string }) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
+  initialDraft?: NotesDraft
+  onDraftChange?: (draft: NotesDraft) => void
 }) {
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(initialDraft?.notes ?? '')
   const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
   const dirty = Boolean(notes)
 
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
-
+  useEffect(() => {
+    if (initialDraft) setNotes(initialDraft.notes)
+  }, [initialDraft])
   return (
     <form
       className="space-y-4"
@@ -162,6 +185,7 @@ function OptionalNotesCapture({
         event.preventDefault()
         if (submittingRef.current) return
         submittingRef.current = true
+        onDraftChange?.({ kind: 'NOTES', notes })
         void onSubmit({ notes: notes.trim(), requestId })
           .then(() => {
             setNotes('')
@@ -190,7 +214,9 @@ function OptionalNotesCapture({
             value={notes}
             placeholder="For example: The east entrance is step-free, holiday hours vary, and visitors often ask where to park."
             onChange={(event) => {
-              setNotes(event.target.value)
+              const next = event.target.value
+              setNotes(next)
+              onDraftChange?.({ kind: 'NOTES', notes: next })
               setRequestId(browserUuid())
             }}
             className="mt-1 w-full rounded-xl border border-pf-light px-3 py-3 leading-6"
@@ -218,6 +244,7 @@ export function IntakeProposalWorkspace({
   adminTenantId?: string
 }) {
   const client = useTRPCClient()
+  const stableClient = useRef(client).current
   const router = useRouter()
   const clientFacing = !adminTenantId
   const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW' | 'NOTES'>('WEBSITE')
@@ -229,6 +256,19 @@ export function IntakeProposalWorkspace({
     NOTES: false,
   })
   const creatingRef = useRef(false)
+  const revisionsRef = useRef<Record<string, number>>({})
+  const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const writesRef = useRef<Record<string, Promise<number>>>({})
+  const scopeGenerationRef = useRef(0)
+  const latestDraftsRef = useRef<Partial<Record<'WEBSITE' | 'INTERVIEW' | 'NOTES', DraftContent>>>(
+    {},
+  )
+  const [savedDrafts, setSavedDrafts] = useState<
+    Partial<Record<'WEBSITE' | 'INTERVIEW' | 'NOTES', DraftContent>>
+  >({})
+  const [saveState, setSaveState] = useState<
+    'LOADING' | 'IDLE' | 'SAVING' | 'SAVED' | 'ERROR' | 'CONFLICT'
+  >(clientFacing ? 'LOADING' : 'IDLE')
   const hasUnfinishedDraft = Object.values(dirtySources).some(Boolean)
 
   const setDraftDirty = useCallback((draftSource: keyof typeof dirtySources, dirty: boolean) => {
@@ -259,6 +299,113 @@ export function IntakeProposalWorkspace({
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
   }, [hasUnfinishedDraft])
 
+  useEffect(() => {
+    if (!clientFacing) return
+    const scopeGeneration = ++scopeGenerationRef.current
+    Object.values(timersRef.current).forEach(clearTimeout)
+    timersRef.current = {}
+    writesRef.current = {}
+    revisionsRef.current = {}
+    latestDraftsRef.current = {}
+    setSavedDrafts({})
+    setSaveState('LOADING')
+    let active = true
+    void Promise.all(
+      (['WEBSITE', 'INTERVIEW', 'NOTES'] as const).map(async (sourceKind) => {
+        const draft = await stableClient.intake.getSubmissionDraft.query({ venueId, sourceKind })
+        return [sourceKind, draft] as const
+      }),
+    )
+      .then((results) => {
+        if (!active || scopeGenerationRef.current !== scopeGeneration) return
+        const contents: Partial<Record<'WEBSITE' | 'INTERVIEW' | 'NOTES', DraftContent>> = {}
+        for (const [sourceKind, draft] of results) {
+          if (draft && !draft.submittedAt) {
+            contents[sourceKind] = draft.content as DraftContent
+            revisionsRef.current[sourceKind] = draft.revision
+            latestDraftsRef.current[sourceKind] = draft.content as DraftContent
+          }
+        }
+        setSavedDrafts(contents)
+        setSaveState('IDLE')
+      })
+      .catch(() => {
+        if (active) setSaveState('ERROR')
+      })
+    return () => {
+      active = false
+    }
+  }, [clientFacing, stableClient, venueId])
+
+  const persistDraft = useCallback(
+    async (sourceKind: 'WEBSITE' | 'INTERVIEW' | 'NOTES', content: DraftContent) => {
+      const generation = scopeGenerationRef.current
+      const previous = writesRef.current[sourceKind]
+      const write = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(
+        async () => {
+          if (scopeGenerationRef.current !== generation) throw new Error('Draft scope changed')
+          setSaveState('SAVING')
+          try {
+            const saved = await stableClient.intake.saveSubmissionDraft.mutate({
+              venueId,
+              sourceKind,
+              content,
+              expectedRevision: revisionsRef.current[sourceKind] ?? 0,
+            })
+            if (scopeGenerationRef.current !== generation) throw new Error('Draft scope changed')
+            revisionsRef.current[sourceKind] = saved.revision
+            setSaveState('SAVED')
+            return saved.revision
+          } catch (error) {
+            if (scopeGenerationRef.current === generation)
+              setSaveState(
+                error instanceof Error && /changed|conflict/iu.test(error.message)
+                  ? 'CONFLICT'
+                  : 'ERROR',
+              )
+            throw error
+          }
+        },
+      )
+      writesRef.current[sourceKind] = write
+      return write
+    },
+    [stableClient, venueId],
+  )
+
+  const queueDraft = useCallback(
+    (sourceKind: 'WEBSITE' | 'INTERVIEW' | 'NOTES', content: DraftContent) => {
+      if (!clientFacing) return
+      latestDraftsRef.current[sourceKind] = content
+      clearTimeout(timersRef.current[sourceKind])
+      setSaveState('SAVING')
+      timersRef.current[sourceKind] = setTimeout(() => {
+        void persistDraft(sourceKind, content).catch(() => undefined)
+      }, 700)
+    },
+    [clientFacing, persistDraft],
+  )
+  const queueWebsiteDraft = useCallback(
+    (draft: WebsiteDraft) => queueDraft('WEBSITE', draft),
+    [queueDraft],
+  )
+  const queueInterviewDraft = useCallback(
+    (draft: StaffInterviewDraft) => queueDraft('INTERVIEW', draft),
+    [queueDraft],
+  )
+  const queueNotesDraft = useCallback(
+    (draft: NotesDraft) => queueDraft('NOTES', draft),
+    [queueDraft],
+  )
+
+  useEffect(
+    () => () => {
+      scopeGenerationRef.current += 1
+      Object.values(timersRef.current).forEach(clearTimeout)
+    },
+    [],
+  )
+
   async function create(
     proposal:
       | {
@@ -284,14 +431,27 @@ export function IntakeProposalWorkspace({
     setBusy(true)
     setMessage(null)
     try {
+      let draftRevision: number | undefined
+      if (clientFacing) {
+        clearTimeout(timersRef.current[proposal.kind])
+        const content = latestDraftsRef.current[proposal.kind]
+        if (content) draftRevision = await persistDraft(proposal.kind, content)
+      }
       if (adminTenantId) {
-        await client.admin.createIntakeProposal.mutate({
+        await stableClient.admin.createIntakeProposal.mutate({
           tenantId: adminTenantId,
           venueId,
           ...proposal,
         })
       } else {
-        await client.intake.createProposal.mutate({ venueId, ...proposal })
+        await stableClient.intake.createProposal.mutate({
+          venueId,
+          ...proposal,
+          ...(draftRevision !== undefined ? { draftRevision } : {}),
+        })
+        delete revisionsRef.current[proposal.kind]
+        delete latestDraftsRef.current[proposal.kind]
+        setSavedDrafts((current) => ({ ...current, [proposal.kind]: undefined }))
       }
       setMessage(
         clientFacing
@@ -357,15 +517,35 @@ export function IntakeProposalWorkspace({
           </div>
         </fieldset>
         <p className="mt-3 text-sm text-pf-deep/70" role="note">
-          Unfinished entries stay on this page while you switch options. They are not saved until
-          you share them, and your browser will warn before leaving this page.
+          {clientFacing
+            ? 'Your unfinished entries save privately as you type and resume on another signed-in device.'
+            : 'Unfinished entries stay on this page while you switch options.'}
         </p>
+        {clientFacing ? (
+          <p className="mt-2 text-sm text-pf-deep/70" role="status" aria-live="polite">
+            {saveState === 'LOADING'
+              ? 'Loading saved work…'
+              : saveState === 'SAVING'
+                ? 'Saving…'
+                : saveState === 'SAVED'
+                  ? 'Saved'
+                  : saveState === 'CONFLICT'
+                    ? 'This draft changed elsewhere. Reload before continuing.'
+                    : saveState === 'ERROR'
+                      ? 'Could not save. Your edits remain on this page; retry by editing again.'
+                      : ''}
+          </p>
+        ) : null}
         <div className="mt-4">
           <div hidden={source !== 'WEBSITE'}>
             <WebsiteProposalCapture
               disabled={busy}
               clientFacing={clientFacing}
               onDirtyChange={setWebsiteDirty}
+              {...(savedDrafts.WEBSITE
+                ? { initialDraft: savedDrafts.WEBSITE as WebsiteDraft }
+                : {})}
+              onDraftChange={queueWebsiteDraft}
               onSubmit={(input) => create({ kind: 'WEBSITE', ...input })}
             />
           </div>
@@ -374,6 +554,10 @@ export function IntakeProposalWorkspace({
               disabled={busy}
               clientFacing={clientFacing}
               onDirtyChange={setInterviewDirty}
+              {...(savedDrafts.INTERVIEW
+                ? { initialDraft: savedDrafts.INTERVIEW as StaffInterviewDraft }
+                : {})}
+              onDraftChange={queueInterviewDraft}
               onSubmit={(input) => create({ kind: 'INTERVIEW', ...input })}
             />
           </div>
@@ -382,6 +566,8 @@ export function IntakeProposalWorkspace({
               disabled={busy}
               clientFacing={clientFacing}
               onDirtyChange={setNotesDirty}
+              {...(savedDrafts.NOTES ? { initialDraft: savedDrafts.NOTES as NotesDraft } : {})}
+              onDraftChange={queueNotesDraft}
               onSubmit={(input) => create({ kind: 'NOTES', ...input })}
             />
           </div>

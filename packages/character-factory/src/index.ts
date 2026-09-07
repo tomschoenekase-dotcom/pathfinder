@@ -1,4 +1,5 @@
 export * from './compatibility'
+export * from './artifact'
 export * from './engine'
 export * from './rigs'
 export * from './types'

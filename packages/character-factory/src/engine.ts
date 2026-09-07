@@ -1,11 +1,17 @@
 import { inspectImportedSkin } from './compatibility'
+import {
+  createCharacterExportArtifact,
+  fingerprintFactoryRequest,
+  sanitizeImportedSource,
+} from './artifact'
 import type { CharacterSpec, FactoryJobRequest, FactoryJobResult } from './types'
 
 export interface CharacterFactoryStore {
   getCharacter(id: string): Promise<CharacterSpec | undefined>
-  putCharacter(spec: CharacterSpec): Promise<void>
+  createCharacter(spec: CharacterSpec): Promise<boolean>
+  compareAndSwapCharacter(spec: CharacterSpec, expectedRevision: number): Promise<boolean>
   getResult(requestId: string): Promise<FactoryJobResult | undefined>
-  putResult(result: FactoryJobResult): Promise<void>
+  putResultIfAbsent(result: FactoryJobResult): Promise<FactoryJobResult>
 }
 
 export class MemoryCharacterFactoryStore implements CharacterFactoryStore {
@@ -14,14 +20,24 @@ export class MemoryCharacterFactoryStore implements CharacterFactoryStore {
   async getCharacter(id: string) {
     return this.characters.get(id)
   }
-  async putCharacter(spec: CharacterSpec) {
+  async createCharacter(spec: CharacterSpec) {
+    if (this.characters.has(spec.characterId)) return false
     this.characters.set(spec.characterId, spec)
+    return true
+  }
+  async compareAndSwapCharacter(spec: CharacterSpec, expectedRevision: number) {
+    if (this.characters.get(spec.characterId)?.revision !== expectedRevision) return false
+    this.characters.set(spec.characterId, spec)
+    return true
   }
   async getResult(id: string) {
     return this.results.get(id)
   }
-  async putResult(result: FactoryJobResult) {
+  async putResultIfAbsent(result: FactoryJobResult) {
+    const existing = this.results.get(result.requestId)
+    if (existing) return existing
     this.results.set(result.requestId, result)
+    return result
   }
 }
 
@@ -35,23 +51,41 @@ export class CharacterFactoryEngine {
   }
 
   async run(request: FactoryJobRequest): Promise<FactoryJobResult> {
+    const requestFingerprint = fingerprintFactoryRequest(request.action)
     const completed = await this.store.getResult(request.requestId)
-    if (completed) return completed
+    if (completed) {
+      if (completed.requestFingerprint && completed.requestFingerprint !== requestFingerprint) {
+        return {
+          requestId: request.requestId,
+          requestFingerprint,
+          status: 'failed',
+          error: {
+            code: 'DUPLICATE_REQUEST_MISMATCH',
+            message: 'Request ID is already bound to another action.',
+          },
+        }
+      }
+      return completed
+    }
     const running = this.active.get(request.requestId)
     if (running) return running
-    const execution = this.execute(request).finally(() => this.active.delete(request.requestId))
+    const execution = this.execute(request, requestFingerprint).finally(() =>
+      this.active.delete(request.requestId),
+    )
     this.active.set(request.requestId, execution)
     return execution
   }
 
   private async finish(result: FactoryJobResult): Promise<FactoryJobResult> {
-    await this.store.putResult(result)
-    return result
+    return this.store.putResultIfAbsent(result)
   }
 
-  private async execute(request: FactoryJobRequest): Promise<FactoryJobResult> {
+  private async execute(
+    request: FactoryJobRequest,
+    requestFingerprint: string,
+  ): Promise<FactoryJobResult> {
     if (this.cancelled.has(request.requestId))
-      return this.finish({ requestId: request.requestId, status: 'cancelled' })
+      return this.finish({ requestId: request.requestId, requestFingerprint, status: 'cancelled' })
     const action = request.action
     try {
       if (action.type === 'create-from-import') {
@@ -61,13 +95,20 @@ export class CharacterFactoryEngine {
         const report = inspectImportedSkin(action.spec, action.svg)
         const spec = {
           ...action.spec,
+          source: sanitizeImportedSource(action.spec.source),
           status: report.compatible ? ('candidate' as const) : ('invalid' as const),
         }
         if (this.cancelled.has(request.requestId))
-          return this.finish({ requestId: request.requestId, status: 'cancelled' })
-        await this.store.putCharacter(spec)
+          return this.finish({
+            requestId: request.requestId,
+            requestFingerprint,
+            status: 'cancelled',
+          })
+        if (!(await this.store.createCharacter(spec)))
+          throw new FactoryError('CHARACTER_EXISTS', 'Use revise for an existing character.')
         return this.finish({
           requestId: request.requestId,
+          requestFingerprint,
           status: report.compatible ? 'succeeded' : 'failed',
           characterVersion: spec.version,
           output: report,
@@ -92,14 +133,24 @@ export class CharacterFactoryEngine {
         const revised = {
           ...current,
           version: current.version + 1,
+          revision: current.revision + 1,
           ...(action.protectedTraits ? { protectedTraits: action.protectedTraits } : {}),
           status: 'candidate' as const,
         }
         if (this.cancelled.has(request.requestId))
-          return this.finish({ requestId: request.requestId, status: 'cancelled' })
-        await this.store.putCharacter(revised)
+          return this.finish({
+            requestId: request.requestId,
+            requestFingerprint,
+            status: 'cancelled',
+          })
+        if (!(await this.store.compareAndSwapCharacter(revised, current.revision)))
+          throw new FactoryError(
+            'LATE_RESULT_FENCED',
+            'Character changed while this revision was running.',
+          )
         return this.finish({
           requestId: request.requestId,
+          requestFingerprint,
           status: 'succeeded',
           characterVersion: revised.version,
           output: revised,
@@ -108,6 +159,7 @@ export class CharacterFactoryEngine {
       if (action.type === 'preview')
         return this.finish({
           requestId: request.requestId,
+          requestFingerprint,
           status: 'succeeded',
           characterVersion: current.version,
           output: {
@@ -121,6 +173,7 @@ export class CharacterFactoryEngine {
       if (action.type === 'validate')
         return this.finish({
           requestId: request.requestId,
+          requestFingerprint,
           status: current.status === 'invalid' ? 'failed' : 'succeeded',
           characterVersion: current.version,
           output: { valid: current.status !== 'invalid', protectedTraits: current.protectedTraits },
@@ -128,17 +181,29 @@ export class CharacterFactoryEngine {
       if (action.type === 'export') {
         if (current.status === 'invalid')
           throw new FactoryError('INVALID_CHARACTER', 'Invalid candidates cannot be exported.')
-        const exported = { ...current, status: 'exported' as const }
-        await this.store.putCharacter(exported)
+        const artifact = await createCharacterExportArtifact(current)
+        const exported = {
+          ...current,
+          revision: current.revision + 1,
+          source: sanitizeImportedSource(current.source),
+          status: 'exported' as const,
+        }
+        if (!(await this.store.compareAndSwapCharacter(exported, current.revision)))
+          throw new FactoryError(
+            'LATE_RESULT_FENCED',
+            'Character changed while this export was running.',
+          )
         return this.finish({
           requestId: request.requestId,
+          requestFingerprint,
           status: 'succeeded',
           characterVersion: exported.version,
-          output: JSON.stringify(exported),
+          output: artifact,
         })
       }
       return this.finish({
         requestId: request.requestId,
+        requestFingerprint,
         status: 'succeeded',
         characterVersion: current.version,
         output: current,
@@ -153,6 +218,7 @@ export class CharacterFactoryEngine {
             )
       return this.finish({
         requestId: request.requestId,
+        requestFingerprint,
         status: 'failed',
         error: { code: failure.code, message: failure.message },
       })

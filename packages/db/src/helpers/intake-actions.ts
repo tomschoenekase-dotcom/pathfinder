@@ -21,6 +21,7 @@ export type IntakeActionClient = Pick<
   | 'venuePackage'
   | 'intakePackageHandoff'
   | 'auditLog'
+  | 'intakeSubmissionDraft'
   | '$transaction'
 >
 
@@ -133,6 +134,7 @@ export async function createIntakeProposal(input: {
   actor: IntakeProposalActor
   requestId: string
   proposal: IntakeProposalInput
+  draft?: { ownerUserId: string; expectedRevision: number }
 }) {
   const humanActor = input.actor?.type === 'HUMAN' ? input.actor : null
   const machineActor = input.actor?.type === 'AGENT' ? input.actor : null
@@ -318,6 +320,26 @@ export async function createIntakeProposal(input: {
               capturedAt: new Date(),
             },
           })
+        }
+      }
+      if (input.draft) {
+        const submitted = await tx.intakeSubmissionDraft.updateMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            ownerUserId: input.draft.ownerUserId,
+            sourceKind: proposal.kind,
+            revision: input.draft.expectedRevision,
+            submittedAt: null,
+          },
+          data: {
+            submittedProposalId: run.id,
+            submittedAt: new Date(),
+            revision: { increment: 1 },
+          },
+        })
+        if (submitted.count !== 1) {
+          throw new IntakeActionError('CONFLICT', 'Draft state changed; reload before submitting.')
         }
       }
       if (proposal.kind === 'NOTES' && notesHash) {

@@ -378,6 +378,9 @@ importers:
       '@pathfinder/billing':
         specifier: workspace:*
         version: link:../billing
+      '@pathfinder/character-factory':
+        specifier: workspace:*
+        version: link:../character-factory
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../config
@@ -443,6 +446,16 @@ importers:
         specifier: ^24.0.0
         version: 24.12.2
 
+  packages/character-factory:
+    dependencies:
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
+
   packages/config:
     dependencies:
       zod:
@@ -460,6 +473,9 @@ importers:
       '@pathfinder/ai':
         specifier: workspace:*
         version: link:../ai
+      '@pathfinder/character-factory':
+        specifier: workspace:*
+        version: link:../character-factory
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../config

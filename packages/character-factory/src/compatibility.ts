@@ -5,7 +5,7 @@ import {
   type CompatibilityFinding,
   type CompatibilityReport,
 } from './types'
-import { RIGS } from './rigs'
+import { resolveRig } from './rigs'
 
 const ACTIVE_SVG =
   /<(?:script|foreignObject|iframe|audio|video)\b|\bon\w+\s*=|(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/i
@@ -16,7 +16,23 @@ export function sha256(value: string): string {
 
 export function inspectImportedSkin(spec: CharacterSpec, svg: string): CompatibilityReport {
   const findings: CompatibilityFinding[] = []
-  const rig = RIGS[spec.rigFamily]
+  const rig = resolveRig(spec)
+  if (!rig)
+    return {
+      fixtureId: spec.characterId,
+      compatible: false,
+      rigFamily: spec.rigFamily,
+      stateCoverage: [],
+      unsuitableStates: FACTORY_STATES,
+      requiredManualCleanup: [],
+      findings: [
+        {
+          code: 'INVALID_RIG_CAPABILITIES',
+          severity: 'error',
+          detail: 'Custom rig capabilities are missing, mismatched, or outside safe bounds.',
+        },
+      ],
+    }
   const missingSlots = rig.requiredSlots.filter((slot) => !spec.slotMap[slot])
   if (!/^\s*<svg\b/i.test(svg) || !/viewBox=["']0 0 72 72["']/i.test(svg)) {
     findings.push({
@@ -76,7 +92,9 @@ export function inspectImportedSkin(spec: CharacterSpec, svg: string): Compatibi
       ? ['separate face from deforming body mask']
       : spec.rigFamily === 'compact-creature-v1'
         ? ['separate paired wings and eyes from body']
-        : ['separate arms, helmet/head, and torso; define shoulder pivots']
+        : spec.rigFamily === 'humanoid-v1'
+          ? ['separate arms, helmet/head, and torso; define shoulder pivots']
+          : [`prepare declared ${spec.rigCapabilities?.anatomyClass ?? 'custom'} slots and pivots`]
   findings.push({
     code: 'SOURCE_ONLY_NOT_RUNTIME_SAFE',
     severity: 'info',

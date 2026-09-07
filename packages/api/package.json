@@ -38,6 +38,7 @@
     "@pathfinder/billing": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
+    "@pathfinder/character-factory": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/intake-engine": "workspace:*",
     "@pathfinder/jobs": "workspace:*",

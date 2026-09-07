@@ -5,11 +5,15 @@ import {
   IntakeActionError,
   OnboardingBootstrapError,
   createIntakeProposal,
+  getIntakeSubmissionDraft,
+  IntakeSubmissionDraftError,
   getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
   notesProposalInput,
   listIntakeProposals,
+  saveIntakeSubmissionDraft,
+  intakeSubmissionDraftContent,
   onboardingBootstrapSubmissionInput,
   submitOnboardingBootstrapAction,
   websiteProposalInput,
@@ -22,15 +26,40 @@ import { tenantProcedure } from '../trpc'
 const scope = z.object({ venueId: z.string().min(1) }).strict()
 const createInput = z.discriminatedUnion('kind', [
   websiteProposalInput
-    .extend({ venueId: z.string().min(1), requestId: z.string().uuid() })
+    .extend({
+      venueId: z.string().min(1),
+      requestId: z.string().uuid(),
+      draftRevision: z.number().int().min(1).optional(),
+    })
     .strict(),
   interviewProposalInput
-    .extend({ venueId: z.string().min(1), requestId: z.string().uuid() })
+    .extend({
+      venueId: z.string().min(1),
+      requestId: z.string().uuid(),
+      draftRevision: z.number().int().min(1).optional(),
+    })
     .strict(),
-  notesProposalInput.extend({ venueId: z.string().min(1), requestId: z.string().uuid() }).strict(),
+  notesProposalInput
+    .extend({
+      venueId: z.string().min(1),
+      requestId: z.string().uuid(),
+      draftRevision: z.number().int().min(1).optional(),
+    })
+    .strict(),
 ])
 
 function mapActionError(error: unknown): never {
+  if (error instanceof IntakeSubmissionDraftError) {
+    throw new TRPCError({
+      code:
+        error.code === 'CONFLICT'
+          ? 'CONFLICT'
+          : error.code === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
   if (error instanceof IntakeActionError || error instanceof OnboardingBootstrapError) {
     throw new TRPCError({
       code:
@@ -46,6 +75,62 @@ function mapActionError(error: unknown): never {
 }
 
 export const intakeRouter = router({
+  getSubmissionDraft: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().min(1),
+          sourceKind: z.enum(['WEBSITE', 'INTERVIEW', 'NOTES']),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getIntakeSubmissionDraft(
+          {
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            ownerUserId: ctx.session.userId,
+            sourceKind: input.sourceKind,
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+  saveSubmissionDraft: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().min(1).max(191),
+          sourceKind: z.enum(['WEBSITE', 'INTERVIEW', 'NOTES']),
+          content: intakeSubmissionDraftContent,
+          expectedRevision: z.number().int().min(0).optional(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await saveIntakeSubmissionDraft(
+          {
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            ownerUserId: ctx.session.userId,
+            sourceKind: input.sourceKind,
+            content: input.content,
+            ...(input.expectedRevision !== undefined
+              ? { expectedRevision: input.expectedRevision }
+              : {}),
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
   submitOnboardingBootstrap: tenantProcedure
     .use(requireRole('MANAGER'))
     .input(onboardingBootstrapSubmissionInput)
@@ -84,7 +169,7 @@ export const intakeRouter = router({
     .use(requireRole('MANAGER'))
     .input(createInput)
     .mutation(async ({ ctx, input }) => {
-      const { venueId, requestId, ...proposal } = input
+      const { venueId, requestId, draftRevision, ...proposal } = input
       try {
         return await createIntakeProposal({
           db: ctx.db,
@@ -97,6 +182,9 @@ export const intakeRouter = router({
           },
           requestId,
           proposal,
+          ...(draftRevision !== undefined
+            ? { draft: { ownerUserId: ctx.session.userId, expectedRevision: draftRevision } }
+            : {}),
         })
       } catch (error) {
         mapActionError(error)

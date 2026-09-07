@@ -2,14 +2,24 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axe from 'axe-core'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), adminMutate: vi.fn(), refresh: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  adminMutate: vi.fn(),
+  draftQuery: vi.fn(),
+  draftSave: vi.fn(),
+  refresh: vi.fn(),
+}))
 vi.mock('../lib/trpc', () => ({
   useTRPCClient: () => ({
-    intake: { createProposal: { mutate: mocks.mutate } },
+    intake: {
+      createProposal: { mutate: mocks.mutate },
+      getSubmissionDraft: { query: mocks.draftQuery },
+      saveSubmissionDraft: { mutate: mocks.draftSave },
+    },
     admin: { createIntakeProposal: { mutate: mocks.adminMutate } },
   }),
 }))
@@ -17,7 +27,17 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }
 import { IntakeProposalWorkspace } from './IntakeProposalWorkspace'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => (resolve = next))
+  return { promise, resolve }
+}
+
 describe('IntakeProposalWorkspace', () => {
+  beforeEach(() => {
+    mocks.draftQuery.mockResolvedValue(null)
+    mocks.draftSave.mockResolvedValue({ id: 'draft-1', revision: 1, updatedAt: new Date() })
+  })
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
@@ -39,6 +59,7 @@ describe('IntakeProposalWorkspace', () => {
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         venueId: 'venue-1',
+        draftRevision: 1,
         requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         kind: 'INTERVIEW',
         displayName: 'Staff interview',
@@ -105,6 +126,7 @@ describe('IntakeProposalWorkspace', () => {
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         venueId: 'venue-1',
+        draftRevision: 1,
         requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         kind: 'NOTES',
         notes: 'The east entrance is step-free.',
@@ -136,6 +158,91 @@ describe('IntakeProposalWorkspace', () => {
     expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe(
       'The east entrance is step-free.',
     )
+  })
+
+  it('resumes the authenticated user website draft returned by the server', async () => {
+    mocks.draftQuery.mockImplementation(async ({ sourceKind }: { sourceKind: string }) =>
+      sourceKind === 'WEBSITE'
+        ? {
+            content: {
+              kind: 'WEBSITE',
+              displayName: 'Saved museum site',
+              websiteUri: 'https://saved.example',
+            },
+            revision: 7,
+            submittedAt: null,
+          }
+        : null,
+    )
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    expect(await screen.findByDisplayValue('Saved museum site')).toBeTruthy()
+    expect(screen.getByDisplayValue('https://saved.example')).toBeTruthy()
+  })
+
+  it('shows a visible conflict and retains local edits when another device wins', async () => {
+    mocks.draftSave.mockRejectedValue(new Error('Draft state changed; reload before saving.'))
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Keep this local text.' } })
+    expect(await screen.findByText(/changed elsewhere/)).toBeTruthy()
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe(
+      'Keep this local text.',
+    )
+    expect(mocks.mutate).not.toHaveBeenCalled()
+  })
+
+  it('persists clearing the final saved value instead of resurrecting it on reload', async () => {
+    mocks.draftQuery.mockImplementation(async ({ sourceKind }: { sourceKind: string }) =>
+      sourceKind === 'NOTES'
+        ? { content: { kind: 'NOTES', notes: 'Remove me' }, revision: 2, submittedAt: null }
+        : null,
+    )
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    const notes = await screen.findByDisplayValue('Remove me')
+    fireEvent.change(notes, { target: { value: '' } })
+
+    await waitFor(() =>
+      expect(mocks.draftSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueId: 'venue-1',
+          sourceKind: 'NOTES',
+          content: { kind: 'NOTES', notes: '' },
+          expectedRevision: 2,
+        }),
+      ),
+    )
+  })
+
+  it('serializes slow saves for one source and advances the expected revision', async () => {
+    const first = deferred<{ id: string; revision: number; updatedAt: Date }>()
+    mocks.draftSave
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ id: 'draft-1', revision: 2, updatedAt: new Date() })
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'First' } })
+    await waitFor(() => expect(mocks.draftSave).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Second' } })
+    await new Promise((resolve) => setTimeout(resolve, 750))
+    expect(mocks.draftSave).toHaveBeenCalledTimes(1)
+
+    first.resolve({ id: 'draft-1', revision: 1, updatedAt: new Date() })
+    await waitFor(() => expect(mocks.draftSave).toHaveBeenCalledTimes(2))
+    expect(mocks.draftSave.mock.calls[1]![0]).toMatchObject({
+      content: { kind: 'NOTES', notes: 'Second' },
+      expectedRevision: 1,
+    })
+  })
+
+  it('cancels a pending venue draft timer and fences a late old-venue response', async () => {
+    const rendered = render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Old venue' } })
+    rendered.rerender(<IntakeProposalWorkspace venueId="venue-2" proposals={[]} />)
+    await new Promise((resolve) => setTimeout(resolve, 750))
+    expect(mocks.draftSave).not.toHaveBeenCalled()
+    expect(mocks.draftQuery).toHaveBeenCalledWith({ venueId: 'venue-2', sourceKind: 'NOTES' })
   })
 
   it('preserves separate staff answers when changing roles and source types', () => {

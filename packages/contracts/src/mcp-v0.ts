@@ -92,6 +92,8 @@ export const McpCapability = z.enum([
   'intake:draft',
   'updates:draft',
   'evaluations:request',
+  'characters:build',
+  'characters:execute',
 ])
 export type McpCapability = z.infer<typeof McpCapability>
 

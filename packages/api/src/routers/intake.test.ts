@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   eventCreate: vi.fn(),
   auditCreate: vi.fn(),
   executeRaw: vi.fn(),
+  draftFind: vi.fn(),
+  draftCreate: vi.fn(),
+  draftUpdate: vi.fn(),
+  draftFindRequired: vi.fn(),
 }))
 const db = {
   venue: { findFirst: mocks.venue, create: mocks.venueCreate },
@@ -27,6 +31,12 @@ const db = {
   intakeEvidenceRecord: { create: mocks.evidenceCreate },
   intakeRunEvent: { create: mocks.eventCreate },
   auditLog: { create: mocks.auditCreate },
+  intakeSubmissionDraft: {
+    findUnique: mocks.draftFind,
+    create: mocks.draftCreate,
+    updateMany: mocks.draftUpdate,
+    findUniqueOrThrow: mocks.draftFindRequired,
+  },
   $executeRaw: mocks.executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as TRPCContext['db']
@@ -54,6 +64,47 @@ describe('intake draft proposals', () => {
       displayName: 'Interview',
       createdAt: new Date(),
     })
+    mocks.draftFind.mockResolvedValue(null)
+    mocks.draftCreate.mockResolvedValue({ id: 'draft-1', revision: 1, updatedAt: new Date() })
+    mocks.draftUpdate.mockResolvedValue({ count: 1 })
+    mocks.draftFindRequired.mockResolvedValue({ id: 'draft-1', revision: 2, updatedAt: new Date() })
+  })
+
+  it('keeps draft reads private to the authenticated user and tenant', async () => {
+    await caller
+      .createCaller(context('tenant-a'))
+      .intake.getSubmissionDraft({ venueId: 'venue-a', sourceKind: 'NOTES' })
+    expect(mocks.draftFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId_venueId_ownerUserId_sourceKind: {
+            tenantId: 'tenant-a',
+            venueId: 'venue-a',
+            ownerUserId: 'user-1',
+            sourceKind: 'NOTES',
+          },
+        },
+      }),
+    )
+  })
+
+  it('passes the authenticated scope and optimistic revision when saving', async () => {
+    await caller.createCaller(context('tenant-a')).intake.saveSubmissionDraft({
+      venueId: 'venue-a',
+      sourceKind: 'NOTES',
+      expectedRevision: 0,
+      content: { kind: 'NOTES', notes: 'Draft note' },
+    })
+    expect(mocks.draftCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          ownerUserId: 'user-1',
+          sourceKind: 'NOTES',
+        }),
+      }),
+    )
   })
 
   it('adapts an owner onboarding submission to an inactive empty shell and review-only run', async () => {
@@ -168,6 +219,40 @@ describe('intake draft proposals', () => {
       'Sensitive internal instructions.',
     )
     expect(mocks.evidenceCreate).toHaveBeenCalledTimes(2)
+  })
+
+  it('marks the exact current user draft submitted in the proposal transaction', async () => {
+    mocks.runCreate.mockResolvedValueOnce({
+      id: 'run-web',
+      venueId: 'venue-a',
+      sourceKind: 'WEBSITE',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Site',
+      createdAt: new Date(),
+    })
+    await caller.createCaller(context()).intake.createProposal({
+      venueId: 'venue-a',
+      requestId: 'cf2f4623-64fa-4c7a-b607-f0f6bbbc599e',
+      kind: 'WEBSITE',
+      displayName: 'Site',
+      websiteUri: 'https://example.com',
+      draftRevision: 3,
+    })
+    expect(mocks.draftUpdate).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        ownerUserId: 'user-1',
+        sourceKind: 'WEBSITE',
+        revision: 3,
+        submittedAt: null,
+      },
+      data: {
+        submittedProposalId: 'run-web',
+        submittedAt: expect.any(Date),
+        revision: { increment: 1 },
+      },
+    })
   })
 
   it('requires exact consent and rejects privacy weaker than the role question default', async () => {

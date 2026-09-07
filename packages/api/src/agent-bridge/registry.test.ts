@@ -13,6 +13,13 @@ const mocks = vi.hoisted(() => ({
   prospectCall: vi.fn(),
   operationalList: vi.fn(),
   operationalCall: vi.fn(),
+  prepareCharacter: vi.fn(),
+  readCharacterJob: vi.fn(),
+  cancelCharacter: vi.fn(),
+  claimCharacter: vi.fn(),
+  heartbeatCharacter: vi.fn(),
+  completeCharacter: vi.fn(),
+  failCharacter: vi.fn(),
 }))
 vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
@@ -27,6 +34,13 @@ vi.mock('@pathfinder/db', () => ({
   registerAgentWorkerAction: mocks.registerWorker,
   heartbeatAgentWorkerAction: mocks.heartbeatWorker,
   listAgentWorkerHealth: mocks.listWorkers,
+  prepareCharacterFactoryJobAction: mocks.prepareCharacter,
+  readCharacterFactoryJobAction: mocks.readCharacterJob,
+  cancelCharacterFactoryJobAction: mocks.cancelCharacter,
+  claimCharacterFactoryJobAction: mocks.claimCharacter,
+  heartbeatCharacterFactoryJobAction: mocks.heartbeatCharacter,
+  completeCharacterFactoryJobAction: mocks.completeCharacter,
+  failCharacterFactoryJobAction: mocks.failCharacter,
 }))
 
 import { createAgentBridgeRegistry } from './registry'
@@ -41,6 +55,50 @@ const credential = {
 
 describe('agent bridge registry', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('discovers character production only for an exact builder capability', () => {
+    const registry = createAgentBridgeRegistry()
+    expect(() => registry.listCharacterFactoryActions({}, { credential })).toThrow(
+      /characters:build/u,
+    )
+    expect(
+      registry.listCharacterFactoryActions(
+        {},
+        {
+          credential: { ...credential, capabilities: ['characters:build'] },
+        },
+      ),
+    ).toMatchObject({ capability: 'characters:build', actions: expect.arrayContaining(['EXPORT']) })
+  })
+
+  it('keeps character execution separate from builder authority and preserves machine identity', async () => {
+    mocks.claimCharacter.mockResolvedValue({ state: 'claimed' })
+    const registry = createAgentBridgeRegistry()
+    const params = {
+      venueId: 'venue-1',
+      requestId: 'request-1',
+    }
+    expect(() =>
+      registry.claimCharacterFactoryJob(params, {
+        credential: { ...credential, capabilities: ['characters:build'] },
+      }),
+    ).toThrow(/characters:execute/u)
+    const executor = { ...credential, capabilities: ['characters:execute'] as const }
+    await registry.claimCharacterFactoryJob(params, { credential: executor })
+    expect(mocks.claimCharacter).toHaveBeenCalledWith({ tenantId: 'tenant-1', ...params })
+    expect(() =>
+      registry.beginCharacterArtifactUpload(
+        {
+          venueId: 'venue-1',
+          characterId: 'character-1',
+          characterVersion: 1,
+          sha256: '0'.repeat(64),
+          byteLength: 100,
+        },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/characters:execute/u)
+  })
 
   it('validates bounded runner metadata before registering a session', async () => {
     mocks.register.mockResolvedValue({ id: 'session' })
@@ -205,7 +263,22 @@ describe('agent bridge registry', () => {
   })
 
   it('mounts operational discovery and derives client and venue scope from the credential', async () => {
-    mocks.operationalList.mockReturnValue([{ name: 'pathfinder.read' }])
+    mocks.operationalList.mockReturnValue([
+      {
+        name: 'pathfinder.read',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: true },
+        _meta: {
+          'com.pathfinder/security': { capability: 'resources:read', scope: 'client-or-venue' },
+        },
+      },
+      {
+        name: 'pathfinder.create_update_draft',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: false },
+        _meta: { 'com.pathfinder/security': { capability: 'updates:draft', scope: 'venue' } },
+      },
+    ])
     mocks.operationalCall.mockResolvedValue({ structuredContent: { kind: 'pathfinder.read' } })
     const registry = createAgentBridgeRegistry({
       operationalRegistry: {
@@ -213,7 +286,20 @@ describe('agent bridge registry', () => {
         callTool: mocks.operationalCall,
       } as never,
     })
-    expect(registry.listOperationalTools({}, { credential })).toEqual([{ name: 'pathfinder.read' }])
+    const discoveryCredential = {
+      ...credential,
+      capabilities: ['agent-runs:execute', 'resources:read'],
+    }
+    expect(registry.listOperationalTools({}, { credential: discoveryCredential })).toEqual([
+      expect.objectContaining({
+        name: 'pathfinder.read',
+        inputSchema: { type: 'object' },
+        annotations: { readOnlyHint: true },
+        _meta: {
+          'com.pathfinder/security': { capability: 'resources:read', scope: 'client-or-venue' },
+        },
+      }),
+    ])
     await registry.callOperationalTool(
       {
         venueId: 'venue-1',
