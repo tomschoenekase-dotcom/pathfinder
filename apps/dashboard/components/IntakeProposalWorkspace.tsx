@@ -18,6 +18,15 @@ type NotesDraft = { kind: 'NOTES'; notes: string }
 type DraftContent = WebsiteDraft | NotesDraft | StaffInterviewDraft
 type DraftSourceKind = DraftContent['kind']
 
+function isDraftConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const failure = error as {
+    data?: { code?: unknown }
+    shape?: { data?: { code?: unknown } }
+  }
+  return (failure.data?.code ?? failure.shape?.data?.code) === 'CONFLICT'
+}
+
 export type IntakeProposalWorkspaceController = {
   prepareV1Drafts(): Promise<Array<{ sourceKind: DraftSourceKind; expectedRevision: number }>>
 }
@@ -419,10 +428,7 @@ export const IntakeProposalWorkspace = forwardRef<
             return saved.revision
           } catch (error) {
             if (scopeGenerationRef.current === generation) {
-              const next =
-                error instanceof Error && /changed|conflict/iu.test(error.message)
-                  ? 'CONFLICT'
-                  : 'ERROR'
+              const next = isDraftConflict(error) ? 'CONFLICT' : 'ERROR'
               saveStateRef.current = next
               setSaveState(next)
             }

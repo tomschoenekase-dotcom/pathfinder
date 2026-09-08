@@ -90,6 +90,7 @@ describe('getIntakeBuilderLifecycle', () => {
     const verifiedAt = new Date('2026-08-29T02:00:00.000Z')
     const sha256 = 'c'.repeat(64)
     const textHash = 'd'.repeat(64)
+    const extractedText = `${'A'.repeat(3_999)}😀 fact beyond preview`
     const findFirst = vi.fn().mockResolvedValue({
       id: 'run-file',
       sourceKind: 'FILE_UPLOAD',
@@ -121,9 +122,9 @@ describe('getIntakeBuilderLifecycle', () => {
           outcome: 'SUCCEEDED',
           extractor: 'pathfinder-utf8-document',
           extractorVersion: '1',
-          extractedText: 'Line one\nLine two',
+          extractedText,
           extractedTextHash: textHash,
-          extractedCharacterCount: 18,
+          extractedCharacterCount: [...extractedText].length,
           extractedLineCount: 2,
           errorCode: null,
           errorMessage: null,
@@ -160,6 +161,8 @@ describe('getIntakeBuilderLifecycle', () => {
       nextAction: 'REVIEW_STRUCTURED_PROPOSAL',
       fileExtractionReview: {
         receiptId: '968c2e1a-8ece-47ad-98dc-e4bde64872ca',
+        preview: `${'A'.repeat(3_999)}😀`,
+        previewTruncated: true,
         reviewRequired: false,
         grantsAuthority: false,
         review: {

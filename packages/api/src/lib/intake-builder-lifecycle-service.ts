@@ -551,8 +551,8 @@ export async function getIntakeBuilderLifecycle(input: {
             extractedTextHash: latestFileExtraction.extractedTextHash!,
             extractedCharacterCount: latestFileExtraction.extractedCharacterCount,
             extractedLineCount: latestFileExtraction.extractedLineCount,
-            preview: latestFileExtraction.extractedText.slice(0, 4_000),
-            previewTruncated: latestFileExtraction.extractedText.length > 4_000,
+            preview: Array.from(latestFileExtraction.extractedText).slice(0, 4_000).join(''),
+            previewTruncated: Array.from(latestFileExtraction.extractedText).length > 4_000,
             createdAt: latestFileExtraction.createdAt,
             reviewRequired: latestFileExtraction.review === null,
             review: latestFileExtraction.review

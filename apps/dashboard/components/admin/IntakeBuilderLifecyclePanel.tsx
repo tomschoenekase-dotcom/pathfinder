@@ -1244,7 +1244,7 @@ export function IntakeBuilderLifecycleView({
                         {sourceReaderPages[sourceReaderIndex].page.offset.toLocaleString()}–
                         {(
                           sourceReaderPages[sourceReaderIndex].page.offset +
-                          sourceReaderPages[sourceReaderIndex].page.text.length
+                          Array.from(sourceReaderPages[sourceReaderIndex].page.text).length
                         ).toLocaleString()}{' '}
                         of{' '}
                         {sourceReaderPages[

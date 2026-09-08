@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,7 +16,7 @@ function makeReceipt(overrides: Record<string, unknown> = {}) {
     requestHash: 'b'.repeat(64),
     extractedText: text,
     extractedTextHash: textHash,
-    extractedCharacterCount: text.length,
+    extractedCharacterCount: [...text].length,
     extractedLineCount: 1,
     sourceSha256: 'c'.repeat(64),
     sourceMimeType: 'text/plain',
@@ -97,6 +97,93 @@ describe('intake file extraction source reader', () => {
     expect(result.page.matchOffsets).toEqual([result.page.text.indexOf('exact phrase')])
   })
 
+  it('keeps pagination and search offsets aligned with the receipt code-point count', async () => {
+    const unicodeText = `${'A'.repeat(3_998)}İ😀 searchable fact`
+    const unicodeCodePoints = [...unicodeText]
+    const unicodeHash = createHash('sha256').update(unicodeText).digest('hex')
+    const client = makeClient(
+      makeReceipt({
+        extractedText: unicodeText,
+        extractedTextHash: unicodeHash,
+        extractedCharacterCount: unicodeCodePoints.length,
+      }),
+    )
+
+    const first = await readIntakeFileExtractionSource(
+      input(client, { expectedExtractedTextHash: unicodeHash, pageSize: 4_000 }),
+      client,
+    )
+    const second = await readIntakeFileExtractionSource(
+      input(client, {
+        expectedExtractedTextHash: unicodeHash,
+        pageSize: 4_000,
+        cursor: first.nextCursor,
+      }),
+      client,
+    )
+    const searched = await readIntakeFileExtractionSource(
+      input(client, {
+        expectedExtractedTextHash: unicodeHash,
+        pageSize: 4_000,
+        search: 'searchable fact',
+      }),
+      client,
+    )
+
+    expect(first.extractedCharacterCount).toBe(unicodeCodePoints.length)
+    expect(first.page).toMatchObject({
+      offset: 0,
+      text: unicodeCodePoints.slice(0, 4_000).join(''),
+    })
+    expect(second.page).toMatchObject({
+      offset: 4_000,
+      text: unicodeCodePoints.slice(4_000).join(''),
+    })
+    expect(searched.page.offset).toBe(3_001)
+    expect(searched.page.matchOffsets).toEqual([1_000])
+    expect(JSON.parse(Buffer.from(first.nextCursor!, 'base64url').toString('utf8'))).toMatchObject({
+      v: 2,
+      unit: 'codePoint',
+      offset: 4_000,
+    })
+  })
+
+  it('preserves contextual Unicode lowercase matching and caps matches per page', async () => {
+    const prefix = 'hit '.repeat(101)
+    const pagedText = `${prefix}${'A'.repeat(4_000 - prefix.length)}hit ΟΣ`
+    const pagedHash = createHash('sha256').update(pagedText).digest('hex')
+    const client = makeClient(
+      makeReceipt({
+        extractedText: pagedText,
+        extractedTextHash: pagedHash,
+        extractedCharacterCount: [...pagedText].length,
+      }),
+    )
+
+    const first = await readIntakeFileExtractionSource(
+      input(client, { expectedExtractedTextHash: pagedHash, pageSize: 4_000, search: 'hit' }),
+      client,
+    )
+    const second = await readIntakeFileExtractionSource(
+      input(client, {
+        expectedExtractedTextHash: pagedHash,
+        pageSize: 4_000,
+        search: 'hit',
+        cursor: first.nextCursor,
+      }),
+      client,
+    )
+    const greek = await readIntakeFileExtractionSource(
+      input(client, { expectedExtractedTextHash: pagedHash, pageSize: 100, search: 'ΟΣ' }),
+      client,
+    )
+
+    expect(first.page.matchOffsets).toHaveLength(100)
+    expect(second.page).toMatchObject({ offset: 4_000, matchOffsets: [0] })
+    expect(greek.page.text).toContain('ΟΣ')
+    expect(greek.page.matchOffsets).toEqual([greek.page.text.indexOf('ΟΣ')])
+  })
+
   it('fails closed for another tenant, stale source evidence, forged cursors, and oversized pages', async () => {
     const client = makeClient(null)
     await expect(
@@ -117,11 +204,29 @@ describe('intake file extraction source reader', () => {
 
     const validClient = makeClient()
     const first = await readIntakeFileExtractionSource(input(validClient), validClient)
+    const legacyCursor = Buffer.from(
+      JSON.stringify({
+        offset: 2_000,
+        searchHash: createHash('sha256').update('').digest('hex'),
+        signature: createHmac('sha256', 'b'.repeat(64))
+          .update(`${receiptId}:${textHash}:2000:${createHash('sha256').update('').digest('hex')}`)
+          .digest('base64url'),
+      }),
+    ).toString('base64url')
+    await expect(
+      readIntakeFileExtractionSource(input(validClient, { cursor: legacyCursor }), validClient),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
     const forged = JSON.parse(Buffer.from(first.nextCursor!, 'base64url').toString('utf8'))
     forged.offset = 6_000
     const forgedCursor = Buffer.from(JSON.stringify(forged)).toString('base64url')
     await expect(
       readIntakeFileExtractionSource(input(validClient, { cursor: forgedCursor }), validClient),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    forged.offset = 2_000
+    forged.unit = 'codeUnit'
+    const wrongUnitCursor = Buffer.from(JSON.stringify(forged)).toString('base64url')
+    await expect(
+      readIntakeFileExtractionSource(input(validClient, { cursor: wrongUnitCursor }), validClient),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     await expect(
       readIntakeFileExtractionSource(

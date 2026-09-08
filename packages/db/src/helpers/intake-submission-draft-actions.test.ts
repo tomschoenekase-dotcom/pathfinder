@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  tenantIsolationMiddleware,
+  type TenantIsolationMiddlewareParams,
+} from '../middleware/tenant-isolation'
+
+import {
   IntakeSubmissionDraftError,
   getIntakeSubmissionDraft,
   saveIntakeSubmissionDraft,
@@ -9,13 +14,22 @@ import {
 function client(
   existing: { id: string; revision: number; submittedAt: Date | null } | null = null,
 ) {
+  const guarded = (action: string, result: unknown) =>
+    vi.fn(async (args: NonNullable<TenantIsolationMiddlewareParams['args']>) =>
+      tenantIsolationMiddleware(
+        { model: 'IntakeSubmissionDraft', action, args },
+        async () => result,
+      ),
+    )
   const intakeSubmissionDraft = {
-    findUnique: vi.fn().mockResolvedValue(existing),
-    findUniqueOrThrow: vi
-      .fn()
-      .mockResolvedValue({ id: 'draft-1', revision: 2, updatedAt: new Date() }),
-    create: vi.fn().mockResolvedValue({ id: 'draft-1', revision: 1, updatedAt: new Date() }),
-    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    findUnique: guarded('findUnique', existing),
+    findUniqueOrThrow: guarded('findUniqueOrThrow', {
+      id: 'draft-1',
+      revision: 2,
+      updatedAt: new Date(),
+    }),
+    create: guarded('create', { id: 'draft-1', revision: 1, updatedAt: new Date() }),
+    updateMany: guarded('updateMany', { count: 1 }),
   }
   return {
     intakeSubmissionDraft,
@@ -27,6 +41,31 @@ function client(
 }
 
 describe('intake submission draft actions', () => {
+  it.each([null, new Date('2026-09-01T00:00:00Z')])(
+    'keeps update and reopened-draft readback inside the actual tenant guard (submittedAt=%s)',
+    async (submittedAt) => {
+      const db = client({ id: 'draft-1', revision: 1, submittedAt })
+      await expect(
+        saveIntakeSubmissionDraft(
+          {
+            tenantId: 'tenant-a',
+            venueId: 'venue-a',
+            ownerUserId: 'user-a',
+            sourceKind: 'NOTES',
+            expectedRevision: submittedAt ? 0 : 1,
+            content: { kind: 'NOTES', notes: 'Revised visitor information.' },
+          },
+          db as never,
+        ),
+      ).resolves.toMatchObject({ id: 'draft-1', revision: 2 })
+      expect(db.intakeSubmissionDraft.updateMany).toHaveBeenCalledOnce()
+      expect(db.intakeSubmissionDraft.findUniqueOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'draft-1', tenantId: 'tenant-a' },
+        }),
+      )
+    },
+  )
   it('reads only the exact tenant, venue, owner and source identity', async () => {
     const db = client()
     await getIntakeSubmissionDraft(
@@ -36,6 +75,7 @@ describe('intake submission draft actions', () => {
     expect(db.intakeSubmissionDraft.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
+          tenantId: 'tenant-a',
           tenantId_venueId_ownerUserId_sourceKind: {
             tenantId: 'tenant-a',
             venueId: 'venue-a',

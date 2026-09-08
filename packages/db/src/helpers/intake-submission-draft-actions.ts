@@ -73,7 +73,7 @@ export async function getIntakeSubmissionDraft(input: z.infer<typeof scope>, cli
   const parsed = scope.safeParse(input)
   if (!parsed.success) throw new IntakeSubmissionDraftError('INVALID_INPUT', 'Invalid draft scope.')
   return client.intakeSubmissionDraft.findUnique({
-    where: { tenantId_venueId_ownerUserId_sourceKind: parsed.data },
+    where: { tenantId: parsed.data.tenantId, tenantId_venueId_ownerUserId_sourceKind: parsed.data },
     select: {
       id: true,
       content: true,
@@ -106,6 +106,7 @@ export async function saveIntakeSubmissionDraft(
     return await client.$transaction(async (tx) => {
       const existing = await tx.intakeSubmissionDraft.findUnique({
         where: {
+          tenantId: value.tenantId,
           tenantId_venueId_ownerUserId_sourceKind: {
             tenantId: value.tenantId,
             venueId: value.venueId,
@@ -158,7 +159,7 @@ export async function saveIntakeSubmissionDraft(
             'Draft state changed; reload before saving.',
           )
         return tx.intakeSubmissionDraft.findUniqueOrThrow({
-          where: { id: existing.id },
+          where: { id: existing.id, tenantId: value.tenantId },
           select: { id: true, revision: true, updatedAt: true },
         })
       }
@@ -182,7 +183,7 @@ export async function saveIntakeSubmissionDraft(
           'Draft state changed; reload before saving.',
         )
       return tx.intakeSubmissionDraft.findUniqueOrThrow({
-        where: { id: existing.id },
+        where: { id: existing.id, tenantId: value.tenantId },
         select: { id: true, revision: true, updatedAt: true },
       })
     })

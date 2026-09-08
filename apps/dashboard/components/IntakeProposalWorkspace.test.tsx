@@ -188,7 +188,9 @@ describe('IntakeProposalWorkspace', () => {
   })
 
   it('shows a visible conflict and retains local edits when another device wins', async () => {
-    mocks.draftSave.mockRejectedValue(new Error('Draft state changed; reload before saving.'))
+    mocks.draftSave.mockRejectedValue(
+      Object.assign(new Error('Internal server error'), { data: { code: 'CONFLICT' } }),
+    )
     render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
     fireEvent.click(screen.getByLabelText('Optional notes'))
     fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Keep this local text.' } })
@@ -311,7 +313,9 @@ describe('IntakeProposalWorkspace', () => {
     loading.resolve(null)
     await screen.findByText('Share more information')
 
-    mocks.draftSave.mockRejectedValue(new Error('Draft state changed; conflict.'))
+    mocks.draftSave.mockRejectedValue(
+      Object.assign(new Error('Internal server error'), { data: { code: 'CONFLICT' } }),
+    )
     fireEvent.click(screen.getByLabelText('Optional notes'))
     fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Keep this text' } })
     await screen.findByText(/changed elsewhere/)

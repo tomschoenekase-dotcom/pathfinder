@@ -992,6 +992,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
   })
 
   it('reads, searches, pages, and safely reports a stale retained source', async () => {
+    const unicodePageText = '😀 fact after 4,000 characters'
     const lifecycle = {
       schemaVersion: 1,
       runId: 'run-file',
@@ -1037,7 +1038,7 @@ describe('IntakeBuilderLifecyclePanel', () => {
         page: {
           offset: 4_000,
           limit: 4_000,
-          text: 'fact after 4,000 characters',
+          text: unicodePageText,
           matchOffsets: [],
         },
         nextCursor: 'next-page',
@@ -1057,7 +1058,12 @@ describe('IntakeBuilderLifecyclePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect Builder status' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Read full extracted source' }))
 
-    expect(await screen.findByText('fact after 4,000 characters')).toBeTruthy()
+    expect(await screen.findByText(unicodePageText)).toBeTruthy()
+    expect(
+      screen.getByText(
+        `Characters 4,000–${(4_000 + [...unicodePageText].length).toLocaleString()} of 8,500`,
+      ),
+    ).toBeTruthy()
     expect(sourceReaderQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',

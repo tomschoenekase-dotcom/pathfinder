@@ -34,7 +34,13 @@ export class IntakeFileExtractionReaderError extends Error {
   }
 }
 
-type CursorPayload = Readonly<{ offset: number; searchHash: string; signature: string }>
+type CursorPayload = Readonly<{
+  v: 2
+  unit: 'codePoint'
+  offset: number
+  searchHash: string
+  signature: string
+}>
 
 function searchHash(search: string | undefined) {
   return createHash('sha256')
@@ -50,7 +56,7 @@ function cursorSignature(
   requestedSearchHash: string,
 ) {
   return createHmac('sha256', requestHash)
-    .update(`${receiptId}:${extractedTextHash}:${offset}:${requestedSearchHash}`)
+    .update(`2:codePoint:${receiptId}:${extractedTextHash}:${offset}:${requestedSearchHash}`)
     .digest('base64url')
 }
 
@@ -63,6 +69,8 @@ function decodeCursor(cursor: string): CursorPayload | null {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown
     const result = z
       .object({
+        v: z.literal(2),
+        unit: z.literal('codePoint'),
         offset: z.number().int().min(0),
         searchHash: z.string().regex(/^[a-f0-9]{64}$/u),
         signature: z.string().min(1).max(128),
@@ -73,6 +81,48 @@ function decodeCursor(cursor: string): CursorPayload | null {
   } catch {
     return null
   }
+}
+
+function buildCaseFoldedSearchIndex(codePoints: readonly string[]) {
+  const foldedCodeUnitToSourceCodePoint: number[] = []
+  const sourceCodePointToFoldedCodeUnit: number[] = []
+  for (const [sourceIndex, codePoint] of codePoints.entries()) {
+    sourceCodePointToFoldedCodeUnit.push(foldedCodeUnitToSourceCodePoint.length)
+    const folded = codePoint.toLowerCase()
+    for (let index = 0; index < folded.length; index += 1) {
+      foldedCodeUnitToSourceCodePoint.push(sourceIndex)
+    }
+  }
+  sourceCodePointToFoldedCodeUnit.push(foldedCodeUnitToSourceCodePoint.length)
+  return {
+    text: codePoints.join('').toLowerCase(),
+    foldedCodeUnitAt(sourceCodePoint: number) {
+      return sourceCodePointToFoldedCodeUnit[sourceCodePoint]
+    },
+    sourceCodePointAt(foldedCodeUnit: number) {
+      return foldedCodeUnitToSourceCodePoint[foldedCodeUnit]
+    },
+  }
+}
+
+function findSearchMatchOffsets(
+  source: ReturnType<typeof buildCaseFoldedSearchIndex>,
+  search: string | undefined,
+  start: number,
+  end: number,
+  limit: number,
+) {
+  if (!search) return []
+  const needle = search.toLowerCase()
+  const offsets: number[] = []
+  let match = source.text.indexOf(needle, source.foldedCodeUnitAt(start))
+  while (match !== -1 && offsets.length < limit) {
+    const sourceOffset = source.sourceCodePointAt(match)
+    if (sourceOffset === undefined || sourceOffset >= end) break
+    if (sourceOffset !== undefined && offsets.at(-1) !== sourceOffset) offsets.push(sourceOffset)
+    match = source.text.indexOf(needle, match + Math.max(needle.length, 1))
+  }
+  return offsets
 }
 
 function isValidCursorSignature(actual: string, expected: string) {
@@ -174,24 +224,28 @@ export async function readIntakeFileExtractionSource(rawInput: ReaderInput, clie
   }
 
   const pageSize = input.pageSize ?? INTAKE_FILE_EXTRACTION_READER_DEFAULT_PAGE_SIZE
-  const firstSearchMatch = input.search
-    ? receipt.extractedText.toLocaleLowerCase().indexOf(input.search.toLocaleLowerCase())
+  const codePoints = Array.from(receipt.extractedText)
+  const searchIndex = input.search ? buildCaseFoldedSearchIndex(codePoints) : null
+  const firstSearchMatch = searchIndex
+    ? (findSearchMatchOffsets(searchIndex, input.search, 0, codePoints.length, 1)[0] ?? -1)
     : -1
   const offset =
     cursor?.offset ??
     (firstSearchMatch < 0 ? 0 : Math.max(0, firstSearchMatch - Math.floor(pageSize / 4)))
-  if (offset > receipt.extractedText.length) {
+  if (offset > codePoints.length) {
     throw new IntakeFileExtractionReaderError(
       'CONFLICT',
       'The source-reader continuation is invalid.',
     )
   }
-  const pageEnd = Math.min(offset + pageSize, receipt.extractedText.length)
-  const nextOffset = pageEnd < receipt.extractedText.length ? pageEnd : null
+  const pageEnd = Math.min(offset + pageSize, codePoints.length)
+  const nextOffset = pageEnd < codePoints.length ? pageEnd : null
   const nextCursor =
     nextOffset === null
       ? null
       : encodeCursor({
+          v: 2,
+          unit: 'codePoint',
           offset: nextOffset,
           searchHash: requestedSearchHash,
           signature: cursorSignature(
@@ -202,17 +256,12 @@ export async function readIntakeFileExtractionSource(rawInput: ReaderInput, clie
             requestedSearchHash,
           ),
         })
-  const pageText = receipt.extractedText.slice(offset, pageEnd)
-  const matchOffsets: number[] = []
-  if (input.search) {
-    const source = receipt.extractedText.toLocaleLowerCase()
-    const needle = input.search.toLocaleLowerCase()
-    let match = source.indexOf(needle, offset)
-    while (match !== -1 && match < pageEnd && matchOffsets.length < 100) {
-      matchOffsets.push(match - offset)
-      match = source.indexOf(needle, match + Math.max(needle.length, 1))
-    }
-  }
+  const pageText = codePoints.slice(offset, pageEnd).join('')
+  const matchOffsets = searchIndex
+    ? findSearchMatchOffsets(searchIndex, input.search, offset, pageEnd, 100).map(
+        (match) => match - offset,
+      )
+    : []
 
   return {
     receiptId: input.receiptId,

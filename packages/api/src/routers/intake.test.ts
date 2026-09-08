@@ -86,6 +86,7 @@ describe('intake draft proposals', () => {
     expect(mocks.draftFind).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
+          tenantId: 'tenant-a',
           tenantId_venueId_ownerUserId_sourceKind: {
             tenantId: 'tenant-a',
             venueId: 'venue-a',
