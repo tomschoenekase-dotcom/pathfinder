@@ -167,6 +167,8 @@ model Tenant {
   billingAgentCommands                      BillingAgentCommand[]
   venues                                    Venue[]
   characterFactoryJobs                      CharacterFactoryJob[]
+  characterCandidateReviewBriefs            CharacterCandidateReviewBrief[]
+  characterCandidateReviewDecisions         CharacterCandidateReviewDecision[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
   intakeV1Submissions                       IntakeV1Submission[]
   intakeV1ProcessingDispatches              IntakeV1ProcessingDispatch[]
@@ -1022,6 +1024,18 @@ enum CharacterFactoryJobAction {
   EXPORT
 }
 
+enum CharacterCandidateSourceProvenance {
+  GENERATED
+  IMPORTED
+  IMPORTED_FIXTURE
+}
+
+enum CharacterCandidateReviewDecisionKind {
+  ACCEPT
+  REJECT
+  REVISE
+}
+
 enum ClientAssistantThreadStatus {
   ACTIVE
   CLOSED
@@ -1091,6 +1105,8 @@ model CustomCharacter {
   defaultPersonalityProfile   PersonalityProfile?     @relation("CustomCharacterDefaultPersonality", fields: [defaultPersonalityProfileId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   venueBotConfigurations      VenueBotConfiguration[]
   factoryJobs                 CharacterFactoryJob[]
+  candidateReviewBriefs       CharacterCandidateReviewBrief[]
+  candidateReviewDecisions    CharacterCandidateReviewDecision[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId])
@@ -1127,12 +1143,67 @@ model CharacterFactoryJob {
   tenant             Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue              Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Cascade, onUpdate: Restrict)
   customCharacter    CustomCharacter?          @relation(fields: [customCharacterId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  candidateReviewDecision CharacterCandidateReviewDecision?
 
   @@unique([tenantId, requestId])
+  @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, status, createdAt])
   @@index([status, leaseExpiresAt])
   @@index([tenantId, venueId, customCharacterId, createdAt])
   @@map("character_factory_jobs")
+}
+
+model CharacterCandidateReviewBrief {
+  id                  String                             @id @default(cuid())
+  tenantId            String                             @map("tenant_id")
+  venueId             String                             @map("venue_id")
+  customCharacterId   String                             @map("custom_character_id")
+  candidateVersion    Int                                @map("candidate_version")
+  candidateRevision   Int                                @map("candidate_revision")
+  artifactFingerprint String                             @map("artifact_fingerprint") @db.Char(64)
+  brief               String                             @db.VarChar(4000)
+  rationale           String                             @db.VarChar(2000)
+  sourceProvenance    CharacterCandidateSourceProvenance @map("source_provenance")
+  createdBy           String                             @map("created_by") @db.VarChar(191)
+  createdAt           DateTime                           @default(now()) @map("created_at")
+  tenant              Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Cascade, onUpdate: Restrict)
+  customCharacter     CustomCharacter                    @relation(fields: [customCharacterId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  decision            CharacterCandidateReviewDecision?
+
+  @@unique([id, tenantId, venueId])
+  @@unique([tenantId, venueId, customCharacterId, candidateVersion, candidateRevision, artifactFingerprint])
+  @@index([tenantId, venueId, createdAt])
+  @@map("character_candidate_review_briefs")
+}
+
+model CharacterCandidateReviewDecision {
+  id                  String                               @id @default(cuid())
+  tenantId            String                               @map("tenant_id")
+  venueId             String                               @map("venue_id")
+  briefId             String                               @unique @map("brief_id")
+  customCharacterId   String                               @map("custom_character_id")
+  candidateVersion    Int                                  @map("candidate_version")
+  candidateRevision   Int                                  @map("candidate_revision")
+  artifactFingerprint String                               @map("artifact_fingerprint") @db.Char(64)
+  operationId         String                               @map("operation_id") @db.VarChar(191)
+  requestFingerprint  String                               @map("request_fingerprint") @db.Char(64)
+  decision            CharacterCandidateReviewDecisionKind
+  revisionRequest     String?                              @map("revision_request") @db.VarChar(2000)
+  resultingJobId      String?                              @unique @map("resulting_job_id")
+  decidedBy           String                               @map("decided_by") @db.VarChar(191)
+  decidedAt           DateTime                             @default(now()) @map("decided_at")
+  tenant              Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                                @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Cascade, onUpdate: Restrict)
+  customCharacter     CustomCharacter                      @relation(fields: [customCharacterId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  brief               CharacterCandidateReviewBrief       @relation(fields: [briefId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  resultingJob        CharacterFactoryJob?                 @relation(fields: [resultingJobId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId])
+  @@unique([briefId, tenantId, venueId])
+  @@unique([resultingJobId, tenantId, venueId])
+  @@index([tenantId, venueId, customCharacterId, decidedAt])
+  @@map("character_candidate_review_decisions")
 }
 
 model VenueBotConfiguration {
@@ -1407,6 +1478,8 @@ model Venue {
   updatedAt                                 DateTime                                    @updatedAt @map("updated_at")
   tenant                                    Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   characterFactoryJobs                      CharacterFactoryJob[]
+  characterCandidateReviewBriefs            CharacterCandidateReviewBrief[]
+  characterCandidateReviewDecisions         CharacterCandidateReviewDecision[]
   intakeSubmissionDrafts                    IntakeSubmissionDraft[]
   intakeV1Submissions                       IntakeV1Submission[]
   intakeV1ProcessingDispatches              IntakeV1ProcessingDispatch[]

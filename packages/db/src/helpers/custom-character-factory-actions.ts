@@ -22,6 +22,7 @@ export class CustomCharacterFactoryActionError extends Error {
 
 type Actor = { id: string; role: 'PLATFORM_ADMIN' | 'AGENT'; type?: 'HUMAN' | 'AGENT' }
 type Client = Pick<typeof db, '$transaction' | 'characterFactoryJob'>
+export type CharacterFactoryTransactionClient = Parameters<Parameters<Client['$transaction']>[0]>[0]
 export const CHARACTER_FACTORY_JOB_LEASE_MS = 60_000
 
 type JobAction = 'CREATE_FROM_IMPORT' | 'REVISE' | 'INSPECT' | 'PREVIEW' | 'VALIDATE' | 'EXPORT'
@@ -256,19 +257,21 @@ export async function readCharacterFactoryJobAction(
   return requesterJob(job)
 }
 
-export async function prepareCharacterFactoryJobAction(
-  input: {
-    tenantId: string
-    venueId: string
-    requestId: string
-    action: JobAction
-    requestPayload: unknown
-    characterId?: string
-    baseVersion?: number
-    baseRevision?: number
-    actor: Actor
-  },
-  client: Client = db,
+export type CharacterFactoryJobPreparationInput = {
+  tenantId: string
+  venueId: string
+  requestId: string
+  action: JobAction
+  requestPayload: unknown
+  characterId?: string
+  baseVersion?: number
+  baseRevision?: number
+  actor: Actor
+}
+
+export async function prepareCharacterFactoryJobInTransaction(
+  input: CharacterFactoryJobPreparationInput,
+  tx: CharacterFactoryTransactionClient,
 ) {
   requireActor(input.actor)
   const requestPayload = requestPayloadByAction[input.action].parse(input.requestPayload)
@@ -281,96 +284,106 @@ export async function prepareCharacterFactoryJobAction(
     action: input.action,
     payload: requestPayload,
   })
-  const replay = async () => {
-    const existing = await client.characterFactoryJob.findFirst({
-      where: { tenantId: input.tenantId, requestId: input.requestId },
-    })
-    if (
-      !existing ||
-      existing.venueId !== input.venueId ||
-      existing.requestFingerprint !== requestFingerprint
-    )
+  const existing = await tx.characterFactoryJob.findFirst({
+    where: { tenantId: input.tenantId, requestId: input.requestId },
+  })
+  if (existing) {
+    if (existing.venueId !== input.venueId || existing.requestFingerprint !== requestFingerprint)
       throw new CustomCharacterFactoryActionError(
         'CONFLICT',
         'Request ID is already bound to another character factory action.',
       )
     return { job: requesterJob(existing), replayed: true as const }
   }
+  const venue = await tx.venue.findFirst({
+    where: { id: input.venueId, tenantId: input.tenantId },
+    select: { id: true },
+  })
+  if (!venue) throw new CustomCharacterFactoryActionError('NOT_FOUND', 'Venue not found.')
+  if (input.characterId) {
+    const character = await tx.customCharacter.findFirst({
+      where: { id: input.characterId, tenantId: input.tenantId, venueId: input.venueId },
+      select: { version: true, revision: true },
+    })
+    if (!character)
+      throw new CustomCharacterFactoryActionError('NOT_FOUND', 'Custom character not found.')
+    if (
+      (input.baseVersion !== undefined && character.version !== input.baseVersion) ||
+      (input.baseRevision !== undefined && character.revision !== input.baseRevision)
+    )
+      throw new CustomCharacterFactoryActionError(
+        'CONFLICT',
+        'Custom character changed; refresh and retry.',
+      )
+  }
+  const job = await tx.characterFactoryJob.create({
+    data: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      requestId: input.requestId,
+      requestFingerprint,
+      action: input.action,
+      requestPayload: requestPayload as Prisma.InputJsonValue,
+      createdBy: input.actor.id,
+      ...(input.characterId === undefined ? {} : { customCharacterId: input.characterId }),
+      ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
+      ...(input.baseRevision === undefined ? {} : { baseRevision: input.baseRevision }),
+    },
+  })
+  await writeAuditLogStrict(
+    {
+      tenantId: input.tenantId,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+      actorType: input.actor.type ?? 'HUMAN',
+      idempotencyKey: input.requestId,
+      action: 'character-factory.job-prepared',
+      targetType: 'CharacterFactoryJob',
+      targetId: job.id,
+      afterState: {
+        venueId: input.venueId,
+        action: input.action,
+        status: job.status,
+        requestFingerprint,
+      },
+    },
+    tx,
+  )
+  return { job: requesterJob(job), replayed: false as const }
+}
+
+export async function prepareCharacterFactoryJobAction(
+  input: CharacterFactoryJobPreparationInput,
+  client: Client = db,
+) {
   try {
-    return await client.$transaction(async (tx) => {
-      const existing = await tx.characterFactoryJob.findFirst({
+    return await client.$transaction((tx) => prepareCharacterFactoryJobInTransaction(input, tx))
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+      const requestPayload = requestPayloadByAction[input.action].parse(input.requestPayload)
+      const requestFingerprint = fingerprint({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        characterId: input.characterId ?? null,
+        baseVersion: input.baseVersion ?? null,
+        baseRevision: input.baseRevision ?? null,
+        action: input.action,
+        payload: requestPayload,
+      })
+      const existing = await client.characterFactoryJob.findFirst({
         where: { tenantId: input.tenantId, requestId: input.requestId },
       })
-      if (existing) {
-        if (
-          existing.venueId !== input.venueId ||
-          existing.requestFingerprint !== requestFingerprint
-        )
-          throw new CustomCharacterFactoryActionError(
-            'CONFLICT',
-            'Request ID is already bound to another character factory action.',
-          )
-        return { job: requesterJob(existing), replayed: true as const }
-      }
-      const venue = await tx.venue.findFirst({
-        where: { id: input.venueId, tenantId: input.tenantId },
-        select: { id: true },
-      })
-      if (!venue) throw new CustomCharacterFactoryActionError('NOT_FOUND', 'Venue not found.')
-      if (input.characterId) {
-        const character = await tx.customCharacter.findFirst({
-          where: { id: input.characterId, tenantId: input.tenantId, venueId: input.venueId },
-          select: { version: true, revision: true },
-        })
-        if (!character)
-          throw new CustomCharacterFactoryActionError('NOT_FOUND', 'Custom character not found.')
-        if (
-          (input.baseVersion !== undefined && character.version !== input.baseVersion) ||
-          (input.baseRevision !== undefined && character.revision !== input.baseRevision)
-        )
-          throw new CustomCharacterFactoryActionError(
-            'CONFLICT',
-            'Custom character changed; refresh and retry.',
-          )
-      }
-      const job = await tx.characterFactoryJob.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          requestId: input.requestId,
-          requestFingerprint,
-          action: input.action,
-          requestPayload: requestPayload as Prisma.InputJsonValue,
-          createdBy: input.actor.id,
-          ...(input.characterId === undefined ? {} : { customCharacterId: input.characterId }),
-          ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
-          ...(input.baseRevision === undefined ? {} : { baseRevision: input.baseRevision }),
-        },
-      })
-      await writeAuditLogStrict(
-        {
-          tenantId: input.tenantId,
-          actorId: input.actor.id,
-          actorRole: input.actor.role,
-          actorType: input.actor.type ?? 'HUMAN',
-          idempotencyKey: input.requestId,
-          action: 'character-factory.job-prepared',
-          targetType: 'CharacterFactoryJob',
-          targetId: job.id,
-          afterState: {
-            venueId: input.venueId,
-            action: input.action,
-            status: job.status,
-            requestFingerprint,
-          },
-        },
-        tx,
+      if (
+        !existing ||
+        existing.venueId !== input.venueId ||
+        existing.requestFingerprint !== requestFingerprint
       )
-      return { job: requesterJob(job), replayed: false as const }
-    })
-  } catch (error) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002')
-      return replay()
+        throw new CustomCharacterFactoryActionError(
+          'CONFLICT',
+          'Request ID is already bound to another character factory action.',
+        )
+      return { job: requesterJob(existing), replayed: true as const }
+    }
     throw error
   }
 }

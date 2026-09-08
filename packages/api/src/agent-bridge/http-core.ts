@@ -16,6 +16,8 @@ const Method = z.enum([
   'failTask',
   'callProspectTool',
   'listCharacterFactoryActions',
+  'submitCharacterCandidateReview',
+  'readCharacterCandidateReview',
   'prepareCharacterFactoryJob',
   'getCharacterFactoryJob',
   'cancelCharacterFactoryJob',
@@ -201,6 +203,15 @@ export async function handleAgentBridgeHttpRequestCore(
         break
       case 'prepareCharacterFactoryJob':
         result = await dependencies.registry.prepareCharacterFactoryJob(envelope.params, context)
+        break
+      case 'submitCharacterCandidateReview':
+        result = await dependencies.registry.submitCharacterCandidateReview(
+          envelope.params,
+          context,
+        )
+        break
+      case 'readCharacterCandidateReview':
+        result = await dependencies.registry.readCharacterCandidateReview(envelope.params, context)
         break
       case 'getCharacterFactoryJob':
         result = await dependencies.registry.getCharacterFactoryJob(envelope.params, context)

@@ -20,6 +20,8 @@ import {
   heartbeatAgentWorkerAction,
   prepareCharacterFactoryJobAction,
   readCharacterFactoryJobAction,
+  submitCharacterCandidateReviewBrief,
+  readCharacterCandidateReviewBrief,
   listAgentWorkerHealth,
   registerAgentWorkerAction,
   registerAgentBridgeSession,
@@ -100,6 +102,8 @@ export function createAgentBridgeRegistry(
           'prepareCharacterFactoryJob',
           'getCharacterFactoryJob',
           'cancelCharacterFactoryJob',
+          'submitCharacterCandidateReview',
+          'readCharacterCandidateReview',
         ],
         executorLifecycle: ['beginCharacterArtifactUpload', 'completeCharacterFactoryJob'],
       }
@@ -136,6 +140,41 @@ export function createAgentBridgeRegistry(
         ...(input.characterId === undefined ? {} : { characterId: input.characterId }),
         ...(input.baseVersion === undefined ? {} : { baseVersion: input.baseVersion }),
         ...(input.baseRevision === undefined ? {} : { baseRevision: input.baseRevision }),
+      })
+    },
+    submitCharacterCandidateReview: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = z
+        .object({
+          venueId: z.string().trim().min(1).max(191),
+          characterId: z.string().trim().min(1).max(191),
+          brief: z.string().trim().min(1).max(4_000),
+          rationale: z.string().trim().min(1).max(2_000),
+          sourceProvenance: z.enum(['GENERATED', 'IMPORTED', 'IMPORTED_FIXTURE']),
+        })
+        .strict()
+        .parse(raw)
+      assertCharacterFactoryScope(context.credential, input.venueId)
+      return submitCharacterCandidateReviewBrief({
+        tenantId: context.credential.tenantId,
+        ...input,
+        actor: { id: context.credential.credentialId, role: 'AGENT', type: 'AGENT' },
+      })
+    },
+    readCharacterCandidateReview: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = z
+        .object({
+          venueId: z.string().trim().min(1).max(191),
+          briefId: z.string().trim().min(1).max(191),
+        })
+        .strict()
+        .parse(raw)
+      assertCharacterFactoryScope(context.credential, input.venueId)
+      return readCharacterCandidateReviewBrief({
+        tenantId: context.credential.tenantId,
+        venueId: input.venueId,
+        briefId: input.briefId,
       })
     },
     getCharacterFactoryJob: (raw: unknown, rawContext: unknown) => {

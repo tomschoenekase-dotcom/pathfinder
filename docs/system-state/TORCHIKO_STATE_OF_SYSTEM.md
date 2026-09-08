@@ -75,7 +75,7 @@ The highest immediate value is no longer creating the first provider-dark golden
 | Kind        | Bottleneck                                                                                                                                        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Operational | Provider-dark lifecycle evidence exists; the equivalent hosted/provider-backed lifecycle and current deployment parity remain unproven.           |
-| Technical   | Two content/deployment generations coexist, and 434 approved tenant-isolation bypass calls plus 209 raw-SQL operations increase review burden.    |
+| Technical   | Two content/deployment generations coexist, and 435 approved tenant-isolation bypass calls plus 210 raw-SQL operations increase review burden.    |
 | Product     | Clients intentionally have narrow configuration; CRM, billing, and communication foundations exist but external operation remains tightly gated.  |
 | UX          | Provider-backed chat/voice quality, authenticated hosted mobile workflows, and the final owner/legal privacy text remain unproven.                |
 | Scale       | Human review, onboarding, package approval, support, and exception handling still concentrate in a sophisticated but operator-heavy admin system. |
@@ -117,7 +117,7 @@ flowchart LR
 - `apps/dashboard`: Clerk-authenticated client portal and platform-admin operating system.
 - `apps/workers`: BullMQ workers, schedulers, leases, recovery, media, agents, reports, evaluations, embeddings, and analytics.
 - `packages/api`: tRPC routers, HTTP-facing logic, admin router modules, MCP/agent-bridge actions, context building, and authorization.
-- `packages/db`: integrated Prisma schema, 237 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
+- `packages/db`: integrated Prisma schema, 238 migrations, tenant middleware, auditable domain actions, raw SQL, lifecycle helpers.
 - `packages/ai`: model/embedding registries, centralized gateway, budgets, workload configuration, capability routing, realtime voice.
 - `packages/contracts`: Zod contracts for guest responses, content, packages, evaluations, entitlements, characters, and operations.
 - `packages/jobs`, `analytics`, `auth`, `config`, `intake-engine`, `ui`: shared infrastructure and domain packages.
@@ -270,7 +270,7 @@ CI provisions disposable pgvector PostgreSQL, Redis, and MinIO and runs migratio
 
 Clerk supplies user and organization identity. `publicProcedure`, authenticated/tenant procedures, and platform-admin procedures provide backend boundaries; non-admin users cannot access internal routes merely by knowing URLs. Platform impersonation/tenant override is accepted only for platform admins and is cookie-scoped. Public guest routes revalidate venue, experience, visibility, and anonymous-session scope rather than trusting the browser.
 
-Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The current executable inventories contain 434 approved bypass calls in 146 production files and 209 raw-SQL operations (124 reads, 85 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap. Current-truth tests derive these counts from the same boundary verifiers so future drift fails the script suite.
+Tenant isolation is application-enforced through Prisma middleware, tenant-aware helpers, composite ownership checks, and executable source gates. The current executable inventories contain 435 approved bypass calls in 147 production files and 210 raw-SQL operations (125 reads, 85 writes). Those are inventoried and tests passed, but each expands the review surface. PostgreSQL row-level security was not found, so a missed predicate remains a plausible cross-tenant risk. This is not evidence of a present leak; it is a defense-in-depth gap. Current-truth tests derive these counts from the same boundary verifiers so future drift fails the script suite.
 
 Other meaningful controls include signed Clerk webhooks, machine credentials stored as hashes with rotation/revocation, server-only secret bundle scans, safe URL/origin contracts, upload size/decompression limits, quarantine and ClamAV, explicit AI kill switches, rate limits, budget admission, immutable evidence, and auditable dangerous actions. Public/embed response headers restrict framing, referrers, capabilities, and MIME sniffing.
 
@@ -424,3 +424,7 @@ The CRM foundation and outreach operational system described in `IMPLEMENTATION_
 ### September 8 continuation candidate (local evidence only)
 
 The continuation at `e9fdb332` contains 237 migrations, ending at `20260908170000_add_conversation_learning_review`. Corrected native closure/route proof measured 237 applied migrations and 256 public tables, then stopped its disposable PostgreSQL server. [Retained source/proof identities](../evidence/visitor-closure-route-native-postgres-2026-09-08.json) describe the exact read/router and synthetic-media limits. This does not supersede historical hosted observations. The staging migration admission remains frozen at 236 migrations; the 237-file candidate is rejected until a separately reviewed admission is prepared. No deployment or migration execution on staging/production was authorized or performed.
+
+The later local candidate-review fixture d2527c55b635 applied 238 migrations and measured 258 public tables, then stopped PostgreSQL. Its measured helper/factory/schema/migration/test bytes matched root source at review. It proves scoped immutable decisions and queued job replay on imported fixture candidates, not founder selection, job execution, hosted storage, or provider generation. The staging admission remains the same frozen 236-file prefix and rejects both newer local review migrations.
+
+The final character-review proof9dba33413f1b retains actual neutral SVG bundle hashes and portable readback with the same238/258 database boundary. Earlier d2527c55b635/0b2a742d5fb9 used synthetic artifact metadata and are DB-only diagnostic evidence. [Final source identities and limits](../evidence/character-candidate-review-native-postgres-2026-09-08.json) retain this distinction.

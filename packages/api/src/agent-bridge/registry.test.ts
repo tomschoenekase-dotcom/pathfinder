@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   heartbeatCharacter: vi.fn(),
   completeCharacter: vi.fn(),
   failCharacter: vi.fn(),
+  submitCharacterReview: vi.fn(),
+  readCharacterReview: vi.fn(),
 }))
 vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
@@ -41,6 +43,8 @@ vi.mock('@pathfinder/db', () => ({
   heartbeatCharacterFactoryJobAction: mocks.heartbeatCharacter,
   completeCharacterFactoryJobAction: mocks.completeCharacter,
   failCharacterFactoryJobAction: mocks.failCharacter,
+  submitCharacterCandidateReviewBrief: mocks.submitCharacterReview,
+  readCharacterCandidateReviewBrief: mocks.readCharacterReview,
 }))
 
 import { createAgentBridgeRegistry } from './registry'
@@ -69,6 +73,79 @@ describe('agent bridge registry', () => {
         },
       ),
     ).toMatchObject({ capability: 'characters:build', actions: expect.arrayContaining(['EXPORT']) })
+  })
+
+  it('submits only a bounded agent review brief under the exact character-builder scope', async () => {
+    mocks.submitCharacterReview.mockResolvedValue({ brief: { id: 'brief-1' }, replayed: false })
+    const registry = createAgentBridgeRegistry()
+    const input = {
+      venueId: 'venue-1',
+      characterId: 'character-1',
+      brief: 'Review the imported candidate.',
+      rationale: 'Check the existing fixture against the requested traits.',
+      sourceProvenance: 'IMPORTED_FIXTURE' as const,
+    }
+    await expect(
+      registry.submitCharacterCandidateReview(input, {
+        credential: { ...credential, capabilities: ['characters:build'] },
+      }),
+    ).resolves.toMatchObject({ replayed: false })
+    expect(mocks.submitCharacterReview).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      ...input,
+      actor: { id: 'credential-1', role: 'AGENT', type: 'AGENT' },
+    })
+    expect(() =>
+      registry.submitCharacterCandidateReview(
+        { ...input, venueId: 'venue-2' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/exact tenant, venue/u)
+    expect(() =>
+      registry.submitCharacterCandidateReview(
+        { ...input, decision: 'ACCEPT' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow()
+  })
+
+  it('reads only the scoped review snapshot and immutable decision/job receipt', async () => {
+    mocks.readCharacterReview.mockResolvedValue({
+      id: 'brief-1',
+      brief: 'Review this imported candidate.',
+      sourceProvenance: 'IMPORTED_FIXTURE',
+      candidateVersion: 1,
+      candidateRevision: 2,
+      artifactFingerprint: 'a'.repeat(64),
+      decision: {
+        decision: 'REVISE',
+        resultingJob: { id: 'job-1', action: 'REVISE', status: 'QUEUED' },
+      },
+    })
+    const registry = createAgentBridgeRegistry()
+    await expect(
+      registry.readCharacterCandidateReview(
+        { venueId: 'venue-1', briefId: 'brief-1' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).resolves.toMatchObject({
+      id: 'brief-1',
+      candidateVersion: 1,
+      candidateRevision: 2,
+      artifactFingerprint: 'a'.repeat(64),
+      decision: { decision: 'REVISE', resultingJob: { id: 'job-1', action: 'REVISE' } },
+    })
+    expect(mocks.readCharacterReview).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      briefId: 'brief-1',
+    })
+    expect(() =>
+      registry.readCharacterCandidateReview(
+        { venueId: 'venue-2', briefId: 'brief-1' },
+        { credential: { ...credential, capabilities: ['characters:build'] } },
+      ),
+    ).toThrow(/exact tenant, venue/u)
   })
 
   it('keeps character execution separate from builder authority and preserves machine identity', async () => {

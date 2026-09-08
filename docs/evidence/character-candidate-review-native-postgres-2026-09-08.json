@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08",
+  "requirement": "V2-P07-07",
+  "proofLayer": "native disposable PostgreSQL canonical lifecycle",
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b",
+  "migrations": 238,
+  "publicTables": 258,
+  "passedTests": 1,
+  "postgresStopped": true,
+  "measuredSources": [
+    {
+      "source": "packages/db/src/helpers/character-candidate-reviews.disposable.integration.test.ts",
+      "sha256": "3a37cc147d5bc0fce55badc34979b562e7c7e3a3babed5595c356fac401130d9",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b\\measured-character-candidate-reviews.disposable.integration.test.ts"
+    },
+    {
+      "source": "packages/db/src/helpers/character-candidate-reviews.ts",
+      "sha256": "d629cd574562c0772a605acebc104e33b1c0478adff665e954a89efda4540518",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b\\measured-character-candidate-reviews.ts"
+    },
+    {
+      "source": "packages/db/src/helpers/custom-character-factory-actions.ts",
+      "sha256": "c772e350c8d09536e46ac13254527007d16b56a4bbae175fc2a28ac3901459ac",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b\\measured-custom-character-factory-actions.ts"
+    },
+    {
+      "source": "packages/db/prisma/schema.prisma",
+      "sha256": "a321f939a48cc6b55d9b36ceb23a8e4c45c3c9fdc73db414ad3ec41017eeeae8",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b\\measured-schema.prisma"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260908180000_add_character_candidate_reviews/migration.sql",
+      "sha256": "717975f143d763ca3a24433b15690e7721f776e594682a9153db4f99a1a42d8f",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-character-candidate-reviews-9dba33413f1b\\measured-migration.sql"
+    }
+  ],
+  "covered": [
+    "Actual neutral SVG portable bundle construction and hash/readback; scoped candidate and agent brief",
+    "identical and conflicting concurrent human decisions",
+    "atomic decision and queued EXPORT/REVISE job",
+    "REJECT without job",
+    "stale art, archived state and wrong actor/scope denial",
+    "cross-venue job composite foreign key denial",
+    "historical replay remains original receipt after art change; current false"
+  ],
+  "limits": [
+    "Fixture tenant-isolation bypass harness; not HTTP middleware acceptance",
+    "Jobs remain queued: no executor/provider work or venue activation",
+    "No founder appearance selection, final Tochi approval or production storage proof",
+    "Artifact verification uses actual in-memory bundle bytes, not object-store persistence; earlier d2527c55b635/0b2a742d5fb9 used synthetic metadata and remain DB-boundary diagnostic evidence only"
+  ]
+}

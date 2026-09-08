@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 520,
-    "sha256": "2a060b9d312c1e6410fcae18d3de069057d5af4d563439f3ec0c0919947105a3",
+    "count": 524,
+    "sha256": "b74cfe3fd0eecd02cd3e4c05f37fb6c1f017653af55c206c8fbbbada4fea0f04",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "2a060b9d312c1e6410fcae18d3de069057d5af4d563439f3ec0c0919947105a3",
-      "sha256": "1f1dfe25f22a52c4b0a8884aa697479fa92b0f92dfdf032e5fbdc033485fd8cb"
+      "operationInventorySha256": "b74cfe3fd0eecd02cd3e4c05f37fb6c1f017653af55c206c8fbbbada4fea0f04",
+      "sha256": "b04884a1eb2ac5b31ec7078969604da5381c58fd9b3d23b3badcf743c1a1d6dc"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -600,6 +600,14 @@
       "developerCoverage": "full",
       "decision": "These exact receipt and retained-page-text readers are platform-admin inspection procedures for bounded intake evidence. They expose no agent tool, mutation, publication, or canonical venue write.",
       "evidence": "packages/api/src/lib/website-discovery.disposable.integration.test.ts"
+    },
+    {
+      "id": "character-candidate-review",
+      "pattern": "^adminCharacterCandidateReviewsRouter$",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "The characters:build bridge can submit a bounded scoped brief and read its exact candidate decision receipt. Only a human platform administrator can decide a candidate or read its private rasterized preview. No agent acceptance, venue activation, publication, or final Tochi selection is exposed; these admin operations remain unbound unless individually reviewed.",
+      "evidence": "packages/api/src/agent-bridge/registry.test.ts"
     },
     {
       "id": "character-factory",

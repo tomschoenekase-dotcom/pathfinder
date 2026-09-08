@@ -23,9 +23,17 @@ export {
   failCharacterFactoryJobAction,
   heartbeatCharacterFactoryJobAction,
   prepareCharacterFactoryJobAction,
+  prepareCharacterFactoryJobInTransaction,
+  type CharacterFactoryJobPreparationInput,
   readCharacterFactoryJobAction,
   readCustomCharacterFactoryAction,
 } from './helpers/custom-character-factory-actions'
+export {
+  characterCandidateArtifactFingerprint,
+  decideCharacterCandidateReview,
+  readCharacterCandidateReviewBrief,
+  submitCharacterCandidateReviewBrief,
+} from './helpers/character-candidate-reviews'
 export {
   applyNativeGuestContentRead,
   assessNativeGuestReadActivationAction,

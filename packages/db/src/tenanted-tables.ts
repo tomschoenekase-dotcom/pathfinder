@@ -19,6 +19,8 @@ export const TENANTED_TABLES = [
   'PersonalityProfile',
   'CustomCharacter',
   'CharacterFactoryJob',
+  'CharacterCandidateReviewBrief',
+  'CharacterCandidateReviewDecision',
   'ClientAssistantPreference',
   'ClientAssistantThread',
   'ClientAssistantTurn',

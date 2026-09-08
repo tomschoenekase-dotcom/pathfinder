@@ -34,10 +34,11 @@ async function readMigrationManifest(directory) {
   return manifest
 }
 
-test('the new local learning migration is not silently admitted by the frozen staging approval', async () => {
+test('the new local review migrations are not silently admitted by the frozen staging approval', async () => {
   const current = await readCurrentMigrationManifest('packages/db/prisma')
   assert.deepEqual(current.names.slice(EXPECTED.migrationCount), [
     '20260908170000_add_conversation_learning_review',
+    '20260908180000_add_character_candidate_reviews',
   ])
   assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
   const reviewed = await readMigrationManifest('packages/db/prisma')

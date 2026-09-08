@@ -234,6 +234,9 @@ const approvedCallCounts = new Map([
   // Platform-admin factory operations bind explicit tenant+venue and canonical job/lease
   // predicates. Durable composite foreign keys and storage verification enforce that scope.
   ['packages/api/src/routers/admin/character-factory.ts', 7],
+  // Human platform-admin candidate inbox and exact tenant/venue/snapshot decisions;
+  // canonical helpers serialize art changes and never activate venue characters.
+  ['packages/api/src/routers/admin/character-candidate-reviews.ts', 1],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   // Public-interest records are platform-owned ingress evidence rather than tenant data.

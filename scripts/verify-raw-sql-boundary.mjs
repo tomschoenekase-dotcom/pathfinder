@@ -102,6 +102,13 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Serialize founder review against art revision writes on the exact scoped candidate.
+  {
+    file: 'packages/db/src/helpers/character-candidate-reviews.ts',
+    method: '$queryRaw',
+    hash: 'e9ef58d166c85dab962bafbcbd5b692ef9a07173e1646635ae69420b8abf71db',
+    policy: 'tenant-and-venue',
+  },
   {
     file: 'packages/db/src/helpers/conversation-learning-actions.ts',
     method: '$executeRaw',

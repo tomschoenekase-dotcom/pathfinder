@@ -303,6 +303,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         callOperationalTool: unsupported,
         callProspectTool: unsupported,
         listCharacterFactoryActions: unsupported,
+        submitCharacterCandidateReview: unsupported,
+        readCharacterCandidateReview: unsupported,
         prepareCharacterFactoryJob: unsupported,
         getCharacterFactoryJob: unsupported,
         cancelCharacterFactoryJob: unsupported,

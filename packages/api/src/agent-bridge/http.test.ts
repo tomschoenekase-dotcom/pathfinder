@@ -43,6 +43,28 @@ describe('agent bridge HTTP composition', () => {
     expect(claimTask).toHaveBeenCalledWith(expect.anything(), { credential })
   })
 
+  it('routes a candidate review brief but has no human approval method', async () => {
+    const verify = vi.fn().mockResolvedValue({ ...credential, capabilities: ['characters:build'] })
+    const submitCharacterCandidateReview = vi.fn().mockResolvedValue({ brief: { id: 'brief-1' } })
+    const response = await handleAgentBridgeHttpRequest(
+      request({ method: 'submitCharacterCandidateReview', params: { venueId: 'venue-1' } }),
+      scope,
+      { verify, registry: { submitCharacterCandidateReview } as never },
+    )
+    expect(response.status).toBe(200)
+    expect(submitCharacterCandidateReview).toHaveBeenCalledWith(
+      { venueId: 'venue-1' },
+      { credential: { ...credential, capabilities: ['characters:build'] } },
+    )
+    const denied = await handleAgentBridgeHttpRequest(
+      request({ method: 'decideCharacterCandidateReview', params: {} }),
+      scope,
+      { verify, registry: {} as never },
+    )
+    expect(denied.status).toBe(400)
+    expect(await denied.json()).toEqual({ ok: false, error: { code: 'INVALID_REQUEST' } })
+  })
+
   it('routes prospect tool calls only after bridge credential verification', async () => {
     const verify = vi.fn().mockResolvedValue(credential)
     const callProspectTool = vi.fn().mockResolvedValue({ id: 'draft-1' })
