@@ -24,7 +24,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-workflow-activation-review.ts', 1],
   // Human platform-admin workflow requests, reviewed transitions, and bounded history
   // retain explicit tenant+venue predicates; canonical helpers revalidate authority.
-  ['packages/api/src/routers/admin/agent-workflow-activations.ts', 1],
+  ['packages/api/src/routers/admin/agent-workflow-activation-shared.ts', 1],
   // Platform-admin relation review, temporal review/clarification, and evidence reads retain exact
   // tenant+venue scope; dated drafts remain inactive and confer no publication authority.
   ['packages/api/src/routers/admin/media-ingestion-relations.ts', 1],
@@ -125,11 +125,13 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/support-package-reversion-approval.ts', 1],
   ['packages/api/src/routers/admin/support-package-handoff-supersession-approval.ts', 1],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
-  // Platform-admin operator inbox reads/appends exact tenant+venue+question discussion,
-  // lists a bounded exact-tenant inbox (with an optional exact venue), and routes answers
-  // or promotions only through canonical actions that revalidate the exact question scope.
+  // Platform-admin operator inbox routes answer/promotion mutations through canonical actions
+  // that revalidate exact tenant+venue+question scope.
+  ['packages/api/src/routers/admin/agent-questions.ts', 3],
+  // Discussion history and bounded question reads retain exact tenant+venue predicates;
+  // extracted only to keep the mounted admin router domain-sized.
+  ['packages/api/src/routers/admin/agent-question-history.ts', 3],
   ['packages/api/src/routers/admin/agent-question-client-routing.ts', 2],
-  ['packages/api/src/routers/admin/agent-questions.ts', 6],
   // Platform-admin-only evidence first validates one bounded hazard event and its exact linked
   // tenant+venue feedback record. It returns current mutable feedback as an audited read-only
   // projection; it cannot publish venue data or mutate operational state.
