@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "61387c59",
+  "relatedCommit": "6d0cd967",
+  "scope": ["W06", "FM06"],
+  "behavior": "Measure first non-whitespace visible output and buffer only actual internal marker prefixes, allowing short useful answers to stream immediately.",
+  "validation": {
+    "command": "pnpm exec vitest run src/routers/chat-streaming.test.ts src/routers/chat-first-useful-answer.w06.test.ts src/routers/chat.test.ts",
+    "cwd": "packages/api",
+    "passed": 128,
+    "failed": 0,
+    "ownedLintPassed": true
+  },
+  "limits": [
+    "Deterministic projection/router tests; no provider or network latency, percentile/SLO, audio or cold/warm corpus performance claim."
+  ],
+  "sourceSha256": {
+    "packages/api/src/routers/chat.ts": "ce013d98671a586aa111c05bd23acfcb37258688c13be930ef099be47e8716b6",
+    "packages/api/src/routers/chat-streaming.test.ts": "851cff769241df161663bfb0f5d2f363e6e5c2a491ea49f760e7ed2d24e850b6",
+    "packages/api/src/routers/chat-first-useful-answer.w06.test.ts": "8c1c90232e7cc88f728a8b846dd85bc5754bf3b031c7a517304e1bd6322e5d74"
+  }
+}
