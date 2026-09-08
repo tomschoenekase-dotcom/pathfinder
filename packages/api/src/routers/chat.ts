@@ -187,10 +187,21 @@ export function createGuestStreamingProjection(options: {
       if (!delta) return
       providerText += delta
       const markerIndex = providerText.indexOf(ENGAGEMENT_ASKED_MARKER)
-      const markerSafeLength =
-        markerIndex >= 0
-          ? markerIndex
-          : Math.max(0, providerText.length - ENGAGEMENT_ASKED_MARKER.length)
+      let markerSafeLength = markerIndex >= 0 ? markerIndex : providerText.length
+      if (markerIndex < 0) {
+        // Buffer only a suffix that could become the internal marker. Ordinary
+        // short answers can stream immediately without waiting for another delta.
+        for (
+          let length = Math.min(providerText.length, ENGAGEMENT_ASKED_MARKER.length - 1);
+          length > 0;
+          length -= 1
+        ) {
+          if (ENGAGEMENT_ASKED_MARKER.startsWith(providerText.slice(-length))) {
+            markerSafeLength -= length
+            break
+          }
+        }
+      }
       // Generation is token-bounded by the gateway. A second word cutoff can
       // hide a later qualification, so project all marker-safe provider text.
       const safePrefix = providerText.slice(0, markerSafeLength)
