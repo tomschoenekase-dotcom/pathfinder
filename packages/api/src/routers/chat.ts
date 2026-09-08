@@ -186,8 +186,6 @@ export function createGuestStreamingProjection(options: {
     ) {
       if (!delta) return
       providerText += delta
-      providerFirstTextMs ??= timings.providerFirstTextMs
-      requestFirstTextMs ??= timings.requestFirstTextMs
       const markerIndex = providerText.indexOf(ENGAGEMENT_ASKED_MARKER)
       const markerSafeLength =
         markerIndex >= 0
@@ -196,12 +194,15 @@ export function createGuestStreamingProjection(options: {
       // Generation is token-bounded by the gateway. A second word cutoff can
       // hide a later qualification, so project all marker-safe provider text.
       const safePrefix = providerText.slice(0, markerSafeLength)
+      if (safePrefix.trim().length === 0) return
+      providerFirstTextMs ??= timings.providerFirstTextMs
+      requestFirstTextMs ??= timings.requestFirstTextMs
       if (safePrefix.length <= emittedLength) return
       const safeDelta = safePrefix.slice(emittedLength)
       emittedLength = safePrefix.length
       await options.onTextDelta(safeDelta, {
-        providerFirstTextMs,
-        requestFirstTextMs,
+        providerFirstTextMs: providerFirstTextMs!,
+        requestFirstTextMs: requestFirstTextMs!,
       })
     },
     providerFirstTextMs() {
