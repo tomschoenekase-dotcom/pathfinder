@@ -33,11 +33,19 @@ vi.mock('./AgentQuestionAnswerForm', () => ({
   }: {
     questionId: string
     questionType: string
-  }) => (
-    <span>
-      Answer controls {questionId} {questionType}
-    </span>
-  ),
+  }) => {
+    const [draft, setDraft] = React.useState('')
+    return (
+      <label>
+        Answer controls {questionId} {questionType}
+        <input
+          aria-label={`Draft answer ${questionId}`}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </label>
+    )
+  },
 }))
 
 const questions = {
@@ -60,6 +68,7 @@ const questions = {
       createdAt: new Date('2026-08-29T10:00:00.000Z'),
       updatedAt: new Date('2026-08-29T10:00:00.000Z'),
       agentIdentity: { name: 'Venue Builder' },
+      venue: { name: 'North Campus' },
       agentRun: {
         id: 'run-1',
         status: 'AWAITING_INPUT' as const,
@@ -84,6 +93,7 @@ const questions = {
       createdAt: new Date('2026-08-29T09:00:00.000Z'),
       updatedAt: new Date('2026-08-29T09:00:00.000Z'),
       agentIdentity: { name: 'Source Analyst' },
+      venue: { name: 'West Hall' },
       agentRun: {
         id: 'run-2',
         status: 'AWAITING_INPUT' as const,
@@ -118,7 +128,9 @@ describe('FounderQuestionTriageBoard', () => {
     fireEvent.change(screen.getByLabelText('Dependency'), { target: { value: 'LOCAL' } })
     expect(screen.getByText('Are the holiday hours still current?')).toBeTruthy()
     expect(screen.queryByText('Which building does this source describe?')).toBeNull()
-    expect(screen.getByText(/Showing 1 of 2 loaded open questions/)).toBeTruthy()
+    expect(
+      screen.getByText(/Showing 1 matching questions from 2 loaded open questions/),
+    ).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Find a question'), { target: { value: 'missing' } })
     expect(screen.getByText('No loaded open questions match these filters.')).toBeTruthy()
@@ -217,6 +229,139 @@ describe('FounderQuestionTriageBoard', () => {
     fireEvent.change(within(container).getByLabelText('Order'), { target: { value: 'OLDEST' } })
     expect(container.querySelector('details > summary')?.textContent).toContain(
       'Low blocking oldest source question',
+    )
+  })
+
+  it('groups only the exact tenant, venue, and workflow identity after filtering', () => {
+    const groupedQuestions = {
+      items: [
+        {
+          ...questions.items[0],
+          id: 'urgent-shared-one',
+          question: 'Urgent shared workflow question',
+          urgency: 'URGENT' as const,
+          agentRunId: 'same-run-id',
+          agentRun: {
+            id: 'same-run-id',
+            status: 'AWAITING_INPUT' as const,
+            requestedOperation: 'urgent-review',
+          },
+          venue: { name: 'North Campus' },
+        },
+        {
+          ...questions.items[0],
+          id: 'urgent-shared-two',
+          question: 'Second shared workflow question',
+          urgency: 'HIGH' as const,
+          agentRunId: 'same-run-id',
+          agentRun: {
+            id: 'same-run-id',
+            status: 'AWAITING_INPUT' as const,
+            requestedOperation: 'urgent-review',
+          },
+          venue: { name: 'North Campus' },
+        },
+        {
+          ...questions.items[1],
+          id: 'same-run-other-venue',
+          question: 'Same run string, another venue',
+          tenantId: 'tenant-1',
+          venueId: 'venue-2',
+          agentRunId: 'same-run-id',
+          agentRun: {
+            id: 'same-run-id',
+            status: 'AWAITING_INPUT' as const,
+            requestedOperation: 'venue-isolated-review',
+          },
+          venue: { name: 'South Campus' },
+        },
+        {
+          ...questions.items[1],
+          id: 'same-run-other-tenant',
+          question: 'Same run string, another tenant',
+          tenantId: 'tenant-2',
+          venueId: 'venue-1',
+          agentRunId: 'same-run-id',
+          agentRun: {
+            id: 'same-run-id',
+            status: 'AWAITING_INPUT' as const,
+            requestedOperation: 'tenant-isolated-review',
+          },
+          venue: { name: 'East Campus' },
+        },
+        {
+          ...questions.items[0],
+          id: 'runless-one',
+          question: 'Runless question one',
+          agentRunId: null,
+          agentRun: null,
+        },
+        {
+          ...questions.items[0],
+          id: 'runless-two',
+          question: 'Runless question two',
+          agentRunId: null,
+          agentRun: null,
+        },
+      ],
+      nextCursor: null,
+    }
+    const { container } = render(
+      <FounderQuestionTriageBoard
+        questions={groupedQuestions as never}
+        generatedAt={new Date('2026-08-29T12:00:00.000Z')}
+      />,
+    )
+    const board = within(container)
+
+    expect((board.getByLabelText('Individual questions') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(board.getByLabelText('Group by workflow'))
+    const headings = Array.from(container.querySelectorAll('[data-workflow-group]'))
+    expect(headings).toHaveLength(3)
+    expect(headings[0]?.textContent).toContain('urgent review')
+    const summaries = Array.from(container.querySelectorAll('details > summary')).map(
+      (summary) => summary.textContent,
+    )
+    expect(summaries[0]).toContain('Urgent shared workflow question')
+    expect(summaries[1]).toContain('Second shared workflow question')
+    expect(board.getByText('2 matching loaded questions in this workflow.')).toBeTruthy()
+    const workflowLinks = board.getAllByRole('link', { name: 'Open workflow' })
+    expect(workflowLinks).toHaveLength(3)
+    expect(workflowLinks[0]?.getAttribute('href')).toBe(
+      '/admin/clients/tenant-1/venues/venue-1/agents/runs/same-run-id',
+    )
+    expect(board.getByText('Runless question one')).toBeTruthy()
+    expect(container.querySelectorAll('[data-independent-question]')).toHaveLength(2)
+    expect(board.getByLabelText('Draft answer runless-one')).toBeTruthy()
+    expect(board.getByLabelText('Draft answer runless-two')).toBeTruthy()
+    expect(board.getAllByText(/Answer controls /)).toHaveLength(6)
+
+    fireEvent.change(board.getByLabelText('Find a question'), {
+      target: { value: 'Second shared workflow' },
+    })
+    expect(container.querySelectorAll('[data-workflow-group]')).toHaveLength(1)
+    expect(board.getByText('1 matching loaded question in this workflow.')).toBeTruthy()
+    expect(board.queryByText('Urgent shared workflow question')).toBeNull()
+  })
+
+  it('preserves an in-progress individual answer draft when display grouping changes', () => {
+    const { container } = render(
+      <FounderQuestionTriageBoard
+        questions={questions as never}
+        generatedAt={new Date('2026-08-29T12:00:00.000Z')}
+      />,
+    )
+    const board = within(container)
+
+    const draft = board.getByLabelText('Draft answer local-question')
+    fireEvent.change(draft, { target: { value: 'Keep this answer draft.' } })
+    fireEvent.click(board.getByLabelText('Group by workflow'))
+    expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe(
+      'Keep this answer draft.',
+    )
+    fireEvent.click(board.getByLabelText('Individual questions'))
+    expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe(
+      'Keep this answer draft.',
     )
   })
 

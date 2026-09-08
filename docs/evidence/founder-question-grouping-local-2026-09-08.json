@@ -1,0 +1,65 @@
+{
+  "recordedAt": "2026-09-08T10:02:51.538919+00:00",
+  "baseCommit": "ebf956b8573e674f01b5c806cd87e3d7613d38c9",
+  "scope": "Optional exact-workflow grouping and canonical venue names/search in the existing founder question triage board.",
+  "behavior": [
+    "Default individual view preserves urgent-first behavior.",
+    "Grouped view uses exact tenantId/venueId/non-null agentRunId; each runless question has its own independent boundary.",
+    "Filter/sort precede grouping; group order follows first matching member; counts describe matching loaded questions only.",
+    "Canonical venue name comes from existing composite venueId/tenantId relation; no additional authority or wider query scope.",
+    "One flat keyed card tree retains opened details and answer drafts across grouping toggles.",
+    "Each original question retains evidence, discussion, expiry, response controls and exact scoped context/workflow links. No bulk answer, answer copying, semantic equivalence or question mutation introduced."
+  ],
+  "checks": {
+    "apiAttentionConsole": 15,
+    "board": 5,
+    "operationsConsole": 13,
+    "typechecks": ["API", "dashboard"],
+    "lint": "Owned source/test/fixture scoped ESLint passed. Next fixture lint emitted a pages-directory configuration warning.",
+    "browser": {
+      "passed": 4,
+      "project": "desktop-chromium",
+      "suites": ["founder-question-grouping (3)", "founder-question-priority (1 regression)"],
+      "widths": [320, 820, 1024, 1440],
+      "rootInspectedGroupingWidths": [320, 820, 1024, 1440],
+      "assertions": [
+        "Exact scoped group links and six retained questions.",
+        "Venue search filters before grouping; separate runless entries.",
+        "Keyboard view toggle retains real answer textarea draft and open card in both directions.",
+        "Reduced-motion render, zero main-scoped Axe violations with color contrast enabled, no horizontal overflow."
+      ],
+      "serverSession": 82348,
+      "listenerPid": 57980,
+      "stopped": true,
+      "outputDirectory": "artifacts/founder-question-grouping-5da211c9-final/results"
+    }
+  },
+  "visualCritique": "Preserved existing founder card language; flat venue/workflow dividers provide grouping without nested decorative containers. Desktop hierarchy and phone wrapping inspected; no new branding or motion.",
+  "limitations": [
+    "Synthetic guarded fixture with no connected database/authentication/provider or actual answer mutation proof.",
+    "Page errors were not explicitly collected/asserted in the new grouping spec.",
+    "Draft preservation proved across display toggles only; filtering currently unmounts nonmatching cards and may discard an unsaved draft. This pre-existing filter behavior is a ready follow-up defect.",
+    "This is exact-workflow presentation grouping, not semantic deduplication or complete realistic founder workload acceptance."
+  ],
+  "normalizedSourceSha256": {
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.tsx": "84f88e60c8548c60d8206c9092bc644c9c855038fe3b99e6f8a179dc1b5c7a06",
+    "apps/dashboard/components/admin/FounderQuestionTriageBoard.test.tsx": "72e69e85d90db4fa5cf3fb739339a286965bf84122cf91a7bd1b3900d406d6ec",
+    "apps/dashboard/app/dev-fixtures/founder-question-priority/page.tsx": "9369bce638543ddd340cb43b508a5c0adfcf8a36558671511e8d4d1370abc1f6",
+    "apps/dashboard/app/dev-fixtures/founder-question-triage/page.tsx": "6229e6ab737ae4569f7e7eeccf402c31ac44ac157376ab8da1320974b68cd729",
+    "apps/dashboard/components/admin/OperationsAttentionConsole.test.tsx": "e3bfb7b003fb3d95af3081a682ae6b079ee7be64f492556e8ab8db07fbb29ea0",
+    "apps/dashboard/app/dev-fixtures/founder-question-grouping/page.tsx": "90623e2de957fbdea499f7939735daed6e1919f2df2429dbc75cfb155115354a",
+    "apps/dashboard/tests/browser/founder-question-grouping.spec.ts": "a39407c0464d604dc58b88ccfd3c4c05fc820fc6304b97826289380afa19ba36",
+    "packages/api/src/routers/admin/attention-console.test.ts": "f5c0b3ab73f33a0ab56e6716f2f2b1b3af2a63f9b9a9f5286c22cc919566d727",
+    "packages/api/src/routers/admin/attention-priority-questions.ts": "23f09616480b3a4b102e79cac725cdd92186c07140c6398d9981c77878165c54"
+  },
+  "screenshotSha256": {
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-desktop-1440.png": "026a051b4eb4769c532fbaee781279a04ff3ba05653ce49f14868e6c5f9604ca",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-laptop-1024.png": "9700574defeb972c4452bc8b73d606c011cf23d104dec9ed46034a3f1226304a",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-phone-320.png": "031e479b8d9c42676dafd5b900db5d715836ebab5565297504703ad8fc610cf8",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-grouping--384d6-tal-overflow-at-four-widths-desktop-chromium/founder-question-grouping-tablet-820.png": "924b6bdf4f85f92a7cea8f119701f31c7f8ecdaedfd6aa00557187a24615765b",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-desktop-1440.png": "070e7ca81885d3ff2912047c1381a016048d8a8261c70c722bf84b4ad403b249",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-laptop-1024.png": "37c45ca14d0e9bf961fd994a9215d2b4ca03a7967de4ebdf31cdc0903885ce78",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-phone-320.png": "527f080d584f67fe428a6e9ff46ba6a822c6a7140effc9edcb21ce5ba7eb87b2",
+    "artifacts/founder-question-grouping-5da211c9-final/results/founder-question-priority--27605-s-readable-at-each-viewport-desktop-chromium/founder-question-priority-tablet-820.png": "70bb691a4c9cbd0b38d8b95aee2bd7dbeb18241b392dba614c631fcc36643949"
+  }
+}

@@ -20,6 +20,7 @@ export const attentionQuestionSelect = {
   blocking: true,
   createdAt: true,
   updatedAt: true,
+  venue: { select: { name: true } },
   agentIdentity: { select: { name: true } },
   agentRun: { select: { id: true, status: true, requestedOperation: true } },
 } satisfies Prisma.AgentQuestionSelect

@@ -239,7 +239,7 @@ describe('admin attention console', () => {
         OR: [{ blocking: true }, { urgency: 'URGENT' }],
       },
       take: 8,
-      select: expect.any(Object),
+      select: expect.objectContaining({ venue: { select: { name: true } } }),
       orderBy: [{ urgency: 'desc' }, { blocking: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     })
   })
