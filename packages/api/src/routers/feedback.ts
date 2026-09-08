@@ -1,10 +1,14 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { recordConversationInsightSignals } from '@pathfinder/db'
+import { publishOperationalEvent, recordConversationInsightSignals } from '@pathfinder/db'
 
 import { router } from '../core'
 import { checkRateLimit } from '../lib/rate-limit'
+import {
+  classifyVisitorSignalCandidate,
+  visitorHazardDeduplicationKey,
+} from '../lib/visitor-signal-candidate'
 import { publicProcedure } from '../trpc'
 
 const input = z
@@ -66,8 +70,10 @@ export const feedbackRouter = router({
     `
     if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: 'Message not found.' })
 
+    const candidate =
+      rating.rating === 'NOT_HELPFUL' ? classifyVisitorSignalCandidate(rating.reason) : null
     await ctx.db.$transaction(async (tx) => {
-      await tx.messageFeedback.upsert({
+      const feedback = await tx.messageFeedback.upsert({
         where: {
           tenantId_venueId_sessionId_messageId: {
             tenantId: target.tenantId,
@@ -98,8 +104,12 @@ export const feedbackRouter = router({
               category: 'VISITOR_NEGATIVE_FEEDBACK',
               confidence: 1,
               severity: 'INFO',
-              summary: 'A visitor explicitly rated this public answer as not helpful.',
+              summary:
+                candidate?.kind === 'CLOSURE_REPORT'
+                  ? candidate.summary
+                  : 'A visitor explicitly rated this public answer as not helpful.',
               suggestedAction:
+                (candidate?.kind === 'CLOSURE_REPORT' ? candidate.suggestedAction : undefined) ??
                 'Review the question, answer, and current venue knowledge before proposing a correction.',
               evidenceMessageIds: [target.userMessageId, target.messageId],
               capability: 'VISITOR_FEEDBACK',
@@ -108,6 +118,30 @@ export const feedbackRouter = router({
               analyzerVersion: 'visitor-feedback-signals-v1',
             },
           ],
+        })
+      }
+      if (candidate?.kind === 'URGENT_HAZARD') {
+        await publishOperationalEvent({
+          client: tx,
+          event: {
+            tenantId: target.tenantId,
+            venueId: target.venueId,
+            eventType: 'visitor-feedback.potential-urgent-hazard',
+            sourceSubsystem: 'visitor-feedback',
+            severity: 'CRITICAL',
+            title: 'Potential visitor-reported safety hazard',
+            summary: candidate.summary,
+            actionRequired: true,
+            linkedObjectType: 'MessageFeedback',
+            linkedObjectId: feedback.id,
+            recommendedAction: candidate.suggestedAction,
+            deduplicationKey: visitorHazardDeduplicationKey({
+              tenantId: target.tenantId,
+              venueId: target.venueId,
+              guestChatTurnId: target.guestChatTurnId,
+              messageId: target.messageId,
+            }),
+          },
         })
       }
       await tx.analyticsEvent.create({
