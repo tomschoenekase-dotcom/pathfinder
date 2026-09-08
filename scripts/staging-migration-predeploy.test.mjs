@@ -144,7 +144,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest retains observed predecessors and the reviewed 230 suffix', async () => {
+test('repository migration manifest retains observed predecessors and the reviewed 231 suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 254)
   assert.equal(EXPECTED.intakePackagePredecessorCount, 226)
@@ -222,14 +222,29 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     '20260907190000_add_venue_location_primary_place',
     '20260908031000_release_answered_agent_execution_owner',
     '20260908044000_add_agent_outcome_question_provenance',
+    '20260908080000_add_website_source_discovery',
   ])
   assert.throws(() => ledgerState(rows.slice(0, 228), manifest), /unexpected ledger row count/u)
   const workerLifecycleRows = rows.slice(0, EXPECTED.workerLifecyclePredecessorCount)
   assert.equal(workerLifecycleRows.length, 229)
+  const questionProvenanceRows = rows.slice(0, EXPECTED.questionProvenancePredecessorCount)
+  assert.equal(questionProvenanceRows.length, 230)
+  assert.equal(ledgerState(questionProvenanceRows, manifest), 'question-provenance-predecessor')
+  assert.equal(expectedPublicTableCount('question-provenance-predecessor'), 254)
+  assert.deepEqual(remainingMigrationNames(questionProvenanceRows, manifest), [
+    '20260908080000_add_website_source_discovery',
+  ])
+  const corruptedQuestionProvenanceRows = questionProvenanceRows.map((row) => ({ ...row }))
+  corruptedQuestionProvenanceRows.at(-1).checksum = '0'.repeat(64)
+  assert.throws(
+    () => ledgerState(corruptedQuestionProvenanceRows, manifest),
+    /ledger checksum mismatches/u,
+  )
   assert.equal(ledgerState(workerLifecycleRows, manifest), 'worker-lifecycle-predecessor')
   assert.equal(expectedPublicTableCount('worker-lifecycle-predecessor'), 254)
   assert.deepEqual(remainingMigrationNames(workerLifecycleRows, manifest), [
     '20260908044000_add_agent_outcome_question_provenance',
+    '20260908080000_add_website_source_discovery',
   ])
   const corruptedWorkerLifecycleRows = workerLifecycleRows.map((row) => ({ ...row }))
   corruptedWorkerLifecycleRows.at(-1).checksum = '0'.repeat(64)
@@ -251,6 +266,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -264,6 +280,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -279,6 +296,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.deepEqual(
@@ -291,6 +309,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.deepEqual(
@@ -319,6 +338,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -344,6 +364,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -368,6 +389,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -391,6 +413,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -412,6 +435,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -432,6 +456,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -451,6 +476,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -469,6 +495,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -486,6 +513,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -579,6 +607,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -622,6 +651,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -663,6 +693,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -703,6 +734,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -742,6 +774,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(
@@ -776,6 +809,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
@@ -804,6 +838,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     '20260907190000_add_venue_location_primary_place',
     '20260908031000_release_answered_agent_execution_owner',
     '20260908044000_add_agent_outcome_question_provenance',
+    '20260908080000_add_website_source_discovery',
   ])
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -835,6 +870,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -1023,6 +1059,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260907190000_add_venue_location_primary_place',
       '20260908031000_release_answered_agent_execution_owner',
       '20260908044000_add_agent_outcome_question_provenance',
+      '20260908080000_add_website_source_discovery',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -1115,6 +1152,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260907190000_add_venue_location_primary_place',
     '20260908031000_release_answered_agent_execution_owner',
     '20260908044000_add_agent_outcome_question_provenance',
+    '20260908080000_add_website_source_discovery',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

@@ -10,6 +10,7 @@ import type { TRPCContext } from '../context'
 import {
   buildWebsiteIntakeProposal,
   websiteIntakeEngineeringCostUnits,
+  WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
   WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION,
   WebsiteIntakePolicyError,
   type WebsiteIntakeDependencies,
@@ -190,6 +191,14 @@ export async function executeWebsiteIntakeResearch(input: {
     stableJson({
       ...requestMaterial,
       engineeringCostModelVersion: WEBSITE_INTAKE_ENGINEERING_COST_MODEL_VERSION,
+      collectionPolicyVersion: WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
+    }),
+  )
+  const costV2RequestHash = hash(
+    stableJson({
+      ...requestMaterial,
+      // Historical v2 replay identity must remain frozen if current cost semantics advance.
+      engineeringCostModelVersion: 2,
     }),
   )
   const legacyRequestHash = hash(stableJson(requestMaterial))
@@ -219,7 +228,7 @@ export async function executeWebsiteIntakeResearch(input: {
       existing.venueId !== input.request.venueId ||
       existing.runId !== input.request.runId ||
       existing.priorReceiptId !== (input.request.priorReceiptId ?? null) ||
-      (existing.requestHash !== requestHash && existing.requestHash !== legacyRequestHash) ||
+      ![requestHash, costV2RequestHash, legacyRequestHash].includes(existing.requestHash) ||
       existing.sourceUriHash !== sourceUriHash ||
       existing.createdBy !== input.request.createdBy
     ) {
@@ -328,6 +337,7 @@ export async function executeWebsiteIntakeResearch(input: {
           sourceUriHash,
           bounds,
           outcome: 'INACCESSIBLE',
+          discoverySnapshot: website.intermediate.discovery,
           evidence: [],
           discrepancies: [],
           attemptedFetches,
@@ -341,6 +351,7 @@ export async function executeWebsiteIntakeResearch(input: {
         input.db,
       )
     }
+    const { discovery, ...extractedResearchSnapshot } = website.intermediate
     return await recordWebsiteResearchReceiptAction(
       {
         operationId: input.request.operationId,
@@ -352,7 +363,8 @@ export async function executeWebsiteIntakeResearch(input: {
         sourceUriHash,
         bounds,
         outcome: 'SUCCEEDED',
-        researchSnapshot: website.intermediate,
+        researchSnapshot: extractedResearchSnapshot,
+        discoverySnapshot: discovery,
         candidateSnapshot: website.packageBinding,
         evidence: [...website.intermediate.evidence],
         discrepancies: [...website.intermediate.discrepancies],

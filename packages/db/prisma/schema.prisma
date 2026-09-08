@@ -1978,6 +1978,7 @@ model IntakeWebsiteResearchReceipt {
   bounds             Json
   researchSnapshot   Json?                          @map("research_snapshot")
   candidateSnapshot  Json?                          @map("candidate_snapshot")
+  discoverySnapshot  Json?                          @map("discovery_snapshot")
   attemptedFetches   Int                            @default(0) @map("attempted_fetches")
   fetchedPages       Int                            @default(0) @map("fetched_pages")
   fetchedBytes       Int                            @default(0) @map("fetched_bytes")

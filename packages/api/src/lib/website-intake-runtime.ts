@@ -287,15 +287,6 @@ export function createWebsiteIntakeRuntimeDependencies(options: {
     fetchPage: async (request) => {
       const response = await pinnedFetch(request, options.userAgent)
       if (response.status >= 200 && response.status < 300) {
-        const contentType = response.headers['content-type']?.toLowerCase() ?? ''
-        if (
-          contentType &&
-          !contentType.includes('text/html') &&
-          !contentType.includes('application/xhtml+xml') &&
-          !contentType.includes('text/plain')
-        ) {
-          throw new WebsiteIntakePolicyError('Website returned a non-text page')
-        }
         if (byteLength(response.body) > request.maxBytes) {
           throw new WebsiteIntakePolicyError('Website response exceeded its byte limit')
         }

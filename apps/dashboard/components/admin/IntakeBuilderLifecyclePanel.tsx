@@ -7,6 +7,7 @@ import type { AppRouter } from '@pathfinder/api'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { WebsiteSourceDiscoveryPanel } from './WebsiteSourceDiscoveryPanel'
 
 const BUILDER_READ_TIMEOUT_MS = 15_000
 
@@ -1073,6 +1074,10 @@ export function IntakeBuilderLifecycleView({
             </dd>
           </div>
         </dl>
+      ) : null}
+
+      {lifecycle.websiteSourceDiscovery ? (
+        <WebsiteSourceDiscoveryPanel review={lifecycle.websiteSourceDiscovery} />
       ) : null}
 
       {lifecycle.fileUpload ? (

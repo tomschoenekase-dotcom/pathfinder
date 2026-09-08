@@ -20,6 +20,7 @@ import {
   WebsiteClarificationError,
 } from './intake-website-clarifications'
 import { WEBSITE_MAPPING_FIELD_PATHS } from './intake-website-mapping'
+import { projectWebsiteSourceDiscovery } from './website-source-discovery-review'
 
 const MAX_WEBSITE_RESEARCH_ATTEMPTS = 4
 
@@ -85,6 +86,7 @@ export async function getIntakeBuilderLifecycle(input: {
     select: {
       id: true,
       sourceKind: true,
+      websiteUri: true,
       status: true,
       _count: { select: { evidence: true } },
       evidence: {
@@ -154,6 +156,7 @@ export async function getIntakeBuilderLifecycle(input: {
           id: true,
           outcome: true,
           researchSnapshot: true,
+          discoverySnapshot: true,
           candidateSnapshot: true,
           attemptedFetches: true,
           fetchedPages: true,
@@ -542,6 +545,15 @@ export async function getIntakeBuilderLifecycle(input: {
   })
   return {
     ...lifecycle,
+    ...(latestWebsiteResearch
+      ? {
+          websiteSourceDiscovery: projectWebsiteSourceDiscovery({
+            receiptId: latestWebsiteResearch.id,
+            websiteUri: run.websiteUri,
+            discoverySnapshot: latestWebsiteResearch.discoverySnapshot,
+          }),
+        }
+      : {}),
     fileExtractionReview:
       latestFileExtraction?.outcome === 'SUCCEEDED' && latestFileExtraction.extractedText
         ? {

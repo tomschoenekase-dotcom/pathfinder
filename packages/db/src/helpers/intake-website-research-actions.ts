@@ -7,6 +7,7 @@ import {
   IntakeDiscrepancy,
   IntakeEvidence,
   WebsiteIntakeBounds,
+  WebsiteSourceDiscovery,
 } from '@pathfinder/contracts/intake-engine'
 
 import { db } from '../client'
@@ -49,6 +50,7 @@ const terminalInput = z
     outcome: z.enum(['SUCCEEDED', 'INACCESSIBLE', 'FAILED']),
     researchSnapshot: z.record(z.unknown()).optional(),
     candidateSnapshot: z.unknown().optional(),
+    discoverySnapshot: WebsiteSourceDiscovery.optional(),
     evidence: z.array(IntakeEvidence).max(5_000).default([]),
     discrepancies: z.array(IntakeDiscrepancy).max(1_000).default([]),
     attemptedFetches: z.number().int().min(0).max(10_000),
@@ -74,6 +76,34 @@ const terminalInput = z
         code: z.ZodIssueCode.custom,
         path: ['evidence'],
         message: 'Failed or inaccessible research cannot claim extracted evidence.',
+      })
+    }
+    if (!successful && value.candidateSnapshot !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['candidateSnapshot'],
+        message: 'Failed or inaccessible research cannot retain a candidate snapshot.',
+      })
+    }
+    if (value.outcome === 'FAILED' && value.discoverySnapshot !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['discoverySnapshot'],
+        message: 'Failed research cannot retain a partial source discovery inventory.',
+      })
+    }
+    if (
+      value.outcome === 'INACCESSIBLE' &&
+      value.discoverySnapshot !== undefined &&
+      (value.errorCode !== 'NO_ACCESSIBLE_PAGES' ||
+        value.fetchedPages !== 0 ||
+        value.discoverySnapshot.items.some((item) => item.disposition === 'FETCHED_TEXT'))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['discoverySnapshot'],
+        message:
+          'An inaccessible discovery inventory requires a no-accessible-pages result with no fetched text.',
       })
     }
   })
@@ -123,6 +153,38 @@ function snapshotSize(value: unknown) {
   return Buffer.byteLength(JSON.stringify(value ?? null), 'utf8')
 }
 
+function normalizedDiscoveryHost(value: string) {
+  const parsed = new URL(value)
+  return parsed.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/gu, '')
+    .replace(/\.$/u, '')
+}
+
+function assertDiscoverySnapshotMatchesWebsiteBounds(
+  discoverySnapshot: WebsiteSourceDiscovery | undefined,
+  bounds: WebsiteIntakeBounds,
+  websiteUri: string,
+) {
+  if (!discoverySnapshot) return
+  const allowedHosts = new Set(
+    bounds.allowedHosts.map((host) => normalizedDiscoveryHost(`https://${host}/`)),
+  )
+  const sourceHost = normalizedDiscoveryHost(websiteUri)
+  for (const item of discoverySnapshot.items) {
+    for (const url of [item.url, item.parentUrl, item.duplicateOf]) {
+      if (!url) continue
+      const host = normalizedDiscoveryHost(url)
+      if (host !== sourceHost || !allowedHosts.has(host)) {
+        throw new IntakeWebsiteResearchActionError(
+          'INVALID_INPUT',
+          'Website discovery inventory references a URL outside the approved website bounds.',
+        )
+      }
+    }
+  }
+}
+
 const receiptSelect = {
   id: true,
   tenantId: true,
@@ -135,6 +197,7 @@ const receiptSelect = {
   bounds: true,
   researchSnapshot: true,
   candidateSnapshot: true,
+  discoverySnapshot: true,
   attemptedFetches: true,
   fetchedPages: true,
   fetchedBytes: true,
@@ -164,6 +227,7 @@ function exactReplay(
     exactJson(receipt.bounds, input.bounds) &&
     exactJson(receipt.researchSnapshot, input.researchSnapshot ?? null) &&
     exactJson(receipt.candidateSnapshot, input.candidateSnapshot ?? null) &&
+    exactJson(receipt.discoverySnapshot ?? null, input.discoverySnapshot ?? null) &&
     receipt.attemptedFetches === input.attemptedFetches &&
     receipt.fetchedPages === input.fetchedPages &&
     receipt.fetchedBytes === input.fetchedBytes &&
@@ -204,7 +268,8 @@ export async function recordWebsiteResearchReceiptAction(
   const input = parsed.data
   if (
     snapshotSize(input.researchSnapshot) > 5_000_000 ||
-    snapshotSize(input.candidateSnapshot) > 2_000_000
+    snapshotSize(input.candidateSnapshot) > 2_000_000 ||
+    snapshotSize(input.discoverySnapshot) > 8_000_000
   ) {
     throw new IntakeWebsiteResearchActionError(
       'INVALID_INPUT',
@@ -253,6 +318,11 @@ export async function recordWebsiteResearchReceiptAction(
         'The website intake source changed before research evidence was recorded.',
       )
     }
+    assertDiscoverySnapshotMatchesWebsiteBounds(
+      input.discoverySnapshot,
+      input.bounds,
+      run.websiteUri,
+    )
 
     const priorReceipts = await tx.intakeWebsiteResearchReceipt.findMany({
       where: { tenantId: input.tenantId, venueId: input.venueId, runId: input.runId },
@@ -353,6 +423,9 @@ export async function recordWebsiteResearchReceiptAction(
         ...(input.candidateSnapshot !== undefined
           ? { candidateSnapshot: json(input.candidateSnapshot) }
           : {}),
+        ...(input.discoverySnapshot !== undefined
+          ? { discoverySnapshot: json(input.discoverySnapshot) }
+          : {}),
         attemptedFetches: input.attemptedFetches,
         fetchedPages: input.fetchedPages,
         fetchedBytes: input.fetchedBytes,
@@ -388,6 +461,8 @@ export async function recordWebsiteResearchReceiptAction(
           latencyMs: input.latencyMs,
           evidenceCount: input.evidence.length,
           discrepancyCount: input.discrepancies.length,
+          discoveryItemCount: input.discoverySnapshot?.items.length ?? 0,
+          discoveryOmittedCount: input.discoverySnapshot?.omittedCount ?? null,
           errorCode: input.errorCode ?? null,
           autoApproved: false,
           autoApplied: false,
@@ -416,6 +491,8 @@ export async function recordWebsiteResearchReceiptAction(
           latencyMs: input.latencyMs,
           evidenceCount: input.evidence.length,
           discrepancyCount: input.discrepancies.length,
+          discoveryItemCount: input.discoverySnapshot?.items.length ?? 0,
+          discoveryOmittedCount: input.discoverySnapshot?.omittedCount ?? null,
           errorCode: input.errorCode ?? null,
           packageDraftCreated: false,
           autoApproved: false,

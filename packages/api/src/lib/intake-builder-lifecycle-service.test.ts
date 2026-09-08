@@ -21,6 +21,75 @@ describe('getIntakeBuilderLifecycle', () => {
     vi.clearAllMocks()
   })
 
+  it('projects discovery-only receipts without completing extraction or claiming venue facts', async () => {
+    const observedAt = '2026-09-08T08:00:00.000Z'
+    const discoverySnapshot = {
+      policyVersion: 1,
+      observedAt,
+      omittedCount: 0,
+      items: [
+        {
+          url: 'https://example.com/guide.pdf',
+          parentUrl: null,
+          depth: 0,
+          observedAt,
+          disposition: 'UNSUPPORTED_DOCUMENT',
+        },
+      ],
+    }
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'run-discovery',
+      sourceKind: 'WEBSITE',
+      websiteUri: 'https://example.com/guide.pdf',
+      status: 'AWAITING_REVIEW',
+      _count: { evidence: 0 },
+      evidence: [],
+      packageHandoff: null,
+      websiteResearchReceipts: [
+        {
+          id: 'receipt-discovery',
+          outcome: 'INACCESSIBLE',
+          researchSnapshot: null,
+          candidateSnapshot: null,
+          discoverySnapshot,
+          attemptedFetches: 0,
+          fetchedPages: 0,
+          fetchedBytes: 0,
+          estimatedCostUnits: 0,
+          latencyMs: 1,
+          errorCode: 'NO_ACCESSIBLE_PAGES',
+          errorMessage: 'No accessible text pages.',
+        },
+      ],
+    })
+    const result = await getIntakeBuilderLifecycle({
+      db: { intakeRun: { findFirst } } as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-discovery',
+    })
+    expect(result.websiteSourceDiscovery).toEqual({
+      receiptId: 'receipt-discovery',
+      status: 'RECORDED',
+      sourceHost: 'example.com',
+      inventory: discoverySnapshot,
+    })
+    expect(result.websiteClarificationReview).toBeNull()
+    expect(buildCandidate).not.toHaveBeenCalled()
+    expect(result.currentState).toBe('BLOCKED')
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'run-discovery', tenantId: 'tenant-a', venueId: 'venue-a' },
+        select: expect.objectContaining({
+          websiteUri: true,
+          websiteResearchReceipts: expect.objectContaining({
+            select: expect.objectContaining({ discoverySnapshot: true }),
+          }),
+        }),
+      }),
+    )
+  })
+
   it('proves one verified immutable file source and preserves the extraction boundary', async () => {
     const verifiedAt = new Date('2026-08-29T02:00:00.000Z')
     const sha256 = 'c'.repeat(64)

@@ -1,3 +1,6 @@
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -7,6 +10,55 @@ import {
 } from './website-intake-runtime'
 
 describe('website intake runtime', () => {
+  it('returns bounded non-text bytes intact and rejects oversized loopback responses', async () => {
+    const pdfBody = Buffer.from([0x25, 0x50, 0x44, 0x46])
+    const server = createServer((request, response) => {
+      if (request.url === '/oversized') {
+        response.writeHead(200, { 'content-type': 'application/pdf' })
+        response.end(Buffer.alloc(9, 1))
+        return
+      }
+      response.writeHead(200, { 'content-type': 'application/pdf' })
+      response.end(pdfBody)
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+
+    try {
+      const { port } = server.address() as AddressInfo
+      const runtime = createWebsiteIntakeRuntimeDependencies({ userAgent: 'TorchikoBuilder/1.0' })
+      const baseRequest = {
+        resolvedAddresses: ['127.0.0.1'],
+        redirectMode: 'MANUAL' as const,
+        maxBytes: 8,
+        timeoutMs: 1_000,
+      }
+
+      await expect(
+        runtime.fetchPage({
+          ...baseRequest,
+          url: `http://source.example:${port}/document.pdf`,
+        }),
+      ).resolves.toMatchObject({
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+        body: pdfBody,
+      })
+      await expect(
+        runtime.fetchPage({
+          ...baseRequest,
+          url: `http://source.example:${port}/oversized`,
+        }),
+      ).rejects.toThrow('byte limit')
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  })
+
   it('rejects an already-cancelled fetch before opening a network request', async () => {
     const controller = new AbortController()
     controller.abort()
