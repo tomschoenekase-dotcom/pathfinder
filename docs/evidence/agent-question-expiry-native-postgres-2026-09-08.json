@@ -134,7 +134,7 @@
     "packages/db/src/helpers/agent-question-actions.ts": "432107e8fadcac36e098d2536fbb93f1b2289fafb6e318f23c629821be9983c2",
     "packages/db/src/helpers/agent-question-expiration-actions.test.ts": "c07a216a675cf4a1299db7af5113a1ae03791306e701f15195514d5be0da8399",
     "packages/db/src/helpers/agent-question-expiration-actions.ts": "dced50d2840de7089a7a4e69161311f816baf934691704215f24766cc325e9d0",
-    "packages/db/src/helpers/agent-question-expiry-ingress.test.ts": "37be35184e25f1b15a282ea06f57e423a9187b57f4ac0bd6cce4da71ffa80963",
+    "packages/db/src/helpers/agent-question-expiry-ingress.test.ts": "7095c23176f1b3620afcbd8612829b228ab9c0fbdb8e7b8222beb81b3a52daf0",
     "packages/db/src/helpers/agent-question-expiry.disposable.integration.test.ts": "4efd3f66360a1f3e613d7f1d0396c1b2b478d61ec5b0a940bbf8e506c51aa306",
     "packages/db/src/helpers/agent-run-execution-actions.ts": "fc483600a97c352fa3571708a041626ac6e05c092ed4a55b1f205b945566f8ac",
     "packages/db/src/helpers/agent-run-execution-context.ts": "176f60e288323d428124fdad4a8383afedf2ad3cf6736eef87d9e4b0a4886fea",
@@ -166,5 +166,6 @@
     "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-phone-320.png": "c1673a30bd7b74a9712275ced02446cb803f2cf21daf2116fecd27e2bfeb768c",
     "artifacts/agent-question-expiry-20260908/browser-results-final4/agent-question-expiry-keep-d3797-oves-controls-at-its-cutoff-mobile-chromium/agent-question-expiry-tablet-820.png": "fae7cbbc3b91f38ac427fb0e669ce797d5cf5ba0b7506693b928ed7ad3ad5ae2"
   },
-  "remaining": "Full128-task campaign remains active. Related-item bundling, representative founder workload and other packet acceptance remain incomplete; provider/production/final-brand gates remain separate."
+  "remaining": "Full128-task campaign remains active. Related-item bundling, representative founder workload and other packet acceptance remain incomplete; provider/production/final-brand gates remain separate.",
+  "postCommitFormatting": "Pre-commit Prettier formatted ingress unit test; source evidence hash refreshed after commit, focused test rerun."
 }
