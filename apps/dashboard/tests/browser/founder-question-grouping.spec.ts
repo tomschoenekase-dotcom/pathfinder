@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
+function collectPageErrors(page: import('@playwright/test').Page) {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  return errors
+}
+
 const viewports = [
   { name: 'phone-320', width: 320, height: 568 },
   { name: 'tablet-820', width: 820, height: 1180 },
@@ -20,6 +26,7 @@ const prompts = [
 test('groups only an exact scoped workflow and preserves every individual question', async ({
   page,
 }) => {
+  const pageErrors = collectPageErrors(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/dev-fixtures/founder-question-grouping')
   await expect(page.getByRole('heading', { name: 'Workflow grouping' })).toBeVisible()
@@ -29,7 +36,12 @@ test('groups only an exact scoped workflow and preserves every individual questi
   const urgentCard = page.locator('details.group').filter({ hasText: prompts[0]! })
   await urgentCard.locator(':scope > summary').click()
   const draft = 'Keep the north entrance staffed while the final sign is checked.'
-  await urgentCard.getByLabel('Your answer').fill(draft)
+  const urgentAnswer = urgentCard.getByLabel('Your answer')
+  await urgentAnswer.fill(draft)
+  await urgentAnswer.evaluate((textarea) => {
+    textarea.dataset.browserIdentity = 'original-north-answer'
+  })
+  await expect(urgentCard.getByRole('button', { name: 'Answer agent' })).toBeEnabled()
 
   await page.getByLabel('Group by workflow').focus()
   await page.keyboard.press('Space')
@@ -62,16 +74,45 @@ test('groups only an exact scoped workflow and preserves every individual questi
   const restoredUrgentCard = page.locator('details.group').filter({ hasText: prompts[0]! })
   await expect(restoredUrgentCard).toHaveAttribute('open', '')
   await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+
+  await page.getByLabel('Find a question').fill('South Museum')
+  await expect(page.locator('details.group:visible')).toHaveCount(1)
+  await expect(restoredUrgentCard).toBeHidden()
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveAttribute(
+    'data-browser-identity',
+    'original-north-answer',
+  )
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+  for (let index = 0; index < 12; index += 1) {
+    await page.keyboard.press('Tab')
+    expect(
+      await restoredUrgentCard.evaluate((card) => !card.contains(document.activeElement)),
+    ).toBe(true)
+  }
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+  expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([])
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+
+  await page.getByLabel('Find a question').fill('no matching retained question')
+  await expect(page.locator('details.group:visible')).toHaveCount(0)
+  await expect(page.getByText('No loaded open questions match these filters.')).toBeVisible()
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(restoredUrgentCard).toBeVisible()
+  await expect(restoredUrgentCard).toHaveAttribute('open', '')
+  await expect(restoredUrgentCard.getByLabel('Your answer')).toHaveValue(draft)
+  expect(pageErrors).toEqual([])
 })
 
 test('filters before grouping and finds venue names without merging runless questions', async ({
   page,
 }) => {
+  const pageErrors = collectPageErrors(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/dev-fixtures/founder-question-grouping')
   await page.getByLabel('Group by workflow').check()
   await page.getByLabel('Find a question').fill('South Museum')
-  await expect(page.locator('details.group')).toHaveCount(1)
+  await expect(page.locator('details.group:visible')).toHaveCount(1)
   await expect(page.getByText(prompts[3]!, { exact: true })).toBeVisible()
   await expect(page.getByText('Showing 1 matching questions from 6')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
@@ -79,11 +120,13 @@ test('filters before grouping and finds venue names without merging runless ques
   await expect(
     page.getByText('Does the seasonal coat-check note need another source?'),
   ).toBeVisible()
+  expect(pageErrors).toEqual([])
 })
 
 test('keeps grouped review accessible and free of horizontal overflow at four widths', async ({
   page,
 }, testInfo) => {
+  const pageErrors = collectPageErrors(page)
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -99,4 +142,5 @@ test('keeps grouped review accessible and free of horizontal overflow at four wi
       fullPage: true,
     })
   }
+  expect(pageErrors).toEqual([])
 })

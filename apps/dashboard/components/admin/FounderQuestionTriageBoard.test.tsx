@@ -127,7 +127,9 @@ describe('FounderQuestionTriageBoard', () => {
 
     fireEvent.change(screen.getByLabelText('Dependency'), { target: { value: 'LOCAL' } })
     expect(screen.getByText('Are the holiday hours still current?')).toBeTruthy()
-    expect(screen.queryByText('Which building does this source describe?')).toBeNull()
+    expect(
+      screen.getByText('Which building does this source describe?').closest('details')?.hidden,
+    ).toBe(true)
     expect(
       screen.getByText(/Showing 1 matching questions from 2 loaded open questions/),
     ).toBeTruthy()
@@ -341,11 +343,11 @@ describe('FounderQuestionTriageBoard', () => {
     })
     expect(container.querySelectorAll('[data-workflow-group]')).toHaveLength(1)
     expect(board.getByText('1 matching loaded question in this workflow.')).toBeTruthy()
-    expect(board.queryByText('Urgent shared workflow question')).toBeNull()
+    expect(board.getByText('Urgent shared workflow question').closest('details')?.hidden).toBe(true)
   })
 
-  it('preserves an in-progress individual answer draft when display grouping changes', () => {
-    const { container } = render(
+  it('preserves an open draft through filters, an empty result, and display grouping', () => {
+    const { container, rerender } = render(
       <FounderQuestionTriageBoard
         questions={questions as never}
         generatedAt={new Date('2026-08-29T12:00:00.000Z')}
@@ -355,6 +357,33 @@ describe('FounderQuestionTriageBoard', () => {
 
     const draft = board.getByLabelText('Draft answer local-question')
     fireEvent.change(draft, { target: { value: 'Keep this answer draft.' } })
+    const card = board.getByText('Are the holiday hours still current?').closest('details')
+    fireEvent.click((card as HTMLElement).querySelector('summary') as HTMLElement)
+    expect(card?.open).toBe(true)
+
+    fireEvent.change(board.getByLabelText('Find a question'), { target: { value: 'West Hall' } })
+    const filteredCard = container
+      .querySelector('[aria-label="Draft answer local-question"]')
+      ?.closest('details')
+    expect(filteredCard).toBe(card)
+    expect(filteredCard?.hidden).toBe(true)
+    expect(board.queryByRole('textbox', { name: 'Draft answer local-question' })).toBeNull()
+    expect(
+      (container.querySelector('[aria-label="Draft answer local-question"]') as HTMLInputElement)
+        .value,
+    ).toBe('Keep this answer draft.')
+    fireEvent.change(board.getByLabelText('Find a question'), { target: { value: 'no-match' } })
+    expect(screen.getByText('No loaded open questions match these filters.')).toBeTruthy()
+    expect(
+      container.querySelector('[aria-label="Draft answer local-question"]')?.closest('details'),
+    ).toBe(card)
+    expect(card?.hidden).toBe(true)
+
+    fireEvent.click(board.getByRole('button', { name: 'Clear filters' }))
+    expect(card?.open).toBe(true)
+    expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe(
+      'Keep this answer draft.',
+    )
     fireEvent.click(board.getByLabelText('Group by workflow'))
     expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe(
       'Keep this answer draft.',
@@ -363,6 +392,30 @@ describe('FounderQuestionTriageBoard', () => {
     expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe(
       'Keep this answer draft.',
     )
+
+    rerender(
+      <FounderQuestionTriageBoard
+        questions={{ ...questions, items: [questions.items[1]] } as never}
+        generatedAt={new Date('2026-08-29T12:00:00.000Z')}
+      />,
+    )
+    expect(container.querySelector('[aria-label="Draft answer local-question"]')).toBeNull()
+
+    rerender(
+      <FounderQuestionTriageBoard
+        questions={
+          {
+            ...questions,
+            items: [
+              questions.items[1],
+              { ...questions.items[0], updatedAt: new Date('2026-08-29T12:05:00.000Z') },
+            ],
+          } as never
+        }
+        generatedAt={new Date('2026-08-29T12:05:00.000Z')}
+      />,
+    )
+    expect((board.getByLabelText('Draft answer local-question') as HTMLInputElement).value).toBe('')
   })
 
   it('has no automated accessibility violations in its collapsed triage state', async () => {

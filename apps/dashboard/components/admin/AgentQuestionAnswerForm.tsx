@@ -87,6 +87,7 @@ export function AgentQuestionAnswerForm({
   const scope = JSON.stringify([tenantId, venueId, questionId, expectedUpdatedAt.toISOString()])
   const renderedScope = useRef(scope)
   const generation = useRef(0)
+  const resetGeneration = useRef(0)
   if (renderedScope.current !== scope) {
     renderedScope.current = scope
     generation.current += 1
@@ -106,6 +107,10 @@ export function AgentQuestionAnswerForm({
   const answerTooLong = currentAnswer.length > 5_000
 
   useEffect(() => {
+    // Initial state already belongs to this scope. A delayed mount effect must
+    // not clear input entered before that effect runs; reset only on scope change.
+    if (resetGeneration.current === generation.current) return
+    resetGeneration.current = generation.current
     setAnswer('')
     setSelectedChoices([])
     setMultiSelectContext('')

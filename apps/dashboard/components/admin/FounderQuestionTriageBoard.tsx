@@ -142,6 +142,14 @@ export function FounderQuestionTriageBoard({
     return [...filtered].sort(compareQuestions(sort))
   }, [category, dependency, normalizedSearch, questions.items, sort, urgency])
   const workflowGroups = useMemo(() => groupQuestionsByWorkflow(visible), [visible])
+  const visibleQuestionIds = useMemo(
+    () => new Set(visible.map((question) => question.id)),
+    [visible],
+  )
+  const hiddenQuestions = useMemo(
+    () => questions.items.filter((question) => !visibleQuestionIds.has(question.id)),
+    [questions.items, visibleQuestionIds],
+  )
 
   const hasFilters =
     normalizedSearch.length > 0 ||
@@ -149,6 +157,37 @@ export function FounderQuestionTriageBoard({
     urgency !== 'ALL' ||
     category !== 'ALL' ||
     sort !== 'PRIORITY'
+  const visibleEntries =
+    viewMode === 'INDIVIDUAL'
+      ? visible.map((question) => (
+          <QuestionCard key={question.id} question={question} generatedAt={generatedAt} />
+        ))
+      : workflowGroups.flatMap((group) =>
+          group.kind === 'individual'
+            ? [
+                <IndependentQuestionHeading
+                  key={`${group.key}:heading`}
+                  question={group.questions[0]}
+                />,
+                <QuestionCard
+                  key={group.questions[0].id}
+                  question={group.questions[0]}
+                  generatedAt={generatedAt}
+                />,
+              ]
+            : [
+                <WorkflowGroupHeading key={`${group.key}:heading`} group={group} />,
+                ...group.questions.map((question) => (
+                  <QuestionCard key={question.id} question={question} generatedAt={generatedAt} />
+                )),
+              ],
+        )
+  const questionEntries = [
+    ...visibleEntries,
+    ...hiddenQuestions.map((question) => (
+      <QuestionCard key={question.id} question={question} generatedAt={generatedAt} hidden />
+    )),
+  ]
 
   function clearFilters() {
     setSearch('')
@@ -271,38 +310,8 @@ export function FounderQuestionTriageBoard({
         <p className="rounded-xl border border-dashed border-amber-300 bg-white p-5 text-sm text-slate-600">
           No loaded open questions match these filters.
         </p>
-      ) : (
-        <div className="grid items-start gap-3 xl:grid-cols-2">
-          {viewMode === 'INDIVIDUAL'
-            ? visible.map((question) => (
-                <QuestionCard key={question.id} question={question} generatedAt={generatedAt} />
-              ))
-            : workflowGroups.flatMap((group) =>
-                group.kind === 'individual'
-                  ? [
-                      <IndependentQuestionHeading
-                        key={`${group.key}:heading`}
-                        question={group.questions[0]}
-                      />,
-                      <QuestionCard
-                        key={group.questions[0].id}
-                        question={group.questions[0]}
-                        generatedAt={generatedAt}
-                      />,
-                    ]
-                  : [
-                      <WorkflowGroupHeading key={`${group.key}:heading`} group={group} />,
-                      ...group.questions.map((question) => (
-                        <QuestionCard
-                          key={question.id}
-                          question={question}
-                          generatedAt={generatedAt}
-                        />
-                      )),
-                    ],
-              )}
-        </div>
-      )}
+      ) : null}
+      <div className="grid items-start gap-3 xl:grid-cols-2">{questionEntries}</div>
     </div>
   )
 }
@@ -351,12 +360,17 @@ function WorkflowGroupHeading({ group }: { group: Extract<WorkflowGroup, { kind:
 function QuestionCard({
   question,
   generatedAt,
+  hidden = false,
 }: {
   question: Question
   generatedAt: Date | string
+  hidden?: boolean
 }) {
   return (
-    <details className="group rounded-xl border border-amber-200 bg-white shadow-sm open:border-sky-300 open:ring-2 open:ring-sky-100">
+    <details
+      hidden={hidden}
+      className="group rounded-xl border border-amber-200 bg-white shadow-sm open:border-sky-300 open:ring-2 open:ring-sky-100"
+    >
       <summary className="cursor-pointer list-none rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500 [&::-webkit-details-marker]:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
