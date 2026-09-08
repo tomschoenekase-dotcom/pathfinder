@@ -9,6 +9,7 @@ import {
   WebsiteSourceDiscovery,
   WebsitePageTextEvidenceCollection,
   type WebsitePageTextEvidence,
+  type WebsitePdfExtractionFailure,
   type WebsiteIntakeBounds,
   WebsiteIntakeBounds as WebsiteIntakeBoundsSchema,
 } from '@pathfinder/contracts/intake-engine'
@@ -27,7 +28,7 @@ const MAX_RESOLVED_ADDRESSES = 64
 const MAX_EXTRACTED_LINKS_PER_PAGE = 500
 const MAX_EXTRACTED_FACTS_PER_PAGE = 500
 const MAX_DISCOVERY_REFERENCES = 1_000
-export const WEBSITE_INTAKE_COLLECTION_POLICY_VERSION = 1
+export const WEBSITE_INTAKE_COLLECTION_POLICY_VERSION = 2
 /**
  * Engineering work estimate only: one unit for each dispatched HTTP fetch plus
  * one unit for each started 100 kB of successfully observed response body.
@@ -73,6 +74,7 @@ export type ExtractedWebsitePage = {
   facts: readonly ExtractedWebsiteFact[]
   readableText?: string
   extractionProfile?: WebsitePageTextEvidence['extractionProfile']
+  pdfPageCount?: number
 }
 
 export type WebsiteIntakeDependencies = {
@@ -91,6 +93,15 @@ export type WebsiteIntakeDependencies = {
     body: string
     contentType?: string
   }) => Promise<ExtractedWebsitePage>
+  extractPdfPage?: (input: {
+    url: string
+    bytes: Uint8Array
+    timeoutMs: number
+    signal?: AbortSignal
+  }) => Promise<
+    | { outcome: 'SUCCEEDED'; readableText: string; pdfPageCount: number }
+    | { outcome: 'FAILED'; errorCode: WebsitePdfExtractionFailure }
+  >
   mapToVenuePackage?: (input: WebsiteIntakeIntermediate) => Promise<VenuePackagePayloadType>
   now?: () => Date
 }
@@ -555,6 +566,7 @@ export async function buildWebsiteIntakeProposal(
       byteSize: number
       exactByteHash: string
       duplicateOf?: string
+      extractionFailureCode?: WebsitePdfExtractionFailure
     },
   ) => {
     if (discoveredItemUrls.has(queued.admitted.canonicalUrl)) return
@@ -573,10 +585,18 @@ export async function buildWebsiteIntakeProposal(
             byteSize: received.byteSize,
             exactByteHash: received.exactByteHash,
             ...(received.duplicateOf ? { duplicateOf: received.duplicateOf } : {}),
+            ...(received.extractionFailureCode
+              ? { extractionFailureCode: received.extractionFailureCode }
+              : {}),
           }
         : {}),
     })
   }
+
+  const unsupportedExtension = (url: string) =>
+    dependencies.extractPdfPage && new URL(url).pathname.toLowerCase().endsWith('.pdf')
+      ? null
+      : extensionDisposition(url)
 
   const safelyAdmitChild = (raw: string, parent: AdmittedUrl, depth: number) => {
     let child: AdmittedUrl
@@ -598,7 +618,7 @@ export async function buildWebsiteIntakeProposal(
     }
     admittedReferences.add(child.canonicalUrl)
     const reference = { admitted: child, depth, parentUrl: parent.canonicalUrl }
-    const unsupported = extensionDisposition(child.canonicalUrl)
+    const unsupported = unsupportedExtension(child.canonicalUrl)
     if (unsupported) observe(reference, unsupported)
     else queue.push(reference)
   }
@@ -610,12 +630,13 @@ export async function buildWebsiteIntakeProposal(
     return remaining
   }
 
+  let pdfExhaustedTime = false
   while (queue.length > 0 && networkCandidates < bounds.maxPages) {
     const queued = queue.shift()
     if (!queued || seen.has(queued.admitted.canonicalUrl)) continue
     seen.add(queued.admitted.canonicalUrl)
     remainingTime()
-    const knownUnsupported = extensionDisposition(queued.admitted.canonicalUrl)
+    const knownUnsupported = unsupportedExtension(queued.admitted.canonicalUrl)
     if (knownUnsupported) {
       observe(queued, knownUnsupported)
       continue
@@ -686,7 +707,7 @@ export async function buildWebsiteIntakeProposal(
           depth: queued.depth,
           parentUrl: redirectSourceUrl,
         }
-        const unsupported = extensionDisposition(admitted.canonicalUrl)
+        const unsupported = unsupportedExtension(admitted.canonicalUrl)
         if (unsupported) {
           observe(observationReference, unsupported)
           response = null
@@ -710,23 +731,63 @@ export async function buildWebsiteIntakeProposal(
     const disposition = mimeDisposition(contentType)
     const duplicateOf = firstUrlByExactHash.get(normalizedHash)
     if (!duplicateOf) firstUrlByExactHash.set(normalizedHash, admitted.canonicalUrl)
-    observe(observationReference, disposition, {
+    const received = {
       contentType,
       byteSize: body.byteLength,
       exactByteHash: normalizedHash,
       ...(duplicateOf ? { duplicateOf } : {}),
-    })
-    if (disposition !== 'FETCHED_TEXT') continue
+    }
+    let extracted: ExtractedWebsitePage
+    if (normalizedContentType(contentType) === 'application/pdf' && dependencies.extractPdfPage) {
+      let result: Awaited<ReturnType<NonNullable<WebsiteIntakeDependencies['extractPdfPage']>>>
+      try {
+        result = await dependencies.extractPdfPage({
+          url: admitted.canonicalUrl,
+          bytes: body,
+          timeoutMs: Math.min(15_000, remainingTime()),
+          ...(request.signal ? { signal: request.signal } : {}),
+        })
+      } catch {
+        result = { outcome: 'FAILED', errorCode: 'PDF_PARSE_FAILED' }
+      }
+      if (request.signal?.aborted)
+        throw new WebsiteIntakePolicyError('Website intake was cancelled')
+      if (now().getTime() - startedAt >= maxDurationMs) {
+        result = { outcome: 'FAILED', errorCode: 'PDF_EXTRACTION_TIMEOUT' }
+      }
+      if (result.outcome === 'FAILED') {
+        observe(observationReference, 'PDF_EXTRACTION_FAILED', {
+          ...received,
+          extractionFailureCode: result.errorCode,
+        })
+        if (now().getTime() - startedAt >= maxDurationMs) {
+          pdfExhaustedTime = true
+          break
+        }
+        continue
+      }
+      observe(observationReference, 'PDF_TEXT_EXTRACTED', received)
+      extracted = {
+        links: [],
+        facts: [],
+        readableText: result.readableText,
+        extractionProfile: 'pdfjs-document-v1',
+        pdfPageCount: result.pdfPageCount,
+      }
+    } else {
+      observe(observationReference, disposition, received)
+      if (disposition !== 'FETCHED_TEXT') continue
+      extracted = await dependencies.extractPage({
+        url: admitted.canonicalUrl,
+        body: body.toString('utf8'),
+        contentType,
+      })
+    }
     pages.push({
       url: admitted.canonicalUrl,
       depth: queued.depth,
       byteSize: body.byteLength,
       normalizedHash,
-    })
-    const extracted = await dependencies.extractPage({
-      url: admitted.canonicalUrl,
-      body: body.toString('utf8'),
-      contentType,
     })
     remainingTime()
     if ((extracted.readableText === undefined) !== (extracted.extractionProfile === undefined)) {
@@ -750,6 +811,7 @@ export async function buildWebsiteIntakeProposal(
         exactByteHash: normalizedHash,
         capturedAt: now().toISOString(),
         extractionProfile: extracted.extractionProfile,
+        ...(extracted.pdfPageCount !== undefined ? { pdfPageCount: extracted.pdfPageCount } : {}),
         text,
         normalizedTextHash: sha256(extracted.readableText),
         retainedTextHash: sha256(text),
@@ -829,15 +891,15 @@ export async function buildWebsiteIntakeProposal(
         admittedReferences.add(child.canonicalUrl)
         observe(
           { admitted: child, depth: queued.depth + 1, parentUrl: admitted.canonicalUrl },
-          extensionDisposition(child.canonicalUrl) ?? 'DEPTH_LIMIT',
+          unsupportedExtension(child.canonicalUrl) ?? 'DEPTH_LIMIT',
         )
       }
     }
   }
 
   for (const queued of queue) {
-    remainingTime()
-    observe(queued, 'PAGE_LIMIT')
+    if (!pdfExhaustedTime) remainingTime()
+    observe(queued, pdfExhaustedTime ? 'TIME_LIMIT' : 'PAGE_LIMIT')
   }
 
   const uniqueCitations = [

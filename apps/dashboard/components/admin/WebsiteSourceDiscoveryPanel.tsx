@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type {
+  WebsitePdfExtractionFailure,
   WebsiteSourceDiscovery,
   WebsiteSourceDiscoveryDisposition,
 } from '@pathfinder/contracts/intake-engine'
@@ -17,13 +18,28 @@ type Props = {
 
 const labels: Record<WebsiteSourceDiscoveryDisposition, string> = {
   FETCHED_TEXT: 'Text collected',
-  UNSUPPORTED_DOCUMENT: 'Document · adapter unavailable',
+  PDF_TEXT_EXTRACTED: 'PDF text collected',
+  PDF_EXTRACTION_FAILED: 'PDF text unavailable',
+  TIME_LIMIT: 'Crawl time limit reached',
+  UNSUPPORTED_DOCUMENT: 'Document format not supported',
   UNSUPPORTED_VIDEO: 'Video / audio · adapter unavailable',
   UNSUPPORTED_IMAGE: 'Image · adapter unavailable',
   UNSUPPORTED_OTHER: 'Format not supported',
   ROBOTS_DENIED: 'Access denied by robots policy',
   DEPTH_LIMIT: 'Beyond crawl depth',
   PAGE_LIMIT: 'Beyond page budget',
+}
+
+const pdfFailureLabels: Record<WebsitePdfExtractionFailure, string> = {
+  PDF_PASSWORD_REQUIRED: 'Password required',
+  PDF_NO_EXTRACTABLE_TEXT: 'No extractable text',
+  PDF_TOO_MANY_PAGES: 'Page-count limit exceeded',
+  PDF_EXTRACTION_TIMEOUT: 'Extraction timed out',
+  PDF_TOO_LARGE: 'PDF size limit exceeded',
+  PDF_PARSE_FAILED: 'PDF could not be parsed',
+  UNSAFE_TEXT_CONTROL: 'Unsafe text control detected',
+  TEXT_TOO_LARGE: 'Extracted text limit exceeded',
+  PDF_EXTRACTION_CANCELLED: 'Extraction cancelled',
 }
 
 export function WebsiteSourceDiscoveryPanel({ review }: Props) {
@@ -38,7 +54,11 @@ export function WebsiteSourceDiscoveryPanel({ review }: Props) {
           : 'This research receipt has no retained source inventory. Source breadth is unknown.'}
       </p>
     )
-  const textCount = inventory.items.filter((item) => item.disposition === 'FETCHED_TEXT').length
+  const webTextCount = inventory.items.filter((item) => item.disposition === 'FETCHED_TEXT').length
+  const pdfTextCount = inventory.items.filter(
+    (item) => item.disposition === 'PDF_TEXT_EXTRACTED',
+  ).length
+  const textCount = webTextCount + pdfTextCount
   const duplicateCount = inventory.items.filter((item) => item.duplicateOf).length
   const pageCount = Math.max(1, Math.ceil(inventory.items.length / 20))
   const currentPage = Math.min(page, pageCount - 1)
@@ -46,7 +66,7 @@ export function WebsiteSourceDiscoveryPanel({ review }: Props) {
   return (
     <details className="mt-4 border-t border-slate-200 pt-4">
       <summary className="min-h-11 cursor-pointer text-sm font-semibold text-pf-deep">
-        Source inventory · {inventory.items.length} references · {textCount} text pages
+        Source inventory · {inventory.items.length} references · {textCount} collected text sources
       </summary>
       <p className="mt-2 break-words text-sm text-pf-deep/80">
         Discovered on the submitted website, {review.sourceHost}. Website ownership and topic
@@ -58,9 +78,11 @@ export function WebsiteSourceDiscoveryPanel({ review }: Props) {
         repeats; repeated pages are not independent corroboration.
       </p>
       <p className="mt-2 text-xs leading-5 text-pf-deep/75">
-        Document, video/audio and image references are listed as discovery gaps when their website
-        adapter is unavailable. Images are not verified maps. Links outside the allowed website are
-        not collected.
+        {inventory.policyVersion === 1
+          ? 'This historical policy did not extract PDF text. '
+          : `Collected text includes ${webTextCount} web page${webTextCount === 1 ? '' : 's'} and ${pdfTextCount} PDF${pdfTextCount === 1 ? '' : 's'}. PDFs are parsed for embedded text only; this is not OCR and images are not verified maps. `}
+        Other document, video/audio and image formats remain discovery gaps. Links outside the
+        allowed website are not collected.
       </p>
       {inventory.omittedCount > 0 ? (
         <p className="mt-2 text-sm text-amber-950">
@@ -105,6 +127,11 @@ export function WebsiteSourceDiscoveryPanel({ review }: Props) {
               </div>
               <div className="text-xs leading-5 text-pf-deep/80">
                 <p className="font-semibold">{labels[item.disposition]}</p>
+                {item.extractionFailureCode ? (
+                  <p className="font-medium text-amber-900">
+                    {pdfFailureLabels[item.extractionFailureCode]}
+                  </p>
+                ) : null}
                 <p>
                   Depth {item.depth}
                   {item.byteSize !== undefined

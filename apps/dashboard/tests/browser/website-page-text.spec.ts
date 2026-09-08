@@ -6,7 +6,8 @@ const first = {
   sourceUrl: 'https://greenhouse.example/very/long/visitor-information-and-private-event-details',
   exactByteHash: 'a'.repeat(64),
   capturedAt: '2026-09-08T12:00:00.000Z',
-  extractionProfile: 'static-html-v1',
+  extractionProfile: 'pdfjs-document-v1',
+  pdfPageCount: 17,
   normalizedTextHash: 'b'.repeat(64),
   retainedTextHash: 'c'.repeat(64),
   fullCodePointCount: 5600,
@@ -22,6 +23,7 @@ const second = {
   retainedCodePointCount: 118,
   truncated: false,
   extractionProfile: 'plain-text-v1',
+  pdfPageCount: undefined,
 }
 const viewports = [
   { name: 'phone-320', width: 320, height: 700 },
@@ -100,9 +102,18 @@ test('renders, searches, paginates, handles errors, and remains accessible at fo
     await page.setViewportSize(viewport)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/dev-fixtures/website-page-text')
+    const inventories = page.getByText(/Source inventory/)
+    await inventories.nth(0).click()
+    await inventories.nth(1).click()
+    await expect(page.getByText('PDF text collected')).toBeVisible()
+    await expect(page.getByText('Password required')).toBeVisible()
+    await expect(page.getByText('Extraction timed out')).toBeVisible()
+    await expect(page.getByText('Crawl time limit reached')).toBeVisible()
+    await expect(page.getByText(/historical policy did not extract PDF text/i)).toBeVisible()
     await page.getByRole('button', { name: 'Open retained website text' }).focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('button', { name: 'Read selected page' })).toBeVisible()
+    await expect(page.getByText('PDF embedded text · 17 pages')).toBeVisible()
     await page.getByRole('button', { name: 'Read selected page' }).click()
     await expect(page.getByText(/never rendered/)).toBeVisible()
     expect(await page.locator('main script').count()).toBe(0)

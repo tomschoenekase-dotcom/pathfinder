@@ -148,7 +148,8 @@ function WebsitePageTextReaderInner({ tenantId, venueId, runId, receiptId }: Pro
             Retained website text
           </p>
           <p className="mt-1 text-xs leading-5 text-pf-deep/70">
-            Original source observation for review. This text is not an approved fact.
+            Original source observation for review. This text is not an approved fact. PDF text is
+            extracted from embedded document text; it is not OCR or map interpretation.
           </p>
         </div>
         <button
@@ -235,7 +236,9 @@ function WebsitePageTextReaderInner({ tenantId, venueId, runId, receiptId }: Pro
                     <dd>
                       {selected.extractionProfile === 'static-html-v1'
                         ? 'Static HTML body'
-                        : 'Plain text'}
+                        : selected.extractionProfile === 'pdfjs-document-v1'
+                          ? `PDF embedded text · ${selected.pdfPageCount!.toLocaleString()} page${selected.pdfPageCount === 1 ? '' : 's'}`
+                          : 'Plain text'}
                     </dd>
                   </div>
                   <div>

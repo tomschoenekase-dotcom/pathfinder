@@ -89,6 +89,26 @@ describe('WebsitePageTextReader', () => {
     )
   })
 
+  it('identifies retained PDF embedded text and its actual page count without OCR authority', async () => {
+    const pdfMetadata = {
+      ...metadata,
+      sourceUrl: 'https://example.com/guide.pdf',
+      extractionProfile: 'pdfjs-document-v1' as const,
+      pdfPageCount: 17,
+    }
+    listQuery.mockResolvedValue({
+      status: 'RECORDED',
+      receiptId,
+      sourceId: 'source-a',
+      pages: [pdfMetadata],
+    })
+    render(<WebsitePageTextReader {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open retained website text' }))
+    expect(await screen.findByText('PDF embedded text · 17 pages')).toBeTruthy()
+    expect(screen.getByText(/not OCR or map interpretation/)).toBeTruthy()
+    expect(screen.getByText(/not an approved fact/)).toBeTruthy()
+  })
+
   it('restarts exact search and follows its bound continuation', async () => {
     listQuery.mockResolvedValue({
       status: 'RECORDED',

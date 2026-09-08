@@ -7,14 +7,23 @@ import {
 
 import type { TRPCContext } from '../context'
 import { readIntakeUploadVersion, type IntakeUploadStorageTransport } from './intake-upload-storage'
+import {
+  extractPdfDocumentText,
+  PDF_EXTRACTION_MAX_BYTES,
+  PDF_EXTRACTION_MAX_PAGES,
+  PDF_EXTRACTION_TIMEOUT_MS,
+  type PdfTextExtractionResult,
+} from './pdf-text-extraction'
+
+export { createPdfLoadingTaskCleanup } from './pdf-text-extraction'
 
 export const INTAKE_TEXT_EXTRACTION_MAX_BYTES = 2 * 1024 * 1024
 export const INTAKE_TEXT_EXTRACTION_MAX_CHARACTERS = 500_000
 export const INTAKE_TEXT_EXTRACTOR = 'pathfinder-utf8-document'
 export const INTAKE_TEXT_EXTRACTOR_VERSION = '1'
-export const INTAKE_PDF_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024
-export const INTAKE_PDF_EXTRACTION_MAX_PAGES = 200
-export const INTAKE_PDF_EXTRACTION_TIMEOUT_MS = 15_000
+export const INTAKE_PDF_EXTRACTION_MAX_BYTES = PDF_EXTRACTION_MAX_BYTES
+export const INTAKE_PDF_EXTRACTION_MAX_PAGES = PDF_EXTRACTION_MAX_PAGES
+export const INTAKE_PDF_EXTRACTION_TIMEOUT_MS = PDF_EXTRACTION_TIMEOUT_MS
 export const INTAKE_PDF_EXTRACTOR = 'pathfinder-pdfjs-document'
 export const INTAKE_PDF_EXTRACTOR_VERSION = '1'
 export const INTAKE_TEXT_MIME_TYPES = [
@@ -221,84 +230,23 @@ function normalizeText(bytes: Uint8Array): ExtractionResult {
   })
 }
 
-function appendPdfTextItem(line: string, value: string) {
-  if (!value) return line
-  if (!line || /\s$/u.test(line) || /^[,.;:!?)}\]]/u.test(value)) return `${line}${value}`
-  return `${line} ${value}`
-}
-
-export function createPdfLoadingTaskCleanup(loadingTask: {
-  destroy(): Promise<void>
-}): () => Promise<void> {
-  let cleanup: Promise<void> | undefined
-  return () => {
-    cleanup ??= Promise.resolve()
-      .then(() => loadingTask.destroy())
-      .catch(() => undefined)
-    return cleanup
+function toUploadExtractionResult(result: PdfTextExtractionResult): ExtractionResult {
+  if (result.outcome === 'SUCCEEDED') return result
+  if (result.errorCode === 'PDF_EXTRACTION_CANCELLED') {
+    return { outcome: 'FAILED', errorCode: 'PDF_EXTRACTION_TIMEOUT' }
   }
-}
-
-async function extractPdfText(bytes: Uint8Array): Promise<ExtractionResult> {
-  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  const loadingTask = getDocument({
-    data: new Uint8Array(bytes),
-    disableFontFace: true,
-    stopAtErrors: true,
-    useSystemFonts: false,
-    useWorkerFetch: false,
-    verbosity: 0,
-  })
-  const destroyLoadingTask = createPdfLoadingTaskCleanup(loadingTask)
-  let timedOut = false
-  const timeout = setTimeout(() => {
-    timedOut = true
-    void destroyLoadingTask()
-  }, INTAKE_PDF_EXTRACTION_TIMEOUT_MS)
-  try {
-    const document = await loadingTask.promise
-    if (document.numPages > INTAKE_PDF_EXTRACTION_MAX_PAGES) {
-      return {
-        outcome: 'FAILED',
-        errorCode: 'PDF_TOO_MANY_PAGES',
-      }
-    }
-    const pages: string[] = []
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber)
-      try {
-        const content = await page.getTextContent()
-        const lines: string[] = []
-        let line = ''
-        for (const item of content.items) {
-          if (!('str' in item)) continue
-          line = appendPdfTextItem(line, item.str)
-          if (item.hasEOL) {
-            lines.push(line.trimEnd())
-            line = ''
-          }
-        }
-        if (line) lines.push(line.trimEnd())
-        pages.push(lines.join('\n').trim())
-      } finally {
-        page.cleanup()
-      }
-    }
-    return normalizeExtractedText(pages.filter(Boolean).join('\n\n'), {
-      errorCode: 'PDF_NO_EXTRACTABLE_TEXT',
-    })
-  } catch (error) {
-    return {
-      outcome: 'FAILED',
-      errorCode: timedOut
-        ? 'PDF_EXTRACTION_TIMEOUT'
-        : error instanceof Error && error.name === 'PasswordException'
-          ? 'PDF_PASSWORD_REQUIRED'
-          : 'PDF_PARSE_FAILED',
-    }
-  } finally {
-    clearTimeout(timeout)
-    await destroyLoadingTask()
+  if (result.errorCode === 'PDF_TOO_LARGE') {
+    return { outcome: 'FAILED', errorCode: 'TEXT_TOO_LARGE' }
+  }
+  switch (result.errorCode) {
+    case 'UNSAFE_TEXT_CONTROL':
+    case 'TEXT_TOO_LARGE':
+    case 'PDF_TOO_MANY_PAGES':
+    case 'PDF_NO_EXTRACTABLE_TEXT':
+    case 'PDF_EXTRACTION_TIMEOUT':
+    case 'PDF_PASSWORD_REQUIRED':
+    case 'PDF_PARSE_FAILED':
+      return { outcome: 'FAILED', errorCode: result.errorCode }
   }
 }
 
@@ -385,7 +333,7 @@ export async function executeIntakeFileExtraction(input: {
   }
   const extraction =
     upload.mimeType === 'application/pdf'
-      ? await extractPdfText(read.bytes)
+      ? toUploadExtractionResult(await extractPdfDocumentText(read.bytes))
       : normalizeText(read.bytes)
   try {
     return await recordIntakeFileExtractionReceiptAction({

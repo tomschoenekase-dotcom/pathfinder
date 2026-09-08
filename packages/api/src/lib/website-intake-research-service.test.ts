@@ -20,6 +20,9 @@ const COST_V2_REQUEST_HASH = '0f271febdbebb15d1283e5aef7e16447de1be923a2e59e1509
 const COLLECTION_V1_REQUEST_HASH =
   '1098bf768795b610455e6bdd9e6f99fc3dccf38f2c5414790dcbff27f92802e1'
 
+const COLLECTION_V2_REQUEST_HASH =
+  '4a649f5f57d061e87ce5209f382f2fab1f7a9bf57fe54280c59b0a07cb404161'
+
 function request() {
   return {
     operationId,
@@ -114,7 +117,7 @@ describe('website intake research execution', () => {
         fetchedPages: 1,
         estimatedCostUnits: 2,
         candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
-        discoverySnapshot: expect.objectContaining({ policyVersion: 1 }),
+        discoverySnapshot: expect.objectContaining({ policyVersion: 2 }),
       }),
       expect.anything(),
     )
@@ -161,7 +164,7 @@ describe('website intake research execution', () => {
         ],
       },
     })
-    expect(retained?.requestHash).toBe(COLLECTION_V1_REQUEST_HASH)
+    expect(retained?.requestHash).toBe(COLLECTION_V2_REQUEST_HASH)
     expect(retained?.researchSnapshot).not.toHaveProperty('discovery')
   })
 
@@ -297,6 +300,29 @@ describe('website intake research execution', () => {
     expect(deps.fetchPage).not.toHaveBeenCalled()
     expect(recordReceipt).not.toHaveBeenCalled()
   })
+  it('replays the frozen collection-v1 hash without fetch or receipt writes', async () => {
+    const deps = dependencies()
+    const db = database({
+      existing: {
+        id: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        requestHash: COLLECTION_V1_REQUEST_HASH,
+        priorReceiptId: null,
+        sourceUriHash: '8198d1bac40a1033653a78e48800cefc9e6b974ff075c66e5548b5c1e145a2b0',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: now,
+      },
+    })
+
+    await expect(
+      executeWebsiteIntakeResearch({ db: db as never, request: request(), dependencies: deps }),
+    ).resolves.toMatchObject({ replayed: true, outcome: 'SUCCEEDED' })
+    expect(deps.fetchPage).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['maxCostUnits', { maxCostUnits: 21 }],
@@ -328,14 +354,14 @@ describe('website intake research execution', () => {
     expect(recordReceipt).not.toHaveBeenCalled()
   })
 
-  it('uses the frozen collection-v1 hash for a newly executed receipt', async () => {
+  it('uses the frozen collection-v2 hash for a newly executed receipt', async () => {
     const deps = dependencies()
     await executeWebsiteIntakeResearch({
       db: database() as never,
       request: request(),
       dependencies: deps,
     })
-    expect(recordReceipt.mock.calls[0]?.[0].requestHash).toBe(COLLECTION_V1_REQUEST_HASH)
+    expect(recordReceipt.mock.calls[0]?.[0].requestHash).toBe(COLLECTION_V2_REQUEST_HASH)
   })
 
   it('retains a complete unsupported discovery inventory without claiming extracted success', async () => {
@@ -364,7 +390,7 @@ describe('website intake research execution', () => {
         fetchedPages: 0,
         fetchedBytes: 3,
         discoverySnapshot: expect.objectContaining({
-          policyVersion: 1,
+          policyVersion: 2,
           items: [
             expect.objectContaining({
               url: 'https://example.org/',

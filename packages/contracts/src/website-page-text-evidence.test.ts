@@ -60,4 +60,28 @@ describe('retained website text contract', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('requires an actual page count exactly for the PDF extraction profile', () => {
+    expect(
+      WebsitePageTextEvidence.safeParse({
+        ...page,
+        extractionProfile: 'pdfjs-document-v1',
+        pdfPageCount: 12,
+      }).success,
+    ).toBe(true)
+    expect(
+      WebsitePageTextEvidence.safeParse({ ...page, extractionProfile: 'pdfjs-document-v1' })
+        .success,
+    ).toBe(false)
+    expect(WebsitePageTextEvidence.safeParse({ ...page, pdfPageCount: 1 }).success).toBe(false)
+    for (const pdfPageCount of [0, 201, 1.5]) {
+      expect(
+        WebsitePageTextEvidence.safeParse({
+          ...page,
+          extractionProfile: 'pdfjs-document-v1',
+          pdfPageCount,
+        }).success,
+      ).toBe(false)
+    }
+  })
 })

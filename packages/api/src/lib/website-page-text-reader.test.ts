@@ -75,6 +75,8 @@ describe('website page text reader', () => {
     const db = client()
     const first = await readWebsitePageText(input(), db)
     const searched = await readWebsitePageText(input({ search: 'searchable fact' }), db)
+    expect(first.status).toBe('RECORDED')
+    if (first.status !== 'RECORDED') throw new Error('Expected recorded page text')
     const second = await readWebsitePageText(input({ cursor: first.nextCursor }), db)
 
     expect(first).toMatchObject({
@@ -125,6 +127,8 @@ describe('website page text reader', () => {
   it('rejects forged/stale cursors and mismatched hashes or page provenance', async () => {
     const db = client()
     const first = await readWebsitePageText(input(), db)
+    expect(first.status).toBe('RECORDED')
+    if (first.status !== 'RECORDED') throw new Error('Expected recorded page text')
     const decoded = JSON.parse(Buffer.from(first.nextCursor!, 'base64url').toString('utf8'))
     decoded.offset += 1
     await expect(

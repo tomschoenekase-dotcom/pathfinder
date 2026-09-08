@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-233-20260908',
+  approval: 'torchiko-staging-lineage-to-234-20260908',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 233,
+  migrationCount: 234,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -126,9 +126,13 @@ const EXPECTED = Object.freeze({
   discussionPredecessorCount: 232,
   discussionPredecessorPublicTableCount: 255,
   discussionPredecessorFinalMigration: '20260908120000_add_agent_question_discussion',
-  finalMigration: '20260908130000_add_agent_question_expiry',
-  manifestHash: '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
-  // Exact 233 candidate boundary; retained relational proof is recorded separately.
+  expiryPredecessorCount: 233,
+  expiryPredecessorPublicTableCount: 255,
+  expiryPredecessorFinalMigration: '20260908130000_add_agent_question_expiry',
+  expiryPredecessorManifestHash: '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
+  finalMigration: '20260908140000_add_website_pdf_collection_policy',
+  manifestHash: 'fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab',
+  // Exact 234 candidate boundary; retained relational proof is recorded separately.
   finalPublicTableCount: 255,
 })
 
@@ -233,16 +237,28 @@ export async function readMigrationManifest(prismaDirectory) {
     )
     rows.push(`${name} ${checksum}`)
   }
-  const hash = createHash('sha256')
+  const hash = manifestHash(rows)
+  return { names, checksums, ledgerChecksums, crlfLedgerChecksums, hash }
+}
+
+function manifestHash(rows) {
+  return createHash('sha256')
     .update(`${rows.join('\n')}\n`)
     .digest('hex')
-  return { names, checksums, ledgerChecksums, crlfLedgerChecksums, hash }
 }
 
 export function assertFrozenManifest(manifest) {
   if (manifest.names.length !== EXPECTED.migrationCount) fail('migration count changed')
   if (manifest.names[0] !== EXPECTED.firstMigration) fail('first migration changed')
   if (manifest.names.at(-1) !== EXPECTED.finalMigration) fail('final migration changed')
+  const expiryPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.expiryPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (expiryPredecessorHash !== EXPECTED.expiryPredecessorManifestHash) {
+    fail('expiry predecessor manifest checksum changed')
+  }
   if (manifest.names[EXPECTED.baselineCount - 1] !== EXPECTED.baselineLastMigration) {
     fail('verified baseline boundary changed')
   }
@@ -426,6 +442,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.websiteDiscoveryPredecessorCount &&
     rows.length !== EXPECTED.questionProvenancePredecessorCount &&
     rows.length !== EXPECTED.discussionPredecessorCount &&
+    rows.length !== EXPECTED.expiryPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -502,6 +519,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.questionProvenancePredecessorCount)
     return 'question-provenance-predecessor'
   if (rows.length === EXPECTED.discussionPredecessorCount) return 'discussion-predecessor'
+  if (rows.length === EXPECTED.expiryPredecessorCount) return 'expiry-predecessor'
   return 'complete'
 }
 
@@ -697,6 +715,7 @@ export function expectedPublicTableCount(state) {
     'website-discovery-predecessor': EXPECTED.websiteDiscoveryPredecessorPublicTableCount,
     'question-provenance-predecessor': EXPECTED.questionProvenancePredecessorPublicTableCount,
     'discussion-predecessor': EXPECTED.discussionPredecessorPublicTableCount,
+    'expiry-predecessor': EXPECTED.expiryPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

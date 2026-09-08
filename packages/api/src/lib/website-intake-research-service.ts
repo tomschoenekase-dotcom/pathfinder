@@ -194,6 +194,9 @@ export async function executeWebsiteIntakeResearch(input: {
       collectionPolicyVersion: WEBSITE_INTAKE_COLLECTION_POLICY_VERSION,
     }),
   )
+  const collectionV1RequestHash = hash(
+    stableJson({ ...requestMaterial, engineeringCostModelVersion: 2, collectionPolicyVersion: 1 }),
+  )
   const costV2RequestHash = hash(
     stableJson({
       ...requestMaterial,
@@ -228,7 +231,9 @@ export async function executeWebsiteIntakeResearch(input: {
       existing.venueId !== input.request.venueId ||
       existing.runId !== input.request.runId ||
       existing.priorReceiptId !== (input.request.priorReceiptId ?? null) ||
-      ![requestHash, costV2RequestHash, legacyRequestHash].includes(existing.requestHash) ||
+      ![requestHash, collectionV1RequestHash, costV2RequestHash, legacyRequestHash].includes(
+        existing.requestHash,
+      ) ||
       existing.sourceUriHash !== sourceUriHash ||
       existing.createdBy !== input.request.createdBy
     ) {
@@ -305,6 +310,17 @@ export async function executeWebsiteIntakeResearch(input: {
       }
       return response
     },
+    ...(input.dependencies.extractPdfPage
+      ? {
+          extractPdfPage: async (
+            page: Parameters<NonNullable<WebsiteIntakeDependencies['extractPdfPage']>>[0],
+          ) => {
+            const extracted = await input.dependencies.extractPdfPage!(page)
+            if (extracted.outcome === 'SUCCEEDED') fetchedPages += 1
+            return extracted
+          },
+        }
+      : {}),
     extractPage: async (page) => {
       const extracted = await input.dependencies.extractPage(page)
       fetchedPages += 1

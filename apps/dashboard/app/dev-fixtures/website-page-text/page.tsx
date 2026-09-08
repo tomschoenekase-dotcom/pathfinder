@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { WebsitePageTextReader } from '../../../components/admin/WebsitePageTextReader'
+import { WebsiteSourceDiscoveryPanel } from '../../../components/admin/WebsiteSourceDiscoveryPanel'
 import { TRPCProvider } from '../../../lib/trpc'
 
 export const metadata = { title: 'Retained website text fixture' }
@@ -25,6 +26,90 @@ export default function WebsitePageTextFixture() {
             Synthetic transport for layout and interaction proof. It performs no fetch, mapping,
             approval, or provider call.
           </p>
+          <WebsiteSourceDiscoveryPanel
+            review={{
+              receiptId: 'fixture-pdf-policy-2',
+              status: 'RECORDED',
+              sourceHost: 'greenhouse.example',
+              inventory: {
+                policyVersion: 2,
+                observedAt: '2026-09-08T12:00:00.000Z',
+                omittedCount: 0,
+                items: [
+                  {
+                    url: 'https://greenhouse.example/',
+                    parentUrl: null,
+                    depth: 0,
+                    observedAt: '2026-09-08T12:00:00.000Z',
+                    disposition: 'FETCHED_TEXT',
+                    contentType: 'text/html',
+                    byteSize: 2400,
+                    exactByteHash: '1'.repeat(64),
+                  },
+                  {
+                    url: 'https://greenhouse.example/events-guide.pdf',
+                    parentUrl: 'https://greenhouse.example/',
+                    depth: 1,
+                    observedAt: '2026-09-08T12:00:01.000Z',
+                    disposition: 'PDF_TEXT_EXTRACTED',
+                    contentType: 'application/pdf',
+                    byteSize: 92000,
+                    exactByteHash: '2'.repeat(64),
+                  },
+                  {
+                    url: 'https://greenhouse.example/private-guide.pdf',
+                    parentUrl: 'https://greenhouse.example/',
+                    depth: 1,
+                    observedAt: '2026-09-08T12:00:02.000Z',
+                    disposition: 'PDF_EXTRACTION_FAILED',
+                    contentType: 'application/pdf',
+                    byteSize: 81000,
+                    exactByteHash: '3'.repeat(64),
+                    extractionFailureCode: 'PDF_PASSWORD_REQUIRED',
+                  },
+                  {
+                    url: 'https://greenhouse.example/slow-guide.pdf',
+                    parentUrl: 'https://greenhouse.example/',
+                    depth: 1,
+                    observedAt: '2026-09-08T12:00:03.000Z',
+                    disposition: 'PDF_EXTRACTION_FAILED',
+                    contentType: 'application/pdf',
+                    byteSize: 77000,
+                    exactByteHash: '4'.repeat(64),
+                    extractionFailureCode: 'PDF_EXTRACTION_TIMEOUT',
+                  },
+                  {
+                    url: 'https://greenhouse.example/deferred',
+                    parentUrl: 'https://greenhouse.example/',
+                    depth: 1,
+                    observedAt: '2026-09-08T12:00:04.000Z',
+                    disposition: 'TIME_LIMIT',
+                  },
+                ],
+              },
+            }}
+          />
+          <WebsiteSourceDiscoveryPanel
+            review={{
+              receiptId: 'fixture-pdf-policy-1',
+              status: 'RECORDED',
+              sourceHost: 'legacy.greenhouse.example',
+              inventory: {
+                policyVersion: 1,
+                observedAt: '2026-08-01T12:00:00.000Z',
+                omittedCount: 0,
+                items: [
+                  {
+                    url: 'https://legacy.greenhouse.example/guide.pdf',
+                    parentUrl: null,
+                    depth: 0,
+                    observedAt: '2026-08-01T12:00:00.000Z',
+                    disposition: 'UNSUPPORTED_DOCUMENT',
+                  },
+                ],
+              },
+            }}
+          />
           <WebsitePageTextReader
             tenantId="fixture-tenant"
             venueId="fixture-venue"

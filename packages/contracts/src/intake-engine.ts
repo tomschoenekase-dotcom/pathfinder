@@ -73,8 +73,24 @@ export const WebsiteIntakeBounds = z
   .strict()
 export type WebsiteIntakeBounds = z.infer<typeof WebsiteIntakeBounds>
 
+export const WebsitePdfExtractionFailure = z.enum([
+  'UNSAFE_TEXT_CONTROL',
+  'TEXT_TOO_LARGE',
+  'PDF_TOO_MANY_PAGES',
+  'PDF_NO_EXTRACTABLE_TEXT',
+  'PDF_EXTRACTION_TIMEOUT',
+  'PDF_PASSWORD_REQUIRED',
+  'PDF_PARSE_FAILED',
+  'PDF_TOO_LARGE',
+  'PDF_EXTRACTION_CANCELLED',
+])
+export type WebsitePdfExtractionFailure = z.infer<typeof WebsitePdfExtractionFailure>
+
 export const WebsiteSourceDiscoveryDisposition = z.enum([
   'FETCHED_TEXT',
+  'PDF_TEXT_EXTRACTED',
+  'PDF_EXTRACTION_FAILED',
+  'TIME_LIMIT',
   'UNSUPPORTED_DOCUMENT',
   'UNSUPPORTED_VIDEO',
   'UNSUPPORTED_IMAGE',
@@ -186,7 +202,8 @@ export const WebsitePageTextEvidence = z
     sourceUrl: WebsiteSourceDiscoveryUrl,
     exactByteHash: z.string().regex(/^[a-f0-9]{64}$/u),
     capturedAt: z.string().datetime({ offset: true }),
-    extractionProfile: z.enum(['static-html-v1', 'plain-text-v1']),
+    extractionProfile: z.enum(['static-html-v1', 'plain-text-v1', 'pdfjs-document-v1']),
+    pdfPageCount: z.number().int().min(1).max(200).optional(),
     text: z.string().max(40_000),
     normalizedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
     retainedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -196,6 +213,12 @@ export const WebsitePageTextEvidence = z
   })
   .strict()
   .superRefine((page, context) => {
+    if ((page.extractionProfile === 'pdfjs-document-v1') !== (page.pdfPageCount !== undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'PDF text requires its actual page count; other profiles cannot claim PDF pages.',
+      })
+    }
     if (
       [...page.text].length !== page.retainedCodePointCount ||
       page.retainedCodePointCount > page.fullCodePointCount ||
@@ -245,9 +268,28 @@ export const WebsiteSourceDiscoveryItem = z
       .regex(/^[a-f0-9]{64}$/u)
       .optional(),
     duplicateOf: WebsiteSourceDiscoveryUrl.optional(),
+    extractionFailureCode: WebsitePdfExtractionFailure.optional(),
   })
   .strict()
   .superRefine((item, context) => {
+    if (
+      (item.disposition === 'PDF_EXTRACTION_FAILED') !==
+      (item.extractionFailureCode !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Only failed PDF extraction requires a failure code.',
+      })
+    }
+    if (
+      ['PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED'].includes(item.disposition) &&
+      item.contentType !== 'application/pdf'
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'PDF extraction requires the received PDF MIME type.',
+      })
+    }
     const hasByteSize = item.byteSize !== undefined
     const hasByteHash = item.exactByteHash !== undefined
     if (hasByteSize !== hasByteHash) {
@@ -257,7 +299,10 @@ export const WebsiteSourceDiscoveryItem = z
         message: 'Received-byte size and exact hash must be retained together.',
       })
     }
-    if (hasByteSize && ['ROBOTS_DENIED', 'DEPTH_LIMIT', 'PAGE_LIMIT'].includes(item.disposition)) {
+    if (
+      hasByteSize &&
+      ['ROBOTS_DENIED', 'DEPTH_LIMIT', 'PAGE_LIMIT', 'TIME_LIMIT'].includes(item.disposition)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['disposition'],
@@ -273,7 +318,10 @@ export const WebsiteSourceDiscoveryItem = z
         })
       }
     }
-    if (item.disposition === 'FETCHED_TEXT' && !hasByteSize) {
+    if (
+      ['FETCHED_TEXT', 'PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED'].includes(item.disposition) &&
+      !hasByteSize
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['byteSize'],
@@ -285,7 +333,7 @@ export type WebsiteSourceDiscoveryItem = z.infer<typeof WebsiteSourceDiscoveryIt
 
 export const WebsiteSourceDiscovery = z
   .object({
-    policyVersion: z.literal(1),
+    policyVersion: z.union([z.literal(1), z.literal(2)]),
     observedAt: z.string().datetime({ offset: true }),
     items: z.array(WebsiteSourceDiscoveryItem).max(1_000),
     omittedCount: z.number().int().min(0).max(1_000_000),
@@ -294,6 +342,16 @@ export const WebsiteSourceDiscovery = z
   .superRefine((discovery, context) => {
     const priorItems = new Map<string, (typeof discovery.items)[number]>()
     for (const [index, item] of discovery.items.entries()) {
+      if (
+        discovery.policyVersion === 1 &&
+        ['PDF_TEXT_EXTRACTED', 'PDF_EXTRACTION_FAILED', 'TIME_LIMIT'].includes(item.disposition)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['items', index, 'disposition'],
+          message: 'This collection outcome requires policy version 2.',
+        })
+      }
       if (priorItems.has(item.url)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,

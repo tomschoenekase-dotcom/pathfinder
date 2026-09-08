@@ -4,6 +4,8 @@ import { request as httpsRequest } from 'node:https'
 
 import { parse, type DefaultTreeAdapterMap } from 'parse5'
 
+import { extractPdfDocumentText } from './pdf-text-extraction'
+
 import {
   WebsiteIntakePolicyError,
   type ExtractedWebsiteFact,
@@ -431,5 +433,17 @@ export function createWebsiteIntakeRuntimeDependencies(options: {
       return response
     },
     extractPage: async (input) => extractWebsitePage(input),
+    extractPdfPage: async ({ bytes, timeoutMs, signal }) => {
+      const result = await extractPdfDocumentText(bytes, {
+        timeoutMs,
+        ...(signal ? { signal } : {}),
+      })
+      if (result.outcome === 'FAILED') return result
+      return {
+        outcome: 'SUCCEEDED',
+        readableText: result.text,
+        pdfPageCount: result.pageCount,
+      }
+    },
   }
 }
