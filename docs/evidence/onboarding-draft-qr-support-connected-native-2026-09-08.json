@@ -306,5 +306,13 @@
     "id": "0e641a1467ac",
     "result": "3/3 passed with phone captures; final run adds representative desktop capture"
   },
-  "unitTestHash": "f1c9cde9db621394f67522b677f16ccfc16306715325c08959b64d923aab788b"
+  "unitTestHash": "23c45cd93921639d20cabae8c9b5d3c20acbfe7569f6181a961ec240cf470ef4",
+  "unitValidation": {
+    "command": "pnpm exec vitest run app/(app)/venues/[venueId]/qr-kit/page.test.tsx",
+    "exitCode": 0,
+    "passed": 12,
+    "log": "artifacts/w01-qr-shared-postcommit-20260908.log",
+    "note": "Rebound to post-formatter bytes and reran12tests after detecting pre-formatter unit hash mismatch. All49 native-measured source hashes matched throughout.",
+    "priorPreFormatterHash": "f1c9cde9db621394f67522b677f16ccfc16306715325c08959b64d923aab788b"
+  }
 }
