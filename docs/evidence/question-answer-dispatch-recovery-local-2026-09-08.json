@@ -73,23 +73,23 @@
   ],
   "screenshots": [
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-unconfirmed-320.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-unconfirmed-320.png",
       "sha256": "cf6ea075e2ba61fbaddabc05c74176ec8a4c747eec4b15084008ab93ba84345a"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-320.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-320.png",
       "sha256": "f5f84a0729d24747e88a733dbd7e5cc8e600af9cdb87a47e2d01a3da6587551c"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-820.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-820.png",
       "sha256": "4bb947c41d3abf4de3777664cc3587ee58c76100785eabff9101ff58101f1b3e"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1024.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1024.png",
       "sha256": "586ef1a9a1b49695d1b101bd786a9818c8686df918d1c1dd47404a3ddc603512"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1440.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-answer-re-6364a--without-widening-authority-phone-390x844\\founder-answer-recovered-1440.png",
       "sha256": "e893f08bd03983eee277a6c167e7d5724e59f857fa396a2f29ab3a4f908fafe1"
     }
   ],
@@ -98,5 +98,13 @@
     "No live Redis worker, actual resumed model execution, provider, approval, publication or customer-send claim.",
     "Question type-specific controls, general discussion threads, expiry/bundling and full founder workload acceptance remain separate P04 requirements."
   ],
-  "visualCritique": "Existing founder form/evidence layout retained; adds only recovery feedback and a keyboard-accessible retry button. Desktop remains primary; basic phone usability checked."
+  "visualCritique": "Existing founder form/evidence layout retained; adds only recovery feedback and a keyboard-accessible retry button. Desktop remains primary; basic phone usability checked.",
+  "artifactRetention": {
+    "correctedAt": "2026-09-08T08:01:51.143590+00:00",
+    "reason": "Shared Playwright output is cleared by later runs; regenerated proofs use this dedicated artifact directory.",
+    "rerun": "2/2 founder types and answer recovery browser checks passed on the current form.",
+    "exactOriginalScreenshotHashesVerified": true,
+    "sourceHead": "76b5e8c29a966c0bbf0c5f842fc22f2e759de045",
+    "outputDirectory": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored"
+  }
 }

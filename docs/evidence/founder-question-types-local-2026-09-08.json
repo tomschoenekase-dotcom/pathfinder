@@ -61,20 +61,28 @@
   ],
   "screenshots": [
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1024.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1024.png",
       "sha256": "cb06e32d9cab09bbd8a6e2b7f269bbd2ec4d9332f17b60d050e85e1cc0eb2008"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1440.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-1440.png",
       "sha256": "e369ff499ae93c51c3599d6cd4d131f886f7cf68f36ec6855e90310831565f68"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-320.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-320.png",
       "sha256": "8fe0ac065be7ad7671067104a5525171e8b2d5355c8abba4c8add1f9c3f6f3ad"
     },
     {
-      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\test-results\\mobile-visual\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-820.png",
+      "path": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored\\founder-question-types-typ-12259--and-separate-from-approval-phone-390x844\\founder-question-types-820.png",
       "sha256": "326c535b8b7d727c7b86dedb1022da6144892a94b85bf0c67b2bb3a72c5fbd5c"
     }
-  ]
+  ],
+  "artifactRetention": {
+    "correctedAt": "2026-09-08T08:01:51.143590+00:00",
+    "reason": "Shared Playwright output is cleared by later runs; regenerated proofs use this dedicated artifact directory.",
+    "rerun": "2/2 founder types and answer recovery browser checks passed on the current form.",
+    "exactOriginalScreenshotHashesVerified": true,
+    "sourceHead": "76b5e8c29a966c0bbf0c5f842fc22f2e759de045",
+    "outputDirectory": "C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\artifacts\\founder-question-proof-20260908-restored"
+  }
 }
