@@ -14,7 +14,9 @@ const input = {
   actor,
 }
 
-function harness(run: unknown = { id: 'run-1', status: 'RUNNING', cancelRequestedAt: null }) {
+function harness(
+  run: unknown = { id: 'run-1', status: 'RUNNING', cancelRequestedAt: null, startedAt: new Date() },
+) {
   const findFirst = vi.fn().mockResolvedValue(run)
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const timelineCreate = vi.fn().mockResolvedValue({ id: 'timeline-1' })
@@ -60,15 +62,16 @@ describe('requestAgentRunCancellationAction', () => {
     expect(h.transaction).not.toHaveBeenCalled()
   })
 
-  it.each(['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'])(
-    'requests cancellation atomically from %s',
+  it.each(['QUEUED', 'AWAITING_INPUT', 'AWAITING_APPROVAL'])(
+    'immediately cancels non-running %s work atomically',
     async (status) => {
-      const h = harness({ id: 'run-1', status, cancelRequestedAt: null })
+      const startedAt = status === 'QUEUED' ? null : new Date('2026-08-11T19:00:00.000Z')
+      const h = harness({ id: 'run-1', status, cancelRequestedAt: null, startedAt })
       const result = await requestAgentRunCancellationAction(input, h.client as never)
 
       expect(h.findFirst).toHaveBeenCalledWith({
         where: { id: 'run-1', tenantId: 'tenant-1', venueId: 'venue-1' },
-        select: { id: true, status: true, cancelRequestedAt: true },
+        select: { id: true, status: true, cancelRequestedAt: true, startedAt: true },
       })
       expect(h.updateMany).toHaveBeenCalledWith({
         where: {
@@ -78,7 +81,12 @@ describe('requestAgentRunCancellationAction', () => {
           status,
           cancelRequestedAt: null,
         },
-        data: { cancelRequestedAt: expect.any(Date) },
+        data: {
+          status: 'CANCELLED',
+          cancelRequestedAt: expect.any(Date),
+          startedAt: startedAt ?? expect.any(Date),
+          completedAt: expect.any(Date),
+        },
       })
       expect(h.timelineCreate).toHaveBeenCalledWith({
         data: {
@@ -87,8 +95,8 @@ describe('requestAgentRunCancellationAction', () => {
           agentRunId: 'run-1',
           actorType: 'HUMAN',
           actorId: 'admin-1',
-          eventType: 'CANCELLATION_REQUESTED',
-          message: 'A platform administrator requested cancellation.',
+          eventType: 'CANCELLED',
+          message: 'A platform administrator cancelled this task that was not running.',
           data: { reasonLength: 23 },
         },
       })
@@ -97,18 +105,88 @@ describe('requestAgentRunCancellationAction', () => {
           tenantId: 'tenant-1',
           actorId: 'admin-1',
           actorRole: 'PLATFORM_ADMIN',
-          action: 'admin.agent-run.cancellation-requested',
+          action: 'admin.agent-run.cancelled',
           targetType: 'AgentRun',
           targetId: 'run-1',
           beforeState: { status, cancelRequested: false },
-          afterState: expect.objectContaining({ status, cancelRequested: true, reasonLength: 23 }),
+          afterState: expect.objectContaining({
+            status: 'CANCELLED',
+            cancelRequested: true,
+            completedAt: expect.any(String),
+            reasonLength: 23,
+          }),
         }),
       })
       expect(JSON.stringify(h.timelineCreate.mock.calls)).not.toContain(input.reason)
       expect(JSON.stringify(h.auditCreate.mock.calls)).not.toContain(input.reason)
-      expect(result).toMatchObject({ outcome: 'REQUESTED', status })
+      expect(result).toMatchObject({ outcome: 'REQUESTED', status: 'CANCELLED' })
     },
   )
+
+  it('records cancellation intent without stealing a running worker lease', async () => {
+    const startedAt = new Date('2026-08-11T19:00:00.000Z')
+    const h = harness({ id: 'run-1', status: 'RUNNING', cancelRequestedAt: null, startedAt })
+    const result = await requestAgentRunCancellationAction(input, h.client as never)
+
+    expect(h.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'run-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        status: 'RUNNING',
+        cancelRequestedAt: null,
+      },
+      data: { cancelRequestedAt: expect.any(Date) },
+    })
+    expect(h.timelineCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: 'CANCELLATION_REQUESTED' }),
+    })
+    expect(h.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'admin.agent-run.cancellation-requested',
+        afterState: expect.objectContaining({ status: 'RUNNING', cancelRequested: true }),
+      }),
+    })
+    expect(result).toMatchObject({ outcome: 'REQUESTED', status: 'RUNNING' })
+  })
+
+  it('finalizes one legacy pending cancellation while retaining its original request time', async () => {
+    const requestedAt = new Date('2026-08-11T20:00:00.000Z')
+    const h = harness({
+      id: 'run-1',
+      status: 'AWAITING_INPUT',
+      cancelRequestedAt: requestedAt,
+      startedAt: new Date('2026-08-11T19:00:00.000Z'),
+    })
+
+    const result = await requestAgentRunCancellationAction(input, h.client as never)
+
+    expect(h.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: 'run-1',
+        status: 'AWAITING_INPUT',
+        cancelRequestedAt: requestedAt,
+      }),
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        cancelRequestedAt: requestedAt,
+        completedAt: expect.any(Date),
+      }),
+    })
+    expect(h.timelineCreate).toHaveBeenCalledOnce()
+    expect(h.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        beforeState: { status: 'AWAITING_INPUT', cancelRequested: true },
+        afterState: expect.objectContaining({ requestedAt: requestedAt.toISOString() }),
+      }),
+    })
+    expect(result).toEqual({
+      id: 'run-1',
+      status: 'CANCELLED',
+      cancelRequestedAt: requestedAt,
+      outcome: 'REQUESTED',
+    })
+  })
 
   it('replays existing cancellation intent without duplicate evidence', async () => {
     const requestedAt = new Date('2026-08-11T20:00:00.000Z')

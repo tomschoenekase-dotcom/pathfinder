@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T04:04:38.551701+00:00",
+  "baseProductRevision": "48e7bf0aa07c7e9d07f414cf7466e8e9ec4bc11b",
+  "proofs": [
+    {
+      "result": {
+        "database": "pathfinder_disposable_agent_run_cancellation_33427be154d7",
+        "port": "55489",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-run-immediate-cancellation-33427be154d7",
+        "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+        "migrationsPassed": true,
+        "testPassed": true,
+        "stopped": true
+      },
+      "tests": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "measuredSources": [
+        {
+          "path": "packages/db/src/helpers/agent-run-cancellation-claim.disposable.integration.test.ts",
+          "sha256": "9dd8f9b2a9bccb34ca5d33bfc7763963f57525d524acb3d52c656bc1536f629a",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+          "sha256": "fbb3fcaee55ee76e18a87d866f54cef980f5192756ddd9e57bd6348508f1d122",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+          "sha256": "184e2fdfab1d6785f68435b0160515696255c39c62136f96d8bf56eff1951fe2",
+          "matchesRetainedBytes": true
+        }
+      ]
+    },
+    {
+      "result": {
+        "database": "pathfinder_disposable_agent_bridge_d5a72c5d4617",
+        "port": "55489",
+        "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-terminal-callback-d5a72c5d4617",
+        "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+        "migrationsPassed": true,
+        "testPassed": true,
+        "stopped": true
+      },
+      "tests": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "measuredSources": [
+        {
+          "path": "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+          "sha256": "6ecbaf8decbfaea94862a2cde6fd6652987f6db9effd6bdd77b07b29ea8e6b84",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+          "sha256": "fbb3fcaee55ee76e18a87d866f54cef980f5192756ddd9e57bd6348508f1d122",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+          "sha256": "184e2fdfab1d6785f68435b0160515696255c39c62136f96d8bf56eff1951fe2",
+          "matchesRetainedBytes": true
+        },
+        {
+          "path": "packages/db/src/helpers/agent-run-execution-context.ts",
+          "sha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+          "matchesRetainedBytes": true
+        }
+      ]
+    }
+  ],
+  "focusedTestsPassed": 33,
+  "typechecks": ["db passed", "workers passed"],
+  "scopedLint": "passed",
+  "implemented": [
+    "Non-running QUEUED/AWAITING_INPUT/AWAITING_APPROVAL cancellation finalizes atomically; running tasks retain intent-only cancellation.",
+    "Legacy pending non-running cancellation finalizes on authorized retry, retaining original requestedAt and new completedAt; repeated terminal requests add no effects.",
+    "Worker terminal FAILED/CANCELLED child outcomes atomically append parent timeline and RESULT references; nonterminal retry adds no terminal callback.",
+    "Unknown retained artifact counts are omitted from failure/cancellation callbacks."
+  ],
+  "nativeControls": [
+    "Immediate cancellation of each non-running status passes actual SQL guards and readback.",
+    "RUNNING remains intent-only; legacy request timestamp and single transition evidence survive retry.",
+    "Existing26-cancelled-candidate starvation and thrown-claim cancellation persistence controls still pass.",
+    "Completed/failed/worker-cancelled children retain exact parent notifications and unchanged parent execution snapshot; stale/duplicate completion remains fenced."
+  ],
+  "limits": [
+    "Disposable native PostgreSQL with synthetic credentials and deterministic bridge adapters only; no provider, production or external effects.",
+    "Immediate human cancellation of a non-running child does not yet emit the new parent terminal RESULT callback; its own canonical cancellation timeline is retained.",
+    "No automatic parent requeue, dependency wake-up, authority change, bulk cleanup, deployment or schema change."
+  ]
+}

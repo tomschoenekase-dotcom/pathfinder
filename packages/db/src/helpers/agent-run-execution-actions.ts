@@ -133,6 +133,73 @@ async function lockAndValidateTerminalLease(
   return run
 }
 
+async function validateDelegatedParent(
+  transaction: typeof db,
+  input: { tenantId: string; venueId: string | null; parentAgentRunId: string | null },
+) {
+  if (!input.parentAgentRunId) return
+  const parent = await transaction.agentRun.findFirst({
+    where: {
+      id: input.parentAgentRunId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+    },
+    select: { id: true },
+  })
+  if (!parent)
+    throw new AgentRunExecutionError(
+      'LEASE_LOST',
+      'Delegated run parent is unavailable in the exact terminal scope',
+    )
+}
+
+async function appendDelegatedTerminalResult(
+  transaction: typeof db,
+  input: {
+    tenantId: string
+    venueId: string | null
+    childAgentRunId: string
+    parentAgentRunId: string | null
+    childAgentIdentityId: string
+    outcome: 'COMPLETED' | 'FAILED' | 'CANCELLED'
+    summary: string
+    artifactCount?: number
+  },
+) {
+  if (!input.parentAgentRunId) return
+  const resultReference = `agent-run:${input.childAgentRunId}`
+  const outcome = input.outcome.toLowerCase()
+  await transaction.agentTimelineEvent.create({
+    data: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.parentAgentRunId,
+      actorType: input.outcome === 'COMPLETED' ? 'AGENT' : 'SYSTEM',
+      actorId: input.outcome === 'COMPLETED' ? input.childAgentIdentityId : 'agent-runtime',
+      eventType: `DELEGATED_TASK_${input.outcome}`,
+      message: `A delegated specialist task ${outcome} and retained its terminal result.`,
+      data: {
+        childAgentRunId: input.childAgentRunId,
+        resultReference,
+        outcome: input.outcome,
+        ...(input.artifactCount !== undefined ? { artifactCount: input.artifactCount } : {}),
+      },
+    },
+  })
+  await transaction.agentMessage.create({
+    data: {
+      tenantId: input.tenantId,
+      venueId: input.venueId!,
+      agentRunId: input.parentAgentRunId,
+      agentIdentityId: input.childAgentIdentityId,
+      role: 'AGENT',
+      messageType: 'RESULT',
+      content: `${resultReference} ${outcome}. Untrusted delegated terminal result: ${input.summary}`,
+      actorId: input.childAgentIdentityId,
+    },
+  })
+}
+
 /** Atomically claims a queued run or takes over a running run whose lease expired. */
 export async function claimAgentRunExecution(
   rawInput: z.input<typeof scopeSchema> & {
@@ -459,21 +526,11 @@ export async function completeAgentRunExecution(
     const transaction = rawTransaction as unknown as typeof db
     const now = new Date()
     const run = await lockAndValidateTerminalLease(transaction, input)
-    if (run.parentAgentRunId) {
-      const parent = await transaction.agentRun.findFirst({
-        where: {
-          id: run.parentAgentRunId,
-          tenantId: input.tenantId,
-          venueId: run.venueId,
-        },
-        select: { id: true },
-      })
-      if (!parent)
-        throw new AgentRunExecutionError(
-          'LEASE_LOST',
-          'Delegated run parent is unavailable in the exact completion scope',
-        )
-    }
+    await validateDelegatedParent(transaction, {
+      tenantId: input.tenantId,
+      venueId: run.venueId,
+      parentAgentRunId: run.parentAgentRunId,
+    })
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -526,37 +583,16 @@ export async function completeAgentRunExecution(
         actorId: run.agentIdentityId,
       },
     })
-    if (run.parentAgentRunId) {
-      const resultReference = `agent-run:${input.runId}`
-      await transaction.agentTimelineEvent.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: run.venueId,
-          agentRunId: run.parentAgentRunId,
-          actorType: 'AGENT',
-          actorId: run.agentIdentityId,
-          eventType: 'DELEGATED_TASK_COMPLETED',
-          message: 'A delegated specialist task completed and retained its result.',
-          data: {
-            childAgentRunId: input.runId,
-            resultReference,
-            artifactCount: input.artifacts.length,
-          },
-        },
-      })
-      await transaction.agentMessage.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: run.venueId!,
-          agentRunId: run.parentAgentRunId,
-          agentIdentityId: run.agentIdentityId,
-          role: 'AGENT',
-          messageType: 'RESULT',
-          content: `${resultReference} completed. Untrusted delegated result summary: ${input.summary}`,
-          actorId: run.agentIdentityId,
-        },
-      })
-    }
+    await appendDelegatedTerminalResult(transaction, {
+      tenantId: input.tenantId,
+      venueId: run.venueId,
+      childAgentRunId: input.runId,
+      parentAgentRunId: run.parentAgentRunId,
+      childAgentIdentityId: run.agentIdentityId,
+      outcome: 'COMPLETED',
+      summary: input.summary,
+      artifactCount: input.artifacts.length,
+    })
     return { status: 'COMPLETED' as const, completedAt: now }
   })
 }
@@ -586,6 +622,12 @@ export async function failAgentRunExecution(
         : 'FAILED'
     const failureMessage = `Agent execution failed (${input.errorCode}).`
     const now = new Date()
+    if (status !== 'QUEUED')
+      await validateDelegatedParent(transaction, {
+        tenantId: input.tenantId,
+        venueId: run.venueId,
+        parentAgentRunId: run.parentAgentRunId,
+      })
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -621,6 +663,16 @@ export async function failAgentRunExecution(
         data: { errorCode: input.errorCode, retryable: input.retryable },
       },
     })
+    if (status !== 'QUEUED')
+      await appendDelegatedTerminalResult(transaction, {
+        tenantId: input.tenantId,
+        venueId: run.venueId,
+        childAgentRunId: input.runId,
+        parentAgentRunId: run.parentAgentRunId,
+        childAgentIdentityId: run.agentIdentityId,
+        outcome: status,
+        summary: status === 'CANCELLED' ? 'The task was cancelled.' : failureMessage,
+      })
     return { status, completedAt: status === 'QUEUED' ? null : now }
   })
 }

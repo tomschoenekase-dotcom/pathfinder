@@ -123,7 +123,7 @@ describe('agent run execution actions', () => {
 
   it('includes a durable delegated result reference in a subsequent parent claim context', async () => {
     const callbackContent =
-      'agent-run:child-1 completed. Untrusted delegated result summary: Draft artifact is ready.'
+      'agent-run:child-1 completed. Untrusted delegated terminal result: Draft artifact is ready.'
     const transaction = {
       agentRun: {
         findFirst: vi.fn().mockResolvedValue({
@@ -477,6 +477,7 @@ describe('agent run execution actions', () => {
           data: {
             childAgentRunId: 'child-1',
             resultReference: 'agent-run:child-1',
+            outcome: 'COMPLETED',
             artifactCount: 1,
           },
         }),
@@ -488,7 +489,7 @@ describe('agent run execution actions', () => {
         agentIdentityId: 'specialist-1',
         messageType: 'RESULT',
         content:
-          'agent-run:child-1 completed. Untrusted delegated result summary: Draft artifact is ready.',
+          'agent-run:child-1 completed. Untrusted delegated terminal result: Draft artifact is ready.',
       }),
     })
   })
@@ -606,6 +607,8 @@ describe('agent run execution actions', () => {
       agentRun: {
         findFirst: vi.fn().mockResolvedValue({
           venueId: 'venue-1',
+          agentIdentityId: 'specialist-1',
+          parentAgentRunId: 'parent-1',
           attemptNumber: 1,
           maxAttempts: 3,
           cancelRequestedAt: null,
@@ -613,6 +616,7 @@ describe('agent run execution actions', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      agentMessage: { create: vi.fn() },
     }
     const result = await failAgentRunExecution(
       {
@@ -630,6 +634,88 @@ describe('agent run execution actions', () => {
         data: expect.objectContaining({ status: 'QUEUED', executionLeaseToken: null }),
       }),
     )
+    expect(transaction.agentRun.findFirst).toHaveBeenCalledOnce()
+    expect(transaction.agentTimelineEvent.create).toHaveBeenCalledOnce()
+    expect(transaction.agentMessage.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: 'terminal failure',
+      cancelRequestedAt: null,
+      attemptNumber: 3,
+      outcome: 'FAILED' as const,
+      eventType: 'DELEGATED_TASK_FAILED',
+      result: 'Agent execution failed (TASK_EXECUTOR_FAILED).',
+    },
+    {
+      name: 'worker-finalized cancellation',
+      cancelRequestedAt: new Date('2026-09-08T14:00:00.000Z'),
+      attemptNumber: 1,
+      outcome: 'CANCELLED' as const,
+      eventType: 'DELEGATED_TASK_CANCELLED',
+      result: 'The task was cancelled.',
+    },
+  ])('records exactly one parent result for a delegated $name', async (scenario) => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' })
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: scenario.attemptNumber,
+            maxAttempts: 3,
+            cancelRequestedAt: scenario.cancelRequestedAt,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany,
+      },
+      agentTimelineEvent: { create: timelineCreate },
+      agentMessage: { create: messageCreate },
+    }
+
+    await expect(
+      failAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'child-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          errorCode: 'TASK_EXECUTOR_FAILED',
+          retryable: true,
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ status: scenario.outcome })
+
+    expect(updateMany).toHaveBeenCalledOnce()
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'child-1' }) }),
+    )
+    expect(timelineCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          agentRunId: 'parent-1',
+          eventType: scenario.eventType,
+          data: {
+            childAgentRunId: 'child-1',
+            resultReference: 'agent-run:child-1',
+            outcome: scenario.outcome,
+          },
+        }),
+      }),
+    )
+    expect(messageCreate).toHaveBeenCalledOnce()
+    expect(messageCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        agentRunId: 'parent-1',
+        content: `agent-run:child-1 ${scenario.outcome.toLowerCase()}. Untrusted delegated terminal result: ${scenario.result}`,
+      }),
+    })
   })
 
   it('persists a stable code-derived terminal failure', async () => {

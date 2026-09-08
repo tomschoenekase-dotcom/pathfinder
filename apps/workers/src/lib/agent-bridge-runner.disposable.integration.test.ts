@@ -2029,6 +2029,149 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           select: { status: true, isActive: true, publishedAt: true },
         }),
       ).resolves.toEqual({ status: 'DRAFT', isActive: false, publishedAt: null })
+      const parentBeforeTerminalControls = await db.agentRun.findUniqueOrThrow({
+        where: { id: orchestratorRun.id },
+        select: {
+          status: true,
+          attemptNumber: true,
+          executionLeaseToken: true,
+          executionWorkerId: true,
+          executionBridgeSessionId: true,
+          cancelRequestedAt: true,
+        },
+      })
+      const failedDelegation = await delegateAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        parentAgentRunId: orchestratorRun.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.researcher,
+        instructions: 'Exercise one synthetic terminal specialist failure callback.',
+        reason: 'Provider-dark terminal callback control.',
+      })
+      const failedClaim = await claimAgentBridgeTask({
+        sessionId: takeoverResearcherWorker.sessionId,
+        venueId,
+        workerKey: takeoverResearcherWorker.workerKey,
+        credential,
+      })
+      expect(failedClaim.task?.id).toBe(failedDelegation.run.id)
+      await expect(
+        failAgentBridgeTask({
+          sessionId: takeoverResearcherWorker.sessionId,
+          venueId,
+          runId: failedDelegation.run.id,
+          leaseToken: failedClaim.task!.leaseToken,
+          errorCode: 'TASK_EXECUTOR_FAILED',
+          retryable: false,
+          credential,
+        }),
+      ).resolves.toMatchObject({ status: 'FAILED' })
+
+      const cancelledDelegation = await delegateAgentTaskAction({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        parentAgentRunId: orchestratorRun.id,
+        requestingAgentIdentityId: identities.analyst,
+        specialistAgentIdentityId: identities.researcher,
+        instructions: 'Exercise one synthetic worker-finalized cancellation callback.',
+        reason: 'Provider-dark cancellation callback control.',
+      })
+      const cancelledClaim = await claimAgentBridgeTask({
+        sessionId: takeoverResearcherWorker.sessionId,
+        venueId,
+        workerKey: takeoverResearcherWorker.workerKey,
+        credential,
+      })
+      expect(cancelledClaim.task?.id).toBe(cancelledDelegation.run.id)
+      await requestAgentRunCancellationAction({
+        tenantId,
+        venueId,
+        agentRunId: cancelledDelegation.run.id,
+        reason: 'Fixture requests worker-finalized cancellation.',
+        actor: operator,
+      })
+      await expect(
+        failAgentBridgeTask({
+          sessionId: takeoverResearcherWorker.sessionId,
+          venueId,
+          runId: cancelledDelegation.run.id,
+          leaseToken: cancelledClaim.task!.leaseToken,
+          errorCode: 'TASK_CANCELLED',
+          retryable: false,
+          credential,
+        }),
+      ).resolves.toMatchObject({ status: 'CANCELLED' })
+      const terminalControlIds = [failedDelegation.run.id, cancelledDelegation.run.id]
+      const [terminalCallbacks, terminalMessages, terminalChildren, parentAfterTerminalControls] =
+        await Promise.all([
+          db.agentTimelineEvent.findMany({
+            where: {
+              agentRunId: orchestratorRun.id,
+              eventType: { in: ['DELEGATED_TASK_FAILED', 'DELEGATED_TASK_CANCELLED'] },
+              OR: terminalControlIds.map((id) => ({
+                data: { path: ['childAgentRunId'], equals: id },
+              })),
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { eventType: true, data: true },
+          }),
+          db.agentMessage.findMany({
+            where: {
+              agentRunId: orchestratorRun.id,
+              messageType: 'RESULT',
+              OR: terminalControlIds.map((id) => ({ content: { startsWith: `agent-run:${id} ` } })),
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { content: true },
+          }),
+          db.agentRun.findMany({
+            where: { id: { in: terminalControlIds }, tenantId, venueId },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, status: true },
+          }),
+          db.agentRun.findUniqueOrThrow({
+            where: { id: orchestratorRun.id },
+            select: {
+              status: true,
+              attemptNumber: true,
+              executionLeaseToken: true,
+              executionWorkerId: true,
+              executionBridgeSessionId: true,
+              cancelRequestedAt: true,
+            },
+          }),
+        ])
+      expect(terminalCallbacks).toEqual([
+        {
+          eventType: 'DELEGATED_TASK_FAILED',
+          data: expect.objectContaining({
+            childAgentRunId: failedDelegation.run.id,
+            outcome: 'FAILED',
+          }),
+        },
+        {
+          eventType: 'DELEGATED_TASK_CANCELLED',
+          data: expect.objectContaining({
+            childAgentRunId: cancelledDelegation.run.id,
+            outcome: 'CANCELLED',
+          }),
+        },
+      ])
+      expect(terminalMessages).toHaveLength(2)
+      expect(terminalMessages[0]?.content).toMatch(
+        new RegExp(`^agent-run:${failedDelegation.run.id} failed\\.`),
+      )
+      expect(terminalMessages[1]?.content).toMatch(
+        new RegExp(`^agent-run:${cancelledDelegation.run.id} cancelled\\.`),
+      )
+      expect(terminalChildren).toEqual([
+        { id: failedDelegation.run.id, status: 'FAILED' },
+        { id: cancelledDelegation.run.id, status: 'CANCELLED' },
+      ])
+      expect(parentAfterTerminalControls).toEqual(parentBeforeTerminalControls)
       await completeAgentBridgeTask({
         sessionId: analystWorker.sessionId,
         venueId,
