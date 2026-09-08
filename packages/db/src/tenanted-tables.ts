@@ -100,6 +100,7 @@ export const TENANTED_TABLES = [
   'AgentTimelineEvent',
   'AgentMessage',
   'AgentQuestionDiscussionMessage',
+  'AgentQuestionOperation',
   'AgentOutcomeObservation',
   'AgentImprovementProposal',
   'AgentImprovementProposalEvidence',

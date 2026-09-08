@@ -17,10 +17,12 @@ import {
 } from './run-staging-migration-predeploy.mjs'
 
 // Preserve the long historical suffix assertions below while the focused
-// 234-to-235 assertion proves the newly admitted final migration explicitly.
+// 234-to-236 assertions prove the newly admitted final migrations explicitly.
 function remainingMigrationNames(rows, manifest) {
   return currentRemainingMigrationNames(rows, manifest).filter(
-    (name) => name !== '20260908150000_add_intake_v1_file_extraction_dispatches',
+    (name) =>
+      name !== '20260908150000_add_intake_v1_file_extraction_dispatches' &&
+      name !== '20260908160000_add_agent_question_operations',
   )
 }
 
@@ -42,7 +44,7 @@ test('the measured workflow predecessor uses its own table count and unknown bou
   assert.equal(expectedPublicTableCount('staging-baseline'), 126)
   assert.equal(expectedPublicTableCount('b5-complete'), 193)
   assert.equal(expectedPublicTableCount('expiry-predecessor'), 255)
-  assert.equal(expectedPublicTableCount('complete'), 255)
+  assert.equal(expectedPublicTableCount('complete'), 256)
   for (const state of ['unknown', 'constructor', '__proto__'])
     assert.throws(() => expectedPublicTableCount(state), /unknown schema boundary/u)
 })
@@ -153,9 +155,9 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest retains observed predecessors and the reviewed 235 suffix', async () => {
+test('repository migration manifest retains observed predecessors and the reviewed 236 suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 255)
+  assert.equal(EXPECTED.finalPublicTableCount, 256)
   assert.equal(EXPECTED.intakePackagePredecessorCount, 226)
   assert.equal(EXPECTED.intakePackagePredecessorPublicTableCount, 253)
   assert.equal(EXPECTED.sourceMappingPredecessorCount, 227)
@@ -278,7 +280,21 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   assert.equal(expectedPublicTableCount('website-pdf-predecessor'), 255)
   assert.deepEqual(currentRemainingMigrationNames(websitePdfRows, manifest), [
     '20260908150000_add_intake_v1_file_extraction_dispatches',
+    '20260908160000_add_agent_question_operations',
   ])
+  const fileExtractionRows = rows.slice(0, EXPECTED.fileExtractionPredecessorCount)
+  assert.equal(fileExtractionRows.length, 235)
+  assert.equal(ledgerState(fileExtractionRows, manifest), 'file-extraction-predecessor')
+  assert.equal(expectedPublicTableCount('file-extraction-predecessor'), 255)
+  assert.deepEqual(currentRemainingMigrationNames(fileExtractionRows, manifest), [
+    '20260908160000_add_agent_question_operations',
+  ])
+  const corruptFileExtractionRows = fileExtractionRows.map((row) => ({ ...row }))
+  corruptFileExtractionRows.at(-1).checksum = '0'.repeat(64)
+  assert.throws(
+    () => ledgerState(corruptFileExtractionRows, manifest),
+    /ledger checksum mismatches/u,
+  )
   const sourceMappingRows = rows.slice(0, EXPECTED.sourceMappingPredecessorCount)
   assert.equal(ledgerState(sourceMappingRows, manifest), 'source-mapping-predecessor')
   assert.equal(expectedPublicTableCount('source-mapping-predecessor'), 254)

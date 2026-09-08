@@ -124,6 +124,7 @@ export function createPathfinderMcpAgentActions(
           status: result.question.status,
           blocking: result.question.blocking,
           replayed: result.replayed,
+          consolidated: result.consolidated,
           updatedAt: result.question.updatedAt.toISOString(),
           expiresAt: result.question.expiresAt?.toISOString() ?? null,
         },

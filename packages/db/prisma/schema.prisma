@@ -236,6 +236,7 @@ model Tenant {
   agentTimelineEvents                       AgentTimelineEvent[]
   approvalRequests                          ApprovalRequest[]
   agentQuestions                            AgentQuestion[]
+  agentQuestionOperations                   AgentQuestionOperation[]
   agentQuestionDiscussionMessages           AgentQuestionDiscussionMessage[]
   onboardingQuestionLinks                   OnboardingQuestionLink[]
   agentMessages                             AgentMessage[]
@@ -1473,6 +1474,7 @@ model Venue {
   customerAccessRequests                    CustomerAccessRequest[]
   founderDirectiveTaskRequests              FounderDirectiveTaskRequest[]
   agentQuestions                            AgentQuestion[]
+  agentQuestionOperations                   AgentQuestionOperation[]
   agentQuestionDiscussionMessages           AgentQuestionDiscussionMessage[]
   onboardingQuestionLinks                   OnboardingQuestionLink[]
   agentMessages                             AgentMessage[]
@@ -1909,7 +1911,7 @@ model IntakeRun {
   evidence                          IntakeEvidenceRecord[]
   events                            IntakeRunEvent[]
   websiteResearchReceipts           IntakeWebsiteResearchReceipt[]
-  intakeV1ProcessingDispatches       IntakeV1ProcessingDispatch[]
+  intakeV1ProcessingDispatches      IntakeV1ProcessingDispatch[]
   fileExtractionReceipts            IntakeFileExtractionReceipt[]
   fileExtractionSourceReviews       IntakeFileExtractionReview[]             @relation("IntakeFileExtractionReviewSource")
   fileExtractionProposalReview      IntakeFileExtractionReview?              @relation("IntakeFileExtractionReviewProposal")
@@ -1918,8 +1920,8 @@ model IntakeRun {
   packageHandoff                    IntakePackageHandoff?
   upload                            IntakeUpload?
   v1SubmissionMembers               IntakeV1SubmissionMember[]
-  sourceMappingReviews              IntakeSourceMappingReview[] @relation("IntakeSourceMappingReviewSource")
-  sourceMappingProposalReview       IntakeSourceMappingReview?  @relation("IntakeSourceMappingReviewProposal")
+  sourceMappingReviews              IntakeSourceMappingReview[]              @relation("IntakeSourceMappingReviewSource")
+  sourceMappingProposalReview       IntakeSourceMappingReview?               @relation("IntakeSourceMappingReviewProposal")
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
@@ -1969,34 +1971,34 @@ model IntakeRunEvent {
 /// Append-only terminal evidence for one bounded website research operation. Read-only crawling
 /// may be retried with a new operation ID; every terminal outcome keeps its cost and failure truth.
 model IntakeWebsiteResearchReceipt {
-  id                 String                         @id @db.Uuid
-  tenantId           String                         @map("tenant_id")
-  venueId            String                         @map("venue_id")
-  runId              String                         @map("run_id")
-  priorReceiptId     String?                        @map("prior_receipt_id") @db.Uuid
-  requestHash        String                         @map("request_hash") @db.Char(64)
-  outcome            IntakeWebsiteResearchOutcome
-  sourceUriHash      String                         @map("source_uri_hash") @db.Char(64)
-  bounds             Json
-  researchSnapshot   Json?                          @map("research_snapshot")
-  candidateSnapshot  Json?                          @map("candidate_snapshot")
-  discoverySnapshot  Json?                          @map("discovery_snapshot")
-  attemptedFetches   Int                            @default(0) @map("attempted_fetches")
-  fetchedPages       Int                            @default(0) @map("fetched_pages")
-  fetchedBytes       Int                            @default(0) @map("fetched_bytes")
-  estimatedCostUnits Int                            @default(0) @map("estimated_cost_units")
-  latencyMs          Int                            @default(0) @map("latency_ms")
-  errorCode          String?                        @map("error_code") @db.VarChar(64)
-  errorMessage       String?                        @map("error_message") @db.VarChar(500)
-  createdBy          String                         @map("created_by") @db.VarChar(191)
-  createdAt          DateTime                       @default(now()) @map("created_at")
-  tenant             Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue              Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  run                IntakeRun                      @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  priorReceipt       IntakeWebsiteResearchReceipt?  @relation("IntakeWebsiteResearchLineage", fields: [priorReceiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  retryReceipts      IntakeWebsiteResearchReceipt[] @relation("IntakeWebsiteResearchLineage")
+  id                           String                         @id @db.Uuid
+  tenantId                     String                         @map("tenant_id")
+  venueId                      String                         @map("venue_id")
+  runId                        String                         @map("run_id")
+  priorReceiptId               String?                        @map("prior_receipt_id") @db.Uuid
+  requestHash                  String                         @map("request_hash") @db.Char(64)
+  outcome                      IntakeWebsiteResearchOutcome
+  sourceUriHash                String                         @map("source_uri_hash") @db.Char(64)
+  bounds                       Json
+  researchSnapshot             Json?                          @map("research_snapshot")
+  candidateSnapshot            Json?                          @map("candidate_snapshot")
+  discoverySnapshot            Json?                          @map("discovery_snapshot")
+  attemptedFetches             Int                            @default(0) @map("attempted_fetches")
+  fetchedPages                 Int                            @default(0) @map("fetched_pages")
+  fetchedBytes                 Int                            @default(0) @map("fetched_bytes")
+  estimatedCostUnits           Int                            @default(0) @map("estimated_cost_units")
+  latencyMs                    Int                            @default(0) @map("latency_ms")
+  errorCode                    String?                        @map("error_code") @db.VarChar(64)
+  errorMessage                 String?                        @map("error_message") @db.VarChar(500)
+  createdBy                    String                         @map("created_by") @db.VarChar(191)
+  createdAt                    DateTime                       @default(now()) @map("created_at")
+  tenant                       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run                          IntakeRun                      @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  priorReceipt                 IntakeWebsiteResearchReceipt?  @relation("IntakeWebsiteResearchLineage", fields: [priorReceiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  retryReceipts                IntakeWebsiteResearchReceipt[] @relation("IntakeWebsiteResearchLineage")
   intakeV1ProcessingDispatches IntakeV1ProcessingDispatch[]
-  sourceMappingReviews IntakeSourceMappingReview[]
+  sourceMappingReviews         IntakeSourceMappingReview[]
 
   @@unique([id, tenantId, venueId], map: "intake_website_research_receipts_scope_key")
   @@unique([id, tenantId, venueId, runId], map: "intake_website_research_receipts_scope_run_key")
@@ -2154,29 +2156,29 @@ enum IntakeSourceMappingReviewKind {
 /// Immutable human-reviewed mapping from one exact private/research intake source into a
 /// review-only structured proposal. It does not create a package or grant publication authority.
 model IntakeSourceMappingReview {
-  id                    String                        @id @db.Uuid
-  tenantId              String                        @map("tenant_id")
-  venueId               String                        @map("venue_id")
-  sourceRunId           String                        @map("source_run_id")
-  proposalRunId         String                        @unique(map: "intake_source_mapping_reviews_proposal_key") @map("proposal_run_id")
-  kind                  IntakeSourceMappingReviewKind
-  sourceInputHash       String                        @map("source_input_hash") @db.Char(64)
-  researchReceiptId     String?                       @map("research_receipt_id") @db.Uuid
-  researchHash          String?                       @map("research_hash") @db.Char(64)
-  requestHash           String                        @map("request_hash") @db.Char(64)
-  mappingVersion        Int                           @default(1) @map("mapping_version")
-  selectionSnapshot     Json                          @map("selection_snapshot")
-  selectionHash         String                        @map("selection_hash") @db.Char(64)
-  payload               Json
-  payloadHash           String                        @map("payload_hash") @db.Char(64)
-  rationale             String                        @db.VarChar(500)
-  reviewedBy            String                        @map("reviewed_by") @db.VarChar(191)
-  createdAt             DateTime                      @default(now()) @map("created_at")
-  tenant                Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  sourceRun             IntakeRun                     @relation("IntakeSourceMappingReviewSource", fields: [sourceRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  proposalRun           IntakeRun                     @relation("IntakeSourceMappingReviewProposal", fields: [proposalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  researchReceipt       IntakeWebsiteResearchReceipt? @relation(fields: [researchReceiptId, tenantId, venueId, sourceRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  id                String                        @id @db.Uuid
+  tenantId          String                        @map("tenant_id")
+  venueId           String                        @map("venue_id")
+  sourceRunId       String                        @map("source_run_id")
+  proposalRunId     String                        @unique(map: "intake_source_mapping_reviews_proposal_key") @map("proposal_run_id")
+  kind              IntakeSourceMappingReviewKind
+  sourceInputHash   String                        @map("source_input_hash") @db.Char(64)
+  researchReceiptId String?                       @map("research_receipt_id") @db.Uuid
+  researchHash      String?                       @map("research_hash") @db.Char(64)
+  requestHash       String                        @map("request_hash") @db.Char(64)
+  mappingVersion    Int                           @default(1) @map("mapping_version")
+  selectionSnapshot Json                          @map("selection_snapshot")
+  selectionHash     String                        @map("selection_hash") @db.Char(64)
+  payload           Json
+  payloadHash       String                        @map("payload_hash") @db.Char(64)
+  rationale         String                        @db.VarChar(500)
+  reviewedBy        String                        @map("reviewed_by") @db.VarChar(191)
+  createdAt         DateTime                      @default(now()) @map("created_at")
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  sourceRun         IntakeRun                     @relation("IntakeSourceMappingReviewSource", fields: [sourceRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  proposalRun       IntakeRun                     @relation("IntakeSourceMappingReviewProposal", fields: [proposalRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  researchReceipt   IntakeWebsiteResearchReceipt? @relation(fields: [researchReceiptId, tenantId, venueId, sourceRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([id, tenantId, venueId], map: "intake_source_mapping_reviews_scope_key")
   @@unique([tenantId, id], map: "intake_source_mapping_reviews_tenant_id_key")
@@ -2291,19 +2293,19 @@ enum IntakeV1ProcessingStatus {
 /// Durable, private V1 material checkpoint. It freezes source identities in revisions;
 /// it neither creates a package nor grants publication or execution authority.
 model IntakeV1Submission {
-  id          String                    @id @default(cuid())
-  tenantId    String                    @map("tenant_id")
-  venueId     String                    @map("venue_id")
-  ownerUserId String                    @map("owner_user_id")
-  operationId String                    @map("operation_id") @db.Uuid
-  requestHash String                    @map("request_hash") @db.Char(64)
-  status      IntakeV1SubmissionStatus @default(AWAITING_CANONICAL_REVIEW)
-  revision    Int                       @default(1)
-  createdAt   DateTime                  @default(now()) @map("created_at")
-  updatedAt   DateTime                  @updatedAt @map("updated_at")
-  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue       Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  owner       User                      @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  id          String                       @id @default(cuid())
+  tenantId    String                       @map("tenant_id")
+  venueId     String                       @map("venue_id")
+  ownerUserId String                       @map("owner_user_id")
+  operationId String                       @map("operation_id") @db.Uuid
+  requestHash String                       @map("request_hash") @db.Char(64)
+  status      IntakeV1SubmissionStatus     @default(AWAITING_CANONICAL_REVIEW)
+  revision    Int                          @default(1)
+  createdAt   DateTime                     @default(now()) @map("created_at")
+  updatedAt   DateTime                     @updatedAt @map("updated_at")
+  tenant      Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue       Venue                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  owner       User                         @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
   revisions   IntakeV1SubmissionRevision[]
 
   @@unique([tenantId, operationId], map: "intake_v1_submissions_tenant_operation_key")
@@ -2314,21 +2316,21 @@ model IntakeV1Submission {
 
 /// Append-only immutable manifest revision. Raw draft text and object locations are excluded.
 model IntakeV1SubmissionRevision {
-  id                String              @id @default(cuid())
-  submissionId      String              @map("submission_id")
-  tenantId          String              @map("tenant_id")
-  venueId           String              @map("venue_id")
-  revision          Int
-  operationId       String              @map("operation_id") @db.Uuid
-  requestHash       String              @map("request_hash") @db.Char(64)
-  manifest          Json
-  manifestHash      String              @map("manifest_hash") @db.Char(64)
-  criticalMissing   Json                @map("critical_missing")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  submission        IntakeV1Submission @relation(fields: [submissionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  members           IntakeV1SubmissionMember[]
+  id                   String                       @id @default(cuid())
+  submissionId         String                       @map("submission_id")
+  tenantId             String                       @map("tenant_id")
+  venueId              String                       @map("venue_id")
+  revision             Int
+  operationId          String                       @map("operation_id") @db.Uuid
+  requestHash          String                       @map("request_hash") @db.Char(64)
+  manifest             Json
+  manifestHash         String                       @map("manifest_hash") @db.Char(64)
+  criticalMissing      Json                         @map("critical_missing")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  submission           IntakeV1Submission           @relation(fields: [submissionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  members              IntakeV1SubmissionMember[]
   processingDispatches IntakeV1ProcessingDispatch[]
-  packageHandoff    IntakeV1PackageHandoff?
+  packageHandoff       IntakeV1PackageHandoff?
 
   @@unique([submissionId, revision], map: "intake_v1_submission_revisions_number_key")
   @@unique([tenantId, operationId], map: "intake_v1_submission_revisions_tenant_operation_key")
@@ -2339,18 +2341,18 @@ model IntakeV1SubmissionRevision {
 
 /// Indexed identity members for one immutable manifest revision.
 model IntakeV1SubmissionMember {
-  id             String                    @id @default(cuid())
-  revisionId     String                    @map("revision_id")
-  tenantId       String                    @map("tenant_id")
-  venueId        String                    @map("venue_id")
-  ordinal        Int
-  kind           IntakeV1SubmissionMemberKind
-  intakeRunId    String?                   @map("intake_run_id")
-  intakeUploadId String?                   @map("intake_upload_id")
-  immutableHash  String                    @map("immutable_hash") @db.Char(64)
-  revision       IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  intakeRun      IntakeRun?                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  intakeUpload   IntakeUpload?             @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  id                 String                       @id @default(cuid())
+  revisionId         String                       @map("revision_id")
+  tenantId           String                       @map("tenant_id")
+  venueId            String                       @map("venue_id")
+  ordinal            Int
+  kind               IntakeV1SubmissionMemberKind
+  intakeRunId        String?                      @map("intake_run_id")
+  intakeUploadId     String?                      @map("intake_upload_id")
+  immutableHash      String                       @map("immutable_hash") @db.Char(64)
+  revision           IntakeV1SubmissionRevision   @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  intakeRun          IntakeRun?                   @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  intakeUpload       IntakeUpload?                @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   processingDispatch IntakeV1ProcessingDispatch?
 
   @@unique([id, tenantId, venueId], map: "intake_v1_submission_members_scope_key")
@@ -2366,35 +2368,35 @@ model IntakeV1SubmissionMember {
 /// Durable progression state for one immutable V1 member. Website research and bounded file
 /// extraction are executable; extraction completion never grants mapping or publication approval.
 model IntakeV1ProcessingDispatch {
-  id                String                   @id @default(cuid())
-  tenantId          String                   @map("tenant_id")
-  venueId           String                   @map("venue_id")
-  revisionId        String                   @map("revision_id")
-  memberId          String                   @unique(map: "intake_v1_processing_dispatches_member_key") @map("member_id")
-  intakeRunId       String                   @map("intake_run_id")
-  operationId       String                   @map("operation_id") @db.Uuid
-  kind              IntakeV1ProcessingKind
-  status            IntakeV1ProcessingStatus
-  sourceHash        String                   @map("source_hash") @db.Char(64)
-  policyVersion     String                   @map("policy_version") @db.VarChar(64)
-  attempts          Int                      @default(0)
-  leaseToken        String?                  @map("lease_token") @db.Uuid
-  leaseOwner        String?                  @map("lease_owner") @db.VarChar(191)
-  leaseExpiresAt    DateTime?                @map("lease_expires_at")
-  receiptId         String?                  @map("receipt_id") @db.Uuid
-  fileExtractionReceiptId String?             @map("file_extraction_receipt_id") @db.Uuid
-  holdReason        String?                  @map("hold_reason") @db.VarChar(64)
-  lastError         String?                  @map("last_error") @db.VarChar(500)
-  completedAt       DateTime?                @map("completed_at")
-  createdAt         DateTime                 @default(now()) @map("created_at")
-  updatedAt         DateTime                 @updatedAt @map("updated_at")
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue             Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  revision          IntakeV1SubmissionRevision @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  member            IntakeV1SubmissionMember @relation(fields: [memberId, revisionId, tenantId, venueId], references: [id, revisionId, tenantId, venueId], onDelete: Restrict)
-  intakeRun         IntakeRun                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  receipt           IntakeWebsiteResearchReceipt? @relation(fields: [receiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
-  fileExtractionReceipt IntakeFileExtractionReceipt? @relation(fields: [fileExtractionReceiptId, tenantId, venueId, intakeRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
+  id                      String                        @id @default(cuid())
+  tenantId                String                        @map("tenant_id")
+  venueId                 String                        @map("venue_id")
+  revisionId              String                        @map("revision_id")
+  memberId                String                        @unique(map: "intake_v1_processing_dispatches_member_key") @map("member_id")
+  intakeRunId             String                        @map("intake_run_id")
+  operationId             String                        @map("operation_id") @db.Uuid
+  kind                    IntakeV1ProcessingKind
+  status                  IntakeV1ProcessingStatus
+  sourceHash              String                        @map("source_hash") @db.Char(64)
+  policyVersion           String                        @map("policy_version") @db.VarChar(64)
+  attempts                Int                           @default(0)
+  leaseToken              String?                       @map("lease_token") @db.Uuid
+  leaseOwner              String?                       @map("lease_owner") @db.VarChar(191)
+  leaseExpiresAt          DateTime?                     @map("lease_expires_at")
+  receiptId               String?                       @map("receipt_id") @db.Uuid
+  fileExtractionReceiptId String?                       @map("file_extraction_receipt_id") @db.Uuid
+  holdReason              String?                       @map("hold_reason") @db.VarChar(64)
+  lastError               String?                       @map("last_error") @db.VarChar(500)
+  completedAt             DateTime?                     @map("completed_at")
+  createdAt               DateTime                      @default(now()) @map("created_at")
+  updatedAt               DateTime                      @updatedAt @map("updated_at")
+  tenant                  Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                   Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  revision                IntakeV1SubmissionRevision    @relation(fields: [revisionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  member                  IntakeV1SubmissionMember      @relation(fields: [memberId, revisionId, tenantId, venueId], references: [id, revisionId, tenantId, venueId], onDelete: Restrict)
+  intakeRun               IntakeRun                     @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  receipt                 IntakeWebsiteResearchReceipt? @relation(fields: [receiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  fileExtractionReceipt   IntakeFileExtractionReceipt?  @relation(fields: [fileExtractionReceiptId, tenantId, venueId, intakeRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, operationId], map: "intake_v1_processing_dispatches_tenant_operation_key")
   @@unique([memberId, tenantId, venueId], map: "intake_v1_processing_dispatches_member_scope_key")
@@ -5833,8 +5835,9 @@ model AgentQuestion {
   onboardingLink                   OnboardingQuestionLink?
   fileClarificationResolution      IntakeFileClarificationResolution?
   interviewClarificationResolution IntakeInterviewClarificationResolution?
-  outcomeObservations               AgentOutcomeObservation[]
-  discussionMessages                AgentQuestionDiscussionMessage[]
+  outcomeObservations              AgentOutcomeObservation[]
+  discussionMessages               AgentQuestionDiscussionMessage[]
+  operations                       AgentQuestionOperation[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId], map: "agent_questions_id_tenant_venue_key")
@@ -5846,6 +5849,23 @@ model AgentQuestion {
   @@index([status, expiresAt, id], map: "agent_questions_status_expires_at_idx")
   @@index([status, createdAt], map: "agent_questions_status_created_idx")
   @@map("agent_questions")
+}
+
+/// Durable idempotency aliases allow exact duplicate questions from one active
+/// workflow to share a canonical question without losing caller operation identity.
+model AgentQuestionOperation {
+  tenantId    String        @map("tenant_id")
+  operationId String        @map("operation_id") @db.Uuid
+  venueId     String        @map("venue_id")
+  questionId  String        @map("question_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue       Venue         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict, map: "agent_question_operations_venue_scope_fkey")
+  question    AgentQuestion @relation(fields: [questionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "agent_question_operations_question_scope_fkey")
+
+  @@id([tenantId, operationId])
+  @@index([tenantId, venueId, questionId], map: "agent_question_operations_question_scope_idx")
+  @@map("agent_question_operations")
 }
 
 /// Append-only human discussion attached to one exact agent question. Discussion
@@ -5933,40 +5953,40 @@ enum AgentOutcomeVerdict {
 /// A terminal run status is execution evidence, not a quality verdict; routing and
 /// reputation must use these explicit observations instead of completion alone.
 model AgentOutcomeObservation {
-  id                     String                             @id @default(cuid())
-  operationId            String                             @map("operation_id") @db.Uuid
-  tenantId               String                             @map("tenant_id")
-  venueId                String                             @map("venue_id")
-  agentRunId             String                             @map("agent_run_id")
-  agentIdentityId        String                             @map("agent_identity_id")
-  signalKind             AgentOutcomeSignalKind             @map("signal_kind")
-  verdict                AgentOutcomeVerdict
-  summary                String                             @db.VarChar(2000)
-  evidenceRef            String?                            @map("evidence_ref") @db.VarChar(500)
-  sourceQuestionId       String?                            @map("source_question_id")
-  sourceQuestionUpdatedAt DateTime?                         @map("source_question_updated_at")
-  sourceAnsweredAt       DateTime?                          @map("source_answered_at")
-  sourceAnswerSha256     String?                            @map("source_answer_sha256") @db.Char(64)
-  relatedAgentActionId   String?                            @map("related_agent_action_id")
-  policyCode             String?                            @map("policy_code") @db.VarChar(191)
-  severity               AgentOutcomeSeverity?
-  predictionRef          String?                            @map("prediction_ref") @db.VarChar(191)
-  predictedConfidenceBps Int?                               @map("predicted_confidence_bps")
-  actualCorrect          Boolean?                           @map("actual_correct")
-  taskClass              String                             @map("task_class") @db.VarChar(100)
-  modelProvider          String?                            @map("model_provider") @db.VarChar(100)
-  modelName              String?                            @map("model_name") @db.VarChar(191)
-  actorType              ActorType                          @map("actor_type")
-  actorId                String                             @map("actor_id") @db.VarChar(191)
-  createdAt              DateTime                           @default(now()) @map("created_at")
-  tenant                 Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                  Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun               AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity          AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  relatedAgentAction     AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  sourceQuestion         AgentQuestion?                     @relation(fields: [sourceQuestionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "agent_outcome_observations_source_question_scope_fkey")
-  improvementEvidence    AgentImprovementProposalEvidence[]
-  approvalGrantEvidence  ApprovalGrantEvidence[]
+  id                      String                             @id @default(cuid())
+  operationId             String                             @map("operation_id") @db.Uuid
+  tenantId                String                             @map("tenant_id")
+  venueId                 String                             @map("venue_id")
+  agentRunId              String                             @map("agent_run_id")
+  agentIdentityId         String                             @map("agent_identity_id")
+  signalKind              AgentOutcomeSignalKind             @map("signal_kind")
+  verdict                 AgentOutcomeVerdict
+  summary                 String                             @db.VarChar(2000)
+  evidenceRef             String?                            @map("evidence_ref") @db.VarChar(500)
+  sourceQuestionId        String?                            @map("source_question_id")
+  sourceQuestionUpdatedAt DateTime?                          @map("source_question_updated_at")
+  sourceAnsweredAt        DateTime?                          @map("source_answered_at")
+  sourceAnswerSha256      String?                            @map("source_answer_sha256") @db.Char(64)
+  relatedAgentActionId    String?                            @map("related_agent_action_id")
+  policyCode              String?                            @map("policy_code") @db.VarChar(191)
+  severity                AgentOutcomeSeverity?
+  predictionRef           String?                            @map("prediction_ref") @db.VarChar(191)
+  predictedConfidenceBps  Int?                               @map("predicted_confidence_bps")
+  actualCorrect           Boolean?                           @map("actual_correct")
+  taskClass               String                             @map("task_class") @db.VarChar(100)
+  modelProvider           String?                            @map("model_provider") @db.VarChar(100)
+  modelName               String?                            @map("model_name") @db.VarChar(191)
+  actorType               ActorType                          @map("actor_type")
+  actorId                 String                             @map("actor_id") @db.VarChar(191)
+  createdAt               DateTime                           @default(now()) @map("created_at")
+  tenant                  Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun                AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity           AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  relatedAgentAction      AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  sourceQuestion          AgentQuestion?                     @relation(fields: [sourceQuestionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "agent_outcome_observations_source_question_scope_fkey")
+  improvementEvidence     AgentImprovementProposalEvidence[]
+  approvalGrantEvidence   ApprovalGrantEvidence[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_outcome_observations_tenant_operation_key")

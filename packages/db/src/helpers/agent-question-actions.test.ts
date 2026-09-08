@@ -4,6 +4,11 @@ import { answerAgentQuestionAction, askAgentQuestionAction } from './agent-quest
 
 function client(transaction: Record<string, unknown>) {
   transaction.$queryRaw ??= vi.fn().mockResolvedValue([{ id: 'run-1' }])
+  transaction.$executeRaw ??= vi.fn().mockResolvedValue(1)
+  transaction.agentQuestionOperation ??= {
+    findUnique: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({}),
+  }
   return {
     $transaction: vi.fn(async (operation: (value: unknown) => unknown) => operation(transaction)),
   }
@@ -331,10 +336,83 @@ describe('agent question actions', () => {
       },
       client(transaction) as never,
     )
-    expect(result).toEqual({ question: created, replayed: false })
+    expect(result).toEqual({ question: created, replayed: false, consolidated: false })
     expect(transaction.agentRun.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'AWAITING_INPUT' } }),
     )
+  })
+
+  it('aliases an exact pending question in the same active run without duplicate side effects', async () => {
+    const duplicate = {
+      id: 'question-existing',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      question: 'Which source is authoritative?',
+      context: null,
+      questionType: 'SHORT_TEXT',
+      category: 'general',
+      urgency: 'NORMAL',
+      dueAt: null,
+      expiresAt: null,
+      evidence: [],
+      proposedAnswer: null,
+      callbackMetadata: null,
+      choices: [],
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      updatedAt: new Date('2026-08-18T17:30:00Z'),
+    }
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(duplicate),
+        create: vi.fn(),
+      },
+      agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'agent-1' }) },
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }),
+        updateMany: vi.fn(),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+      agentMessage: { create: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+    const operationId = '96d4ee39-a7c7-44ab-bf24-75c187cff002'
+    const scopedClient = client(transaction)
+
+    await expect(
+      askAgentQuestionAction(
+        {
+          operationId,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          agentRunId: 'run-1',
+          question: duplicate.question,
+        },
+        scopedClient as never,
+      ),
+    ).resolves.toEqual({ question: duplicate, replayed: false, consolidated: true })
+    expect(transaction.agentQuestion.create).not.toHaveBeenCalled()
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+    expect(transaction.agentTimelineEvent.create).not.toHaveBeenCalled()
+    expect(transaction.agentMessage.create).not.toHaveBeenCalled()
+    expect(
+      (
+        transaction as typeof transaction & {
+          agentQuestionOperation: { create: ReturnType<typeof vi.fn> }
+        }
+      ).agentQuestionOperation.create,
+    ).toHaveBeenCalledWith({
+      data: {
+        tenantId: 'tenant-1',
+        operationId,
+        venueId: 'venue-1',
+        questionId: duplicate.id,
+      },
+    })
+    expect(transaction.auditLog.create).toHaveBeenCalledOnce()
   })
 
   it('returns a same-operation replay without creating duplicate state', async () => {

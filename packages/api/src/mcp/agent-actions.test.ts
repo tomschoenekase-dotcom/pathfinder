@@ -41,6 +41,7 @@ describe('MCP operator question action', () => {
         expiresAt,
       },
       replayed: false,
+      consolidated: true,
     })
     const actions = createPathfinderMcpAgentActions({} as never, {} as never)
 
@@ -53,7 +54,10 @@ describe('MCP operator question action', () => {
       expect.objectContaining({ expiresAt }),
       expect.anything(),
     )
-    expect(result.data).toMatchObject({ expiresAt: '2030-01-01T18:00:00.000Z' })
+    expect(result.data).toMatchObject({
+      expiresAt: '2030-01-01T18:00:00.000Z',
+      consolidated: true,
+    })
   })
 
   it('keeps legacy omitted expiry compatible and exposes canonical null', async () => {

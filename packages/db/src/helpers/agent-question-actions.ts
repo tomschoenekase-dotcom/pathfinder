@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isDeepStrictEqual } from 'node:util'
+import { Prisma } from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -226,6 +227,28 @@ function sameQuestion(
   )
 }
 
+const returnedQuestionSelect = {
+  id: true,
+  venueId: true,
+  agentIdentityId: true,
+  agentRunId: true,
+  question: true,
+  context: true,
+  choices: true,
+  blocking: true,
+  questionType: true,
+  category: true,
+  urgency: true,
+  dueAt: true,
+  expiresAt: true,
+  evidence: true,
+  proposedAnswer: true,
+  callbackMetadata: true,
+  status: true,
+  answer: true,
+  updatedAt: true,
+} satisfies Prisma.AgentQuestionSelect
+
 /** Creates or replays one scoped clarification. It grants no approval or action authority. */
 export async function askAgentQuestionAction(
   rawInput: AskAgentQuestionInput,
@@ -267,29 +290,26 @@ export async function askAgentQuestionAction(
         )
       }
     }
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:agent-question-operation:${input.tenantId}:${input.operationId}`}, 0))`
+    const operation = await transaction.agentQuestionOperation.findUnique({
+      where: {
+        tenantId_operationId: { tenantId: input.tenantId, operationId: input.operationId },
+      },
+      select: { question: { select: returnedQuestionSelect } },
+    })
+    if (operation) {
+      if (!sameQuestion(operation.question, input)) {
+        throw new AgentQuestionActionError(
+          'CONFLICT',
+          'Question operation was already used for different content',
+        )
+      }
+      return { question: operation.question, replayed: true, consolidated: false }
+    }
+
     const existing = await transaction.agentQuestion.findFirst({
       where: { tenantId: input.tenantId, operationId: input.operationId },
-      select: {
-        id: true,
-        venueId: true,
-        agentIdentityId: true,
-        agentRunId: true,
-        question: true,
-        context: true,
-        choices: true,
-        blocking: true,
-        questionType: true,
-        category: true,
-        urgency: true,
-        dueAt: true,
-        expiresAt: true,
-        evidence: true,
-        proposedAnswer: true,
-        callbackMetadata: true,
-        status: true,
-        answer: true,
-        updatedAt: true,
-      },
+      select: returnedQuestionSelect,
     })
     if (existing) {
       if (!sameQuestion(existing, input)) {
@@ -298,7 +318,15 @@ export async function askAgentQuestionAction(
           'Question operation was already used for different content',
         )
       }
-      return { question: existing, replayed: true }
+      await transaction.agentQuestionOperation.create({
+        data: {
+          tenantId: input.tenantId,
+          operationId: input.operationId,
+          venueId: input.venueId,
+          questionId: existing.id,
+        },
+      })
+      return { question: existing, replayed: true, consolidated: false }
     }
 
     const identity = await transaction.agentIdentity.findFirst({
@@ -331,6 +359,65 @@ export async function askAgentQuestionAction(
         select: { id: true },
       })
       if (!run) throw new AgentQuestionActionError('FORBIDDEN', 'Active agent run is not in scope')
+
+      const duplicate = await transaction.agentQuestion.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          agentIdentityId: input.agentIdentityId,
+          agentRunId: input.agentRunId,
+          status: 'PENDING',
+          expiresAt: input.expiresAt ?? null,
+          question: input.question,
+          context: input.context ?? null,
+          questionType: input.questionType,
+          category: input.category,
+          urgency: input.urgency,
+          choices: { equals: input.choices },
+          dueAt: input.dueAt ?? null,
+          evidence: { equals: input.evidence },
+          proposedAnswer: {
+            equals: input.proposedAnswer ?? Prisma.AnyNull,
+          },
+          callbackMetadata: {
+            equals: input.callbackMetadata ?? Prisma.AnyNull,
+          },
+          blocking: input.blocking,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: returnedQuestionSelect,
+      })
+      if (
+        duplicate &&
+        (duplicate.expiresAt === null || duplicate.expiresAt > new Date()) &&
+        sameQuestion(duplicate, input)
+      ) {
+        await transaction.agentQuestionOperation.create({
+          data: {
+            tenantId: input.tenantId,
+            operationId: input.operationId,
+            venueId: input.venueId,
+            questionId: duplicate.id,
+          },
+        })
+        await writeAuditLogStrict(
+          {
+            tenantId: input.tenantId,
+            actorId: input.agentIdentityId,
+            actorRole: 'AGENT',
+            action: 'agent-question.consolidated',
+            targetType: 'AgentQuestion',
+            targetId: duplicate.id,
+            afterState: {
+              venueId: input.venueId,
+              agentRunId: input.agentRunId,
+              operationId: input.operationId,
+            },
+          },
+          transaction,
+        )
+        return { question: duplicate, replayed: false, consolidated: true }
+      }
     }
 
     const created = await transaction.agentQuestion.create({
@@ -353,26 +440,15 @@ export async function askAgentQuestionAction(
         ...(input.callbackMetadata ? { callbackMetadata: input.callbackMetadata } : {}),
         blocking: input.blocking,
       },
-      select: {
-        id: true,
-        venueId: true,
-        agentIdentityId: true,
-        agentRunId: true,
-        question: true,
-        context: true,
-        choices: true,
-        blocking: true,
-        questionType: true,
-        category: true,
-        urgency: true,
-        dueAt: true,
-        expiresAt: true,
-        evidence: true,
-        proposedAnswer: true,
-        callbackMetadata: true,
-        status: true,
-        answer: true,
-        updatedAt: true,
+      select: returnedQuestionSelect,
+    })
+
+    await transaction.agentQuestionOperation.create({
+      data: {
+        tenantId: input.tenantId,
+        operationId: input.operationId,
+        venueId: input.venueId,
+        questionId: created.id,
       },
     })
 
@@ -432,7 +508,7 @@ export async function askAgentQuestionAction(
         })
       }
     }
-    return { question: created, replayed: false }
+    return { question: created, replayed: false, consolidated: false }
   })
 }
 
