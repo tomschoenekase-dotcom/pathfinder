@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   apply: vi.fn(),
   transition: vi.fn(),
+  transitionRequest: vi.fn(),
+  listActivations: vi.fn(),
+  transitionComposer: vi.fn(),
   refresh: vi.fn(),
 }))
 vi.mock('../../lib/trpc', () => ({
@@ -15,8 +18,11 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       getAgentIdentity: { query: mocks.identity },
       requestAgentWorkflowActivationApproval: { mutate: mocks.request },
+      requestAgentWorkflowTransitionApproval: { mutate: mocks.transitionRequest },
       applyAgentWorkflowActivation: { mutate: mocks.apply },
       applyAgentWorkflowTransition: { mutate: mocks.transition },
+      listAgentWorkflowActivations: { query: mocks.listActivations },
+      getAgentWorkflowTransitionComposer: { query: mocks.transitionComposer },
     },
   }),
 }))
@@ -85,10 +91,78 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.identity.mockResolvedValue({ agentType: 'QUALITY_REVIEW' })
   mocks.request.mockResolvedValue({ request: { id: 'request' } })
+  mocks.transitionRequest.mockResolvedValue({ request: { id: 'transition-request' } })
+  mocks.listActivations.mockResolvedValue({
+    heads: [
+      {
+        registryKey: 'review',
+        revision: 3,
+        selectedRunCount: 2,
+        activeVersion: {
+          id: '22222222-2222-4222-8222-222222222222',
+          version: 3,
+          contentHash: 'b'.repeat(64),
+          requiredToolCapabilities: [],
+        },
+        activationEvent: null,
+      },
+    ],
+    events: [],
+    nextHeadAfterRegistryKey: null,
+    nextEventBefore: null,
+  })
+  mocks.transitionComposer.mockResolvedValue({
+    head: {
+      registryKey: 'review',
+      expectedHeadRevision: 3,
+      selectedRunCount: 2,
+      activeVersion: {
+        id: '22222222-2222-4222-8222-222222222222',
+        version: 3,
+        contentHash: 'b'.repeat(64),
+        requiredToolCapabilities: [],
+      },
+      activationEvent: null,
+      revokeEligible: true,
+      availablePriorBaseline: {
+        workflowVersionId: '22222222-2222-4222-8222-222222222222',
+        contentHash: 'b'.repeat(64),
+      },
+    },
+    rollbackTargets: [
+      {
+        workflowVersionId: '11111111-1111-4111-8111-111111111111',
+        version: 2,
+        kind: 'INSTRUCTIONS',
+        manifestHash: 'c'.repeat(64),
+        contentHash: 'd'.repeat(64),
+        requiredToolCapabilities: [],
+        artifactIntegrity: 'NOT_CHECKED_BODY_ON_REQUEST',
+        lineageEvent: null,
+        compatibility: { status: 'CURRENTLY_AVAILABLE', missingCapabilities: [] },
+        eligible: true,
+      },
+    ],
+    nextTargetBefore: { version: 2, id: '11111111-1111-4111-8111-111111111111' },
+  })
 })
 afterEach(cleanup)
 
 describe('AgentWorkflowActivationReviewPanel', () => {
+  async function openTransitionComposer(kind: 'ROLLBACK' | 'REVOKE') {
+    fireEvent.click(screen.getByText('Change workflow activation'))
+    await waitFor(() => expect(mocks.listActivations).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Recorded workflow head'), {
+      target: { value: 'review' },
+    })
+    await waitFor(() => expect(mocks.transitionComposer).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Workflow transition'), { target: { value: kind } })
+    fireEvent.change(screen.getByLabelText('Transition bookkeeping identity'), {
+      target: { value: 'identity' },
+    })
+    await waitFor(() => expect(mocks.identity).toHaveBeenCalled())
+  }
+
   it('starts without a hidden canary and submits explicit runtime-bound fields', async () => {
     render(
       <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
@@ -173,6 +247,255 @@ describe('AgentWorkflowActivationReviewPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry exact request' }))
     await waitFor(() => expect(mocks.request).toHaveBeenCalledTimes(2))
     expect(mocks.request.mock.calls[1]?.[0]).toEqual(mocks.request.mock.calls[0]?.[0])
+  })
+
+  it('requests rollback with the exact head, target, and bounded canary', async () => {
+    render(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
+    )
+    await openTransitionComposer('ROLLBACK')
+    fireEvent.change(screen.getByLabelText('Rollback target'), {
+      target: { value: '11111111-1111-4111-8111-111111111111' },
+    })
+    for (const [label, value] of [
+      ['Rollback selected numerator', '1'],
+      ['Rollback selection denominator', '10'],
+      ['Rollback maximum selected runs', '5'],
+      ['Rollback starts at (your local time; stored as UTC)', '2026-09-07T12:00'],
+      ['Rollback ends at (your local time; stored as UTC)', '2026-09-08T12:00'],
+      ['Rollback visible selection salt', 'rollback-visible-salt'],
+      ['Transition reason', 'Restore the reviewed prior behavior.'],
+    ] as const)
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    fireEvent.click(screen.getByLabelText('Rollback no-workflow baseline'))
+    fireEvent.click(screen.getByLabelText('Use canonical operator_task for rollback'))
+    fireEvent.click(screen.getByRole('button', { name: 'Request rollback approval' }))
+
+    await waitFor(() => expect(mocks.transitionRequest).toHaveBeenCalledTimes(1))
+    expect(mocks.transitionRequest.mock.calls[0]?.[0]).toMatchObject({
+      tenantId: 'tenant',
+      venueId: 'venue',
+      agentIdentityId: 'identity',
+      registryKey: 'review',
+      expectedHeadRevision: 3,
+      kind: 'ROLLBACK',
+      workflowVersionId: '11111111-1111-4111-8111-111111111111',
+      canaryPolicy: {
+        numerator: 1,
+        denominator: 10,
+        maxSelectedRuns: 5,
+        eligibleRunTypes: ['QUALITY_REVIEW'],
+        eligibleOperations: ['operator_task'],
+        skippedBaseline: { kind: 'NO_WORKFLOW' },
+      },
+    })
+  })
+
+  it('freezes an uncertain revoke without version or policy and locks competing activation', async () => {
+    mocks.transitionRequest
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ request: { id: 'transition-request' } })
+    render(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
+    )
+    await openTransitionComposer('REVOKE')
+    fireEvent.change(screen.getByLabelText('Transition reason'), {
+      target: { value: 'Stop assigning this workflow while it is reviewed.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Request revoke approval' }))
+    await screen.findByText(/outcome is uncertain/)
+    const first = mocks.transitionRequest.mock.calls[0]?.[0]
+    expect(first).toMatchObject({ kind: 'REVOKE', expectedHeadRevision: 3 })
+    expect(first).not.toHaveProperty('workflowVersionId')
+    expect(first).not.toHaveProperty('canaryPolicy')
+    expect(
+      (screen.getByRole('button', { name: 'Request human approval' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry exact transition request' }))
+    await waitFor(() => expect(mocks.transitionRequest).toHaveBeenCalledTimes(2))
+    expect(mocks.transitionRequest.mock.calls[1]?.[0]).toEqual(first)
+  })
+
+  it('invalidates a pending composer read when transition state is refreshed', async () => {
+    let resolveComposer!: (value: unknown) => void
+    mocks.transitionComposer.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveComposer = resolve
+      }),
+    )
+    render(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
+    )
+    fireEvent.click(screen.getByText('Change workflow activation'))
+    await waitFor(() => expect(mocks.listActivations).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Recorded workflow head'), {
+      target: { value: 'review' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh transition state' }))
+    resolveComposer({
+      head: {
+        registryKey: 'review',
+        expectedHeadRevision: 3,
+        selectedRunCount: 2,
+        activeVersion: null,
+        activationEvent: null,
+        revokeEligible: false,
+        availablePriorBaseline: null,
+      },
+      rollbackTargets: [],
+      nextTargetBefore: null,
+    })
+    await waitFor(() =>
+      expect((screen.getByLabelText('Recorded workflow head') as HTMLSelectElement).value).toBe(''),
+    )
+    expect(document.body.textContent).not.toContain('Revision 3.')
+    expect(document.body.textContent).not.toContain('Loading exact revision')
+  })
+
+  it('drops selected rollback authority when target pagination observes a newer head', async () => {
+    render(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
+    )
+    await openTransitionComposer('ROLLBACK')
+    fireEvent.change(screen.getByLabelText('Rollback target'), {
+      target: { value: '11111111-1111-4111-8111-111111111111' },
+    })
+    mocks.transitionComposer.mockResolvedValueOnce({
+      head: {
+        registryKey: 'review',
+        expectedHeadRevision: 4,
+        selectedRunCount: 0,
+        activeVersion: null,
+        activationEvent: {
+          id: '33333333-3333-4333-8333-333333333333',
+          kind: 'REVOKE',
+          eventHash: 'e'.repeat(64),
+          resultingRevision: 4,
+          createdAt: new Date(),
+        },
+        revokeEligible: false,
+        availablePriorBaseline: null,
+      },
+      rollbackTargets: [],
+      nextTargetBefore: null,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Load more rollback targets' }))
+    await screen.findByText(
+      'Workflow head changed. Review the refreshed revision and choose again.',
+    )
+    expect((screen.getByLabelText('Rollback target') as HTMLSelectElement).value).toBe('')
+    expect(
+      (screen.getByRole('button', { name: 'Request rollback approval' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('keeps the latest same-scope registry and identity selections after older reads resolve', async () => {
+    const scopedPage = {
+      ...page,
+      enabledIdentities: [
+        { id: 'identity-a', identityKey: 'a', name: 'Identity A' },
+        { id: 'identity-b', identityKey: 'b', name: 'Identity B' },
+      ],
+    } as unknown as AgentWorkflowActivationReviewPage
+    mocks.listActivations.mockResolvedValueOnce({
+      heads: [
+        { registryKey: 'review-a', revision: 1 },
+        { registryKey: 'review-b', revision: 7 },
+      ],
+      events: [],
+      nextHeadAfterRegistryKey: null,
+      nextEventBefore: null,
+    })
+    let resolveRegistryA!: (value: unknown) => void
+    let resolveRegistryB!: (value: unknown) => void
+    mocks.transitionComposer
+      .mockReturnValueOnce(new Promise((resolve) => (resolveRegistryA = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveRegistryB = resolve)))
+    let resolveIdentityA!: (value: { agentType: string }) => void
+    mocks.identity
+      .mockReturnValueOnce(new Promise((resolve) => (resolveIdentityA = resolve)))
+      .mockResolvedValueOnce({ agentType: 'LATEST_TYPE' })
+
+    render(
+      <AgentWorkflowActivationReviewPanel
+        tenantId="tenant"
+        venueId="venue"
+        initialPage={scopedPage}
+      />,
+    )
+    fireEvent.click(screen.getByText('Change workflow activation'))
+    await screen.findByRole('option', { name: 'review-b · revision 7' })
+    fireEvent.change(screen.getByLabelText('Recorded workflow head'), {
+      target: { value: 'review-a' },
+    })
+    fireEvent.change(screen.getByLabelText('Recorded workflow head'), {
+      target: { value: 'review-b' },
+    })
+    resolveRegistryB({
+      head: {
+        registryKey: 'review-b',
+        expectedHeadRevision: 7,
+        selectedRunCount: 0,
+        activeVersion: null,
+        activationEvent: null,
+        revokeEligible: false,
+        availablePriorBaseline: null,
+      },
+      rollbackTargets: [],
+      nextTargetBefore: null,
+    })
+    resolveRegistryA({
+      head: {
+        registryKey: 'review-a',
+        expectedHeadRevision: 1,
+        selectedRunCount: 0,
+        activeVersion: null,
+        activationEvent: null,
+        revokeEligible: false,
+        availablePriorBaseline: null,
+      },
+      rollbackTargets: [],
+      nextTargetBefore: null,
+    })
+    await screen.findByText(/Revision 7/)
+    expect(document.body.textContent).not.toContain('Revision 1.')
+
+    fireEvent.change(screen.getByLabelText('Transition bookkeeping identity'), {
+      target: { value: 'identity-a' },
+    })
+    fireEvent.change(screen.getByLabelText('Transition bookkeeping identity'), {
+      target: { value: 'identity-b' },
+    })
+    resolveIdentityA({ agentType: 'STALE_TYPE' })
+    await waitFor(() => expect(document.body.textContent).toContain('LATEST_TYPE'))
+    expect(document.body.textContent).not.toContain('STALE_TYPE')
+  })
+
+  it('does not refresh a new venue when an old transition request resolves', async () => {
+    let resolveRequest!: (value: { request: { id: string } }) => void
+    mocks.transitionRequest.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRequest = resolve
+      }),
+    )
+    const view = render(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue" initialPage={page} />,
+    )
+    await openTransitionComposer('REVOKE')
+    fireEvent.change(screen.getByLabelText('Transition reason'), {
+      target: { value: 'Pause this active workflow for review.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Request revoke approval' }))
+    expect(mocks.transitionRequest).toHaveBeenCalledTimes(1)
+    view.rerender(
+      <AgentWorkflowActivationReviewPanel tenantId="tenant" venueId="venue-b" initialPage={page} />,
+    )
+    resolveRequest({ request: { id: 'old-venue-request' } })
+    await screen.findByText('No workflow approval requests recorded.')
+    expect(mocks.refresh).not.toHaveBeenCalled()
+    expect(screen.queryByText('Approval request recorded. Refreshing review evidence.')).toBeNull()
   })
 
   it.each(['APPLIED', 'AMBIGUOUS'] as const)(

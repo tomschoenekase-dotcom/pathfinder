@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   apply: vi.fn(),
   transition: vi.fn(),
   heads: vi.fn(),
+  head: vi.fn(),
+  versions: vi.fn(),
   events: vi.fn(),
   tools: vi.fn(() => [{ _meta: { 'com.pathfinder/security': { capability: 'support:write' } } }]),
 }))
@@ -37,8 +39,9 @@ vi.mock('@pathfinder/db', () => ({
   activateAgentWorkflowVersion: mocks.apply,
   transitionAgentWorkflowActivation: mocks.transition,
   db: {
-    agentWorkflowActivationHead: { findMany: mocks.heads },
+    agentWorkflowActivationHead: { findMany: mocks.heads, findFirst: mocks.head },
     agentWorkflowActivationEvent: { findMany: mocks.events },
+    agentWorkflowVersion: { findMany: mocks.versions },
   },
 }))
 vi.mock('../../mcp/composition', () => ({
@@ -96,6 +99,8 @@ beforeEach(() => {
   mocks.apply.mockReset().mockResolvedValue({ event: { id: 'event-one' }, replayed: false })
   mocks.transition.mockReset().mockResolvedValue({ event: { id: 'event-two' }, replayed: false })
   mocks.heads.mockReset().mockResolvedValue([])
+  mocks.head.mockReset().mockResolvedValue(null)
+  mocks.versions.mockReset().mockResolvedValue([])
   mocks.events.mockReset().mockResolvedValue([])
 })
 
@@ -256,5 +261,191 @@ describe('operator workflow activation boundary', () => {
     await expect(
       caller().listAgentWorkflowActivations({ ...scope, limit: 51 }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('composes exact scoped rollback targets with independent keyset pagination', async () => {
+    const activeId = '22222222-2222-4222-8222-222222222222'
+    const targetId = '33333333-3333-4333-8333-333333333333'
+    const extraId = '44444444-4444-4444-8444-444444444444'
+    const createdAt = new Date('2026-09-08T12:00:00Z')
+    mocks.head.mockResolvedValueOnce({
+      registryKey: common.registryKey,
+      revision: 4,
+      selectedRunCount: 3,
+      activeVersionId: activeId,
+      activeVersion: {
+        id: activeId,
+        version: 4,
+        contentHash: 'a'.repeat(64),
+        requiredToolCapabilities: ['support:write'],
+      },
+      activationEvent: {
+        id: '55555555-5555-4555-8555-555555555555',
+        kind: 'ACTIVATE',
+        eventHash: 'b'.repeat(64),
+        resultingRevision: 4,
+        createdAt,
+      },
+    })
+    const target = {
+      id: targetId,
+      version: 3,
+      kind: 'WORKFLOW',
+      manifestHash: 'c'.repeat(64),
+      contentHash: 'd'.repeat(64),
+      requiredToolCapabilities: ['support:write', 'missing:tool'],
+      resultingActivationEvents: [
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          kind: 'ACTIVATE',
+          resultingRevision: 3,
+          eventHash: 'e'.repeat(64),
+          createdAt,
+        },
+      ],
+    }
+    mocks.versions.mockResolvedValueOnce([target, { ...target, id: extraId, version: 2 }])
+    const result = await caller().getAgentWorkflowTransitionComposer({
+      ...scope,
+      registryKey: common.registryKey,
+      targetBefore: { version: 5, id: '77777777-7777-4777-8777-777777777777' },
+      limit: 1,
+    })
+    expect(result).toMatchObject({
+      head: {
+        expectedHeadRevision: 4,
+        revokeEligible: true,
+        availablePriorBaseline: { workflowVersionId: activeId, contentHash: 'a'.repeat(64) },
+      },
+      rollbackTargets: [
+        {
+          workflowVersionId: targetId,
+          artifactIntegrity: 'NOT_CHECKED_BODY_ON_REQUEST',
+          compatibility: { status: 'MISSING_TOOLS', missingCapabilities: ['missing:tool'] },
+          eligible: false,
+        },
+      ],
+      nextTargetBefore: { version: 3, id: targetId },
+    })
+    expect(mocks.versions.mock.calls[0]![0]).toMatchObject({
+      where: {
+        ...scope,
+        registryKey: common.registryKey,
+        id: { not: activeId },
+        resultingActivationEvents: {
+          some: {
+            ...scope,
+            registryKey: common.registryKey,
+            kind: { in: ['ACTIVATE', 'ROLLBACK'] },
+          },
+        },
+        OR: [{ version: { lt: 5 } }, { version: 5, id: { lt: expect.any(String) } }],
+      },
+      orderBy: [{ version: 'desc' }, { id: 'desc' }],
+      take: 2,
+    })
+    const projection = JSON.stringify(mocks.versions.mock.calls[0]![0].select)
+    expect(projection).not.toMatch(/portableText|manifest"|provenance|createdBy|approvalDecision/u)
+    expect(mocks.versions.mock.calls[0]![0].select.resultingActivationEvents.where).toEqual({
+      ...scope,
+      registryKey: common.registryKey,
+      kind: { in: ['ACTIVATE', 'ROLLBACK'] },
+    })
+  })
+
+  it('returns explicit no-head and revoked-head composer states without inventing authority', async () => {
+    await expect(
+      caller().getAgentWorkflowTransitionComposer({ ...scope, registryKey: 'unknown' }),
+    ).resolves.toEqual({ head: null, rollbackTargets: [], nextTargetBefore: null })
+    expect(mocks.versions).not.toHaveBeenCalled()
+
+    mocks.head.mockResolvedValueOnce({
+      registryKey: common.registryKey,
+      revision: 5,
+      selectedRunCount: 0,
+      activeVersionId: null,
+      activeVersion: null,
+      activationEvent: null,
+    })
+    mocks.versions.mockResolvedValueOnce([
+      {
+        id: '88888888-8888-4888-8888-888888888888',
+        version: 2,
+        kind: 'WORKFLOW',
+        manifestHash: '1'.repeat(64),
+        contentHash: '2'.repeat(64),
+        requiredToolCapabilities: ['support:write'],
+        resultingActivationEvents: [
+          {
+            id: '99999999-9999-4999-8999-999999999999',
+            kind: 'ROLLBACK',
+            resultingRevision: 2,
+            eventHash: '3'.repeat(64),
+            createdAt: new Date('2026-09-08T12:00:00Z'),
+          },
+        ],
+      },
+    ])
+    const revoked = await caller().getAgentWorkflowTransitionComposer({
+      ...scope,
+      registryKey: common.registryKey,
+    })
+    expect(revoked.head).toMatchObject({
+      expectedHeadRevision: 5,
+      activeVersion: null,
+      revokeEligible: false,
+      availablePriorBaseline: null,
+    })
+    expect(revoked.rollbackTargets).toEqual([
+      expect.objectContaining({
+        version: 2,
+        eligible: true,
+        compatibility: { status: 'CURRENTLY_AVAILABLE', missingCapabilities: [] },
+      }),
+    ])
+    expect(revoked.nextTargetBefore).toBeNull()
+  })
+
+  it('rejects non-admin and unavailable-venue composer reads before projections', async () => {
+    await expect(
+      caller(false).getAgentWorkflowTransitionComposer({
+        ...scope,
+        registryKey: common.registryKey,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    mocks.available.mockRejectedValueOnce(
+      Object.assign(new Error('private'), { name: 'VenueUnavailableError' }),
+    )
+    await expect(
+      caller().getAgentWorkflowTransitionComposer({ ...scope, registryKey: common.registryKey }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(mocks.head).not.toHaveBeenCalled()
+    expect(mocks.versions).not.toHaveBeenCalled()
+  })
+
+  it('rejects unbounded, malformed, or authority-bearing composer input', async () => {
+    await expect(
+      caller().getAgentWorkflowTransitionComposer({
+        ...scope,
+        registryKey: common.registryKey,
+        limit: 21,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      caller().getAgentWorkflowTransitionComposer({
+        ...scope,
+        registryKey: common.registryKey,
+        targetBefore: { version: 0, id: 'not-a-uuid' },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      caller().getAgentWorkflowTransitionComposer({
+        ...scope,
+        registryKey: common.registryKey,
+        approvalDecisionId: 'forged',
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.available).not.toHaveBeenCalled()
+    expect(mocks.head).not.toHaveBeenCalled()
   })
 })

@@ -50,6 +50,18 @@ workflow, widen authority, publish a shared skill, or approve itself.
 
 The activation lifecycle uses a separate exact approval request, human decision, and canonical apply operation. A registered version must satisfy its promotion assessment and canary policy before activation. Run bindings retain the selected version and selection evidence; rollback and revocation do not rewrite that history. The administrator review panel exposes these approval and apply steps.
 
+The transition composer reads recorded workflow heads independently of the candidate list.
+Rollback targets come from the same venue and registry key's activation history, including
+historical versions of a currently revoked workflow. A never-activated registration is not a
+rollback target. The read view reports current tool compatibility; the request and Apply
+boundaries still check artifact integrity, lineage and the exact head revision.
+
+Rollback requires an explicit bounded canary policy and review reason. Revocation carries
+neither a target version nor a canary policy. Creating either request does not change the
+active workflow: a human decision and a separate Apply remain necessary. An uncertain
+request retry retains its original operation ID and exact payload, rather than submitting
+edited terms as a new operation.
+
 `pathfinder.delegate_specialist` accepts an optional `executionLeaseToken`. It is required when the parent has a selected workflow (including a canary selection of the prior version). The same transaction that creates the child checks the exact live parent lease, current authority, and the policy's `AGENT_DELEGATION` action class. Operator-question and billing-proposal effects remain unsupported for workflow activation.
 
 Delegation retries serialize on the tenant and operation UUID. An exact historical retry returns the original child before checking the current lease; it cannot create another child after expiry or revocation. A changed parent, specialist, venue, or instructions conflicts. A new operation must pass current authority checks. Delegating to the parent's own identity is rejected.
