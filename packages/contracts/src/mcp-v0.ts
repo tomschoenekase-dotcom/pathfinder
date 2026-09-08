@@ -364,6 +364,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'agent-runs:read',
   ],
   [
+    'agent-run-result',
+    'Agent run result',
+    'One exact venue-scoped run result manifest or indexed whole artifact without prompts, execution authority, or credential material.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs/{agentRunId}/result',
+    'venue',
+    'agent-runs:read',
+  ],
+  [
     'events',
     'Operational events',
     'Venue-scoped operational attention events and recovery guidance.',
@@ -483,23 +491,54 @@ const resultSchema = strictObject(
 export const McpReadInput = McpRequestedScope.extend({
   resource: McpResourceKind,
   agentRunId: Identifier.optional(),
+  artifactIndex: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  artifactOffset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   cursor: z.string().trim().min(1).max(500).optional(),
   limit: z.number().int().min(1).max(100).default(25),
 })
   .strict()
   .superRefine((value, context) => {
-    if (value.resource === 'agent-run-trace' && !value.agentRunId) {
+    const exactRunResource = ['agent-run-trace', 'agent-run-result'].includes(value.resource)
+    if (exactRunResource && !value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['agentRunId'],
-        message: 'agentRunId is required for an agent run trace.',
+        message: 'agentRunId is required for an exact agent run resource.',
       })
     }
-    if (value.resource !== 'agent-run-trace' && value.agentRunId) {
+    if (!exactRunResource && value.agentRunId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['agentRunId'],
-        message: 'agentRunId is only accepted for an agent run trace.',
+        message: 'agentRunId is only accepted for an exact agent run resource.',
+      })
+    }
+    if (value.resource !== 'agent-run-result' && value.artifactIndex !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactIndex'],
+        message: 'artifactIndex is only accepted for an agent run result.',
+      })
+    }
+    if (value.resource === 'agent-run-result' && value.cursor !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cursor'],
+        message: 'agent-run-result does not accept a cursor.',
+      })
+    }
+    if (value.artifactOffset !== undefined && value.artifactIndex === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactOffset'],
+        message: 'artifactOffset requires artifactIndex.',
+      })
+    }
+    if (value.resource !== 'agent-run-result' && value.artifactOffset !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['artifactOffset'],
+        message: 'artifactOffset is only accepted for an agent run result.',
       })
     }
   })
@@ -3304,7 +3343,19 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           type: 'string',
           minLength: 1,
           maxLength: 120,
-          description: 'Required only when resource is agent-run-trace.',
+          description: 'Required only for agent-run-trace and agent-run-result.',
+        },
+        artifactIndex: {
+          type: 'integer',
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: 'Optional zero-based whole-artifact selection for agent-run-result.',
+        },
+        artifactOffset: {
+          type: 'integer',
+          minimum: 0,
+          maximum: Number.MAX_SAFE_INTEGER,
+          description: 'Optional UTF-8 byte offset for chunked agent-run-result artifact reads.',
         },
         cursor: { type: 'string', minLength: 1, maxLength: 500 },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },

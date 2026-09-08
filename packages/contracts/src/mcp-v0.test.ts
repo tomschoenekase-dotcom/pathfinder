@@ -171,6 +171,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.integrations',
       'pathfinder.agent-runs',
       'pathfinder.agent-run-trace',
+      'pathfinder.agent-run-result',
       'pathfinder.events',
       'pathfinder.deployments',
       'pathfinder.feature-flags',
@@ -217,7 +218,7 @@ describe('Torchiko MCP v0 contracts', () => {
     expect(customerAccess.description).toContain('never contacts Clerk')
   })
 
-  it('requires an exact run id only for the bounded agent run trace resource', () => {
+  it('requires an exact run id for bounded trace and result resources', () => {
     const read = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.read')!
     expect(read.inputSchema).toMatchObject({
       properties: { agentRunId: { type: 'string', maxLength: 120 } },
@@ -227,6 +228,49 @@ describe('Torchiko MCP v0 contracts', () => {
         resource: 'agent-run-trace',
         clientId: 'client-1',
         venueId: 'venue-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactIndex: 0,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        cursor: 'not-accepted',
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-result',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactOffset: 0,
+      }),
+    ).toThrow()
+    expect(() =>
+      McpReadInput.parse({
+        resource: 'agent-run-trace',
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        agentRunId: 'run-1',
+        artifactIndex: 0,
       }),
     ).toThrow()
     expect(() =>

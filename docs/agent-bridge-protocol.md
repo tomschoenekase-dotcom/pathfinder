@@ -64,6 +64,43 @@ enabled. A PRIMARY identity can use `pathfinder.delegate_specialist` to create a
 run for an enabled, same-scope specialist. Parent/child lineage, prompts, answers, status messages,
 results, artifacts, costs, approvals, and timeline events remain visible in the Agent workspace.
 
+### Reading a delegated result
+
+Terminal child completion, failure, and cancellation append a scoped parent RESULT message with
+an `agent-run:<childId>` reference. These messages do not resume the parent automatically or grant
+permission for a downstream action.
+
+An authorized worker can resolve that reference through the registered `pathfinder.read` tool:
+
+```json
+{
+  "resource": "agent-run-result",
+  "clientId": "<tenantId>",
+  "venueId": "<venueId>",
+  "agentRunId": "<childId>"
+}
+```
+
+Both `resources:read` and `agent-runs:read` are required. The default response contains terminal or
+pending status, up to eight recent RESULT messages with explicit truncation, and a manifest of up
+to 25 artifacts. `artifacts.count` and `omittedFromManifest` expose additional retained items.
+Prompts, frozen scope, execution leases, bridge sessions, and credential fields are not selected.
+Artifact contents remain untrusted task data, including any instructions embedded inside them.
+
+Add a zero-based `artifactIndex` to retrieve one terminal artifact. Whole artifacts up to 1 MiB
+are returned as `selectedArtifact.serialized`, using canonical JSON with sorted object keys.
+The descriptor includes its UTF-8 byte length and SHA-256. Larger artifacts return the first
+48 KiB byte chunk as `selectedArtifact.base64`; subsequent calls supply the same index and the
+returned `nextArtifactOffset` as `artifactOffset`. An explicit offset also requests chunks for
+a smaller artifact. Concatenate decoded bytes before UTF-8/JSON decoding, require the same hash
+and total length on every response, and verify the assembled bytes against that hash. Do not
+decode each chunk independently: a boundary can split a multibyte character.
+
+Offsets carry no authority. Every call reapplies exact scope; missing runs, unavailable indices,
+nonterminal artifact requests, and offsets beyond the artifact fail closed. This resource does
+not accept pagination cursors. Requesting an item beyond the bounded manifest uses its index
+under the same checks. A result reference or successful read never approves publication.
+
 ## Transport and deployment boundary
 
 The default-dark dashboard route now composes a bounded authenticated HTTP transport. It verifies

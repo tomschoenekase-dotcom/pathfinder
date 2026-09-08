@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T04:29:43.3949822Z",
+  "baseProductRevision": "ff9e81ecd083689cb3190d8f2453fd4b19bd09e8",
+  "result": {
+    "database": "pathfinder_disposable_agent_bridge_964631b90ddc",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-result-resource-964631b90ddc",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeTests": {
+    "skipped": 0,
+    "passed": 2,
+    "failed": 0
+  },
+  "database": {
+    "publicTables": 254,
+    "timezone": "UTC",
+    "migrations": 229
+  },
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+      "sha256": "5222a91bec36106a40956d9553d1ddb2527988e9b9988443b57295256582b754",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.ts",
+      "sha256": "2143b71279b5349475f566bda4f1d9428916ec49221973c34c14f768faa5f555",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-delegation-actions.ts",
+      "sha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+      "sha256": "84a3d55c68e8a85559f055f7d2ed556349cc5357360bcf7f6e8e91e7f2e4388b",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-update-actions.ts",
+      "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+      "sha256": "2ed5743f5ecc56e961a7ffc3d17b23afae2e11b478e22cfafb099e50ae682979",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-context.ts",
+      "sha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/contracts/src/mcp-v0.ts",
+      "sha256": "f72eaf42ff47b9285705f38b271622e218c09f20246951091183bdb7f8de7cd8",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/read-actions.ts",
+      "sha256": "8da164424dfeb7fb5260f44e070c5005e27629eef2570dd971fe950411917e68",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/registry.ts",
+      "sha256": "135949246c95cbda18bf2d6c589ee20e190852845798f175e0790c7cfc42acda",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/package.json",
+      "sha256": "f7d3f51fb24ce774534186097293c6656618b4ab27b3cb1597cee90e656d2081",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "implemented": [
+    "Exact tenant/venue/run result resource requires resources:read and agent-runs:read through the production MCP registry.",
+    "Terminal artifacts are discoverable by bounded manifest and retrievable whole or through bounded UTF8 byte chunks with SHA256 integrity.",
+    "Narrow registry/read-adapter package exports avoid importing dashboard router dependencies into workers."
+  ],
+  "nativeControls": [
+    "Registered pathfinder.read retrieves retained child research artifact and its finding drives the builder prompt and persisted pending-review proposal description.",
+    "Wrong venue and absent agent-runs:read reject; parent execution state and lease remain unchanged.",
+    "Existing specialist chain, stale takeover, terminal callbacks, cancellation and held notification draft controls still pass."
+  ],
+  "limits": [
+    "Local disposable PostgreSQL with synthetic credentials and deterministic task transformations; no live provider, hosted MCP transport, deployment or customer send.",
+    "New read uses the actual production registry and canonical read adapter with write delegates unavailable; it is not a full safe-composition HTTP transport proof.",
+    "Large artifact reconstruction and malformed input boundaries are focused unit proof, not this native case.",
+    "No automatic dependency wake-up, new action authority, publication or final artwork acceptance."
+  ],
+  "focusedChecks": {
+    "apiReadRegistryCompositionPassed": 93,
+    "contractsPassed": 13,
+    "typechecks": ["contracts", "api", "workers"],
+    "scopedLint": "passed",
+    "fixtureRepair": "Existing AI cost mock omitted nonnullable observedEstimatedCostUsd; supplied explicit distinct observed cost and asserted readback. No cost production code changed."
+  }
+}

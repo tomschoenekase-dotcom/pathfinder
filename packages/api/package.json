@@ -5,6 +5,8 @@
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
+    "./mcp/registry": "./src/mcp/registry.ts",
+    "./mcp/read-actions": "./src/mcp/read-actions.ts",
     "./partner-api": "./src/partner-api/index.ts",
     "./agent-bridge": "./src/agent-bridge/index.ts",
     "./agent-bridge/http-core": "./src/agent-bridge/http-core.ts",

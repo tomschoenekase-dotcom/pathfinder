@@ -5,6 +5,11 @@ import {
   handleAgentBridgeHttpRequestCore,
   type AgentBridgeHttpRegistry,
 } from '@pathfinder/api/agent-bridge/http-core'
+import {
+  createPathfinderMcpRegistry,
+  type PathfinderMcpDomainActions,
+} from '@pathfinder/api/mcp/registry'
+import { createPathfinderMcpReadActions } from '@pathfinder/api/mcp/read-actions'
 import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
 import {
@@ -640,6 +645,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         label: 'Disposable workforce credential',
         capabilities: [
           'agent-runs:execute',
+          'agent-runs:read',
           'resources:read',
           'knowledge:draft',
           'locations:propose',
@@ -663,6 +669,15 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         venueId,
         plaintext: issued.plaintextSecret!,
       })
+      const unavailableWrite = async () => {
+        throw new Error('UNAVAILABLE_WRITE_IN_DISPOSABLE_READ_REGISTRY')
+      }
+      const unavailableWriteActions = new Proxy({} as Omit<PathfinderMcpDomainActions, 'read'>, {
+        get: () => unavailableWrite,
+      })
+      const mcpRegistry = createPathfinderMcpRegistry(
+        createPathfinderMcpReadActions(db as never, unavailableWriteActions),
+      )
       const workerSpecs = [
         ['researcher-a', 'researcher', 'knowledge:draft', 'CODEX'],
         ['researcher-b', 'researcher', 'knowledge:draft', 'OPENAI_COMPATIBLE'],
@@ -1849,15 +1864,93 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           },
         }),
       ).toEqual(parentExecutionBeforeCallback)
-      const retainedResearch = await db.agentRun.findUniqueOrThrow({
+      const researchResultInput = {
+        resource: 'agent-run-result' as const,
+        clientId: tenantId,
+        venueId,
+        agentRunId: researchDelegation.run.id,
+        artifactIndex: 0,
+        limit: 25,
+      }
+      const parentBeforeRegisteredRead = await db.agentRun.findUniqueOrThrow({
+        where: { id: orchestratorRun.id },
+        select: {
+          status: true,
+          attemptNumber: true,
+          executionLeaseToken: true,
+          executionWorkerId: true,
+          executionBridgeSessionId: true,
+          cancelRequestedAt: true,
+        },
+      })
+      const registeredResearchResult = await mcpRegistry.callTool(
+        'pathfinder.read',
+        researchResultInput,
+        { credential },
+      )
+      const registeredResearchData = registeredResearchResult.structuredContent.data as {
+        schemaVersion: string
+        run: { id: string; parentAgentRunId: string; status: string; terminal: boolean }
+        selectedArtifact: { index: number; serialized: string; sha256: string }
+      }
+      const registeredResearchArtifact = JSON.parse(
+        registeredResearchData.selectedArtifact.serialized,
+      ) as { type: string; sourceRef: string; finding: string }
+      expect(registeredResearchData).toMatchObject({
+        schemaVersion: 'pathfinder.agent-run-result.v1',
+        run: {
+          id: researchDelegation.run.id,
+          parentAgentRunId: orchestratorRun.id,
+          status: 'COMPLETED',
+          terminal: true,
+        },
+        selectedArtifact: { index: 0, sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) },
+      })
+      expect(registeredResearchArtifact).toEqual({
+        type: 'research-result',
+        sourceRef: `SyntheticFixtureInput:accessible-east-${suffix}`,
+        finding: 'step-free east entrance',
+      })
+      await expect(
+        mcpRegistry.callTool(
+          'pathfinder.read',
+          { ...researchResultInput, venueId: `wrong-${venueId}` },
+          { credential },
+        ),
+      ).rejects.toThrow('Venue scope denied')
+      await expect(
+        mcpRegistry.callTool('pathfinder.read', researchResultInput, {
+          credential: { ...credential, capabilities: ['resources:read'] },
+        }),
+      ).rejects.toThrow('Capability denied')
+      await expect(
+        db.agentRun.findUniqueOrThrow({
+          where: { id: orchestratorRun.id },
+          select: {
+            status: true,
+            attemptNumber: true,
+            executionLeaseToken: true,
+            executionWorkerId: true,
+            executionBridgeSessionId: true,
+            cancelRequestedAt: true,
+          },
+        }),
+      ).resolves.toEqual(parentBeforeRegisteredRead)
+
+      const retainedResearchSnapshot = await db.agentRun.findUniqueOrThrow({
         where: { id: researchDelegation.run.id },
         select: { id: true, parentAgentRunId: true, status: true, artifacts: true },
       })
-      expect(retainedResearch).toMatchObject({
+      expect(retainedResearchSnapshot).toMatchObject({
         parentAgentRunId: orchestratorRun.id,
         status: 'COMPLETED',
         artifacts: [{ type: 'research-result', finding: 'step-free east entrance' }],
       })
+      const retainedResearch = {
+        id: registeredResearchData.run.id,
+        artifact: registeredResearchArtifact,
+      }
+      const derivedProposalDescription = `Synthetic deterministic transformation of retained research: ${retainedResearch.artifact.finding}. Pending human review.`
 
       const builderOperationId = randomUUID()
       const builderDelegation = await delegateAgentTaskAction({
@@ -1867,7 +1960,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         parentAgentRunId: orchestratorRun.id,
         requestingAgentIdentityId: identities.analyst,
         specialistAgentIdentityId: identities.builder,
-        instructions: `Create a review-only location proposal from retained AgentRun:${retainedResearch.id}.`,
+        instructions: `Create a review-only location proposal from retained AgentRun:${retainedResearch.id}: ${retainedResearch.artifact.finding}.`,
         reason: 'Convert the retained research result into a bounded builder proposal.',
       })
       const builderChainClaim = await claimAgentBridgeTask({
@@ -1876,7 +1969,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         workerKey: builderWorker.workerKey,
         credential,
       })
-      expect(builderChainClaim.task?.id).toBe(builderDelegation.run.id)
+      expect(builderChainClaim.task).toMatchObject({
+        id: builderDelegation.run.id,
+        prompt: expect.stringContaining(retainedResearch.artifact.finding),
+      })
       const chainedLocationProposal = await prepareLocationDraftProposalAction({
         operationId: randomUUID(),
         tenantId,
@@ -1887,7 +1983,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           stableKey: `chain-east-entrance-${suffix}`,
           kind: 'ENTRANCE',
           displayName: 'Accessible east entrance',
-          description: 'Proposed step-free entrance pending human review.',
+          description: derivedProposalDescription,
           visibility: 'PUBLIC',
           floorId: null,
           parentLocationId: null,
@@ -1931,6 +2027,9 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       expect(retainedBuilderApproval).toMatchObject({
         agentRunId: retainedBuilder.id,
         proposedAction: 'torchiko.locations.create_draft',
+        scopeSnapshot: {
+          draft: { description: derivedProposalDescription },
+        },
         decision: null,
       })
       const retainedBuilderAction = await db.agentAction.findFirstOrThrow({
