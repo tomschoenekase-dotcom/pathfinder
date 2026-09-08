@@ -2,7 +2,10 @@ import { z } from 'zod'
 
 import {
   AI_MODEL_KEYS,
-  generateText,
+  AiRequestBudgetCeilingExceededError,
+  AiRoutingError,
+  generateTextForCapability,
+  routeAiCapability,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
@@ -16,6 +19,7 @@ import {
   GENERATION_EXECUTION_LEASE_MS,
   isAiAdmissionControlError,
   renewAnswerAnalysisExecution,
+  resolveRuntimeAiWorkloadConfiguration,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -355,11 +359,30 @@ export async function processAnswerAnalysisJob(
 
     const renewLease = () =>
       renewAnswerAnalysisExecution({ ...claimIdentity, leaseToken: ownedLeaseToken })
+    const configurationScope = {
+      workloadId: AI_MODEL_KEYS.ANSWER_ANALYSIS,
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+    }
+    const configuration = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+    const route = routeAiCapability({
+      capability: 'EXTRACTION',
+      workloadId: AI_MODEL_KEYS.ANSWER_ANALYSIS,
+      configuration,
+    })
+    const configurationSnapshot = JSON.stringify(configuration)
     const response = await withExecutionLeaseHeartbeat({
       intervalMs: Math.floor(GENERATION_EXECUTION_LEASE_MS / 3),
       renew: renewLease,
       operation: (signal) =>
-        generateText({
+        generateTextForCapability({
+          route,
+          timeoutMs: configuration.timeoutMs,
+          maxAttempts: configuration.maxAttempts,
+          requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+          ...(configuration.maxOutputTokens !== null
+            ? { maxOutputTokens: configuration.maxOutputTokens }
+            : {}),
           signal,
           admissionGuard: async () => {
             await assertVenueAiAvailable(db, {
@@ -367,8 +390,14 @@ export async function processAnswerAnalysisJob(
               venueId: payload.venueId,
             })
             if (!(await renewLease())) throw new ExecutionLeaseOwnershipLostError()
+            const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+            if (JSON.stringify(current) !== configurationSnapshot) {
+              throw new AiRoutingError(
+                'CAPABILITY_UNAVAILABLE',
+                'Answer analysis configuration changed',
+              )
+            }
           },
-          modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
           system: [],
           messages: [{ role: 'user', content: prompt }],
           parseResponse: parseAnalysis,
@@ -415,7 +444,11 @@ export async function processAnswerAnalysisJob(
       })
       throw error
     }
-    if (isAiAdmissionControlError(error)) {
+    if (
+      isAiAdmissionControlError(error) ||
+      error instanceof AiRoutingError ||
+      error instanceof AiRequestBudgetCeilingExceededError
+    ) {
       if (leaseToken !== null) {
         const released = await deferAnswerAnalysisExecution({
           snapshotId: payload.snapshotId,
