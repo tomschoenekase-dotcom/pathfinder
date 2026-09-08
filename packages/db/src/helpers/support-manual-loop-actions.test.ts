@@ -464,7 +464,7 @@ describe('manual Support loop actions', () => {
     expect(h.tx.supportRequest.findFirst).toHaveBeenCalledTimes(2)
   })
 
-  it('replays the durable produced versions after a later global-only request change', async () => {
+  it('replays the current response-thread projection while retaining immutable operation versions', async () => {
     const h = harness({ status: 'WAITING_FOR_CLIENT', missingInformation: ['Details'] })
     h.message.authorKind = 'CLIENT'
     h.message.authorId = 'client_1'
@@ -521,7 +521,15 @@ describe('manual Support loop actions', () => {
       },
       h.client as never,
     )
-    expect(replay).toMatchObject({ requestVersion: 5, clientVersion: 4, replayed: true })
+    expect(replay).toMatchObject({
+      status: 'IN_REVIEW',
+      missingInformation: [],
+      requestVersion: 6,
+      clientVersion: 4,
+      currentProjection: { requestVersion: 6, clientVersion: 4, status: 'IN_REVIEW' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: true,
+    })
     expect(h.tx.supportRequest.updateMany).not.toHaveBeenCalled()
     expect(h.tx.supportMessage.create).not.toHaveBeenCalled()
     expect(h.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
@@ -549,5 +557,60 @@ describe('manual Support loop actions', () => {
         h.client as never,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('does not report an old completion as current after the client reopens the thread', async () => {
+    const h = harness()
+    const input = {
+      operationId,
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 4,
+      body: 'This request is complete. No package was changed.',
+      actor: operator,
+    }
+    const first = await completeSupportRequestAction(input, h.client as never)
+    expect(first).toMatchObject({
+      status: 'COMPLETED',
+      requestVersion: 5,
+      clientVersion: 4,
+      currentProjection: { requestVersion: 5, clientVersion: 4, status: 'COMPLETED' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: false,
+    })
+    const createdData = h.tx.supportMessage.create.mock.calls[0]![0].data
+    h.tx.supportRequest.findFirst.mockResolvedValue({
+      ...h.request,
+      status: 'IN_REVIEW',
+      missingInformation: ['New details'],
+      version: 6,
+      clientVersion: 5,
+    })
+    h.tx.supportMessage.findFirst.mockResolvedValue({
+      ...h.message,
+      submissionRequestId: operationId,
+      submissionInputHash: createdData.submissionInputHash,
+      requestVersion: 5,
+      clientVersion: 4,
+    })
+    h.tx.supportRequest.updateMany.mockClear()
+    h.tx.supportMessage.create.mockClear()
+    h.tx.supportRequestAuditEvent.create.mockClear()
+    audit.mockClear()
+
+    await expect(completeSupportRequestAction(input, h.client as never)).resolves.toMatchObject({
+      status: 'IN_REVIEW',
+      missingInformation: ['New details'],
+      requestVersion: 6,
+      clientVersion: 5,
+      currentProjection: { requestVersion: 6, clientVersion: 5, status: 'IN_REVIEW' },
+      operationVersion: { requestVersion: 5, clientVersion: 4 },
+      replayed: true,
+    })
+    expect(h.tx.supportRequest.updateMany).not.toHaveBeenCalled()
+    expect(h.tx.supportMessage.create).not.toHaveBeenCalled()
+    expect(h.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 })

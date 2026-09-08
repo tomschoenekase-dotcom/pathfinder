@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:45:41.384442+00:00",
+  "baseProductRevision": "816ce8afb68f221d900d46af3582a8fb1bc01151",
+  "result": {
+    "database": "pathfinder_disposable_support_current_replay_557c469857ea",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-support-current-replay-combined-557c469857ea",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeTests": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focusedTests": {
+    "support": 53,
+    "mcpComposition": 37
+  },
+  "typechecks": ["db passed", "api passed"],
+  "measuredSources": [
+    {
+      "path": "packages/db/src/helpers/support-completion-disposable.integration.test.ts",
+      "sha256": "5eaac6876c22ab6c9c171365756fb2f66e0fccf21c86a9f202c7e898b8046175",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/support-actions.ts",
+      "sha256": "179b66ba599586548c11017f7e27d83eea555255e0e7476c676514e1c2353b4d",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/support-information-request-disposable.integration.test.ts",
+      "sha256": "0202d22c76c551f905ba12cb417d28392b1377cbf7fea15e07dbe14d894ddba4",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/composition.ts",
+      "sha256": "3b8ba919313b70a094eb3d5c7d32769b35caca094e3cfbf29c655ed8e3b0203f",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/composition.test.ts",
+      "sha256": "df4cd014fc2d87eaa728f4302d6c4d2b5cd5f136c76be8b4dea4785bf9f059c4",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "implemented": [
+    "Manual support replays return current status/checklist/request/client versions while retaining immutable original operationVersion.",
+    "Information-request and completion MCP approval receipt references use the original operationVersion."
+  ],
+  "nativeControls": [
+    "Canonical one-shot reviewed in-app information request and completion remain idempotent.",
+    "Concurrent exact client follow-up reopens completed thread; late original completion replay returns IN_REVIEW and current versions.",
+    "Replay leaves support message/audit counts, request projection, venue packages and approval grant use count unchanged."
+  ],
+  "limits": [
+    "Native fixtures exercise canonical DB helpers and approval lifecycle; separate 37-test composition suite verifies actual MCP registry with domain doubles. This is not an end-to-end live MCP transport claim.",
+    "No external email, provider, production database, customer activity or autonomous authority widening."
+  ]
+}

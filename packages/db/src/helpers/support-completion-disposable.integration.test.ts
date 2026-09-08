@@ -239,7 +239,7 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
             },
             sameTransaction,
           )
-          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.requestVersion}:COMPLETED`
+          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.operationVersion.requestVersion}:COMPLETED`
           if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
           else
             await tx.approvalGrantConsumption.update({
@@ -254,6 +254,15 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
         missingInformation: [],
         requestVersion: request.version + 1,
         clientVersion: request.clientVersion + 1,
+        currentProjection: {
+          requestVersion: request.version + 1,
+          clientVersion: request.clientVersion + 1,
+          status: 'COMPLETED',
+        },
+        operationVersion: {
+          requestVersion: request.version + 1,
+          clientVersion: request.clientVersion + 1,
+        },
         replayed: false,
       })
       await expect(apply()).resolves.toMatchObject({ replayed: true })
@@ -338,6 +347,55 @@ describe.skipIf(!enabled)('support completion disposable lifecycle', () => {
           },
         }),
       ).toBe(1)
+      const beforeCompletionReplay = await Promise.all([
+        db.supportRequest.findUniqueOrThrow({
+          where: { id: request.id },
+          select: { status: true, missingInformation: true, version: true, clientVersion: true },
+        }),
+        db.supportMessage.count({ where: { tenantId, venueId } }),
+        db.supportRequestAuditEvent.count({
+          where: { tenantId, venueId, supportRequestId: request.id },
+        }),
+        db.venuePackage.count({ where: { tenantId, venueId } }),
+        db.approvalGrant.findUniqueOrThrow({
+          where: { id: grant.id },
+          select: { useCount: true },
+        }),
+      ])
+      const completionReplay = await apply()
+      expect(completionReplay).toMatchObject({
+        replayed: true,
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: request.version + 2,
+        clientVersion: request.clientVersion + 2,
+        currentProjection: {
+          requestVersion: request.version + 2,
+          clientVersion: request.clientVersion + 2,
+          status: 'IN_REVIEW',
+        },
+        operationVersion: {
+          requestVersion: request.version + 1,
+          clientVersion: request.clientVersion + 1,
+        },
+      })
+      await expect(
+        Promise.all([
+          db.supportRequest.findUniqueOrThrow({
+            where: { id: request.id },
+            select: { status: true, missingInformation: true, version: true, clientVersion: true },
+          }),
+          db.supportMessage.count({ where: { tenantId, venueId } }),
+          db.supportRequestAuditEvent.count({
+            where: { tenantId, venueId, supportRequestId: request.id },
+          }),
+          db.venuePackage.count({ where: { tenantId, venueId } }),
+          db.approvalGrant.findUniqueOrThrow({
+            where: { id: grant.id },
+            select: { useCount: true },
+          }),
+        ]),
+      ).resolves.toEqual(beforeCompletionReplay)
       const internalNote = await appendSupportMessageAction({
         operationId: randomUUID(),
         tenantId,

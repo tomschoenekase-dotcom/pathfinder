@@ -1462,10 +1462,19 @@ async function manualSupportLoopActionOnce(
         throw new SupportActionError('CONFLICT', 'Support operation evidence is incomplete')
       return {
         message: safeReplayMessage(replay),
-        status: targetStatus,
-        missingInformation: requestedItems,
-        requestVersion: replay.requestVersion,
-        clientVersion: replay.clientVersion,
+        status: request.status,
+        missingInformation: request.missingInformation,
+        requestVersion: request.version,
+        clientVersion: request.clientVersion,
+        currentProjection: {
+          requestVersion: request.version,
+          clientVersion: request.clientVersion,
+          status: request.status,
+        },
+        operationVersion: {
+          requestVersion: replay.requestVersion,
+          clientVersion: replay.clientVersion,
+        },
         replayed: true as const,
       }
     }
@@ -1662,6 +1671,15 @@ async function manualSupportLoopActionOnce(
       missingInformation: requestedItems,
       requestVersion: nextVersion,
       clientVersion: nextClientVersion,
+      currentProjection: {
+        requestVersion: nextVersion,
+        clientVersion: nextClientVersion,
+        status: targetStatus,
+      },
+      operationVersion: {
+        requestVersion: nextVersion,
+        clientVersion: nextClientVersion,
+      },
       ...(completionPackageFulfillment ? { packageFulfillment: completionPackageFulfillment } : {}),
       replayed: false as const,
     }

@@ -1019,18 +1019,38 @@ describe('safe operational MCP composition', () => {
   })
 
   it('consumes exact one-shot authority with the canonical in-app support action', async () => {
-    consumeApproval.mockResolvedValue({
-      consumption: { id: 'consumption-1', resultReference: null },
-      replayed: false,
-    })
-    requestSupportInformation.mockResolvedValue({
-      message: { id: 'message-1' },
-      status: 'WAITING_FOR_CLIENT',
-      missingInformation: ['Current exhibit label photograph'],
-      requestVersion: 4,
-      clientVersion: 9,
-      replayed: false,
-    })
+    consumeApproval
+      .mockResolvedValueOnce({
+        consumption: { id: 'consumption-1', resultReference: null },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        consumption: {
+          id: 'consumption-1',
+          resultReference:
+            'SupportMessage:message-1:SupportRequest:support-1:v4:WAITING_FOR_CLIENT',
+        },
+        replayed: true,
+      })
+    requestSupportInformation
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'WAITING_FOR_CLIENT',
+        missingInformation: ['Current exhibit label photograph'],
+        requestVersion: 4,
+        clientVersion: 9,
+        operationVersion: { requestVersion: 4, clientVersion: 9 },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 6,
+        clientVersion: 10,
+        operationVersion: { requestVersion: 4, clientVersion: 9 },
+        replayed: true,
+      })
     const tx = {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
@@ -1052,23 +1072,24 @@ describe('safe operational MCP composition', () => {
       ...credential,
       capabilities: ['support:request-information'],
     } satisfies VerifiedMcpCredentialScope
-    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
-      'pathfinder.apply_support_information_request',
-      {
-        clientId: 'tenant-1',
-        venueId: 'venue-1',
-        operationId: '47444444-4444-4444-8444-444444444444',
-        agentIdentityId: 'agent-1',
-        agentRunId: 'run-1',
-        workerKey: 'worker-1',
-        requestId: 'support-1',
-        expectedVersion: 3,
-        fromStatus: 'IN_REVIEW',
-        body: 'Please provide the current exhibit label photograph.',
-        missingInformation: ['Current exhibit label photograph'],
-      },
-      { credential: supportCredential, approvalGrantId: 'grant-1' },
-    )
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '47444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 3,
+      fromStatus: 'IN_REVIEW' as const,
+      body: 'Please provide the current exhibit label photograph.',
+      missingInformation: ['Current exhibit label photograph'],
+    }
+    const result = await registry.callTool('pathfinder.apply_support_information_request', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
     expect(consumeApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         actionName: 'pathfinder.apply_support_information_request',
@@ -1111,6 +1132,21 @@ describe('safe operational MCP composition', () => {
         packageLifecycleChanged: false,
       },
     })
+    const replay = await registry.callTool('pathfinder.apply_support_information_request', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
+    expect(replay.structuredContent).toMatchObject({
+      kind: 'torchiko.support-information-request-applied',
+      data: {
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 6,
+        clientVersion: 10,
+        replayed: true,
+      },
+    })
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledTimes(1)
   })
 
   it('prepares an exact support completion without contact or state change', async () => {
@@ -1200,18 +1236,37 @@ describe('safe operational MCP composition', () => {
   })
 
   it('consumes exact one-shot authority with the canonical support completion action', async () => {
-    consumeApproval.mockResolvedValue({
-      consumption: { id: 'consumption-1', resultReference: null },
-      replayed: false,
-    })
-    completeSupport.mockResolvedValue({
-      message: { id: 'message-1' },
-      status: 'COMPLETED',
-      missingInformation: [],
-      requestVersion: 5,
-      clientVersion: 10,
-      replayed: false,
-    })
+    consumeApproval
+      .mockResolvedValueOnce({
+        consumption: { id: 'consumption-1', resultReference: null },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        consumption: {
+          id: 'consumption-1',
+          resultReference: 'SupportMessage:message-1:SupportRequest:support-1:v5:COMPLETED',
+        },
+        replayed: true,
+      })
+    completeSupport
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'COMPLETED',
+        missingInformation: [],
+        requestVersion: 5,
+        clientVersion: 10,
+        operationVersion: { requestVersion: 5, clientVersion: 10 },
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        message: { id: 'message-1' },
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 7,
+        clientVersion: 11,
+        operationVersion: { requestVersion: 5, clientVersion: 10 },
+        replayed: true,
+      })
     const tx = {
       approvalGrantConsumption: { update: vi.fn().mockResolvedValue({ id: 'consumption-1' }) },
     }
@@ -1233,22 +1288,23 @@ describe('safe operational MCP composition', () => {
       ...credential,
       capabilities: ['support:complete'],
     } satisfies VerifiedMcpCredentialScope
-    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
-      'pathfinder.apply_support_completion',
-      {
-        clientId: 'tenant-1',
-        venueId: 'venue-1',
-        operationId: '49444444-4444-4444-8444-444444444444',
-        agentIdentityId: 'agent-1',
-        agentRunId: 'run-1',
-        workerKey: 'worker-1',
-        requestId: 'support-1',
-        expectedVersion: 4,
-        fromStatus: 'IN_REVIEW',
-        body: 'Your requested venue update is complete.',
-      },
-      { credential: supportCredential, approvalGrantId: 'grant-1' },
-    )
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '49444444-4444-4444-8444-444444444444',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      requestId: 'support-1',
+      expectedVersion: 4,
+      fromStatus: 'IN_REVIEW' as const,
+      body: 'Your requested venue update is complete.',
+    }
+    const result = await registry.callTool('pathfinder.apply_support_completion', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
     expect(consumeApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         actionName: 'pathfinder.apply_support_completion',
@@ -1290,6 +1346,21 @@ describe('safe operational MCP composition', () => {
         packageLifecycleChanged: false,
       },
     })
+    const replay = await registry.callTool('pathfinder.apply_support_completion', input, {
+      credential: supportCredential,
+      approvalGrantId: 'grant-1',
+    })
+    expect(replay.structuredContent).toMatchObject({
+      kind: 'torchiko.support-completion-applied',
+      data: {
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 7,
+        clientVersion: 11,
+        replayed: true,
+      },
+    })
+    expect(tx.approvalGrantConsumption.update).toHaveBeenCalledTimes(1)
   })
 
   it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {

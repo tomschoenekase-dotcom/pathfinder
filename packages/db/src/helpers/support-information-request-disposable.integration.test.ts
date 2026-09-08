@@ -223,7 +223,7 @@ describe.skipIf(!enabled)('support information-request disposable lifecycle', ()
             },
             sameTransaction,
           )
-          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.requestVersion}:WAITING_FOR_CLIENT`
+          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.operationVersion.requestVersion}:WAITING_FOR_CLIENT`
           if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
           else
             await tx.approvalGrantConsumption.update({

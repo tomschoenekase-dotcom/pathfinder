@@ -1434,7 +1434,7 @@ describe.skipIf(!enabled)('support package-draft disposable lifecycle', () => {
             },
             sameTransaction,
           )
-          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.requestVersion}:COMPLETED`
+          const reference = `SupportMessage:${result.message.id}:SupportRequest:${request.id}:v${result.operationVersion.requestVersion}:COMPLETED`
           if (consumption.replayed) expect(consumption.consumption.resultReference).toBe(reference)
           else
             await tx.approvalGrantConsumption.update({

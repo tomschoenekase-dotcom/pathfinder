@@ -2003,7 +2003,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
           sameTransaction,
         )
-        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:WAITING_FOR_CLIENT`
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.operationVersion.requestVersion}:WAITING_FOR_CLIENT`
         if (consumption.replayed) {
           if (consumption.consumption.resultReference !== resultReference) {
             throw new McpActionBindingError(
@@ -3804,7 +3804,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           },
           sameTransaction,
         )
-        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.requestVersion}:COMPLETED`
+        const resultReference = `SupportMessage:${applied.message.id}:SupportRequest:${input.requestId}:v${applied.operationVersion.requestVersion}:COMPLETED`
         if (consumption.replayed) {
           if (consumption.consumption.resultReference !== resultReference) {
             throw new McpActionBindingError('Approved support completion replay is incomplete')
