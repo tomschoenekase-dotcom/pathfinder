@@ -167,7 +167,6 @@
     "dashboardTypes": "PASS",
     "dashboardLint": "PASS",
     "adminProcedureInventoryPassed": 2,
-    "tenantProcedureTestsPassed": 114,
     "aiBoundary": {
       "sourceFiles": 5165,
       "exceptions": 0
@@ -201,7 +200,8 @@
         "source": "artifacts/fm09-selector-tenant-procedures-20260908.log",
         "sha256": "1c6c81b6c81e7c0ddea015d9fb85ccc65bcc560a343fcc6a78c53850b4878f69"
       }
-    ]
+    ],
+    "tenantProceduresCovered": 114
   },
   "sourceIdentities": [
     {
