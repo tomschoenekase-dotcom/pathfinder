@@ -148,7 +148,7 @@ function normalize(value: string): string {
     .toLocaleLowerCase()
 }
 
-function termsForQuery(query: string): string[][] {
+export function guestQueryConcepts(query: string): string[][] {
   const tokens = [...new Set(normalize(query).match(/[\p{L}\p{N}]+/gu) ?? [])]
     .map((token) => ({
       token,
@@ -315,7 +315,7 @@ export async function retrieveGuestKnowledge(params: {
 }): Promise<{ entries: SemanticKnowledgeEntry[]; trace: GuestKnowledgeRetrievalTrace }> {
   const reader = params.reader as GuestKnowledgeReader
   const started = (params.now ?? performance.now.bind(performance))()
-  const concepts = termsForQuery(params.query)
+  const concepts = guestQueryConcepts(params.query)
   const asOf = params.asOf ?? new Date()
   const publicationAuthority = {
     OR: [

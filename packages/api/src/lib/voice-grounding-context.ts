@@ -1,5 +1,5 @@
 import type { GuestKnowledgeReader } from './guest-knowledge-retrieval'
-import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
+import { guestQueryConcepts, retrieveGuestKnowledge } from './guest-knowledge-retrieval'
 import {
   applyNativeGuestContentRead,
   type SemanticKnowledgeEntry,
@@ -43,10 +43,7 @@ export async function buildVoiceGroundingContext(input: {
     queryEmbedding: null,
     ...(input.asOf ? { asOf: input.asOf } : {}),
   })
-  const terms = [...new Set(input.query.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? [])].slice(
-    0,
-    8,
-  )
+  const terms = [...new Set(guestQueryConcepts(input.query).flat())]
   const lexicalWhere = (fields: string[]) => ({
     OR: terms.flatMap((term) =>
       fields.map((field) => ({ [field]: { contains: term, mode: 'insensitive' } })),

@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "kind": "multilingual-voice-place-retrieval-native-postgresql",
+  "measuredAt": "2026-09-08T02:17:30.633963+00:00",
+  "baseProductRevision": "d168b4c2669079a0bfb8a4854a26fe97bf6fc45d",
+  "result": {
+    "database": "pathfinder_disposable_native_guest_read_8596026f3a80",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "focusedUnitTests": {
+    "passed": 35,
+    "failed": 0
+  },
+  "testCounts": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "measurement": {
+    "version": "shared-guest-concepts-place-v1",
+    "cases": [
+      {
+        "query": "WC",
+        "includedSourceIds": ["place:restroom-public-3dd86b08"],
+        "measurements": {
+          "retrievalMs": 14.89759999999933,
+          "retrievalAndAssemblyMs": 19.65610000000015,
+          "providerLatencyMs": null
+        }
+      },
+      {
+        "query": "厕所在哪里",
+        "includedSourceIds": ["place:restroom-public-3dd86b08"],
+        "measurements": {
+          "retrievalMs": 14.556100000000697,
+          "retrievalAndAssemblyMs": 18.818499999999403,
+          "providerLatencyMs": null
+        }
+      },
+      {
+        "query": "トイレはどこ",
+        "includedSourceIds": ["place:restroom-public-3dd86b08"],
+        "measurements": {
+          "retrievalMs": 13.179700000000594,
+          "retrievalAndAssemblyMs": 16.302099999999882,
+          "providerLatencyMs": null
+        }
+      }
+    ],
+    "excludedControlIds": [
+      "restroom-private-3dd86b08",
+      "restroom-inactive-3dd86b08",
+      "restroom-sibling-3dd86b08"
+    ],
+    "providerCalled": false
+  },
+  "integratedHoldout": {
+    "version": "native-guest-integrated-visitor-holdout-v1",
+    "corpus": {
+      "releaseId": "58c177e2-28f3-4131-a628-667e302f70e5",
+      "manifestHash": "702889fb5087c5c7cc21e61c5cad2a16db648eb6c2b5997346744e7b7b34f2d4",
+      "desiredStateHash": "fd20b2836bbc7cfa76887a8ffe55d9deafa58e6e8826dfe6ca8016378dd188e2",
+      "operationalUpdatesHash": "717faf582ead840da551d282e2941b029951d1da4145c5d1dff9baa1f50ba9da",
+      "asOf": "2026-09-08T02:15:49.018Z"
+    },
+    "configuration": {
+      "evaluationRunIdentityHash": "774b04129ef54326799aa88cbee9114258a5e6dbfe9565c0dcf049ed2ef6c8ce",
+      "runConfigVersion": "pathfinder-native-evaluation-run-config-v1",
+      "contentSnapshotVersion": "pathfinder-native-evaluation-content-v1"
+    },
+    "prompt": {
+      "version": "guest-chat-prompt-v13",
+      "hash": "708cc224b864c4b4d9d8532541c7349792d40afa0c3a62fb24c89b5b0df70881"
+    },
+    "identityHash": "2939f744e012f03b8667cc8afda04feb8838f7599f64b1b5004ca88f2c3390a3",
+    "cases": [
+      {
+        "id": "english-current-correction-expiry",
+        "query": "What is the native public arrival gallery update?",
+        "retrievedSourceIds": [
+          "update:update-public-43674724",
+          "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+          "place:place-public-43674724"
+        ],
+        "includedSourceIds": [
+          "update:update-public-43674724",
+          "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+          "place:place-public-43674724"
+        ],
+        "omittedSourceIds": [],
+        "exclusions": [
+          {
+            "sourceId": "2235b415-f1dc-4da8-a8cd-ee69043fa5f8",
+            "reason": "second-layer-not-public"
+          },
+          {
+            "sourceId": "update:update-internal-43674724",
+            "reason": "private-place-update"
+          },
+          {
+            "sourceId": "update:update-expired-43674724",
+            "reason": "expired-before-as-of"
+          }
+        ],
+        "knowledgeRetrieval": {
+          "path": "lexical-fallback",
+          "retrievedSourceIds": ["1c8fdfde-b2db-4398-9bc9-a94051cc940e"],
+          "retrievedSources": [
+            {
+              "id": "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+              "version": "2026-09-08T02:15:48.949Z"
+            }
+          ],
+          "excludedSourceIds": [],
+          "candidateCounts": {
+            "strict": 0,
+            "broad": 1,
+            "semantic": 0
+          },
+          "limits": {
+            "strict": 20,
+            "broad": 60,
+            "result": 5
+          },
+          "partialCoverage": false,
+          "truncatedSourceIds": [],
+          "publicationAuthority": [],
+          "retrievalMs": 8.740799999999581
+        },
+        "measurements": {
+          "retrievalMs": 8.740799999999581,
+          "retrievalAndAssemblyMs": 13.429600000000391,
+          "providerLatencyMs": null
+        },
+        "assertions": {
+          "correctedNativeValueIncluded": true,
+          "replacedLegacyValueExcluded": true,
+          "activeUpdateIncluded": true,
+          "expiredUpdateExcluded": true,
+          "privateUpdateExcluded": true
+        }
+      },
+      {
+        "id": "spanish-grounded-retrieval",
+        "query": "¿Qué debo saber sobre la llegada a la galería pública?",
+        "retrievedSourceIds": [
+          "update:update-public-43674724",
+          "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+          "place:place-public-43674724"
+        ],
+        "includedSourceIds": [
+          "update:update-public-43674724",
+          "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+          "place:place-public-43674724"
+        ],
+        "omittedSourceIds": [],
+        "exclusions": [
+          {
+            "sourceId": "2235b415-f1dc-4da8-a8cd-ee69043fa5f8",
+            "reason": "second-layer-not-public"
+          },
+          {
+            "sourceId": "update:update-internal-43674724",
+            "reason": "private-place-update"
+          },
+          {
+            "sourceId": "update:update-expired-43674724",
+            "reason": "expired-before-as-of"
+          }
+        ],
+        "knowledgeRetrieval": {
+          "path": "lexical-fallback",
+          "retrievedSourceIds": ["1c8fdfde-b2db-4398-9bc9-a94051cc940e"],
+          "retrievedSources": [
+            {
+              "id": "1c8fdfde-b2db-4398-9bc9-a94051cc940e",
+              "version": "2026-09-08T02:15:48.949Z"
+            }
+          ],
+          "excludedSourceIds": [],
+          "candidateCounts": {
+            "strict": 0,
+            "broad": 1,
+            "semantic": 0
+          },
+          "limits": {
+            "strict": 20,
+            "broad": 60,
+            "result": 5
+          },
+          "partialCoverage": false,
+          "truncatedSourceIds": [],
+          "publicationAuthority": [],
+          "retrievalMs": 14.217799999999443
+        },
+        "measurements": {
+          "retrievalMs": 14.217799999999443,
+          "retrievalAndAssemblyMs": 19.412900000000263,
+          "providerLatencyMs": null
+        },
+        "assertions": {
+          "supportedLanguageQueryRetrievedPublicKnowledge": true,
+          "correctedNativeValueIncluded": true,
+          "activeUpdateIncluded": true,
+          "expiredUpdateExcluded": true,
+          "privateUpdateExcluded": true
+        }
+      }
+    ],
+    "provider": {
+      "called": false,
+      "synthesisQualityVerified": false,
+      "reason": "Retrieval and prompt preparation only; no real-provider observation."
+    },
+    "unresolvedCapabilities": [
+      "visitor-media-selection-not-integrated-with-voice-grounding-context",
+      "accessible-spatial-routing-not-integrated-with-voice-grounding-context"
+    ]
+  },
+  "measuredSources": [
+    {
+      "path": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+      "sha256": "527965978f1e4d9d20315398f57a5d74e7dac885cf0fce3270ec2840a5d67c4a",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+      "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/voice-grounding-context.ts",
+      "sha256": "459c422667c2120040f8d89883d850a685c25bedfac73c0c6adac8956b7af149",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/chat.ts",
+      "sha256": "53a36bf95573d3ddb1ae5badfd04ba0a16f869cf402e821b7b95e74bde356c7c",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/semantic-search.ts",
+      "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\measured-chat.ts",
+      "sha256": "53a36bf95573d3ddb1ae5badfd04ba0a16f869cf402e821b7b95e74bde356c7c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\measured-guest-knowledge-retrieval.ts",
+      "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\measured-native-guest-read.disposable.integration.test.ts",
+      "sha256": "527965978f1e4d9d20315398f57a5d74e7dac885cf0fce3270ec2840a5d67c4a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\measured-semantic-search.ts",
+      "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\measured-voice-grounding-context.ts",
+      "sha256": "459c422667c2120040f8d89883d850a685c25bedfac73c0c6adac8956b7af149"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\result.json",
+      "sha256": "d5de164bf375d7f9ff521d1750af553794d8bb76938ca6e605e4673e62eac2a9"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\vitest.json",
+      "sha256": "8bc3d7b794bb33df4046b3793be64c4df662a2d774ea2b57743f2f8fcee6df5d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-native-guest-read-8596026f3a80\\vitest.log",
+      "sha256": "79a43d740ba0f62b3a19ea0b53f95838190dc236272ba6aa829d3d932f87fc91"
+    }
+  ],
+  "limits": [
+    "Synthetic disposable database only; no real-provider synthesis or device observations.",
+    "Bounded existing WC/Chinese/Japanese concept vocabulary; not general translation.",
+    "Actual PostgreSQL queries exclude private, inactive and sibling-venue place controls.",
+    "Existing source authority and integrated English/Spanish holdouts rerun; media/spatial integration still open."
+  ]
+}

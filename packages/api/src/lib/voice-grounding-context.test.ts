@@ -193,6 +193,48 @@ describe('voice grounding production retrieval parity', () => {
     })
   })
 
+  it.each(['WC', '厕所在哪里', 'トイレはどこ'])(
+    'retrieves English place names for %s without embeddings',
+    async (query) => {
+      const result = await buildVoiceGroundingContext({
+        reader: {
+          venueKnowledgeEntry: { findMany: async () => [] },
+          place: {
+            findMany: async (args) => {
+              expect(args.where).toMatchObject({
+                tenantId: 'tenant',
+                venueId: 'venue',
+                visibility: 'PUBLIC',
+                isActive: true,
+              })
+              const clauses = args.where!.OR as Array<Record<string, { contains: string }>>
+              const candidate = place({
+                id: 'east-restroom',
+                name: 'East restroom',
+                shortDescription: 'Beside the lift.',
+              })
+              return clauses.some((clause) =>
+                Object.entries(clause).some(([field, filter]) =>
+                  String(candidate[field as keyof SemanticPlace] ?? '')
+                    .toLowerCase()
+                    .includes(filter.contains),
+                ),
+              )
+                ? [candidate]
+                : []
+            },
+          },
+        },
+        tenantId: 'tenant',
+        venueId: 'venue',
+        query,
+      })
+      expect(result.sourceIds).toContain('place:east-restroom')
+      expect(result.context).toContain('East restroom')
+      expect(result.provider.called).toBe(false)
+    },
+  )
+
   it('never emits a partial item or claims an omitted oversized source was included', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {

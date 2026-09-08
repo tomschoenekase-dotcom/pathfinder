@@ -162,6 +162,36 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(withdrawn.context).not.toContain('999')
       expect(withdrawn.provider).toEqual({ called: false, qualityVerified: false })
 
+      const restroomIds = ['public', 'private', 'inactive', 'sibling'].map(
+        (kind) => `restroom-${kind}-${suffix}`,
+      )
+      await db.place.createMany({
+        data: restroomIds.map((id, index) => ({
+          id,
+          tenantId,
+          venueId: index === 3 ? siblingVenueId : venueId,
+          name: index === 0 ? 'East restroom' : `Restricted restroom ${index}`,
+          type: 'ROOM',
+          visibility: index === 1 ? 'SECOND_LAYER' : 'PUBLIC',
+          isActive: index !== 2,
+        })),
+      })
+      const multilingualPlaceCases = []
+      for (const query of ['WC', '厕所在哪里', 'トイレはどこ']) {
+        const grounded = await read(query)
+        expect(grounded.sourceIds).toEqual([`place:${restroomIds[0]}`])
+        expect(grounded.context).toContain('East restroom')
+        expect(grounded.provider.called).toBe(false)
+        multilingualPlaceCases.push({
+          query,
+          includedSourceIds: grounded.sourceIds,
+          measurements: grounded.measurements,
+        })
+      }
+      process.stdout.write(
+        `${JSON.stringify({ multilingualPlaceProof: { version: 'shared-guest-concepts-place-v1', cases: multilingualPlaceCases, excludedControlIds: restroomIds.slice(1), providerCalled: false } })}\n`,
+      )
+
       const publicationActor = {
         type: 'HUMAN' as const,
         id: `publication-owner-${suffix}`,
