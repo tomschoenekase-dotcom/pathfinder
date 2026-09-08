@@ -1249,6 +1249,22 @@ const chatReadRouter = router({
         unhealthyProviders,
       })
       generationRouteConfigurationVersion = route.configurationVersion
+      const configurationSnapshot = JSON.stringify(configuration)
+      // Recheck on every admission, including after reservation and on retries.
+      // The existing route and cumulative budget belong to this exact configuration.
+      const assertGenerationAvailable = async () => {
+        await assertVenueAiAvailable(ctx.db, {
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+        })
+        const currentConfiguration = await resolveRuntimeAiWorkloadConfiguration(
+          { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+          ctx.db,
+        )
+        if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
+          throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
+        }
+      }
       const webSearchInvocationId = randomUUID()
       // Require the underlying durable reservation before a cumulative wrapper
       // can replace a null reservation with its own invocation-local reference.
@@ -1329,8 +1345,7 @@ const chatReadRouter = router({
                 sharedBudgetGate,
                 BigInt(webConfiguration.requestBudgetCeilingE8Usd),
               ),
-              admissionGuard: () =>
-                assertVenueAiAvailable(ctx.db, { tenantId: venue.tenantId, venueId: venue.id }),
+              admissionGuard: assertGenerationAvailable,
               beforeDispatch: async () => {
                 const fresh = await resolveGuestGeneralWebConfiguration(
                   {
@@ -1372,11 +1387,7 @@ const chatReadRouter = router({
         ...(configuration.maxOutputTokens !== null
           ? { maxOutputTokens: configuration.maxOutputTokens }
           : {}),
-        admissionGuard: () =>
-          assertVenueAiAvailable(ctx.db, {
-            tenantId: venue.tenantId,
-            venueId: input.venueId,
-          }),
+        admissionGuard: assertGenerationAvailable,
         budgetGate: sharedBudgetGate,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },

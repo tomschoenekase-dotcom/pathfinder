@@ -2199,6 +2199,64 @@ describe('chat router', () => {
       )
     })
 
+    it.each([1, 2])(
+      'rejects a changed workload ceiling at admission read %i before dispatch',
+      async (unchangedReads) => {
+        setupHappyPath('must not dispatch')
+        let reads = 0
+        aiWorkloadConfigurationOverrideFindFirst.mockImplementation(async () =>
+          ++reads <= unchangedReads
+            ? null
+            : {
+                enabled: true,
+                isTombstone: false,
+                maxOutputTokensSet: true,
+                maxOutputTokens: 128,
+                unsafeChangesEnabled: false,
+                reason: 'Reduced output ceiling during preparation',
+              },
+        )
+        await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+          code: 'SERVICE_UNAVAILABLE',
+        })
+        expect(anthropicCreate).not.toHaveBeenCalled()
+        expect(guestTurnActions.fail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            claim: expect.objectContaining({ failureCode: 'AI_UNAVAILABLE' }),
+          }),
+        )
+        expect(
+          guestTurnActions.dispatch.mock.calls.filter(
+            ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+          ),
+        ).toHaveLength(0)
+      },
+    )
+
+    it('does not retry a dispatched request after its workload budget is reduced', async () => {
+      setupHappyPath('must not retry')
+      anthropicCreate.mockReset()
+      anthropicCreate.mockImplementationOnce(async () => {
+        aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
+          enabled: true,
+          isTombstone: false,
+          requestBudgetCeilingE8UsdSet: true,
+          requestBudgetCeilingE8Usd: '1',
+          unsafeChangesEnabled: false,
+          reason: 'Reduce budget during provider outage',
+        })
+        throw Object.assign(new Error('provider unavailable'), { status: 503 })
+      })
+      const result = await caller.chat.send(sendInput)
+      expect(result.response).toBe("I'm having trouble right now. Please try again in a moment.")
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(1)
+    })
+
     it('executes the centrally configured fallback route under one durable provider dispatch', async () => {
       setupHappyPath('unused primary response')
       anthropicCreate.mockReset()
@@ -2208,7 +2266,7 @@ describe('chat router', () => {
           content: [{ type: 'text', text: 'Recovered through the configured route.' }],
           usage: { input_tokens: 20, output_tokens: 8 },
         })
-      aiWorkloadConfigurationOverrideFindFirst.mockResolvedValueOnce({
+      aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
         id: 'fallback-config',
         workloadId: 'guest-chat',
         enabled: true,

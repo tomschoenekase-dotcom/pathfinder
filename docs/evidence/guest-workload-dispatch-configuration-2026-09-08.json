@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "sourceBaseRevision": "d3e501959badff7adf0c44fcde7a750f3109db36",
+  "proved": [
+    "Previously passing provider dispatch with changed workload output ceiling now fails closed.",
+    "Effective guest-chat configuration is re-read through the existing scoped resolver on every generation/web admission, before and after reservation and before retries.",
+    "A budget reduction after a mocked provider503 prevents another provider attempt; unchanged configured fallback still succeeds."
+  ],
+  "checks": {
+    "chatRouterTestsPassed": 124,
+    "gatewayAndRoutingTestsPassed": 46,
+    "scopedLint": "passed",
+    "freshApiTypecheck": "passed: direct tsc --noEmit --incremental false exit0, artifacts/continuation-api-typecheck-20260908-final.log; comparison-preparation files subsequently remain under separate review",
+    "tenantBypassBoundary": "435 calls across147 approved production files",
+    "rawSqlBoundary": "210 operations:125 reads85 writes"
+  },
+  "artifacts": [
+    "artifacts/guest-config-dispatch-before-20260908.log",
+    "artifacts/guest-config-dispatch-final-20260908.log",
+    "artifacts/guest-config-dispatch-gateway-20260908.log",
+    "artifacts/guest-config-dispatch-lint-final-20260908.log",
+    "artifacts/continuation-api-typecheck-20260908-final.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/api/src/routers/chat.ts",
+      "sha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c"
+    },
+    {
+      "path": "packages/api/src/routers/chat.test.ts",
+      "sha256": "239d72db1eca7225728d4df1939b033906da451e9743e4472b2fbbfe2f8bc166"
+    }
+  ],
+  "limits": [
+    "Mocked provider and database delegates; no live provider or native persistence claim for this change.",
+    "This uses the existing admission boundary, not a transaction across provider I/O; changes after the final check remain a race window and already-dispatched work cannot be undone.",
+    "Compares the effective configuration values and sources, not an atomic persisted revision token.",
+    "No model, price, budget, or approval configuration is changed by this implementation."
+  ]
+}
