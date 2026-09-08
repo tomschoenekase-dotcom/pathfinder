@@ -3,6 +3,13 @@ import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
+const authMocks = vi.hoisted(() => ({ ensureOrganizationInvitation: vi.fn() }))
+
+vi.mock('@pathfinder/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/auth')>()
+  return { ...actual, ensureOrganizationInvitation: authMocks.ensureOrganizationInvitation }
+})
+
 vi.mock('@pathfinder/ai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/ai')>()
   return {
@@ -45,6 +52,8 @@ import { getTenantBillingOverview } from '@pathfinder/billing'
 import {
   db,
   linkProspectConversionAction,
+  prepareCustomerAccessRequestAction,
+  recordApprovalDecisionAction,
   reviewProspectInboundReplyAction,
   submitIntakeV1Action,
   submitOnboardingBootstrapAction,
@@ -58,6 +67,7 @@ import { loadReviewableVenuePackageEvaluationPreview } from './lib/reviewable-pa
 import { adminEvaluationOnboardingActionsRouter } from './routers/admin/evaluation-onboarding-actions'
 import { readProspectOnboardingDeliveryAttempt } from './routers/admin/prospect-crm-delivery-read'
 import { portalRouter } from './routers/portal'
+import { appRouter } from './root'
 
 const confirmation = 'pathfinder_disposable_intake_v1_delivery'
 const enabled =
@@ -479,6 +489,195 @@ describe.skipIf(!enabled)('V1 provider-dark delivery preparation journey', () =>
         release: { released: false, hasReviewedArtifact: false },
         publication: { clientCanPublish: false },
       })
+      expect(await db.customerAccessRequest.count()).toBe(0)
+
+      const accessIdentityId = `identity-v1-delivery-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: accessIdentityId,
+          tenantId,
+          venueId,
+          identityKey: `customer-access-v1-delivery.${suffix}`,
+          name: 'V1 delivery customer access worker',
+          agentType: 'CUSTOMER_OPERATIONS',
+          accessScope: 'VENUE',
+          accessCapabilities: ['customer-access:prepare'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: ownerUserId,
+        },
+      })
+      const accessRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: accessIdentityId,
+          runType: 'CUSTOMER_SUPPORT',
+          requestedOperation: 'customer-access.invite-member',
+          requestPrompt: 'Prepare the exact venue-scoped owner access request.',
+          scopeSnapshot: { accessCapabilities: ['customer-access:prepare'] },
+          status: 'RUNNING',
+          startedAt: new Date(),
+          initiatedByType: 'HUMAN',
+          initiatedById: ownerUserId,
+        },
+      })
+      const supportRequest = await db.supportRequest.create({
+        data: {
+          tenantId,
+          venueId,
+          category: 'GENERAL',
+          subject: 'Invite the interested venue contact',
+          createdByKind: 'CLIENT',
+          createdById: ownerUserId,
+          requesterUserId: ownerUserId,
+          updatedByKind: 'CLIENT',
+          updatedById: ownerUserId,
+        },
+      })
+      const sourceSupportMessage = await db.supportMessage.create({
+        data: {
+          tenantId,
+          venueId,
+          supportRequestId: supportRequest.id,
+          authorKind: 'CLIENT',
+          authorId: ownerUserId,
+          visibility: 'CLIENT_VISIBLE',
+          body: `Please invite ${prospectEmail} as a team member for this venue.`,
+          clientVersion: 1,
+        },
+      })
+      const accessOperationId = randomUUID()
+      const preparedAccess = await prepareCustomerAccessRequestAction({
+        operationId: accessOperationId,
+        tenantId,
+        venueId,
+        supportRequestId: supportRequest.id,
+        sourceSupportMessageId: sourceSupportMessage.id,
+        emailAddress: prospectEmail,
+        requestedRole: 'MEMBER',
+        reason: 'Exact venue-scoped owner-authored invitation request.',
+        actor: {
+          type: 'AGENT',
+          actorId: accessIdentityId,
+          role: 'AGENT',
+          agentIdentityId: accessIdentityId,
+          agentRunId: accessRun.id,
+          workerId: `worker-${suffix}`,
+          credentialId: `credential-${suffix}`,
+          capability: 'customer-access:prepare',
+          idempotencyKey: accessOperationId,
+        },
+      })
+      await recordApprovalDecisionAction({
+        tenantId,
+        venueId,
+        approvalRequestId: preparedAccess.request.approvalRequestId,
+        decision: 'APPROVED',
+        reason: 'Synthetic human approval for the exact connected V1 access request.',
+        actor: {
+          actorType: 'HUMAN',
+          actorId: ownerUserId,
+          auditRole: 'PLATFORM_ADMIN',
+        },
+      })
+      const approvedAccess = await db.customerAccessRequest.findUniqueOrThrow({
+        where: { id: preparedAccess.request.id },
+        select: { status: true, updatedAt: true },
+      })
+      expect(approvedAccess.status).toBe('APPROVED')
+
+      const invitationProviderId = `invite-v1-delivery-${suffix}`
+      authMocks.ensureOrganizationInvitation.mockResolvedValue({
+        id: invitationProviderId,
+        replayed: false,
+      })
+      const adminCaller = appRouter.createCaller(context)
+      const executionInput = {
+        tenantId,
+        venueId,
+        requestId: preparedAccess.request.id,
+        expectedUpdatedAt: approvedAccess.updatedAt,
+      }
+      await expect(
+        adminCaller.admin.executeApprovedCustomerInvitation({
+          ...executionInput,
+          venueId: foreignVenueId,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(
+        adminCaller.admin.executeApprovedCustomerInvitation({
+          ...executionInput,
+          tenantId: foreignTenantId,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const nonAdminCaller = appRouter.createCaller({
+        ...context,
+        session: { ...context.session, isPlatformAdmin: false },
+      })
+      await expect(
+        nonAdminCaller.admin.executeApprovedCustomerInvitation(executionInput),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(authMocks.ensureOrganizationInvitation).not.toHaveBeenCalled()
+
+      await expect(
+        adminCaller.admin.executeApprovedCustomerInvitation(executionInput),
+      ).resolves.toEqual({
+        requestId: preparedAccess.request.id,
+        status: 'INVITED',
+        providerInvitationId: invitationProviderId,
+        replayed: false,
+        membershipCreatedLocally: false,
+      })
+      expect(authMocks.ensureOrganizationInvitation).toHaveBeenCalledTimes(1)
+      expect(authMocks.ensureOrganizationInvitation).toHaveBeenCalledWith({
+        organizationId: tenantId,
+        emailAddress: prospectEmail,
+        role: 'org:member',
+        inviterUserId: ownerUserId,
+      })
+      const invitedAccess = await db.customerAccessRequest.findUniqueOrThrow({
+        where: { id: preparedAccess.request.id },
+        select: { status: true, providerInvitationId: true, updatedAt: true },
+      })
+      expect(invitedAccess).toMatchObject({
+        status: 'INVITED',
+        providerInvitationId: invitationProviderId,
+      })
+      await expect(
+        adminCaller.admin.executeApprovedCustomerInvitation({
+          ...executionInput,
+          expectedUpdatedAt: invitedAccess.updatedAt,
+        }),
+      ).resolves.toEqual({
+        requestId: preparedAccess.request.id,
+        status: 'INVITED',
+        providerInvitationId: invitationProviderId,
+        replayed: true,
+        membershipCreatedLocally: false,
+      })
+      expect(authMocks.ensureOrganizationInvitation).toHaveBeenCalledTimes(1)
+      expect(
+        await db.tenantMembership.count({
+          where: { tenantId, user: { email: { equals: prospectEmail, mode: 'insensitive' } } },
+        }),
+      ).toBe(0)
+      expect(
+        await db.auditLog.findMany({
+          where: {
+            tenantId,
+            targetType: 'CustomerAccessRequest',
+            targetId: preparedAccess.request.id,
+          },
+          select: { action: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      ).toEqual([
+        { action: 'customer-access.invitation-prepared' },
+        { action: 'customer-access.provider-started' },
+        { action: 'customer-access.invitation-confirmed' },
+      ])
       expect(
         await db.prospectOnboardingDeliveryAttempt.findUniqueOrThrow({
           where: { id: invitationDraft.id },
@@ -513,7 +712,7 @@ describe.skipIf(!enabled)('V1 provider-dark delivery preparation journey', () =>
       )
       expect(await db.prospectSendOutbox.count()).toBe(0)
       expect(await db.prospectEmailMessage.count({ where: { direction: 'OUTBOUND' } })).toBe(0)
-      expect(await db.customerAccessRequest.count()).toBe(0)
+      expect(await db.customerAccessRequest.count()).toBe(1)
       expect(operationCount).toBe(8)
       expect(Object.keys(operationDurationsMs).sort()).toEqual([
         'collect',
@@ -537,8 +736,11 @@ describe.skipIf(!enabled)('V1 provider-dark delivery preparation journey', () =>
           prospectVenueId: prospectVenues[0]!.id,
           onboardingDeliveryAttemptId: invitationDraft.id,
           prospectLocationConversionId: conversion.locationConversion!.id,
+          customerAccessRequestId: preparedAccess.request.id,
+          customerAccess: 'INVITED_PROVIDER_MOCK',
+          providerInvitationCalls: authMocks.ensureOrganizationInvitation.mock.calls.length,
           lineageLimit:
-            'Local seeded owner; no identity-provider invitation or client-create API execution.',
+            'Local seeded owner and mocked organization-invitation provider; no Clerk transport, account acceptance, or customer delivery.',
           publication: 'HELD',
           qrReadiness: 'HELD_UNTIL_ACTIVE',
           invitationDraft: 'RETAINED_PROVIDER_DARK',
