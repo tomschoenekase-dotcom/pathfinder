@@ -35,6 +35,11 @@ const {
   createSemanticDraft,
   createLegacyAdoptionDraft,
   buildIntakeV1Candidate,
+  prepareIntakeV1Proposal,
+  readIntakeV1ProposalReplay,
+  createIntakeV1Draft,
+  consumeGrantInTransaction,
+  assertWorkflowLease,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
   createUpdate: vi.fn(),
@@ -69,6 +74,11 @@ const {
   createSemanticDraft: vi.fn(),
   createLegacyAdoptionDraft: vi.fn(),
   buildIntakeV1Candidate: vi.fn(),
+  prepareIntakeV1Proposal: vi.fn(),
+  readIntakeV1ProposalReplay: vi.fn(),
+  createIntakeV1Draft: vi.fn(),
+  consumeGrantInTransaction: vi.fn(),
+  assertWorkflowLease: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -96,6 +106,11 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   recordAgentImprovementValidationAction: recordAgentImprovementValidation,
   registerAgentWorkflowVersion,
   publishOperationalEvent: publishEvent,
+  prepareIntakeV1PackageDraftProposalAction: prepareIntakeV1Proposal,
+  readIntakeV1PackageDraftProposalReplay: readIntakeV1ProposalReplay,
+  consumeApprovalGrantInTransaction: consumeGrantInTransaction,
+  assertEligibleWorkflowRunLease: vi.fn(),
+  assertIntakeV1PackageMachineAuthority: assertWorkflowLease,
   assertVenueAiAvailable: assertVenueAi,
 }))
 
@@ -124,6 +139,9 @@ vi.mock('../lib/legacy-knowledge-adoption-service', () => ({
 }))
 vi.mock('../lib/intake-v1-package-candidate', () => ({
   buildIntakeV1PackageCandidate: buildIntakeV1Candidate,
+}))
+vi.mock('../lib/intake-v1-package-draft', () => ({
+  createIntakeV1PackageDraft: createIntakeV1Draft,
 }))
 
 vi.mock('@pathfinder/jobs', async (importOriginal) => ({
@@ -186,6 +204,220 @@ describe('safe operational MCP composition', () => {
       kind: 'torchiko.intake-v1-package-preview',
       data: { ready: false, autoApprove: false, autoApply: false, published: false },
     })
+  })
+
+  it('derives the V1 proposal candidate server-side and records only review authority', async () => {
+    readIntakeV1ProposalReplay.mockResolvedValueOnce(null)
+    const candidate = {
+      submissionId: 'submission-1',
+      revisionId: 'revision-1',
+      revision: 1,
+      manifestHash: 'a'.repeat(64),
+      selectedMemberIds: ['member-1'],
+      remainingMemberIds: [],
+      selectionHash: 'b'.repeat(64),
+      ready: true,
+      payload: {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      payloadHash: 'c'.repeat(64),
+      candidateHash: 'd'.repeat(64),
+      members: [],
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    }
+    buildIntakeV1Candidate.mockResolvedValueOnce(candidate)
+    prepareIntakeV1Proposal.mockResolvedValueOnce({
+      approvalRequest: { id: 'approval-1' },
+      replayed: false,
+    })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id',
+          workerKey: 'worker-1',
+          modelProvider: null,
+          modelName: null,
+        }),
+      },
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.propose_intake_v1_package_draft',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        executionLeaseToken: '22222222-2222-4222-8222-222222222222',
+        submissionId: 'submission-1',
+        revision: 1,
+        selectedMemberIds: ['member-1'],
+        expectedManifestHash: candidate.manifestHash,
+        expectedCandidateHash: candidate.candidateHash,
+        expectedPayloadHash: candidate.payloadHash,
+        expectedSelectionHash: candidate.selectionHash,
+        partialAcknowledged: false,
+        draftOperationId: '33333333-3333-4333-8333-333333333333',
+        reason: 'Review exact V1 package.',
+      },
+      { credential: { ...credential, capabilities: ['packages:draft'] } },
+    )
+    expect(prepareIntakeV1Proposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateHash: candidate.candidateHash,
+        payloadHash: candidate.payloadHash,
+        selectedMemberIds: ['member-1'],
+      }),
+      database,
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      packageDraftCreated: false,
+      published: false,
+    })
+  })
+
+  it('creates one approved V1 draft through transaction-bound machine authority', async () => {
+    const recheckTime = vi.fn().mockResolvedValue(new Date())
+    assertWorkflowLease.mockResolvedValue({ recheckTime })
+    const future = new Date(Date.now() + 60_000)
+    const tx = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          executionLeaseExpiresAt: future,
+          cancelRequestedAt: null,
+        }),
+      },
+      agentWorkflowRunBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 'identity' }])
+        .mockResolvedValueOnce([
+          { id: 'worker-id', leaseExpiresAt: future, credentialScopeKey: 'scope-1' },
+        ])
+        .mockResolvedValueOnce([{ id: 'credential-1', expiresAt: future, scopeKey: 'scope-1' }])
+        .mockResolvedValueOnce([{ now: new Date() }])
+        .mockResolvedValueOnce([{ now: new Date() }]),
+    }
+    createIntakeV1Draft.mockImplementationOnce(async (request) => {
+      await request.authorizeFinalization({
+        tx,
+        packageId: 'package-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        createdBy: 'agent-1',
+        status: 'DRAFT',
+        replayed: false,
+        preview: { report: { semanticDuplicateScan: { status: 'COMPLETE' } } },
+      })
+      return {
+        value: { id: 'package-1', status: 'DRAFT' },
+        attachment: { handoff: { id: 'handoff-1' }, replayed: false },
+      }
+    })
+    consumeGrantInTransaction.mockResolvedValueOnce({
+      consumption: { resultReference: 'created' },
+      replayed: false,
+    })
+    const database = {
+      approvalGrant: { findFirst: vi.fn().mockResolvedValue({ id: 'grant-1' }) },
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id',
+          workerKey: 'worker-1',
+          modelProvider: null,
+          modelName: null,
+        }),
+      },
+    }
+    const exact = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      executionLeaseToken: '22222222-2222-4222-8222-222222222222',
+      submissionId: 'submission-1',
+      revision: 1,
+      selectedMemberIds: ['member-1'],
+      expectedManifestHash: 'a'.repeat(64),
+      expectedCandidateHash: 'b'.repeat(64),
+      expectedPayloadHash: 'c'.repeat(64),
+      expectedSelectionHash: 'd'.repeat(64),
+      partialAcknowledged: false,
+      draftOperationId: '33333333-3333-4333-8333-333333333333',
+    }
+    const result = await createSafeOperationalMcpRegistry(database as never).callTool(
+      'pathfinder.apply_intake_v1_package_draft',
+      exact,
+      {
+        credential: { ...credential, capabilities: ['packages:draft'] },
+        approvalGrantId: 'grant-1',
+      },
+    )
+    expect(assertWorkflowLease).toHaveBeenCalled()
+    expect(recheckTime).toHaveBeenCalledOnce()
+    expect(consumeGrantInTransaction).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        operationId: exact.operationId,
+        actionName: 'pathfinder.apply_intake_v1_package_draft',
+        resultReference: `VenuePackage:package-1:IntakeV1Handoff:${exact.draftOperationId}:DRAFT`,
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      packageId: 'package-1',
+      handoffId: 'handoff-1',
+      status: 'DRAFT',
+      published: false,
+    })
+    tx.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce([{ id: 'identity' }])
+      .mockResolvedValueOnce([
+        { id: 'worker-id', leaseExpiresAt: future, credentialScopeKey: 'scope-1' },
+      ])
+      .mockResolvedValueOnce([{ id: 'credential-1', expiresAt: future, scopeKey: 'scope-1' }])
+      .mockResolvedValueOnce([{ now: new Date() }])
+      .mockResolvedValueOnce([{ now: new Date(future.getTime() + 1) }])
+    createIntakeV1Draft.mockImplementationOnce(async (request) => {
+      await request.authorizeFinalization({
+        tx,
+        packageId: 'package-2',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        createdBy: 'agent-1',
+        status: 'DRAFT',
+        replayed: false,
+        preview: { report: { semanticDuplicateScan: { status: 'COMPLETE' } } },
+      })
+    })
+    assertWorkflowLease.mockResolvedValueOnce({
+      recheckTime: vi
+        .fn()
+        .mockRejectedValue(new Error('V1 package machine authority expired before the effect.')),
+    })
+    await expect(
+      createSafeOperationalMcpRegistry(database as never).callTool(
+        'pathfinder.apply_intake_v1_package_draft',
+        {
+          ...exact,
+          operationId: '44444444-4444-4444-8444-444444444444',
+          draftOperationId: '55555555-5555-4555-8555-555555555555',
+        },
+        {
+          credential: { ...credential, capabilities: ['packages:draft'] },
+          approvalGrantId: 'grant-1',
+        },
+      ),
+    ).rejects.toThrow('expired before the effect')
+    expect(consumeGrantInTransaction).toHaveBeenCalledTimes(2)
   })
   it('reads scoped registered bodies with current capability compatibility and no activation', async () => {
     const manifest = {

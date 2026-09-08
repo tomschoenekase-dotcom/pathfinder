@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfinder/db'
+import {
+  getIntakeProposalReview,
+  intakeSourceMappingDigest,
+  onboardingBootstrapInputHash,
+} from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
 import { buildInterviewClarificationReview } from './intake-interview-clarifications'
@@ -11,6 +15,7 @@ import {
   VenuePackagePayloadV3,
   type VenuePackagePayloadV3 as PayloadV3,
 } from '../schemas/venue-package'
+import { venuePackagePayloadHash } from './venue-package-identity'
 
 const scopeInput = z
   .object({
@@ -48,6 +53,15 @@ const bootstrapContent = z.discriminatedUnion('kind', [
 ])
 
 const storedBootstrap = z.object({ version: z.literal(1), content: bootstrapContent }).strict()
+const storedSourceMappingReview = z
+  .object({
+    kind: z.literal('SOURCE_MAPPING_REVIEW'),
+    reviewId: z.string().uuid(),
+    mappingVersion: z.literal(1),
+    selectionHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict()
 const storedFileClarificationResolution = z
   .object({
     resolutionId: z.string().uuid(),
@@ -351,6 +365,30 @@ export async function buildIntakeVenuePackageCandidate(input: {
           },
         },
       },
+      sourceMappingProposalReview: {
+        select: {
+          id: true,
+          kind: true,
+          sourceRunId: true,
+          sourceInputHash: true,
+          requestHash: true,
+          mappingVersion: true,
+          selectionSnapshot: true,
+          selectionHash: true,
+          payload: true,
+          payloadHash: true,
+          reviewedBy: true,
+          sourceRun: {
+            select: {
+              tenantId: true,
+              venueId: true,
+              submissionInputHash: true,
+              requestedBy: true,
+              requestedByType: true,
+            },
+          },
+        },
+      },
       venue: {
         select: {
           name: true,
@@ -540,6 +578,38 @@ export async function buildIntakeVenuePackageCandidate(input: {
         },
       })
       return result(run, scope.venueId, candidate, issues)
+    }
+    const sourceMapping = storedSourceMappingReview.safeParse(run.structuredBootstrap)
+    if (sourceMapping.success) {
+      const review = run.sourceMappingProposalReview
+      const payload = review ? VenuePackagePayloadV3.safeParse(review.payload) : null
+      if (
+        !review ||
+        !payload?.success ||
+        review.id !== sourceMapping.data.reviewId ||
+        review.mappingVersion !== sourceMapping.data.mappingVersion ||
+        intakeSourceMappingDigest(review.selectionSnapshot) !== review.selectionHash ||
+        review.selectionHash !== sourceMapping.data.selectionHash ||
+        review.payloadHash !== sourceMapping.data.payloadHash ||
+        venuePackagePayloadHash(scope.venueId, payload.data) !== review.payloadHash ||
+        run.submissionRequestId !== review.id ||
+        run.submissionInputHash !== review.requestHash ||
+        run.requestedBy !== review.sourceRun.requestedBy ||
+        run.requestedByType !== review.sourceRun.requestedByType ||
+        review.sourceRun.tenantId !== scope.tenantId ||
+        review.sourceRun.venueId !== scope.venueId ||
+        review.sourceRun.submissionInputHash !== review.sourceInputHash ||
+        run.evidence.length !== 1 ||
+        run.evidence[0]?.locator !== `intake-source-mapping-review:${review.id}` ||
+        run.evidence[0]?.normalizedHash !== review.payloadHash ||
+        Number(run.evidence[0]?.confidence) !== 1
+      ) {
+        throw new IntakeVenuePackageCandidateError(
+          'INVALID_EVIDENCE',
+          'Stored source mapping review evidence is invalid',
+        )
+      }
+      return result(run, scope.venueId, payload.data, issues)
     }
     const bootstrapEvidence = run.evidence[0]
     if (

@@ -30,7 +30,7 @@ An uncertain response keeps the same operation UUID and exact selected IDs/revis
 
 After a confirmed save, the workspace reloads the exact returned revision using the bounded revision cursor, even when a later amendment already exists. A receipt-read failure still reports the confirmed save and refreshes the private draft workspace. It does not invite an accidental second submission under the pre-save draft revision.
 
-Canonical review and package-building integration remain separate work. The presence of a V1 receipt is not evidence that generation has started or that a visitor-facing artifact exists.
+Canonical review and package creation are separate explicit operations, described below. The presence of a V1 receipt is not evidence that generation has started or that a visitor-facing artifact exists.
 
 The retained [native PostgreSQL journey](evidence/intake-v1-native-postgres-2026-09-07.json) passed through 224 fresh migrations and 251 public tables in UTC. Focused source-snapshot tests additionally reject mismatched receipt generation, SHA-256, byte size, and storage version before aggregate writes. These are local fixture proofs, not provider or deployment evidence.
 
@@ -54,10 +54,44 @@ The retained [processing PostgreSQL proof](evidence/intake-v1-processing-native-
 
 The admin intake API exposes `previewIntakeV1Package` and `createIntakeV1PackageDraft`. Preview requires an exact submission, revision, and explicit member selection; it returns remaining members and a separate source-lineage candidate hash and canonical payload hash. The read-only MCP tool `pathfinder.preview_intake_v1_package_draft` exposes the same server-derived preview to a venue-scoped `packages:read` credential.
 
-Supported reviewed structured and interview sources use the existing canonical candidate builders. Selected pending, held, or unmapped material prevents that selection from producing a draft. Unselected material remains visible, and partial acknowledgement is required for excluded members or omissions already recorded by the submission. A waiting source does not stop independent processing. Website mapping and generic note review are still separate integration work; this boundary does not silently convert them into public facts.
+Supported reviewed structured and interview sources use the existing canonical candidate builders. Selected pending, held, or unmapped material prevents that selection from producing a draft. Unselected material remains visible, and partial acknowledgement is required for excluded members or omissions already recorded by the submission. A waiting source does not stop independent processing. Website mapping and optional-note selections enter through the explicit source review below; this boundary does not silently convert unreviewed material into public facts.
 
 The draft command binds the operation UUID, exact manifest, candidate and payload hashes, selected member IDs, actor, and partial acknowledgement. It creates a canonical `VenuePackage` through the existing semantic-review service. Its transaction rebuilds the source projection before inserting the append-only `IntakeV1PackageHandoff`. The receipt allows one package per immutable revision, and one revision per package; later additions require an explicit submission amendment. No duplicate content store is introduced.
 
-Historical retries resolve the retained handoff before recomputing potentially changed review sources. Exact retries can recover a package after its later lifecycle changes; mismatched identity conflicts. A uniqueness or serialization race returns a conflict, and callers retain the operation UUID. Package approval, application and publication use their existing distinct policies. The machine write/proposal adapter remains separate work; the implemented MCP tool is read-only.
+Historical retries resolve the retained handoff before recomputing potentially changed review sources. Exact retries can recover a package after its later lifecycle changes; mismatched identity conflicts. A uniqueness or serialization race returns a conflict, and callers retain the operation UUID. Package approval, application and publication use their existing distinct policies. The machine proposal and approval-backed draft adapter below uses this same canonical transaction.
 
 The [native revision-package journey](evidence/intake-v1-package-native-postgres-2026-09-07.json) passed 226 migrations and 253 public tables in UTC. It exercises real canonical source submission, partial acknowledgement, independent pending material, injected handoff failure with package rollback, concurrent exact retries, one-package readback, scope checks and database immutability. Embeddings are deterministic fixture adapters; no provider or hosted action is claimed.
+
+## Reviewed website and optional-note projections
+
+Migration 227 adds append-only `IntakeSourceMappingReview` records. The admin intake operation `reviewIntakeSourceMapping` binds an operation UUID, exact tenant/venue/source input hash, rationale, and the authenticated reviewer. Callers cannot inject the reviewer identity.
+
+For `WEBSITE_MAPPING`, supply the retained research receipt, expected research hash, and explicit canonical website mapping selections. For `OPTIONAL_NOTES_SELECTION`, supply explicit `consentToPublicUse: true`, title, category, and 1 to 20 ordered, nonoverlapping Unicode code-point ranges. Notes must originate from the human-authored optional-notes source; ranges retain exact text rather than inventing a paraphrase. Website projections preserve the original source actor and model provenance while recording the human reviewer separately.
+
+The source is locked while the canonical projection, derived reviewable intake run, evidence, and immutable review are recorded in one transaction. A failed review leaves no derived run. Exact retries return the retained review; changed terms conflict. Source/research/selection/payload hashes and scoped database references protect lineage. The derived run uses `SOURCE_MAPPING_REVIEW` as its projection reference and remains `AWAITING_REVIEW`. Select that derived source in an explicit V1 revision to make it eligible for package preview. The review creates neither a package nor visitor publication.
+
+The [source-mapping PostgreSQL proof](evidence/intake-source-mapping-native-postgres-2026-09-07.json) covers both projections, exact retries, scope/hash/receipt rejection, database immutability, injected rollback, and their integration into a ready V1 candidate through 227 migrations and 254 public tables.
+
+## Agent proposal and approved draft execution
+
+The MCP registry exposes these operations:
+
+| Operation                                    | Capability                                    | Effect                                                                                  |
+| -------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `pathfinder.preview_intake_v1_package_draft` | `packages:read`                               | Returns the server-derived exact candidate and hashes.                                  |
+| `pathfinder.propose_intake_v1_package_draft` | `packages:draft`                              | Records an immutable approval request; creates no package.                              |
+| `pathfinder.apply_intake_v1_package_draft`   | `packages:draft` plus an exact approval grant | Creates the canonical DRAFT and immutable V1 handoff atomically with grant consumption. |
+
+Preview first. Retain the returned manifest, candidate, payload, and selection hashes, the exact ordered member IDs, revision, and partial acknowledgement. Proposal and execution require the current assigned worker, agent identity/run, and workflow execution lease. Keep `draftOperationId` stable across proposal, approval, execution, and retries. The proposal `operationId` identifies its approval request; the execution `operationId` identifies grant consumption. Reuse each operation ID only with its original terms.
+
+A human administrator records the decision through `decideIntakeV1PackageDraftProposal`. An approved decision and the one-shot grant are written in the same real database transaction. The decision itself never starts execution. The grant binds the candidate identity, selected members, revision, and draft operation; it does not authorize package approval, application, or publication.
+
+Execution rebuilds the canonical candidate, checks exact approved parameters, and locks the run-assigned worker, current credential, identity, and scope. Database time is sampled after locks and again after grant consumption, so expired authority cannot survive a lock wait. The grant, package, audit, and handoff roll back together if finalization fails. An exact retry returns the retained handoff at the package's current lifecycle status, with no new effect; changed terms conflict. An uncertain response must be retried with the same identities, not a newly invented operation.
+
+The [machine PostgreSQL journey](evidence/intake-v1-machine-native-postgres-2026-09-07.json) proves assigned-worker proposal admission, human decision/grant, actual machine draft execution, exact replay, grant/package rollback, and stale-credential rejection through 227 migrations and 254 public tables. The [grant expiry race proof](evidence/approval-grant-expiry-native-postgres-2026-09-07.json) retains both the failing pre-fix lock-wait case and the passing post-lock database-clock check. These local fixtures invoke no provider or publication.
+
+## Held delivery preparation evidence
+
+The [connected delivery fixture](evidence/intake-v1-delivery-native-postgres-2026-09-07.json) runs canonical collection, V1 freeze, candidate preview, draft handoff, review preview, CORE evaluation preparation, portal read, and billing read in a fresh 227-migration database. It proves exact retries, stale/scope rejection, and that an unreleased inactive venue remains held. Its eight local operation timings are synthetic measurements, not production SLOs.
+
+That fixture does not approve or apply content, activate billing, scan a QR code, or send an invitation. Invitation preparation is explicitly untested because the fixture has no prospect CRM lineage. The fixture leaves billing unconfigured and visitor preview unavailable; these are truthful held states rather than a claim of complete delivery.

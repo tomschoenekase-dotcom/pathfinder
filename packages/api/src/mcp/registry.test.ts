@@ -83,6 +83,8 @@ function actions(): PathfinderMcpDomainActions {
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
     previewIntakeV1PackageDraft: vi.fn().mockResolvedValue(result),
+    proposeIntakeV1PackageDraft: vi.fn().mockResolvedValue(result),
+    applyIntakeV1PackageDraft: vi.fn().mockResolvedValue(result),
     createUpdateDraft: vi.fn().mockResolvedValue(result),
     createSupportDraft: vi.fn().mockResolvedValue(result),
     openSupportRequest: vi.fn().mockResolvedValue(result),
@@ -121,6 +123,52 @@ describe('scoped workflow inspection', () => {
     }
     expect(domain.previewIntakeV1PackageDraft).toHaveBeenCalledTimes(1)
     expect(beforeAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps V1 proposal inert and requires exact approval for draft creation', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain, { writeToolsEnabled: true })
+    const exact = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      executionLeaseToken: '22222222-2222-4222-8222-222222222222',
+      submissionId: 'submission-1',
+      revision: 1,
+      selectedMemberIds: ['member-1'],
+      expectedManifestHash: 'a'.repeat(64),
+      expectedCandidateHash: 'b'.repeat(64),
+      expectedPayloadHash: 'c'.repeat(64),
+      expectedSelectionHash: 'd'.repeat(64),
+      partialAcknowledged: false,
+      draftOperationId: '33333333-3333-4333-8333-333333333333',
+    }
+    await registry.callTool(
+      'pathfinder.propose_intake_v1_package_draft',
+      { ...exact, reason: 'Exact reviewed source.' },
+      { credential },
+    )
+    expect(domain.proposeIntakeV1PackageDraft).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+    await expect(
+      registry.callTool('pathfinder.apply_intake_v1_package_draft', exact, { credential }),
+    ).rejects.toThrow()
+    await registry.callTool('pathfinder.apply_intake_v1_package_draft', exact, {
+      credential,
+      approvalGrantId: 'grant-1',
+    })
+    expect(domain.verifyApprovalGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'pathfinder.apply_intake_v1_package_draft',
+        capability: 'packages:draft',
+        venueId: 'venue-1',
+      }),
+      expect.anything(),
+    )
+    expect(domain.applyIntakeV1PackageDraft).toHaveBeenCalledOnce()
   })
   it('allows bounded read-only inspection and denies scope escalation before the action', async () => {
     const domain = actions()

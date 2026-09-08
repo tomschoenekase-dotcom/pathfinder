@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  IntakeV1PackageDraftApplyParameters,
+  IntakeV1PackageDraftProposalApprovalSnapshot,
   defaultIntakeNotesProposalPolicyConstraints,
   IntakeNotesProposalPolicyConstraints,
   IntakeNotesProposalPolicyParameters,
@@ -150,6 +152,55 @@ describe('support completion fulfillment contract', () => {
         },
       }),
     ).toThrow('Package-free observability')
+  })
+})
+
+describe('V1 package draft approval contract', () => {
+  const parameters = {
+    clientId: 'tenant_1',
+    venueId: 'venue_1',
+    submissionId: 'submission_1',
+    revision: 2,
+    manifestHash: 'a'.repeat(64),
+    candidateHash: 'b'.repeat(64),
+    payloadHash: 'c'.repeat(64),
+    selectionHash: 'd'.repeat(64),
+    selectedMemberIds: ['member_1'],
+    partialAcknowledged: true,
+    draftOperationId: '11111111-1111-4111-8111-111111111111',
+  }
+  it('binds one exact server-derived selection without lifecycle authority', () => {
+    expect(IntakeV1PackageDraftApplyParameters.parse(parameters)).toEqual(parameters)
+    expect(
+      IntakeV1PackageDraftProposalApprovalSnapshot.parse({
+        contractVersion: 1,
+        tenantId: parameters.clientId,
+        venueId: parameters.venueId,
+        submissionId: parameters.submissionId,
+        revision: parameters.revision,
+        manifestHash: parameters.manifestHash,
+        candidateHash: parameters.candidateHash,
+        payloadHash: parameters.payloadHash,
+        selectionHash: parameters.selectionHash,
+        selectedMemberIds: parameters.selectedMemberIds,
+        partialAcknowledged: parameters.partialAcknowledged,
+        draftOperationId: parameters.draftOperationId,
+        packageDraftCreated: false,
+        packageApproved: false,
+        packageApplied: false,
+        packagePublished: false,
+        executionAuthorized: false,
+      }),
+    ).toMatchObject({ submissionId: 'submission_1', packageDraftCreated: false })
+    expect(() =>
+      IntakeV1PackageDraftApplyParameters.parse({ ...parameters, payload: {} }),
+    ).toThrow()
+    expect(() =>
+      IntakeV1PackageDraftApplyParameters.parse({
+        ...parameters,
+        selectedMemberIds: ['member_1', 'member_1'],
+      }),
+    ).toThrow()
   })
 })
 

@@ -1147,6 +1147,49 @@ export const McpIntakeV1PackagePreviewInput = McpRequestedScope.extend({
   })
 export type McpIntakeV1PackagePreviewInput = z.infer<typeof McpIntakeV1PackagePreviewInput>
 
+const McpIntakeV1PackageIdentityFields = {
+  submissionId: Identifier,
+  revision: z.number().int().min(1),
+  selectedMemberIds: z.array(Identifier).min(1).max(50),
+  expectedManifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedCandidateHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedSelectionHash: z.string().regex(/^[a-f0-9]{64}$/),
+  partialAcknowledged: z.boolean(),
+  draftOperationId: z.string().uuid(),
+}
+export const McpIntakeV1PackageDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  executionLeaseToken: z.string().uuid(),
+  ...McpIntakeV1PackageIdentityFields,
+  reason: z.string().trim().min(3).max(2_000),
+})
+  .strict()
+  .refine((value) => new Set(value.selectedMemberIds).size === value.selectedMemberIds.length, {
+    path: ['selectedMemberIds'],
+    message: 'Selected V1 member IDs must be unique.',
+  })
+export type McpIntakeV1PackageDraftProposalInput = z.infer<
+  typeof McpIntakeV1PackageDraftProposalInput
+>
+export const McpIntakeV1PackageDraftApplyInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  executionLeaseToken: z.string().uuid(),
+  ...McpIntakeV1PackageIdentityFields,
+})
+  .strict()
+  .refine((value) => new Set(value.selectedMemberIds).size === value.selectedMemberIds.length, {
+    path: ['selectedMemberIds'],
+    message: 'Selected V1 member IDs must be unique.',
+  })
+export type McpIntakeV1PackageDraftApplyInput = z.infer<typeof McpIntakeV1PackageDraftApplyInput>
+
 export const McpUpdateDraftInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -1370,6 +1413,8 @@ export type PathfinderMcpToolName =
   | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
   | 'pathfinder.preview_intake_v1_package_draft'
+  | 'pathfinder.propose_intake_v1_package_draft'
+  | 'pathfinder.apply_intake_v1_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.open_support_request'
@@ -3346,6 +3391,120 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'delegations:create', 'interaction') },
+  },
+  {
+    name: 'pathfinder.propose_intake_v1_package_draft',
+    title: 'Propose an exact V1 package draft',
+    description:
+      'Request human approval for one exact server-derived V1 package candidate. No package or public change is created.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: { type: 'string', format: 'uuid' },
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        expectedManifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedCandidateHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedPayloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedSelectionHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        partialAcknowledged: { type: 'boolean' },
+        draftOperationId: { type: 'string', format: 'uuid' },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'executionLeaseToken',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+        'expectedManifestHash',
+        'expectedCandidateHash',
+        'expectedPayloadHash',
+        'expectedSelectionHash',
+        'partialAcknowledged',
+        'draftOperationId',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'interaction') },
+  },
+  {
+    name: 'pathfinder.apply_intake_v1_package_draft',
+    title: 'Create an approved exact V1 package draft',
+    description:
+      'Consume one exact human approval to create one inactive package DRAFT and V1 handoff. It cannot approve, apply, or publish.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        executionLeaseToken: { type: 'string', format: 'uuid' },
+        submissionId: { type: 'string', minLength: 1, maxLength: 120 },
+        revision: { type: 'integer', minimum: 1 },
+        selectedMemberIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        expectedManifestHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedCandidateHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedPayloadHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        expectedSelectionHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        partialAcknowledged: { type: 'boolean' },
+        draftOperationId: { type: 'string', format: 'uuid' },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'executionLeaseToken',
+        'submissionId',
+        'revision',
+        'selectedMemberIds',
+        'expectedManifestHash',
+        'expectedCandidateHash',
+        'expectedPayloadHash',
+        'expectedSelectionHash',
+        'partialAcknowledged',
+        'draftOperationId',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'packages:draft', 'draft') },
   },
   {
     name: 'pathfinder.preview_intake_v1_package_draft',

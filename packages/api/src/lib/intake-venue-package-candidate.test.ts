@@ -1,10 +1,15 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
-import { getIntakeProposalReview, onboardingBootstrapInputHash } from '@pathfinder/db'
+import {
+  getIntakeProposalReview,
+  intakeSourceMappingDigest,
+  onboardingBootstrapInputHash,
+} from '@pathfinder/db'
 
 import { buildInterviewClarificationReview } from './intake-interview-clarifications'
 import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
+import { venuePackagePayloadHash } from './venue-package-identity'
 
 const consentHash = createHash('sha256')
   .update(
@@ -186,6 +191,88 @@ function interviewRun(entries: ReadonlyArray<readonly [string, string]>, reverse
 }
 
 describe('deterministic intake VenuePackage candidate', () => {
+  it('reconstructs an exact persisted source-mapping review proposal', async () => {
+    const payload = {
+      schemaVersion: 3 as const,
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: {
+        create: [
+          {
+            itemKey: '44444444-4444-5444-8444-444444444444',
+            provenance: {
+              sourceType: 'PATHFINDER_INTAKE',
+              contentOrigin: 'HUMAN_AUTHORED' as const,
+            },
+            value: {
+              title: 'Reviewed note',
+              category: 'INFO',
+              content: 'Verbatim source text',
+              isEnabled: true,
+            },
+          },
+        ],
+        update: [],
+        delete: [],
+      },
+    }
+    const reviewId = '55555555-5555-4555-8555-555555555555'
+    const requestHash = 'a'.repeat(64)
+    const selectionSnapshot = { schemaVersion: 1, ranges: [{ start: 0, end: 20 }] }
+    const selectionHash = intakeSourceMappingDigest(selectionSnapshot)
+    const payloadHash = venuePackagePayloadHash('venue-a', payload)
+    const run = bootstrapRun(
+      { kind: 'knowledge', value: { title: 'unused', category: 'unused', content: 'unused' } },
+      {
+        id: 'mapped-run',
+        submissionRequestId: reviewId,
+        submissionInputHash: requestHash,
+        requestedBy: 'owner-a',
+        requestedByType: 'HUMAN',
+        structuredBootstrap: {
+          kind: 'SOURCE_MAPPING_REVIEW',
+          reviewId,
+          mappingVersion: 1,
+          selectionHash,
+          payloadHash,
+        },
+        evidence: [
+          {
+            sourceKind: 'STRUCTURED_BOOTSTRAP',
+            locator: `intake-source-mapping-review:${reviewId}`,
+            normalizedHash: payloadHash,
+            confidence: 1,
+          },
+        ],
+        sourceMappingProposalReview: {
+          id: reviewId,
+          kind: 'OPTIONAL_NOTES_SELECTION',
+          sourceRunId: 'source-a',
+          sourceInputHash: 'c'.repeat(64),
+          requestHash,
+          mappingVersion: 1,
+          selectionSnapshot,
+          selectionHash,
+          payload,
+          payloadHash,
+          reviewedBy: 'reviewer-a',
+          sourceRun: {
+            tenantId: 'tenant-a',
+            venueId: 'venue-a',
+            submissionInputHash: 'c'.repeat(64),
+            requestedBy: 'owner-a',
+            requestedByType: 'HUMAN',
+          },
+        },
+      },
+    )
+    const result = await buildIntakeVenuePackageCandidate({
+      db: db(run) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'mapped-run',
+    })
+    expect(result).toMatchObject({ ready: true, payload })
+  })
   it('maps an exact accepted extraction review into a stable human-authored knowledge candidate', async () => {
     const first = await buildIntakeVenuePackageCandidate({
       db: db(fileExtractionReviewRun()) as never,

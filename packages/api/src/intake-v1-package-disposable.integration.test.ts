@@ -46,10 +46,18 @@ import {
   submitOnboardingBootstrapAction,
   submitIntakeV1Action,
   withTenantIsolationBypass,
+  issueExternalCredentialAction,
+  activateAgentBridgeCredentialAction,
+  verifyAgentBridgeCredential,
+  registerAgentWorkerAction,
+  revokeExternalCredentialAction,
 } from '@pathfinder/db'
 
 import { buildIntakeV1PackageCandidate } from './lib/intake-v1-package-candidate'
 import { createIntakeV1PackageDraftForAdmin } from './lib/intake-v1-package-draft'
+import { createSafeOperationalMcpRegistry } from './mcp/composition'
+import { adminIntakeV1PackageDraftApprovalRouter } from './routers/admin/intake-v1-package-draft-approval'
+import type { TRPCContext } from './context'
 
 const enabled =
   process.env.RUN_INTAKE_V1_PACKAGE_DB_INTEGRATION === '1' &&
@@ -215,7 +223,9 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
       })
       await expect(
         createIntakeV1PackageDraftForAdmin({
-          db: failingDb,
+          // This is the same real Prisma client with a query failure hook. Erase
+          // the additional extension type layer to keep the large schema tractable.
+          db: failingDb as unknown as typeof db,
           actorId: ownerUserId,
           command: {
             tenantId,
@@ -291,6 +301,341 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
         createdBy: ownerUserId,
       })
 
+      const machineSubmission = await submitIntakeV1Action({
+        tenantId,
+        venueId,
+        ownerUserId,
+        actorRole: 'MANAGER',
+        amend: { submissionId: submitted.submissionId, expectedCurrentRevision: 1 },
+        selection: {
+          operationId: randomUUID(),
+          partialAcknowledged: false,
+          drafts: {},
+          intakeRunIds: [bootstrap.runId, second.id, website.id],
+          intakeUploadIds: [],
+        },
+      })
+      const machineRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          submissionId: submitted.submissionId,
+          revision: machineSubmission.revision,
+        },
+        include: { members: { orderBy: { ordinal: 'asc' } } },
+      })
+      const machineMember = machineRevision.members.find(
+        (member) => member.intakeRunId === bootstrap.runId,
+      )!
+      const machinePreview = await buildIntakeV1PackageCandidate({
+        db,
+        tenantId,
+        venueId,
+        submissionId: submitted.submissionId,
+        revision: machineSubmission.revision,
+        selectedMemberIds: [machineMember.id],
+      })
+      expect(machinePreview.ready).toBe(true)
+      const identityId = `v1-machine-${suffix}`
+      await db.agentIdentity.create({
+        data: {
+          id: identityId,
+          tenantId,
+          venueId,
+          identityKey: identityId,
+          name: 'V1 package reviewer',
+          agentType: 'OPERATIONS',
+          accessScope: 'VENUE',
+          accessCapabilities: ['packages:draft'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: ownerUserId,
+        },
+      })
+      const issued = await issueExternalCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        actor: { type: 'HUMAN', id: ownerUserId, role: 'PLATFORM_ADMIN' },
+        kind: 'MCP',
+        label: 'V1 package fixture',
+        capabilities: ['packages:draft', 'agent-runs:execute'],
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      })
+      await activateAgentBridgeCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        credentialId: issued.credential.id,
+        expectedUpdatedAt: issued.credential.updatedAt,
+        actor: { type: 'HUMAN', id: ownerUserId, role: 'PLATFORM_ADMIN' },
+      })
+      const credential = await verifyAgentBridgeCredential({
+        tenantId,
+        venueId,
+        plaintext: issued.plaintextSecret!,
+      })
+      const worker = await registerAgentWorkerAction(
+        {
+          workerKey: `v1-worker-${suffix}`,
+          runtimeType: 'OPENAI_COMPATIBLE',
+          label: 'V1 package worker',
+          protocolVersion: 'mcp-2026-07-28',
+          softwareVersion: 'fixture/1',
+          capabilities: ['packages:draft'],
+          agentRoles: ['client-operations'],
+          safeHealth: {},
+        },
+        credential,
+        { leaseSeconds: 300 },
+      )
+      const otherWorker = await registerAgentWorkerAction(
+        {
+          workerKey: `v1-worker-other-${suffix}`,
+          runtimeType: 'OPENAI_COMPATIBLE',
+          label: 'Other V1 worker',
+          protocolVersion: 'mcp-2026-07-28',
+          softwareVersion: 'fixture/1',
+          capabilities: ['packages:draft'],
+          agentRoles: ['client-operations'],
+          safeHealth: {},
+        },
+        credential,
+        { leaseSeconds: 300 },
+      )
+      const leaseToken = randomUUID()
+      const run = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          runType: 'ONBOARDING',
+          requestedOperation: 'operator_task',
+          requestPrompt: 'Prepare exact V1 package draft.',
+          scopeSnapshot: {},
+          status: 'RUNNING',
+          initiatedByType: 'HUMAN',
+          initiatedById: ownerUserId,
+          executionWorkerId: worker.id,
+          executionLeaseToken: leaseToken,
+          executionLeaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+          attemptNumber: 1,
+          startedAt: new Date(),
+        },
+      })
+      const registry = createSafeOperationalMcpRegistry(db)
+      const proposalOperationId = randomUUID()
+      const machineDraftOperationId = randomUUID()
+      const exact = {
+        clientId: tenantId,
+        venueId,
+        agentIdentityId: identityId,
+        agentRunId: run.id,
+        workerKey: worker.workerKey,
+        executionLeaseToken: leaseToken,
+        submissionId: submitted.submissionId,
+        revision: machineSubmission.revision,
+        selectedMemberIds: [machineMember.id],
+        expectedManifestHash: machinePreview.manifestHash,
+        expectedCandidateHash: machinePreview.candidateHash!,
+        expectedPayloadHash: machinePreview.payloadHash!,
+        expectedSelectionHash: machinePreview.selectionHash,
+        partialAcknowledged: true,
+        draftOperationId: machineDraftOperationId,
+      }
+      await expect(
+        registry.callTool(
+          'pathfinder.propose_intake_v1_package_draft',
+          {
+            ...exact,
+            operationId: randomUUID(),
+            workerKey: otherWorker.workerKey,
+            reason: 'Mismatched assigned worker must fail.',
+          },
+          { credential },
+        ),
+      ).rejects.toThrow(/authority/iu)
+      const proposed = await registry.callTool(
+        'pathfinder.propose_intake_v1_package_draft',
+        {
+          ...exact,
+          operationId: proposalOperationId,
+          reason: 'Create the reviewed exact V1 draft.',
+        },
+        { credential },
+      )
+      const approvalRequestId = (proposed.structuredContent.data as { approvalRequestId: string })
+        .approvalRequestId
+      const approval = await adminIntakeV1PackageDraftApprovalRouter
+        .createCaller({
+          db,
+          headers: new Headers(),
+          session: {
+            userId: ownerUserId,
+            activeTenantId: tenantId,
+            role: 'OWNER',
+            isPlatformAdmin: true,
+          },
+        } as TRPCContext)
+        .decideIntakeV1PackageDraftProposal({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          approvalRequestId,
+          decision: 'APPROVED',
+          reason: 'Exact V1 selection reviewed.',
+        })
+      const applyOperationId = randomUUID()
+      const applied = await registry.callTool(
+        'pathfinder.apply_intake_v1_package_draft',
+        { ...exact, operationId: applyOperationId },
+        { credential, approvalGrantId: approval.approvalGrant!.id },
+      )
+      const replayedMachine = await registry.callTool(
+        'pathfinder.apply_intake_v1_package_draft',
+        { ...exact, operationId: applyOperationId },
+        { credential, approvalGrantId: approval.approvalGrant!.id },
+      )
+      expect(applied.structuredContent.data).toMatchObject({
+        status: 'DRAFT',
+        replayed: false,
+        published: false,
+      })
+      expect(replayedMachine.structuredContent.data).toMatchObject({ replayed: true })
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { tenantId, operationId: applyOperationId },
+        }),
+      ).toBe(1)
+      expect(
+        await db.intakeV1PackageHandoff.count({
+          where: { tenantId, venueId, operationId: machineDraftOperationId },
+        }),
+      ).toBe(1)
+      const rollbackSubmission = await submitIntakeV1Action({
+        tenantId,
+        venueId,
+        ownerUserId,
+        actorRole: 'MANAGER',
+        amend: {
+          submissionId: submitted.submissionId,
+          expectedCurrentRevision: machineSubmission.revision,
+        },
+        selection: {
+          operationId: randomUUID(),
+          partialAcknowledged: false,
+          drafts: {},
+          intakeRunIds: [bootstrap.runId, second.id, website.id],
+          intakeUploadIds: [],
+        },
+      })
+      const rollbackRevision = await db.intakeV1SubmissionRevision.findFirstOrThrow({
+        where: {
+          tenantId,
+          venueId,
+          submissionId: submitted.submissionId,
+          revision: rollbackSubmission.revision,
+        },
+        include: { members: { orderBy: { ordinal: 'asc' } } },
+      })
+      const rollbackMember = rollbackRevision.members.find(
+        (member) => member.intakeRunId === bootstrap.runId,
+      )!
+      const rollbackPreview = await buildIntakeV1PackageCandidate({
+        db,
+        tenantId,
+        venueId,
+        submissionId: submitted.submissionId,
+        revision: rollbackSubmission.revision,
+        selectedMemberIds: [rollbackMember.id],
+      })
+      const rollbackProposalId = randomUUID()
+      const rollbackDraftId = randomUUID()
+      const rollbackExact = {
+        ...exact,
+        revision: rollbackSubmission.revision,
+        selectedMemberIds: [rollbackMember.id],
+        expectedManifestHash: rollbackPreview.manifestHash,
+        expectedCandidateHash: rollbackPreview.candidateHash!,
+        expectedPayloadHash: rollbackPreview.payloadHash!,
+        expectedSelectionHash: rollbackPreview.selectionHash,
+        draftOperationId: rollbackDraftId,
+      }
+      const rollbackProposal = await registry.callTool(
+        'pathfinder.propose_intake_v1_package_draft',
+        {
+          ...rollbackExact,
+          operationId: rollbackProposalId,
+          reason: 'Prove atomic grant rollback.',
+        },
+        { credential },
+      )
+      const rollbackRequestId = (
+        rollbackProposal.structuredContent.data as { approvalRequestId: string }
+      ).approvalRequestId
+      const rollbackApproval = await adminIntakeV1PackageDraftApprovalRouter
+        .createCaller({
+          db,
+          headers: new Headers(),
+          session: {
+            userId: ownerUserId,
+            activeTenantId: tenantId,
+            role: 'OWNER',
+            isPlatformAdmin: true,
+          },
+        } as TRPCContext)
+        .decideIntakeV1PackageDraftProposal({
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          approvalRequestId: rollbackRequestId,
+          decision: 'APPROVED',
+          reason: 'Exact rollback fixture reviewed.',
+        })
+      const rollbackApplyId = randomUUID()
+      const failingMachineRegistry = createSafeOperationalMcpRegistry(
+        failingDb as unknown as typeof db,
+      )
+      await expect(
+        failingMachineRegistry.callTool(
+          'pathfinder.apply_intake_v1_package_draft',
+          { ...rollbackExact, operationId: rollbackApplyId },
+          { credential, approvalGrantId: rollbackApproval.approvalGrant!.id },
+        ),
+      ).rejects.toThrow(injectedFailure.message)
+      expect(
+        await db.approvalGrantConsumption.count({
+          where: { tenantId, operationId: rollbackApplyId },
+        }),
+      ).toBe(0)
+      expect(
+        await db.venuePackage.count({ where: { tenantId, venueId, draftKey: rollbackDraftId } }),
+      ).toBe(0)
+      const credentialBeforeRevoke = await db.externalAccessCredential.findUniqueOrThrow({
+        where: { id: issued.credential.id },
+        select: { updatedAt: true },
+      })
+      await revokeExternalCredentialAction({
+        operationId: randomUUID(),
+        tenantId,
+        clientId: tenantId,
+        venueId,
+        credentialId: issued.credential.id,
+        expectedUpdatedAt: credentialBeforeRevoke.updatedAt,
+        reasonCode: 'FIXTURE_IMMEDIATE_STOP',
+        actor: { type: 'HUMAN', id: ownerUserId, role: 'PLATFORM_ADMIN' },
+      })
+      await expect(
+        registry.callTool(
+          'pathfinder.apply_intake_v1_package_draft',
+          { ...exact, operationId: applyOperationId },
+          { credential, approvalGrantId: approval.approvalGrant!.id },
+        ),
+      ).rejects.toThrow(/authority|worker|credential/iu)
+
       await expect(
         createIntakeV1PackageDraftForAdmin({
           db,
@@ -318,7 +663,8 @@ describe.skipIf(!enabled)('V1 package candidate and handoff disposable journey',
              AND venue_id = ${venueId}
         `,
       ).rejects.toThrow(/append-only/iu)
-      expect(await db.intakeV1PackageHandoff.count({ where: { tenantId, venueId } })).toBe(1)
+      // One human revision and one machine revision succeeded; the third rolled back.
+      expect(await db.intakeV1PackageHandoff.count({ where: { tenantId, venueId } })).toBe(2)
     })
   })
 })

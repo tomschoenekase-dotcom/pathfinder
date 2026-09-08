@@ -15,6 +15,8 @@ import {
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpIntakeV1PackagePreviewInput,
+  McpIntakeV1PackageDraftProposalInput,
+  McpIntakeV1PackageDraftApplyInput,
   McpKnowledgeGetInput,
   McpKnowledgeGapListInput,
   McpGuestAnswerAttributionListInput,
@@ -291,6 +293,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   previewIntakeV1PackageDraft?: (
     input: McpIntakeV1PackagePreviewInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackageDraftProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  applyIntakeV1PackageDraft?: (
+    input: McpIntakeV1PackageDraftApplyInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createUpdateDraft: (
@@ -774,6 +784,31 @@ export function createPathfinderMcpRegistry(
           if (!actions.previewIntakeV1PackageDraft)
             throw new Error('V1 package preview is unavailable')
           result = await actions.previewIntakeV1PackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.propose_intake_v1_package_draft': {
+          const input = McpIntakeV1PackageDraftProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await options.beforeAction?.(name, input, context)
+          if (!actions.proposeIntakeV1PackageDraft)
+            throw new Error('V1 package proposal is unavailable')
+          result = await actions.proposeIntakeV1PackageDraft(input, context)
+          break
+        }
+        case 'pathfinder.apply_intake_v1_package_draft': {
+          const input = McpIntakeV1PackageDraftApplyInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          await verifyApproval(
+            actions,
+            'pathfinder.apply_intake_v1_package_draft',
+            input,
+            metadata.capability,
+            context,
+          )
+          await options.beforeAction?.(name, input, context)
+          if (!actions.applyIntakeV1PackageDraft)
+            throw new Error('V1 package draft application is unavailable')
+          result = await actions.applyIntakeV1PackageDraft(input, context)
           break
         }
         case 'pathfinder.create_update_draft': {

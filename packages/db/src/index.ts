@@ -585,13 +585,16 @@ export type { SupportStatusTransitionActor } from './helpers/support-status-tran
 export {
   ApprovalDecisionActionError,
   recordApprovalDecisionAction,
+  recordApprovalDecisionInTransaction,
 } from './helpers/approval-decisions'
 export type { ApprovalDecisionActor } from './helpers/approval-decisions'
 export {
   approvalParameterHash,
   ApprovalGrantActionError,
   consumeApprovalGrantAction,
+  consumeApprovalGrantInTransaction,
   issueApprovalGrantAction,
+  issueApprovalGrantInTransaction,
   revokeApprovalGrantAction,
 } from './helpers/approval-grants'
 export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
@@ -1375,6 +1378,7 @@ export {
 } from './helpers/intake-v1-submission-actions'
 export * from './helpers/intake-v1-processing-dispatch-actions'
 export * from './helpers/intake-v1-processing-read'
+export * from './helpers/intake-source-mapping-review-actions'
 export * from './helpers/intake-v1-package-handoff'
 export {
   ProspectContactabilityError,
@@ -1388,3 +1392,5 @@ export * from './helpers/agent-workflow-run-lease'
 export * from './helpers/agent-workflow-activation-actions'
 export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'
+export * from './helpers/intake-v1-package-draft-proposal-actions'
+export * from './helpers/intake-v1-package-machine-authority'

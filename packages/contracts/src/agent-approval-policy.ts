@@ -15,6 +15,9 @@ export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_complet
 export const SUPPORT_COMPLETION_CAPABILITY = 'support:complete' as const
 export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const
 export const SUPPORT_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
+export const INTAKE_V1_PACKAGE_DRAFT_APPLY_ACTION =
+  'pathfinder.apply_intake_v1_package_draft' as const
+export const INTAKE_V1_PACKAGE_DRAFT_CAPABILITY = 'packages:draft' as const
 export const SUPPORT_PACKAGE_APPROVAL_APPLY_ACTION =
   'pathfinder.apply_support_package_approval' as const
 export const SUPPORT_PACKAGE_APPROVAL_CAPABILITY = 'packages:approve' as const
@@ -573,6 +576,58 @@ export const SupportPackageDraftProposalApprovalSnapshot = z
 
 export type SupportPackageDraftProposalApprovalSnapshot = z.infer<
   typeof SupportPackageDraftProposalApprovalSnapshot
+>
+
+const IntakeV1ExactSelection = z
+  .array(z.string().trim().min(1).max(191))
+  .min(1)
+  .max(50)
+  .refine((ids) => new Set(ids).size === ids.length, 'Selected member IDs must be unique.')
+const Sha256 = z.string().regex(/^[a-f0-9]{64}$/)
+
+/** One-shot authority to create one inactive V3 draft from an exact, server-derived V1 candidate. */
+export const IntakeV1PackageDraftApplyParameters = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    submissionId: z.string().trim().min(1).max(191),
+    revision: z.number().int().positive(),
+    manifestHash: Sha256,
+    candidateHash: Sha256,
+    payloadHash: Sha256,
+    selectionHash: Sha256,
+    selectedMemberIds: IntakeV1ExactSelection,
+    partialAcknowledged: z.boolean(),
+    draftOperationId: z.string().uuid(),
+  })
+  .strict()
+export type IntakeV1PackageDraftApplyParameters = z.infer<
+  typeof IntakeV1PackageDraftApplyParameters
+>
+
+export const IntakeV1PackageDraftProposalApprovalSnapshot = z
+  .object({
+    contractVersion: z.literal(1),
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    submissionId: z.string().trim().min(1).max(191),
+    revision: z.number().int().positive(),
+    manifestHash: Sha256,
+    candidateHash: Sha256,
+    payloadHash: Sha256,
+    selectionHash: Sha256,
+    selectedMemberIds: IntakeV1ExactSelection,
+    partialAcknowledged: z.boolean(),
+    draftOperationId: z.string().uuid(),
+    packageDraftCreated: z.literal(false),
+    packageApproved: z.literal(false),
+    packageApplied: z.literal(false),
+    packagePublished: z.literal(false),
+    executionAuthorized: z.literal(false),
+  })
+  .strict()
+export type IntakeV1PackageDraftProposalApprovalSnapshot = z.infer<
+  typeof IntakeV1PackageDraftProposalApprovalSnapshot
 >
 
 const SupportPackageApprovalHandoff = z

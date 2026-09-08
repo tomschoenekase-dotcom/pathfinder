@@ -13,7 +13,10 @@ vi.mock('@pathfinder/db', () => ({
   finalizeIntakeV1PackageHandoffInTransaction: mocks.finalize,
 }))
 
-import { createIntakeV1PackageDraftForAdmin } from './intake-v1-package-draft'
+import {
+  createIntakeV1PackageDraft,
+  createIntakeV1PackageDraftForAdmin,
+} from './intake-v1-package-draft'
 import { venuePackagePayloadHash } from './venue-package-identity'
 
 const payload = {
@@ -81,6 +84,58 @@ describe('V1 canonical package draft orchestration', () => {
       attachment: await input.finalizer(finalized()),
       value: { id: 'package' },
     }))
+  })
+
+  it('refuses machine creation without transaction-bound authority', async () => {
+    await expect(
+      createIntakeV1PackageDraft({
+        ...request(),
+        actor: {
+          type: 'AGENT',
+          actorId: 'agent',
+          role: 'AGENT',
+          agentIdentityId: 'agent',
+          agentRunId: 'run',
+          workerId: 'worker',
+          credentialId: 'credential',
+          capability: 'packages:draft',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('checks exact machine authority in the finalizer before attaching the receipt', async () => {
+    const authorizeFinalization = vi.fn().mockRejectedValue(new Error('grant unavailable'))
+    mocks.create.mockImplementation(async (input) =>
+      input.finalizer({ ...finalized(), createdBy: 'agent' }),
+    )
+    await expect(
+      createIntakeV1PackageDraft({
+        db: db as never,
+        command,
+        actor: {
+          type: 'AGENT',
+          actorId: 'agent',
+          role: 'AGENT',
+          agentIdentityId: 'agent',
+          agentRunId: 'run',
+          workerId: 'worker',
+          credentialId: 'credential',
+          capability: 'packages:draft',
+        },
+        authorizeFinalization,
+      }),
+    ).rejects.toThrow('grant unavailable')
+    expect(authorizeFinalization).toHaveBeenCalledWith(
+      expect.objectContaining({ tx: db, packageId: 'package' }),
+      {
+        command,
+        revisionId: 'revision',
+        selectedMemberIds: ['member'],
+      },
+    )
+    expect(mocks.finalize).not.toHaveBeenCalled()
   })
 
   it('requires acknowledgement for omissions already recorded in the submitted revision', async () => {

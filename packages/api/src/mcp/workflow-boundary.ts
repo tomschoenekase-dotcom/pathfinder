@@ -8,6 +8,8 @@ const guardedTools = new Set([
   'pathfinder.create_support_draft',
   'pathfinder.add_support_internal_note',
   'pathfinder.delegate_specialist',
+  'pathfinder.propose_intake_v1_package_draft',
+  'pathfinder.apply_intake_v1_package_draft',
 ])
 
 export class McpWorkflowBoundaryError extends Error {

@@ -12,6 +12,11 @@ const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$que
 const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
 const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
 const approvedPolicies = new Set([
+  'tenant-intake-v1-package-authority-share-lock',
+  'tenant-approval-grant-consumption-lock',
+  'tenant-intake-source-mapping-operation-lock',
+  'tenant-intake-source-mapping-source-lock',
+  'tenant-intake-v1-package-proposal-operation-lock',
   'platform-intake-v1-processing-discovery',
   'platform-intake-v1-source-lease',
   'tenant-intake-v1-processing-exact-lease',
@@ -93,6 +98,66 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Machine V1 finalization shares exact identity/worker/credential authority
+  // locks and checks all retained expiry values against post-lock database time.
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '466fa3cc0db23a3b88f3f7007be33e73a33cfd28720f6403dab3f6de34ad94e6',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '65a9e01ca737230678b0700b87b724af4de1e11e453cb65673cfc00afd10202b',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: 'aeae117e9963cc1334c40fbe940451075ecab07921494bc98997bb934737257f',
+    policy: 'tenant-intake-v1-package-authority-share-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-machine-authority.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Exact immutable grant scope is locked before replay and a separate database
+  // clock sample prevents authority from surviving expiration during a lock wait.
+  {
+    file: 'packages/db/src/helpers/approval-grants.ts',
+    method: '$queryRaw',
+    hash: 'c2c7db1d51af0ed92337b4995852b12032a3c00e69c57f64f748c19a49424223',
+    policy: 'tenant-approval-grant-consumption-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/approval-grants.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
+  },
+  // Exact tenant-operation locks serialize immutable proposal/review replay;
+  // source mapping holds the exact tenant+venue source row through projection.
+  {
+    file: 'packages/db/src/helpers/intake-source-mapping-review-actions.ts',
+    method: '$executeRaw',
+    hash: 'bfb6f758d0b92268d708d29ba3a632ea700b8ec162b0a1e64ddc46012a75671b',
+    policy: 'tenant-intake-source-mapping-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-source-mapping-review-actions.ts',
+    method: '$queryRaw',
+    hash: 'ec529e098ed9b6a869685c1eb08a97b21687c399dc33e4743133bee371733bae',
+    policy: 'tenant-intake-source-mapping-source-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-package-draft-proposal-actions.ts',
+    method: '$executeRaw',
+    hash: '969f4b326032d80274d75d4b5145d342870e4b05b3ba60f95237b69611d8a521',
+    policy: 'tenant-intake-v1-package-proposal-operation-lock',
+  },
   // Bounded internal discovery yields opaque IDs; claim locks the canonical source
   // before exact dispatch mutation. Receipt transitions lock exact tenant/venue rows,
   // use the post-lock database clock, and retain immutable member/run/hash scope.

@@ -4,6 +4,7 @@ import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 
 type ApprovalDecisionClient = Pick<typeof db, '$transaction'>
+type ApprovalDecisionTransaction = Parameters<Parameters<typeof db.$transaction>[0]>[0]
 
 export type ApprovalDecisionActor = {
   actorType: 'HUMAN'
@@ -40,6 +41,147 @@ function isUniqueConflict(error: unknown) {
  * Domain requests linked directly to the approval may mirror the decision as
  * review state only; that transition must never perform the external effect.
  */
+export async function recordApprovalDecisionInTransaction(
+  tx: ApprovalDecisionTransaction,
+  input: {
+    tenantId: string
+    venueId: string | null
+    approvalRequestId: string
+    decision: Extract<ApprovalDecisionOutcome, 'APPROVED' | 'REJECTED' | 'CANCELLED'>
+    reason?: string | undefined
+    decidedAt?: Date | undefined
+    actor: ApprovalDecisionActor
+  },
+) {
+  assertHumanPlatformAdmin(input.actor)
+  const request = await tx.approvalRequest.findFirst({
+    where: {
+      id: input.approvalRequestId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+    },
+    select: {
+      id: true,
+      venueId: true,
+      proposedAction: true,
+      riskCategory: true,
+      expiresAt: true,
+      decision: { select: { id: true } },
+      customerAccessRequest: { select: { id: true, status: true } },
+      founderDirectiveTask: { select: { id: true, status: true } },
+    },
+  })
+  if (!request) {
+    throw new ApprovalDecisionActionError('NOT_FOUND', 'Approval request not found')
+  }
+  if (request.decision) {
+    throw new ApprovalDecisionActionError('CONFLICT', 'Approval request already has a decision')
+  }
+  const decidedAt = input.decidedAt ?? new Date()
+  if (request.expiresAt && request.expiresAt <= decidedAt) {
+    throw new ApprovalDecisionActionError('CONFLICT', 'Approval request has expired')
+  }
+
+  const decision = await tx.approvalDecision.create({
+    data: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      approvalRequestId: request.id,
+      decision: input.decision,
+      decidedByType: 'HUMAN',
+      decidedById: input.actor.actorId,
+      reason: input.reason ?? null,
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      venueId: true,
+      approvalRequestId: true,
+      decision: true,
+      decidedByType: true,
+      decidedById: true,
+      reason: true,
+      createdAt: true,
+    },
+  })
+
+  if (request.customerAccessRequest) {
+    const nextStatus =
+      input.decision === 'APPROVED'
+        ? 'APPROVED'
+        : input.decision === 'REJECTED'
+          ? 'REJECTED'
+          : 'CANCELLED'
+    const updated = await tx.customerAccessRequest.updateMany({
+      where: {
+        id: request.customerAccessRequest.id,
+        tenantId: input.tenantId,
+        status: 'AWAITING_APPROVAL',
+      },
+      data: { status: nextStatus },
+    })
+    if (updated.count !== 1) {
+      throw new ApprovalDecisionActionError(
+        'CONFLICT',
+        'Linked customer access request is no longer awaiting approval',
+      )
+    }
+  }
+
+  if (request.founderDirectiveTask) {
+    if (input.venueId === null) {
+      throw new ApprovalDecisionActionError(
+        'CONFLICT',
+        'Linked founder directive task is missing its required venue scope',
+      )
+    }
+    const nextStatus =
+      input.decision === 'APPROVED'
+        ? 'APPROVED'
+        : input.decision === 'REJECTED'
+          ? 'REJECTED'
+          : 'CANCELLED'
+    const updated = await tx.founderDirectiveTaskRequest.updateMany({
+      where: {
+        id: request.founderDirectiveTask.id,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        status: 'AWAITING_APPROVAL',
+      },
+      data: { status: nextStatus },
+    })
+    if (updated.count !== 1) {
+      throw new ApprovalDecisionActionError(
+        'CONFLICT',
+        'Linked founder directive task is no longer awaiting approval',
+      )
+    }
+  }
+
+  await writeAuditLogStrict(
+    {
+      tenantId: input.tenantId,
+      actorId: input.actor.actorId,
+      actorRole: input.actor.auditRole,
+      action: 'approval-request.decision-recorded',
+      targetType: 'ApprovalRequest',
+      targetId: request.id,
+      beforeState: { state: 'PENDING' },
+      afterState: {
+        state: input.decision,
+        decisionId: decision.id,
+        proposedAction: request.proposedAction,
+        riskCategory: request.riskCategory,
+        executionTriggered: false,
+        linkedCustomerAccessRequestId: request.customerAccessRequest?.id ?? null,
+        linkedFounderDirectiveTaskId: request.founderDirectiveTask?.id ?? null,
+      },
+    },
+    tx,
+  )
+  return decision
+}
+
 export async function recordApprovalDecisionAction(
   input: {
     tenantId: string
@@ -54,134 +196,7 @@ export async function recordApprovalDecisionAction(
 ) {
   assertHumanPlatformAdmin(input.actor)
   try {
-    return await client.$transaction(async (tx) => {
-      const request = await tx.approvalRequest.findFirst({
-        where: {
-          id: input.approvalRequestId,
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-        },
-        select: {
-          id: true,
-          venueId: true,
-          proposedAction: true,
-          riskCategory: true,
-          expiresAt: true,
-          decision: { select: { id: true } },
-          customerAccessRequest: { select: { id: true, status: true } },
-          founderDirectiveTask: { select: { id: true, status: true } },
-        },
-      })
-      if (!request) {
-        throw new ApprovalDecisionActionError('NOT_FOUND', 'Approval request not found')
-      }
-      if (request.decision) {
-        throw new ApprovalDecisionActionError('CONFLICT', 'Approval request already has a decision')
-      }
-      const decidedAt = input.decidedAt ?? new Date()
-      if (request.expiresAt && request.expiresAt <= decidedAt) {
-        throw new ApprovalDecisionActionError('CONFLICT', 'Approval request has expired')
-      }
-
-      const decision = await tx.approvalDecision.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          approvalRequestId: request.id,
-          decision: input.decision,
-          decidedByType: 'HUMAN',
-          decidedById: input.actor.actorId,
-          reason: input.reason ?? null,
-        },
-        select: {
-          id: true,
-          tenantId: true,
-          venueId: true,
-          approvalRequestId: true,
-          decision: true,
-          decidedByType: true,
-          decidedById: true,
-          reason: true,
-          createdAt: true,
-        },
-      })
-
-      if (request.customerAccessRequest) {
-        const nextStatus =
-          input.decision === 'APPROVED'
-            ? 'APPROVED'
-            : input.decision === 'REJECTED'
-              ? 'REJECTED'
-              : 'CANCELLED'
-        const updated = await tx.customerAccessRequest.updateMany({
-          where: {
-            id: request.customerAccessRequest.id,
-            tenantId: input.tenantId,
-            status: 'AWAITING_APPROVAL',
-          },
-          data: { status: nextStatus },
-        })
-        if (updated.count !== 1) {
-          throw new ApprovalDecisionActionError(
-            'CONFLICT',
-            'Linked customer access request is no longer awaiting approval',
-          )
-        }
-      }
-
-      if (request.founderDirectiveTask) {
-        if (input.venueId === null) {
-          throw new ApprovalDecisionActionError(
-            'CONFLICT',
-            'Linked founder directive task is missing its required venue scope',
-          )
-        }
-        const nextStatus =
-          input.decision === 'APPROVED'
-            ? 'APPROVED'
-            : input.decision === 'REJECTED'
-              ? 'REJECTED'
-              : 'CANCELLED'
-        const updated = await tx.founderDirectiveTaskRequest.updateMany({
-          where: {
-            id: request.founderDirectiveTask.id,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: 'AWAITING_APPROVAL',
-          },
-          data: { status: nextStatus },
-        })
-        if (updated.count !== 1) {
-          throw new ApprovalDecisionActionError(
-            'CONFLICT',
-            'Linked founder directive task is no longer awaiting approval',
-          )
-        }
-      }
-
-      await writeAuditLogStrict(
-        {
-          tenantId: input.tenantId,
-          actorId: input.actor.actorId,
-          actorRole: input.actor.auditRole,
-          action: 'approval-request.decision-recorded',
-          targetType: 'ApprovalRequest',
-          targetId: request.id,
-          beforeState: { state: 'PENDING' },
-          afterState: {
-            state: input.decision,
-            decisionId: decision.id,
-            proposedAction: request.proposedAction,
-            riskCategory: request.riskCategory,
-            executionTriggered: false,
-            linkedCustomerAccessRequestId: request.customerAccessRequest?.id ?? null,
-            linkedFounderDirectiveTaskId: request.founderDirectiveTask?.id ?? null,
-          },
-        },
-        tx,
-      )
-      return decision
-    })
+    return await client.$transaction((tx) => recordApprovalDecisionInTransaction(tx, input))
   } catch (error) {
     if (isUniqueConflict(error)) {
       throw new ApprovalDecisionActionError('CONFLICT', 'Approval request already has a decision')

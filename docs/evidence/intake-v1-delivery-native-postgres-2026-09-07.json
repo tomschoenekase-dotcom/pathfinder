@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-postgresql-v1-held-delivery-preparation",
+  "measuredAt": "2026-09-07T23:54:48.948875+00:00",
+  "baseProductRevision": "6a3b35d5",
+  "backend": "PostgreSQL16.15/pgvector0.8.6 nativeWindows",
+  "timezone": "UTC",
+  "migrationCount": 227,
+  "publicTableCount": 254,
+  "manifestHash": "821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19",
+  "result": {
+    "database": "pathfinder_disposable_intake_v1_delivery_fec518e4e02c",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "measurement": {
+    "proof": "intake-v1-held-delivery-preparation-v1",
+    "synthetic": true,
+    "operationCount": 8,
+    "operationDurationsMs": {
+      "collect": 54.09,
+      "freeze-v1": 29.43,
+      "preview-candidate": 17.47,
+      "create-draft-handoff": 67.85,
+      "review-preview": 10.32,
+      "prepare-evaluation": 28.25,
+      "read-portal": 23.68,
+      "read-billing": 25.69
+    },
+    "publication": "HELD",
+    "qrReadiness": "HELD_UNTIL_ACTIVE",
+    "invitationDraft": "NOT_APPLICABLE_NO_PROSPECT_CRM_LINEAGE",
+    "billingReadiness": "NOT_CONFIGURED"
+  },
+  "assertions": [
+    "Canonical bootstrap and immutable V1 snapshot create an exact DRAFT handoff",
+    "Exact replay returns the same handoff; changed operation terms, stale manifest and foreign scope are rejected",
+    "Canonical package review and CORE evaluation preparation accept the V1 package",
+    "Portal reports unavailable preview and unreleased content; actual venue remains inactive",
+    "Billing overview accurately reports no configured account"
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-evaluation-onboarding-actions.ts",
+      "sha256": "d029328aa900ed3792a461199d79003eba826f56396a0afbc3e7a638bb2670bd"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-intake-v1-delivery-journey-disposable.integration.test.ts",
+      "sha256": "4d4eb2c5d65ae5a28b84749ed3e5968642235a97b33168b98f6c7046a7df78ef"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-intake-v1-package-draft.ts",
+      "sha256": "32be464e7543c26c0182fc938e612e475910598c1ca30977c6621df3f74abb1d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-migration.sql",
+      "sha256": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-portal.ts",
+      "sha256": "e72e874a240672d496e579d9a65c11fe9f21b1e02ebbb103f40f0d1ce484fcdc"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\measured-reviewable-package-evaluation.ts",
+      "sha256": "3826c0d1d30541a5a04765a55cbdebfbd5f317335365782e514e54d26aaf904c"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\vitest.json",
+      "sha256": "0612a987ef1996cd898d4e359024c9e7bc2e8c53d88ca74ab918df119fafa3ed"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\vitest.log",
+      "sha256": "f0dcc5fce481375486db0f3c650b11037a4073bfde8e27944f8a2a6bed6ea87e"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\database-readback.log",
+      "sha256": "4827b4ae78d760e58fa2e929440fc73f6e12bc9b6f246197b489b9757bd357eb"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\migrations.log",
+      "sha256": "9b31c6ba19f8352ed69eb8c98dd97d9ed440422705173d6a669a8ab15615a396"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-v1-delivery-fec518e4e02c\\result.json",
+      "sha256": "132c60e9823a292fda2d88f7e231f8ba9162ad5215a4e5f04eb0d02a7c26fc32"
+    }
+  ],
+  "limitations": [
+    "Provider-dark local preparation proof; deterministic embeddings and fixture analytics/job adapters.",
+    "No approved/applied package, visitor release, real QR scan, billing activation or invitation draft is performed.",
+    "No prospect CRM lineage exists in this fixture; invitation preparation is explicitly not exercised.",
+    "Eight named operation timings are single local measurements, not hosted SLOs or full user action counts.",
+    "Earlier9e2ed445055a lacked synthetic billing dashboard URL;77422a837e31 incorrectly expected isActive on a DTO that omits it. Both stopped; final fixture checks real release DTO and database venue state."
+  ]
+}

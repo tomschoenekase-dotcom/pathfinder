@@ -12,6 +12,9 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
+  // Human-admin V1 proposal decisions bind exact tenant/venue/revision terms;
+  // decision and one-shot draft grant share a transaction and execute no package effect.
+  ['packages/api/src/routers/admin/intake-v1-package-draft-approval.ts', 1],
   // Default-off V1 source processing discovers bounded opaque dispatch IDs, then
   // re-enters exact tenant/venue/member/source/lease scope for canonical research
   // and receipt transitions. No bypass grants package or publication authority.

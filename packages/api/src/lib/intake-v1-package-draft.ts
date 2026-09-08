@@ -11,6 +11,7 @@ import { VenuePackagePayload } from '../schemas/venue-package'
 import { createVenuePackageDraftService } from '../routers/venue-package'
 import { buildIntakeV1PackageCandidate } from './intake-v1-package-candidate'
 import { venuePackagePayloadHash } from './venue-package-identity'
+import type { VenuePackageDraftFinalizer } from './venue-package-draft-finalizer'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)
 export const IntakeV1PackageDraftCommand = z
@@ -43,14 +44,32 @@ function sameMembers(left: unknown, right: string[]): boolean {
   )
 }
 
-/** Human admin adapter. Machine callers require their own authenticated approval adapter. */
-export async function createIntakeV1PackageDraftForAdmin(request: {
+export type IntakeV1DraftFinalizationAuthority = {
+  command: z.output<typeof IntakeV1PackageDraftCommand>
+  revisionId: string
+  selectedMemberIds: string[]
+}
+
+type DraftActor = Parameters<typeof createVenuePackageDraftService>[0]['actor']
+
+/** Authenticated adapters supply actor authority; machine finalization must bind its grant in this transaction. */
+export async function createIntakeV1PackageDraft(request: {
   db: TRPCContext['db']
-  actorId: string
+  actor: DraftActor
   command: z.input<typeof IntakeV1PackageDraftCommand>
+  authorizeFinalization?: (
+    finalized: Parameters<VenuePackageDraftFinalizer>[0],
+    authority: IntakeV1DraftFinalizationAuthority,
+  ) => Promise<void>
 }) {
+  const actorId = request.actor.type === 'AGENT' ? request.actor.actorId : request.actor.id
+  if (request.actor.type === 'AGENT' && !request.authorizeFinalization)
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Machine draft creation requires exact transaction-bound authority.',
+    })
   const parsed = IntakeV1PackageDraftCommand.safeParse(request.command)
-  if (!parsed.success || !request.actorId.trim())
+  if (!parsed.success || !actorId.trim())
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid V1 package draft command.' })
   const command = parsed.data
   const scope = { tenantId: command.tenantId, venueId: command.venueId }
@@ -72,7 +91,7 @@ export async function createIntakeV1PackageDraftForAdmin(request: {
       prior.manifestHash !== command.expectedManifestHash ||
       prior.candidateHash !== command.expectedCandidateHash ||
       prior.payloadHash !== command.expectedPayloadHash ||
-      prior.createdBy !== request.actorId ||
+      prior.createdBy !== actorId ||
       prior.partialAcknowledged !== command.partialAcknowledged ||
       !sameMembers(prior.selectedMemberIds, command.selectedMemberIds))
   )
@@ -117,12 +136,12 @@ export async function createIntakeV1PackageDraftForAdmin(request: {
     return await createVenuePackageDraftService({
       db: request.db,
       tenantId: command.tenantId,
-      actor: { type: 'HUMAN', id: request.actorId, role: 'PLATFORM_ADMIN' },
+      actor: request.actor,
       input: { venueId: command.venueId, draftKey: command.operationId, payload },
       isolationLevel: 'Serializable',
       finalizer: async (finalized) => {
         if (
-          finalized.createdBy !== request.actorId ||
+          finalized.createdBy !== actorId ||
           finalized.tenantId !== command.tenantId ||
           finalized.venueId !== command.venueId
         )
@@ -153,6 +172,11 @@ export async function createIntakeV1PackageDraftForAdmin(request: {
           )
           if (!replay) conflict('Existing package has no matching V1 handoff.')
         }
+        await request.authorizeFinalization?.(finalized, {
+          command,
+          revisionId: revision.id,
+          selectedMemberIds,
+        })
         return finalizeIntakeV1PackageHandoffInTransaction(finalized.tx, {
           ...scope,
           revisionId: revision.id,
@@ -163,7 +187,7 @@ export async function createIntakeV1PackageDraftForAdmin(request: {
           payloadHash: command.expectedPayloadHash,
           selectedMemberIds,
           partialAcknowledged: command.partialAcknowledged,
-          createdBy: request.actorId,
+          createdBy: actorId,
         })
       },
     })
@@ -172,4 +196,17 @@ export async function createIntakeV1PackageDraftForAdmin(request: {
       conflict('Concurrent package work changed this draft attempt. Retry the same operation.')
     throw error
   }
+}
+
+/** Human admin adapter. Machine callers use their authenticated approval adapter. */
+export function createIntakeV1PackageDraftForAdmin(request: {
+  db: TRPCContext['db']
+  actorId: string
+  command: z.input<typeof IntakeV1PackageDraftCommand>
+}) {
+  return createIntakeV1PackageDraft({
+    db: request.db,
+    actor: { type: 'HUMAN', id: request.actorId, role: 'PLATFORM_ADMIN' },
+    command: request.command,
+  })
 }

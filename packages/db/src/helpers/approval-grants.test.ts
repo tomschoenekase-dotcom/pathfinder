@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   approvalParameterHash,
   consumeApprovalGrantAction,
+  consumeApprovalGrantInTransaction,
   issueApprovalGrantAction,
+  issueApprovalGrantInTransaction,
 } from './approval-grants'
 import {
   defaultIntakeNotesProposalPolicyConstraints,
@@ -36,6 +38,7 @@ const machineActor = {
 
 function harness() {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 'grant_1', now }]),
     approvalDecision: {
       findFirst: vi.fn().mockResolvedValue({
         id: 'decision_1',
@@ -165,6 +168,50 @@ function policyIssueInput(overrides = {}) {
 }
 
 describe('approval grants', () => {
+  it('uses post-lock database time even when a caller supplies an earlier instant', async () => {
+    const { tx } = harness()
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: 'grant_1', now }])
+      .mockResolvedValueOnce([{ id: 'grant_1', now: new Date('2030-01-03T12:00:00.000Z') }])
+    await expect(
+      consumeApprovalGrantInTransaction(tx as never, consumeInput()),
+    ).rejects.toMatchObject({ code: 'EXPIRED' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+    expect(tx.approvalGrantConsumption.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects unavailable database time without changing authority', async () => {
+    const { tx } = harness()
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 'grant_1', now }]).mockResolvedValueOnce([])
+    await expect(
+      consumeApprovalGrantInTransaction(tx as never, consumeInput()),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.approvalGrant.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not recover issuance uniqueness inside the caller transaction', async () => {
+    const { tx } = harness()
+    tx.approvalGrant.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    const conflict = Object.assign(new Error('unique conflict'), { code: 'P2002' })
+    tx.approvalGrant.create.mockRejectedValueOnce(conflict)
+    await expect(issueApprovalGrantInTransaction(tx as never, policyIssueInput())).rejects.toBe(
+      conflict,
+    )
+    expect(tx.approvalGrant.findFirst).toHaveBeenCalledTimes(2)
+    expect(tx.approvalGrant.findFirstOrThrow).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('propagates a consumption audit failure for the caller to roll back authority and effect together', async () => {
+    const { tx } = harness()
+    const failure = new Error('audit unavailable')
+    tx.auditLog.create.mockRejectedValueOnce(failure)
+    await expect(consumeApprovalGrantInTransaction(tx as never, consumeInput())).rejects.toThrow()
+    expect(tx.approvalGrant.updateMany).toHaveBeenCalledTimes(1)
+    expect(tx.approvalGrantConsumption.create).toHaveBeenCalledTimes(1)
+    expect(tx.approvalGrantConsumption.findFirst).toHaveBeenCalledTimes(1)
+  })
+
   it('hashes equivalent JSON objects identically', () => {
     expect(approvalParameterHash({ b: 2, a: [1, { z: true }] })).toBe(
       approvalParameterHash({ a: [1, { z: true }], b: 2 }),
