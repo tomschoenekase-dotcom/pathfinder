@@ -132,6 +132,7 @@ type OutcomeObservation = {
 }
 
 type Props = {
+  actorId?: string | null | undefined
   tenantId: string
   venueId: string
   identities: { items: Identity[]; nextCursor: Cursor }
@@ -237,6 +238,7 @@ function Badge({
 }
 
 export function AgentOperationsOverview({
+  actorId,
   tenantId,
   venueId,
   identities,
@@ -399,6 +401,7 @@ export function AgentOperationsOverview({
                 ) : null}
                 {question.status === 'PENDING' ? (
                   <AgentQuestionAnswerForm
+                    actorId={actorId}
                     tenantId={tenantId}
                     venueId={venueId}
                     questionId={question.id}

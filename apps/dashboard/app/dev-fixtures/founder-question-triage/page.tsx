@@ -164,6 +164,7 @@ export default function FounderQuestionTriageFixture() {
             </span>
           </div>
           <FounderQuestionTriageBoard
+            actorId="fixture-founder-admin"
             questions={questions}
             generatedAt={new Date('2026-08-29T12:00:00.000Z')}
           />

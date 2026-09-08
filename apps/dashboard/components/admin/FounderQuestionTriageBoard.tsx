@@ -103,9 +103,11 @@ export function groupQuestionsByWorkflow(questions: Question[]): WorkflowGroup[]
 }
 
 export function FounderQuestionTriageBoard({
+  actorId,
   questions,
   generatedAt,
 }: {
+  actorId?: string | null | undefined
   questions: Attention['questions']
   generatedAt: Attention['generatedAt']
 }) {
@@ -160,7 +162,12 @@ export function FounderQuestionTriageBoard({
   const visibleEntries =
     viewMode === 'INDIVIDUAL'
       ? visible.map((question) => (
-          <QuestionCard key={question.id} question={question} generatedAt={generatedAt} />
+          <QuestionCard
+            key={question.id}
+            actorId={actorId}
+            question={question}
+            generatedAt={generatedAt}
+          />
         ))
       : workflowGroups.flatMap((group) =>
           group.kind === 'individual'
@@ -171,6 +178,7 @@ export function FounderQuestionTriageBoard({
                 />,
                 <QuestionCard
                   key={group.questions[0].id}
+                  actorId={actorId}
                   question={group.questions[0]}
                   generatedAt={generatedAt}
                 />,
@@ -178,14 +186,25 @@ export function FounderQuestionTriageBoard({
             : [
                 <WorkflowGroupHeading key={`${group.key}:heading`} group={group} />,
                 ...group.questions.map((question) => (
-                  <QuestionCard key={question.id} question={question} generatedAt={generatedAt} />
+                  <QuestionCard
+                    key={question.id}
+                    actorId={actorId}
+                    question={question}
+                    generatedAt={generatedAt}
+                  />
                 )),
               ],
         )
   const questionEntries = [
     ...visibleEntries,
     ...hiddenQuestions.map((question) => (
-      <QuestionCard key={question.id} question={question} generatedAt={generatedAt} hidden />
+      <QuestionCard
+        key={question.id}
+        actorId={actorId}
+        question={question}
+        generatedAt={generatedAt}
+        hidden
+      />
     )),
   ]
 
@@ -358,10 +377,12 @@ function WorkflowGroupHeading({ group }: { group: Extract<WorkflowGroup, { kind:
 }
 
 function QuestionCard({
+  actorId,
   question,
   generatedAt,
   hidden = false,
 }: {
+  actorId?: string | null | undefined
   question: Question
   generatedAt: Date | string
   hidden?: boolean
@@ -446,6 +467,7 @@ function QuestionCard({
           proposedAnswer={question.proposedAnswer}
         />
         <AgentQuestionAnswerForm
+          actorId={actorId}
           tenantId={question.tenantId}
           venueId={question.venueId}
           questionId={question.id}

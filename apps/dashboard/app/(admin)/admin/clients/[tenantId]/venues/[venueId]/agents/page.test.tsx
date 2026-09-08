@@ -21,6 +21,7 @@ vi.mock('../../../../../../../../lib/admin-caller', () => ({
   createAdminCaller: async () => ({ admin: mocks }),
 }))
 vi.mock('@pathfinder/config', () => ({ env: { AGENT_RUNNER_ENABLED: false } }))
+vi.mock('@clerk/nextjs/server', () => ({ auth: async () => ({ userId: 'test-admin' }) }))
 vi.mock('../../../../../../../../components/admin/AgentOperationsOverview', () => ({
   agentQuestionStatusFilters: ['PENDING', 'ANSWERED', 'DISMISSED', 'EXPIRED', 'CANCELLED', 'ALL'],
   AgentOperationsOverview: ({

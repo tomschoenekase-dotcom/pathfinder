@@ -1,12 +1,21 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { AgentQuestionExpiryNotice } from './AgentQuestionExpiryNotice'
+import {
+  readAgentQuestionAnswerDraft,
+  removeAgentQuestionAnswerDraft,
+  pruneAgentQuestionAnswerDraftRevisions,
+  saveAgentQuestionAnswerDraft,
+  type AgentQuestionAnswerDraftScope,
+} from './agent-question-answer-draft'
 
 type Props = {
+  /** Server-derived authenticated identity. Missing disables browser-session drafts. */
+  actorId?: string | null | undefined
   tenantId: string
   venueId: string
   questionId: string
@@ -52,7 +61,23 @@ function isExpiredResponse(error: unknown) {
   )
 }
 
+function sessionDraftStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function isPast(expiresAt?: Date | null) {
+  return (
+    expiresAt !== undefined && expiresAt !== null && new Date(expiresAt).getTime() <= Date.now()
+  )
+}
+
 export function AgentQuestionAnswerForm({
+  actorId,
   tenantId,
   venueId,
   questionId,
@@ -67,9 +92,27 @@ export function AgentQuestionAnswerForm({
   const client = useTRPCClient()
   const router = useRouter()
   const active = useRef(false)
+  const effectiveChoices = useMemo(
+    () => (questionType === 'YES_NO' && choices.length === 0 ? ['Yes', 'No'] : choices),
+    [choices, questionType],
+  )
+  const draftScope = useMemo<AgentQuestionAnswerDraftScope | null>(
+    () =>
+      actorId
+        ? {
+            actorId,
+            tenantId,
+            venueId,
+            questionId,
+            expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+          }
+        : null,
+    [actorId, expectedUpdatedAt, questionId, tenantId, venueId],
+  )
   const [answer, setAnswer] = useState('')
   const [selectedChoices, setSelectedChoices] = useState<string[]>([])
   const [multiSelectContext, setMultiSelectContext] = useState('')
+  const [draftRestored, setDraftRestored] = useState(false)
   const [pending, setPending] = useState(false)
   const [expired, setExpired] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
@@ -84,8 +127,19 @@ export function AgentQuestionAnswerForm({
   const [effect, setEffect] = useState(
     'Your response will answer this exact question and allow the blocked onboarding run to resume.',
   )
-  const scope = JSON.stringify([tenantId, venueId, questionId, expectedUpdatedAt.toISOString()])
+  const scope = JSON.stringify([
+    actorId ?? null,
+    tenantId,
+    venueId,
+    questionId,
+    expectedUpdatedAt.toISOString(),
+  ])
   const renderedScope = useRef(scope)
+  const loadedDraftScope = useRef(draftScope)
+  const hydratedScope = useRef<string | null>(null)
+  const [settledScope, setSettledScope] = useState<string | null>(null)
+  const draftTouched = useRef(false)
+  const recordedScope = useRef<string | null>(null)
   const generation = useRef(0)
   const resetGeneration = useRef(0)
   if (renderedScope.current !== scope) {
@@ -93,8 +147,6 @@ export function AgentQuestionAnswerForm({
     generation.current += 1
   }
   const retryWakeup = unconfirmedWakeup?.scope === scope ? unconfirmedWakeup : null
-  const effectiveChoices =
-    questionType === 'YES_NO' && choices.length === 0 ? ['Yes', 'No'] : choices
   const isMultiSelect = questionType === 'MULTI_SELECT'
   const orderedSelections = effectiveChoices.filter((choice) => selectedChoices.includes(choice))
   const serializedMultiSelect = [
@@ -107,30 +159,91 @@ export function AgentQuestionAnswerForm({
   const answerTooLong = currentAnswer.length > 5_000
 
   useEffect(() => {
-    // Initial state already belongs to this scope. A delayed mount effect must
-    // not clear input entered before that effect runs; reset only on scope change.
-    if (resetGeneration.current === generation.current) return
-    resetGeneration.current = generation.current
-    setAnswer('')
-    setSelectedChoices([])
-    setMultiSelectContext('')
-    setFeedback(null)
-    setUnconfirmedWakeup(null)
-    setPending(false)
-    active.current = false
-  }, [scope])
+    const scopeChanged = resetGeneration.current !== generation.current
+    if (scopeChanged) {
+      const staleDraftScope = loadedDraftScope.current
+      if (staleDraftScope) {
+        const storage = sessionDraftStorage()
+        if (storage) removeAgentQuestionAnswerDraft({ storage, scope: staleDraftScope })
+      }
+      resetGeneration.current = generation.current
+      draftTouched.current = false
+      recordedScope.current = null
+      setAnswer('')
+      setSelectedChoices([])
+      setMultiSelectContext('')
+      setDraftRestored(false)
+      setFeedback(null)
+      setUnconfirmedWakeup(null)
+      setPending(false)
+      active.current = false
+      loadedDraftScope.current = draftScope
+    }
+    if (hydratedScope.current !== scope) {
+      const storage = sessionDraftStorage()
+      if (draftScope && storage)
+        pruneAgentQuestionAnswerDraftRevisions({ storage, scope: draftScope })
+      const restored =
+        !draftTouched.current && draftScope && storage && !isPast(expiresAt)
+          ? readAgentQuestionAnswerDraft({ storage, scope: draftScope })
+          : null
+      if (restored) {
+        setSelectedChoices(
+          restored.selectedChoices.filter((choice) => effectiveChoices.includes(choice)),
+        )
+        setMultiSelectContext(restored.multiSelectContext)
+        setAnswer(restored.answer)
+        setDraftRestored(true)
+      }
+      hydratedScope.current = scope
+    }
+    setSettledScope(scope)
+  }, [draftScope, effectiveChoices, expiresAt, scope])
+
+  useEffect(() => {
+    if (
+      settledScope !== scope ||
+      !draftScope ||
+      expired ||
+      retryWakeup ||
+      recordedScope.current === scope
+    )
+      return
+    const storage = sessionDraftStorage()
+    if (!storage) return
+    saveAgentQuestionAnswerDraft({
+      storage,
+      scope: draftScope,
+      draft: { answer, selectedChoices, multiSelectContext },
+    })
+  }, [
+    answer,
+    draftScope,
+    expired,
+    multiSelectContext,
+    retryWakeup,
+    scope,
+    selectedChoices,
+    settledScope,
+  ])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const update = () => {
       const remaining = expiresAt ? new Date(expiresAt).getTime() - Date.now() : Infinity
-      setExpired(remaining <= 0)
+      const nextExpired = remaining <= 0
+      setExpired(nextExpired)
+      if (nextExpired && draftScope) {
+        const storage = sessionDraftStorage()
+        if (storage) removeAgentQuestionAnswerDraft({ storage, scope: draftScope })
+        setDraftRestored(false)
+      }
       if (Number.isFinite(remaining) && remaining > 0)
         timer = setTimeout(update, Math.min(remaining, 2_147_483_647))
     }
     update()
     return () => clearTimeout(timer)
-  }, [scope, expiresAt])
+  }, [draftScope, expiresAt, scope])
 
   async function submit(outcome: 'ANSWERED' | 'DISMISSED') {
     const value = retryWakeup?.payload.answer ?? currentAnswer
@@ -151,6 +264,12 @@ export function AgentQuestionAnswerForm({
     try {
       const result = await client.admin.answerAgentQuestion.mutate(payload)
       if (generation.current !== requestGeneration) return
+      recordedScope.current = scope
+      if (draftScope) {
+        const storage = sessionDraftStorage()
+        if (storage) removeAgentQuestionAnswerDraft({ storage, scope: draftScope })
+        setDraftRestored(false)
+      }
       const dispatchStatus = result.dispatchStatus
       if (dispatchStatus === 'UNCONFIRMED') {
         setUnconfirmedWakeup({ scope: requestScope, payload })
@@ -172,6 +291,11 @@ export function AgentQuestionAnswerForm({
       if (generation.current !== requestGeneration) return
       if (isExpiredResponse(error) && !retryWakeup) {
         setExpired(true)
+        if (draftScope) {
+          const storage = sessionDraftStorage()
+          if (storage) removeAgentQuestionAnswerDraft({ storage, scope: draftScope })
+          setDraftRestored(false)
+        }
         router.refresh()
         return
       }
@@ -242,6 +366,9 @@ export function AgentQuestionAnswerForm({
 
   return (
     <form className="mt-4" aria-busy={pending}>
+      {draftRestored ? (
+        <p className="mb-3 text-xs text-slate-700">Draft restored in this browser session.</p>
+      ) : null}
       {expiresAt ? (
         <p className="mb-3 text-xs text-slate-700">
           Response window closes {new Date(expiresAt).toLocaleString()}.
@@ -258,15 +385,16 @@ export function AgentQuestionAnswerForm({
               type="button"
               disabled={pending || Boolean(retryWakeup)}
               aria-pressed={isMultiSelect ? selectedChoices.includes(choice) : undefined}
-              onClick={() =>
-                isMultiSelect
-                  ? setSelectedChoices((current) =>
-                      current.includes(choice)
-                        ? current.filter((selected) => selected !== choice)
-                        : [...current, choice],
-                    )
-                  : setAnswer(choice)
-              }
+              onClick={() => {
+                draftTouched.current = true
+                if (isMultiSelect) {
+                  setSelectedChoices((current) =>
+                    current.includes(choice)
+                      ? current.filter((selected) => selected !== choice)
+                      : [...current, choice],
+                  )
+                } else setAnswer(choice)
+              }}
               className="min-h-10 max-w-full whitespace-normal break-words rounded-full border border-sky-200 bg-white px-4 text-left text-sm font-semibold text-sky-950 aria-pressed:border-pf-primary aria-pressed:bg-sky-50"
             >
               {choice}
@@ -287,7 +415,10 @@ export function AgentQuestionAnswerForm({
             maxLength={5000}
             disabled={pending || Boolean(retryWakeup)}
             value={multiSelectContext}
-            onChange={(event) => setMultiSelectContext(event.target.value)}
+            onChange={(event) => {
+              draftTouched.current = true
+              setMultiSelectContext(event.target.value)
+            }}
             className="rounded-2xl border border-sky-200 bg-white px-4 py-3 font-normal outline-none focus:border-pf-primary"
             placeholder="Add context for the selected responses…"
           />
@@ -301,7 +432,10 @@ export function AgentQuestionAnswerForm({
             required
             disabled={pending || Boolean(retryWakeup)}
             value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
+            onChange={(event) => {
+              draftTouched.current = true
+              setAnswer(event.target.value)
+            }}
             className="rounded-2xl border border-sky-200 bg-white px-4 py-3 font-normal outline-none focus:border-pf-primary"
             placeholder="Give the agent the missing decision or context…"
           />

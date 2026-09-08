@@ -45,6 +45,7 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof AgentQuestion
 describe('AgentQuestionAnswerForm', () => {
   afterEach(() => {
     cleanup()
+    window.sessionStorage.clear()
     vi.useRealTimers()
     vi.clearAllMocks()
   })
@@ -75,6 +76,69 @@ describe('AgentQuestionAnswerForm', () => {
       '/admin/clients/tenant-a/venues/venue-a/agents/runs/run-a',
     )
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('clears an actor-scoped session draft when its response window closes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-08T12:00:00Z'))
+    render(
+      <AgentQuestionAnswerForm
+        actorId="founder-a"
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="expiry-question"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="SHORT_TEXT"
+        choices={[]}
+        recipients={[]}
+        canRouteToClient={false}
+        expiresAt={new Date('2026-09-08T12:00:01Z')}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Your answer'), {
+      target: { value: 'Draft to expire.' },
+    })
+    await act(async () => Promise.resolve())
+    expect(window.sessionStorage.length).toBe(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_001)
+    })
+    expect(screen.queryByLabelText('Your answer')).toBeNull()
+    expect(window.sessionStorage.length).toBe(0)
+  })
+
+  it('does not persist drafts when the authenticated actor is unavailable', async () => {
+    const first = render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="no-actor-question"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="SHORT_TEXT"
+        choices={[]}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'Local only.' } })
+    await act(async () => Promise.resolve())
+    expect(window.sessionStorage.length).toBe(0)
+    first.unmount()
+
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="no-actor-question"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="SHORT_TEXT"
+        choices={[]}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe('')
   })
   it('turns a server-confirmed expiry into recovery guidance rather than an ambiguous retry', async () => {
     mutate.mockRejectedValue({ data: { code: 'PRECONDITION_FAILED' } })
@@ -498,5 +562,152 @@ describe('AgentQuestionAnswerForm', () => {
       ),
     )
     expect((screen.getByLabelText('Optional context') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('restores a scoped answer and multi-select context after reload under StrictMode', async () => {
+    const props = {
+      actorId: 'founder-a',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      questionId: 'reload-question',
+      expectedUpdatedAt,
+      questionType: 'MULTI_SELECT' as const,
+      choices: ['Ramp access', 'Large print'],
+      recipients: [],
+      canRouteToClient: false,
+    }
+    const first = render(<AgentQuestionAnswerForm {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ramp access' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: 'Use the north entrance for the ramp.' },
+    })
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1))
+    first.unmount()
+
+    render(
+      <React.StrictMode>
+        <AgentQuestionAnswerForm {...props} />
+      </React.StrictMode>,
+    )
+
+    expect(screen.getByText('Draft restored in this browser session.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ramp access' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    expect((screen.getByLabelText('Optional context') as HTMLTextAreaElement).value).toBe(
+      'Use the north entrance for the ramp.',
+    )
+  })
+
+  it('does not restore a different actor or a stale question revision', async () => {
+    const props = {
+      actorId: 'founder-a',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      questionId: 'revision-question',
+      expectedUpdatedAt,
+      questionType: 'SHORT_TEXT' as const,
+      choices: [],
+      recipients: [],
+      canRouteToClient: false,
+    }
+    const rendered = render(<AgentQuestionAnswerForm {...props} />)
+    fireEvent.change(screen.getByLabelText('Your answer'), {
+      target: { value: 'Original answer.' },
+    })
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1))
+
+    rendered.rerender(<AgentQuestionAnswerForm {...props} actorId="founder-b" />)
+    await waitFor(() =>
+      expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(''),
+    )
+    rendered.rerender(
+      <AgentQuestionAnswerForm
+        {...props}
+        expectedUpdatedAt={new Date('2026-09-08T12:01:00.000Z')}
+      />,
+    )
+    await waitFor(() =>
+      expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(''),
+    )
+    expect(screen.queryByText('Draft restored in this browser session.')).toBeNull()
+  })
+
+  it('clears a session draft only after a confirmed answer response', async () => {
+    mutate.mockResolvedValue({
+      runEligibleToResume: false,
+      executionTriggered: false,
+      dispatchStatus: 'NOT_NEEDED',
+    })
+    const props = {
+      actorId: 'founder-a',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      questionId: 'saved-question',
+      expectedUpdatedAt,
+      questionType: 'SHORT_TEXT' as const,
+      choices: [],
+      recipients: [],
+      canRouteToClient: false,
+    }
+    const first = render(<AgentQuestionAnswerForm {...props} />)
+    fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'Saved response.' } })
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Answer agent' }))
+    await screen.findByRole('status')
+    expect(window.sessionStorage.length).toBe(0)
+    first.rerender(
+      <AgentQuestionAnswerForm
+        {...props}
+        expectedUpdatedAt={new Date('2026-09-08T12:00:00.000Z')}
+      />,
+    )
+    await waitFor(() => expect(window.sessionStorage.length).toBe(0))
+    first.unmount()
+
+    render(<AgentQuestionAnswerForm {...props} />)
+    expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('does not resurrect a draft after a recorded wake-up retry succeeds', async () => {
+    mutate
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: false,
+        dispatchStatus: 'UNCONFIRMED',
+      })
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: true,
+        dispatchStatus: 'ENQUEUED',
+      })
+    const props = {
+      actorId: 'founder-a',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      questionId: 'wakeup-question',
+      expectedUpdatedAt,
+      questionType: 'SHORT_TEXT' as const,
+      choices: [],
+      recipients: [],
+      canRouteToClient: false,
+    }
+    const rendered = render(<AgentQuestionAnswerForm {...props} />)
+    fireEvent.change(screen.getByLabelText('Your answer'), {
+      target: { value: 'Recorded answer.' },
+    })
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Answer agent' }))
+    await screen.findByRole('button', { name: 'Retry worker wake-up' })
+    expect(window.sessionStorage.length).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry worker wake-up' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    rendered.rerender(
+      <AgentQuestionAnswerForm
+        {...props}
+        expectedUpdatedAt={new Date('2026-09-08T12:00:00.000Z')}
+      />,
+    )
+    await waitFor(() => expect(window.sessionStorage.length).toBe(0))
   })
 })

@@ -8,6 +8,7 @@ import { OperationsReadinessSummary } from '../../../../components/admin/Operati
 import { ReleaseEvidenceRecorder } from '../../../../components/admin/ReleaseEvidenceRecorder'
 import { ReleaseEvidenceSummary } from '../../../../components/admin/ReleaseEvidenceSummary'
 import { createAdminCaller } from '../../../../lib/admin-caller'
+import { auth } from '@clerk/nextjs/server'
 
 type Cursor = { createdAt: string; id: string }
 
@@ -31,6 +32,7 @@ export default async function AdminOperationsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
+  const { userId } = await auth()
   const caller = await createAdminCaller()
   const query = await searchParams
   const [data, readiness, releaseEvidence, incident, providerHealth] = await Promise.all([
@@ -129,7 +131,7 @@ export default async function AdminOperationsPage({
 
       {releaseEvidence.current ? null : <ReleaseEvidenceRecorder />}
 
-      <OperationsAttentionConsole data={data} />
+      <OperationsAttentionConsole actorId={userId} data={data} />
     </div>
   )
 }

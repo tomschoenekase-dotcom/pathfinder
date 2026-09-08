@@ -7,6 +7,7 @@ import {
 } from '../../../../../../../../components/admin/AgentOperationsOverview'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 import { env } from '@pathfinder/config'
+import { auth } from '@clerk/nextjs/server'
 
 type Props = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -27,6 +28,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
   const { tenantId, venueId } = await params
   const query = await searchParams
   const selectedQuestionStatus = questionStatus(query)
+  const { userId } = await auth()
   const caller = await createAdminCaller()
   try {
     const [
@@ -76,6 +78,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
     ])
     return (
       <AgentOperationsOverview
+        actorId={userId}
         tenantId={tenantId}
         venueId={venueId}
         identities={identities}

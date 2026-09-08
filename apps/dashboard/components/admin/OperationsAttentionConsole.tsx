@@ -270,7 +270,13 @@ function FounderCostCoverage({ data }: { data: Data['unitEconomics'] }) {
   )
 }
 
-export function OperationsAttentionConsole({ data }: { data: Data }) {
+export function OperationsAttentionConsole({
+  actorId,
+  data,
+}: {
+  actorId?: string | null | undefined
+  data: Data
+}) {
   const { focus, metrics, boundedSnapshot, reviewState } = data.briefing
   const reviewChanges = reviewState.changesSinceLastReview
   return (
@@ -868,7 +874,11 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             <Empty>No agents are waiting for human input.</Empty>
           </div>
         ) : (
-          <FounderQuestionTriageBoard questions={data.questions} generatedAt={data.generatedAt} />
+          <FounderQuestionTriageBoard
+            actorId={actorId}
+            questions={data.questions}
+            generatedAt={data.generatedAt}
+          />
         )}
         <More param="questionsCursor" cursor={data.questions.nextCursor} label="Older questions" />
       </section>
