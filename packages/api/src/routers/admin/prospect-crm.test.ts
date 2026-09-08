@@ -91,6 +91,10 @@ describe('admin prospect CRM router', () => {
       recipientEmailSnapshot: 'owner@example.com',
       subject: 'A private preview',
       textBody: 'Draft body',
+      sourceMessage: {
+        inboundReplyDisposition: 'POSITIVE_INTEREST',
+        inboundReplyReviewId: 'review-current',
+      },
     })
     const caller = testRouter.createCaller(context(true)).crm
     await expect(
@@ -99,7 +103,16 @@ describe('admin prospect CRM router', () => {
         prospectVenueId: 'venue-1',
         messageId: 'message-1',
       }),
-    ).resolves.toMatchObject({ id: 'attempt-1', status: 'DRAFT' })
+    ).resolves.toMatchObject({
+      id: 'attempt-1',
+      status: 'DRAFT',
+      currentReview: {
+        id: 'review-current',
+        disposition: 'POSITIVE_INTEREST',
+        state: 'POSITIVE_INTEREST',
+      },
+      deliveryAuthorization: 'NOT_GRANTED_BY_DRAFT',
+    })
     expect(mocks.onboardingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -119,6 +132,50 @@ describe('admin prospect CRM router', () => {
         messageId: 'message-1',
       }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it.each(['NOT_INTERESTED', 'SUPPRESSION_REQUEST', 'QUESTION_OR_OBJECTION', 'OTHER', null])(
+    'holds retained invitation history after classification becomes %s',
+    async (disposition) => {
+      mocks.onboardingAttempt.mockResolvedValueOnce({
+        id: 'attempt-1',
+        status: 'DRAFT',
+        sourceReviewId: 'original-positive-review',
+        textBody: 'Original invitation',
+        sourceMessage: { inboundReplyDisposition: disposition, inboundReplyReviewId: 'new-review' },
+      })
+      const result = await testRouter
+        .createCaller(context(true))
+        .crm.getProspectOnboardingDeliveryAttempt({
+          organizationId: 'org-1',
+          prospectVenueId: 'venue-1',
+          messageId: 'message-1',
+        })
+      expect(result).toMatchObject({
+        status: 'DRAFT',
+        sourceReviewId: 'original-positive-review',
+        textBody: 'Original invitation',
+        currentReview: { id: 'new-review', disposition, state: 'HELD' },
+        deliveryAuthorization: 'NOT_GRANTED_BY_DRAFT',
+      })
+      expect(result).not.toHaveProperty('sourceMessage')
+    },
+  )
+
+  it('holds a positive classification without a current review receipt', async () => {
+    mocks.onboardingAttempt.mockResolvedValueOnce({
+      id: 'attempt-1',
+      status: 'DRAFT',
+      sourceMessage: { inboundReplyDisposition: 'POSITIVE_INTEREST', inboundReplyReviewId: null },
+    })
+    const result = await testRouter
+      .createCaller(context(true))
+      .crm.getProspectOnboardingDeliveryAttempt({
+        organizationId: 'org-1',
+        prospectVenueId: 'venue-1',
+        messageId: 'message-1',
+      })
+    expect(result.currentReview.state).toBe('HELD')
   })
 
   it('rejects non-admin reads and writes before bypass or action dispatch', async () => {

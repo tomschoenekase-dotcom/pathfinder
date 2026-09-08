@@ -32,12 +32,30 @@ export async function readProspectOnboardingDeliveryAttempt(input: {
         textBody: true,
         createdBy: true,
         createdAt: true,
+        sourceMessage: {
+          select: { inboundReplyDisposition: true, inboundReplyReviewId: true },
+        },
       },
     })
     if (!attempt) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Invitation draft not found' })
     }
-    return attempt
+    const { sourceMessage, ...draft } = attempt
+    // The immutable draft records its original review. A later classification
+    // must remain visible without rewriting that historical invitation.
+    return {
+      ...draft,
+      currentReview: {
+        id: sourceMessage.inboundReplyReviewId,
+        disposition: sourceMessage.inboundReplyDisposition,
+        state:
+          sourceMessage.inboundReplyReviewId &&
+          sourceMessage.inboundReplyDisposition === 'POSITIVE_INTEREST'
+            ? ('POSITIVE_INTEREST' as const)
+            : ('HELD' as const),
+      },
+      deliveryAuthorization: 'NOT_GRANTED_BY_DRAFT' as const,
+    }
   })
 }
 
