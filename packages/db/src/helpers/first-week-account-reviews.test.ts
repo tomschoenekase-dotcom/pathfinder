@@ -90,6 +90,13 @@ describe('materializeDueFirstWeekAccountReviews', () => {
     expect(
       tx.firstWeekAccountReview.create.mock.calls.map((call) => call[0].data.disposition),
     ).toEqual(['NO_ACTION', 'NO_ACTION', 'DRAFT_READY'])
+    expect(tx.firstWeekAccountReview.create.mock.calls[2]?.[0].data).toMatchObject({
+      milestone: 'DAY_7',
+      draftSubject: 'A quick first-week check-in',
+      draftBody:
+        'Hi — it has been your first week with Torchiko. We’d value your feedback about how it has been for your team. Is there anything you’d like to share or discuss?',
+      draftReason: 'Review before sending: 4 public session(s) recorded during the first week.',
+    })
     expect(tx.operationalEvent.upsert).toHaveBeenCalledTimes(1)
     expect(tx.operationalEvent.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -127,10 +134,16 @@ describe('materializeDueFirstWeekAccountReviews', () => {
         data: expect.objectContaining({
           milestone: 'DAY_1',
           disposition: 'DRAFT_READY',
-          draftReason: expect.stringContaining('low-confidence'),
+          draftSubject: 'A quick first-week check-in',
+          draftBody:
+            'Hi — it has been your first day with Torchiko. We’d value your feedback about how it has been for your team. Is there anything you’d like to share or discuss?',
+          draftReason:
+            'Review before sending: 2 low-confidence signal(s), 1 knowledge-gap signal(s).',
         }),
       }),
     )
+    const earlyDraft = tx.firstWeekAccountReview.create.mock.calls[0]?.[0].data.draftBody
+    expect(earlyDraft).not.toMatch(/reviewing|actively checking|keep improving|take care of it/iu)
     expect(tx.operationalEvent.upsert).toHaveBeenCalledTimes(1)
   })
 

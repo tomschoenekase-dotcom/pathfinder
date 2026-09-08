@@ -100,10 +100,7 @@ function buildDraft(params: {
   return {
     disposition: 'DRAFT_READY' as const,
     draftSubject: 'A quick first-week check-in',
-    draftBody:
-      actionableSignals > 0
-        ? `Hi — we’ve been reviewing your ${period} with Torchiko and found a few areas we’re actively checking. We’ll keep improving the experience, and I’d also love to hear how it has felt for your team so far. Is there anything you’d like us to look at first?`
-        : `Hi — we’ve been reviewing your ${period} with Torchiko and wanted to check in. How has the experience felt for your team so far? If there is anything you’d like adjusted, just let us know and we’ll take care of it.`,
+    draftBody: `Hi — it has been your ${period} with Torchiko. We’d value your feedback about how it has been for your team. Is there anything you’d like to share or discuss?`,
     draftReason:
       signalReason.length > 0
         ? `Review before sending: ${signalReason.join(', ')}.`
