@@ -21,6 +21,49 @@ export class AgentRunExecutionError extends Error {
   }
 }
 
+const DEFAULT_WORKFLOW_CONTEXT_MAX_CHARS = 50_000
+const BRIDGE_REQUEST_MAX_CHARS = 1_800
+
+function serializeWorkflowExecutionContext(
+  bindings: Array<{
+    registryKey: string
+    outcome: string
+    bindingHash: string
+    requiredCapabilities: string[]
+    workflowVersion: {
+      id: string
+      contentHash: string
+      portableText: string
+    } | null
+  }>,
+) {
+  return JSON.stringify(
+    bindings.map((binding) => ({
+      registryKey: binding.registryKey,
+      outcome: binding.outcome,
+      bindingHash: binding.bindingHash,
+      requiredCapabilities: binding.requiredCapabilities,
+      workflowVersion: binding.workflowVersion,
+    })),
+  )
+}
+
+function buildExecutionPrompt(input: {
+  request: string
+  workflowExecutionContext: string
+  executionContext: string
+}) {
+  const request =
+    input.request.length <= BRIDGE_REQUEST_MAX_CHARS
+      ? input.request
+      : `${input.request.slice(0, BRIDGE_REQUEST_MAX_CHARS - 38)}\n...[task request explicitly truncated]`
+  const workflowSection =
+    input.workflowExecutionContext === '[]'
+      ? ''
+      : `\n\nSelected workflow instructions and provenance:\n${input.workflowExecutionContext}`
+  return `${request}${workflowSection}\n\nBounded persisted execution context:\n${input.executionContext}`
+}
+
 const scopeSchema = z.object({
   tenantId: z.string().trim().min(1).max(191),
   runId: z.string().trim().min(1).max(191),
@@ -95,6 +138,8 @@ export async function claimAgentRunExecution(
     leaseDurationMs?: number
     bridgeSessionId?: string
     executionWorkerId?: string
+    workflowContextMaxChars?: number
+    executionPromptMaxChars?: number
   },
   client: AgentRunExecutionClient = db,
 ) {
@@ -108,9 +153,16 @@ export async function claimAgentRunExecution(
         .default(60_000),
       bridgeSessionId: z.string().uuid().optional(),
       executionWorkerId: z.string().trim().min(1).max(191).optional(),
+      workflowContextMaxChars: z
+        .number()
+        .int()
+        .min(1)
+        .max(50_000)
+        .default(DEFAULT_WORKFLOW_CONTEXT_MAX_CHARS),
+      executionPromptMaxChars: z.number().int().min(1).max(50_000).optional(),
     })
     .parse(rawInput)
-  return client.$transaction(async (rawTransaction) => {
+  const result = await client.$transaction(async (rawTransaction) => {
     const transaction = rawTransaction as unknown as typeof db
     const bindingKeys = await transaction.agentWorkflowRunBinding.findMany({
       where: { tenantId: input.tenantId, agentRunId: input.runId },
@@ -197,6 +249,7 @@ export async function claimAgentRunExecution(
             registryKey: true,
             outcome: true,
             bindingHash: true,
+            requiredCapabilities: true,
             workflowVersion: {
               select: { id: true, contentHash: true, portableText: true },
             },
@@ -205,23 +258,22 @@ export async function claimAgentRunExecution(
       },
     })
     if (!run) throw new AgentRunExecutionError('NOT_FOUND', 'Agent run not found')
-    const workflowChars = run.workflowBindings.reduce(
-      (total, binding) => total + (binding.workflowVersion?.portableText.length ?? 0),
-      0,
-    )
-    if (run.workflowBindings.length > 50 || workflowChars > 50_000)
-      throw new AgentRunExecutionError(
-        'NOT_CLAIMABLE',
-        'Selected workflow artifacts exceed the complete context budget',
-      )
     if (run.cancelRequestedAt) {
       if (!(terminalStatuses as readonly string[]).includes(run.status)) {
-        await transaction.agentRun.updateMany({
-          where: { id: run.id, tenantId: run.tenantId, status: run.status },
+        const cancelled = await transaction.agentRun.updateMany({
+          where: {
+            id: run.id,
+            tenantId: run.tenantId,
+            status: run.status,
+            attemptNumber: run.attemptNumber,
+            cancelRequestedAt: run.cancelRequestedAt,
+          },
           data: { status: 'CANCELLED', startedAt: run.startedAt ?? now, completedAt: now },
         })
+        if (cancelled.count !== 1)
+          throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run changed while cancelling')
       }
-      throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run was cancelled')
+      return { cancelled: true as const }
     }
     if (!run.agentIdentity.enabled) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent identity is disabled')
@@ -229,6 +281,32 @@ export async function claimAgentRunExecution(
     if (run.attemptNumber >= run.maxAttempts) {
       throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run exhausted its attempts')
     }
+    const workflowExecutionContext = serializeWorkflowExecutionContext(run.workflowBindings)
+    if (
+      run.workflowBindings.length > 50 ||
+      workflowExecutionContext.length > input.workflowContextMaxChars
+    )
+      throw new AgentRunExecutionError(
+        'NOT_CLAIMABLE',
+        'Selected workflow artifacts exceed the complete context budget',
+      )
+    const executionContext = buildBoundedAgentRunExecutionContext({
+      ...run,
+      attemptNumber: run.attemptNumber + 1,
+    })
+    const executionPrompt = buildExecutionPrompt({
+      request: run.requestPrompt ?? run.requestedOperation,
+      workflowExecutionContext,
+      executionContext,
+    })
+    if (
+      input.executionPromptMaxChars !== undefined &&
+      executionPrompt.length > input.executionPromptMaxChars
+    )
+      throw new AgentRunExecutionError(
+        'NOT_CLAIMABLE',
+        'Complete selected workflow and persisted task context exceed the execution prompt budget',
+      )
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: run.id,
@@ -294,19 +372,20 @@ export async function claimAgentRunExecution(
         },
       },
     })
-    const executionContext = buildBoundedAgentRunExecutionContext({
-      ...run,
-      attemptNumber: run.attemptNumber + 1,
-    })
     return {
       ...run,
       executionContext,
+      workflowExecutionContext,
+      executionPrompt,
       status: 'RUNNING' as const,
       attemptNumber: run.attemptNumber + 1,
       leaseToken,
       leaseExpiresAt,
     }
   })
+  if ('cancelled' in result)
+    throw new AgentRunExecutionError('NOT_CLAIMABLE', 'Agent run was cancelled')
+  return result
 }
 
 /** Extends a live lease and reports cancellation without racing completion. */

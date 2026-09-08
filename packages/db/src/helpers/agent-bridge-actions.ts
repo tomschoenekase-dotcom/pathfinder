@@ -20,6 +20,8 @@ import {
 
 const SESSION_TTL_MS = 2 * 60_000
 const MAX_CLAIM_CANDIDATES = 25
+const MAX_BRIDGE_WORKFLOW_CONTEXT_CHARS = 6_000
+const MAX_BRIDGE_PROMPT_CHARS = 10_000
 
 function readStringList(value: unknown, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -234,6 +236,7 @@ export async function claimAgentBridgeTask(input: {
       tenantId: input.credential.tenantId,
       venueId: input.venueId,
       modelProvider: AGENT_BRIDGE_MODEL_PROVIDER[session.provider],
+      cancelRequestedAt: null,
       AND: [
         {
           OR: [{ status: 'QUEUED' }, { status: 'RUNNING', executionLeaseExpiresAt: { lt: now } }],
@@ -263,6 +266,8 @@ export async function claimAgentBridgeTask(input: {
         runId: run.id,
         bridgeSessionId: session.id,
         ...(worker ? { executionWorkerId: worker.id } : {}),
+        workflowContextMaxChars: MAX_BRIDGE_WORKFLOW_CONTEXT_CHARS,
+        executionPromptMaxChars: MAX_BRIDGE_PROMPT_CHARS,
       })
       break
     } catch (error) {
@@ -271,12 +276,6 @@ export async function claimAgentBridgeTask(input: {
     }
   }
   if (!claimed) return { task: null }
-  const rawRequest = claimed.requestPrompt ?? claimed.requestedOperation
-  const requestLimit = 1_800
-  const request =
-    rawRequest.length <= requestLimit
-      ? rawRequest
-      : `${rawRequest.slice(0, requestLimit - 38)}\n...[task request explicitly truncated]`
   return AgentBridgeClaimResult.parse({
     task: {
       id: claimed.id,
@@ -284,9 +283,7 @@ export async function claimAgentBridgeTask(input: {
       venueId: claimed.venueId,
       runType: claimed.runType,
       requestedOperation: claimed.requestedOperation,
-      prompt: [request, '', 'Bounded persisted execution context:', claimed.executionContext]
-        .join('\n')
-        .slice(0, 10_000),
+      prompt: claimed.executionPrompt,
       modelProvider: claimed.modelProvider,
       modelName: claimed.modelName,
       leaseToken: claimed.leaseToken,

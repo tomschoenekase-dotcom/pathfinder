@@ -85,6 +85,7 @@ describe('agent run execution actions', () => {
     expect(result.status).toBe('RUNNING')
     expect(result.attemptNumber).toBe(1)
     expect(JSON.parse(result.executionContext).provenance.attemptNumber).toBe(1)
+    expect(result.executionPrompt).toContain('Bounded persisted execution context:')
     expect(result.leaseToken).toMatch(/^[0-9a-f-]{36}$/u)
     expect(transaction.agentRun.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -118,6 +119,126 @@ describe('agent run execution actions', () => {
         }),
       }),
     )
+  })
+
+  it('rejects complete workflow context over the caller budget before mutating the run', async () => {
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          ...baseRun,
+          workflowBindings: [
+            {
+              registryKey: 'review',
+              outcome: 'SELECTED',
+              bindingHash: 'b'.repeat(64),
+              requiredCapabilities: ['knowledge.read'],
+              workflowVersion: {
+                id: 'version-1',
+                contentHash: 'c'.repeat(64),
+                portableText: 'Complete reviewed workflow text.',
+              },
+            },
+          ],
+        }),
+        updateMany: vi.fn(),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+    }
+
+    await expect(
+      claimAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'run-1',
+          workflowContextMaxChars: 20,
+        },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+    expect(transaction.agentTimelineEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a complete bridge prompt over budget before mutating the run', async () => {
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          ...baseRun,
+          requestPrompt: 'x'.repeat(1_900),
+        }),
+        updateMany: vi.fn(),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+    }
+
+    await expect(
+      claimAgentRunExecution(
+        { tenantId: 'tenant-1', runId: 'run-1', executionPromptMaxChars: 100 },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('commits a fenced cancellation before reporting the run as not claimable', async () => {
+    const cancelRequestedAt = new Date('2026-09-08T03:00:00.000Z')
+    let committed = false
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({ ...baseRun, cancelRequestedAt }),
+        updateMany: vi.fn().mockImplementation(async ({ where }) => {
+          expect(where).toMatchObject({
+            id: 'run-1',
+            tenantId: 'tenant-1',
+            status: 'QUEUED',
+            attemptNumber: 0,
+            cancelRequestedAt,
+          })
+          committed = true
+          return { count: 1 }
+        }),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+    }
+    const transactionalClient = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) => {
+        const result = await operation({
+          agentWorkflowRunBinding: { findMany: vi.fn(async () => []) },
+          $queryRaw: vi.fn(),
+          ...transaction,
+        })
+        expect(committed).toBe(true)
+        return result
+      }),
+    }
+
+    await expect(
+      claimAgentRunExecution(
+        { tenantId: 'tenant-1', runId: 'run-1', workflowContextMaxChars: 1 },
+        transactionalClient as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+    expect(transaction.agentTimelineEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite a concurrent completion when cancellation fencing loses', async () => {
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          ...baseRun,
+          cancelRequestedAt: new Date('2026-09-08T03:00:00.000Z'),
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      agentTimelineEvent: { create: vi.fn() },
+    }
+    await expect(
+      claimAgentRunExecution(
+        { tenantId: 'tenant-1', runId: 'run-1' },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_CLAIMABLE' })
+    expect(transaction.agentRun.updateMany).toHaveBeenCalledOnce()
   })
 
   it('fails the claim CAS when cancellation or identity disablement wins after the read', async () => {

@@ -93,6 +93,34 @@ describe('agent bridge actions', () => {
       scopeSnapshot: {},
       executionContext:
         '{"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}',
+      workflowExecutionContext: JSON.stringify([
+        {
+          registryKey: 'visitor-review',
+          outcome: 'SELECTED',
+          bindingHash: 'b'.repeat(64),
+          requiredCapabilities: ['knowledge.read'],
+          workflowVersion: {
+            id: 'workflow-version-1',
+            contentHash: 'c'.repeat(64),
+            portableText: 'Use the reviewed visitor evidence.',
+          },
+        },
+      ]),
+      executionPrompt: `Build it\n\nSelected workflow instructions and provenance:\n${JSON.stringify(
+        [
+          {
+            registryKey: 'visitor-review',
+            outcome: 'SELECTED',
+            bindingHash: 'b'.repeat(64),
+            requiredCapabilities: ['knowledge.read'],
+            workflowVersion: {
+              id: 'workflow-version-1',
+              contentHash: 'c'.repeat(64),
+              portableText: 'Use the reviewed visitor evidence.',
+            },
+          },
+        ],
+      )}\n\nBounded persisted execution context:\n{"currentResolvedQuestions":[{"answer":"The approved visitor capacity is exactly 137."}]}`,
       initiatedByType: 'HUMAN',
       initiatedById: 'operator-1',
       agentIdentity: {
@@ -124,6 +152,7 @@ describe('agent bridge actions', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           modelProvider: 'codex-bridge',
+          cancelRequestedAt: null,
           AND: [
             {
               OR: [
@@ -147,10 +176,16 @@ describe('agent bridge actions', () => {
       expect.objectContaining({
         runId: 'run-1',
         bridgeSessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        workflowContextMaxChars: 6_000,
+        executionPromptMaxChars: 10_000,
       }),
     )
     expect(result.task?.id).toBe('run-1')
     expect(result.task?.prompt).toContain('The approved visitor capacity is exactly 137.')
+    expect(result.task?.prompt).toContain('Use the reviewed visitor evidence.')
+    expect(result.task?.prompt).toContain('workflow-version-1')
+    expect(result.task?.prompt).toContain('knowledge.read')
+    expect(result.task?.prompt).toContain('b'.repeat(64))
   })
 
   it('skips incompatible role-bound work and claims the first compatible task', async () => {
@@ -187,6 +222,9 @@ describe('agent bridge actions', () => {
       leaseExpiresAt: new Date(),
       attemptNumber: 1,
       scopeSnapshot: {},
+      executionContext: '{}',
+      workflowExecutionContext: '[]',
+      executionPrompt: 'review_sources\n\nBounded persisted execution context:\n{}',
       initiatedByType: 'SYSTEM',
       initiatedById: 'scheduler',
       agentIdentity: {
@@ -238,6 +276,9 @@ describe('agent bridge actions', () => {
         leaseExpiresAt: new Date(),
         attemptNumber: 1,
         scopeSnapshot: {},
+        executionContext: '{}',
+        workflowExecutionContext: '[]',
+        executionPrompt: 'Build it\n\nBounded persisted execution context:\n{}',
         initiatedByType: 'SYSTEM',
         initiatedById: 'scheduler',
         agentIdentity: {

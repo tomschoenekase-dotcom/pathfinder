@@ -1170,6 +1170,42 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         prompt: 'Delegate one bounded evidence review to the exact specialist.',
         actor: { actorType: 'HUMAN', actorId: actor.id, auditRole: 'PLATFORM_ADMIN' },
       })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: { capabilities: ['agent-improvements:propose', 'agent-runs:execute'] },
+      })
+      await expect(
+        claimAgentBridgeTask({
+          sessionId: registryBridgeSessionId,
+          venueId,
+          workerKey: registryWorkerId,
+          credential: verifiedRegistryCredential,
+        }),
+      ).rejects.toMatchObject({ code: 'UNSUPPORTED_ACTION' })
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: workflowParent.run.id },
+          select: {
+            status: true,
+            attemptNumber: true,
+            executionWorkerId: true,
+            executionBridgeSessionId: true,
+            executionLeaseToken: true,
+          },
+        }),
+      ).toEqual({
+        status: 'QUEUED',
+        attemptNumber: 0,
+        executionWorkerId: null,
+        executionBridgeSessionId: null,
+        executionLeaseToken: null,
+      })
+      await db.agentWorker.update({
+        where: { id: registryWorkerId },
+        data: {
+          capabilities: ['agent-improvements:propose', 'agent-runs:execute', 'resources:read'],
+        },
+      })
       const claimedWorkflowParent = await claimAgentBridgeTask({
         sessionId: registryBridgeSessionId,
         venueId,
@@ -1177,6 +1213,24 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
         credential: verifiedRegistryCredential,
       })
       expect(claimedWorkflowParent.task).toMatchObject({ id: workflowParent.run.id })
+      expect(claimedWorkflowParent.task?.prompt).toContain(registered.version.id)
+      expect(claimedWorkflowParent.task?.prompt).toContain(registered.version.contentHash)
+      expect(claimedWorkflowParent.task?.prompt).toContain('resources:read')
+      const workflowSection = claimedWorkflowParent
+        .task!.prompt!.split('Selected workflow instructions and provenance:\n')[1]!
+        .split('\n\nBounded persisted execution context:')[0]!
+      expect(JSON.parse(workflowSection)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            requiredCapabilities: expect.arrayContaining(['resources:read']),
+            workflowVersion: {
+              id: registered.version.id,
+              contentHash: registered.version.contentHash,
+              portableText: registryRequest.portableText,
+            },
+          }),
+        ]),
+      )
       const workflowDelegationOperationId = randomUUID()
       const workflowDelegationInput = {
         operationId: workflowDelegationOperationId,
