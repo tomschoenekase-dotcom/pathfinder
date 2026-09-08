@@ -11,6 +11,10 @@ import {
   projectGuestModelHistory,
   type GuestTextHistoryRow,
 } from './lib/guest-conversation-history'
+import {
+  assertGuestRetrievalPerformanceBudget,
+  GUEST_RETRIEVAL_PERFORMANCE_BUDGET,
+} from './lib/evaluation/guest-retrieval-performance-policy'
 import { retrieveGuestKnowledge } from './lib/guest-knowledge-retrieval'
 
 const enabled =
@@ -56,9 +60,9 @@ describe.skipIf(!enabled)('native provider-dark guest retrieval performance base
         ],
       })
 
-      const retrieve = () =>
+      const retrieve = (reader: unknown = db) =>
         retrieveGuestKnowledge({
-          reader: db,
+          reader,
           query: 'north gallery capacity',
           tenantId,
           venueId,
@@ -133,9 +137,60 @@ describe.skipIf(!enabled)('native provider-dark guest retrieval performance base
       expect(projectedHistory).toHaveLength(10)
       expect(projectedHistory[0]?.content).toBe('Bounded historical turn 990')
 
+      const gateMeasurement = {
+        firstReadMs: Math.max(smallCorpus.initialReadMs, largeCorpus.initialReadMs),
+        repeatedP95Ms: Math.max(smallCorpus.repeatedReads.p95Ms, largeCorpus.repeatedReads.p95Ms),
+        boundedHistoryMs: boundedHistoryProjectionMs,
+      }
+      const assertLocalBudget = (
+        caseName: string,
+        measurement: Parameters<typeof assertGuestRetrievalPerformanceBudget>[0],
+      ) => {
+        try {
+          assertGuestRetrievalPerformanceBudget(measurement)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'Unknown budget failure'
+          throw new Error(
+            `Guest retrieval performance budget failed for ${caseName}; tenant=${tenantId}; venue=${venueId}; source=${sourceId}. ${detail}`,
+          )
+        }
+      }
+      assertLocalBudget('small-and-large corpus baseline', gateMeasurement)
+
+      // The negative control delays the actual scoped database reader used by
+      // retrieveGuestKnowledge. It is intentionally not a fabricated metric:
+      // the retrieval still executes its parallel strict/broad reads, source
+      // selection, and trace construction before the budget rejects it.
+      const delayedReader = {
+        venueKnowledgeEntry: {
+          findMany: async (args: Record<string, unknown>) => {
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            return db.venueKnowledgeEntry.findMany(args as never)
+          },
+        },
+      }
+      const slowedSamplesMs: number[] = []
+      const slowedWallClockSamplesMs: number[] = []
+      for (let index = 0; index < 12; index += 1) {
+        const slowedStartedAt = performance.now()
+        const slowed = await retrieve(delayedReader)
+        slowedWallClockSamplesMs.push(performance.now() - slowedStartedAt)
+        slowedSamplesMs.push(slowed.trace.retrievalMs)
+        expect(slowed.trace.retrievedSourceIds).toContain(sourceId)
+        expect(slowed.entries.find(({ id }) => id === sourceId)?.content).toContain('83 visitors')
+      }
+      const slowedP95Ms = percentile(slowedSamplesMs, 0.95)
+      expect(slowedP95Ms).toBeGreaterThanOrEqual(250)
+      expect(() =>
+        assertLocalBudget('deliberately delayed repeated retrieval', {
+          ...gateMeasurement,
+          repeatedP95Ms: slowedP95Ms,
+        }),
+      ).toThrow(/repeated-p95-ms exceeded local engineering budget/u)
+
       const measurement = {
         guestRetrievalPerformance: {
-          version: 'provider-dark-native-retrieval-performance-v1',
+          version: 'provider-dark-native-retrieval-performance-v2',
           sourceId,
           sourceVersion: corrected.updatedAt.toISOString(),
           cases: {
@@ -154,6 +209,18 @@ describe.skipIf(!enabled)('native provider-dark guest retrieval performance base
             inputRows: historyRows.length,
             outputRows: projectedHistory.length,
             projectionMs: boundedHistoryProjectionMs,
+          },
+          localEngineeringGate: {
+            ...GUEST_RETRIEVAL_PERFORMANCE_BUDGET,
+            acceptedMeasurement: gateMeasurement,
+            deliberateSlowReader: {
+              sampleCount: slowedSamplesMs.length,
+              samplesMs: slowedSamplesMs,
+              p50Ms: percentile(slowedSamplesMs, 0.5),
+              p95Ms: slowedP95Ms,
+              wallClockSamplesMs: slowedWallClockSamplesMs,
+              rejected: true,
+            },
           },
           correctionCurrent: true,
           providerCalled: false,
