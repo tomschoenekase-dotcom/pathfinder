@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 455,
-    "sha256": "a4bf69b2fd20ac11224596ac88e6241a56f5cfef6515442825bf20ea6e6746a9",
+    "count": 510,
+    "sha256": "896895f830445654bc248d52a5e9371edd7d9005ce676045235b6b1f65cdf18e",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "a4bf69b2fd20ac11224596ac88e6241a56f5cfef6515442825bf20ea6e6746a9",
-      "sha256": "c905ac70f44c7b616f0c005b5c52b3d244a3b0e46ab3eaf6a981cffbc8bbdddf"
+      "operationInventorySha256": "896895f830445654bc248d52a5e9371edd7d9005ce676045235b6b1f65cdf18e",
+      "sha256": "228f334598b51d968dfd8e46b9c4a278b3dd40d9e8e89a9cf703e08f5327f218"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -586,6 +586,14 @@
       "evidence": "docs/agents/CAPABILITY_MATRIX.md"
     },
     {
+      "id": "character-factory",
+      "pattern": "^adminCharacterFactoryRouter$",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "A capability-scoped bridge can prepare, inspect, cancel, claim, heartbeat, upload a retained artifact, and complete or fail one exact venue character-factory job. Build and executor capabilities are distinct and lease-fenced. This is durable retained-result lifecycle coverage, not automatic job discovery, provider generation, final-art approval, or unrestricted administrator parity.",
+      "evidence": "packages/api/src/agent-bridge/registry.test.ts"
+    },
+    {
       "id": "agent-evaluation",
       "pattern": "(?<!Support)Agent|AiWorkload|CostBudget|Evaluation",
       "agentCoverage": "partial",
@@ -635,7 +643,7 @@
     },
     {
       "id": "intake-media",
-      "pattern": "Intake|Media",
+      "pattern": "Intake(?!V1Package)|Media",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Readiness and job state are agent-readable; upload quarantine, malware, and review transitions retain canonical human/system gates.",

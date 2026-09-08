@@ -118,8 +118,10 @@
     "path": "analytics.getWeeklyThemes",
     "kind": "query",
     "minimumRole": "STAFF",
-    "firstTouch": "venueWeeklyTheme.findFirst",
-    "input": null
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
   },
   {
     "path": "analytics.getPlaceInterest",
@@ -1138,5 +1140,89 @@
       },
       "expectedRevision": 0
     }
+  },
+  {
+    "path": "intake.submitV1",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "selection": {
+        "operationId": "11111111-1111-4111-8111-111111111111",
+        "partialAcknowledged": false,
+        "drafts": {},
+        "intakeRunIds": [],
+        "intakeUploadIds": []
+      }
+    }
+  },
+  {
+    "path": "intake.amendV1",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "submissionId": "submission-foreign",
+      "expectedCurrentRevision": 1,
+      "selection": {
+        "operationId": "22222222-2222-4222-8222-222222222222",
+        "partialAcknowledged": true,
+        "drafts": {},
+        "intakeRunIds": [],
+        "intakeUploadIds": []
+      }
+    }
+  },
+  {
+    "path": "intake.getV1",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "submissionId": "submission-foreign",
+      "revisionLimit": 20
+    }
+  },
+  {
+    "path": "intake.getV1Processing",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "submissionId": "submission-foreign",
+      "revision": 1
+    }
+  },
+  {
+    "path": "intake.getLatestV1",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "revisionLimit": 20 }
+  },
+  {
+    "path": "intake.listV1Candidates",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+  },
+  {
+    "path": "intake.listV1UploadCandidates",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "limit": 25 }
+  },
+  {
+    "path": "venue.listApprovedBrandingAssets",
+    "kind": "query",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "limit": 50 }
   }
 ]
