@@ -449,6 +449,131 @@ describe('public structured location resolver', () => {
     })
   })
 
+  it('excludes a current public closure from destination selection and its traversal graph', async () => {
+    const closed = {
+      ...locations[1],
+      id: 'restroom-closed',
+      stableKey: 'restroom-closed',
+      kind: 'RESTROOM',
+      primaryPlace: {
+        id: 'place-closed',
+        isActive: true,
+        visibility: 'PUBLIC',
+        operationalUpdates: [{ id: 'closure-1' }],
+      },
+    }
+    const open = {
+      ...locations[2],
+      id: 'restroom-open',
+      stableKey: 'restroom-open',
+      kind: 'RESTROOM',
+      primaryPlace: {
+        id: 'place-open',
+        isActive: true,
+        visibility: 'PUBLIC',
+        operationalUpdates: [],
+      },
+    }
+    findMany.mockResolvedValue([locations[0], closed, open])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'entrance-closed',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom-closed',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Closed route.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+      {
+        id: 'entrance-open',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom-open',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Open route.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+    ])
+
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toMatchObject({
+      destination: { id: 'restroom-open' },
+      ranking: { reachableOptionCount: 1 },
+    })
+    await expect(
+      caller.location.route({ ...routeInput, toLocationId: 'restroom-closed' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          primaryPlace: expect.objectContaining({
+            select: expect.objectContaining({
+              operationalUpdates: expect.objectContaining({
+                take: 1,
+                where: expect.objectContaining({
+                  tenantId: 'tenant-1',
+                  venueId: 'venue-1',
+                  status: 'PUBLISHED',
+                  isActive: true,
+                  updateType: { in: ['TEMPORARY_CLOSURE', 'UNAVAILABLE_EXHIBIT'] },
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('allows a closed public origin to route out while draft and expired updates do not close it', async () => {
+    const closedOrigin = {
+      ...locations[0],
+      primaryPlace: {
+        id: 'place-origin',
+        isActive: true,
+        visibility: 'PUBLIC',
+        operationalUpdates: [{ id: 'closure-origin' }],
+      },
+    }
+    const openDestination = {
+      ...locations[1],
+      id: 'restroom-open',
+      stableKey: 'restroom-open',
+      kind: 'RESTROOM',
+      primaryPlace: {
+        id: 'place-open',
+        isActive: true,
+        visibility: 'PUBLIC',
+        operationalUpdates: [],
+      },
+    }
+    findMany.mockResolvedValue([closedOrigin, openDestination])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'origin-escape',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom-open',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Leave by the reviewed path.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+    ])
+    await expect(
+      caller.location.route({ ...routeInput, toLocationId: 'restroom-open' }),
+    ).resolves.toMatchObject({ from: { id: 'location-entrance' }, to: { id: 'restroom-open' } })
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toMatchObject({
+      destination: { id: 'restroom-open' },
+      ranking: { alreadyHere: false },
+    })
+  })
+
   it('attaches approved media only for a currently public primary Place and preserves routing on failure', async () => {
     queryRaw.mockResolvedValue([
       {

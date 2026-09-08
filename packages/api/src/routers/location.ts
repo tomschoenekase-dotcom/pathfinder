@@ -6,7 +6,11 @@ import { resolveProductEntitlement } from '@pathfinder/db'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { publicProcedure } from '../trpc'
-import { findDeterministicRoutePlan, projectRouteLocation } from './location-route'
+import {
+  findDeterministicRoutePlan,
+  isPublicRouteLocationClosed,
+  projectRouteLocation,
+} from './location-route'
 import { loadPublicLocationScope } from './location-public-scope'
 import { selectReachableLocation } from './location-reachable'
 import { filterEligibleMediaRouteConnections } from '../lib/media-relation-route-loader'
@@ -48,7 +52,26 @@ async function loadPublicRouteLocations(
       latitude: true,
       longitude: true,
       floor: { select: { id: true, stableKey: true, name: true, level: true } },
-      primaryPlace: { select: { id: true, isActive: true, visibility: true } },
+      primaryPlace: {
+        select: {
+          id: true,
+          isActive: true,
+          visibility: true,
+          operationalUpdates: {
+            where: {
+              tenantId: scope.tenantId,
+              venueId: scope.venueId,
+              status: 'PUBLISHED',
+              isActive: true,
+              startsAt: { lte: now },
+              expiresAt: { gt: now },
+              updateType: { in: ['TEMPORARY_CLOSURE', 'UNAVAILABLE_EXHIBIT'] },
+            },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      },
     },
   })
   if (locations.length > 500)
@@ -145,9 +168,15 @@ export const locationRouter = router({
           location.id === input.fromLocationId || location.stableKey === input.fromLocationId,
       )
       if (!origin) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location not found.' })
+      const closedLocationIds = new Set(
+        locations.filter(isPublicRouteLocationClosed).map((location) => location.id),
+      )
+      const traversableLocations = locations.filter(
+        (location) => location.id === origin.id || !closedLocationIds.has(location.id),
+      )
       const connections = await loadPublicRouteConnections(ctx.db, scope, now, input.accessibleOnly)
       const selected = selectReachableLocation({
-        locations: locations.map((location) => ({
+        locations: traversableLocations.map((location) => ({
           ...location,
           latitude: location.latitude == null ? null : Number(location.latitude),
           longitude: location.longitude == null ? null : Number(location.longitude),
@@ -156,6 +185,7 @@ export const locationRouter = router({
         fromLocationId: origin.id,
         kind: input.kind,
         accessibleOnly: input.accessibleOnly,
+        unavailableDestinationIds: [...closedLocationIds],
       })
       if (!selected) return { destination: null, ranking: null }
       const primaryPlace = selected.location.primaryPlace
@@ -344,6 +374,14 @@ export const locationRouter = router({
           code: 'BAD_REQUEST',
           message: 'Choose two different locations.',
         })
+      const closedLocationIds = new Set(
+        locations.filter(isPublicRouteLocationClosed).map((location) => location.id),
+      )
+      if (closedLocationIds.has(toLocationId))
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
+      const traversableLocations = locations.filter(
+        (location) => location.id === fromLocationId || !closedLocationIds.has(location.id),
+      )
 
       const eligibleConnections = await loadPublicRouteConnections(
         ctx.db,
@@ -352,14 +390,14 @@ export const locationRouter = router({
         input.accessibleOnly,
       )
       const routePlan = findDeterministicRoutePlan({
-        locations,
+        locations: traversableLocations,
         connections: eligibleConnections,
         fromLocationId,
         toLocationId,
       })
       if (!routePlan)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
-      const byId = new Map(locations.map((location) => [location.id, location]))
+      const byId = new Map(traversableLocations.map((location) => [location.id, location]))
       const describedSegmentCount = routePlan.steps.filter((step) =>
         Boolean(step.connection.directions?.trim()),
       ).length

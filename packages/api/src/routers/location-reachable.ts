@@ -25,14 +25,18 @@ export function selectReachableLocation(input: {
   fromLocationId: string
   kind: string
   accessibleOnly: boolean
+  unavailableDestinationIds?: readonly string[]
 }) {
   const origin = input.locations.find((location) => location.id === input.fromLocationId)
   if (!origin) return null
   const connections = input.connections.filter(
     (connection) => !input.accessibleOnly || connection.accessible,
   )
+  const unavailableDestinationIds = new Set(input.unavailableDestinationIds)
   const candidates = input.locations
-    .filter((location) => location.kind === input.kind)
+    .filter(
+      (location) => location.kind === input.kind && !unavailableDestinationIds.has(location.id),
+    )
     .flatMap((location) => {
       const plan = findDeterministicRoutePlan({ ...input, connections, toLocationId: location.id })
       return plan ? [{ location, plan }] : []

@@ -45,7 +45,9 @@ import {
   createUniversalContentAction,
   createOrReplayEvaluationRun,
   createNativeVenueDeploymentAction,
+  createOperationalUpdateAction,
   db,
+  expireOperationalUpdateAction,
   finishEvaluationRunAttempt,
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
@@ -55,15 +57,27 @@ import {
   revertNativeVenueDeploymentAction,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
+  updateOperationalUpdateAction,
   withdrawUniversalContentAction,
+  claimIntakeUploadVerificationAction,
+  recordIntakeUploadPrecheckAction,
+  registerVenueMediaAssetAction,
+  requestVenueMediaDerivativesAction,
+  reviewVenueMediaAssetAction,
+  reserveIntakeUploadAction,
+  settleIntakeUploadAuthoritativeVerificationAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
 
 import type { TRPCContext } from './context'
-import { router } from './core'
+import { mergeRouters, router } from './core'
 import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
+import { adminLocationAuthoringRouter } from './routers/admin/location-authoring'
+import { adminLocationAvailabilityRouter } from './routers/admin/location-availability'
+import { adminLocationConnectionAuthoringRouter } from './routers/admin/location-connection-authoring'
+import { locationRouter } from './routers/location'
 import { createSafeOperationalMcpRegistry } from './mcp/composition'
 import { buildVoiceGroundingContext } from './lib/voice-grounding-context'
 import { retrieveGuestKnowledge } from './lib/guest-knowledge-retrieval'
@@ -75,6 +89,14 @@ const enabled =
 
 describe.skipIf(!enabled)('native guest content read disposable rehearsal', () => {
   const testRouter = router({ chat: chatRouter, admin: adminNativeVenueDeploymentsRouter })
+  const visitorRouter = router({
+    admin: mergeRouters(
+      adminLocationAuthoringRouter,
+      adminLocationAvailabilityRouter,
+      adminLocationConnectionAuthoringRouter,
+    ),
+    location: locationRouter,
+  })
 
   afterAll(async () => {
     _setAnthropicClientForTesting(null)
@@ -270,6 +292,458 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         publishedProjection.id,
       )
       expect(semanticAfterWithdrawal.trace.excludedSourceIds).toContain(publishedProjection.id)
+    })
+  })
+
+  it('keeps one scoped visitor journey current across correction, route reachability, and media withdrawal', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+      const tenantId = `tenant-combined-${suffix}`
+      const venueId = `venue-combined-${suffix}`
+      const siblingVenueId = `venue-combined-sibling-${suffix}`
+      const venueSlug = `combined-${suffix}`
+      const actorId = `combined-reviewer-${suffix}`
+      const actor = { type: 'HUMAN' as const, id: actorId, role: 'PLATFORM_ADMIN' as const }
+      const anonymousToken = randomUUID()
+      const placeId = `place-combined-${suffix}`
+      const privatePlaceId = `place-private-${suffix}`
+      const siblingPlaceId = `place-sibling-${suffix}`
+      const originId = randomUUID()
+      const reachableId = randomUUID()
+      const disconnectedId = randomUUID()
+
+      await db.tenant.create({
+        data: { id: tenantId, name: 'Combined guest proof', slug: tenantId },
+      })
+      const tenant = await db.tenant.findUniqueOrThrow({ where: { id: tenantId } })
+      await db.productPlanCapability.upsert({
+        where: { planTier_capability: { planTier: tenant.planTier, capability: 'location-plus' } },
+        create: {
+          planTier: tenant.planTier,
+          capability: 'location-plus',
+          enabled: true,
+          createdBy: actorId,
+          updatedBy: actorId,
+        },
+        update: { enabled: true, updatedBy: actorId },
+      })
+      await db.venue.createMany({
+        data: [
+          {
+            id: venueId,
+            tenantId,
+            slug: venueSlug,
+            name: 'Combined visitor venue',
+            chatShowPhotos: true,
+          },
+          {
+            id: siblingVenueId,
+            tenantId,
+            slug: `sibling-${suffix}`,
+            name: 'Combined sibling venue',
+          },
+        ],
+      })
+      await db.place.createMany({
+        data: [
+          {
+            id: placeId,
+            tenantId,
+            venueId,
+            name: 'Reviewed Garden',
+            type: 'RESTROOM',
+            visibility: 'PUBLIC',
+            tags: [],
+          },
+          {
+            id: privatePlaceId,
+            tenantId,
+            venueId,
+            name: 'Private Garden',
+            type: 'RESTROOM',
+            visibility: 'SECOND_LAYER',
+            tags: [],
+          },
+          {
+            id: siblingPlaceId,
+            tenantId,
+            venueId: siblingVenueId,
+            name: 'Sibling Garden',
+            type: 'RESTROOM',
+            visibility: 'PUBLIC',
+            tags: [],
+          },
+        ],
+      })
+      await db.venueKnowledgeEntry.createMany({
+        data: [
+          {
+            tenantId,
+            venueId,
+            title: 'Garden status',
+            category: 'GENERAL',
+            content: 'Reviewed garden information.',
+            visibility: 'PUBLIC',
+          },
+          {
+            tenantId,
+            venueId,
+            title: 'Private garden status',
+            category: 'GENERAL',
+            content: 'Private internal garden detail.',
+            visibility: 'SECOND_LAYER',
+          },
+          {
+            tenantId,
+            venueId: siblingVenueId,
+            title: 'Sibling garden status',
+            category: 'GENERAL',
+            content: 'Sibling venue garden detail.',
+            visibility: 'PUBLIC',
+          },
+        ],
+      })
+      const now = new Date()
+      const initialUpdate = await createOperationalUpdateAction({
+        tenantId,
+        actor,
+        schedule: true,
+        now,
+        fields: {
+          venueId,
+          placeId,
+          updateType: 'GENERAL_NOTICE',
+          severity: 'INFO',
+          priority: 'HIGH',
+          title: 'Garden availability',
+          body: 'The reviewed garden is open today.',
+          startsAt: new Date(now.getTime() - 60_000),
+          expiresAt: new Date(now.getTime() + 60 * 60_000),
+        },
+      })
+      const read = () =>
+        buildVoiceGroundingContext({
+          reader: db as never,
+          tenantId,
+          venueId,
+          query: 'What is the garden status?',
+          asOf: now,
+        })
+      const beforeCorrection = await read()
+      expect(beforeCorrection.context).toContain('open today')
+      expect(beforeCorrection.context).not.toContain('Private internal')
+      expect(beforeCorrection.context).not.toContain('Sibling venue')
+      const correctedUpdate = await updateOperationalUpdateAction({
+        tenantId,
+        actor,
+        id: initialUpdate.update.id,
+        expectedUpdatedAt: initialUpdate.update.updatedAt,
+        schedule: false,
+        now,
+        fields: {
+          venueId,
+          placeId,
+          updateType: 'TEMPORARY_CLOSURE',
+          severity: 'CLOSURE',
+          priority: 'HIGH',
+          title: 'Garden availability',
+          body: 'The reviewed garden is temporarily closed today.',
+          startsAt: new Date(now.getTime() - 60_000),
+          expiresAt: new Date(now.getTime() + 60 * 60_000),
+        },
+      })
+      expect(correctedUpdate.update.id).toBe(initialUpdate.update.id)
+      expect(correctedUpdate.update.status).toBe('PUBLISHED')
+      const afterCorrection = await read()
+      expect(afterCorrection.context).toContain('temporarily closed today')
+      expect(afterCorrection.context).not.toContain('open today')
+
+      await db.visitorSession.create({ data: { tenantId, venueId, anonymousToken } })
+      const admin = visitorRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: actorId, activeTenantId: null, role: null, isPlatformAdmin: true },
+      }).admin
+      const visitor = visitorRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      }).location
+      const locationInput = (
+        stableKey: string,
+        kind: 'ENTRANCE' | 'RESTROOM',
+        primaryPlaceId?: string,
+      ) => ({
+        tenantId,
+        venueId,
+        stableKey,
+        kind,
+        displayName: stableKey,
+        description: null,
+        visibility: 'PUBLIC' as const,
+        floorId: null,
+        parentLocationId: null,
+        ...(primaryPlaceId ? { primaryPlaceId } : {}),
+        coordinates: null,
+        mapAnchor: null,
+        externalMapReference: null,
+        accessibilityMetadata: {},
+      })
+      const origin = await admin.createVenueLocationDraft({
+        operationId: originId,
+        ...locationInput('reviewed-entrance', 'ENTRANCE'),
+      })
+      const reachable = await admin.createVenueLocationDraft({
+        operationId: reachableId,
+        ...locationInput('reviewed-garden', 'RESTROOM', placeId),
+      })
+      const disconnected = await admin.createVenueLocationDraft({
+        operationId: disconnectedId,
+        ...locationInput('disconnected-garden', 'RESTROOM', placeId),
+      })
+      await expect(
+        admin.createVenueLocationDraft({
+          operationId: randomUUID(),
+          ...locationInput('sibling-garden-forbidden', 'RESTROOM', siblingPlaceId),
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      for (const location of [origin.location, reachable.location, disconnected.location]) {
+        await admin.setVenueLocationAvailability({
+          tenantId,
+          venueId,
+          locationId: location.id,
+          expectedUpdatedAt: location.updatedAt,
+          active: true,
+          reason: 'Activate reviewed combined fixture anchor.',
+        })
+      }
+      const connection = await admin.createVenueLocationConnectionDraft({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        fromLocationId: originId,
+        toLocationId: reachableId,
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Use the reviewed garden walkway.',
+      })
+      await admin.setVenueLocationConnectionAvailability({
+        tenantId,
+        venueId,
+        connectionId: connection.connection.id,
+        expectedUpdatedAt: connection.connection.updatedAt,
+        active: true,
+        reason: 'Activate reviewed combined fixture connection.',
+      })
+      const routeInput = {
+        venueId,
+        anonymousToken,
+        fromLocationId: originId,
+        kind: 'RESTROOM' as const,
+        accessibleOnly: true,
+      }
+      await expect(visitor.reachableDestination(routeInput)).resolves.toEqual({
+        destination: null,
+        ranking: null,
+      })
+      await expect(
+        visitor.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: originId,
+          toLocationId: reachableId,
+          accessibleOnly: true,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const expiredClosure = await expireOperationalUpdateAction({
+        tenantId,
+        actor,
+        id: correctedUpdate.update.id,
+        expectedUpdatedAt: correctedUpdate.update.updatedAt,
+        now,
+      })
+      expect(expiredClosure.update.isActive).toBe(false)
+      await expect(visitor.reachableDestination(routeInput)).resolves.toMatchObject({
+        destination: { id: reachableId },
+        ranking: { reachableOptionCount: 1 },
+      })
+      await expect(
+        visitor.route({
+          venueId,
+          anonymousToken,
+          fromLocationId: originId,
+          toLocationId: disconnectedId,
+          accessibleOnly: true,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+      const assetId = randomUUID()
+      const sourceGeneration = randomUUID()
+      const sourceSha256 = 'c'.repeat(64)
+      const reserved = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'Combined garden image metadata',
+          fileName: 'garden.png',
+          mimeType: 'image/png',
+          category: 'PHOTO',
+          byteSize: 64,
+          sha256: sourceSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: `intake-quarantine/${randomUUID()}`,
+          objectGeneration: sourceGeneration,
+        },
+      })
+      const precheckClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: precheckClaimId,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: precheckClaimId,
+        verified: {
+          objectGeneration: sourceGeneration,
+          storageVersionId: 'combined-source-version',
+          mimeType: 'image/png',
+          byteSize: 64,
+          sha256: sourceSha256,
+        },
+        evidence: {
+          engine: 'combined-precheck',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`combined-precheck:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: sourceSha256,
+        },
+      })
+      const malwareClaimId = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: malwareClaimId,
+      })
+      await settleIntakeUploadAuthoritativeVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: reserved.upload.id,
+        actor,
+        claimId: malwareClaimId,
+        malware: {
+          verdict: 'CLEAN',
+          engine: 'combined-malware',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update(`combined-malware:${suffix}`).digest('hex'),
+          computedByteSize: 64,
+          computedSha256: sourceSha256,
+        },
+      })
+      await registerVenueMediaAssetAction({
+        db,
+        actor,
+        registration: {
+          tenantId,
+          venueId,
+          assetId,
+          intakeUploadId: reserved.upload.id,
+          kind: 'IMAGE',
+          semanticDescription: 'Reviewed Garden image metadata.',
+          depictedSubjects: ['Reviewed Garden'],
+          altText: 'Reviewed garden entrance',
+          sourceName: 'Combined fixture',
+          sourceUrl: null,
+          importance: 'PRIMARY',
+          linkedPlaceIds: [placeId],
+          linkedKnowledgeEntryIds: [],
+        },
+      })
+      const approval = await reviewVenueMediaAssetAction({
+        db,
+        actor,
+        review: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestSequence: 0,
+          action: 'APPROVE_CONTENT_USE',
+          rightsBasis: 'VENUE_OWNED',
+          rightsStatement: 'Disposable combined fixture metadata.',
+          rightsEvidenceSourceId: 'combined-fixture',
+        },
+      })
+      const requested = await requestVenueMediaDerivativesAction({
+        db,
+        actor,
+        request: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestReviewSequence: approval.sequence,
+          variants: ['CARD'],
+        },
+      })
+      const derivativeId = requested.items[0]!.derivativeId
+      await expect(
+        db.venueMediaDerivative.updateMany({
+          where: { id: derivativeId, tenantId, venueId, assetId, status: 'PENDING' },
+          data: {
+            status: 'READY',
+            objectKey: `visitor-media/${suffix}.webp`,
+            storageVersionId: 'combined-derivative-version',
+            mimeType: 'image/webp',
+            width: 768,
+            height: 480,
+            byteSize: 64,
+            sha256: 'd'.repeat(64),
+            completedAt: new Date(),
+          },
+        }),
+      ).resolves.toMatchObject({ count: 1 })
+      await expect(visitor.reachableDestination(routeInput)).resolves.toMatchObject({
+        destination: {
+          id: reachableId,
+          media: { photoUrl: `/api/venue-media/${derivativeId}?venue=${venueSlug}` },
+        },
+      })
+      await db.place.update({ where: { id: placeId }, data: { visibility: 'SECOND_LAYER' } })
+      const privateBoundMedia = await visitor.reachableDestination(routeInput)
+      expect(privateBoundMedia.destination).toMatchObject({ id: reachableId })
+      expect(privateBoundMedia.destination).not.toHaveProperty('media')
+      await db.place.update({ where: { id: placeId }, data: { visibility: 'PUBLIC' } })
+      await reviewVenueMediaAssetAction({
+        db,
+        actor,
+        review: {
+          tenantId,
+          venueId,
+          assetId,
+          requestId: randomUUID(),
+          expectedLatestSequence: approval.sequence,
+          action: 'WITHDRAW_CONTENT_USE',
+          reason: 'Withdraw combined fixture media.',
+        },
+      })
+      const afterWithdrawal = await visitor.reachableDestination(routeInput)
+      expect(afterWithdrawal.destination).toMatchObject({ id: reachableId })
+      expect(afterWithdrawal.destination).not.toHaveProperty('media')
+      process.stdout.write(
+        `${JSON.stringify({ proof: 'combined-guest-read-service-boundary-v1', tenantId, venueId, controls: ['public-correction-current-next-read', 'same-venue-approved-and-withdrawn-media', 'reachable-reviewed-route', 'disconnected-route-not-fabricated', 'private-and-sibling-content-excluded', 'private-place-media-withheld', 'sibling-place-route-anchor-rejected'], limitations: ['tenant-scoped read-service and public-router boundary; fixture seeding uses an explicit isolation bypass, not a tenant-middleware proof', 'not browser or provider E2E', 'synthetic metadata only; no media bytes'] })}\n`,
+      )
     })
   })
 

@@ -87,4 +87,13 @@ describe('reviewed reachable destination selection', () => {
       plan: { steps: [] },
     })
   })
+  it('does not select a closed origin as an already-here destination', () => {
+    expect(
+      selectReachableLocation({
+        ...input,
+        fromLocationId: 'near',
+        unavailableDestinationIds: ['near'],
+      }),
+    ).toBeNull()
+  })
 })
