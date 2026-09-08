@@ -54,6 +54,7 @@ const guestTurnActions = vi.hoisted(() => ({
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
 const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
+const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
 vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
@@ -68,6 +69,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
   readActiveUnhealthyAiProviders,
+  recordConversationLearningCandidate,
 }))
 
 import { router } from '../core'
@@ -619,6 +621,51 @@ describe('chat router', () => {
         expect.objectContaining({ request: expect.objectContaining({ requestId: operationId }) }),
       )
     })
+
+    it.each(['PUBLIC', 'SECOND_LAYER'] as const)(
+      'captures %s candidates from the completed authorized turn without visitor analytics leakage',
+      async (scope) => {
+        const key = '123e4567-e89b-42d3-a456-426614174999'
+        const employee = scope === 'SECOND_LAYER'
+        setupHappyPath(
+          'Thank you for the correction.',
+          { ...venueRow, secondLayerEnabled: true, secondLayerAccessKey: key },
+          scope,
+        )
+        recordConversationLearningCandidate.mockResolvedValue({})
+        const activeCaller = employee
+          ? testRouter.createCaller({
+              ...ctx,
+              session: {
+                userId: 'employee_1',
+                activeTenantId: TENANT_ID,
+                role: 'STAFF',
+                isPlatformAdmin: false,
+              },
+            })
+          : caller
+        const message = 'The elephant exhibit is on the second floor.'
+        await activeCaller.chat.send({
+          ...sendInput,
+          message,
+          ...(employee ? { secondLayerKey: key } : {}),
+        })
+        expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+        expect(recordConversationLearningCandidate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            source: scope,
+            classifier: { kind: 'LOCATION', version: 'conversation-learning-en-v1' },
+            ...(employee ? { authenticatedActorRef: 'employee_1' } : {}),
+          }),
+        )
+        expect(JSON.stringify(recordConversationLearningCandidate.mock.calls)).not.toContain(
+          message,
+        )
+        if (employee) expect(emitEvent).not.toHaveBeenCalled()
+      },
+    )
 
     it('never emits raw message text or the anonymous bearer token in analytics', async () => {
       setupHappyPath('Near the entrance.')

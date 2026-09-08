@@ -42,6 +42,17 @@ export {
   type ConversationInsightSignal,
 } from './helpers/conversation-insights'
 export {
+  ConversationLearningActionError,
+  getConversationLearningPolicy,
+  listConversationLearningCandidates,
+  recordConversationLearningCandidate,
+  reviewConversationLearningCandidate,
+  updateConversationLearningPolicy,
+  type ConversationLearningCandidate,
+  type ConversationLearningPolicy,
+  type ConversationLearningReviewResult,
+} from './helpers/conversation-learning-actions'
+export {
   KnowledgeCorrectionActionError,
   listConversationKnowledgeGaps,
   proposeKnowledgeCorrectionAction,

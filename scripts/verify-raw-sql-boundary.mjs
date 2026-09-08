@@ -100,6 +100,12 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/conversation-learning-actions.ts',
+    method: '$executeRaw',
+    hash: '56c1814d0b991854fb97fb6d05a1b2d8f88f2106ee565bb76db483f696757012',
+    policy: 'system-probe',
+  },
   // Source-backed outcome observations share-lock the exact terminal run before
   // its exact tenant/venue question so the immutable answer revision is coherent.
   {

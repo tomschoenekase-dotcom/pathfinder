@@ -1402,6 +1402,7 @@ model Venue {
   secondLayerEnabled                        Boolean                                     @default(false) @map("second_layer_enabled")
   secondLayerLabel                          String                                      @default("Employee") @map("second_layer_label")
   secondLayerAccessKey                      String?                                     @unique @map("second_layer_access_key")
+  conversationLearningPolicy                ConversationLearningPolicy                 @default(VISITOR_AND_EMPLOYEE) @map("conversation_learning_policy")
   createdAt                                 DateTime                                    @default(now()) @map("created_at")
   updatedAt                                 DateTime                                    @updatedAt @map("updated_at")
   tenant                                    Tenant                                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -3341,6 +3342,13 @@ enum ConversationInsightReviewStatus {
   DISMISSED
 }
 
+/// Venue-scoped eligibility for reviewable conversational learning candidates.
+enum ConversationLearningPolicy {
+  VISITOR_AND_EMPLOYEE
+  EMPLOYEE_ONLY
+  DISABLED
+}
+
 /// Structured, reviewable intelligence derived from one tenant-owned conversation.
 /// Evidence contains message identifiers only; raw conversation text remains canonical in Message.
 model ConversationInsight {
@@ -3361,6 +3369,10 @@ model ConversationInsight {
   provider                 String                          @db.VarChar(32)
   model                    String                          @db.VarChar(191)
   analyzerVersion          String                          @map("analyzer_version") @db.VarChar(64)
+  /// Bounded source/eligibility/classifier metadata. Never contains transcript text.
+  candidateProvenance      Json?                           @map("candidate_provenance")
+  candidateRevision        Int                             @default(0) @map("candidate_revision")
+  reviewerFeedback         String?                         @map("reviewer_feedback") @db.VarChar(1000)
   reviewStatus             ConversationInsightReviewStatus @default(UNREVIEWED) @map("review_status")
   reviewedBy               String?                         @map("reviewed_by") @db.VarChar(191)
   reviewedAt               DateTime?                       @map("reviewed_at")

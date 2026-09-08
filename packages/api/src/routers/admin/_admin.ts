@@ -1,4 +1,5 @@
 import { mergeRouters } from '../../core'
+import { adminConversationLearningRouter } from './conversation-learning'
 
 import { adminAnswerAnalysisRouter } from './answer-analysis'
 import { adminAttentionConsoleRouter } from './attention-console-router'
@@ -80,6 +81,7 @@ import { adminIntakeMediaAssetRouter } from './venue-media'
 import { adminCharacterFactoryRouter } from './character-factory'
 
 export const adminRouter = mergeRouters(
+  adminConversationLearningRouter,
   adminOverviewRouter,
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,

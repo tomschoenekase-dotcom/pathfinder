@@ -67,6 +67,7 @@ import {
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { projectGuestPlaceIdentity } from '../lib/guest-place-identity'
+import { captureConversationLearning } from '../lib/capture-conversation-learning'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -1624,6 +1625,28 @@ const chatReadRouter = router({
       streamProjection?.requestFirstTextMs() !== undefined
         ? { requestFirstTextMs: streamProjection.requestFirstTextMs() }
         : {}),
+    }
+
+    try {
+      await captureConversationLearning({
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        sessionId: session.id,
+        guestChatTurnId: reservation.turnId,
+        userMessageId,
+        message: trimmedInput,
+        sourceScope: includeSecondLayer ? 'SECOND_LAYER' : 'PUBLIC',
+        ...(includeSecondLayer && ctx.session.userId && ctx.session.role
+          ? { actor: { id: ctx.session.userId, role: ctx.session.role } }
+          : {}),
+      })
+    } catch {
+      // Candidate review must never turn a completed guest answer into a failure.
+      logger.warn({
+        action: 'conversation-learning.capture-failed',
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+      })
     }
 
     // Project only active, already tenant/venue-scoped retrieval results that the
