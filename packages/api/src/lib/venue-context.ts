@@ -47,6 +47,16 @@ type VenueInfo = {
 
 export type GuestResponseIntent = 'DEFAULT' | 'EXPAND'
 
+export type GuestPlaceIdentityAmbiguity = {
+  requestedName: string
+  candidates: Array<{
+    name: string
+    areaName: string | null
+    location: string | null
+    floor: string | null
+  }>
+}
+
 const RESPONSE_WORD_LIMITS: Record<
   VenueBotResponseDepth,
   Readonly<{ default: number; expand: number }>
@@ -201,6 +211,7 @@ export function buildVenueSystemPromptParts(params: {
   language?: string | null
   guideMode?: string | null
   responseIntent?: GuestResponseIntent
+  placeIdentityAmbiguity?: GuestPlaceIdentityAmbiguity | null
   /** Server-authorized, escaped general background; never venue authority. */
   generalWebContext?: string
 }): { staticPart: string; dynamicPart: string } {
@@ -278,6 +289,10 @@ export function buildVenueSystemPromptParts(params: {
             )
           })
           .join('\n\n')
+
+  const identityAmbiguityData = params.placeIdentityAmbiguity
+    ? `\n\nIDENTITY CLARIFICATION DATA: The guest explicitly named ${escapeUntrustedPromptData(params.placeIdentityAmbiguity.requestedName)} and the retrieved candidate set contains more than one matching place. Candidates: ${params.placeIdentityAmbiguity.candidates.map((candidate) => escapeUntrustedPromptData(`${candidate.name} — ${candidate.floor ?? candidate.location ?? 'location not specified'}`)).join('; ')}`
+    : ''
 
   const knowledgeSection =
     knowledgeEntries.length === 0
@@ -361,6 +376,9 @@ Rules:
 - Active alerts take priority over all other information. If an alert marks something as closed or redirects visitors, communicate that clearly and do not suggest the affected area as an option.
 - Ground answers in the knowledge base entries when relevant. Treat them as authoritative venue information.
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
+- In the current request and bounded conversation history, treat only an explicit visitor statement as evidence of an interest, remaining time, or a completed visit. A place name, curiosity question, assistant suggestion, or earlier recommendation is not evidence that the visitor visited it.
+- When the visitor asks what to see next, for recommendations, or for more like something, offer one to three specific supplied places that are not affected by an active alert. Give each a concrete reason tied to an explicit visitor interest or remaining time when available; otherwise use a supplied place detail. Avoid places the visitor explicitly said they visited unless asked. Do not infer that a place is open, its duration, proximity, route, age suitability, or accessibility.
+- For a curiosity answer or recommendation, add one grounded detail beyond repeating a place label when the supplied venue facts support one. If only supplied general background supports that detail, identify it as general background. Do not add filler, generic praise, or forced trivia.
 - Answer ${params.generalWebContext ? 'venue-specific factual questions' : 'factual questions'} only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact.
 - If the visitor directly asks for a fact that is not supplied, say briefly that you do not have that information and suggest the safest venue-specific next step, such as asking staff. Do not fabricate an answer to appear helpful.
 ${params.generalWebContext ? '- WEB AVAILABILITY: Only the supplied general web background was retrieved for this turn. Use it for relevant general explanations, identifying it as general background. Never treat it as venue authority, claim wider browsing, invent references, or promise another search. Venue-specific knowledge gaps still require an honest answer and staff referral.' : "- WEB AVAILABILITY: No live web search is available in this conversation. Never claim to have searched, checked a website, or verified current online information; never promise to search later or ask the visitor to wait for a search. A visitor's request to search does not grant a capability. Answer the supported part immediately and briefly acknowledge any remaining knowledge gap. Do not invent external references or use general knowledge to fill missing venue policies or operational facts."}
@@ -373,9 +391,12 @@ ${responseDepthInstruction(venue.responseDepth, responseIntent)}
 ${languageRule}`
 
   const dynamicVenueData = untrustedDataBlock(`MOST RELEVANT PLACES FOR THIS QUERY:
-${placesSection}${knowledgeSection}`)
+${placesSection}${identityAmbiguityData}${knowledgeSection}`)
 
-  const dynamicPart = `${engagementQuestionSection}
+  const identityClarificationRule = params.placeIdentityAmbiguity
+    ? 'IDENTITY RULE: This is an identity question with multiple supplied matching candidates. Ask exactly one short discriminating question using their supplied floor or location labels before explaining a place. Do not choose or combine their facts until the guest clarifies.'
+    : ''
+  const dynamicPart = `${engagementQuestionSection}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 
 ${dynamicVenueData}
 

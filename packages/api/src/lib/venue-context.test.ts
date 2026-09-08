@@ -67,7 +67,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v15')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v17')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -238,6 +238,32 @@ describe('guest chat prompt provenance', () => {
           engagementQuestion: { allowAiInvented: true },
           userLat: 0,
           userLng: 0,
+        }),
+      },
+      {
+        id: 'duplicate-place-identity-clarification',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          userLat: null,
+          userLng: null,
+          placeIdentityAmbiguity: {
+            requestedName: 'Case 12',
+            candidates: [
+              {
+                name: 'Case 12',
+                areaName: 'North gallery',
+                location: 'North gallery',
+                floor: 'First floor',
+              },
+              {
+                name: 'Case 12',
+                areaName: 'South gallery',
+                location: 'South gallery',
+                floor: 'Second floor',
+              },
+            ],
+          },
         }),
       },
     ]
@@ -455,6 +481,47 @@ describe('buildVenueSystemPrompt', () => {
   it('includes areaName when present', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 0, userLng: 0 })
     expect(prompt).toContain('Safari Zone')
+  })
+
+  it('keeps recommendation and insight instructions grounded in explicit visitor evidence', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain('only an explicit visitor statement as evidence')
+    expect(prompt).toContain('assistant suggestion, or earlier recommendation is not evidence')
+    expect(prompt).toContain('offer one to three specific supplied places')
+    expect(prompt).toContain('Avoid places the visitor explicitly said they visited')
+    expect(prompt).toContain('Do not infer that a place is open, its duration, proximity')
+    expect(prompt).toContain('add one grounded detail beyond repeating a place label')
+    expect(prompt).toContain('identify it as general background')
+  })
+
+  it('requires one clarification for an explicitly ambiguous retrieved place identity', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      placeIdentityAmbiguity: {
+        requestedName: 'Case 12',
+        candidates: [
+          {
+            name: 'Case 12',
+            areaName: 'North gallery',
+            location: 'North gallery',
+            floor: 'First floor',
+          },
+          {
+            name: 'Case 12',
+            areaName: 'South gallery',
+            location: 'South gallery',
+            floor: 'Second floor',
+          },
+        ],
+      },
+    })
+    expect(prompt).toContain('Ask exactly one short discriminating question')
+    expect(prompt).toContain('First floor')
+    expect(prompt).toContain('Second floor')
+    expect(prompt).toContain('Do not choose or combine their facts until the guest clarifies')
   })
 
   it('includes engagement question context when provided', () => {

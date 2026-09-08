@@ -66,6 +66,7 @@ import {
   projectGuestModelHistory,
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
+import { projectGuestPlaceIdentity } from '../lib/guest-place-identity'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
@@ -1053,6 +1054,19 @@ const chatReadRouter = router({
     })
     relevantPlaces = nativeRead.places
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
+    const placeIdentity = await projectGuestPlaceIdentity({
+      reader: ctx.db,
+      query: trimmedInput,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
+    })
+    relevantPlaces = relevantPlaces.map((place) => {
+      const identity = placeIdentity.places.find((candidate) => candidate.id === place.id)
+      const knownLocation = identity?.floor ?? identity?.location
+      return knownLocation ? { ...place, areaName: knownLocation } : place
+    })
     if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
       logger.info({
         action: 'guest-chat.native-content-read',
@@ -1144,6 +1158,7 @@ const chatReadRouter = router({
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
         },
         relevantPlaces,
+        placeIdentityAmbiguity: placeIdentity.ambiguity,
         knowledgeEntries: relevantKnowledgeEntries,
         activeUpdates,
         publishedUniversalContent,

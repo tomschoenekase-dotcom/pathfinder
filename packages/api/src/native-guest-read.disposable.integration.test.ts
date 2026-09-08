@@ -67,6 +67,7 @@ import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-
 import { createSafeOperationalMcpRegistry } from './mcp/composition'
 import { buildVoiceGroundingContext } from './lib/voice-grounding-context'
 import { retrieveGuestKnowledge } from './lib/guest-knowledge-retrieval'
+import { projectGuestPlaceIdentity } from './lib/guest-place-identity'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
@@ -355,6 +356,104 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
             importanceScore: 100,
             tags: ['control'],
           },
+        ],
+      })
+      const firstFloorId = randomUUID()
+      const secondFloorId = randomUUID()
+      const firstCaseId = `case-12-first-${suffix}`
+      const secondCaseId = `case-12-second-${suffix}`
+      await db.place.createMany({
+        data: [
+          {
+            id: firstCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+          },
+          {
+            id: secondCaseId,
+            tenantId,
+            venueId,
+            name: 'Case 12',
+            type: 'EXHIBIT',
+            visibility: 'PUBLIC',
+          },
+        ],
+      })
+      await db.venueFloor.createMany({
+        data: [
+          { id: firstFloorId, tenantId, venueId, stableKey: 'first-floor', name: 'First floor' },
+          { id: secondFloorId, tenantId, venueId, stableKey: 'second-floor', name: 'Second floor' },
+        ],
+      })
+      await db.venueLocation.createMany({
+        data: [
+          {
+            tenantId,
+            venueId,
+            floorId: firstFloorId,
+            primaryPlaceId: firstCaseId,
+            stableKey: `case-12-first-${suffix}`,
+            kind: 'EXHIBIT',
+            displayName: 'First floor east gallery',
+            verifiedAt: new Date(),
+            verifiedBy: 'disposable-guest-read',
+          },
+          {
+            tenantId,
+            venueId,
+            floorId: secondFloorId,
+            primaryPlaceId: secondCaseId,
+            stableKey: `case-12-second-${suffix}`,
+            kind: 'EXHIBIT',
+            displayName: 'Second floor west gallery',
+            verifiedAt: new Date(),
+            verifiedBy: 'disposable-guest-read',
+          },
+        ],
+      })
+      const duplicateCaseIdentity = await projectGuestPlaceIdentity({
+        reader: db,
+        query: 'Tell me about Case 12',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        places: [
+          { id: firstCaseId, name: 'Case 12', areaName: null },
+          { id: secondCaseId, name: 'Case 12', areaName: null },
+        ],
+      })
+      expect(duplicateCaseIdentity).toMatchObject({
+        ambiguity: {
+          requestedName: 'Case 12',
+          candidates: [
+            { location: 'First floor east gallery', floor: 'First floor' },
+            { location: 'Second floor west gallery', floor: 'Second floor' },
+          ],
+        },
+        places: [
+          { location: 'First floor east gallery', floor: 'First floor' },
+          { location: 'Second floor west gallery', floor: 'Second floor' },
+        ],
+      })
+      const narrowedCaseIdentity = await projectGuestPlaceIdentity({
+        reader: db,
+        query: 'Tell me about Case 12 on the first floor',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        places: [
+          { id: firstCaseId, name: 'Case 12', areaName: null },
+          { id: secondCaseId, name: 'Case 12', areaName: null },
+        ],
+      })
+      expect(narrowedCaseIdentity).toMatchObject({
+        ambiguity: null,
+        places: [
+          { location: 'First floor east gallery', floor: 'First floor' },
+          { location: 'Second floor west gallery', floor: 'Second floor' },
         ],
       })
       await db.venueKnowledgeEntry.createMany({
