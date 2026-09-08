@@ -36,6 +36,8 @@ import {
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+  INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
   VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
@@ -89,6 +91,7 @@ import type {
   GmailSyncJobPayload,
   IntakeUploadVerificationJobPayload,
   IntakeV1SourceProcessingJobPayload,
+  IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
 } from './types'
 
@@ -96,6 +99,7 @@ const queueCache = new Map<string, Queue>()
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 const GENERATION_DISPATCH_ID_MAX_LENGTH = 200
 const INTAKE_V1_SOURCE_PROCESSING_ID_MAX_LENGTH = 200
+const INTAKE_V1_FILE_EXTRACTION_ID_MAX_LENGTH = 200
 const WELCOME_EMAIL_DELIVERY_DOMAIN = 'pathfinder-welcome-email-v1'
 
 function validateGenerationDispatchId(dispatchId: string): void {
@@ -127,6 +131,25 @@ function intakeV1SourceProcessingJobId(dispatchId: string): string {
     .update(JSON.stringify(['pathfinder-intake-v1-source-processing-v1', dispatchId]))
     .digest('hex')
   return `intake-v1-source-processing-${digest}`
+}
+
+function validateIntakeV1FileExtractionDispatchId(dispatchId: string): void {
+  if (
+    typeof dispatchId !== 'string' ||
+    dispatchId.trim().length === 0 ||
+    dispatchId.length > INTAKE_V1_FILE_EXTRACTION_ID_MAX_LENGTH
+  ) {
+    throw new Error(
+      `Intake V1 file extraction dispatch ID must be a nonempty opaque identifier of at most ${INTAKE_V1_FILE_EXTRACTION_ID_MAX_LENGTH} characters`,
+    )
+  }
+}
+
+function intakeV1FileExtractionJobId(dispatchId: string): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-intake-v1-file-extraction-v1', dispatchId]))
+    .digest('hex')
+  return `intake-v1-file-extraction-${digest}`
 }
 
 function generationDispatchJobId(
@@ -552,6 +575,23 @@ export async function enqueueIntakeV1SourceProcessing(dispatchId: string): Promi
     },
   )
   logger.info({ action: 'jobs.intake-v1-source-processing.enqueued' })
+}
+
+export async function enqueueIntakeV1FileExtraction(dispatchId: string): Promise<void> {
+  validateIntakeV1FileExtractionDispatchId(dispatchId)
+  const payload: IntakeV1FileExtractionJobPayload = { dispatchId }
+  await getQueue(INTAKE_V1_FILE_EXTRACTION_QUEUE).add(
+    INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+    payload,
+    {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: true,
+      removeOnFail: true,
+      jobId: intakeV1FileExtractionJobId(dispatchId),
+    },
+  )
+  logger.info({ action: 'jobs.intake-v1-file-extraction.enqueued' })
 }
 
 export async function enqueueAnswerAnalysisDispatch(

@@ -564,6 +564,34 @@ describe('INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED', () => {
   })
 })
 
+describe('INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED', () => {
+  it('defaults disabled and accepts only an explicit boolean enable', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: undefined,
+      }).INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED,
+    ).toBe(false)
+
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'true',
+      }).INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED,
+    ).toBe(true)
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('EMBED_PREVIEW_ENABLED', () => {
   it('defaults to disabled in every deployment environment', () => {
     for (const RAILWAY_ENVIRONMENT of ['production', 'staging', 'preview'] as const) {

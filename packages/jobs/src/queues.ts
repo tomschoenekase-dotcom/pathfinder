@@ -116,6 +116,10 @@ export const INTAKE_V1_SOURCE_PROCESSING_QUEUE = queueName('intake-v1-source-pro
 export const INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB = 'intake-v1-source-processing-process'
 export const INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB = 'intake-v1-source-processing-recovery'
 
+export const INTAKE_V1_FILE_EXTRACTION_QUEUE = queueName('intake-v1-file-extraction')
+export const INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB = 'intake-v1-file-extraction-process'
+export const INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB = 'intake-v1-file-extraction-recovery'
+
 export const VENUE_MEDIA_DERIVATIVE_QUEUE = queueName('venue-media-derivative')
 export const VENUE_MEDIA_DERIVATIVE_PROCESS_JOB = 'venue-media-derivative-process'
 export const VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF = 'venue-media-derivative-retry'
@@ -150,5 +154,6 @@ export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
   VOICE_SESSION_RECOVERY_QUEUE,
   INTAKE_UPLOAD_VERIFICATION_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
+  INTAKE_V1_FILE_EXTRACTION_QUEUE,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
 ] as const)

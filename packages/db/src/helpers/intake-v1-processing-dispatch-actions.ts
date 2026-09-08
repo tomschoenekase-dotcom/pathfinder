@@ -2,6 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import { db } from '../client'
+import {
+  INTAKE_V1_FILE_EXTRACTION_POLICY_VERSION,
+  isIntakeV1FileExtractionSupported,
+} from './intake-v1-file-extraction-policy'
 
 export const INTAKE_V1_PROCESSING_POLICY_VERSION = 'intake-v1-processing-v1'
 export const INTAKE_V1_PROCESSING_LEASE_MS = 120_000
@@ -38,7 +42,7 @@ export async function createIntakeV1ProcessingDispatchesInTransaction(
       id: true,
       immutableHash: true,
       intakeRunId: true,
-      intakeUpload: { select: { intakeRunId: true } },
+      intakeUpload: { select: { intakeRunId: true, mimeType: true, byteSize: true } },
       intakeRun: {
         select: {
           sourceKind: true,
@@ -134,6 +138,24 @@ export async function createIntakeV1ProcessingDispatchesInTransaction(
         sourceHash: member.immutableHash,
         policyVersion: INTAKE_V1_PROCESSING_POLICY_VERSION,
         completedAt: new Date(),
+      }
+    if (
+      sourceKind === 'FILE_UPLOAD' &&
+      member.intakeUpload &&
+      isIntakeV1FileExtractionSupported(member.intakeUpload.mimeType, member.intakeUpload.byteSize)
+    )
+      return {
+        id: randomUUID(),
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        revisionId: scope.revisionId,
+        memberId: member.id,
+        intakeRunId,
+        operationId: randomUUID(),
+        kind: 'FILE_EXTRACTION' as const,
+        status: 'PENDING' as const,
+        sourceHash: member.immutableHash,
+        policyVersion: INTAKE_V1_FILE_EXTRACTION_POLICY_VERSION,
       }
     return {
       id: randomUUID(),

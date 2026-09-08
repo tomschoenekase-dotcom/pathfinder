@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import {
   IntakeFileExtractionActionError,
+  assertIntakeV1FileExtractionReceiptLeaseInTransaction,
+  type IntakeV1FileExtractionLease,
   recordIntakeFileExtractionReceiptAction,
 } from '@pathfinder/db'
 
@@ -258,7 +260,19 @@ export async function executeIntakeFileExtraction(input: {
   operationId: string
   createdBy: string
   storage?: IntakeUploadStorageTransport
+  /** Internal worker lease; checked again atomically before a new receipt is written. */
+  fileDispatchLease?: IntakeV1FileExtractionLease
 }) {
+  if (
+    input.fileDispatchLease &&
+    (input.fileDispatchLease.tenantId !== input.tenantId ||
+      input.fileDispatchLease.venueId !== input.venueId ||
+      input.fileDispatchLease.operationId !== input.operationId)
+  )
+    throw new IntakeFileExtractionError(
+      'CONFLICT',
+      'File dispatch lease scope does not match extraction.',
+    )
   // An operation identifies immutable historical extraction evidence. Recover it before
   // touching storage or requiring the source to remain in its pre-review lifecycle state.
   const replay = await input.db.intakeFileExtractionReceipt.findUnique({
@@ -399,6 +413,16 @@ export async function executeIntakeFileExtraction(input: {
         createdBy: input.createdBy,
       },
       input.db,
+      ...(input.fileDispatchLease
+        ? ([
+            (tx: Parameters<typeof assertIntakeV1FileExtractionReceiptLeaseInTransaction>[0]) =>
+              assertIntakeV1FileExtractionReceiptLeaseInTransaction(tx, {
+                ...input.fileDispatchLease!,
+                intakeRunId: input.runId,
+                uploadId: upload.id,
+              }),
+          ] as const)
+        : []),
     )
   } catch (error) {
     if (error instanceof IntakeFileExtractionActionError) {

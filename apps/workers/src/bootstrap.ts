@@ -84,6 +84,14 @@ export async function bootstrapWorkers() {
     return runtime
   }
 
+  if (policy.mode === 'intake-v1-file-extraction-only') {
+    const { startIntakeV1FileExtractionRuntime } =
+      await import('./intake-v1-file-extraction-runtime.js')
+    const runtime = await startIntakeV1FileExtractionRuntime()
+    registerShutdown(runtime.shutdown)
+    return runtime
+  }
+
   if (policy.mode === 'evaluation-only') {
     const { startEvaluationOnlyRuntime } = await import('./evaluation-only-runtime.js')
     const runtime = await startEvaluationOnlyRuntime()

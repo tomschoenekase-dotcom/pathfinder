@@ -50,6 +50,21 @@ describe('V1 website research worker boundary', () => {
         INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'TRUE',
       }),
     ).toBe(false)
+    expect(FEATURE_FLAGS.intakeV1FileExtractionWorker).toEqual({
+      environmentVariable: 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('intakeV1FileExtractionWorker', {})).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1FileExtractionWorker', {
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'TRUE',
+      }),
+    ).toBe(false)
+    expect(
+      isFeatureEnabled('intakeV1FileExtractionWorker', {
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'true',
+      }),
+    ).toBe(true)
     expect(
       isFeatureEnabled('intakeV1WebsiteResearchWorker', {
         INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED: 'true',

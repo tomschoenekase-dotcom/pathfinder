@@ -95,7 +95,9 @@ export async function extractPdfDocumentText(
     : PDF_EXTRACTION_TIMEOUT_MS
   const timeoutMs = Math.max(1, Math.min(PDF_EXTRACTION_TIMEOUT_MS, requestedTimeout))
   const deadline = Date.now() + timeoutMs
-  let getDocument: (typeof import('pdfjs-dist/legacy/build/pdf.mjs'))['getDocument']
+  let getDocument: (typeof import('pdfjs-dist/legacy/build/pdf.mjs', {
+    with: { 'resolution-mode': 'import' },
+  }))['getDocument']
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
     getDocument = pdfjs.getDocument

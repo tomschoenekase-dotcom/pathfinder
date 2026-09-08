@@ -2035,6 +2035,7 @@ model IntakeFileExtractionReceipt {
   venue                    Venue                               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   run                      IntakeRun                           @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   upload                   IntakeUpload                        @relation(fields: [uploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  processingDispatches     IntakeV1ProcessingDispatch[]
   review                   IntakeFileExtractionReview?
   clarificationResolutions IntakeFileClarificationResolution[]
 
@@ -2273,6 +2274,7 @@ enum IntakeV1SubmissionMemberKind {
 }
 
 enum IntakeV1ProcessingKind {
+  FILE_EXTRACTION
   WEBSITE_RESEARCH
   REVIEW_READY
   EXTRACTION_UNSUPPORTED
@@ -2361,8 +2363,8 @@ model IntakeV1SubmissionMember {
   @@map("intake_v1_submission_members")
 }
 
-/// Durable progression state for one immutable V1 member. Only WEBSITE_RESEARCH is executable;
-/// review-ready and unsupported extraction rows are explicit terminal projections.
+/// Durable progression state for one immutable V1 member. Website research and bounded file
+/// extraction are executable; extraction completion never grants mapping or publication approval.
 model IntakeV1ProcessingDispatch {
   id                String                   @id @default(cuid())
   tenantId          String                   @map("tenant_id")
@@ -2380,6 +2382,7 @@ model IntakeV1ProcessingDispatch {
   leaseOwner        String?                  @map("lease_owner") @db.VarChar(191)
   leaseExpiresAt    DateTime?                @map("lease_expires_at")
   receiptId         String?                  @map("receipt_id") @db.Uuid
+  fileExtractionReceiptId String?             @map("file_extraction_receipt_id") @db.Uuid
   holdReason        String?                  @map("hold_reason") @db.VarChar(64)
   lastError         String?                  @map("last_error") @db.VarChar(500)
   completedAt       DateTime?                @map("completed_at")
@@ -2391,6 +2394,7 @@ model IntakeV1ProcessingDispatch {
   member            IntakeV1SubmissionMember @relation(fields: [memberId, revisionId, tenantId, venueId], references: [id, revisionId, tenantId, venueId], onDelete: Restrict)
   intakeRun         IntakeRun                @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
   receipt           IntakeWebsiteResearchReceipt? @relation(fields: [receiptId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  fileExtractionReceipt IntakeFileExtractionReceipt? @relation(fields: [fileExtractionReceiptId, tenantId, venueId, intakeRunId], references: [id, tenantId, venueId, runId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, operationId], map: "intake_v1_processing_dispatches_tenant_operation_key")
   @@unique([memberId, tenantId, venueId], map: "intake_v1_processing_dispatches_member_scope_key")

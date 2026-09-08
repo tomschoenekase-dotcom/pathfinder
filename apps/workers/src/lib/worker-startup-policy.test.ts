@@ -104,6 +104,40 @@ describe('worker startup policy', () => {
     })
   })
 
+  it('permits an isolated, explicitly enabled V1 file extraction runtime', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'intake-v1-file-extraction-only',
+      requiredEnvironmentKeys: [
+        'REDIS_URL',
+        'DATABASE_URL',
+        'DIRECT_DATABASE_URL',
+        'STORAGE_BUCKET',
+        'STORAGE_REGION',
+        'STORAGE_ACCESS_KEY_ID',
+        'STORAGE_SECRET_ACCESS_KEY',
+      ],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it('rejects the isolated file extraction flag in the provider-enabled runtime', () => {
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+        INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED: 'true',
+      }),
+    ).toThrow(
+      'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED requires the isolated provider-disabled runtime',
+    )
+  })
+
   it('permits an isolated evaluation runtime without enabling unrelated provider queues', () => {
     expect(
       resolveWorkerStartupPolicy({
@@ -205,6 +239,7 @@ describe('worker startup policy', () => {
         flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
         flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED' &&
         flag !== 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED' &&
+        flag !== 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED' &&
         flag !== 'EVALUATION_RUNNER_ENABLED' &&
         flag !== 'VENUE_MEDIA_DERIVATIVE_WORKERS_ENABLED' &&
         flag !== 'FOUNDER_ABSENCE_OBSERVER_ENABLED',

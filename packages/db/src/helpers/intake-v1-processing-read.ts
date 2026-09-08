@@ -12,6 +12,7 @@ const inputSchema = z
     submissionId: z.string().min(1).max(191),
     revision: z.number().int().min(1),
     websiteResearchEnabled: z.boolean(),
+    fileExtractionEnabled: z.boolean().default(false),
   })
   .strict()
 
@@ -40,9 +41,30 @@ type ProcessingDispatchRead = {
   leaseExpiresAt: Date | null
 }
 
+function workerDispatch(
+  dispatch: ProcessingDispatchRead | null,
+): dispatch is ProcessingDispatchRead {
+  return dispatch?.kind === 'WEBSITE_RESEARCH' || dispatch?.kind === 'FILE_EXTRACTION'
+}
+
+function processingEnabled(
+  dispatch: ProcessingDispatchRead | null,
+  flags: { websiteResearchEnabled: boolean; fileExtractionEnabled: boolean },
+) {
+  if (dispatch?.kind === 'WEBSITE_RESEARCH') return flags.websiteResearchEnabled
+  if (dispatch?.kind === 'FILE_EXTRACTION') return flags.fileExtractionEnabled
+  return true
+}
+
+function disabledReason(dispatch: ProcessingDispatchRead | null) {
+  return dispatch?.kind === 'FILE_EXTRACTION'
+    ? ('FILE_EXTRACTION_DISABLED' as const)
+    : ('WEBSITE_RESEARCH_DISABLED' as const)
+}
+
 function recoveryPending(dispatch: ProcessingDispatchRead | null, now: Date): boolean {
   return (
-    dispatch?.kind === 'WEBSITE_RESEARCH' &&
+    workerDispatch(dispatch) &&
     dispatch.status === 'LEASED' &&
     (dispatch.leaseExpiresAt === null || dispatch.leaseExpiresAt <= now)
   )
@@ -50,21 +72,21 @@ function recoveryPending(dispatch: ProcessingDispatchRead | null, now: Date): bo
 
 function safeReason(
   dispatch: ProcessingDispatchRead | null,
-  websiteResearchEnabled: boolean,
+  flags: { websiteResearchEnabled: boolean; fileExtractionEnabled: boolean },
   now: Date,
 ) {
   if (!dispatch) return 'NOT_SCHEDULED_HISTORICAL' as const
   if (recoveryPending(dispatch, now)) {
-    return websiteResearchEnabled
+    return processingEnabled(dispatch, flags)
       ? ('PROCESSING_RECOVERY_PENDING' as const)
-      : ('WEBSITE_RESEARCH_DISABLED' as const)
+      : disabledReason(dispatch)
   }
   if (
-    dispatch.kind === 'WEBSITE_RESEARCH' &&
+    workerDispatch(dispatch) &&
     dispatch.status === 'PENDING' &&
-    !websiteResearchEnabled
+    !processingEnabled(dispatch, flags)
   )
-    return 'WEBSITE_RESEARCH_DISABLED' as const
+    return disabledReason(dispatch)
   if (dispatch.status === 'FAILED') return 'PROCESSING_FAILED' as const
   if (dispatch.status !== 'HELD') return null
   if (dispatch.holdReason === 'EXTRACTION_NOT_EXECUTABLE')
@@ -76,17 +98,17 @@ function safeReason(
 
 function ownerStatus(
   dispatch: ProcessingDispatchRead | null,
-  websiteResearchEnabled: boolean,
+  flags: { websiteResearchEnabled: boolean; fileExtractionEnabled: boolean },
   now: Date,
 ) {
   if (!dispatch) return 'NOT_SCHEDULED' as const
   if (recoveryPending(dispatch, now)) {
-    return websiteResearchEnabled ? ('PENDING' as const) : ('POLICY_DISABLED' as const)
+    return processingEnabled(dispatch, flags) ? ('PENDING' as const) : ('POLICY_DISABLED' as const)
   }
   if (
-    dispatch.kind === 'WEBSITE_RESEARCH' &&
+    workerDispatch(dispatch) &&
     dispatch.status === 'PENDING' &&
-    !websiteResearchEnabled
+    !processingEnabled(dispatch, flags)
   )
     return 'POLICY_DISABLED' as const
   if (dispatch.status === 'LEASED') return 'IN_PROGRESS' as const
@@ -140,8 +162,12 @@ export async function getIntakeV1ProcessingRead(
       'V1 submission revision exceeds its member bound.',
     )
 
+  const flags = {
+    websiteResearchEnabled: scope.websiteResearchEnabled,
+    fileExtractionEnabled: scope.fileExtractionEnabled,
+  }
   const members = row.members.map((member) => {
-    const status = ownerStatus(member.processingDispatch, scope.websiteResearchEnabled, now)
+    const status = ownerStatus(member.processingDispatch, flags, now)
     return {
       memberId: member.id,
       ordinal: member.ordinal,
@@ -149,7 +175,7 @@ export async function getIntakeV1ProcessingRead(
       sourceLabel: sourceLabel(member.intakeRun?.sourceKind ?? null, Boolean(member.intakeUpload)),
       processingKind: member.processingDispatch?.kind ?? null,
       status,
-      reasonCode: safeReason(member.processingDispatch, scope.websiteResearchEnabled, now),
+      reasonCode: safeReason(member.processingDispatch, flags, now),
     }
   })
   const counts = {

@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { recordIntakeFileExtractionReceiptAction } from '@pathfinder/db'
+import {
+  assertIntakeV1FileExtractionReceiptLeaseInTransaction,
+  recordIntakeFileExtractionReceiptAction,
+} from '@pathfinder/db'
 
 import {
   createPdfLoadingTaskCleanup,
@@ -11,10 +14,15 @@ import {
 
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pathfinder/db')>()
-  return { ...actual, recordIntakeFileExtractionReceiptAction: vi.fn() }
+  return {
+    ...actual,
+    assertIntakeV1FileExtractionReceiptLeaseInTransaction: vi.fn(),
+    recordIntakeFileExtractionReceiptAction: vi.fn(),
+  }
 })
 
 const recordReceipt = vi.mocked(recordIntakeFileExtractionReceiptAction)
+const assertReceiptLease = vi.mocked(assertIntakeV1FileExtractionReceiptLeaseInTransaction)
 const operationId = '568c2e1a-8ece-47ad-98dc-e4bde64872ca'
 
 function sha256(bytes: Uint8Array) {
@@ -237,6 +245,65 @@ describe('deterministic intake file extraction', () => {
       }),
       db,
     )
+  })
+
+  it('passes the exact worker lease fence into the canonical receipt transaction', async () => {
+    const bytes = Buffer.from('Lease-fenced text', 'utf8')
+    const db = database(bytes)
+    const lease = {
+      id: 'dispatch-a',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      operationId,
+      leaseToken: '01ba25e5-f5bf-48bc-ad04-a91247732e58',
+      sourceHash: 'f'.repeat(64),
+    }
+    await executeIntakeFileExtraction({
+      db: db as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+      operationId,
+      createdBy: 'intake-v1-file:dispatch-a',
+      storage: storage(bytes),
+      fileDispatchLease: lease,
+    })
+
+    const authorize = recordReceipt.mock.calls[0]?.[2]
+    expect(authorize).toBeTypeOf('function')
+    const tx = { marker: 'receipt transaction' }
+    await authorize!(tx as never)
+    expect(assertReceiptLease).toHaveBeenCalledWith(tx, {
+      ...lease,
+      intakeRunId: 'run-a',
+      uploadId: 'upload-a',
+    })
+  })
+
+  it('rejects a wrong-scope worker lease before reading storage', async () => {
+    const bytes = Buffer.from('Lease-fenced text', 'utf8')
+    const transport = storage(bytes)
+    await expect(
+      executeIntakeFileExtraction({
+        db: database(bytes) as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        operationId,
+        createdBy: 'intake-v1-file:dispatch-a',
+        storage: transport,
+        fileDispatchLease: {
+          id: 'dispatch-a',
+          tenantId: 'other-tenant',
+          venueId: 'venue-a',
+          operationId,
+          leaseToken: '01ba25e5-f5bf-48bc-ad04-a91247732e58',
+          sourceHash: 'f'.repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(transport.send).not.toHaveBeenCalled()
+    expect(recordReceipt).not.toHaveBeenCalled()
   })
 
   it('extracts text from an exact verified PDF without OCR or authority', async () => {

@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-234-20260908',
+  approval: 'torchiko-staging-lineage-to-235-20260908',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 234,
+  migrationCount: 235,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -130,9 +130,14 @@ const EXPECTED = Object.freeze({
   expiryPredecessorPublicTableCount: 255,
   expiryPredecessorFinalMigration: '20260908130000_add_agent_question_expiry',
   expiryPredecessorManifestHash: '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
-  finalMigration: '20260908140000_add_website_pdf_collection_policy',
-  manifestHash: 'fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab',
-  // Exact 234 candidate boundary; retained relational proof is recorded separately.
+  websitePdfPredecessorCount: 234,
+  websitePdfPredecessorPublicTableCount: 255,
+  websitePdfPredecessorFinalMigration: '20260908140000_add_website_pdf_collection_policy',
+  websitePdfPredecessorManifestHash:
+    'fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab',
+  finalMigration: '20260908150000_add_intake_v1_file_extraction_dispatches',
+  manifestHash: '968270ab6d65dd64e9b3027e3c6d6b906d4805d7312190eecaa3b269cc34d0e5',
+  // Exact 235 candidate boundary; retained relational proof is recorded separately.
   finalPublicTableCount: 255,
 })
 
@@ -258,6 +263,14 @@ export function assertFrozenManifest(manifest) {
   )
   if (expiryPredecessorHash !== EXPECTED.expiryPredecessorManifestHash) {
     fail('expiry predecessor manifest checksum changed')
+  }
+  const websitePdfPredecessorHash = manifestHash(
+    manifest.names
+      .slice(0, EXPECTED.websitePdfPredecessorCount)
+      .map((name) => `${name} ${manifest.checksums.get(name)}`),
+  )
+  if (websitePdfPredecessorHash !== EXPECTED.websitePdfPredecessorManifestHash) {
+    fail('website PDF predecessor manifest checksum changed')
   }
   if (manifest.names[EXPECTED.baselineCount - 1] !== EXPECTED.baselineLastMigration) {
     fail('verified baseline boundary changed')
@@ -403,6 +416,11 @@ export function assertFrozenManifest(manifest) {
     EXPECTED.websiteDiscoveryPredecessorFinalMigration
   )
     fail('website discovery predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.websitePdfPredecessorCount - 1] !==
+    EXPECTED.websitePdfPredecessorFinalMigration
+  )
+    fail('website PDF predecessor migration changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -443,6 +461,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.questionProvenancePredecessorCount &&
     rows.length !== EXPECTED.discussionPredecessorCount &&
     rows.length !== EXPECTED.expiryPredecessorCount &&
+    rows.length !== EXPECTED.websitePdfPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -520,6 +539,7 @@ function ledgerState(rows, manifest) {
     return 'question-provenance-predecessor'
   if (rows.length === EXPECTED.discussionPredecessorCount) return 'discussion-predecessor'
   if (rows.length === EXPECTED.expiryPredecessorCount) return 'expiry-predecessor'
+  if (rows.length === EXPECTED.websitePdfPredecessorCount) return 'website-pdf-predecessor'
   return 'complete'
 }
 
@@ -716,6 +736,7 @@ export function expectedPublicTableCount(state) {
     'question-provenance-predecessor': EXPECTED.questionProvenancePredecessorPublicTableCount,
     'discussion-predecessor': EXPECTED.discussionPredecessorPublicTableCount,
     'expiry-predecessor': EXPECTED.expiryPredecessorPublicTableCount,
+    'website-pdf-predecessor': EXPECTED.websitePdfPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

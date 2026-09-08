@@ -63,6 +63,12 @@ describe('IntakeV1ProcessingStatus', () => {
         },
         { memberId: 'disabled', processingKind: 'WEBSITE_RESEARCH', status: 'POLICY_DISABLED' },
         {
+          memberId: 'file-disabled',
+          processingKind: 'FILE_EXTRACTION',
+          status: 'POLICY_DISABLED',
+          reasonCode: 'FILE_EXTRACTION_DISABLED',
+        },
+        {
           memberId: 'file',
           processingKind: 'EXTRACTION_UNSUPPORTED',
           status: 'HELD',
@@ -85,6 +91,7 @@ describe('IntakeV1ProcessingStatus', () => {
     expect(await screen.findByText('Waiting to process')).toBeTruthy()
     expect(screen.getByText('Waiting to resume')).toBeTruthy()
     expect(screen.getByText('Waiting for research to be enabled')).toBeTruthy()
+    expect(screen.getByText('Waiting for file processing to be enabled')).toBeTruthy()
     expect(screen.getByText('File needs review')).toBeTruthy()
     expect(screen.getByText('Ready for review')).toBeTruthy()
     expect(screen.getByText('Research saved')).toBeTruthy()

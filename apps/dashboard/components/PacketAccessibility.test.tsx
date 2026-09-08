@@ -168,7 +168,7 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
       <RemoteOnboardingJourney
         ownerId="test-owner"
         data={{
-          venue: { id: 'venue-1', name: 'East Museum' },
+          venue: { id: 'venue-1', name: 'East Museum', category: null },
           lifecycle,
           projection: resolveRemoteOnboardingProjection({
             lifecycle,

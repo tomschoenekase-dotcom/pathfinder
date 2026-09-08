@@ -14,7 +14,10 @@ type ProcessingMember = ProcessingRead['members'][number]
 
 function statusLabel(member: ProcessingMember): string {
   if (member.status === 'NOT_SCHEDULED') return 'Not scheduled for this earlier version'
-  if (member.status === 'POLICY_DISABLED') return 'Waiting for research to be enabled'
+  if (member.status === 'POLICY_DISABLED')
+    return member.reasonCode === 'FILE_EXTRACTION_DISABLED'
+      ? 'Waiting for file processing to be enabled'
+      : 'Waiting for research to be enabled'
   if (member.reasonCode === 'PROCESSING_RECOVERY_PENDING') return 'Waiting to resume'
   if (member.status === 'PENDING') return 'Waiting to process'
   if (member.status === 'IN_PROGRESS') return 'Processing'

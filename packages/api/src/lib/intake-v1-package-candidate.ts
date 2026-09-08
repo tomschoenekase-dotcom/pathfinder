@@ -121,8 +121,66 @@ export async function buildIntakeV1PackageCandidate(
           intakeRunId: true,
           intakeUploadId: true,
           intakeRun: { select: { sourceKind: true, displayName: true, submissionInputHash: true } },
-          intakeUpload: { select: { displayName: true, intakeRunId: true } },
-          processingDispatch: { select: { kind: true, status: true, sourceHash: true } },
+          intakeUpload: {
+            select: {
+              id: true,
+              displayName: true,
+              intakeRunId: true,
+              objectGeneration: true,
+              storageVersionId: true,
+              sha256: true,
+              byteSize: true,
+              mimeType: true,
+              verificationReceipts: {
+                where: { kind: 'MALWARE', verdict: 'CLEAN' },
+                select: {
+                  uploadId: true,
+                  verdictHash: true,
+                  computedSha256: true,
+                  computedByteSize: true,
+                  objectGeneration: true,
+                  storageVersionId: true,
+                },
+              },
+            },
+          },
+          processingDispatch: {
+            select: {
+              kind: true,
+              status: true,
+              sourceHash: true,
+              intakeRunId: true,
+              fileExtractionReceipt: {
+                select: {
+                  id: true,
+                  tenantId: true,
+                  venueId: true,
+                  runId: true,
+                  uploadId: true,
+                  sourceObjectGeneration: true,
+                  sourceStorageVersionId: true,
+                  sourceSha256: true,
+                  sourceByteSize: true,
+                  sourceMimeType: true,
+                  outcome: true,
+                  extractor: true,
+                  extractorVersion: true,
+                  extractedTextHash: true,
+                  review: {
+                    select: {
+                      tenantId: true,
+                      venueId: true,
+                      sourceRunId: true,
+                      receiptId: true,
+                      decision: true,
+                      proposalRunId: true,
+                      expectedExtractedTextHash: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -186,7 +244,7 @@ export async function buildIntakeV1PackageCandidate(
 
   for (const member of revision.members) {
     const isSelected = selected.has(member.id)
-    const sourceKind = member.intakeRun?.sourceKind ?? null
+    const sourceKind = member.intakeRun?.sourceKind ?? (member.intakeUpload ? 'FILE_UPLOAD' : null)
     const base = {
       memberId: member.id,
       ordinal: member.ordinal,
@@ -256,7 +314,85 @@ export async function buildIntakeV1PackageCandidate(
       })
       continue
     }
-    if (
+    let candidateRunId = member.intakeRunId
+    if (member.kind === 'INTAKE_UPLOAD' && dispatch.kind === 'FILE_EXTRACTION') {
+      const upload = member.intakeUpload
+      const receipt = dispatch.fileExtractionReceipt
+      const verification = upload?.verificationReceipts[0]
+      const validSource =
+        upload &&
+        verification &&
+        receipt &&
+        intakeV1ManifestHash({ id: upload.id, receipt: verification }) === member.immutableHash &&
+        dispatch.intakeRunId === upload.intakeRunId &&
+        receipt.tenantId === input.tenantId &&
+        receipt.venueId === input.venueId &&
+        receipt.runId === upload.intakeRunId &&
+        receipt.uploadId === upload.id &&
+        receipt.sourceObjectGeneration === upload.objectGeneration &&
+        receipt.sourceStorageVersionId === upload.storageVersionId &&
+        receipt.sourceSha256 === upload.sha256 &&
+        receipt.sourceByteSize === upload.byteSize &&
+        receipt.sourceMimeType === upload.mimeType &&
+        receipt.outcome === 'SUCCEEDED' &&
+        receipt.extractorVersion === '1' &&
+        receipt.extractor ===
+          (upload.mimeType === 'application/pdf'
+            ? 'pathfinder-pdfjs-document'
+            : 'pathfinder-utf8-document')
+      if (!validSource) {
+        memberResults.push({
+          ...base,
+          state: 'INVALID',
+          candidateHash: null,
+          issues: [
+            {
+              code: 'FILE_EXTRACTION_IDENTITY_MISMATCH',
+              message: 'Exact file extraction evidence is unavailable.',
+            },
+          ],
+        })
+        continue
+      }
+      const review = receipt.review
+      if (!review || review.decision !== 'ACCEPTED_FOR_PROPOSAL' || !review.proposalRunId) {
+        memberResults.push({
+          ...base,
+          state: 'REVIEW_REQUIRED',
+          candidateHash: null,
+          issues: [
+            {
+              code: 'FILE_EXTRACTION_REVIEW_REQUIRED',
+              message: 'Extracted file content requires an explicit accepted review.',
+            },
+          ],
+        })
+        continue
+      }
+      if (
+        review.tenantId !== input.tenantId ||
+        review.venueId !== input.venueId ||
+        review.sourceRunId !== upload.intakeRunId ||
+        review.receiptId !== receipt.id ||
+        review.expectedExtractedTextHash !== receipt.extractedTextHash
+      ) {
+        memberResults.push({
+          ...base,
+          state: 'INVALID',
+          candidateHash: null,
+          issues: [
+            {
+              code: 'FILE_REVIEW_IDENTITY_MISMATCH',
+              message: 'File review does not match the exact extraction receipt.',
+            },
+          ],
+        })
+        continue
+      }
+      // Reuse the canonical reviewed-proposal adapter. It verifies retained review,
+      // text/notes hashes and clarification evidence before producing any payload.
+      candidateRunId = review.proposalRunId
+    } else if (
       member.kind !== 'INTAKE_RUN' ||
       !member.intakeRunId ||
       (sourceKind !== 'STRUCTURED_BOOTSTRAP' && sourceKind !== 'INTERVIEW')
@@ -280,7 +416,7 @@ export async function buildIntakeV1PackageCandidate(
         db: rawInput.db,
         tenantId: input.tenantId,
         venueId: input.venueId,
-        runId: member.intakeRunId,
+        runId: candidateRunId!,
         allowExistingHandoff: true,
       })
     } catch (error) {

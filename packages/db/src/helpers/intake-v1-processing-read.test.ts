@@ -118,6 +118,33 @@ describe('getIntakeV1ProcessingRead', () => {
     expect(result.counts.pending).toBe(1)
   })
 
+  it('projects pending file extraction as disabled by default and pending when its worker is enabled', async () => {
+    const client = {
+      intakeV1SubmissionRevision: {
+        findFirst: vi.fn().mockResolvedValue({
+          submissionId: 'submission-a',
+          revision: 2,
+          createdAt: new Date(),
+          members: [member(1, { kind: 'FILE_EXTRACTION', status: 'PENDING', holdReason: null })],
+        }),
+      },
+    }
+
+    const disabled = await getIntakeV1ProcessingRead(base, client as never)
+    const enabled = await getIntakeV1ProcessingRead(
+      { ...base, fileExtractionEnabled: true },
+      client as never,
+    )
+
+    expect(disabled.members[0]).toMatchObject({
+      status: 'POLICY_DISABLED',
+      reasonCode: 'FILE_EXTRACTION_DISABLED',
+    })
+    expect(disabled.counts.policyDisabled).toBe(1)
+    expect(enabled.members[0]).toMatchObject({ status: 'PENDING', reasonCode: null })
+    expect(enabled.counts.pending).toBe(1)
+  })
+
   it('projects an expired or malformed website lease as recoverable pending using one injected clock', async () => {
     const clock = vi.fn(() => new Date('2026-09-07T12:00:00.000Z'))
     const findFirst = vi.fn().mockResolvedValue({
@@ -173,6 +200,49 @@ describe('getIntakeV1ProcessingRead', () => {
     expect(result.members[0]).toMatchObject({
       status: 'POLICY_DISABLED',
       reasonCode: 'WEBSITE_RESEARCH_DISABLED',
+    })
+  })
+
+  it('projects active and expired file leases using the matching file-worker gate', async () => {
+    const clock = () => new Date('2026-09-07T12:00:00.000Z')
+    const client = {
+      intakeV1SubmissionRevision: {
+        findFirst: vi.fn().mockResolvedValue({
+          submissionId: 'submission-a',
+          revision: 2,
+          createdAt: new Date(),
+          members: [
+            member(1, {
+              kind: 'FILE_EXTRACTION',
+              status: 'LEASED',
+              holdReason: null,
+              leaseExpiresAt: new Date('2026-09-07T12:00:01.000Z'),
+            }),
+            member(2, {
+              kind: 'FILE_EXTRACTION',
+              status: 'LEASED',
+              holdReason: null,
+              leaseExpiresAt: new Date('2026-09-07T11:59:59.999Z'),
+            }),
+          ],
+        }),
+      },
+    }
+
+    const enabled = await getIntakeV1ProcessingRead(
+      { ...base, fileExtractionEnabled: true },
+      client as never,
+      clock,
+    )
+    const disabled = await getIntakeV1ProcessingRead(base, client as never, clock)
+
+    expect(enabled.members.map(({ status, reasonCode }) => ({ status, reasonCode }))).toEqual([
+      { status: 'IN_PROGRESS', reasonCode: null },
+      { status: 'PENDING', reasonCode: 'PROCESSING_RECOVERY_PENDING' },
+    ])
+    expect(disabled.members[1]).toMatchObject({
+      status: 'POLICY_DISABLED',
+      reasonCode: 'FILE_EXTRACTION_DISABLED',
     })
   })
 

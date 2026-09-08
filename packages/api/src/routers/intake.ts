@@ -281,6 +281,7 @@ export const intakeRouter = router({
             submissionId: input.submissionId,
             revision: input.revision,
             websiteResearchEnabled: env.INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED,
+            fileExtractionEnabled: env.INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED,
           },
           ctx.db,
         )

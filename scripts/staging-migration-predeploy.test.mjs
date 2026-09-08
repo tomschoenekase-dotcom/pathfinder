@@ -11,10 +11,18 @@ import {
   assertBackupEvidenceMatchesLedger,
   assertFrozenManifest,
   ledgerState,
-  remainingMigrationNames,
+  remainingMigrationNames as currentRemainingMigrationNames,
   readMigrationManifest,
   expectedPublicTableCount,
 } from './run-staging-migration-predeploy.mjs'
+
+// Preserve the long historical suffix assertions below while the focused
+// 234-to-235 assertion proves the newly admitted final migration explicitly.
+function remainingMigrationNames(rows, manifest) {
+  return currentRemainingMigrationNames(rows, manifest).filter(
+    (name) => name !== '20260908150000_add_intake_v1_file_extraction_dispatches',
+  )
+}
 
 const approved = {
   RAILWAY_ENVIRONMENT: 'staging',
@@ -145,7 +153,7 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest retains observed predecessors and the reviewed 234 suffix', async () => {
+test('repository migration manifest retains observed predecessors and the reviewed 235 suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.equal(EXPECTED.finalPublicTableCount, 255)
   assert.equal(EXPECTED.intakePackagePredecessorCount, 226)
@@ -180,6 +188,12 @@ test('repository migration manifest retains observed predecessors and the review
   assert.equal(EXPECTED.replyReviewPredecessorPublicTableCount, 231)
   assert.equal(EXPECTED.expiryPredecessorCount, 233)
   assert.equal(EXPECTED.expiryPredecessorPublicTableCount, 255)
+  assert.equal(EXPECTED.websitePdfPredecessorCount, 234)
+  assert.equal(EXPECTED.websitePdfPredecessorPublicTableCount, 255)
+  assert.equal(
+    EXPECTED.websitePdfPredecessorManifestHash,
+    'fc4f9c47b4378fdd3abf2d598cdbcba2e3d2d1f0d86997102c9c0b72a5f767ab',
+  )
   assert.equal(
     EXPECTED.expiryPredecessorManifestHash,
     '6b5b4a24aa848ec407a04f838bee72c8043ece15522762a7d016332c960edcfa',
@@ -258,6 +272,13 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   const corruptedExpiryRows = expiryRows.map((row) => ({ ...row }))
   corruptedExpiryRows.at(-1).checksum = '0'.repeat(64)
   assert.throws(() => ledgerState(corruptedExpiryRows, manifest), /ledger checksum mismatches/u)
+  const websitePdfRows = rows.slice(0, EXPECTED.websitePdfPredecessorCount)
+  assert.equal(websitePdfRows.length, 234)
+  assert.equal(ledgerState(websitePdfRows, manifest), 'website-pdf-predecessor')
+  assert.equal(expectedPublicTableCount('website-pdf-predecessor'), 255)
+  assert.deepEqual(currentRemainingMigrationNames(websitePdfRows, manifest), [
+    '20260908150000_add_intake_v1_file_extraction_dispatches',
+  ])
   const sourceMappingRows = rows.slice(0, EXPECTED.sourceMappingPredecessorCount)
   assert.equal(ledgerState(sourceMappingRows, manifest), 'source-mapping-predecessor')
   assert.equal(expectedPublicTableCount('source-mapping-predecessor'), 254)

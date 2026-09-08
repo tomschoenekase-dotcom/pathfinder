@@ -119,6 +119,10 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'INTAKE_V1_WEBSITE_RESEARCH_WORKERS_ENABLED',
     defaultEnabled: false,
   },
+  intakeV1FileExtractionWorker: {
+    environmentVariable: 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
+    defaultEnabled: false,
+  },
 } as const
 
 export type CrmFeatureClassification = 'public' | 'pilot' | 'internal' | 'off'

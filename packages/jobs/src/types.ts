@@ -38,6 +38,11 @@ export type IntakeV1SourceProcessingJobPayload = {
   dispatchId: string
 }
 
+/** Carries only a durable file-extraction dispatch identity; authority is re-read. */
+export type IntakeV1FileExtractionJobPayload = {
+  dispatchId: string
+}
+
 export type DailyRollupJobPayload = {
   tenantId: string
   date: string

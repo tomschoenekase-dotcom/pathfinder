@@ -6,6 +6,7 @@ import {
   createIntakeV1ProcessingDispatchesInTransaction,
   failIntakeV1ProcessingDispatch,
 } from './intake-v1-processing-dispatch-actions'
+import { INTAKE_V1_FILE_EXTRACTION_POLICY_VERSION } from './intake-v1-file-extraction-policy'
 
 describe('V1 processing dispatches', () => {
   it('projects website, reviewed input, and unsupported extraction independently', async () => {
@@ -41,7 +42,7 @@ describe('V1 processing dispatches', () => {
             id: 'm-upload',
             immutableHash: 'c'.repeat(64),
             intakeRunId: null,
-            intakeUpload: { intakeRunId: 'run-upload' },
+            intakeUpload: { intakeRunId: 'run-upload', mimeType: 'image/jpeg', byteSize: 100 },
             intakeRun: null,
           },
         ]),
@@ -76,6 +77,52 @@ describe('V1 processing dispatches', () => {
     )
     expect(createMany).toHaveBeenCalledOnce()
   })
+
+  it.each([
+    ['PDF at its exact byte boundary', 'application/pdf', 10_485_760, 'FILE_EXTRACTION', 'PENDING'],
+    ['text at its exact byte boundary', 'text/plain', 2_097_152, 'FILE_EXTRACTION', 'PENDING'],
+    [
+      'PDF beyond its byte boundary',
+      'application/pdf',
+      10_485_761,
+      'EXTRACTION_UNSUPPORTED',
+      'HELD',
+    ],
+    ['an unsupported MIME type', 'image/jpeg', 100, 'EXTRACTION_UNSUPPORTED', 'HELD'],
+  ])(
+    'projects %s with the bounded file policy',
+    async (_label, mimeType, byteSize, kind, status) => {
+      const createMany = vi.fn().mockResolvedValue({ count: 1 })
+      const tx = {
+        intakeV1SubmissionMember: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'm-upload',
+              immutableHash: 'c'.repeat(64),
+              intakeRunId: null,
+              intakeUpload: { intakeRunId: 'run-upload', mimeType, byteSize },
+              intakeRun: null,
+            },
+          ]),
+        },
+        intakeV1ProcessingDispatch: { createMany },
+      }
+
+      const [row] = await createIntakeV1ProcessingDispatchesInTransaction(tx as never, {
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        revisionId: 'revision-a',
+      })
+
+      expect(row).toMatchObject({
+        kind,
+        status,
+        ...(kind === 'FILE_EXTRACTION'
+          ? { policyVersion: INTAKE_V1_FILE_EXTRACTION_POLICY_VERSION }
+          : { holdReason: 'EXTRACTION_NOT_EXECUTABLE' }),
+      })
+    },
+  )
 
   it('uses one DB-clock claim statement with fixed lease and bounded attempts', async () => {
     const query = vi

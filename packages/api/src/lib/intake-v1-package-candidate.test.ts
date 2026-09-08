@@ -224,3 +224,127 @@ describe('V1 aggregate venue-package candidate', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 })
+
+function uploadedMember() {
+  const upload = {
+    id: 'upload-file',
+    displayName: 'Venue guide',
+    intakeRunId: 'source-file',
+    objectGeneration: 'generation-file',
+    storageVersionId: 'version-file',
+    sha256: 'a'.repeat(64),
+    byteSize: 100,
+    mimeType: 'text/plain',
+  }
+  const verification = {
+    uploadId: upload.id,
+    verdictHash: 'b'.repeat(64),
+    computedSha256: upload.sha256,
+    computedByteSize: upload.byteSize,
+    objectGeneration: upload.objectGeneration,
+    storageVersionId: upload.storageVersionId,
+  }
+  const immutableHash = intakeV1ManifestHash({ id: upload.id, receipt: verification })
+  const review = {
+    tenantId: scope.tenantId,
+    venueId: scope.venueId,
+    sourceRunId: upload.intakeRunId,
+    receiptId: 'receipt-file',
+    decision: 'ACCEPTED_FOR_PROPOSAL',
+    proposalRunId: 'reviewed-file',
+    expectedExtractedTextHash: 'c'.repeat(64),
+  }
+  const receipt = {
+    id: review.receiptId,
+    tenantId: scope.tenantId,
+    venueId: scope.venueId,
+    runId: upload.intakeRunId,
+    uploadId: upload.id,
+    sourceObjectGeneration: upload.objectGeneration,
+    sourceStorageVersionId: upload.storageVersionId,
+    sourceSha256: upload.sha256,
+    sourceByteSize: upload.byteSize,
+    sourceMimeType: upload.mimeType,
+    outcome: 'SUCCEEDED',
+    extractor: 'pathfinder-utf8-document',
+    extractorVersion: '1',
+    extractedTextHash: 'c'.repeat(64),
+    review: review as typeof review | null,
+  }
+  return {
+    ...member('file', 0),
+    kind: 'INTAKE_UPLOAD',
+    intakeRunId: null,
+    intakeRun: null,
+    intakeUploadId: upload.id,
+    immutableHash,
+    intakeUpload: { ...upload, verificationReceipts: [verification] },
+    processingDispatch: {
+      kind: 'FILE_EXTRACTION',
+      status: 'COMPLETED',
+      sourceHash: immutableHash,
+      intakeRunId: upload.intakeRunId,
+      fileExtractionReceipt: receipt,
+    },
+  }
+}
+
+describe('V1 exact reviewed file bridge', () => {
+  it('uses the accepted proposal adapter while preserving the original upload member', async () => {
+    const item = uploadedMember()
+    const deps = dependencies()
+    const result = await buildIntakeV1PackageCandidate(
+      { db: database([item]) as never, ...scope, selectedMemberIds: ['file'] },
+      deps,
+    )
+    expect(result.ready).toBe(true)
+    expect(result.selectedMemberIds).toEqual(['file'])
+    expect(deps.buildRunCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        runId: 'reviewed-file',
+        allowExistingHandoff: true,
+      }),
+    )
+    expect(result).toMatchObject({ autoApprove: false, autoApply: false, published: false })
+  })
+
+  it('does not promote extraction without an accepted human review', async () => {
+    for (const decision of [null, 'REJECTED']) {
+      const item = uploadedMember()
+      if (decision === null) item.processingDispatch.fileExtractionReceipt.review = null
+      else item.processingDispatch.fileExtractionReceipt.review!.decision = decision
+      const deps = dependencies()
+      const result = await buildIntakeV1PackageCandidate(
+        { db: database([item]) as never, ...scope, selectedMemberIds: ['file'] },
+        deps,
+      )
+      expect(result.ready).toBe(false)
+      expect(result.payload).toBeNull()
+      expect(deps.buildRunCandidate).not.toHaveBeenCalled()
+    }
+  })
+
+  it.each(['tenant', 'version', 'profile', 'review-hash', 'verification'] as const)(
+    'rejects a mismatched %s before invoking the proposal adapter',
+    async (mismatch) => {
+      const item = uploadedMember()
+      const receipt = item.processingDispatch.fileExtractionReceipt
+      if (mismatch === 'tenant') receipt.tenantId = 'other-tenant'
+      if (mismatch === 'version') receipt.sourceStorageVersionId = 'other-version'
+      if (mismatch === 'profile') receipt.extractorVersion = '2'
+      if (mismatch === 'review-hash') receipt.review!.expectedExtractedTextHash = 'd'.repeat(64)
+      if (mismatch === 'verification')
+        item.intakeUpload.verificationReceipts[0]!.verdictHash = 'e'.repeat(64)
+      const deps = dependencies()
+      const result = await buildIntakeV1PackageCandidate(
+        { db: database([item]) as never, ...scope, selectedMemberIds: ['file'] },
+        deps,
+      )
+      expect(result.ready).toBe(false)
+      expect(result.payload).toBeNull()
+      expect(deps.buildRunCandidate).not.toHaveBeenCalled()
+    },
+  )
+})

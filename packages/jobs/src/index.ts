@@ -79,6 +79,9 @@ export {
   INTAKE_V1_SOURCE_PROCESSING_QUEUE,
   INTAKE_V1_SOURCE_PROCESSING_PROCESS_JOB,
   INTAKE_V1_SOURCE_PROCESSING_RECOVERY_JOB,
+  INTAKE_V1_FILE_EXTRACTION_QUEUE,
+  INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+  INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB,
   VENUE_MEDIA_DERIVATIVE_QUEUE,
   VENUE_MEDIA_DERIVATIVE_PROCESS_JOB,
   VENUE_MEDIA_DERIVATIVE_RETRY_BACKOFF,
@@ -130,6 +133,7 @@ export {
   enqueueGmailSync,
   enqueueIntakeUploadVerification,
   enqueueIntakeV1SourceProcessing,
+  enqueueIntakeV1FileExtraction,
   enqueueVenueMediaDerivative,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
@@ -159,5 +163,6 @@ export type {
   BillingReconciliationJobPayload,
   IntakeUploadVerificationJobPayload,
   IntakeV1SourceProcessingJobPayload,
+  IntakeV1FileExtractionJobPayload,
   VenueMediaDerivativeJobPayload,
 } from './types'

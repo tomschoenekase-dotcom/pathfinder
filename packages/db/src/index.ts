@@ -1411,3 +1411,5 @@ export * from './helpers/agent-workflow-activation-approval-requests'
 export * from './helpers/agent-workflow-run-binding'
 export * from './helpers/intake-v1-package-draft-proposal-actions'
 export * from './helpers/intake-v1-package-machine-authority'
+
+export * from './helpers/intake-v1-file-extraction-dispatch-actions'
