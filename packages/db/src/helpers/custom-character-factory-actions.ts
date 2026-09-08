@@ -29,6 +29,19 @@ type JobAction = 'CREATE_FROM_IMPORT' | 'REVISE' | 'INSPECT' | 'PREVIEW' | 'VALI
 const identifier = z.string().trim().min(1).max(191)
 const boundedText = z.string().trim().min(1).max(2_000)
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u)
+const verifiedArtifactReferenceSchema = z
+  .object({
+    kind: z.literal('character-bundle-v1'),
+    bucket: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/u),
+    objectKey: z.string().min(1).max(1_000),
+    sha256,
+    byteLength: z.number().int().positive().max(12_000_000),
+    mediaType: z.literal('application/vnd.pathfinder.character+json'),
+    characterId: identifier,
+    characterVersion: z.number().int().positive(),
+    versionId: z.string().min(1).max(1_000),
+  })
+  .strict()
 const requestPayloadByAction = {
   CREATE_FROM_IMPORT: z
     .object({
@@ -215,6 +228,20 @@ function requireCharacterSpec(value: unknown): CharacterSpec {
   if (stable(boundedJson(value)).length > 100_000)
     throw new CustomCharacterFactoryActionError('INVALID_INPUT', 'Character result is too large.')
   return { ...(spec as CharacterSpec), source }
+}
+
+function requireVerifiedArtifactReference(value: unknown, expectedSpec: CharacterSpec) {
+  const parsed = verifiedArtifactReferenceSchema.safeParse(value)
+  if (
+    !parsed.success ||
+    parsed.data.characterId !== expectedSpec.characterId ||
+    parsed.data.characterVersion !== expectedSpec.version
+  )
+    throw new CustomCharacterFactoryActionError(
+      'INVALID_INPUT',
+      'Verified artifact reference does not match the completed character identity and version.',
+    )
+  return parsed.data
 }
 
 export async function readCharacterFactoryJobAction(
@@ -524,6 +551,9 @@ export async function completeCharacterFactoryJobAction(
       'INVALID_INPUT',
       'Verified artifact does not contain the exact completed character specification.',
     )
+  const artifactReference = verifiedArtifact
+    ? requireVerifiedArtifactReference(verifiedArtifact.reference, characterSpec!)
+    : undefined
   // Storage verification is deliberately outside the transaction. Re-evaluate the
   // lease fence afterwards so slow I/O cannot extend an executor's authority.
   const now = input.now ?? new Date()
@@ -553,7 +583,6 @@ export async function completeCharacterFactoryJobAction(
           ? 'This job requires a character result.'
           : 'This job action cannot mutate a character.',
       )
-    const artifactReference = verifiedArtifact?.reference
     if (characterSpec) {
       if (job.action === 'CREATE_FROM_IMPORT') {
         const frozen = job.requestPayload as {

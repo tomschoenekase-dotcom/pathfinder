@@ -163,6 +163,97 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
               },
             ),
           ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+          const validCreateReference = {
+            kind: 'character-bundle-v1',
+            bucket: 'fixture-bucket',
+            objectKey: 'fixture/bundle',
+            sha256: '0'.repeat(64),
+            byteLength: 100,
+            mediaType: 'application/vnd.pathfinder.character+json',
+            characterId,
+            characterVersion: 1,
+            versionId: 'fixture-version',
+          }
+          const missingRequiredField = Object.fromEntries(
+            Object.entries(validCreateReference).filter(([key]) => key !== 'versionId'),
+          )
+          const malformedReferences: unknown[] = [
+            missingRequiredField,
+            { ...validCreateReference, mediaType: 'application/json' },
+            { ...validCreateReference, sha256: 'not-a-sha256' },
+            { ...validCreateReference, byteLength: Number.NaN },
+            { ...validCreateReference, byteLength: -1 },
+            { ...validCreateReference, byteLength: 12_000_001 },
+            { ...validCreateReference, unexpected: true },
+          ]
+          for (const malformedReference of malformedReferences) {
+            await expect(
+              completeCharacterFactoryJobAction(
+                {
+                  tenantId,
+                  venueId,
+                  requestId: createRequestId,
+                  leaseToken: winningLease,
+                  resultPayload: { compatible: true },
+                  actor,
+                  characterSpec: spec,
+                  assetStorageReference: { fixture: 'malformed-reference-matrix' },
+                },
+                undefined,
+                {
+                  verifyArtifact: async ({ expectedSpec }) => ({
+                    reference: malformedReference as Record<string, string | number>,
+                    spec: expectedSpec,
+                  }),
+                },
+              ),
+            ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+            await expect(
+              db.characterFactoryJob.findUniqueOrThrow({
+                where: { id: prepared.job.id },
+                select: { status: true, resultPayload: true },
+              }),
+            ).resolves.toEqual({ status: 'RUNNING', resultPayload: null })
+            expect(await db.customCharacter.count({ where: { id: characterId } })).toBe(0)
+          }
+          await expect(
+            completeCharacterFactoryJobAction(
+              {
+                tenantId,
+                venueId,
+                requestId: createRequestId,
+                leaseToken: winningLease,
+                resultPayload: { compatible: true },
+                actor,
+                characterSpec: spec,
+                assetStorageReference: { fixture: 'malformed-reference' },
+              },
+              undefined,
+              {
+                verifyArtifact: async ({ expectedSpec }) => ({
+                  reference: {
+                    kind: 'character-bundle-v1',
+                    bucket: 'fixture-bucket',
+                    objectKey: 'fixture/bundle',
+                    sha256: '0'.repeat(64),
+                    byteLength: 100,
+                    mediaType: 'application/vnd.pathfinder.character+json',
+                    characterId: expectedSpec.characterId,
+                    characterVersion: expectedSpec.version + 1,
+                    versionId: 'fixture-version',
+                  },
+                  spec: expectedSpec,
+                }),
+              },
+            ),
+          ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+          await expect(
+            db.characterFactoryJob.findUniqueOrThrow({
+              where: { id: prepared.job.id },
+              select: { status: true, resultPayload: true },
+            }),
+          ).resolves.toEqual({ status: 'RUNNING', resultPayload: null })
+          expect(await db.customCharacter.count({ where: { id: characterId } })).toBe(0)
           await completeCharacterFactoryJobAction(
             {
               tenantId,
@@ -186,6 +277,7 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
                   mediaType: 'application/vnd.pathfinder.character+json',
                   characterId: expectedSpec.characterId,
                   characterVersion: expectedSpec.version,
+                  versionId: 'fixture-version',
                 },
                 spec: expectedSpec,
               }),
@@ -195,6 +287,107 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
             (await db.characterFactoryJob.findUniqueOrThrow({ where: { id: prepared.job.id } }))
               .status,
           ).toBe('SUCCEEDED')
+
+          const exportRequestId = `export-${suffix}`
+          await prepareCharacterFactoryJobAction({
+            tenantId,
+            venueId,
+            requestId: exportRequestId,
+            action: 'EXPORT',
+            requestPayload: { includeEditableSource: true },
+            characterId,
+            baseVersion: 1,
+            baseRevision: 1,
+            actor,
+          })
+          const exportClaim = await claimCharacterFactoryJobAction({
+            tenantId,
+            venueId,
+            requestId: exportRequestId,
+          })
+          if (exportClaim.state !== 'claimed') throw new Error('Expected export claim')
+          const exportedSpec: CharacterSpec = { ...spec, revision: 2, status: 'exported' }
+          const exportReference = {
+            kind: 'character-bundle-v1' as const,
+            bucket: 'fixture-bucket',
+            objectKey: 'fixture/exported-bundle',
+            sha256: '2'.repeat(64),
+            byteLength: 144,
+            mediaType: 'application/vnd.pathfinder.character+json' as const,
+            characterId,
+            characterVersion: 1,
+            versionId: 'fixture-export-version',
+          }
+          await expect(
+            completeCharacterFactoryJobAction(
+              {
+                tenantId,
+                venueId,
+                requestId: exportRequestId,
+                leaseToken: exportClaim.job.leaseToken!,
+                resultPayload: { exported: true },
+                actor,
+                characterSpec: exportedSpec,
+                assetStorageReference: exportReference,
+              },
+              undefined,
+              {
+                verifyArtifact: async ({ expectedSpec }) => ({
+                  reference: { ...exportReference, characterId: `wrong-${characterId}` },
+                  spec: expectedSpec,
+                }),
+              },
+            ),
+          ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+          await completeCharacterFactoryJobAction(
+            {
+              tenantId,
+              venueId,
+              requestId: exportRequestId,
+              leaseToken: exportClaim.job.leaseToken!,
+              resultPayload: { exported: true },
+              actor,
+              characterSpec: exportedSpec,
+              assetStorageReference: exportReference,
+            },
+            undefined,
+            {
+              verifyArtifact: async ({ expectedSpec }) => ({
+                reference: exportReference,
+                spec: expectedSpec,
+              }),
+            },
+          )
+          const exportedCharacter = await db.customCharacter.findUniqueOrThrow({
+            where: { id: characterId },
+            select: {
+              version: true,
+              revision: true,
+              status: true,
+              capabilityMetadata: true,
+              assetStorageReference: true,
+            },
+          })
+          expect(exportedCharacter).toMatchObject({
+            version: 1,
+            revision: 2,
+            status: 'REVIEW',
+            assetStorageReference: exportReference,
+            capabilityMetadata: {
+              characterFactory: {
+                spec: {
+                  status: 'exported',
+                  source: {
+                    kind: 'imported',
+                    sha256: spec.source.sha256,
+                    sourceUrl: spec.source.sourceUrl,
+                    license: spec.source.license,
+                    attribution: spec.source.attribution,
+                  },
+                },
+              },
+            },
+          })
 
           const cancelRequestId = `cancel-${suffix}`
           await prepareCharacterFactoryJobAction({
@@ -208,7 +401,7 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
             },
             characterId,
             baseVersion: 1,
-            baseRevision: 1,
+            baseRevision: 2,
             actor,
           })
           const cancelClaim = await claimCharacterFactoryJobAction({
@@ -317,7 +510,7 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
             requestPayload: { instructions: 'Refine expression.' },
             characterId,
             baseVersion: 1,
-            baseRevision: 1,
+            baseRevision: 2,
             actor,
           })
           const staleClaim = await claimCharacterFactoryJobAction({
@@ -326,7 +519,7 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
             requestId: staleRequestId,
           })
           if (staleClaim.state !== 'claimed') throw new Error('Expected stale revision claim')
-          await db.customCharacter.update({ where: { id: characterId }, data: { revision: 2 } })
+          await db.customCharacter.update({ where: { id: characterId }, data: { revision: 3 } })
           await expect(
             completeCharacterFactoryJobAction({
               tenantId,
@@ -335,7 +528,7 @@ describe.skipIf(!enabled)('character factory durable disposable lifecycle', () =
               leaseToken: staleClaim.job.leaseToken!,
               resultPayload: {},
               actor,
-              characterSpec: { ...spec, version: 2, revision: 2 },
+              characterSpec: { ...spec, version: 2, revision: 3 },
             }),
           ).rejects.toMatchObject({ code: 'CONFLICT' })
         }
