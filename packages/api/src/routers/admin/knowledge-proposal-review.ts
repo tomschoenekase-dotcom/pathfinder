@@ -131,8 +131,9 @@ export const adminKnowledgeProposalReviewRouter = router({
                 })
               return { id: existing.id, status: existing.status, replayed: true }
             }
+            let insight: { id: string; sessionId: string } | null = null
             if (input.conversationInsightId) {
-              const insight = await tx.conversationInsight.findFirst({
+              insight = await tx.conversationInsight.findFirst({
                 where: {
                   id: input.conversationInsightId,
                   tenantId: input.tenantId,
@@ -145,11 +146,13 @@ export const adminKnowledgeProposalReviewRouter = router({
                   code: 'NOT_FOUND',
                   message: 'Conversation insight not found.',
                 })
+            }
+            if (insight) {
               const active = await tx.knowledgeChangeProposal.findFirst({
                 where: {
                   tenantId: input.tenantId,
                   venueId: input.venueId,
-                  conversationInsightId: input.conversationInsightId,
+                  conversationInsightId: insight.id,
                   status: { in: ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'PUBLISHED'] },
                 },
                 select: { id: true },
@@ -172,16 +175,26 @@ export const adminKnowledgeProposalReviewRouter = router({
               if (!target)
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge entry not found.' })
             }
-            const insight = input.conversationInsightId
-              ? await tx.conversationInsight.findFirst({
-                  where: {
-                    id: input.conversationInsightId,
-                    tenantId: input.tenantId,
-                    venueId: input.venueId,
-                  },
-                  select: { sessionId: true },
+            const requestedEvidenceIds = [...new Set(input.evidenceMessageIds)]
+            if (requestedEvidenceIds.length > 0) {
+              const evidence = await tx.message.findMany({
+                where: {
+                  id: { in: requestedEvidenceIds },
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  ...(insight ? { sessionId: insight.sessionId } : {}),
+                },
+                select: { id: true },
+              })
+              if (
+                evidence.length !== requestedEvidenceIds.length ||
+                new Set(evidence.map((message) => message.id)).size !== requestedEvidenceIds.length
+              )
+                throw new TRPCError({
+                  code: 'NOT_FOUND',
+                  message: 'Every evidence message must belong to the scoped conversation.',
                 })
-              : null
+            }
             const created = await tx.knowledgeChangeProposal.create({
               data: {
                 id,

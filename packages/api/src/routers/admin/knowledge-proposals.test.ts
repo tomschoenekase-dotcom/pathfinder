@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   proposalFind: vi.fn(),
   insightFind: vi.fn(),
   targetFind: vi.fn(),
+  messageFind: vi.fn(),
   proposalCreate: vi.fn(),
   transaction: vi.fn(),
   audit: vi.fn(),
@@ -30,6 +31,7 @@ const transactionClient = {
   },
   conversationInsight: { findFirst: mocks.insightFind },
   venueKnowledgeEntry: { findFirst: mocks.targetFind },
+  message: { findMany: mocks.messageFind },
 }
 
 vi.mock('@pathfinder/db', () => ({
@@ -126,7 +128,9 @@ describe('admin knowledge proposals', () => {
       id: input.conversationInsightId,
       sessionId: 'session-1',
     })
+    mocks.proposalFind.mockResolvedValue(null)
     mocks.targetFind.mockResolvedValue(null)
+    mocks.messageFind.mockResolvedValue(input.evidenceMessageIds.map((id) => ({ id })))
     mocks.proposalCreate.mockResolvedValue({ id: operationId, status: 'PENDING_REVIEW' })
     mocks.audit.mockResolvedValue(undefined)
     mocks.publish.mockResolvedValue(undefined)
@@ -236,6 +240,70 @@ describe('admin knowledge proposals', () => {
       app.createCaller(context()).admin.createKnowledgeProposal(input),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.proposalCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['another tenant', [{ id: input.evidenceMessageIds[0] }]],
+    ['another venue', [{ id: input.evidenceMessageIds[0] }]],
+    ['another session', [{ id: input.evidenceMessageIds[0] }]],
+    ['a nonexistent message', [{ id: input.evidenceMessageIds[0] }]],
+  ])('rejects %s evidence instead of persisting unverified IDs', async (_label, evidence) => {
+    mocks.messageFind.mockResolvedValueOnce(evidence)
+
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal(input),
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(mocks.proposalCreate).not.toHaveBeenCalled()
+    expect(mocks.messageFind).toHaveBeenCalledWith({
+      where: {
+        id: { in: input.evidenceMessageIds },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        sessionId: 'session-1',
+      },
+      select: { id: true },
+    })
+  })
+
+  it('allows repeated valid evidence IDs while retaining their ordered audit payload', async () => {
+    const repeatedEvidenceMessageIds = [input.evidenceMessageIds[0]!, input.evidenceMessageIds[0]!]
+    mocks.messageFind.mockResolvedValueOnce([{ id: repeatedEvidenceMessageIds[0] }])
+
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal({
+        ...input,
+        operationId: '44444444-4444-4444-8444-444444444444',
+        evidenceMessageIds: repeatedEvidenceMessageIds,
+      }),
+    ).resolves.toMatchObject({ status: 'PENDING_REVIEW', replayed: false })
+
+    expect(mocks.messageFind).toHaveBeenCalledWith({
+      where: {
+        id: { in: [repeatedEvidenceMessageIds[0]] },
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        sessionId: 'session-1',
+      },
+      select: { id: true },
+    })
+    expect(mocks.proposalCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ evidenceMessageIds: repeatedEvidenceMessageIds }),
+      }),
+    )
+  })
+
+  it('allows the existing empty-evidence generic proposal path without a message lookup', async () => {
+    await expect(
+      app.createCaller(context()).admin.createKnowledgeProposal({
+        ...input,
+        operationId: '33333333-3333-4333-8333-333333333333',
+        evidenceMessageIds: [],
+      }),
+    ).resolves.toMatchObject({ status: 'PENDING_REVIEW', replayed: false })
+    expect(mocks.messageFind).not.toHaveBeenCalled()
   })
 
   it('maps a concurrent active-proposal uniqueness race to a stable conflict', async () => {
