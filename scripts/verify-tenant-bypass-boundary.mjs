@@ -65,6 +65,11 @@ const approvedCallCounts = new Map([
   // Platform maintenance scans a bounded set of STALE summaries, then each
   // canonical refresh re-enters one exact tenant+organization scope.
   ['apps/workers/src/processors/account-summary-refresh.ts', 1],
+  // Platform file-extraction worker scans only bounded dispatch IDs; claim,
+  // preflight, execute, completion, failure, and recovery all re-enter the
+  // exact tenant+venue+run+lease/source scope. This bypass is limited to the
+  // reviewed extraction lifecycle and cannot publish or deliver content.
+  ['apps/workers/src/processors/intake-v1-file-extraction.ts', 6],
   // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
   ['apps/workers/src/processors/evaluation-run.ts', 9],
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
