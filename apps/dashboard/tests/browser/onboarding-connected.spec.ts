@@ -13,6 +13,7 @@ import {
   type TestInfo,
 } from '@playwright/test'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
+import { setOpenAiEmbeddingsClientForTesting } from '../../../../packages/ai/src/openai-embeddings'
 
 import {
   claimIntakeUploadVerificationAction,
@@ -900,6 +901,45 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           db.venuePackage.count({ where: { tenantId, venueId } }),
         ),
       ).toBe(0)
+      // Reuse the retained onboarding fixture's provider-only seam. Admission,
+      // budget accounting, duplicate analysis, persistence and replay stay real.
+      let syntheticEmbeddingCalls = 0
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: {
+          create: async ({ input: texts, dimensions }) => {
+            syntheticEmbeddingCalls += 1
+            return {
+              data: texts.map((_text, index) => ({
+                index,
+                embedding: Array.from({ length: dimensions }, (_, position) =>
+                  position === index % Math.min(dimensions, 4) ? 1 : 0,
+                ),
+              })),
+              usage: { prompt_tokens: texts.length, total_tokens: texts.length },
+            }
+          },
+        },
+      })
+      try {
+        const syntheticCommand = { ...command, operationId: randomUUID() }
+        const draft = await admin.admin.createIntakeV1PackageDraft(syntheticCommand)
+        expect(draft.value).toMatchObject({ status: 'DRAFT', replayed: false })
+        const callsAfterDraft = syntheticEmbeddingCalls
+        expect(callsAfterDraft).toBeGreaterThan(0)
+        const replay = await admin.admin.createIntakeV1PackageDraft(syntheticCommand)
+        expect(replay.value).toMatchObject({ id: draft.value.id, status: 'DRAFT', replayed: true })
+        expect(syntheticEmbeddingCalls).toBe(callsAfterDraft)
+        await testInfo.attach('synthetic-embedding-draft-identity', {
+          body: JSON.stringify({
+            packageId: draft.value.id,
+            syntheticEmbeddingCalls,
+            providerProof: false,
+          }),
+          contentType: 'application/json',
+        })
+      } finally {
+        setOpenAiEmbeddingsClientForTesting(null)
+      }
       const request = {
         operationId: randomUUID(),
         venueId,
