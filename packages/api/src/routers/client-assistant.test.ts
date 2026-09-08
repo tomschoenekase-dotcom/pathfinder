@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   isFeatureEnabled: vi.fn(),
   emitEvent: vi.fn(),
-  generateText: vi.fn(),
+  generateTextForCapability: vi.fn(),
   resolveDeterministic: vi.fn(),
+  routeAiCapability: vi.fn(),
+  resolveConfiguration: vi.fn(),
   assertVenueAiAvailable: vi.fn(),
   reserveTurn: vi.fn(),
   claimTurn: vi.fn(),
@@ -14,7 +16,13 @@ const mocks = vi.hoisted(() => ({
   createSupportRequest: vi.fn(),
   linkHandoff: vi.fn(),
   usageSink: vi.fn(),
-  budgetGate: vi.fn(),
+  budgetGate: {
+    reserve: vi.fn(),
+    markDispatched: vi.fn(),
+    settleExact: vi.fn(),
+    settleAmbiguous: vi.fn(),
+    releaseUndispatched: vi.fn(),
+  },
 }))
 
 vi.mock('@pathfinder/config', async (importOriginal) => ({
@@ -29,13 +37,15 @@ vi.mock('@pathfinder/analytics', async (importOriginal) => ({
 
 vi.mock('@pathfinder/ai', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/ai')>()),
-  generateText: mocks.generateText,
+  generateTextForCapability: mocks.generateTextForCapability,
   resolveDeterministicClientTochiResponse: mocks.resolveDeterministic,
+  routeAiCapability: mocks.routeAiCapability,
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   assertVenueAiAvailable: mocks.assertVenueAiAvailable,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveConfiguration,
   reserveClientAssistantTurnAction: mocks.reserveTurn,
   claimClientAssistantTurnGenerationAction: mocks.claimTurn,
   markClientAssistantTurnProviderDispatchedAction: mocks.markProviderDispatched,
@@ -53,6 +63,7 @@ vi.mock('../lib/api-ai-usage', () => ({
 }))
 
 import { ClientAssistantActionError } from '@pathfinder/db'
+import { setAnthropicClientForTesting, type AnthropicMessagesClient } from '@pathfinder/ai'
 
 import type { TRPCContext } from '../context'
 import { router } from '../core'
@@ -133,7 +144,32 @@ const contextVenue = {
   _count: { places: 0, knowledgeEntries: 0 },
 }
 
+const clientTochiConfiguration = {
+  configurationVersion: 'ai-workload-config-v1',
+  workloadId: 'client-tochi',
+  kind: 'TEXT',
+  primaryModelKey: 'client-tochi',
+  fallback: { enabled: true, modelKeys: ['guest-chat'] },
+  timeoutMs: 4_321,
+  maxAttempts: 2,
+  maxOutputTokens: 321,
+  requestBudgetCeilingE8Usd: '1234',
+  model: {},
+  sources: {},
+}
+
+const clientTochiRoute = {
+  capability: 'FAST',
+  workloadId: 'client-tochi',
+  configurationVersion: 'ai-workload-config-v1',
+  candidates: [],
+  latencyPreference: 'BALANCED',
+  qualityPreference: 'BALANCED',
+}
+
 describe('clientAssistant router', () => {
+  afterEach(() => setAnthropicClientForTesting(null))
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isFeatureEnabled.mockImplementation((key: string) => key === 'clientTochi')
@@ -160,6 +196,13 @@ describe('clientAssistant router', () => {
     mocks.markProviderDispatched.mockResolvedValue({ replayed: false })
     mocks.completeTurn.mockResolvedValue({ replayed: false })
     mocks.assertVenueAiAvailable.mockResolvedValue(undefined)
+    mocks.resolveConfiguration.mockResolvedValue(clientTochiConfiguration)
+    mocks.routeAiCapability.mockReturnValue(clientTochiRoute)
+    mocks.budgetGate.reserve.mockResolvedValue(null)
+    mocks.budgetGate.markDispatched.mockResolvedValue(undefined)
+    mocks.budgetGate.settleExact.mockResolvedValue(undefined)
+    mocks.budgetGate.settleAmbiguous.mockResolvedValue(undefined)
+    mocks.budgetGate.releaseUndispatched.mockResolvedValue(undefined)
     mocks.setPreference.mockResolvedValue({
       enabled: true,
       minimized: false,
@@ -202,7 +245,7 @@ describe('clientAssistant router', () => {
       caller().send({ operationId, venueId, message: 'Where should I upload photos?' }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'Tochi assistance is turned off' })
     expect(mocks.reserveTurn).not.toHaveBeenCalled()
-    expect(mocks.generateText).not.toHaveBeenCalled()
+    expect(mocks.generateTextForCapability).not.toHaveBeenCalled()
   })
 
   it('rejects a cross-tenant venue during reservation before any provider work', async () => {
@@ -218,7 +261,7 @@ describe('clientAssistant router', () => {
       mockDb,
     )
     expect(mocks.claimTurn).not.toHaveBeenCalled()
-    expect(mocks.generateText).not.toHaveBeenCalled()
+    expect(mocks.generateTextForCapability).not.toHaveBeenCalled()
   })
 
   it('completes deterministic guidance without invoking a model', async () => {
@@ -235,7 +278,7 @@ describe('clientAssistant router', () => {
     })
 
     expect(mocks.claimTurn).toHaveBeenCalledOnce()
-    expect(mocks.generateText).not.toHaveBeenCalled()
+    expect(mocks.generateTextForCapability).not.toHaveBeenCalled()
     expect(mocks.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
@@ -290,13 +333,82 @@ describe('clientAssistant router', () => {
       replayed: true,
     })
     expect(mocks.claimTurn).not.toHaveBeenCalled()
-    expect(mocks.generateText).not.toHaveBeenCalled()
+    expect(mocks.generateTextForCapability).not.toHaveBeenCalled()
     expect(mocks.completeTurn).not.toHaveBeenCalled()
   })
 
-  it('claims before model dispatch and persists the bounded fallback on provider failure', async () => {
+  it('routes configured Client Tochi generation through stable admission and preserves safe projection', async () => {
     mocks.resolveDeterministic.mockReturnValue(null)
-    mocks.generateText.mockImplementation(
+    mocks.generateTextForCapability.mockImplementation(
+      async (input: {
+        admissionGuard: () => Promise<void>
+        onBeforeFirstDispatch: () => Promise<void>
+        budgetGate: { reserve: (attempt: { reservedUnits: bigint }) => Promise<unknown> }
+      }) => {
+        await input.admissionGuard()
+        await expect(input.budgetGate.reserve({ reservedUnits: 1_235n })).rejects.toMatchObject({
+          code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+        })
+        await input.onBeforeFirstDispatch()
+        return {
+          parsed: {
+            answer: 'Upload the photo from the Information page.',
+            category: 'upload-guidance',
+            action: { type: 'navigate', routeKey: 'information', label: 'Open Information' },
+          },
+        }
+      },
+    )
+
+    const result = await caller().send({ operationId, venueId, message: 'A novel question' })
+
+    expect(mocks.claimTurn.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.generateTextForCapability.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    )
+    const claimInput = mocks.claimTurn.mock.calls[0]?.[0]
+    expect(claimInput.generationLeaseId).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(mocks.resolveConfiguration).toHaveBeenCalledWith(
+      { workloadId: 'client-tochi', tenantId: 'tenant-1', venueId },
+      mockDb,
+    )
+    expect(mocks.routeAiCapability).toHaveBeenCalledWith({
+      capability: 'FAST',
+      workloadId: 'client-tochi',
+      configuration: clientTochiConfiguration,
+    })
+    expect(mocks.generateTextForCapability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: clientTochiRoute,
+        invocationId: claimInput.generationLeaseId,
+        timeoutMs: 4_321,
+        maxAttempts: 2,
+        maxOutputTokens: 321,
+      }),
+    )
+    expect(mocks.markProviderDispatched).toHaveBeenCalledWith(
+      expect.objectContaining({ generationLeaseId: claimInput.generationLeaseId }),
+      mockDb,
+    )
+    expect(mocks.completeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generationLeaseId: claimInput.generationLeaseId,
+        outcome: { status: 'COMPLETED' },
+        questionCategory: 'upload-guidance',
+      }),
+      mockDb,
+    )
+    expect(result).toMatchObject({
+      answer: 'Upload the photo from the Information page.',
+      category: 'upload-guidance',
+      action: { type: 'navigate', href: '/information', label: 'Open Information' },
+      replayed: false,
+    })
+    expect(JSON.stringify(result)).not.toContain('assistant-unavailable')
+  })
+
+  it('persists the bounded fallback when configured generation fails after dispatch', async () => {
+    mocks.resolveDeterministic.mockReturnValue(null)
+    mocks.generateTextForCapability.mockImplementation(
       async (input: {
         admissionGuard: () => Promise<void>
         onBeforeFirstDispatch: () => Promise<void>
@@ -309,24 +421,9 @@ describe('clientAssistant router', () => {
 
     const result = await caller().send({ operationId, venueId, message: 'A novel question' })
 
-    expect(mocks.claimTurn.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.generateText.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    )
-    const claimInput = mocks.claimTurn.mock.calls[0]?.[0]
-    expect(claimInput.generationLeaseId).toMatch(/^[0-9a-f-]{36}$/u)
-    expect(mocks.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        modelKey: 'client-tochi',
-        invocationId: claimInput.generationLeaseId,
-      }),
-    )
-    expect(mocks.markProviderDispatched).toHaveBeenCalledWith(
-      expect.objectContaining({ generationLeaseId: claimInput.generationLeaseId }),
-      mockDb,
-    )
+    expect(mocks.markProviderDispatched).toHaveBeenCalledOnce()
     expect(mocks.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({
-        generationLeaseId: claimInput.generationLeaseId,
         outcome: { status: 'FAILED', failureCode: 'assistant-unavailable' },
         questionCategory: 'general-help',
       }),
@@ -338,7 +435,120 @@ describe('clientAssistant router', () => {
       action: { type: 'navigate', href: '/support' },
       replayed: false,
     })
-    expect(JSON.stringify(result)).not.toContain('assistant-unavailable')
+  })
+
+  it('does not dispatch when the effective configuration changes after turn claim', async () => {
+    mocks.resolveDeterministic.mockReturnValue(null)
+    mocks.resolveConfiguration
+      .mockResolvedValueOnce(clientTochiConfiguration)
+      .mockResolvedValueOnce({ ...clientTochiConfiguration, maxAttempts: 1 })
+    mocks.generateTextForCapability.mockImplementation(
+      async (input: { admissionGuard: () => Promise<void> }) => {
+        await input.admissionGuard()
+        throw new Error('unreachable')
+      },
+    )
+
+    const result = await caller().send({ operationId, venueId, message: 'A novel question' })
+
+    expect(mocks.markProviderDispatched).not.toHaveBeenCalled()
+    expect(mocks.completeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: { status: 'FAILED', failureCode: 'assistant-unavailable' },
+      }),
+      mockDb,
+    )
+    expect(result).toMatchObject({ category: 'general-help', replayed: false })
+  })
+
+  it('stops a retry when the effective configuration changes and retains one dispatch fence', async () => {
+    mocks.resolveDeterministic.mockReturnValue(null)
+    mocks.resolveConfiguration
+      .mockResolvedValueOnce(clientTochiConfiguration)
+      .mockResolvedValueOnce(clientTochiConfiguration)
+      .mockResolvedValueOnce(clientTochiConfiguration)
+      .mockResolvedValueOnce({ ...clientTochiConfiguration, requestBudgetCeilingE8Usd: '1000' })
+    mocks.generateTextForCapability.mockImplementation(
+      async (input: {
+        admissionGuard: () => Promise<void>
+        onBeforeFirstDispatch: () => Promise<void>
+      }) => {
+        await input.admissionGuard()
+        await input.admissionGuard()
+        await input.onBeforeFirstDispatch()
+        await input.admissionGuard()
+        throw new Error('unreachable retry')
+      },
+    )
+
+    await caller().send({ operationId, venueId, message: 'A novel question' })
+
+    expect(mocks.markProviderDispatched).toHaveBeenCalledOnce()
+    expect(mocks.completeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: { status: 'FAILED', failureCode: 'assistant-unavailable' },
+      }),
+      mockDb,
+    )
+  })
+
+  it('uses the actual configured fallback under one lease dispatch after a dark primary 503', async () => {
+    mocks.resolveDeterministic.mockReturnValue(null)
+    const ai = await vi.importActual<typeof import('@pathfinder/ai')>('@pathfinder/ai')
+    const configuration = ai.resolveAiWorkloadConfiguration({
+      workloadId: 'client-tochi',
+      clientId: 'tenant-1',
+      venueId,
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'VENUE', clientId: 'tenant-1', venueId, workloadId: 'client-tochi' },
+          values: {
+            fallback: { enabled: true, modelKeys: ['guest-chat'] },
+            maxAttempts: 1,
+          },
+          unsafeChangesEnabled: true,
+          reason: 'bounded configured fallback fixture',
+        },
+      ],
+    })
+    mocks.resolveConfiguration.mockResolvedValue(configuration)
+    mocks.routeAiCapability.mockImplementation(ai.routeAiCapability)
+    mocks.generateTextForCapability.mockImplementation(ai.generateTextForCapability)
+    const providerCreate = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error('primary unavailable'), { status: 503 }))
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              answer: 'Use the Information page to update those details.',
+              category: 'general-help',
+              action: { type: 'navigate', routeKey: 'information', label: 'Open Information' },
+            }),
+          },
+        ],
+        usage: { input_tokens: 12, output_tokens: 8 },
+      })
+    setAnthropicClientForTesting({
+      messages: { create: providerCreate },
+    } as AnthropicMessagesClient)
+
+    const result = await caller().send({ operationId, venueId, message: 'A novel question' })
+
+    expect(providerCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.markProviderDispatched).toHaveBeenCalledOnce()
+    expect(mocks.markProviderDispatched).toHaveBeenCalledWith(
+      expect.objectContaining({ generationLeaseId: expect.any(String) }),
+      mockDb,
+    )
+    expect(result).toMatchObject({
+      answer: 'Use the Information page to update those details.',
+      category: 'general-help',
+      action: { type: 'navigate', href: '/information', label: 'Open Information' },
+      replayed: false,
+    })
   })
 
   it('rejects a tampered handoff preview before creating any support record', async () => {

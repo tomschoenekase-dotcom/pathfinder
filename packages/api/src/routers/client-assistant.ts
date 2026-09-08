@@ -4,12 +4,14 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
-  AI_MODEL_KEYS,
+  AiRoutingError,
   CLIENT_TOCHI_BEHAVIOR_VERSION,
   buildClientTochiSystemBlocks,
-  generateText,
+  generateTextForCapability,
   parseClientTochiResponse,
+  routeAiCapability,
   resolveDeterministicClientTochiResponse,
+  withAiRequestBudgetCeiling,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config'
@@ -23,6 +25,7 @@ import {
   createSupportRequestAction,
   linkClientAssistantSupportHandoffAction,
   markClientAssistantTurnProviderDispatchedAction,
+  resolveRuntimeAiWorkloadConfiguration,
   reserveClientAssistantTurnAction,
   setClientAssistantPreferenceAction,
   SupportActionError,
@@ -573,17 +576,62 @@ export const clientAssistantRouter = router({
           surface: 'client-portal',
         })
         try {
-          const result = await generateText({
-            modelKey: AI_MODEL_KEYS.CLIENT_TOCHI,
+          const configuration = await resolveRuntimeAiWorkloadConfiguration(
+            {
+              workloadId: 'client-tochi',
+              tenantId: ctx.session.activeTenantId,
+              venueId: input.venueId,
+            },
+            ctx.db,
+          )
+          const route = routeAiCapability({
+            capability: 'FAST',
+            workloadId: 'client-tochi',
+            configuration,
+          })
+          const configurationSnapshot = JSON.stringify(configuration)
+          // GenerateTextForCapability runs this before and after every durable
+          // budget reservation, including retries. Do not let a claimed turn
+          // dispatch under a route or ceiling changed after admission.
+          const assertGenerationAvailable = async () => {
+            await assertVenueAiAvailable(ctx.db, {
+              tenantId: ctx.session.activeTenantId,
+              venueId: input.venueId,
+            })
+            const currentConfiguration = await resolveRuntimeAiWorkloadConfiguration(
+              {
+                workloadId: 'client-tochi',
+                tenantId: ctx.session.activeTenantId,
+                venueId: input.venueId,
+              },
+              ctx.db,
+            )
+            if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
+              throw new AiRoutingError(
+                'CAPABILITY_UNAVAILABLE',
+                'Client Tochi workload configuration changed',
+              )
+            }
+          }
+          const budgetGate =
+            configuration.requestBudgetCeilingE8Usd === null
+              ? accounting.budgetGate
+              : withAiRequestBudgetCeiling(
+                  accounting.budgetGate,
+                  BigInt(configuration.requestBudgetCeilingE8Usd),
+                )
+          const result = await generateTextForCapability({
+            route,
+            timeoutMs: configuration.timeoutMs,
+            maxAttempts: configuration.maxAttempts,
+            ...(configuration.maxOutputTokens !== null
+              ? { maxOutputTokens: configuration.maxOutputTokens }
+              : {}),
             system: [...buildClientTochiSystemBlocks(context)],
             messages: [...history, { role: 'user', content: message }],
             usageSink: accounting.sink,
-            budgetGate: accounting.budgetGate,
-            admissionGuard: () =>
-              assertVenueAiAvailable(ctx.db, {
-                tenantId: ctx.session.activeTenantId,
-                venueId: input.venueId,
-              }),
+            budgetGate,
+            admissionGuard: assertGenerationAvailable,
             invocationId: generationLeaseId,
             parseResponse: parseClientTochiResponse,
             onBeforeFirstDispatch: async () => {
