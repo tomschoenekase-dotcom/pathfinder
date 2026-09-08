@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "70b7003c32f92ff0f5992e4d1d8dee58bc811f8c",
+  "requirements": ["V2-P12-06"],
+  "proved": [
+    "Effective tenant-wide weekly-digest configuration routes registered BACKGROUND_ANALYSIS; no artificial venue scope.",
+    "Dark-provider gateway exercises configured fallback/limits, after-reservation configuration denial and undispatched release, and request ceiling denial.",
+    "Existing PROCESSING-to-PENDING status predicate handles configuration and budget denial; tenant-wide accounting and insufficient-data path remain."
+  ],
+  "checks": {
+    "focusedTestsPassed": 11,
+    "freshNonIncrementalWorkerTypes": "passed direct exit0",
+    "scopedLint": "passed with repository config"
+  },
+  "artifacts": [
+    "artifacts/weekly-digest-routing-root-20260908.log",
+    "artifacts/weekly-digest-types-root-20260908.log",
+    "artifacts/weekly-digest-lint-root-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/processors/weekly-digest.ts",
+      "sha256": "17db6b1ade372b19111e7f4080fd0f114838462eee3e4babdb7cbbfe2cbe62e2"
+    },
+    {
+      "path": "apps/workers/src/processors/weekly-digest.test.ts",
+      "sha256": "34c8c153acf78417f2bbbd51503cbdf3a0dd50b3107bc088a1599c990ae8b5dd"
+    }
+  ],
+  "limits": [
+    "Database transitions and accounting persistence are mocked; actual gateway uses injected provider only.",
+    "Existing digest status predicate is not an execution-lease concurrency proof.",
+    "No live provider/configuration, spend, customer message, deployment or atomic provider-I/O revision lock."
+  ]
+}

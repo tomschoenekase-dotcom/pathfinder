@@ -2,7 +2,10 @@ import { z } from 'zod'
 
 import {
   AI_MODEL_KEYS,
-  generateText,
+  AiRequestBudgetCeilingExceededError,
+  AiRoutingError,
+  generateTextForCapability,
+  routeAiCapability,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
@@ -11,6 +14,7 @@ import {
   assertGlobalAiAvailable,
   db,
   GlobalAiAdmissionError,
+  resolveRuntimeAiWorkloadConfiguration,
   withTenantIsolationBypass,
   writeJobRecord,
   updateJobRecord,
@@ -330,9 +334,32 @@ export async function processWeeklyDigestJob(
       sessions: promptData.sessions,
     })
 
-    const response = await generateText({
-      admissionGuard: () => assertGlobalAiAvailable(db),
-      modelKey: AI_MODEL_KEYS.WEEKLY_DIGEST,
+    const configurationScope = {
+      workloadId: AI_MODEL_KEYS.WEEKLY_DIGEST,
+      tenantId: payload.tenantId,
+    }
+    const configuration = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+    const route = routeAiCapability({
+      capability: 'BACKGROUND_ANALYSIS',
+      workloadId: AI_MODEL_KEYS.WEEKLY_DIGEST,
+      configuration,
+    })
+    const configurationSnapshot = JSON.stringify(configuration)
+    const response = await generateTextForCapability({
+      route,
+      timeoutMs: configuration.timeoutMs,
+      maxAttempts: configuration.maxAttempts,
+      requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+      ...(configuration.maxOutputTokens !== null
+        ? { maxOutputTokens: configuration.maxOutputTokens }
+        : {}),
+      admissionGuard: async () => {
+        await assertGlobalAiAvailable(db)
+        const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+        if (JSON.stringify(current) !== configurationSnapshot) {
+          throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Weekly digest configuration changed')
+        }
+      },
       system: [],
       messages: [{ role: 'user', content: prompt }],
       parseResponse: parseDigestInsights,
@@ -367,7 +394,11 @@ export async function processWeeklyDigestJob(
       insightCount: insights.length,
     })
   } catch (error) {
-    if (error instanceof GlobalAiAdmissionError) {
+    if (
+      error instanceof GlobalAiAdmissionError ||
+      error instanceof AiRoutingError ||
+      error instanceof AiRequestBudgetCeilingExceededError
+    ) {
       const deferred = await deferDigestAfterPause(payload)
       if (!deferred) {
         logger.warn({
