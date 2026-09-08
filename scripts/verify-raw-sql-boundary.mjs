@@ -52,6 +52,7 @@ const approvedPolicies = new Set([
   'platform-expired-generation-discovery',
   'platform-expired-voice-session-recovery',
   'platform-due-agent-question-discovery',
+  'tenant-agent-question-operation-lock',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -75,6 +76,7 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-multipart-lock',
   'tenant-intake-file-extraction-lock',
   'tenant-intake-file-extraction-review-lock',
+  'platform-intake-v1-file-extraction-discovery',
   'tenant-intake-interview-clarification-resolution-lock',
   'tenant-intake-proposal-request-lock',
   'tenant-intake-website-research-lock',
@@ -449,6 +451,14 @@ const approvedOperations = [
     hash: '1df6ea64e4eec249ead41436d458f0e4c30ac605ee3b18f0702f9b51add6a27a',
     policy: 'tenant-and-venue',
   },
+  // Exact tenant/operation replay is serialized before creating or resolving a
+  // question, so concurrent retries retain one immutable question outcome.
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$executeRaw',
+    hash: '1ca95f06f2d57599907e39d171d2b5eb0185396c0fbcfdfc72417c47de4168fb',
+    policy: 'tenant-agent-question-operation-lock',
+  },
   {
     file: 'packages/db/src/helpers/agent-question-actions.ts',
     method: '$queryRaw',
@@ -659,6 +669,32 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '1b537add52a7e067453bc3d075c4bd9caf9a6a6702e146f6493231b40dc64a10',
     policy: 'tenant-intake-file-extraction-lock',
+  },
+  // File-extraction workers discover bounded opaque dispatch IDs, then lock the
+  // immutable upload and exact dispatch before validating the scoped lease.
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '498eafbaec739130949bf88d5a4479096f1d3db9f871665424d30de503ab1205',
+    policy: 'platform-intake-v1-file-extraction-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'e48c5a59da51066ef897ab6a3446b522ad69e951c915ec8fcce277cb138b0831',
+    policy: 'tenant-intake-file-extraction-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: 'c071b70fe93232e12c50af37d6def83122eb164f8f7952b2074ab5db950c1676',
+    policy: 'tenant-intake-file-extraction-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-v1-file-extraction-dispatch-actions.ts',
+    method: '$queryRaw',
+    hash: '2bdaff0ca21dc3c8f7781fbdc754ed2e7ccdc49d18c986e8d64ff949d680b114',
+    policy: 'system-probe',
   },
   {
     file: 'packages/db/src/helpers/intake-website-research-actions.ts',
@@ -1396,11 +1432,67 @@ function collectDbAliases(sourceFile) {
   return aliases
 }
 
+function hasDirectRuntimePrismaImport(sourceFile) {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      return false
+    if (statement.moduleSpecifier.text !== '@prisma/client') return false
+    const clause = statement.importClause
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      return false
+    return clause.namedBindings.elements.some(
+      (element) => !element.isTypeOnly && element.name.text === 'Prisma' && !element.propertyName,
+    )
+  })
+}
+
+function hasRuntimePrismaAliasImport(sourceFile) {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      return false
+    if (statement.moduleSpecifier.text !== '@prisma/client') return false
+    const clause = statement.importClause
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      return false
+    return clause.namedBindings.elements.some(
+      (element) =>
+        !element.isTypeOnly &&
+        element.propertyName?.text === 'Prisma' &&
+        element.name.text !== 'Prisma',
+    )
+  })
+}
+
+function isDirectRuntimePrismaAnyNull(node, hasPrismaImport) {
+  return (
+    hasPrismaImport &&
+    ts.isIdentifier(node) &&
+    node.text === 'Prisma' &&
+    ts.isPropertyAccessExpression(node.parent) &&
+    node.parent.expression === node &&
+    node.parent.name.text === 'AnyNull'
+  )
+}
+
 function analyzeSource(source, fileName) {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
   const operations = []
   const violations = []
   const dbAliases = collectDbAliases(sourceFile)
+  const hasPrismaImport = hasDirectRuntimePrismaImport(sourceFile)
+  if (hasRuntimePrismaAliasImport(sourceFile)) {
+    violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
+  }
 
   const isTypeOnlyReference = (node) => {
     let current = node
@@ -1414,7 +1506,13 @@ function analyzeSource(source, fileName) {
   }
 
   const visit = (node) => {
-    if (ts.isIdentifier(node) && node.text === 'Prisma' && !isTypeOnlyReference(node)) {
+    if (
+      ts.isIdentifier(node) &&
+      node.text === 'Prisma' &&
+      !isTypeOnlyReference(node) &&
+      !ts.isImportSpecifier(node.parent) &&
+      !isDirectRuntimePrismaAnyNull(node, hasPrismaImport)
+    ) {
       violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
     }
 
@@ -1695,6 +1793,46 @@ function runSelfTests() {
   if (typeOnlyPrisma.violations.length > 0) {
     throw new Error('Raw SQL verifier rejected a type-only Prisma namespace self-test')
   }
+  const directAnyNull = analyzeSource(
+    "import { Prisma } from '@prisma/client'; const value = Prisma.AnyNull",
+    fileName,
+  )
+  if (directAnyNull.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected direct runtime Prisma.AnyNull self-test')
+  }
+  expectFixtureFailure(
+    'aliased Prisma.AnyNull',
+    [
+      {
+        fileName,
+        source: "import { Prisma as P } from '@prisma/client'; const value = P.AnyNull",
+      },
+    ],
+    [],
+    'Prisma namespace access is prohibited',
+  )
+  expectFixtureFailure(
+    'Prisma raw helper after AnyNull allowance',
+    [
+      {
+        fileName,
+        source: "import { Prisma } from '@prisma/client'; const fragment = Prisma.raw('SELECT 1')",
+      },
+    ],
+    [],
+    'Prisma.raw raw SQL fragments are prohibited',
+  )
+  expectFixtureFailure(
+    'computed Prisma.AnyNull',
+    [
+      {
+        fileName,
+        source: "import { Prisma } from '@prisma/client'; const value = Prisma['AnyNull']",
+      },
+    ],
+    [],
+    'Prisma namespace access is prohibited',
+  )
   const typeOnlyClient = analyzeSource("type Client = Pick<typeof db, '$queryRaw'>", fileName)
   if (typeOnlyClient.violations.length > 0) {
     throw new Error('Raw SQL verifier rejected a type-only client method selection')

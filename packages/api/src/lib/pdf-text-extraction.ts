@@ -171,8 +171,8 @@ export async function extractPdfDocumentText(
           let line = ''
           for (const item of content.items) {
             if (!('str' in item)) continue
-            const codePoints = item.str[Symbol.iterator]()
-            while (!codePoints.next().done) {
+            for (const codePoint of item.str) {
+              void codePoint
               extractedCodePoints += 1
               if (extractedCodePoints > PDF_EXTRACTION_MAX_CODE_POINTS) {
                 return { outcome: 'FAILED', errorCode: 'TEXT_TOO_LARGE' }
