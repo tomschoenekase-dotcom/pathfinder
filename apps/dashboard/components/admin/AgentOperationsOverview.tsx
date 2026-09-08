@@ -84,6 +84,15 @@ type Question = {
   question: string
   context: string | null
   choices: string[]
+  questionType:
+    | 'YES_NO'
+    | 'MULTIPLE_CHOICE'
+    | 'MULTI_SELECT'
+    | 'SHORT_TEXT'
+    | 'LONG_TEXT'
+    | 'APPROVAL_REJECT'
+    | 'DATE_TIME'
+    | 'STRUCTURED_OBJECT'
   evidence: unknown
   proposedAnswer: unknown
   blocking: boolean
@@ -323,6 +332,7 @@ export function AgentOperationsOverview({
                   venueId={venueId}
                   questionId={question.id}
                   expectedUpdatedAt={question.updatedAt}
+                  questionType={question.questionType}
                   choices={question.choices}
                   recipients={questionRecipients}
                   canRouteToClient={question.blocking && Boolean(question.agentRunId)}

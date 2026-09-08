@@ -12,8 +12,16 @@ vi.mock('./AgentQuestionEvidence', () => ({
   ),
 }))
 vi.mock('./AgentQuestionAnswerForm', () => ({
-  AgentQuestionAnswerForm: ({ questionId }: { questionId: string }) => (
-    <span>Answer controls {questionId}</span>
+  AgentQuestionAnswerForm: ({
+    questionId,
+    questionType,
+  }: {
+    questionId: string
+    questionType: string
+  }) => (
+    <span>
+      Answer controls {questionId} {questionType}
+    </span>
   ),
 }))
 
@@ -89,7 +97,7 @@ describe('FounderQuestionTriageBoard', () => {
 
     fireEvent.click(screen.getByText('Which building does this source describe?'))
     expect(blockingCard?.hasAttribute('open')).toBe(true)
-    expect(screen.getByText('Answer controls blocking-question')).toBeTruthy()
+    expect(screen.getByText('Answer controls blocking-question MULTIPLE_CHOICE')).toBeTruthy()
     expect(screen.getByText('Evidence null')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Dependency'), { target: { value: 'LOCAL' } })

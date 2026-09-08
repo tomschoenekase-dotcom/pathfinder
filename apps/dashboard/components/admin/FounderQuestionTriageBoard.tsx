@@ -262,6 +262,7 @@ export function FounderQuestionTriageBoard({
                   venueId={question.venueId}
                   questionId={question.id}
                   expectedUpdatedAt={question.updatedAt}
+                  questionType={question.questionType}
                   choices={question.choices}
                   recipients={[]}
                   canRouteToClient={false}

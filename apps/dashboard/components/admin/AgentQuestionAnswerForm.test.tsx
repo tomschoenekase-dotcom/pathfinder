@@ -28,6 +28,7 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof AgentQuestion
     venueId: 'venue-a',
     questionId: 'question-a',
     expectedUpdatedAt,
+    questionType: 'SHORT_TEXT' as const,
     choices: [],
     recipients: [],
     canRouteToClient: false,
@@ -231,5 +232,202 @@ describe('AgentQuestionAnswerForm', () => {
       dispatchStatus: 'NOT_NEEDED',
     })
     expect((await screen.findByRole('status')).textContent).toContain('Response recorded.')
+  })
+
+  it('provides explicit yes/no suggestions when the question has no supplied choices', () => {
+    renderForm({ questionType: 'YES_NO' })
+    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'No' })).toBeTruthy()
+  })
+
+  it('toggles multi-select choices and serializes them in supplied order with context', async () => {
+    mutate.mockResolvedValue({
+      runEligibleToResume: false,
+      executionTriggered: false,
+      dispatchStatus: 'NOT_NEEDED',
+    })
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="multi-a"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="MULTI_SELECT"
+        choices={['Ramp access', 'Quiet room', 'Large print']}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Large print' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ramp access' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Large print' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Large print' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: '  Confirmed in the greenhouse walkthrough.  ' },
+    })
+    expect(screen.getByRole('button', { name: 'Ramp access' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Answer agent' }))
+
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      answer:
+        'Selected: Ramp access; Large print\nContext: Confirmed in the greenhouse walkthrough.',
+    })
+  })
+
+  it('labels approval/reject responses as guidance without granting action authority', () => {
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="approval-a"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="APPROVAL_REJECT"
+        choices={['Recommend approval', 'Recommend rejection']}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    expect(screen.getByText(/Any action approval is a separate explicit step/)).toBeTruthy()
+  })
+
+  it('refuses a multi-select payload whose serialized choices and context exceed the API limit', () => {
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="multi-long"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="MULTI_SELECT"
+        choices={['Ramp access']}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Ramp access' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: 'A'.repeat(5_000) },
+    })
+    expect(screen.getByRole('alert').textContent).toContain('must fit within 5,000 characters')
+    expect(
+      (screen.getByRole('button', { name: 'Answer agent' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('replaces the first multiple-choice selection with the second in the submitted payload', async () => {
+    mutate.mockResolvedValue({
+      runEligibleToResume: false,
+      executionTriggered: false,
+      dispatchStatus: 'NOT_NEEDED',
+    })
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="single-choice"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="MULTIPLE_CHOICE"
+        choices={['North Campus', 'South Campus']}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'North Campus' }))
+    fireEvent.click(screen.getByRole('button', { name: 'South Campus' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Answer agent' }))
+
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({ answer: 'South Campus' })
+  })
+
+  it('freezes multi-select choices and context while retrying the exact serialized payload', async () => {
+    mutate
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: false,
+        dispatchStatus: 'UNCONFIRMED',
+      })
+      .mockResolvedValueOnce({
+        runEligibleToResume: true,
+        executionTriggered: true,
+        dispatchStatus: 'ENQUEUED',
+      })
+    render(
+      <AgentQuestionAnswerForm
+        tenantId="tenant-a"
+        venueId="venue-a"
+        questionId="multi-retry"
+        expectedUpdatedAt={expectedUpdatedAt}
+        questionType="MULTI_SELECT"
+        choices={['Ramp access', 'Large print']}
+        recipients={[]}
+        canRouteToClient={false}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Large print' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ramp access' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: 'Confirmed by the founder.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Answer agent' }))
+    await screen.findByRole('button', { name: 'Retry worker wake-up' })
+
+    expect((screen.getByLabelText('Optional context') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Ramp access' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry worker wake-up' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+      answer: 'Selected: Ramp access; Large print\nContext: Confirmed by the founder.',
+    })
+    expect(mutate.mock.calls[1]?.[0]).toEqual(mutate.mock.calls[0]?.[0])
+  })
+
+  it('clears multi-select choices and context when the question or revision changes', async () => {
+    const props = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      questionId: 'multi-scope-a',
+      expectedUpdatedAt,
+      questionType: 'MULTI_SELECT' as const,
+      choices: ['Ramp access', 'Large print'],
+      recipients: [],
+      canRouteToClient: false,
+    }
+    const rendered = render(<AgentQuestionAnswerForm {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ramp access' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: 'Old scope context.' },
+    })
+
+    rendered.rerender(<AgentQuestionAnswerForm {...props} questionId="multi-scope-b" />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Ramp access' }).getAttribute('aria-pressed')).toBe(
+        'false',
+      ),
+    )
+    expect((screen.getByLabelText('Optional context') as HTMLTextAreaElement).value).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Large print' }))
+    fireEvent.change(screen.getByLabelText('Optional context'), {
+      target: { value: 'Old revision context.' },
+    })
+    rendered.rerender(
+      <AgentQuestionAnswerForm
+        {...props}
+        questionId="multi-scope-b"
+        expectedUpdatedAt={new Date('2026-09-08T12:01:00.000Z')}
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Large print' }).getAttribute('aria-pressed')).toBe(
+        'false',
+      ),
+    )
+    expect((screen.getByLabelText('Optional context') as HTMLTextAreaElement).value).toBe('')
   })
 })

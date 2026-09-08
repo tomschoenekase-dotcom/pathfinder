@@ -10,6 +10,15 @@ type Props = {
   venueId: string
   questionId: string
   expectedUpdatedAt: Date
+  questionType:
+    | 'YES_NO'
+    | 'MULTIPLE_CHOICE'
+    | 'MULTI_SELECT'
+    | 'SHORT_TEXT'
+    | 'LONG_TEXT'
+    | 'APPROVAL_REJECT'
+    | 'DATE_TIME'
+    | 'STRUCTURED_OBJECT'
   choices: string[]
   recipients: Array<{
     userId: string
@@ -33,6 +42,7 @@ export function AgentQuestionAnswerForm({
   venueId,
   questionId,
   expectedUpdatedAt,
+  questionType,
   choices,
   recipients,
   canRouteToClient,
@@ -41,6 +51,8 @@ export function AgentQuestionAnswerForm({
   const router = useRouter()
   const active = useRef(false)
   const [answer, setAnswer] = useState('')
+  const [selectedChoices, setSelectedChoices] = useState<string[]>([])
+  const [multiSelectContext, setMultiSelectContext] = useState('')
   const [pending, setPending] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [unconfirmedWakeup, setUnconfirmedWakeup] = useState<{
@@ -62,9 +74,23 @@ export function AgentQuestionAnswerForm({
     generation.current += 1
   }
   const retryWakeup = unconfirmedWakeup?.scope === scope ? unconfirmedWakeup : null
+  const effectiveChoices =
+    questionType === 'YES_NO' && choices.length === 0 ? ['Yes', 'No'] : choices
+  const isMultiSelect = questionType === 'MULTI_SELECT'
+  const orderedSelections = effectiveChoices.filter((choice) => selectedChoices.includes(choice))
+  const serializedMultiSelect = [
+    orderedSelections.length ? `Selected: ${orderedSelections.join('; ')}` : '',
+    multiSelectContext.trim() ? `Context: ${multiSelectContext.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const currentAnswer = isMultiSelect ? serializedMultiSelect : answer.trim()
+  const answerTooLong = currentAnswer.length > 5_000
 
   useEffect(() => {
     setAnswer('')
+    setSelectedChoices([])
+    setMultiSelectContext('')
     setFeedback(null)
     setUnconfirmedWakeup(null)
     setPending(false)
@@ -72,8 +98,8 @@ export function AgentQuestionAnswerForm({
   }, [scope])
 
   async function submit(outcome: 'ANSWERED' | 'DISMISSED') {
-    const value = retryWakeup?.payload.answer ?? answer.trim()
-    if (!value || active.current) return
+    const value = retryWakeup?.payload.answer ?? currentAnswer
+    if (!value || value.length > 5_000 || active.current) return
     const payload: AnswerPayload = retryWakeup?.payload ?? {
       tenantId,
       venueId,
@@ -158,38 +184,75 @@ export function AgentQuestionAnswerForm({
 
   return (
     <form className="mt-4" aria-busy={pending}>
-      {choices.length ? (
-        <div className="mb-3 flex flex-wrap gap-2" aria-label="Suggested answers">
-          {choices.map((choice) => (
+      {effectiveChoices.length ? (
+        <div
+          className="mb-3 flex flex-wrap gap-2"
+          aria-label={isMultiSelect ? 'Select all responses that apply' : 'Suggested answers'}
+        >
+          {effectiveChoices.map((choice) => (
             <button
               key={choice}
               type="button"
               disabled={pending || Boolean(retryWakeup)}
-              onClick={() => setAnswer(choice)}
-              className="min-h-10 rounded-full border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-950"
+              aria-pressed={isMultiSelect ? selectedChoices.includes(choice) : undefined}
+              onClick={() =>
+                isMultiSelect
+                  ? setSelectedChoices((current) =>
+                      current.includes(choice)
+                        ? current.filter((selected) => selected !== choice)
+                        : [...current, choice],
+                    )
+                  : setAnswer(choice)
+              }
+              className="min-h-10 max-w-full whitespace-normal break-words rounded-full border border-sky-200 bg-white px-4 text-left text-sm font-semibold text-sky-950 aria-pressed:border-pf-primary aria-pressed:bg-sky-50"
             >
               {choice}
             </button>
           ))}
         </div>
       ) : null}
-      <label className="grid gap-2 text-sm font-semibold text-pf-deep">
-        Your answer
-        <textarea
-          rows={3}
-          maxLength={5000}
-          required
-          disabled={pending || Boolean(retryWakeup)}
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
-          className="rounded-2xl border border-sky-200 bg-white px-4 py-3 font-normal outline-none focus:border-pf-primary"
-          placeholder="Give the agent the missing decision or context…"
-        />
-      </label>
+      {questionType === 'APPROVAL_REJECT' ? (
+        <p className="mb-3 text-xs leading-5 text-pf-deep/65">
+          This response is guidance for the agent. Any action approval is a separate explicit step.
+        </p>
+      ) : null}
+      {isMultiSelect ? (
+        <label className="grid gap-2 text-sm font-semibold text-pf-deep">
+          Optional context
+          <textarea
+            rows={3}
+            maxLength={5000}
+            disabled={pending || Boolean(retryWakeup)}
+            value={multiSelectContext}
+            onChange={(event) => setMultiSelectContext(event.target.value)}
+            className="rounded-2xl border border-sky-200 bg-white px-4 py-3 font-normal outline-none focus:border-pf-primary"
+            placeholder="Add context for the selected responses…"
+          />
+        </label>
+      ) : (
+        <label className="grid gap-2 text-sm font-semibold text-pf-deep">
+          Your answer
+          <textarea
+            rows={3}
+            maxLength={5000}
+            required
+            disabled={pending || Boolean(retryWakeup)}
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            className="rounded-2xl border border-sky-200 bg-white px-4 py-3 font-normal outline-none focus:border-pf-primary"
+            placeholder="Give the agent the missing decision or context…"
+          />
+        </label>
+      )}
+      {answerTooLong ? (
+        <p className="mt-2 text-sm text-rose-800" role="alert">
+          The selected responses and context must fit within 5,000 characters.
+        </p>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={pending || Boolean(retryWakeup) || !answer.trim()}
+          disabled={pending || Boolean(retryWakeup) || !currentAnswer || answerTooLong}
           onClick={() => void submit('ANSWERED')}
           className="min-h-11 rounded-2xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -197,7 +260,7 @@ export function AgentQuestionAnswerForm({
         </button>
         <button
           type="button"
-          disabled={pending || Boolean(retryWakeup) || !answer.trim()}
+          disabled={pending || Boolean(retryWakeup) || !currentAnswer || answerTooLong}
           onClick={() => void submit('DISMISSED')}
           className="min-h-11 rounded-2xl border border-pf-light bg-white px-5 text-sm font-semibold text-pf-deep disabled:opacity-50"
         >
