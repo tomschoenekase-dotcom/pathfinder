@@ -64,6 +64,9 @@ describe('prospect copy handoff', () => {
     ],
     ['unsupported price', { subject: 'Plans from $99', textBody: 'Plans start at $99 per month.' }],
     ['invented visit', { textBody: 'I visited your museum last summer.' }],
+    ['invented contracted first-person visit', { textBody: "I've visited your museum." }],
+    ['invented contracted plural visit', { textBody: "We've visited your museum." }],
+    ['invented curly-contracted visit', { textBody: 'We\u2019ve visited your museum.' }],
   ])('rejects %s', (_label, overrides) => {
     expect(() =>
       validateProspectCopyHandoff({
@@ -73,6 +76,22 @@ describe('prospect copy handoff', () => {
         ...(overrides as Record<string, unknown>),
       }),
     ).toThrow(ProspectCopyGroundingError)
+  })
+
+  it('accepts an evidence-linked contracted relationship claim only as review-only copy', () => {
+    expect(
+      validateProspectCopyHandoff({
+        subject: 'A visitor guide for the museum',
+        textBody: "We've visited your museum.",
+        evidence: [{ reference: 'fixture:operator-visit-record' }],
+        claims: [
+          {
+            text: "We've visited your museum.",
+            evidenceReferences: ['fixture:operator-visit-record'],
+          },
+        ],
+      }),
+    ).toMatchObject({ reviewRequired: true, sendAuthorized: false })
   })
 
   it('rejects claim references absent from the draft evidence bundle', () => {

@@ -12,7 +12,7 @@ export class ProspectCopyGroundingError extends Error {}
 
 const consequentialClaims = [
   /\$\s*\d|\bpric(?:e|ing)\b|per month/iu,
-  /\b(?:i|we) (?:visited|have visited|know) (?:your|the)\b/iu,
+  /\b(?:i|we)(?:(?:['\u2019]ve| have) visited| visited| know) (?:your|the)\b/iu,
   /\b(?:customer|client)s? (?:saw|achieved|increased|reduced)\b/iu,
   /\b(?:guarantee|promise|will build)\b/iu,
 ]
