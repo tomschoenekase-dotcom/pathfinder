@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { db } from '../client'
@@ -6,7 +7,13 @@ import { writeAuditLogStrict } from './audit'
 export type AgentOutcomeActionClient = Pick<typeof db, '$transaction'>
 type AgentOutcomeTransaction = Pick<
   typeof db,
-  'agentOutcomeObservation' | 'agentRun' | 'agentAction' | 'agentTimelineEvent' | 'auditLog'
+  | 'agentOutcomeObservation'
+  | 'agentRun'
+  | 'agentQuestion'
+  | 'agentAction'
+  | 'agentTimelineEvent'
+  | 'auditLog'
+  | '$queryRaw'
 >
 
 const inputSchema = z
@@ -18,6 +25,13 @@ const inputSchema = z
     verdict: z.enum(['POSITIVE', 'MIXED', 'NEGATIVE', 'INCONCLUSIVE']),
     summary: z.string().trim().min(1).max(2000),
     evidenceRef: z.string().trim().min(1).max(500).optional(),
+    sourceQuestion: z
+      .object({
+        questionId: z.string().trim().min(1).max(191),
+        expectedUpdatedAt: z.date(),
+      })
+      .strict()
+      .optional(),
     actor: z
       .object({
         type: z.literal('HUMAN'),
@@ -51,6 +65,10 @@ const outcomeSelect = {
   verdict: true,
   summary: true,
   evidenceRef: true,
+  sourceQuestionId: true,
+  sourceQuestionUpdatedAt: true,
+  sourceAnsweredAt: true,
+  sourceAnswerSha256: true,
   relatedAgentActionId: true,
   policyCode: true,
   severity: true,
@@ -123,6 +141,8 @@ function sameObservation(
     evidenceRef: string | null
     actorType: string
     actorId: string
+    sourceQuestionId?: string | null
+    sourceQuestionUpdatedAt?: Date | null
   },
   input: NormalizedInput,
 ) {
@@ -134,7 +154,10 @@ function sameObservation(
     existing.summary === input.summary &&
     existing.evidenceRef === (input.evidenceRef ?? null) &&
     existing.actorType === input.actor.type &&
-    existing.actorId === input.actor.id
+    existing.actorId === input.actor.id &&
+    (existing.sourceQuestionId ?? null) === (input.sourceQuestion?.questionId ?? null) &&
+    (existing.sourceQuestionUpdatedAt ?? null)?.getTime() ===
+      (input.sourceQuestion?.expectedUpdatedAt ?? null)?.getTime()
   )
 }
 
@@ -200,6 +223,69 @@ export async function recordAgentOutcomeAction(
         )
       }
 
+      let sourceQuestion:
+        | { id: string; updatedAt: Date; answeredAt: Date; answerSha256: string }
+        | undefined
+      if (input.sourceQuestion) {
+        const lockedRuns = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM agent_runs
+          WHERE id=${run.id}
+            AND tenant_id=${input.tenantId}
+            AND venue_id=${input.venueId}
+            AND status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+          FOR SHARE
+        `
+        if (lockedRuns.length !== 1) {
+          throw new AgentOutcomeActionError(
+            'NOT_FOUND',
+            'The terminal agent run changed before source evidence could be recorded.',
+          )
+        }
+        await transaction.$queryRaw`
+          SELECT id FROM agent_questions
+          WHERE id=${input.sourceQuestion.questionId}
+            AND tenant_id=${input.tenantId}
+            AND venue_id=${input.venueId}
+          FOR SHARE
+        `
+        const question = await transaction.agentQuestion.findFirst({
+          where: {
+            id: input.sourceQuestion.questionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentRunId: run.id,
+            agentIdentityId: run.agentIdentityId,
+            status: 'ANSWERED',
+            updatedAt: input.sourceQuestion.expectedUpdatedAt,
+          },
+          select: {
+            id: true,
+            updatedAt: true,
+            answer: true,
+            answeredById: true,
+            answeredAt: true,
+          },
+        })
+        if (
+          !question ||
+          !question.answer?.trim() ||
+          !question.answeredById ||
+          !question.answeredAt ||
+          question.updatedAt.getTime() !== input.sourceQuestion.expectedUpdatedAt.getTime()
+        ) {
+          throw new AgentOutcomeActionError(
+            'NOT_FOUND',
+            'An exact answered source question revision was not found for this run.',
+          )
+        }
+        sourceQuestion = {
+          id: question.id,
+          updatedAt: question.updatedAt,
+          answeredAt: question.answeredAt,
+          answerSha256: createHash('sha256').update(question.answer, 'utf8').digest('hex'),
+        }
+      }
+
       const created = await transaction.agentOutcomeObservation.create({
         data: {
           operationId: input.operationId,
@@ -211,6 +297,10 @@ export async function recordAgentOutcomeAction(
           verdict: input.verdict,
           summary: input.summary,
           evidenceRef: input.evidenceRef ?? null,
+          sourceQuestionId: sourceQuestion?.id ?? null,
+          sourceQuestionUpdatedAt: sourceQuestion?.updatedAt ?? null,
+          sourceAnsweredAt: sourceQuestion?.answeredAt ?? null,
+          sourceAnswerSha256: sourceQuestion?.answerSha256 ?? null,
           taskClass: run.runType,
           modelProvider: run.modelProvider,
           modelName: run.modelName,
@@ -255,6 +345,10 @@ export async function recordAgentOutcomeAction(
             modelProvider: created.modelProvider,
             modelName: created.modelName,
             hasEvidenceReference: created.evidenceRef !== null,
+            sourceQuestionId: created.sourceQuestionId,
+            sourceQuestionUpdatedAt: created.sourceQuestionUpdatedAt,
+            sourceAnsweredAt: created.sourceAnsweredAt,
+            sourceAnswerSha256: created.sourceAnswerSha256,
           },
         },
         transaction,

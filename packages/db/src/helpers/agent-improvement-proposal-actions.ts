@@ -39,6 +39,25 @@ const humanPlatformAdmin = z
   })
   .strict()
 
+const generalizationSchema = z
+  .object({
+    rationale: z.string().trim().min(10).max(2000),
+    counterexampleObservationIds: z.array(z.string().trim().min(1).max(191)).min(1).max(20),
+    exclusions: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      new Set(value.counterexampleObservationIds).size !== value.counterexampleObservationIds.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['counterexampleObservationIds'],
+        message: 'Counterexample observation IDs must be unique.',
+      })
+    }
+  })
+
 const inputSchema = z
   .object({
     operationId: z.string().uuid(),
@@ -67,6 +86,7 @@ const inputSchema = z
     hypothesis: z.string().trim().min(10).max(2000),
     proposedChange: z.string().trim().min(10).max(10000),
     validationPlan: z.string().trim().min(10).max(5000),
+    generalization: generalizationSchema.optional(),
     actor: z.union([humanPlatformAdmin, improvementAgentActor]),
   })
   .strict()
@@ -149,6 +169,37 @@ function sortedEvidenceIds(input: NormalizedInput): string[] {
   return [...input.outcomeObservationIds].sort()
 }
 
+function normalizedGeneralization(input: NormalizedInput) {
+  if (!input.generalization) return null
+  return {
+    rationale: input.generalization.rationale,
+    counterexampleObservationIds: [...input.generalization.counterexampleObservationIds].sort(),
+    exclusions: input.generalization.exclusions,
+  }
+}
+
+function storedGeneralization(snapshot: unknown): {
+  valid: boolean
+  value: ReturnType<typeof normalizedGeneralization>
+} {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return { valid: true, value: null }
+  }
+  if (!('generalization' in snapshot)) return { valid: true, value: null }
+  const parsed = generalizationSchema.safeParse(
+    (snapshot as { generalization?: unknown }).generalization,
+  )
+  if (!parsed.success) return { valid: false, value: null }
+  return {
+    valid: true,
+    value: {
+      rationale: parsed.data.rationale,
+      counterexampleObservationIds: [...parsed.data.counterexampleObservationIds].sort(),
+      exclusions: parsed.data.exclusions,
+    },
+  }
+}
+
 function sameProposal(
   existing: {
     venueId: string
@@ -164,10 +215,13 @@ function sameProposal(
     createdByType: string
     createdById: string
     evidence: { outcomeObservationId: string }[]
+    baselineSnapshot: unknown
   },
   input: NormalizedInput,
 ): boolean {
+  const existingGeneralization = storedGeneralization(existing.baselineSnapshot)
   return (
+    existingGeneralization.valid &&
     existing.venueId === input.venueId &&
     existing.agentIdentityId === input.agentIdentityId &&
     existing.proposalKey === input.proposalKey &&
@@ -181,7 +235,8 @@ function sameProposal(
     existing.createdByType === input.actor.type &&
     existing.createdById === actorId(input) &&
     JSON.stringify(existing.evidence.map((item) => item.outcomeObservationId)) ===
-      JSON.stringify(sortedEvidenceIds(input))
+      JSON.stringify(sortedEvidenceIds(input)) &&
+    JSON.stringify(existingGeneralization.value) === JSON.stringify(normalizedGeneralization(input))
   )
 }
 
@@ -201,7 +256,13 @@ function baselineSnapshot(
     modelProvider: string | null
     modelName: string | null
     createdAt: Date
+    id: string
+    sourceQuestionId: string | null
+    sourceQuestionUpdatedAt: Date | null
+    sourceAnsweredAt: Date | null
+    sourceAnswerSha256: string | null
   }>,
+  generalization: ReturnType<typeof normalizedGeneralization>,
 ) {
   const verdictCounts = { POSITIVE: 0, MIXED: 0, NEGATIVE: 0, INCONCLUSIVE: 0 }
   const signalKinds = new Set<string>()
@@ -216,6 +277,21 @@ function baselineSnapshot(
     )
   }
   const timestamps = observations.map((item) => item.createdAt.getTime())
+  const questionSources = observations
+    .filter(
+      (observation) =>
+        observation.sourceQuestionId &&
+        observation.sourceQuestionUpdatedAt &&
+        observation.sourceAnsweredAt &&
+        observation.sourceAnswerSha256,
+    )
+    .map((observation) => ({
+      outcomeObservationId: observation.id,
+      questionId: observation.sourceQuestionId!,
+      questionUpdatedAt: observation.sourceQuestionUpdatedAt!.toISOString(),
+      answeredAt: observation.sourceAnsweredAt!.toISOString(),
+      answerSha256: observation.sourceAnswerSha256!,
+    }))
   return {
     contractVersion: 1,
     observationCount: observations.length,
@@ -225,6 +301,8 @@ function baselineSnapshot(
     observedFrom: new Date(Math.min(...timestamps)).toISOString(),
     observedThrough: new Date(Math.max(...timestamps)).toISOString(),
     interpretation: 'descriptive-evidence-only',
+    ...(generalization ? { generalization } : {}),
+    ...(questionSources.length ? { questionSources } : {}),
   }
 }
 
@@ -283,6 +361,10 @@ export async function prepareAgentImprovementProposalAction(
             modelProvider: true,
             modelName: true,
             createdAt: true,
+            sourceQuestionId: true,
+            sourceQuestionUpdatedAt: true,
+            sourceAnsweredAt: true,
+            sourceAnswerSha256: true,
           },
         }),
       ])
@@ -310,6 +392,47 @@ export async function prepareAgentImprovementProposalAction(
           'INVALID_INPUT',
           'An improvement proposal requires at least one mixed or negative observation.',
         )
+      }
+      const evidenceIds = new Set(observations.map((observation) => observation.id))
+      if (
+        observations.some(
+          (observation) =>
+            observation.sourceQuestionId &&
+            (!observation.sourceQuestionUpdatedAt ||
+              !observation.sourceAnsweredAt ||
+              !observation.sourceAnswerSha256),
+        )
+      ) {
+        throw new AgentImprovementProposalActionError(
+          'CONFLICT',
+          'Question-sourced evidence is missing its immutable safe provenance.',
+        )
+      }
+      const sourceLinkedCorrections = observations.filter(
+        (observation) =>
+          observation.sourceQuestionId &&
+          (observation.verdict === 'MIXED' || observation.verdict === 'NEGATIVE'),
+      )
+      if (observations.some((observation) => observation.sourceQuestionId)) {
+        if (!input.generalization || sourceLinkedCorrections.length === 0) {
+          throw new AgentImprovementProposalActionError(
+            'INVALID_INPUT',
+            'Question-sourced evidence requires a generalization and a source-linked mixed or negative correction.',
+          )
+        }
+      }
+      if (input.generalization) {
+        const correctionIds = new Set(sourceLinkedCorrections.map((observation) => observation.id))
+        if (
+          input.generalization.counterexampleObservationIds.some(
+            (id) => !evidenceIds.has(id) || correctionIds.has(id),
+          )
+        ) {
+          throw new AgentImprovementProposalActionError(
+            'INVALID_INPUT',
+            'Each counterexample must be selected evidence and distinct from source-linked mixed or negative corrections.',
+          )
+        }
       }
       const taskClass = observations[0]!.taskClass
 
@@ -418,7 +541,7 @@ export async function prepareAgentImprovementProposalAction(
           hypothesis: input.hypothesis,
           proposedChange: input.proposedChange,
           validationPlan: input.validationPlan,
-          baselineSnapshot: baselineSnapshot(observations),
+          baselineSnapshot: baselineSnapshot(observations, normalizedGeneralization(input)),
           createdByType: input.actor.type,
           createdById: actorId(input),
           evidence: {

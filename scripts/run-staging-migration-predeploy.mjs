@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-229-20260908',
+  approval: 'torchiko-staging-lineage-to-230-20260908',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 229,
+  migrationCount: 230,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -88,6 +88,9 @@ const EXPECTED = Object.freeze({
   sourceMappingPredecessorCount: 227,
   sourceMappingPredecessorPublicTableCount: 254,
   sourceMappingPredecessorFinalMigration: '20260907022700_add_intake_source_mapping_reviews',
+  workerLifecyclePredecessorCount: 229,
+  workerLifecyclePredecessorPublicTableCount: 254,
+  workerLifecyclePredecessorFinalMigration: '20260908031000_release_answered_agent_execution_owner',
   intakeSubmissionPredecessorCount: 224,
   intakeSubmissionPredecessorPublicTableCount: 251,
   intakeSubmissionPredecessorFinalMigration: '20260907022400_add_intake_v1_submissions',
@@ -113,9 +116,9 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260908031000_release_answered_agent_execution_owner',
-  manifestHash: 'a81c492dfd41548daf1f01dd5c4c52bca61c07a765c0a4318bfb76e2599202d7',
-  // Exact 229 candidate boundary; retained relational proof is recorded separately.
+  finalMigration: '20260908044000_add_agent_outcome_question_provenance',
+  manifestHash: '9fdfb8b7a1f657a741384f8e7ec9cf7fe322176fc414956dbfda6528610c5a26',
+  // Exact 230 candidate boundary; retained relational proof is recorded separately.
   finalPublicTableCount: 254,
 })
 
@@ -358,6 +361,12 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('source mapping predecessor migration changed')
   }
+  if (
+    manifest.names[EXPECTED.workerLifecyclePredecessorCount - 1] !==
+    EXPECTED.workerLifecyclePredecessorFinalMigration
+  ) {
+    fail('worker lifecycle predecessor migration changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -393,6 +402,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.intakePackagePredecessorCount &&
     rows.length !== EXPECTED.intakeSubmissionPredecessorCount &&
     rows.length !== EXPECTED.sourceMappingPredecessorCount &&
+    rows.length !== EXPECTED.workerLifecyclePredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -462,6 +472,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.intakeSubmissionPredecessorCount)
     return 'intake-submission-predecessor'
   if (rows.length === EXPECTED.sourceMappingPredecessorCount) return 'source-mapping-predecessor'
+  if (rows.length === EXPECTED.workerLifecyclePredecessorCount)
+    return 'worker-lifecycle-predecessor'
   return 'complete'
 }
 
@@ -653,6 +665,7 @@ export function expectedPublicTableCount(state) {
     'intake-package-predecessor': EXPECTED.intakePackagePredecessorPublicTableCount,
     'intake-submission-predecessor': EXPECTED.intakeSubmissionPredecessorPublicTableCount,
     'source-mapping-predecessor': EXPECTED.sourceMappingPredecessorPublicTableCount,
+    'worker-lifecycle-predecessor': EXPECTED.workerLifecyclePredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
   if (!Object.hasOwn(counts, state)) fail(`unknown schema boundary ${state}`)

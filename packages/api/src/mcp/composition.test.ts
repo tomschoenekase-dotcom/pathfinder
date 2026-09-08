@@ -1405,6 +1405,11 @@ describe('safe operational MCP composition', () => {
         hypothesis: 'Retrieval misses are causing unsupported recommendations.',
         proposedChange: 'Require current-source retrieval before each recommendation.',
         validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+        generalization: {
+          rationale: 'A distinct successful case bounds the proposed retrieval rule.',
+          counterexampleObservationIds: ['outcome-2'],
+          exclusions: ['Exclude answers already grounded in current approved content.'],
+        },
       },
       { credential: improvementCredential },
     )
@@ -1414,6 +1419,11 @@ describe('safe operational MCP composition', () => {
         tenantId: 'tenant-1',
         venueId: 'venue-1',
         agentIdentityId: 'target-agent-1',
+        generalization: {
+          rationale: 'A distinct successful case bounds the proposed retrieval rule.',
+          counterexampleObservationIds: ['outcome-2'],
+          exclusions: ['Exclude answers already grounded in current approved content.'],
+        },
         actor: expect.objectContaining({
           agentIdentityId: 'review-agent-1',
           capability: 'agent-improvements:propose',

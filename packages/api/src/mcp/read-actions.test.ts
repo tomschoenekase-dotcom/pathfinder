@@ -1003,8 +1003,18 @@ describe('MCP v0 concrete read bindings', () => {
 
   it('returns scoped explicit outcomes without operation IDs or human actor identifiers', async () => {
     const db = database()
-    db.agentOutcomeObservation.findMany.mockResolvedValue([])
-    await readMcpResource(
+    const answeredAt = new Date('2026-09-08T04:00:00.000Z')
+    db.agentOutcomeObservation.findMany.mockResolvedValue([
+      {
+        id: 'outcome-correction',
+        sourceQuestionId: 'question-correction',
+        sourceQuestionUpdatedAt: answeredAt,
+        sourceAnsweredAt: answeredAt,
+        sourceAnswerSha256: 'a'.repeat(64),
+        createdAt: answeredAt,
+      },
+    ])
+    const response = await readMcpResource(
       db as never,
       { resource: 'outcomes', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
       { credential },
@@ -1015,6 +1025,23 @@ describe('MCP v0 concrete read bindings', () => {
     expect(query.select).not.toHaveProperty('actorId')
     expect(query.select).not.toHaveProperty('tenantId')
     expect(query.select).not.toHaveProperty('venueId')
+    expect(query.select).toMatchObject({
+      sourceQuestionId: true,
+      sourceQuestionUpdatedAt: true,
+      sourceAnsweredAt: true,
+      sourceAnswerSha256: true,
+    })
+    expect(query.select).not.toHaveProperty('sourceQuestion')
+    expect(response.data).toMatchObject({
+      items: [
+        {
+          sourceQuestionId: 'question-correction',
+          sourceQuestionUpdatedAt: answeredAt.toISOString(),
+          sourceAnsweredAt: answeredAt.toISOString(),
+          sourceAnswerSha256: 'a'.repeat(64),
+        },
+      ],
+    })
   })
 
   it('returns scoped improvement proposals without operation or reviewer identifiers', async () => {

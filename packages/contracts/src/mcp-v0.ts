@@ -1054,6 +1054,18 @@ export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
   hypothesis: z.string().trim().min(10).max(2000),
   proposedChange: z.string().trim().min(10).max(10000),
   validationPlan: z.string().trim().min(10).max(5000),
+  generalization: z
+    .object({
+      rationale: z.string().trim().min(10).max(2000),
+      counterexampleObservationIds: z
+        .array(Identifier)
+        .min(1)
+        .max(20)
+        .refine((ids) => new Set(ids).size === ids.length, 'IDs must be unique.'),
+      exclusions: z.array(z.string().trim().min(1).max(500)).min(1).max(10),
+    })
+    .strict()
+    .optional(),
 }).strict()
 export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
 
@@ -3099,6 +3111,29 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         hypothesis: { type: 'string', minLength: 10, maxLength: 2000 },
         proposedChange: { type: 'string', minLength: 10, maxLength: 10000 },
         validationPlan: { type: 'string', minLength: 10, maxLength: 5000 },
+        generalization: {
+          ...strictObject(
+            {
+              rationale: { type: 'string', minLength: 10, maxLength: 2000 },
+              counterexampleObservationIds: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 20,
+                uniqueItems: true,
+                items: { type: 'string', minLength: 1, maxLength: 120 },
+              },
+              exclusions: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 10,
+                items: { type: 'string', minLength: 1, maxLength: 500 },
+              },
+            },
+            ['rationale', 'counterexampleObservationIds', 'exclusions'],
+          ),
+          description:
+            'Required when selected outcome evidence has question provenance. Counterexamples must be selected same-scope observations distinct from source-linked mixed or negative corrections.',
+        },
       },
       [
         ...scopeRequired,

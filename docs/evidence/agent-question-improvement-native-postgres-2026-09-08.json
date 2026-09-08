@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T04:49:38.9056126Z",
+  "baseProductRevision": "e04d089d09eb398970eeb012bde2332dac7b5523",
+  "result": {
+    "database": "pathfinder_disposable_agent_question_improvement_8c45df37b3c6",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-question-improvement-8c45df37b3c6",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeTests": {
+    "skipped": 0,
+    "passed": 1,
+    "failed": 0
+  },
+  "database": {
+    "migrations": 230,
+    "timezone": "UTC",
+    "normalizedManifestSha256": "9fdfb8b7a1f657a741384f8e7ec9cf7fe322176fc414956dbfda6528610c5a26",
+    "publicTables": 254
+  },
+  "measuredSources": [
+    {
+      "path": "packages/db/src/helpers/agent-question-improvement.disposable.integration.test.ts",
+      "sha256": "496ec84800ee517e6d00bb5fc376ca2dc8f315334ef64e24b708c2e4a8fce253",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-outcome-actions.ts",
+      "sha256": "f385fa4fe8b39f67e7b4e98d4165f89f383d07690c789b7b4cdd5b91673d81bd",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-improvement-proposal-actions.ts",
+      "sha256": "bc3dd7f50fd934b9fcb032c89d6986f1d226224ab74cd50f34ad13b6eeb1bca8",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/prisma/schema.prisma",
+      "sha256": "b0d152d3d8bc3ef2eb09b66759079f62b703d5e7f9da0663d306557b3191b961",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260908044000_add_agent_outcome_question_provenance/migration.sql",
+      "sha256": "0fa7aca1a2cf99bfbff06c4b9c0aca460fd12001f45be17092c6828396382e55",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/admin/agent-outcomes.ts",
+      "sha256": "c528104f3b63fc6233d14d0cf33f21bd310c4c6f3b29715063a53cb29361ba1b",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/contracts/src/mcp-v0.ts",
+      "sha256": "00b2063bfd8fe02dc9226944f0641738e043ff9408bfdcb291e717603a99d9f1",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "focusedChecks": {
+    "scopedLint": "passed",
+    "rawSqlOperationsVerified": 192,
+    "contractsPassed": 14,
+    "releaseManifestPassed": 19,
+    "packageTypechecks": ["db", "contracts", "api"],
+    "dbOutcomeProposalValidationAssessmentHealthPassed": 48,
+    "tenantRegistryModelsVerified": 253,
+    "apiPassed": 103,
+    "workspaceTypecheck": {
+      "passed": 27,
+      "total": 27,
+      "cached": 8,
+      "packages": 16,
+      "exitCode": 0,
+      "seconds": 71.945
+    }
+  },
+  "nativeControls": [
+    "Two canonical tasks ask questions, retain accepted human corrections, claim and complete, then record exact source-backed outcomes with raw UTF8 answer hashes.",
+    "A separate counterexample supports a bounded rationale/exclusions snapshot and one immutable pending-review candidate; identical operation replay survives PostgreSQL JSONB key ordering.",
+    "Source revision, unanswered question, wrong run identity, wrong venue, absent generalization and invalid counterexample selection reject.",
+    "A valid direct source tuple inserts and rolls back intentionally; every partial tuple and malformed hash fails the named provenance CHECK, and wrong venue fails the named source-question FK.",
+    "Safe outcome/proposal/audit projections contain source hashes but not either raw answer or unique private marker; original question answers remain intact."
+  ],
+  "limits": [
+    "Local disposable PostgreSQL and synthetic human contexts; no live provider, hosted transport, model inference, production data, deployment, customer send or workflow activation.",
+    "Source linkage is optional for legacy outcomes. Generalization is author-supplied and not semantic proof, automatic redaction, universal learning or permission to reuse private material.",
+    "Native test uses canonical DB actions; admin/MCP plumbing and scoped outcome read are separate focused tests.",
+    "Earlier d9d0923125e7 passed the same flow with generic schema-error assertions; final8c45df37b3c6 strengthens those assertions to exact constraint names."
+  ],
+  "reviewRepairs": [
+    "Fixed SQL CHECK UNKNOWN acceptance by requiring non-null hash explicitly.",
+    "Changed provenance locks to direct tagged SQL and retained run-before-question lock order.",
+    "Normalized stored generalization object fields before replay comparison so PostgreSQL JSONB key ordering cannot cause false conflicts.",
+    "Refreshed only reviewed exact raw-SQL signatures for earlier scoped parent/ancestor locks and public token/venue route projection; no SQL policy bypass was added.",
+    "Enforced migration inventory230 and preserved exact229 worker-lifecycle predecessor with checksum/table gates;228 remains rejected."
+  ]
+}

@@ -19,6 +19,33 @@ Provenance is returned as `DECLARED_NOT_VERIFIED`: source references and labels 
 
 New skill/workflow evaluation evidence must reference `AgentWorkflowVersion:<uuid>`, its exact version and content hash, and currently available tools. Existing historical evidence stays readable. Promotion, canary assignment, revocation, and run-bound selective execution require their own reviewed lifecycle; this registry grants none of them.
 
+## Accepted corrections as improvement evidence
+
+The administrator `recordAgentRunOutcome` action accepts an optional `sourceQuestion` containing
+`questionId` and `expectedUpdatedAt`. It verifies an answered question belonging to the same
+tenant, venue, terminal run, and agent identity. A source snapshot retains the question ID,
+question version, answered timestamp, and SHA-256 of the exact UTF-8 answer. It does not copy
+the question, private answer, or answerer into the outcome. The existing human review supplies
+the quality verdict and summary; an answer alone is not interpreted as a correction or permission.
+
+An exact operation replay returns the original observation. Changing its source ID or version
+conflicts. The snapshot is historical evidence, not a claim that the answer remains the current
+source. The scoped `outcomes` MCP resource returns these source descriptors for candidate authors.
+
+When `prepareAgentImprovementProposal` or `torchiko.agent_improvements.propose` uses question-sourced
+evidence, the candidate must include a source-linked mixed or negative observation and a
+`generalization` object: an explicit `rationale`, `counterexampleObservationIds`, and `exclusions`.
+Counterexamples must be distinct from the source-linked corrections and selected from the same
+scoped evidence set. Existing tenant, venue, identity, and task-class checks still apply.
+The immutable candidate snapshot retains this rationale, counterexamples, exclusions, and safe
+source descriptors. Reordering counterexample IDs does not create a different operation.
+
+These checks establish provenance and require the author to state where a proposed rule applies
+and fails. They do not prove its semantic correctness, redact arbitrary text supplied by an
+author, or establish a universally valid rule from one customer's answer. The candidate remains
+pending human review and separate baseline/holdout validation; this path cannot activate a
+workflow, widen authority, publish a shared skill, or approve itself.
+
 ## Reviewed activation and delegation
 
 The activation lifecycle uses a separate exact approval request, human decision, and canonical apply operation. A registered version must satisfy its promotion assessment and canary policy before activation. Run bindings retain the selected version and selection evidence; rollback and revocation do not rewrite that history. The administrator review panel exposes these approval and apply steps.

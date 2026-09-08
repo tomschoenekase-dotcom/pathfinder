@@ -4254,6 +4254,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           hypothesis: input.hypothesis,
           proposedChange: input.proposedChange,
           validationPlan: input.validationPlan,
+          ...(input.generalization ? { generalization: input.generalization } : {}),
           actor: {
             type: 'AGENT',
             actorId: input.agentIdentityId,

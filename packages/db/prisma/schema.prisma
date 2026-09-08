@@ -5824,6 +5824,7 @@ model AgentQuestion {
   onboardingLink                   OnboardingQuestionLink?
   fileClarificationResolution      IntakeFileClarificationResolution?
   interviewClarificationResolution IntakeInterviewClarificationResolution?
+  outcomeObservations               AgentOutcomeObservation[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId], map: "agent_questions_id_tenant_venue_key")
@@ -5911,6 +5912,10 @@ model AgentOutcomeObservation {
   verdict                AgentOutcomeVerdict
   summary                String                             @db.VarChar(2000)
   evidenceRef            String?                            @map("evidence_ref") @db.VarChar(500)
+  sourceQuestionId       String?                            @map("source_question_id")
+  sourceQuestionUpdatedAt DateTime?                         @map("source_question_updated_at")
+  sourceAnsweredAt       DateTime?                          @map("source_answered_at")
+  sourceAnswerSha256     String?                            @map("source_answer_sha256") @db.Char(64)
   relatedAgentActionId   String?                            @map("related_agent_action_id")
   policyCode             String?                            @map("policy_code") @db.VarChar(191)
   severity               AgentOutcomeSeverity?
@@ -5928,6 +5933,7 @@ model AgentOutcomeObservation {
   agentRun               AgentRun                           @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   agentIdentity          AgentIdentity                      @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   relatedAgentAction     AgentAction?                       @relation(fields: [relatedAgentActionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  sourceQuestion         AgentQuestion?                     @relation(fields: [sourceQuestionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "agent_outcome_observations_source_question_scope_fkey")
   improvementEvidence    AgentImprovementProposalEvidence[]
   approvalGrantEvidence  ApprovalGrantEvidence[]
 

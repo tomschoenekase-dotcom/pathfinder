@@ -11,6 +11,7 @@ import {
   McpSupportDraftInput,
   McpSupportInternalNoteInput,
   McpDelegateSpecialistInput,
+  McpAgentImprovementProposalInput,
   McpSupportPackageDraftApplyInput,
   McpSupportPackageDraftProposalInput,
   McpSupportPackageApprovalApplyInput,
@@ -37,6 +38,46 @@ const credential: VerifiedMcpCredentialScope = {
 }
 
 describe('Torchiko MCP v0 contracts', () => {
+  it('retains bounded agent-improvement generalization in runtime and tool schemas', () => {
+    const generalization = {
+      rationale: 'A distinct counterexample bounds the proposed generalized rule.',
+      counterexampleObservationIds: ['outcome-2'],
+      exclusions: ['Exclude answers grounded in an already-current approved source.'],
+    }
+    expect(
+      McpAgentImprovementProposalInput.parse({
+        operationId: 'ba99cd03-9310-4aa2-84d7-4fe808b3f0df',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        targetAgentIdentityId: 'target-agent-1',
+        outcomeObservationIds: ['outcome-1', 'outcome-2'],
+        proposalKey: 'bounded-correction-rule',
+        revision: 1,
+        targetKind: 'INSTRUCTIONS',
+        title: 'Bound the correction rule',
+        hypothesis: 'Repeated corrections indicate a bounded instruction gap.',
+        proposedChange: 'Apply the rule only within the documented evidence boundary.',
+        validationPlan: 'Replay corrections and the retained counterexample before review.',
+        generalization,
+      }),
+    ).toMatchObject({ generalization })
+    const definition = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'torchiko.agent_improvements.propose',
+    )!
+    expect(definition.inputSchema).toMatchObject({
+      properties: {
+        generalization: {
+          additionalProperties: false,
+          description: expect.stringContaining('Required when selected outcome evidence'),
+          required: ['rationale', 'counterexampleObservationIds', 'exclusions'],
+        },
+      },
+    })
+  })
+
   it('declares an exact bounded read-only V1 package preview', () => {
     const definition = PATHFINDER_MCP_TOOLS.find(
       ({ name }) => name === 'pathfinder.preview_intake_v1_package_draft',

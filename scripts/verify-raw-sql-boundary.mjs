@@ -29,6 +29,7 @@ const approvedPolicies = new Set([
   'tenant-workflow-execution-lease',
   'tenant-workflow-authority-share-lock',
   'tenant-workflow-activation-revoke',
+  'tenant-agent-outcome-source-provenance-lock',
 
   'tenant-media-identity-request-lock',
   'tenant-media-identity-exact-receipt',
@@ -98,6 +99,20 @@ const approvedPolicies = new Set([
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  // Source-backed outcome observations share-lock the exact terminal run before
+  // its exact tenant/venue question so the immutable answer revision is coherent.
+  {
+    file: 'packages/db/src/helpers/agent-outcome-actions.ts',
+    method: '$queryRaw',
+    hash: '747a09e0973eb2382f014a79eefb5ea9dac86600ae1d130fa24d478d3407c40d',
+    policy: 'tenant-agent-outcome-source-provenance-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-outcome-actions.ts',
+    method: '$queryRaw',
+    hash: 'e5904b160d247d3933516ced688b94c7769b81ba123b08bfb816d8a83addc6ae',
+    policy: 'tenant-agent-outcome-source-provenance-lock',
+  },
   // Machine V1 finalization shares exact identity/worker/credential authority
   // locks and checks all retained expiry values against post-lock database time.
   {
@@ -233,6 +248,19 @@ const approvedOperations = [
   },
   // Exact tenant/operation replay is serialized before parent authority checks.
   // This grants no delegation authority; bound parents still require a live lease.
+  // Parent and ancestor row locks fence cancellation with exact tenant+venue+run IDs.
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$queryRaw',
+    hash: '96aa37a4aa208f76b23391db55eca095086b68f01a85e1a0253981a106deaa07',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-delegation-actions.ts',
+    method: '$queryRaw',
+    hash: 'd91c35addea1f6a15ccaa99669dd517a296e60f0d3d1e6265b8b7e6d2c2bc254',
+    policy: 'tenant-and-venue',
+  },
   {
     file: 'packages/db/src/helpers/agent-delegation-actions.ts',
     method: '$executeRaw',
@@ -1163,7 +1191,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/location-public-scope.ts',
     method: '$queryRaw',
-    hash: '0b6d3752a65471da430efad03bc0c607efbca8e5717da33575f662f71472d0b3',
+    hash: '6861d67dbba1a0831a9f7d62730e387416e47a06caa1c1a7acee11f145f029ad',
     policy: 'public-venue-session-token',
   },
   {
