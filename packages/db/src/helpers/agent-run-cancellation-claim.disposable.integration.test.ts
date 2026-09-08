@@ -53,6 +53,27 @@ describe.skipIf(!enabled)('agent run cancellation claim on disposable PostgreSQL
         id: 'fixture-owner',
         role: 'PLATFORM_ADMIN' as const,
       }
+      const delegatedParent = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: identityId,
+          runType: 'OPERATIONS',
+          requestedOperation: 'coordinate_immediate_cancellation',
+          scopeSnapshot: {},
+          status: 'RUNNING',
+          startedAt: new Date(),
+          executionLeaseToken: randomUUID(),
+          executionLeaseExpiresAt: new Date(Date.now() + 60_000),
+          attemptNumber: 1,
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          initiatedByType: 'HUMAN',
+          initiatedById: actor.id,
+          maxAttempts: 2,
+        },
+      })
       for (const status of ['QUEUED', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] as const) {
         const startedAt = status === 'QUEUED' ? null : new Date()
         const cancellable = await db.agentRun.create({
@@ -63,6 +84,7 @@ describe.skipIf(!enabled)('agent run cancellation claim on disposable PostgreSQL
             agentIdentityId: identityId,
             runType: 'OPERATIONS',
             requestedOperation: `immediate_cancel_${status.toLowerCase()}`,
+            parentAgentRunId: status === 'QUEUED' ? delegatedParent.id : null,
             scopeSnapshot: {},
             status,
             startedAt,
@@ -102,6 +124,40 @@ describe.skipIf(!enabled)('agent run cancellation claim on disposable PostgreSQL
             where: { tenantId, venueId, agentRunId: cancellable.id, eventType: 'CANCELLED' },
           }),
         ).toBe(1)
+        if (status === 'QUEUED') {
+          const parentResult = await db.agentMessage.findFirstOrThrow({
+            where: {
+              tenantId,
+              venueId,
+              agentRunId: delegatedParent.id,
+              messageType: 'RESULT',
+            },
+            select: { content: true, agentIdentityId: true },
+          })
+          expect(parentResult).toEqual({
+            content: `agent-run:${cancellable.id} cancelled. Untrusted delegated terminal result: Cancellation was finalized by a platform administrator.`,
+            agentIdentityId: identityId,
+          })
+          expect(
+            await db.agentTimelineEvent.count({
+              where: {
+                tenantId,
+                venueId,
+                agentRunId: delegatedParent.id,
+                eventType: 'DELEGATED_TASK_CANCELLED',
+              },
+            }),
+          ).toBe(1)
+          await expect(
+            db.agentRun.findFirstOrThrow({
+              where: { id: delegatedParent.id, tenantId, venueId },
+              select: { status: true, executionLeaseToken: true },
+            }),
+          ).resolves.toEqual({
+            status: 'RUNNING',
+            executionLeaseToken: delegatedParent.executionLeaseToken,
+          })
+        }
       }
 
       const legacyRequestedAt = new Date(Date.now() - 60_000)

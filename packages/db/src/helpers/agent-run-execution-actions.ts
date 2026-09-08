@@ -133,7 +133,7 @@ async function lockAndValidateTerminalLease(
   return run
 }
 
-async function validateDelegatedParent(
+export async function validateDelegatedParent(
   transaction: typeof db,
   input: { tenantId: string; venueId: string | null; parentAgentRunId: string | null },
 ) {
@@ -153,7 +153,7 @@ async function validateDelegatedParent(
     )
 }
 
-async function appendDelegatedTerminalResult(
+export async function appendDelegatedTerminalResult(
   transaction: typeof db,
   input: {
     tenantId: string

@@ -1,5 +1,9 @@
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import {
+  appendDelegatedTerminalResult,
+  validateDelegatedParent,
+} from './agent-run-execution-actions'
 
 export type AgentRunCancellationActor = {
   type: 'HUMAN'
@@ -75,7 +79,14 @@ export async function requestAgentRunCancellationAction(
     const transaction = rawTransaction as unknown as typeof db
     const run = await transaction.agentRun.findFirst({
       where: { id: input.agentRunId, tenantId: input.tenantId, venueId: input.venueId },
-      select: { id: true, status: true, cancelRequestedAt: true, startedAt: true },
+      select: {
+        id: true,
+        status: true,
+        cancelRequestedAt: true,
+        startedAt: true,
+        parentAgentRunId: true,
+        agentIdentityId: true,
+      },
     })
     if (!run) throw new AgentRunCancellationError('NOT_FOUND', 'Agent run not found.')
 
@@ -106,6 +117,12 @@ export async function requestAgentRunCancellationAction(
 
     const finalizedAt = new Date()
     const requestedAt = run.cancelRequestedAt ?? finalizedAt
+    if (cancelImmediately)
+      await validateDelegatedParent(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        parentAgentRunId: run.parentAgentRunId,
+      })
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.agentRunId,
@@ -150,6 +167,17 @@ export async function requestAgentRunCancellationAction(
         'Agent run cancellation state changed; refresh and try again.',
       )
     }
+
+    if (cancelImmediately)
+      await appendDelegatedTerminalResult(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        childAgentRunId: run.id,
+        parentAgentRunId: run.parentAgentRunId,
+        childAgentIdentityId: run.agentIdentityId,
+        outcome: 'CANCELLED',
+        summary: 'Cancellation was finalized by a platform administrator.',
+      })
 
     await transaction.agentTimelineEvent.create({
       data: {

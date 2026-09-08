@@ -21,9 +21,11 @@ function harness(
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const timelineCreate = vi.fn().mockResolvedValue({ id: 'timeline-1' })
   const auditCreate = vi.fn().mockResolvedValue({ id: 'audit-1' })
+  const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' })
   const tx = {
     agentRun: { findFirst, updateMany },
     agentTimelineEvent: { create: timelineCreate },
+    agentMessage: { create: messageCreate },
     auditLog: { create: auditCreate },
   }
   const transaction = vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx))
@@ -34,6 +36,7 @@ function harness(
     updateMany,
     timelineCreate,
     auditCreate,
+    messageCreate,
   }
 }
 
@@ -71,7 +74,14 @@ describe('requestAgentRunCancellationAction', () => {
 
       expect(h.findFirst).toHaveBeenCalledWith({
         where: { id: 'run-1', tenantId: 'tenant-1', venueId: 'venue-1' },
-        select: { id: true, status: true, cancelRequestedAt: true, startedAt: true },
+        select: {
+          id: true,
+          status: true,
+          cancelRequestedAt: true,
+          startedAt: true,
+          parentAgentRunId: true,
+          agentIdentityId: true,
+        },
       })
       expect(h.updateMany).toHaveBeenCalledWith({
         where: {
@@ -186,6 +196,69 @@ describe('requestAgentRunCancellationAction', () => {
       cancelRequestedAt: requestedAt,
       outcome: 'REQUESTED',
     })
+  })
+
+  it('appends one retained RESULT to the exact delegated parent on immediate cancellation', async () => {
+    const h = harness()
+    h.findFirst
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        status: 'QUEUED',
+        cancelRequestedAt: null,
+        startedAt: null,
+        parentAgentRunId: 'parent-1',
+        agentIdentityId: 'child-agent-1',
+      })
+      .mockResolvedValueOnce({ id: 'parent-1' })
+
+    await expect(
+      requestAgentRunCancellationAction(input, h.client as never),
+    ).resolves.toMatchObject({ status: 'CANCELLED' })
+
+    expect(h.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { id: 'parent-1', tenantId: 'tenant-1', venueId: 'venue-1' },
+      select: { id: true },
+    })
+    expect(h.messageCreate).toHaveBeenCalledWith({
+      data: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentRunId: 'parent-1',
+        agentIdentityId: 'child-agent-1',
+        role: 'AGENT',
+        messageType: 'RESULT',
+        content:
+          'agent-run:run-1 cancelled. Untrusted delegated terminal result: Cancellation was finalized by a platform administrator.',
+        actorId: 'child-agent-1',
+      },
+    })
+    expect(
+      h.timelineCreate.mock.calls.filter(([call]) => call.data.agentRunId === 'parent-1'),
+    ).toHaveLength(1)
+  })
+
+  it('fails a missing exact-scope delegated parent before child mutation', async () => {
+    const h = harness()
+    h.findFirst
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        status: 'AWAITING_APPROVAL',
+        cancelRequestedAt: null,
+        startedAt: new Date(),
+        parentAgentRunId: 'missing-parent',
+        agentIdentityId: 'child-agent-1',
+      })
+      .mockResolvedValueOnce(null)
+
+    await expect(requestAgentRunCancellationAction(input, h.client as never)).rejects.toMatchObject(
+      {
+        code: 'LEASE_LOST',
+      },
+    )
+    expect(h.updateMany).not.toHaveBeenCalled()
+    expect(h.timelineCreate).not.toHaveBeenCalled()
+    expect(h.messageCreate).not.toHaveBeenCalled()
+    expect(h.auditCreate).not.toHaveBeenCalled()
   })
 
   it('replays existing cancellation intent without duplicate evidence', async () => {
