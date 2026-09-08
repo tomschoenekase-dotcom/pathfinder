@@ -30,7 +30,18 @@ function createdTime(value: Date | string) {
   return new Date(value).toLocaleString()
 }
 
+function dueLabel(dueAt: Date | string, generatedAt: Date | string) {
+  const remainingMs = new Date(dueAt).getTime() - new Date(generatedAt).getTime()
+  if (remainingMs < 0) return 'Overdue'
+  if (remainingMs === 0) return 'Due now'
+  const remainingHours = Math.ceil(remainingMs / 3_600_000)
+  if (remainingHours < 24) return `Due in ${remainingHours}h`
+  return `Due in ${Math.ceil(remainingHours / 24)}d`
+}
+
 function prioritySort(left: Question, right: Question) {
+  const urgent = Number(right.urgency === 'URGENT') - Number(left.urgency === 'URGENT')
+  if (urgent !== 0) return urgent
   if (left.blocking !== right.blocking) return left.blocking ? -1 : 1
   const urgency = urgencyRank[right.urgency] - urgencyRank[left.urgency]
   if (urgency !== 0) return urgency
@@ -98,7 +109,7 @@ export function FounderQuestionTriageBoard({
   return (
     <div className="mt-4 space-y-4">
       <div className="rounded-xl border border-amber-200 bg-white/80 p-4">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(14rem,1.5fr)_repeat(4,minmax(8rem,1fr))]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(14rem,1.5fr)_repeat(4,minmax(8rem,1fr))]">
           <label className="grid gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
             Find a question
             <input
@@ -106,7 +117,7 @@ export function FounderQuestionTriageBoard({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Question, source, or workflow"
-              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950 outline-none focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-200"
+              className="min-h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950 outline-none focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-200"
             />
           </label>
           <label className="grid gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
@@ -114,7 +125,7 @@ export function FounderQuestionTriageBoard({
             <select
               value={dependency}
               onChange={(event) => setDependency(event.target.value as typeof dependency)}
-              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
+              className="min-h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
             >
               <option value="ALL">All dependencies</option>
               <option value="BLOCKING">Blocks workflow</option>
@@ -126,7 +137,7 @@ export function FounderQuestionTriageBoard({
             <select
               value={urgency}
               onChange={(event) => setUrgency(event.target.value as typeof urgency)}
-              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
+              className="min-h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
             >
               <option value="ALL">All urgency</option>
               <option value="URGENT">Urgent</option>
@@ -140,7 +151,7 @@ export function FounderQuestionTriageBoard({
             <select
               value={category}
               onChange={(event) => setCategory(event.target.value)}
-              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
+              className="min-h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
             >
               <option value="ALL">All sources</option>
               {categories.map((value) => (
@@ -155,9 +166,9 @@ export function FounderQuestionTriageBoard({
             <select
               value={sort}
               onChange={(event) => setSort(event.target.value as typeof sort)}
-              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
+              className="min-h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal normal-case tracking-normal text-slate-950"
             >
-              <option value="PRIORITY">Blocking, urgency, age</option>
+              <option value="PRIORITY">Urgent, then blocking, urgency, age</option>
               <option value="NEWEST">Newest first</option>
               <option value="OLDEST">Oldest first</option>
             </select>
@@ -207,6 +218,11 @@ export function FounderQuestionTriageBoard({
                       <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-900">
                         {question.urgency.toLowerCase()}
                       </span>
+                      {question.dueAt ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                          {dueLabel(question.dueAt, generatedAt)}
+                        </span>
+                      ) : null}
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
                         {label(question.category)}
                       </span>

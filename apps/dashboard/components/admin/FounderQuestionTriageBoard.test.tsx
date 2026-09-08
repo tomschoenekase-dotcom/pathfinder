@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import axe from 'axe-core'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -109,6 +109,100 @@ describe('FounderQuestionTriageBoard', () => {
     expect(screen.getByText('No loaded open questions match these filters.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(screen.getByText('Which building does this source describe?')).toBeTruthy()
+  })
+
+  it('places urgent local questions before every nonurgent blocker and keeps nonpriority sorts available', () => {
+    const generatedAt = new Date('2026-08-29T12:00:00.000Z')
+    const priorityQuestions = {
+      items: [
+        {
+          ...questions.items[0],
+          id: 'urgent-local',
+          question: 'Urgent local visitor safety clarification',
+          urgency: 'URGENT' as const,
+          dueAt: generatedAt,
+          createdAt: new Date('2026-08-29T08:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'normal-blocking-oldest',
+          question: 'Normal blocking source question',
+          urgency: 'NORMAL' as const,
+          dueAt: new Date('2026-08-29T11:59:59.999Z'),
+          createdAt: new Date('2026-08-29T07:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'low-blocking-newest',
+          question: 'Low blocking source question',
+          urgency: 'LOW' as const,
+          dueAt: new Date('2026-08-29T13:00:00.000Z'),
+          createdAt: new Date('2026-08-29T11:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'normal-blocking-newer',
+          question: 'Normal blocking newer source question',
+          urgency: 'NORMAL' as const,
+          dueAt: null,
+          createdAt: new Date('2026-08-29T10:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'low-blocking-oldest',
+          question: 'Low blocking oldest source question',
+          urgency: 'LOW' as const,
+          dueAt: null,
+          createdAt: new Date('2026-08-29T06:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'high-blocking-z',
+          question: 'High blocking source question Z',
+          urgency: 'HIGH' as const,
+          dueAt: null,
+          createdAt: new Date('2026-08-29T09:00:00.000Z'),
+        },
+        {
+          ...questions.items[1],
+          id: 'high-blocking-a',
+          question: 'High blocking source question A',
+          urgency: 'HIGH' as const,
+          dueAt: null,
+          createdAt: new Date('2026-08-29T09:00:00.000Z'),
+        },
+      ],
+      nextCursor: null,
+    }
+    const { container } = render(
+      <FounderQuestionTriageBoard
+        questions={priorityQuestions as never}
+        generatedAt={generatedAt}
+      />,
+    )
+
+    const summaries = Array.from(container.querySelectorAll('details > summary')).map(
+      (summary) => summary.textContent,
+    )
+    expect(summaries[0]).toContain('Urgent local visitor safety clarification')
+    expect(summaries[1]).toContain('High blocking source question A')
+    expect(summaries[2]).toContain('High blocking source question Z')
+    expect(summaries[3]).toContain('Normal blocking source question')
+    expect(summaries[4]).toContain('Normal blocking newer source question')
+    expect(summaries[5]).toContain('Low blocking oldest source question')
+    expect(summaries[6]).toContain('Low blocking source question')
+    expect(screen.getByText('Due now', { exact: true })).toBeTruthy()
+    expect(screen.getByText('Overdue', { exact: true })).toBeTruthy()
+    expect(screen.getByText('Due in 1h', { exact: true })).toBeTruthy()
+
+    fireEvent.change(within(container).getByLabelText('Order'), { target: { value: 'NEWEST' } })
+    expect(container.querySelector('details > summary')?.textContent).toContain(
+      'Low blocking source question',
+    )
+    fireEvent.change(within(container).getByLabelText('Order'), { target: { value: 'OLDEST' } })
+    expect(container.querySelector('details > summary')?.textContent).toContain(
+      'Low blocking oldest source question',
+    )
   })
 
   it('has no automated accessibility violations in its collapsed triage state', async () => {
