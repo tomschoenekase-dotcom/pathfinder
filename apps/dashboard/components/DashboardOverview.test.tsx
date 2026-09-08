@@ -67,6 +67,44 @@ describe('DashboardOverview client portal', () => {
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Open QR kit' }).getAttribute('href')).toBe(
+      '/venues/riverside/qr-kit',
+    )
+  })
+
+  it('offers QR materials when ready and withholds them while paused', () => {
+    const { rerender } = render(
+      <DashboardOverview
+        venue={{
+          id: 'venue / one',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({
+            publicContentCount: 1,
+            packageCounts: { draft: 0, approved: 0, applied: 1, reverted: 0 },
+          }),
+        }}
+        venues={[{ id: 'venue / one', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+    expect(screen.getByRole('link', { name: 'Open QR kit' }).getAttribute('href')).toBe(
+      '/venues/venue%20%2F%20one/qr-kit',
+    )
+
+    rerender(
+      <DashboardOverview
+        venue={{
+          id: 'venue / one',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({ wasLive: true }),
+        }}
+        venues={[{ id: 'venue / one', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+    expect(screen.queryByRole('link', { name: 'Open QR kit' })).toBeNull()
   })
 
   it('shows a privacy-bounded visitor pulse and routes changes into a service request', () => {
@@ -270,10 +308,30 @@ describe('DashboardOverview client portal', () => {
     expect(screen.getByRole('heading', { name: 'Owner-authorized preview' })).toBeTruthy()
     expect(screen.getByText('Your next step')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Contact Support' }).getAttribute('href')).toBe(
-      '/support',
+      '/support?venue=riverside',
     )
     expect(screen.queryByRole('link', { name: /Open PathFinder|Open preview/ })).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
+  })
+
+  it('keeps essential client actions bound to the selected venue', () => {
+    render(
+      <DashboardOverview
+        venue={{ id: 'venue / two', name: 'Uptown', lifecycle: lifecycle() }}
+        venues={[
+          { id: 'venue-one', name: 'Riverside' },
+          { id: 'venue / two', name: 'Uptown' },
+        ]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/uptown"
+      />,
+    )
+    expect(
+      screen.getByRole('link', { name: /Visitor experience.*Open/iu }).getAttribute('href'),
+    ).toBe('/ai-controls?venue=venue%20%2F%20two')
+    expect(screen.getByRole('link', { name: /Help & changes.*Open/iu }).getAttribute('href')).toBe(
+      '/support?venue=venue%20%2F%20two',
+    )
   })
 
   it('renders server-derived questions before preview and optional report actions', () => {

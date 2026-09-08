@@ -46,4 +46,21 @@ describe('VenueQrKit', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Print QR sheets' }))
     expect(print).toHaveBeenCalledOnce()
   })
+
+  it('uses client-safe launch language without exposing admin authority', () => {
+    render(
+      <VenueQrKit
+        audience="client"
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        generatedAt="2026-08-11T18:00:00.000Z"
+        guideItems={[]}
+      />,
+    )
+
+    expect(screen.getByText('Launch materials')).toBeTruthy()
+    expect(screen.getByText(/does not change whether the visitor guide is live/i)).toBeTruthy()
+    expect(screen.getByText(/scan each code before displaying it/i)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/internal|approve|publish|rate limit|incident/iu)
+  })
 })

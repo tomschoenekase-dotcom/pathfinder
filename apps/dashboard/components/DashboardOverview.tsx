@@ -9,6 +9,7 @@ import {
   Headphones,
   MessageCircleHeart,
   Megaphone,
+  QrCode,
   Sparkles,
 } from 'lucide-react'
 
@@ -109,7 +110,10 @@ export function DashboardOverviewView({
     lifecycle.clientAction === 'CONTINUE_INTAKE'
       ? { href: `/venues/${encodeURIComponent(venue.id)}/onboarding`, label: 'Continue setup' }
       : lifecycle.clientAction === 'CONTACT_SUPPORT'
-        ? { href: '/support', label: 'Contact Support' }
+        ? {
+            href: `/support?venue=${encodeURIComponent(venue.id)}`,
+            label: 'Contact Support',
+          }
         : null
   const fallbackTasks: ClientPortalTask[] = previewHref
     ? [
@@ -324,6 +328,37 @@ export function DashboardOverviewView({
           </section>
         ) : null}
 
+        {publicGuestLinkAvailable && chatUrl ? (
+          <section
+            className="mt-10 border-y border-pf-light py-6"
+            aria-labelledby="launch-materials-heading"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
+                  Visitor access
+                </p>
+                <h2
+                  id="launch-materials-heading"
+                  className="mt-2 text-xl font-semibold text-pf-deep"
+                >
+                  Print or share your QR code
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/70">
+                  Get printable codes for your visitor guide and public exhibits.
+                </p>
+              </div>
+              <Link
+                href={`/venues/${encodeURIComponent(venue.id)}/qr-kit`}
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 bg-pf-primary px-5 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+              >
+                <QrCode className="h-4 w-4" aria-hidden="true" />
+                Open QR kit
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
         {showLiveTools ? (
           <section className="mt-12" aria-labelledby="visitor-pulse-heading">
             <div className="grid gap-6 border-y border-pf-light py-7 md:grid-cols-[minmax(0,1.35fr)_minmax(17rem,0.65fr)] md:items-center">
@@ -405,13 +440,13 @@ export function DashboardOverviewView({
                   Icon: Megaphone,
                 },
                 {
-                  href: '/ai-controls',
+                  href: `/ai-controls?venue=${encodeURIComponent(venue.id)}`,
                   title: 'Visitor experience',
                   body: 'Choose the voice that feels right for your visitors.',
                   Icon: Sparkles,
                 },
                 {
-                  href: '/support',
+                  href: `/support?venue=${encodeURIComponent(venue.id)}`,
                   title: 'Help & changes',
                   body: 'Ask a question or request a change from the Torchiko team.',
                   Icon: Headphones,
