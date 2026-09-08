@@ -7,6 +7,7 @@ export type ConversationLearningPolicy = 'VISITOR_AND_EMPLOYEE' | 'EMPLOYEE_ONLY
 export type ConversationLearningCandidate = {
   id: string
   summary: string
+  evidenceMessageIds?: string[]
   sourceHref?: string | null
   reviewStatus: 'UNREVIEWED' | 'ACKNOWLEDGED' | 'ACTIONED' | 'DISMISSED' | string
   candidateRevision: number

@@ -1,7 +1,8 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { ConversationLearningProposalDraft } from './ConversationLearningProposalDraft'
 
 import { useTRPCClient } from '../../lib/trpc'
 import {
@@ -17,14 +18,17 @@ export function ConversationLearningWorkspace({
   policy,
   policyUpdatedAt,
   candidates,
+  activeProposalInsightIds = [],
 }: {
   tenantId: string
   venueId: string
   policy: ConversationLearningPolicy
   policyUpdatedAt: Date | string
   candidates: ConversationLearningCandidate[]
+  activeProposalInsightIds?: string[]
 }) {
   const client = useTRPCClient()
+  const draftOperation = useRef<{ key: string; operationId: string } | null>(null)
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,14 +78,62 @@ export function ConversationLearningWorkspace({
     }
   }
 
+  async function createDraft(
+    candidate: ConversationLearningCandidate,
+    draft: { proposedChange: string; reason: string },
+  ) {
+    if (candidate.reviewStatus !== 'ACKNOWLEDGED' || !candidate.evidenceMessageIds?.length)
+      throw new Error('Review the source candidate before preparing a proposal.')
+    const request = {
+      tenantId,
+      venueId,
+      conversationInsightId: candidate.id,
+      proposedChange: draft.proposedChange,
+      reason: draft.reason,
+      confidence: 0,
+      evidenceMessageIds: candidate.evidenceMessageIds,
+      submitForReview: false,
+    }
+    const key = JSON.stringify({ request, candidateRevision: candidate.candidateRevision })
+    if (draftOperation.current?.key !== key)
+      draftOperation.current = { key, operationId: crypto.randomUUID() }
+    setPendingId(candidate.id)
+    try {
+      await client.admin.createKnowledgeProposal.mutate({
+        ...request,
+        operationId: draftOperation.current.operationId,
+      })
+      router.refresh()
+    } finally {
+      setPendingId(null)
+    }
+  }
+
   return (
-    <ConversationLearningReview
-      policy={policy}
-      candidates={candidates}
-      pendingId={pendingId}
-      errorMessage={error}
-      onPolicyChange={changePolicy}
-      onReview={review}
-    />
+    <div className="space-y-4">
+      <ConversationLearningReview
+        policy={policy}
+        candidates={candidates}
+        pendingId={pendingId}
+        errorMessage={error}
+        onPolicyChange={changePolicy}
+        onReview={review}
+      />
+      {candidates
+        .filter(
+          (candidate) =>
+            candidate.reviewStatus === 'ACKNOWLEDGED' &&
+            candidate.evidenceMessageIds?.length &&
+            !activeProposalInsightIds.includes(candidate.id),
+        )
+        .map((candidate) => (
+          <ConversationLearningProposalDraft
+            key={`${tenantId}:${venueId}:${candidate.id}:${candidate.candidateRevision}`}
+            candidate={candidate}
+            disabled={pendingId !== null}
+            onCreate={(draft) => createDraft(candidate, draft)}
+          />
+        ))}
+    </div>
   )
 }

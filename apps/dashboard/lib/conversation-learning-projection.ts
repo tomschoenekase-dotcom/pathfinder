@@ -27,6 +27,7 @@ export function projectConversationLearningCandidate(
     id: string
     sessionId: string
     summary: string
+    evidenceMessageIds?: unknown
     reviewStatus: string
     candidateRevision: number
     reviewerFeedback: string | null
@@ -35,9 +36,18 @@ export function projectConversationLearningCandidate(
   scope: { tenantId: string; venueId: string },
 ): ConversationLearningCandidate {
   const source = readProvenance(row.candidateProvenance)
+  const evidence = row.evidenceMessageIds
+  if (
+    evidence !== undefined &&
+    (!Array.isArray(evidence) ||
+      evidence.length > 20 ||
+      evidence.some((id) => typeof id !== 'string' || !id || id.length > 191))
+  )
+    throw new Error('Candidate evidence invalid')
   return {
     id: row.id,
     summary: row.summary,
+    ...(Array.isArray(evidence) ? { evidenceMessageIds: evidence as string[] } : {}),
     reviewStatus: row.reviewStatus,
     candidateRevision: row.candidateRevision,
     reviewerFeedback: row.reviewerFeedback,

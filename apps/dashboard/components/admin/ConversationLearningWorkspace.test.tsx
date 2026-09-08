@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   updatePolicy: vi.fn(),
   reviewCandidate: vi.fn(),
+  createProposal: vi.fn(),
   refresh: vi.fn(),
 }))
 
@@ -15,6 +16,7 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       updateConversationLearningPolicy: { mutate: mocks.updatePolicy },
       reviewConversationLearningCandidate: { mutate: mocks.reviewCandidate },
+      createKnowledgeProposal: { mutate: mocks.createProposal },
     },
   }),
 }))
@@ -155,6 +157,69 @@ describe('ConversationLearningWorkspace', () => {
     expect(mocks.reviewCandidate.mock.calls[0]![0]).not.toHaveProperty('actor')
     expect(mocks.reviewCandidate.mock.calls[0]![0]).not.toHaveProperty('authenticatedActorRef')
     expect(mocks.refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates only an evidence-linked draft and reuses its operation on an ambiguous retry', async () => {
+    mocks.createProposal
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce({ status: 'DRAFT' })
+    render(
+      <ConversationLearningWorkspace
+        tenantId="tenant-1"
+        venueId="venue-1"
+        policy="VISITOR_AND_EMPLOYEE"
+        policyUpdatedAt="2026-09-08T17:30:00.000Z"
+        candidates={[
+          {
+            ...candidate,
+            reviewStatus: 'ACKNOWLEDGED',
+            evidenceMessageIds: ['exact-source-message'],
+            reviewerFeedback: 'Compare with the venue label.',
+          },
+        ]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Proposed canonical change'), {
+      target: { value: 'The exhibit is in the north gallery.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create proposal draft' }))
+    await screen.findByText(/Your entries are still here/)
+    fireEvent.click(screen.getByRole('button', { name: 'Create proposal draft' }))
+    await waitFor(() => expect(mocks.createProposal).toHaveBeenCalledTimes(2))
+    const request = mocks.createProposal.mock.calls[0]![0]
+    expect(mocks.createProposal.mock.calls[1]![0]).toEqual(request)
+    expect(request).toEqual({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: expect.any(String),
+      conversationInsightId: candidate.id,
+      proposedChange: 'The exhibit is in the north gallery.',
+      reason: 'Compare with the venue label.',
+      confidence: 0,
+      evidenceMessageIds: ['exact-source-message'],
+      submitForReview: false,
+    })
+    expect(request).not.toHaveProperty('observedVisitorClaim')
+    expect(request).not.toHaveProperty('authenticatedActorRef')
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
+  })
+
+  it('does not offer another draft for an active proposal or an unreviewed candidate', () => {
+    const view = renderWorkspace()
+    expect(screen.queryByText('Prepare proposal draft')).toBeNull()
+    view.rerender(
+      <ConversationLearningWorkspace
+        tenantId="tenant-1"
+        venueId="venue-1"
+        policy="VISITOR_AND_EMPLOYEE"
+        policyUpdatedAt="2026-09-08T17:30:00.000Z"
+        candidates={[
+          { ...candidate, reviewStatus: 'ACKNOWLEDGED', evidenceMessageIds: ['source'] },
+        ]}
+        activeProposalInsightIds={[candidate.id]}
+      />,
+    )
+    expect(screen.queryByText('Prepare proposal draft')).toBeNull()
   })
 
   it('propagates review failures so visible unsaved edits remain available for retry', async () => {

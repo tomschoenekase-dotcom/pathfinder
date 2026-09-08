@@ -49,6 +49,13 @@ export default async function KnowledgeProposalsPage({
             policy={learning.policy.policy}
             policyUpdatedAt={learning.policy.updatedAt}
             candidates={learning.candidates}
+            activeProposalInsightIds={proposals
+              .filter((proposal) =>
+                ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'PUBLISHED'].includes(proposal.status),
+              )
+              .flatMap((proposal) =>
+                proposal.conversationInsightId ? [proposal.conversationInsightId] : [],
+              )}
           />
         ) : (
           <p role="alert" className="border-t border-slate-200 pt-4 text-sm text-slate-700">

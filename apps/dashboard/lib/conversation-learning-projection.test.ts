@@ -47,6 +47,21 @@ describe('projectConversationLearningCandidate', () => {
     )
   })
 
+  it('retains bounded evidence IDs for a linked draft without expanding provenance', () => {
+    expect(
+      projectConversationLearningCandidate(
+        { ...row, evidenceMessageIds: ['message-1'] },
+        { tenantId: 't', venueId: 'v' },
+      ).evidenceMessageIds,
+    ).toEqual(['message-1'])
+    expect(() =>
+      projectConversationLearningCandidate(
+        { ...row, evidenceMessageIds: [{ rawText: 'private' }] },
+        { tenantId: 't', venueId: 'v' },
+      ),
+    ).toThrow('Candidate evidence invalid')
+  })
+
   it.each([
     ['an unverified-only boundary', { verification: 'VERIFIED' }],
     ['a bounded classifier kind', { classifier: { kind: 'INTERNAL_SECRET' } }],
