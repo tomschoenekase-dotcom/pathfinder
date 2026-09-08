@@ -30,7 +30,75 @@ import {
 const enabled =
   process.env.RUN_ONBOARDING_CONNECTED_DB_INTEGRATION === '1' &&
   /\/pathfinder_disposable_onboarding_[a-f0-9]{12}$/u.test(process.env.DATABASE_URL ?? '')
+const redisTransportEnabled = process.env.RUN_ONBOARDING_CONNECTED_REDIS_INTEGRATION === '1'
 const dashboardBaseURL = process.env.ONBOARDING_CONNECTED_BASE_URL ?? 'http://127.0.0.1:3002'
+
+function assertDisposableRedisTransportBoundary(): void {
+  if (!redisTransportEnabled) return
+  if (
+    process.env.PATHFINDER_DISPOSABLE_ONBOARDING_REDIS_CONFIRMATION !==
+    'pathfinder_disposable_onboarding_connected'
+  ) {
+    throw new Error('Connected Redis proof requires exact disposable confirmation')
+  }
+  const redisUrl = new URL(process.env.REDIS_URL ?? '')
+  if (
+    redisUrl.protocol !== 'redis:' ||
+    redisUrl.hostname !== '127.0.0.1' ||
+    !redisUrl.port ||
+    redisUrl.username ||
+    redisUrl.password ||
+    redisUrl.search ||
+    redisUrl.hash ||
+    (redisUrl.pathname !== '' && redisUrl.pathname !== '/')
+  ) {
+    throw new Error('Connected Redis proof requires credential-free loopback Redis')
+  }
+}
+
+assertDisposableRedisTransportBoundary()
+
+type ConnectedQueueJob = {
+  id?: string | number
+  name: string
+  data?: { dispatchId?: string }
+  getState(): Promise<string>
+}
+
+type ConnectedWorker = {
+  on(event: 'completed', listener: (job: ConnectedQueueJob, result: unknown) => void): unknown
+  off(event: 'completed', listener: (job: ConnectedQueueJob, result: unknown) => void): unknown
+}
+
+async function waitForWorkerResult(
+  worker: ConnectedWorker,
+  predicate: (job: ConnectedQueueJob) => boolean,
+  enqueue: () => Promise<unknown>,
+): Promise<{ id: string; result: unknown; state: string }> {
+  return new Promise((resolveResult, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      worker.off('completed', onCompleted)
+    }
+    const fail = (error: unknown) => {
+      cleanup()
+      reject(error)
+    }
+    const timeout = setTimeout(() => {
+      fail(new Error('Timed out waiting for connected intake V1 worker delivery'))
+    }, 45_000)
+    const onCompleted = (job: ConnectedQueueJob, result: unknown) => {
+      if (!predicate(job)) return
+      worker.off('completed', onCompleted)
+      void job.getState().then((state) => {
+        cleanup()
+        resolveResult({ id: String(job.id), result, state })
+      }, fail)
+    }
+    worker.on('completed', onCompleted)
+    void Promise.resolve().then(enqueue).catch(fail)
+  })
+}
 
 const tenantId = 'fixture-remote-onboarding-tenant'
 const venueId = 'fixture-great-lakes-museum'
@@ -828,18 +896,95 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
           memberId: revision.members[0]!.id,
         }
       })
-      // Invoke the registered handler against the same persisted dispatch. The exact retained
-      // fixture receipt is reused; this does not exercise hosted storage or a Redis delivery.
-      const { handleIntakeV1FileExtraction } =
-        await import('../../../workers/src/intake-v1-file-extraction-runtime')
-      const { INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB } = await import('@pathfinder/jobs')
-      const job = {
-        name: INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
-        id: 'connected-v1',
-        data: { dispatchId: saved.dispatchId },
+      let redisDeliveryEvidence: Record<string, unknown> | null = null
+      if (redisTransportEnabled) {
+        const { createIntakeV1FileExtractionResources } =
+          await import('../../../workers/src/intake-v1-file-extraction-runtime')
+        const {
+          closeBullMQConnection,
+          closeJobQueues,
+          INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+          INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB,
+        } = await import('@pathfinder/jobs')
+        const resources = await createIntakeV1FileExtractionResources()
+        try {
+          const first = await waitForWorkerResult(
+            resources.worker,
+            (job) =>
+              job.name === INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB &&
+              job.data?.dispatchId === saved.dispatchId,
+            () => resources.queue.add(INTAKE_V1_FILE_EXTRACTION_RECOVERY_JOB, {}),
+          )
+          // This fixture deliberately retains an existing extraction receipt. The actual
+          // claim transaction inherits it without leasing new extraction work, and the
+          // production queue removes the completed transport job.
+          expect(first).toMatchObject({ result: 'not-claimed', state: 'unknown' })
+          await expect(
+            withTenantIsolationBypass(() =>
+              db.intakeV1ProcessingDispatch.findFirstOrThrow({
+                where: { id: saved.dispatchId, tenantId, venueId },
+              }),
+            ),
+          ).resolves.toMatchObject({
+            status: 'COMPLETED',
+            fileExtractionReceiptId: state.receiptId,
+            attempts: 0,
+          })
+
+          const replay = await waitForWorkerResult(
+            resources.worker,
+            (job) =>
+              job.name === INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB &&
+              job.data?.dispatchId === saved.dispatchId &&
+              String(job.id) !== first.id,
+            () =>
+              resources.queue.add(
+                INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+                { dispatchId: saved.dispatchId },
+                { jobId: `connected-v1-replay-${randomUUID()}` },
+              ),
+          )
+          expect(replay).toMatchObject({ result: 'not-claimed', state: 'completed' })
+          redisDeliveryEvidence = {
+            queueName: resources.worker.name,
+            dispatchId: saved.dispatchId,
+            deliveredJobId: first.id,
+            deliveredResult: first.result,
+            deliveredEvent: 'completed',
+            deliveredJobStateAfterRemoval: first.state,
+            extractionMode: 'inherited-existing-receipt',
+            replayJobId: replay.id,
+            replayResult: replay.result,
+          }
+        } finally {
+          try {
+            await resources.close()
+          } finally {
+            try {
+              await closeJobQueues()
+            } finally {
+              await closeBullMQConnection()
+            }
+          }
+        }
+      } else {
+        // Historical connected mode retains the direct handler seam. The guarded Redis mode
+        // above is the transport proof and never silently falls back to this branch.
+        const { handleIntakeV1FileExtraction } =
+          await import('../../../workers/src/intake-v1-file-extraction-runtime')
+        const { INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB } = await import('@pathfinder/jobs')
+        const job = {
+          name: INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+          id: 'connected-v1',
+          data: { dispatchId: saved.dispatchId },
+        }
+        await handleIntakeV1FileExtraction(
+          job as Parameters<typeof handleIntakeV1FileExtraction>[0],
+        )
+        await handleIntakeV1FileExtraction(
+          job as Parameters<typeof handleIntakeV1FileExtraction>[0],
+        )
       }
-      await handleIntakeV1FileExtraction(job as Parameters<typeof handleIntakeV1FileExtraction>[0])
-      await handleIntakeV1FileExtraction(job as Parameters<typeof handleIntakeV1FileExtraction>[0])
       await expect(
         withTenantIsolationBypass(() =>
           db.intakeV1ProcessingDispatch.findFirstOrThrow({
@@ -969,7 +1114,7 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       await expectNoHorizontalOverflow(page)
       await captureEvidence(page, testInfo, 'file-v1-receipt-390')
       await testInfo.attach('saved-file-v1-identity', {
-        body: JSON.stringify(saved),
+        body: JSON.stringify({ ...saved, redisDeliveryEvidence }),
         contentType: 'application/json',
       })
     } finally {
