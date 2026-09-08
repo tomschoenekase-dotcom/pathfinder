@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "34601aa67b23edaaf4be2b38457cb5dbeacba2c1",
+  "requirements": ["V2-P12-06"],
+  "proved": [
+    "Topic classification and weekly themes resolve exact tenant/venue effective workloads through registered CLASSIFICATION and BACKGROUND_ANALYSIS routes.",
+    "Configured model/output/timeout successful dispatch and changed-config zero-dispatch paths are exercised through the injected-provider gateway.",
+    "Existing graceful per-stage skip, privacy redaction, taxonomy and tenant accounting remain."
+  ],
+  "checks": {
+    "focusedTestsPassed": 20,
+    "freshNonIncrementalWorkerTypes": "passed direct exit0",
+    "scopedLint": "passed with repository config"
+  },
+  "artifacts": [
+    "artifacts/analytics-routing-root-20260908.log",
+    "artifacts/analytics-routing-types-root-20260908.log",
+    "artifacts/analytics-routing-lint-root-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/processors/analytics-enrichment.ts",
+      "sha256": "47ee38b054c2c8d4ac38170b7b8730c3c309fcfe677a990c10b3a817c0ca9420"
+    },
+    {
+      "path": "apps/workers/src/processors/analytics-enrichment.test.ts",
+      "sha256": "cd4ea7493f4c8467e018db7c00c4b515ce67ca87d71b536c26c413471e31eb0b"
+    }
+  ],
+  "limits": [
+    "Database persistence/usage sinks are mocked; no native analytics worker completion or provider/account availability claim.",
+    "No live workload configuration, spend, customer send or deployment.",
+    "Snapshot checks at existing admission do not create an atomic transaction over provider I/O."
+  ]
+}
