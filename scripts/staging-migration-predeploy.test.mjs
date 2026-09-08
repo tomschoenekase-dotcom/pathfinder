@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
@@ -12,9 +13,37 @@ import {
   assertFrozenManifest,
   ledgerState,
   remainingMigrationNames as currentRemainingMigrationNames,
-  readMigrationManifest,
+  readMigrationManifest as readCurrentMigrationManifest,
   expectedPublicTableCount,
 } from './run-staging-migration-predeploy.mjs'
+
+// The staging admission remains frozen at its separately reviewed 236-file
+// manifest. Historical lineage tests use that exact prefix; the full local
+// candidate must continue to fail admission until a new review is authorized.
+async function readMigrationManifest(directory) {
+  const current = await readCurrentMigrationManifest(directory)
+  const names = current.names.slice(0, EXPECTED.migrationCount)
+  const manifest = {
+    ...current,
+    names,
+    hash: createHash('sha256')
+      .update(`${names.map((name) => `${name} ${current.checksums.get(name)}`).join('\n')}\n`)
+      .digest('hex'),
+  }
+  assertFrozenManifest(manifest)
+  return manifest
+}
+
+test('the new local learning migration is not silently admitted by the frozen staging approval', async () => {
+  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  assert.deepEqual(current.names.slice(EXPECTED.migrationCount), [
+    '20260908170000_add_conversation_learning_review',
+  ])
+  assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
+  const reviewed = await readMigrationManifest('packages/db/prisma')
+  assert.equal(reviewed.names.length, 236)
+  assert.equal(EXPECTED.approval, 'torchiko-staging-lineage-to-236-20260908')
+})
 
 // Preserve the long historical suffix assertions below while the focused
 // 234-to-236 assertions prove the newly admitted final migrations explicitly.
