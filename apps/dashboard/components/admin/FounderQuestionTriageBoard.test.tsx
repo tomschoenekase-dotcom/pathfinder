@@ -11,6 +11,21 @@ vi.mock('./AgentQuestionEvidence', () => ({
     <span>Evidence {JSON.stringify(proposedAnswer)}</span>
   ),
 }))
+vi.mock('./AgentQuestionDiscussion', () => ({
+  AgentQuestionDiscussion: ({
+    tenantId,
+    venueId,
+    questionId,
+  }: {
+    tenantId: string
+    venueId: string
+    questionId: string
+  }) => (
+    <span>
+      Discussion {tenantId}/{venueId}/{questionId}
+    </span>
+  ),
+}))
 vi.mock('./AgentQuestionAnswerForm', () => ({
   AgentQuestionAnswerForm: ({
     questionId,

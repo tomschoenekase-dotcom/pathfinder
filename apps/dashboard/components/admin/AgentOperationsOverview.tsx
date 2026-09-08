@@ -1,14 +1,17 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import type { inferRouterOutputs } from '@trpc/server'
 import {
   AGENT_DIRECT_EXECUTION_ROUTE,
   AgentIdentityConfigurationFields,
 } from '@pathfinder/contracts'
+import type { AppRouter } from '@pathfinder/api'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionDiscussion } from './AgentQuestionDiscussion'
 import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 import { AgentTaskComposer } from './AgentTaskComposer'
 import { AgentBridgeSessionControl } from './AgentBridgeSessionControl'
@@ -78,29 +81,19 @@ type Approval = {
   } | null
 }
 
-type Question = {
-  id: string
-  agentRunId: string | null
-  question: string
-  context: string | null
-  choices: string[]
-  questionType:
-    | 'YES_NO'
-    | 'MULTIPLE_CHOICE'
-    | 'MULTI_SELECT'
-    | 'SHORT_TEXT'
-    | 'LONG_TEXT'
-    | 'APPROVAL_REJECT'
-    | 'DATE_TIME'
-    | 'STRUCTURED_OBJECT'
-  evidence: unknown
-  proposedAnswer: unknown
-  blocking: boolean
-  status: string
-  createdAt: Date
-  updatedAt: Date
-  agentIdentity: { id: string; name: string }
-}
+type QuestionPage = inferRouterOutputs<AppRouter>['admin']['listAgentQuestions']
+type Question = QuestionPage['items'][number]
+
+export const agentQuestionStatusFilters = [
+  'PENDING',
+  'ANSWERED',
+  'DISMISSED',
+  'EXPIRED',
+  'CANCELLED',
+  'ALL',
+] as const
+
+export type AgentQuestionStatusFilter = (typeof agentQuestionStatusFilters)[number]
 
 type ApprovalPolicy = {
   id: string
@@ -144,6 +137,7 @@ type Props = {
   runs: { items: Run[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
   questions: { items: Question[]; nextCursor: Cursor }
+  questionStatus?: AgentQuestionStatusFilter
   approvalPolicies?: { items: ApprovalPolicy[]; nextCursor: Cursor }
   outcomeObservations?: OutcomeObservation[]
   questionRecipients?: Array<{
@@ -191,6 +185,36 @@ function cursorHref(base: string, prefix: string, cursor: Exclude<Cursor, null>)
   return `${base}?${prefix}CreatedAt=${encodeURIComponent(cursor.createdAt)}&${prefix}Id=${encodeURIComponent(cursor.id)}`
 }
 
+function questionHref(
+  base: string,
+  status: AgentQuestionStatusFilter,
+  cursor?: Exclude<Cursor, null>,
+) {
+  const params = new URLSearchParams({ questionStatus: status })
+  if (cursor) {
+    params.set('questionCursorCreatedAt', cursor.createdAt)
+    params.set('questionCursorId', cursor.id)
+  }
+  return `${base}?${params.toString()}#inbox`
+}
+
+function questionStatusLabel(status: AgentQuestionStatusFilter) {
+  if (status === 'ALL') return 'All questions'
+  return status.charAt(0) + status.slice(1).toLowerCase()
+}
+
+function questionBadgeTone(status: Question['status']): 'slate' | 'green' | 'amber' {
+  if (status === 'ANSWERED') return 'green'
+  if (status === 'PENDING' || status === 'EXPIRED') return 'amber'
+  return 'slate'
+}
+
+function emptyQuestionMessage(status: AgentQuestionStatusFilter) {
+  if (status === 'PENDING') return 'No pending questions are shown in this view.'
+  if (status === 'ALL') return 'No questions are shown in this view.'
+  return `No ${questionStatusLabel(status).toLowerCase()} questions are shown in this view.`
+}
+
 function Badge({
   children,
   tone = 'slate',
@@ -218,6 +242,7 @@ export function AgentOperationsOverview({
   runs,
   approvals,
   questions,
+  questionStatus = 'PENDING',
   approvalPolicies = { items: [], nextCursor: null },
   outcomeObservations = [],
   questionRecipients = [],
@@ -287,18 +312,40 @@ export function AgentOperationsOverview({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h3 id="agent-questions-heading" className="text-xl font-semibold text-pf-deep">
-              Needs your input
+              {questionStatus === 'PENDING' ? 'Needs your input' : 'Question history'}
             </h3>
-            <p className="mt-1 text-sm text-pf-deep/60">
-              Questions that agents raised through Torchiko MCP.
+            <p className="mt-1 text-sm text-pf-deep/80">
+              {questionStatus === 'PENDING'
+                ? 'Questions that agents raised through Torchiko MCP.'
+                : 'Saved questions, responses, and operator discussion notes.'}
             </p>
           </div>
-          <Badge tone={questions.items.length ? 'amber' : 'green'}>
-            {questions.items.length ? `${questions.items.length} waiting` : 'Inbox clear'}
+          <Badge tone={questions.items.length && questionStatus === 'PENDING' ? 'amber' : 'slate'}>
+            {questionStatus === 'PENDING'
+              ? questions.items.length
+                ? `${questions.items.length} waiting`
+                : 'No questions shown'
+              : `${questions.items.length} shown`}
           </Badge>
         </div>
+        <nav className="flex flex-wrap gap-2" aria-label="Question status">
+          {agentQuestionStatusFilters.map((status) => (
+            <Link
+              key={status}
+              href={questionHref(base, status)}
+              aria-current={status === questionStatus ? 'page' : undefined}
+              className={`rounded-full border px-3 py-1.5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
+                status === questionStatus
+                  ? 'border-pf-primary bg-pf-primary text-white'
+                  : 'border-pf-light bg-white text-pf-primary hover:border-pf-primary'
+              }`}
+            >
+              {questionStatusLabel(status)}
+            </Link>
+          ))}
+        </nav>
         {questions.items.length === 0 ? (
-          <Empty text="No agents are waiting for your input." />
+          <Empty text={emptyQuestionMessage(questionStatus)} />
         ) : (
           <div className="grid gap-4 xl:grid-cols-2">
             {questions.items.map((question) => (
@@ -308,12 +355,19 @@ export function AgentOperationsOverview({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={question.blocking ? 'amber' : 'slate'}>
-                    {question.blocking ? 'Run blocked' : 'Non-blocking'}
+                    {question.blocking
+                      ? question.status === 'PENDING'
+                        ? 'Run blocked'
+                        : 'Blocking question'
+                      : 'Non-blocking'}
+                  </Badge>
+                  <Badge tone={questionBadgeTone(question.status)}>
+                    {question.status.toLowerCase()}
                   </Badge>
                   <span className="text-xs font-semibold text-sky-950">
                     {question.agentIdentity.name}
                   </span>
-                  <span className="text-xs text-pf-deep/50">
+                  <span className="text-xs text-pf-deep/80">
                     {question.createdAt.toLocaleString()}
                   </span>
                 </div>
@@ -327,20 +381,48 @@ export function AgentOperationsOverview({
                   evidence={question.evidence}
                   proposedAnswer={question.proposedAnswer}
                 />
-                <AgentQuestionAnswerForm
+                {['ANSWERED', 'DISMISSED'].includes(question.status) && question.answer ? (
+                  <div className="mt-4 border-l-2 border-slate-300 pl-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-pf-deep/70">
+                      Recorded response
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-pf-deep/80">
+                      {question.answer}
+                    </p>
+                    {question.answeredAt ? (
+                      <p className="mt-2 text-xs text-pf-deep/70">
+                        Responded {question.answeredAt.toLocaleString()}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {question.status === 'PENDING' ? (
+                  <AgentQuestionAnswerForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    questionId={question.id}
+                    expectedUpdatedAt={question.updatedAt}
+                    questionType={question.questionType}
+                    choices={question.choices}
+                    recipients={questionRecipients}
+                    canRouteToClient={question.blocking && Boolean(question.agentRunId)}
+                  />
+                ) : null}
+                <AgentQuestionDiscussion
                   tenantId={tenantId}
                   venueId={venueId}
                   questionId={question.id}
-                  expectedUpdatedAt={question.updatedAt}
-                  questionType={question.questionType}
-                  choices={question.choices}
-                  recipients={questionRecipients}
-                  canRouteToClient={question.blocking && Boolean(question.agentRunId)}
                 />
               </article>
             ))}
           </div>
         )}
+        {questions.nextCursor ? (
+          <Older
+            href={questionHref(base, questionStatus, questions.nextCursor)}
+            label="Older questions"
+          />
+        ) : null}
       </section>
 
       <AgentWorkflowActivationLedger

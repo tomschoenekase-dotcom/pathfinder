@@ -6,6 +6,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { AgentQuestionDiscussion } from './AgentQuestionDiscussion'
 import { AgentQuestionEvidence } from './AgentQuestionEvidence'
 
 type Attention = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
@@ -282,6 +283,11 @@ export function FounderQuestionTriageBoard({
                   choices={question.choices}
                   recipients={[]}
                   canRouteToClient={false}
+                />
+                <AgentQuestionDiscussion
+                  tenantId={question.tenantId}
+                  venueId={question.venueId}
+                  questionId={question.id}
                 />
                 <Link
                   className="mt-3 inline-flex min-h-10 items-center text-sm font-semibold text-sky-700 underline decoration-sky-200 underline-offset-4"

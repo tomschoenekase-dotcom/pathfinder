@@ -48,6 +48,7 @@ const APPEND_ONLY_MODELS = [
   'AgentAction',
   'AgentTimelineEvent',
   'AgentMessage',
+  'AgentQuestionDiscussionMessage',
   'ApprovalRequest',
   'ApprovalDecision',
   'SupportMessage',

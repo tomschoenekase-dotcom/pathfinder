@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-231-20260908',
+  approval: 'torchiko-staging-lineage-to-232-20260908',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 231,
+  migrationCount: 232,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -91,6 +91,9 @@ const EXPECTED = Object.freeze({
   workerLifecyclePredecessorCount: 229,
   workerLifecyclePredecessorPublicTableCount: 254,
   workerLifecyclePredecessorFinalMigration: '20260908031000_release_answered_agent_execution_owner',
+  websiteDiscoveryPredecessorCount: 231,
+  websiteDiscoveryPredecessorPublicTableCount: 254,
+  websiteDiscoveryPredecessorFinalMigration: '20260908080000_add_website_source_discovery',
   questionProvenancePredecessorCount: 230,
   questionProvenancePredecessorPublicTableCount: 254,
   questionProvenancePredecessorFinalMigration:
@@ -120,10 +123,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260908080000_add_website_source_discovery',
-  manifestHash: '7a8e9ef5c88fea0e1812db9a86e7e0d60b912e952adcd788a936aa4a2439e1de',
-  // Exact 231 candidate boundary; retained relational proof is recorded separately.
-  finalPublicTableCount: 254,
+  finalMigration: '20260908120000_add_agent_question_discussion',
+  manifestHash: '6efdf9554ce6b21ccff2aacecaea07581b80dfb312ca262a3a7ea92a86f5c27e',
+  // Exact 232 candidate boundary; retained relational proof is recorded separately.
+  finalPublicTableCount: 255,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -376,6 +379,11 @@ export function assertFrozenManifest(manifest) {
     EXPECTED.questionProvenancePredecessorFinalMigration
   )
     fail('question provenance predecessor migration changed')
+  if (
+    manifest.names[EXPECTED.websiteDiscoveryPredecessorCount - 1] !==
+    EXPECTED.websiteDiscoveryPredecessorFinalMigration
+  )
+    fail('website discovery predecessor migration changed')
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -412,6 +420,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.intakeSubmissionPredecessorCount &&
     rows.length !== EXPECTED.sourceMappingPredecessorCount &&
     rows.length !== EXPECTED.workerLifecyclePredecessorCount &&
+    rows.length !== EXPECTED.websiteDiscoveryPredecessorCount &&
     rows.length !== EXPECTED.questionProvenancePredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
@@ -484,6 +493,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.sourceMappingPredecessorCount) return 'source-mapping-predecessor'
   if (rows.length === EXPECTED.workerLifecyclePredecessorCount)
     return 'worker-lifecycle-predecessor'
+  if (rows.length === EXPECTED.websiteDiscoveryPredecessorCount)
+    return 'website-discovery-predecessor'
   if (rows.length === EXPECTED.questionProvenancePredecessorCount)
     return 'question-provenance-predecessor'
   return 'complete'
@@ -678,6 +689,7 @@ export function expectedPublicTableCount(state) {
     'intake-submission-predecessor': EXPECTED.intakeSubmissionPredecessorPublicTableCount,
     'source-mapping-predecessor': EXPECTED.sourceMappingPredecessorPublicTableCount,
     'worker-lifecycle-predecessor': EXPECTED.workerLifecyclePredecessorPublicTableCount,
+    'website-discovery-predecessor': EXPECTED.websiteDiscoveryPredecessorPublicTableCount,
     'question-provenance-predecessor': EXPECTED.questionProvenancePredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }

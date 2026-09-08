@@ -7,9 +7,11 @@ import { logger } from '@pathfinder/config/logger'
 
 import {
   AgentQuestionActionError,
+  AgentQuestionDiscussionActionError,
   FounderDecisionPacketActionError,
   applyFounderDecisionPacketAction,
   answerAgentQuestionAction,
+  appendAgentQuestionDiscussionAction,
   createCompanyKnowledgeCandidateAction,
   db,
   promoteCompanyKnowledgeAction,
@@ -23,6 +25,84 @@ import { createdBefore, pageInput, pageResult, tenantScopeInput } from './agent-
 import { adminAgentQuestionClientRoutingRouter } from './agent-question-client-routing'
 
 const adminAgentQuestionCoreRouter = router({
+  listAgentQuestionDiscussion: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string().min(1),
+        venueId: z.string().min(1),
+        questionId: z.string().min(1),
+        cursor: pageInput.shape.cursor,
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const question = await db.agentQuestion.findFirst({
+          where: { id: input.questionId, tenantId: input.tenantId, venueId: input.venueId },
+          select: { id: true },
+        })
+        if (!question)
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Agent question not found' })
+        const rows = await db.agentQuestionDiscussionMessage.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            questionId: input.questionId,
+            ...createdBefore(input.cursor),
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: input.limit + 1,
+          select: { id: true, authorId: true, body: true, createdAt: true },
+        })
+        return pageResult(rows, input.limit)
+      }),
+    ),
+
+  appendAgentQuestionDiscussion: adminProcedure
+    .input(
+      z.object({
+        operationId: z.string().uuid(),
+        tenantId: z.string().min(1),
+        venueId: z.string().min(1),
+        questionId: z.string().min(1),
+        body: z.string().trim().min(1).max(5000),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          const result = await appendAgentQuestionDiscussionAction(
+            {
+              ...input,
+              actor: {
+                actorType: 'HUMAN',
+                actorId: ctx.session.userId,
+                auditRole: 'PLATFORM_ADMIN',
+              },
+            },
+            db,
+          )
+          return {
+            message: {
+              id: result.message.id,
+              authorId: result.message.authorId,
+              body: result.message.body,
+              createdAt: result.message.createdAt,
+            },
+            replayed: result.replayed,
+          }
+        } catch (error) {
+          if (error instanceof AgentQuestionDiscussionActionError) {
+            throw new TRPCError({
+              code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+              message: error.message,
+            })
+          }
+          throw error
+        }
+      }),
+    ),
+
   listAgentQuestions: adminProcedure
     .input(
       tenantScopeInput.merge(pageInput).extend({

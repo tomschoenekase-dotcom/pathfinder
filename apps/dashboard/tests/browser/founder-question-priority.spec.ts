@@ -16,7 +16,7 @@ test('puts urgent founder questions first and keeps due labels readable at each 
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/dev-fixtures/founder-question-priority')
     await expect(page.getByRole('heading', { name: 'Priority questions' })).toBeVisible()
-    const summaries = page.locator('details > summary')
+    const summaries = page.locator('details.group > summary')
     await expect(summaries).toHaveCount(4)
     await expect(summaries.first()).toContainText('Urgent: confirm whether the east arrival route')
     await expect(page.getByText('Due now', { exact: true })).toBeVisible()

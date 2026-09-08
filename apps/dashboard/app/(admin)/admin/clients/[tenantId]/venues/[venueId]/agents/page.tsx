@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic'
 
-import { AgentOperationsOverview } from '../../../../../../../../components/admin/AgentOperationsOverview'
+import {
+  AgentOperationsOverview,
+  agentQuestionStatusFilters,
+  type AgentQuestionStatusFilter,
+} from '../../../../../../../../components/admin/AgentOperationsOverview'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 import { env } from '@pathfinder/config'
 
@@ -14,9 +18,15 @@ function cursor(query: Record<string, string | undefined>, prefix: string) {
   return createdAt && id ? { createdAt, id } : undefined
 }
 
+function questionStatus(query: Record<string, string | undefined>): AgentQuestionStatusFilter {
+  const candidate = query.questionStatus
+  return agentQuestionStatusFilters.find((status) => status === candidate) ?? 'PENDING'
+}
+
 export default async function AgentOperationsPage({ params, searchParams }: Props) {
   const { tenantId, venueId } = await params
   const query = await searchParams
+  const selectedQuestionStatus = questionStatus(query)
   const caller = await createAdminCaller()
   try {
     const [
@@ -53,7 +63,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
       caller.admin.listAgentQuestions({
         tenantId,
         venueId,
-        status: 'PENDING',
+        status: selectedQuestionStatus,
         limit: 20,
         ...(cursor(query, 'questionCursor') ? { cursor: cursor(query, 'questionCursor') } : {}),
       }),
@@ -72,6 +82,7 @@ export default async function AgentOperationsPage({ params, searchParams }: Prop
         runs={runs}
         approvals={approvals}
         questions={questions}
+        questionStatus={selectedQuestionStatus}
         approvalPolicies={approvalPolicies}
         outcomeObservations={outcomeObservations.items}
         questionRecipients={questionRecipients}

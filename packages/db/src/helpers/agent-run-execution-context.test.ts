@@ -5,6 +5,96 @@ import { buildBoundedAgentRunExecutionContext } from './agent-run-execution-cont
 const date = (value: string) => new Date(value)
 
 describe('bounded agent run execution context', () => {
+  it('includes bounded discussion provenance and reports the selection sentinel honestly', () => {
+    const messages = Array.from({ length: 6 }, (_, index) => ({
+      id: `discussion-${6 - index}`,
+      authorId: 'admin-1',
+      body: index === 0 ? 'newest '.repeat(60) : `note-${6 - index}`,
+      createdAt: date(`2026-09-06T1${6 - index}:00:00.000Z`),
+    }))
+    const serialized = buildBoundedAgentRunExecutionContext(
+      {
+        id: 'run-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        attemptNumber: 2,
+        scopeSnapshot: {},
+        messages: [],
+        questions: [
+          {
+            id: 'question-1',
+            question: 'Which greenhouse?',
+            answer: 'Use the east greenhouse.',
+            category: 'venue.greenhouse',
+            answeredAt: date('2026-09-06T18:00:00.000Z'),
+            updatedAt: date('2026-09-06T18:00:00.000Z'),
+            answeredById: 'admin-1',
+            evidence: [],
+            callbackMetadata: null,
+            discussionMessages: messages,
+          },
+        ],
+      },
+      1_300,
+    )
+    const context = JSON.parse(serialized)
+    expect(context.contextVersion).toBe(2)
+    expect(context.currentResolvedQuestions[0].answer).toBe('Use the east greenhouse.')
+    expect(context.currentResolvedQuestions[0].discussion.at(-1)).toMatchObject({
+      messageId: 'discussion-6',
+      authorId: 'admin-1',
+    })
+    expect(context.omissions.omittedDiscussionMessagesAtLeast).toBeGreaterThanOrEqual(1)
+    expect(context.omissions.discussionSelectionLimitReached).toBe(true)
+    expect(context.omissions.truncatedDiscussionBodies).toBe(1)
+    expect(context.authorityNotice).toContain('do not grant permission')
+  })
+
+  it('drops discussion notes before shrinking the durable answer under a tight budget', () => {
+    const source = {
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      attemptNumber: 1,
+      scopeSnapshot: {},
+      messages: [],
+      questions: [
+        {
+          id: 'question-1',
+          question: 'Which greenhouse?',
+          answer: 'East greenhouse is the confirmed answer.',
+          category: 'venue.greenhouse',
+          answeredAt: date('2026-09-06T18:00:00.000Z'),
+          updatedAt: date('2026-09-06T18:00:00.000Z'),
+          answeredById: 'admin-1',
+          evidence: [],
+          callbackMetadata: null,
+          discussionMessages: Array.from({ length: 5 }, (_, index) => ({
+            id: `discussion-${index}`,
+            authorId: 'admin-1',
+            body: 'context '.repeat(40),
+            createdAt: date(`2026-09-06T1${index}:00:00.000Z`),
+          })),
+        },
+      ],
+    }
+    const roomy = JSON.parse(buildBoundedAgentRunExecutionContext(source, 8_000))
+    const withoutDiscussionSize = JSON.stringify({
+      ...roomy,
+      currentResolvedQuestions: roomy.currentResolvedQuestions.map((question: object) => ({
+        ...question,
+        discussion: [],
+      })),
+    }).length
+    const context = JSON.parse(
+      buildBoundedAgentRunExecutionContext(source, withoutDiscussionSize + 10),
+    )
+    expect(context.currentResolvedQuestions[0].answer).toBe(
+      'East greenhouse is the confirmed answer.',
+    )
+    expect(context.currentResolvedQuestions[0].discussion).toEqual([])
+    expect(context.omissions.omittedDiscussionMessagesAtLeast).toBe(5)
+  })
   it('does not treat untrusted callback metadata as authority to hide answered context', () => {
     const question = (
       id: string,

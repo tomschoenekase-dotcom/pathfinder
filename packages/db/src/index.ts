@@ -843,6 +843,14 @@ export type {
   AskAgentQuestionInput,
 } from './helpers/agent-question-actions'
 export {
+  AgentQuestionDiscussionActionError,
+  appendAgentQuestionDiscussionAction,
+} from './helpers/agent-question-discussion-actions'
+export type {
+  AgentQuestionDiscussionClient,
+  AppendAgentQuestionDiscussionInput,
+} from './helpers/agent-question-discussion-actions'
+export {
   AiConfigurationActionError,
   configurationOverrideFromRow,
   configurationValuesFromRow,

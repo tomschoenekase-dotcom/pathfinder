@@ -17,6 +17,16 @@ vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({ admin: {} }),
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('./AgentQuestionAnswerForm', () => ({
+  AgentQuestionAnswerForm: ({ questionId }: { questionId: string }) => (
+    <button type="button">Answer control {questionId}</button>
+  ),
+}))
+vi.mock('./AgentQuestionDiscussion', () => ({
+  AgentQuestionDiscussion: ({ questionId }: { questionId: string }) => (
+    <p>Discussion for {questionId}</p>
+  ),
+}))
 
 describe('agent operations views', () => {
   afterEach(cleanup)
@@ -64,6 +74,7 @@ describe('agent operations views', () => {
     expect(screen.getByText('Access scope')).toBeTruthy()
     expect(screen.getByText('Autonomy')).toBeTruthy()
     expect(screen.getAllByText(/updates:draft/).length).toBeGreaterThan(0)
+    expect(screen.getByText('No pending questions are shown in this view.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
     expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
@@ -101,6 +112,134 @@ describe('agent operations views', () => {
     )
     expect(screen.getAllByText('Runner online')).toHaveLength(1)
     expect(screen.getByText('Codex desktop')).toBeTruthy()
+  })
+
+  it('keeps saved responses and their discussion reachable without reopening answer controls', () => {
+    const answeredAt = new Date('2026-09-08T17:00:00.000Z')
+    render(
+      <AgentOperationsOverview
+        tenantId="tenant_1"
+        venueId="venue_1"
+        identities={{ items: [], nextCursor: null }}
+        runs={{ items: [], nextCursor: null }}
+        approvals={{ items: [], nextCursor: null }}
+        questionStatus="ANSWERED"
+        questions={{
+          items: [
+            {
+              id: 'question_answered',
+              tenantId: 'tenant_1',
+              venueId: 'venue_1',
+              agentIdentityId: 'agent_1',
+              agentRunId: 'run_1',
+              question: 'Which entrance should visitors use?',
+              context: null,
+              questionType: 'SHORT_TEXT',
+              category: 'visitor-access',
+              urgency: 'NORMAL',
+              choices: [],
+              dueAt: null,
+              evidence: [],
+              proposedAnswer: null,
+              callbackMetadata: null,
+              blocking: true,
+              status: 'ANSWERED',
+              answer: 'Use the east entrance after 9 a.m.',
+              answeredAt,
+              createdAt: new Date('2026-09-08T16:00:00.000Z'),
+              updatedAt: answeredAt,
+              agentIdentity: { id: 'agent_1', name: 'Visitor guide' },
+            },
+            {
+              id: 'question_dismissed',
+              tenantId: 'tenant_1',
+              venueId: 'venue_1',
+              agentIdentityId: 'agent_1',
+              agentRunId: 'run_1',
+              question: 'Should the unreviewed route draft be used?',
+              context: null,
+              questionType: 'SHORT_TEXT',
+              category: 'visitor-access',
+              urgency: 'LOW',
+              choices: [],
+              dueAt: null,
+              evidence: [],
+              proposedAnswer: null,
+              callbackMetadata: null,
+              blocking: true,
+              status: 'DISMISSED',
+              answer: 'No. Keep the route in review until a venue operator confirms it.',
+              answeredAt,
+              createdAt: new Date('2026-09-08T15:30:00.000Z'),
+              updatedAt: answeredAt,
+              agentIdentity: { id: 'agent_1', name: 'Visitor guide' },
+            },
+          ],
+          nextCursor: { createdAt: '2026-09-08T15:00:00.000Z', id: 'question_older' },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Question history' })).toBeTruthy()
+    expect(screen.getAllByText('Recorded response')).toHaveLength(2)
+    expect(screen.getByText('Use the east entrance after 9 a.m.')).toBeTruthy()
+    expect(
+      screen.getByText('No. Keep the route in review until a venue operator confirms it.'),
+    ).toBeTruthy()
+    expect(screen.getAllByText(`Responded ${answeredAt.toLocaleString()}`)).toHaveLength(2)
+    expect(screen.getByText('Discussion for question_answered')).toBeTruthy()
+    expect(screen.getByText('Discussion for question_dismissed')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Answer control question_answered' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Answer control question_dismissed' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Answered' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Older questions' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/venues/venue_1/agents?questionStatus=ANSWERED&questionCursorCreatedAt=2026-09-08T15%3A00%3A00.000Z&questionCursorId=question_older#inbox',
+    )
+  })
+
+  it('retains answer controls for pending questions', () => {
+    render(
+      <AgentOperationsOverview
+        tenantId="tenant_1"
+        venueId="venue_1"
+        identities={{ items: [], nextCursor: null }}
+        runs={{ items: [], nextCursor: null }}
+        approvals={{ items: [], nextCursor: null }}
+        questions={{
+          items: [
+            {
+              id: 'question_pending',
+              tenantId: 'tenant_1',
+              venueId: 'venue_1',
+              agentIdentityId: 'agent_1',
+              agentRunId: null,
+              question: 'Confirm the exhibit opening time.',
+              context: null,
+              questionType: 'SHORT_TEXT',
+              category: 'hours',
+              urgency: 'HIGH',
+              choices: [],
+              dueAt: null,
+              evidence: [],
+              proposedAnswer: null,
+              callbackMetadata: null,
+              blocking: true,
+              status: 'PENDING',
+              answer: null,
+              answeredAt: null,
+              createdAt: new Date('2026-09-08T16:00:00.000Z'),
+              updatedAt: new Date('2026-09-08T16:00:00.000Z'),
+              agentIdentity: { id: 'agent_1', name: 'Visitor guide' },
+            },
+          ],
+          nextCursor: null,
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Needs your input' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Answer control question_pending' })).toBeTruthy()
+    expect(screen.getByText('Discussion for question_pending')).toBeTruthy()
   })
 
   it('shows lifecycle, actions, timeline, costs, and approval state on run detail', () => {

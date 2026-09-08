@@ -111,6 +111,13 @@ describe('agent run execution actions', () => {
           questions: expect.objectContaining({
             where: { status: 'ANSWERED' },
             take: 8,
+            select: expect.objectContaining({
+              discussionMessages: {
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                take: 6,
+                select: { id: true, body: true, authorId: true, createdAt: true },
+              },
+            }),
           }),
           messages: expect.objectContaining({
             where: { messageType: { in: ['PROMPT', 'RESULT'] } },

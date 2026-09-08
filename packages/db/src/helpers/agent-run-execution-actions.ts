@@ -294,6 +294,11 @@ export async function claimAgentRunExecution(
             answeredById: true,
             evidence: true,
             callbackMetadata: true,
+            discussionMessages: {
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: 6,
+              select: { id: true, body: true, authorId: true, createdAt: true },
+            },
           },
         },
         messages: {
