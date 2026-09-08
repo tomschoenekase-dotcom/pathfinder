@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08",
+  "requirement": "source-mapping canonical rollback type-boundary repair",
+  "proofLayer": "native disposable PostgreSQL canonical transaction rollback",
+  "entrypoint": {
+    "source": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-intake-source-mapping-typefix-proof-port55491.mjs",
+    "sha256": "6255a7bce00682f6a3994e9f7a199d923daef56a58d05883b8b323283134bbf1"
+  },
+  "proofDirectory": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-typefix-07e81e17c97d",
+  "database": "pathfinder_disposable_intake_source_mapping_07e81e17c97d",
+  "port": 55491,
+  "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+  "migrations": 238,
+  "publicTables": 258,
+  "passedTests": 1,
+  "postgresStopped": true,
+  "measuredSources": [
+    {
+      "source": "packages/api/src/intake-source-mapping-review-disposable.integration.test.ts",
+      "sha256": "d6651bf7bf0a6675c0d90288fe9d9aa0b30c2fa80f8a91ea029647ae5cad3ecd",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-typefix-07e81e17c97d\\measured-intake-source-mapping-review-disposable.integration.test.ts"
+    },
+    {
+      "source": "packages/api/src/lib/intake-source-mapping-review.ts",
+      "sha256": "d78c67bbc1924af762a87ee79cdc53d5077b0ee3ca57a87786a4d98bf6bd25f5",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-typefix-07e81e17c97d\\measured-intake-source-mapping-review.ts"
+    },
+    {
+      "source": "packages/db/src/helpers/intake-source-mapping-review-actions.ts",
+      "sha256": "29178e6845aa250f85269f45741df7e753ab8529f54010ed26f4e061e482602a",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-typefix-07e81e17c97d\\measured-intake-source-mapping-review-actions.ts"
+    },
+    {
+      "source": "packages/db/prisma/migrations/20260907022700_add_intake_source_mapping_reviews/migration.sql",
+      "sha256": "68c12222f0ff2d48eac976bef91d2344ff4217c29eb370588a413cb5c2f2bdf6",
+      "retained": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-intake-source-mapping-typefix-07e81e17c97d\\measured-migration.sql"
+    }
+  ],
+  "covered": [
+    "Canonical reviewIntakeSourceForV1 transaction reaches intakeRun.create before injected intakeSourceMappingReview.create write failure.",
+    "The injected post-proposal review write failure rejects the operation and leaves zero matching intakeRun and intakeSourceMappingReview rows after rollback.",
+    "Existing successful replay, source-hash conflict, and tenant/venue scope assertions remain in the same disposable journey."
+  ],
+  "limits": [
+    "The failure is a transaction-scoped test delegate injection; it does not exercise HTTP middleware.",
+    "No provider, credentials, environment-file autoload, or live service was used."
+  ]
+}

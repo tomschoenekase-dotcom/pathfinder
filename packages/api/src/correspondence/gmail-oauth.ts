@@ -190,9 +190,20 @@ export function createGmailOAuthRuntime(input: {
 
   const credentials: GmailCredentialLeaseProvider = {
     async lease(credentialRef) {
-      const credential = await withTenantIsolationBypass(() =>
+      const credential = await withTenantIsolationBypass<{
+        id: string
+        encryptedSecret: Uint8Array
+        initializationVector: Uint8Array
+        authenticationTag: Uint8Array
+      } | null>(() =>
         db.encryptedIntegrationCredential.findFirst({
           where: { id: credentialRef, provider: 'GMAIL', revokedAt: null },
+          select: {
+            id: true,
+            encryptedSecret: true,
+            initializationVector: true,
+            authenticationTag: true,
+          },
         }),
       )
       if (!credential) throw new GmailApiError('AUTHENTICATION', 'Gmail credential is unavailable')

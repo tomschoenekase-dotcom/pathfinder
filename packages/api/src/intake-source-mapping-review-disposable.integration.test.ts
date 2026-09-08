@@ -6,12 +6,16 @@ import {
   createIntakeProposal,
   db,
   recordWebsiteResearchReceiptAction,
+  reviewIntakeSourceForV1,
   submitIntakeV1Action,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
 import { buildIntakeV1PackageCandidate } from './lib/intake-v1-package-candidate'
-import { reviewIntakeSourceMappingForV1 } from './lib/intake-source-mapping-review'
+import {
+  reviewIntakeSourceMappingForV1,
+  type IntakeSourceMappingReviewDependencies,
+} from './lib/intake-source-mapping-review'
 import { buildWebsiteClarificationReview } from './lib/intake-website-clarifications'
 
 const enabled =
@@ -228,21 +232,67 @@ describe.skipIf(!enabled)('intake source mapping disposable review journey', () 
       ).rejects.toBeTruthy()
 
       const failedOperationId = randomUUID()
-      const failingDb = db.$extends({
-        query: {
-          intakeSourceMappingReview: {
-            create() {
-              throw new Error('fixture source mapping review write failure')
-            },
-          },
+      let proposalCreateReached = false
+      type ReviewTransaction = Parameters<Parameters<typeof db.$transaction>[0]>[0]
+      const failingReviewClient = {
+        $transaction: <Result>(
+          callback: (tx: ReviewTransaction) => Promise<Result>,
+        ): Promise<Result> =>
+          db.$transaction(async (tx) => {
+            const failingTx = new Proxy(tx, {
+              get(target, property, receiver) {
+                if (property === 'intakeRun') {
+                  return new Proxy(target.intakeRun, {
+                    get(delegate, delegateProperty, delegateReceiver) {
+                      if (delegateProperty === 'create') {
+                        return (...args: unknown[]) => {
+                          proposalCreateReached = true
+                          return Reflect.apply(
+                            Reflect.get(delegate, delegateProperty, delegateReceiver),
+                            delegate,
+                            args,
+                          )
+                        }
+                      }
+                      return Reflect.get(delegate, delegateProperty, delegateReceiver)
+                    },
+                  })
+                }
+                if (property !== 'intakeSourceMappingReview')
+                  return Reflect.get(target, property, receiver)
+                return new Proxy(target.intakeSourceMappingReview, {
+                  get(delegate, delegateProperty, delegateReceiver) {
+                    if (delegateProperty === 'create') {
+                      return async () => {
+                        throw new Error('fixture source mapping review write failure')
+                      }
+                    }
+                    return Reflect.get(delegate, delegateProperty, delegateReceiver)
+                  },
+                })
+              },
+            }) as ReviewTransaction
+            return callback(failingTx)
+          }),
+      } as Pick<typeof db, '$transaction'>
+      const failingDependencies: IntakeSourceMappingReviewDependencies = {
+        review(input, projector) {
+          return reviewIntakeSourceForV1(input, projector, failingReviewClient)
         },
-      })
+        async buildWebsiteMapping() {
+          throw new Error('Website mapping should not run for optional notes.')
+        },
+      }
       await expect(
-        reviewIntakeSourceMappingForV1({
-          db: failingDb,
-          command: { ...notesCommand, operationId: failedOperationId },
-        }),
+        reviewIntakeSourceMappingForV1(
+          {
+            db,
+            command: { ...notesCommand, operationId: failedOperationId },
+          },
+          failingDependencies,
+        ),
       ).rejects.toThrow('fixture source mapping review write failure')
+      expect(proposalCreateReached).toBe(true)
       expect(
         await db.intakeRun.count({
           where: { tenantId, venueId, submissionRequestId: failedOperationId },
