@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T05:54:28.455103+00:00",
+  "baseProductRevision": "e266c886bf10ca4578015e7c547557cf22bd2582",
+  "result": {
+    "database": "pathfinder_disposable_agent_bridge_effc93750a86",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-specialist-chain-fresh-process-effc93750a86",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "databaseReadback": {
+      "timezone": "UTC",
+      "vectorVersion": "0.8.6",
+      "migrationCount": 230,
+      "publicTableCount": 254
+    },
+    "sourceHashes": [
+      {
+        "source": "packages/api/src/mcp/agent-specialist-chain-fresh-process.disposable.integration.test.ts",
+        "sha256": "654150029e5548199216121efb4bc7c8ccfbef3ded56e2b21763a3a2d3e4d542",
+        "bytes": 22468
+      },
+      {
+        "source": "apps/workers/src/lib/agent-specialist-chain-fresh-process.fixture.ts",
+        "sha256": "15ba38a21b458bf744a3fc2e97a972a021a05e1e8f6cb6893d66dacc12d85df3",
+        "bytes": 10528
+      },
+      {
+        "source": "packages/api/src/mcp/registry.ts",
+        "sha256": "135949246c95cbda18bf2d6c589ee20e190852845798f175e0790c7cfc42acda",
+        "bytes": 40685
+      },
+      {
+        "source": "packages/api/src/mcp/composition.ts",
+        "sha256": "372dde3843999bd9ff3221a3de9daf24761baf288d30567e9943d0b69a4d07df",
+        "bytes": 203199
+      },
+      {
+        "source": "packages/api/src/mcp/read-actions.ts",
+        "sha256": "5207a57482c8f310ddc0c826a955b29d17087e26e6c945db66d4195a5f9b02b4",
+        "bytes": 58334
+      },
+      {
+        "source": "packages/api/src/agent-bridge/http-core.ts",
+        "sha256": "ff4b65d8a95e3d8abc51d68a6c2c76d1b37a140c621313d9b76da57d0cb16835",
+        "bytes": 8567
+      },
+      {
+        "source": "packages/db/src/helpers/agent-delegation-actions.ts",
+        "sha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+        "bytes": 10591
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-actions.ts",
+        "sha256": "2ed5743f5ecc56e961a7ffc3d17b23afae2e11b478e22cfafb099e50ae682979",
+        "bytes": 23712
+      },
+      {
+        "source": "packages/db/src/helpers/agent-run-execution-context.ts",
+        "sha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+        "bytes": 4403
+      },
+      {
+        "source": "packages/db/src/helpers/agent-bridge-actions.ts",
+        "sha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+        "bytes": 14590
+      },
+      {
+        "source": "packages/db/src/helpers/operational-update-actions.ts",
+        "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e",
+        "bytes": 17527
+      },
+      {
+        "source": "packages/db/src/helpers/location-draft-proposal-actions.ts",
+        "sha256": "d20403a1b5f568bd2db80a837fcd6245c9a300d89648729101a41a27dbf34a93",
+        "bytes": 11008
+      },
+      {
+        "source": "packages/contracts/src/mcp-v0.ts",
+        "sha256": "00b2063bfd8fe02dc9226944f0641738e043ff9408bfdcb291e717603a99d9f1",
+        "bytes": 142703
+      }
+    ],
+    "testPassed": true,
+    "testCounts": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "stopped": true
+  },
+  "nativeTests": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "chain": {
+    "processRestartObserved": true,
+    "distinctProcessCount": 3,
+    "processes": [57140, 36016, 58884],
+    "runs": ["cmts974b9000l8tpwmmxfozmv", "cmts974qo00118tpwryzdpc7z", "cmts9754z001l8tpwafceokxk"],
+    "researchArtifactHash": "6ee437b9655eac5374260bad801b984cb7c2986834e793ac4fdfcf6c424b075b",
+    "proposalApprovalRequestId": "0e10a75b-1429-49da-81d7-6248b9b4f815",
+    "notificationSourceReadResource": "agent-run-trace",
+    "providerInferenceCalled": false,
+    "deterministicProtocolAdapter": true,
+    "parentStateUnchanged": true,
+    "terminalCallbackCount": 2,
+    "pendingBuilderApprovalCount": 1,
+    "draftCount": 1,
+    "publicMutationCount": 0,
+    "deliveryCount": 0
+  },
+  "measuredSources": [
+    {
+      "path": "packages/api/src/mcp/agent-specialist-chain-fresh-process.disposable.integration.test.ts",
+      "retainedRawSha256": "654150029e5548199216121efb4bc7c8ccfbef3ded56e2b21763a3a2d3e4d542",
+      "normalizedLfSha256": "654150029e5548199216121efb4bc7c8ccfbef3ded56e2b21763a3a2d3e4d542",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-specialist-chain-fresh-process.fixture.ts",
+      "retainedRawSha256": "15ba38a21b458bf744a3fc2e97a972a021a05e1e8f6cb6893d66dacc12d85df3",
+      "normalizedLfSha256": "15ba38a21b458bf744a3fc2e97a972a021a05e1e8f6cb6893d66dacc12d85df3",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/registry.ts",
+      "retainedRawSha256": "135949246c95cbda18bf2d6c589ee20e190852845798f175e0790c7cfc42acda",
+      "normalizedLfSha256": "135949246c95cbda18bf2d6c589ee20e190852845798f175e0790c7cfc42acda",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/composition.ts",
+      "retainedRawSha256": "372dde3843999bd9ff3221a3de9daf24761baf288d30567e9943d0b69a4d07df",
+      "normalizedLfSha256": "372dde3843999bd9ff3221a3de9daf24761baf288d30567e9943d0b69a4d07df",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/mcp/read-actions.ts",
+      "retainedRawSha256": "5207a57482c8f310ddc0c826a955b29d17087e26e6c945db66d4195a5f9b02b4",
+      "normalizedLfSha256": "5207a57482c8f310ddc0c826a955b29d17087e26e6c945db66d4195a5f9b02b4",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/agent-bridge/http-core.ts",
+      "retainedRawSha256": "ff4b65d8a95e3d8abc51d68a6c2c76d1b37a140c621313d9b76da57d0cb16835",
+      "normalizedLfSha256": "ff4b65d8a95e3d8abc51d68a6c2c76d1b37a140c621313d9b76da57d0cb16835",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-delegation-actions.ts",
+      "retainedRawSha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+      "normalizedLfSha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+      "retainedRawSha256": "2ed5743f5ecc56e961a7ffc3d17b23afae2e11b478e22cfafb099e50ae682979",
+      "normalizedLfSha256": "2ed5743f5ecc56e961a7ffc3d17b23afae2e11b478e22cfafb099e50ae682979",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-context.ts",
+      "retainedRawSha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+      "normalizedLfSha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-bridge-actions.ts",
+      "retainedRawSha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "normalizedLfSha256": "6ed97ecfad44889224c6824d923618af47138e48ab9bfcd2845097ebbb79dd91",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-update-actions.ts",
+      "retainedRawSha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e",
+      "normalizedLfSha256": "ffbb5b5f782378941396b3238aad0e7c2c9cbe5fad1ca410d697f50043838e01",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/location-draft-proposal-actions.ts",
+      "retainedRawSha256": "d20403a1b5f568bd2db80a837fcd6245c9a300d89648729101a41a27dbf34a93",
+      "normalizedLfSha256": "1b29642981d3b13b7c61f103e2a34ada5e23abb32eff7b6cc36d0d3b551622de",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/contracts/src/mcp-v0.ts",
+      "retainedRawSha256": "00b2063bfd8fe02dc9226944f0641738e043ff9408bfdcb291e717603a99d9f1",
+      "normalizedLfSha256": "00b2063bfd8fe02dc9226944f0641738e043ff9408bfdcb291e717603a99d9f1",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "sourceHashNormalization": "normalizedLfSha256 replaces CRLF with LF; retainedRawSha256 identifies original measured local bytes.",
+  "runner": {
+    "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\run-agent-specialist-chain-fresh-process-proof.mjs",
+    "sha256": "453a81f3af6fe1705d80742a0317ae769e8b124a0c590bef0feedc4731a1a711"
+  },
+  "controls": [
+    "Three newly spawned deterministic protocol clients exit successfully before the next phase starts; children receive only synthetic credential, loopback endpoints, venue and phase through bounded stdin, no DATABASE_URL or predecessor payload.",
+    "Research completes a retained artifact; builder verifies its canonical JSON SHA256 through registered pathfinder.read, and the actual location proposal contains the research-derived description.",
+    "Builder exits AWAITING_APPROVAL with no completedAt or terminal artifact/callback. Notifier independently checks scoped pending result metadata and reads the persisted exact pending approval from registered agent-run-trace.",
+    "Registered notification draft action consumes a separate human-approved one-shot grant exactly once, with the exact notifier run and operation; one inactive unpublished OperationalUpdate remains.",
+    "Research duplicate completion and wrong-venue result read reject. Parent execution state remains unchanged. No canonical location, operational delivery or delivery attempt is created."
+  ],
+  "verification": {
+    "workerReported": [
+      "API and workers typechecks passed",
+      "Scoped ESLint and Prettier passed",
+      "Guarded discovery loads exactly one skipped test without integration guard"
+    ],
+    "rootObserved": [
+      "Reviewed both complete fixture files and actual read/proposal/grant code",
+      "Native PostgreSQL16.15 + pgvector0.8.6, UTC,230 migrations,254 tables,1 test passed,0 failed/skipped",
+      "All13 measured source hashes matched current files; server stop log confirms teardown"
+    ]
+  },
+  "retainedEarlierAttempts": [
+    {
+      "suffix": "082298ad438c",
+      "outcome": "failed wrong-scope error assertion; database stopped"
+    },
+    {
+      "suffix": "8fb195140b41",
+      "outcome": "failed transform during unfrozen worker edit; database stopped; root froze ownership before later proof"
+    },
+    {
+      "suffix": "71792b69604b",
+      "outcome": "correct completeTask rejection for builder AWAITING_APPROVAL exposed invalid fixture assumption; database stopped"
+    }
+  ],
+  "limits": [
+    "Synthetic local tenant, credentials and human approval rows; no production or external-service access.",
+    "Parent sequencing and approval setup are deterministic test orchestration, not automatic dependency wake-up or autonomous model reasoning.",
+    "Actual OS process boundaries and HTTP/canonical database actions are exercised; no OS reboot, commercial harness account replacement or hosted route rollout is claimed.",
+    "Builder proposal remains pending and unapplied; terminal result reads intentionally do not expose pending artifacts.",
+    "No live inference, customer communication, print-device proof, public mutation, deployment or final artwork acceptance."
+  ]
+}

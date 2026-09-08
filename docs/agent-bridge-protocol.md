@@ -101,6 +101,23 @@ nonterminal artifact requests, and offsets beyond the artifact fail closed. This
 not accept pagination cursors. Requesting an item beyond the bounded manifest uses its index
 under the same checks. A result reference or successful read never approves publication.
 
+### Following a pending location proposal
+
+`torchiko.locations.propose_draft` persists an approval request and moves its builder run to
+`AWAITING_APPROVAL`. The worker must retain that state rather than call `completeTask` as though
+the proposal had been approved. A later worker can read `agent-run-result` without an
+`artifactIndex` to confirm the pending run and its parent, then read `agent-run-trace` for that
+same tenant, venue, and run. Follow `nextCursor` when needed; an approval item identifies its
+`id`, `proposedAction`, `state`, and decision. A pending location proposal has kind `APPROVAL`,
+action `torchiko.locations.create_draft`, state `PENDING`, and no decision.
+
+This trace supplies a durable review reference, not a terminal artifact or permission to apply
+the location. A notification draft can reference the pending proposal while preserving review,
+but it still requires its own action authority. In particular, `pathfinder.create_update_draft`
+requires a matching approval grant; the location proposal does not authorize it. Draft creation
+does not publish or deliver the notice. Only terminal specialist runs produce terminal parent
+callbacks; a builder waiting for approval must not be reported as completed.
+
 ## Transport and deployment boundary
 
 The default-dark dashboard route now composes a bounded authenticated HTTP transport. It verifies
