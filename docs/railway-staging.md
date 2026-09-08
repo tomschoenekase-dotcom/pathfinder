@@ -229,7 +229,7 @@ build or public web health response is not proof that all three service variable
 
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
-`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-226-20260907`. The value must
+`PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-227-20260907`. The value must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma when migrations are pending. After the exact migration and hosted health pass, restore
 `PATHFINDER_ALLOW_STAGING_MIGRATIONS=0` without replacing the admitted active revision. Code-only
@@ -249,7 +249,7 @@ The measured V1 processing predecessor `701c47e4a75353922ae18a886dde2ea44caf5190
 
 The measured V1 submission predecessor `1e84eee2bb99912ca7aa44382ed17eb9f4f68a88` retains 224 migrations, 251 public tables, and normalized manifest SHA-256 `8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532`. Its earlier fixture proof remains preserved and the 224-row state is explicitly admitted as a predecessor.
 
-The campaign's local candidate `55408c4759b2fe9ccfe977e45abbe4800cc05cc5` contains 226 migrations and 253 public tables, measured on native disposable PostgreSQL 16.15 in UTC, ending with exact revision-to-package handoff receipts. The normalized manifest SHA-256 is `033233483cdf5c89f5afecd2eb622f93802b228b0b5b9f11400e05f7254b4bbd`; [retained fixture evidence](evidence/intake-v1-package-native-postgres-2026-09-07.json) records successful tests and server shutdown. Fixture data and logs remain retained; this does not establish cleanup of earlier Docker resources. The measured 223-row/248-table workflow-activation state remains an admitted predecessor. The 222-row/245-table promotion-assessment state is an admitted migration-derived predecessor boundary. The 221-row/244-table usage-observation and
+The campaign's local candidate `f510cd38b2f79efdc2b74c940b8b5b7535c7596f` contains 227 migrations and 254 public tables, measured on native disposable PostgreSQL 16.15 in UTC, ending with immutable intake source-mapping reviews. The normalized manifest SHA-256 is `821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19`; [retained fixture evidence](evidence/intake-source-mapping-native-postgres-2026-09-07.json) records successful tests and server shutdown. Fixture data and logs remain retained; this does not establish cleanup of earlier Docker resources. The measured 226-row/253-table revision-package handoff state is an admitted predecessor. The measured 223-row/248-table workflow-activation state remains an admitted predecessor. The 222-row/245-table promotion-assessment state is an admitted migration-derived predecessor boundary. The 221-row/244-table usage-observation and
 220-row/244-table workflow-registry states are admitted migration-derived predecessor boundaries.
 The measured 219-row/243-table governed-media, 218-row/243-table prospect-onboarding,
 216-row/240-table media-relation, 215-row/239-table media-resolution, 214-row/238-table

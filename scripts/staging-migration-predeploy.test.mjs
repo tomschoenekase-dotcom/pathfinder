@@ -29,10 +29,11 @@ const approved = {
 test('the measured workflow predecessor uses its own table count and unknown boundaries fail', () => {
   assert.equal(expectedPublicTableCount('workflow-activation-predecessor'), 248)
   assert.equal(expectedPublicTableCount('intake-processing-predecessor'), 252)
+  assert.equal(expectedPublicTableCount('intake-package-predecessor'), 253)
   assert.equal(expectedPublicTableCount('intake-submission-predecessor'), 251)
   assert.equal(expectedPublicTableCount('staging-baseline'), 126)
   assert.equal(expectedPublicTableCount('b5-complete'), 193)
-  assert.equal(expectedPublicTableCount('complete'), 253)
+  assert.equal(expectedPublicTableCount('complete'), 254)
   for (const state of ['unknown', 'constructor', '__proto__'])
     assert.throws(() => expectedPublicTableCount(state), /unknown schema boundary/u)
 })
@@ -143,9 +144,11 @@ test('preserved-data backup evidence must match the live migration ledger bounda
   )
 })
 
-test('repository migration manifest retains the observed 225 boundary and reviewed 226 suffix', async () => {
+test('repository migration manifest retains the observed 226 boundary and reviewed 227 suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
-  assert.equal(EXPECTED.finalPublicTableCount, 253)
+  assert.equal(EXPECTED.finalPublicTableCount, 254)
+  assert.equal(EXPECTED.intakePackagePredecessorCount, 226)
+  assert.equal(EXPECTED.intakePackagePredecessorPublicTableCount, 253)
   assert.equal(EXPECTED.workflowActivationPredecessorCount, 223)
   assert.equal(EXPECTED.workflowActivationPredecessorPublicTableCount, 248)
   assert.equal(EXPECTED.legacyAdoptionPredecessorCount, 214)
@@ -207,12 +210,14 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     'workflow-activation-predecessor',
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.intakeProcessingPredecessorCount), manifest), 'intake-processing-predecessor')
-  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.intakeProcessingPredecessorCount), manifest), ['20260907022600_add_intake_v1_package_handoffs'])
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.intakeProcessingPredecessorCount), manifest), ['20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews'])
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.intakePackagePredecessorCount), manifest), 'intake-package-predecessor')
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.intakePackagePredecessorCount), manifest), ['20260907022700_add_intake_source_mapping_reviews'])
   assert.equal(ledgerState(rows.slice(0, EXPECTED.intakeSubmissionPredecessorCount), manifest), 'intake-submission-predecessor')
-  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.intakeSubmissionPredecessorCount), manifest), ['20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs'])
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.intakeSubmissionPredecessorCount), manifest), ['20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews'])
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.workflowActivationPredecessorCount), manifest),
-    ['20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs'],
+    ['20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews'],
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -233,7 +238,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -252,7 +257,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -270,7 +275,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -287,7 +292,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -302,7 +307,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -316,7 +321,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -329,7 +334,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -341,7 +346,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
     [
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -350,7 +355,7 @@ test('ledger accepts exact LF or CRLF Prisma checksums without weakening the nor
   )
   assert.deepEqual(
     remainingMigrationNames(rows.slice(0, EXPECTED.promotionAssessmentPredecessorCount), manifest),
-    ['20260907022300_add_agent_workflow_activations', '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs'],
+    ['20260907022300_add_agent_workflow_activations', '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews'],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const crlfRows = manifest.names.map((migration_name) => ({
@@ -436,7 +441,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -473,7 +478,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -508,7 +513,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -542,7 +547,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -575,7 +580,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(
@@ -603,7 +608,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(ledgerState(rows.slice(0, EXPECTED.hostedReleaseCount), manifest), 'hosted-release')
@@ -625,7 +630,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
     '20260907022100_add_ai_usage_observation_status',
     '20260907022200_add_agent_workflow_promotion_assessments',
     '20260907022300_add_agent_workflow_activations',
-    '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+    '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
   ])
   assert.equal(
     ledgerState(rows.slice(0, EXPECTED.campaignPredecessorCount), manifest),
@@ -650,7 +655,7 @@ test('ledger accepts only exact reviewed migration boundaries', async () => {
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.equal(ledgerState(rows, manifest), 'complete')
@@ -832,7 +837,7 @@ test('exact previous staging release advances only through the reviewed migratio
       '20260907022100_add_ai_usage_observation_status',
       '20260907022200_add_agent_workflow_promotion_assessments',
       '20260907022300_add_agent_workflow_activations',
-      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+      '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -918,7 +923,7 @@ test('exact previous staging release advances only through the reviewed migratio
     '20260907022100_add_ai_usage_observation_status',
     '20260907022200_add_agent_workflow_promotion_assessments',
     '20260907022300_add_agent_workflow_activations',
-    '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs',
+    '20260907022400_add_intake_v1_submissions', '20260907022500_add_intake_v1_processing_dispatches', '20260907022600_add_intake_v1_package_handoffs', '20260907022700_add_intake_source_mapping_reviews',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })

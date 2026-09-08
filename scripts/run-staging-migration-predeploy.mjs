@@ -11,12 +11,12 @@ import {
 } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-226-20260907',
+  approval: 'torchiko-staging-lineage-to-227-20260907',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 226,
+  migrationCount: 227,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -82,6 +82,9 @@ const EXPECTED = Object.freeze({
   intakeProcessingPredecessorCount: 225,
   intakeProcessingPredecessorPublicTableCount: 252,
   intakeProcessingPredecessorFinalMigration: '20260907022500_add_intake_v1_processing_dispatches',
+  intakePackagePredecessorCount: 226,
+  intakePackagePredecessorPublicTableCount: 253,
+  intakePackagePredecessorFinalMigration: '20260907022600_add_intake_v1_package_handoffs',
   intakeSubmissionPredecessorCount: 224,
   intakeSubmissionPredecessorPublicTableCount: 251,
   intakeSubmissionPredecessorFinalMigration: '20260907022400_add_intake_v1_submissions',
@@ -107,10 +110,10 @@ const EXPECTED = Object.freeze({
   founderAbsenceCompleteFinalMigration: '20260828174000_add_founder_absence_observations',
   replyReviewPredecessorFinalMigration: '20260829231500_enable_pdf_file_extraction',
   hostedReleaseFinalMigration: '20260830165000_add_prospect_inbound_reply_reviews',
-  finalMigration: '20260907022600_add_intake_v1_package_handoffs',
-  manifestHash: '033233483cdf5c89f5afecd2eb622f93802b228b0b5b9f11400e05f7254b4bbd',
-  // Exact 226 revision-package boundary; retained relational proof is recorded separately.
-  finalPublicTableCount: 253,
+  finalMigration: '20260907022700_add_intake_source_mapping_reviews',
+  manifestHash: '821701d8190e35e06c27053b16bc176937015dedc047514cea0d42643ec89c19',
+  // Exact 227 source-mapping boundary; retained relational proof is recorded separately.
+  finalPublicTableCount: 254,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -378,6 +381,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.promotionAssessmentPredecessorCount &&
     rows.length !== EXPECTED.workflowActivationPredecessorCount &&
     rows.length !== EXPECTED.intakeProcessingPredecessorCount &&
+    rows.length !== EXPECTED.intakePackagePredecessorCount &&
     rows.length !== EXPECTED.intakeSubmissionPredecessorCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
@@ -443,6 +447,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.workflowActivationPredecessorCount)
     return 'workflow-activation-predecessor'
   if (rows.length === EXPECTED.intakeProcessingPredecessorCount) return 'intake-processing-predecessor'
+  if (rows.length === EXPECTED.intakePackagePredecessorCount) return 'intake-package-predecessor'
   if (rows.length === EXPECTED.intakeSubmissionPredecessorCount) return 'intake-submission-predecessor'
   return 'complete'
 }
@@ -632,6 +637,7 @@ export function expectedPublicTableCount(state) {
     'staging-baseline': EXPECTED.stagingBaselinePublicTableCount,
     'workflow-activation-predecessor': EXPECTED.workflowActivationPredecessorPublicTableCount,
     'intake-processing-predecessor': EXPECTED.intakeProcessingPredecessorPublicTableCount,
+    'intake-package-predecessor': EXPECTED.intakePackagePredecessorPublicTableCount,
     'intake-submission-predecessor': EXPECTED.intakeSubmissionPredecessorPublicTableCount,
     complete: EXPECTED.finalPublicTableCount,
   }
