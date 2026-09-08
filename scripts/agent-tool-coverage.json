@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 510,
-    "sha256": "235b1c9a0b9f437c5789a8af801261c49ce2b6bbf5dcaee2a443aa7ffe4b7463",
+    "count": 520,
+    "sha256": "2a060b9d312c1e6410fcae18d3de069057d5af4d563439f3ec0c0919947105a3",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "235b1c9a0b9f437c5789a8af801261c49ce2b6bbf5dcaee2a443aa7ffe4b7463",
-      "sha256": "228f334598b51d968dfd8e46b9c4a278b3dd40d9e8e89a9cf703e08f5327f218"
+      "operationInventorySha256": "2a060b9d312c1e6410fcae18d3de069057d5af4d563439f3ec0c0919947105a3",
+      "sha256": "1f1dfe25f22a52c4b0a8884aa697479fa92b0f92dfdf032e5fbdc033485fd8cb"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -584,6 +584,22 @@
       "developerCoverage": "full",
       "decision": "The platform-admin aggregate is represented through its domain routers; no generic super-admin agent tool is permitted.",
       "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "conversation-learning-review",
+      "pattern": "^adminConversationLearningRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The policy and candidate queries are human-admin review projections; policy changes and candidate decisions require the authenticated platform administrator and exact tenant+venue scope. No agent tool or autonomous canonical knowledge write is exposed.",
+      "evidence": "packages/api/src/routers/admin/conversation-learning.test.ts"
+    },
+    {
+      "id": "website-page-text-review",
+      "pattern": "^adminWebsitePageTextRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "These exact receipt and retained-page-text readers are platform-admin inspection procedures for bounded intake evidence. They expose no agent tool, mutation, publication, or canonical venue write.",
+      "evidence": "packages/api/src/lib/website-discovery.disposable.integration.test.ts"
     },
     {
       "id": "character-factory",
