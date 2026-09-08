@@ -1,0 +1,317 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "reproducer": "$env:PROVIDER_COMPARISON_PREPARATION_OUTPUT='C:\\Users\\tomsc\\Downloads\\PathFinder-evaluation-tenant-scope-integration\\docs\\evidence\\provider-comparison-preparation-2026-09-08.json'; $env:PROVIDER_COMPARISON_REPO_REVISION=(git rev-parse HEAD); pnpm --dir packages/api exec vitest run src/lib/evaluation/provider-comparison-preparation.test.ts; Remove-Item Env:PROVIDER_COMPARISON_PREPARATION_OUTPUT; Remove-Item Env:PROVIDER_COMPARISON_REPO_REVISION",
+  "preparationStatus": "PREPARED_UNEXECUTED",
+  "validationCommand": "pnpm --dir packages/api exec vitest run src/lib/evaluation/provider-comparison-preparation.test.ts",
+  "providerDispatched": false,
+  "provenance": {
+    "repoRevision": "135f542468d492e0edc940ba15d2271bd7def7ff",
+    "sourceFilesSha256": {
+      "packages/api/src/lib/evaluation/provider-comparison-corpus.ts": "b8fb84d48eaf3556dd71aa884d8a533ccc4b542525b0e68aa49bac2070170578",
+      "packages/api/src/lib/evaluation/provider-comparison-preparation.ts": "052a2b6db70accfb4771938bcb88e443571aeeff313e5ebbc5d5f8d109e89cd2",
+      "packages/api/src/lib/evaluation/provider-source-claim-corpus.ts": "3e7c29eab6a0aca7b56f953c5963bf0d9e6fa71aad65c42448c07dbdf6e18e6f"
+    }
+  },
+  "textComparison": {
+    "corpusHash": "a884e3eb9b4f3309d5d46c408dd1a219fb27c1822b2e27cd71b23ce9dfdbb2af",
+    "routes": [
+      {
+        "routeKey": "guest-chat",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "configuredPricingEstimate": {
+          "version": "anthropic-public-2026-08-07",
+          "usdPerMillionTokens": {
+            "input": 1,
+            "output": 5,
+            "cacheWrite": 1.25,
+            "cacheRead": 0.1
+          }
+        },
+        "observation": {
+          "routeKey": "guest-chat",
+          "status": "UNAVAILABLE",
+          "corpusHash": "a884e3eb9b4f3309d5d46c408dd1a219fb27c1822b2e27cd71b23ce9dfdbb2af",
+          "caseIds": [
+            "golden-riverside-aquarium-unavailable-1-en",
+            "golden-contradictory-hours-en",
+            "golden-cedar-science-center-unknown-policy-1-en",
+            "golden-cedar-science-center-privacy-1-en",
+            "golden-riverside-aquarium-accessibility-1-en"
+          ],
+          "caseHashes": [
+            "259958938ba0ec6bd59d37f59cf2d06000f2b7d648433b703c585a7aac5ffafc",
+            "61d0339b66c7701c06fd9e0cdce684a3ffbf4e9f9867275a8cbe3eb8c5ad076f",
+            "885d424cd693e57b4ba0770b29fc9b0094c143c1504d78dd9df8955a35aa206a",
+            "7e5f99f4f5f157cdbf18bc1808476de5231042b8303c8426e201ef89b532603d",
+            "ca707a72a8a489a516e4d492426493a70a2ad937de0747cc79d2ac1cce208442"
+          ],
+          "metrics": {
+            "factual-extraction": null,
+            "temporal-error": null,
+            "missed-entity": null,
+            "escalation": null,
+            "invalid-output": null
+          },
+          "latencyMs": null,
+          "estimatedCostUsd": null,
+          "invoiceCostUsd": null,
+          "limitation": "Prepared provider-dark; no provider execution or quality observation exists."
+        }
+      },
+      {
+        "routeKey": "guest-chat-openai",
+        "provider": "openai",
+        "model": "gpt-5-mini-2025-08-07",
+        "configuredPricingEstimate": {
+          "version": "openai-public-2026-08-26",
+          "usdPerMillionTokens": {
+            "input": 0.25,
+            "output": 2,
+            "cacheWrite": 0.25,
+            "cacheRead": 0.025
+          }
+        },
+        "observation": {
+          "routeKey": "guest-chat-openai",
+          "status": "UNAVAILABLE",
+          "corpusHash": "a884e3eb9b4f3309d5d46c408dd1a219fb27c1822b2e27cd71b23ce9dfdbb2af",
+          "caseIds": [
+            "golden-riverside-aquarium-unavailable-1-en",
+            "golden-contradictory-hours-en",
+            "golden-cedar-science-center-unknown-policy-1-en",
+            "golden-cedar-science-center-privacy-1-en",
+            "golden-riverside-aquarium-accessibility-1-en"
+          ],
+          "caseHashes": [
+            "259958938ba0ec6bd59d37f59cf2d06000f2b7d648433b703c585a7aac5ffafc",
+            "61d0339b66c7701c06fd9e0cdce684a3ffbf4e9f9867275a8cbe3eb8c5ad076f",
+            "885d424cd693e57b4ba0770b29fc9b0094c143c1504d78dd9df8955a35aa206a",
+            "7e5f99f4f5f157cdbf18bc1808476de5231042b8303c8426e201ef89b532603d",
+            "ca707a72a8a489a516e4d492426493a70a2ad937de0747cc79d2ac1cce208442"
+          ],
+          "metrics": {
+            "factual-extraction": null,
+            "temporal-error": null,
+            "missed-entity": null,
+            "escalation": null,
+            "invalid-output": null
+          },
+          "latencyMs": null,
+          "estimatedCostUsd": null,
+          "invoiceCostUsd": null,
+          "limitation": "Prepared provider-dark; no provider execution or quality observation exists."
+        }
+      }
+    ],
+    "recommendation": null
+  },
+  "sourceClaimComparison": {
+    "corpusHash": "f9fc330ac678c73643a362539e932d90e429625ec6b702b91315da3fa0b2bf26",
+    "routes": [
+      {
+        "routeKey": "company-brain-retrieval-evaluation",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "configuredPricingEstimate": {
+          "version": "anthropic-public-2026-08-07",
+          "usdPerMillionTokens": {
+            "input": 1,
+            "output": 5,
+            "cacheWrite": 1.25,
+            "cacheRead": 0.1
+          }
+        }
+      },
+      {
+        "routeKey": "answer-analysis",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "configuredPricingEstimate": {
+          "version": "anthropic-public-2026-08-07",
+          "usdPerMillionTokens": {
+            "input": 3,
+            "output": 15,
+            "cacheWrite": 3.75,
+            "cacheRead": 0.3
+          }
+        }
+      }
+    ],
+    "modelQuality": "UNKNOWN",
+    "observation": null,
+    "outputSchema": {
+      "entityId": "string",
+      "claims": [
+        {
+          "fieldPath": "requested field string",
+          "value": "atomic string value"
+        }
+      ],
+      "disposition": ["EXTRACT", "ESCALATE"],
+      "additionalProperties": false
+    },
+    "modelInputs": [
+      {
+        "caseId": "source-claim-hours-current",
+        "caseHash": "2a1cca0d633150517767dbfabd55dcea1ebd076f0336708652658007947bba5e",
+        "sourceHash": "7a4736b67cf14c6221aa34cfeefc10f915c66acb9edada314e9484aa219dc28b",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_READABLE_TEXT",
+          "instruction": "Extract current hours for the target entity as an atomic field/value claim.",
+          "targetEntityId": "gallery-north",
+          "requestedFields": ["hours.current"],
+          "source": "Entity gallery-north. Current hours effective 2026-09-01: 10:00-16:00. Supersedes hours 08:00-20:00."
+        }
+      },
+      {
+        "caseId": "source-claim-expired-update",
+        "caseHash": "f5e0460ea369eae970340aadef98f0b840ad82340a16838f34fa515727327d97",
+        "sourceHash": "896592fe77abded5279515896cdb4dd27a51ddf83a617b284fdc0fa94de5a80d",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_EXTRACTED_FACT_RECORDS",
+          "instruction": "Reconcile the dated update at evaluationAsOf; escalate when no current claim remains.",
+          "targetEntityId": "arrival-update",
+          "requestedFields": ["updates.arrival"],
+          "source": "[{\"entityId\":\"arrival-update\",\"fieldPath\":\"updates.arrival\",\"value\":\"Use east door\",\"effectiveDate\":\"2026-08-01\"},{\"entityId\":\"arrival-update\",\"fieldPath\":\"updates.arrival.expiresAt\",\"value\":\"2026-08-31\",\"effectiveDate\":\"2026-08-31\"}]"
+        }
+      },
+      {
+        "caseId": "source-claim-similar-entities",
+        "caseHash": "a636715b42f9ca25815f17c5ec04575cc0017b3ff5437ef7b3f4ad84fe9ecc30",
+        "sourceHash": "ace20b3cc8db3d5092499293264e83332b4ba399f6eaffd1429725b0968e169b",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_READABLE_TEXT",
+          "instruction": "Extract capacity only for the target entity; do not merge similarly named entities.",
+          "targetEntityId": "gallery-east",
+          "requestedFields": ["capacity"],
+          "source": "Entity gallery-east capacity 45. Entity gallery-eastern-annex capacity 90."
+        }
+      },
+      {
+        "caseId": "source-claim-missing-entity",
+        "caseHash": "b254f7d18a20c404a1f29dbe179a4a111755a7a04ed114eb9f38962585a4f4f3",
+        "sourceHash": "012a9d2a20b7bc3c6a242c43621f871315e9d7cb62bc6768ce86326ea450258f",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_READABLE_TEXT",
+          "instruction": "Find a stable record for the target entity, or escalate without inventing one.",
+          "targetEntityId": "quiet-room-unknown",
+          "requestedFields": [],
+          "source": "The venue has a quiet room, but this source provides no stable entity identifier."
+        }
+      },
+      {
+        "caseId": "source-claim-conflicting-facts",
+        "caseHash": "0007dc9dfb1e3c3064240804454077efdabda619dc5a503ae03d67375500ee38",
+        "sourceHash": "5a6c02220e170458dc5f70e4e4f9d700d83da2c24e6e0d7e31795e5386df13e2",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_EXTRACTED_FACT_RECORDS",
+          "instruction": "Reconcile capacity for the target entity; escalate equally supported conflicts.",
+          "targetEntityId": "gallery-conflict",
+          "requestedFields": ["capacity"],
+          "source": "[{\"entityId\":\"gallery-conflict\",\"fieldPath\":\"capacity\",\"value\":\"45\",\"confidence\":0.8},{\"entityId\":\"gallery-conflict\",\"fieldPath\":\"capacity\",\"value\":\"54\",\"confidence\":0.8}]"
+        }
+      },
+      {
+        "caseId": "source-claim-malformed-output",
+        "caseHash": "4afdeacb40848d830002f51da05171a466f10921640774ea7c1a1604b1526385",
+        "sourceHash": "e8087b6c262470f99cb4b73e84ce27732322e3adf28f4f1da95c4cf5aa3f7e1d",
+        "evaluationAsOf": "2026-09-08T12:00:00.000Z",
+        "input": {
+          "format": "SYNTHETIC_READABLE_TEXT",
+          "instruction": "Extract capacity for the target entity using the required structured output.",
+          "targetEntityId": "gallery-west",
+          "requestedFields": ["capacity"],
+          "source": "Entity gallery-west capacity 30."
+        }
+      }
+    ],
+    "graderExpected": [
+      {
+        "caseId": "source-claim-hours-current",
+        "caseHash": "2a1cca0d633150517767dbfabd55dcea1ebd076f0336708652658007947bba5e",
+        "rubric": {
+          "claims": [
+            {
+              "fieldPath": "hours.current",
+              "value": "10:00-16:00"
+            }
+          ],
+          "disposition": "EXTRACT"
+        }
+      },
+      {
+        "caseId": "source-claim-expired-update",
+        "caseHash": "f5e0460ea369eae970340aadef98f0b840ad82340a16838f34fa515727327d97",
+        "rubric": {
+          "claims": [],
+          "disposition": "ESCALATE"
+        }
+      },
+      {
+        "caseId": "source-claim-similar-entities",
+        "caseHash": "a636715b42f9ca25815f17c5ec04575cc0017b3ff5437ef7b3f4ad84fe9ecc30",
+        "rubric": {
+          "claims": [
+            {
+              "fieldPath": "capacity",
+              "value": "45"
+            }
+          ],
+          "disposition": "EXTRACT"
+        }
+      },
+      {
+        "caseId": "source-claim-missing-entity",
+        "caseHash": "b254f7d18a20c404a1f29dbe179a4a111755a7a04ed114eb9f38962585a4f4f3",
+        "rubric": {
+          "claims": [],
+          "disposition": "ESCALATE"
+        }
+      },
+      {
+        "caseId": "source-claim-conflicting-facts",
+        "caseHash": "0007dc9dfb1e3c3064240804454077efdabda619dc5a503ae03d67375500ee38",
+        "rubric": {
+          "claims": [],
+          "disposition": "ESCALATE"
+        }
+      },
+      {
+        "caseId": "source-claim-malformed-output",
+        "caseHash": "4afdeacb40848d830002f51da05171a466f10921640774ea7c1a1604b1526385",
+        "rubric": {
+          "claims": [
+            {
+              "fieldPath": "capacity",
+              "value": "30"
+            }
+          ],
+          "disposition": "EXTRACT"
+        }
+      }
+    ]
+  },
+  "modalities": {
+    "realtimeVoice": {
+      "status": "UNAVAILABLE",
+      "reason": "No shared scored P11 provider corpus observation is retained."
+    },
+    "video": {
+      "status": "UNAVAILABLE",
+      "reason": "No shared scored P10 provider corpus observation is retained."
+    }
+  },
+  "limits": [
+    "Synthetic preparation validation is not model quality evidence.",
+    "No provider, credential, billing, or live route was accessed.",
+    "Configured prices are registry estimates, not observed or invoiced cost.",
+    "An executor must not send graderExpected to a provider."
+  ]
+}
