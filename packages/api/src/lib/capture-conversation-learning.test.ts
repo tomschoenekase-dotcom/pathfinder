@@ -48,8 +48,13 @@ describe('bounded learning capture', () => {
       }),
     )
   })
-  it('does not write a candidate for a question', async () => {
-    await captureConversationLearning({ ...turn, message: 'Where is Case 12?' })
+  it.each([
+    'Where is Case 12?',
+    'The display is ugly.',
+    'This exhibit is boring and terrible.',
+    'The guide is stupid.',
+  ])('does not write a factual candidate for a question or pure opinion: %s', async (message) => {
+    await captureConversationLearning({ ...turn, message })
     expect(record).not.toHaveBeenCalled()
   })
   it('treats disabled capture as an expected skip while surfacing infrastructure failure', async () => {

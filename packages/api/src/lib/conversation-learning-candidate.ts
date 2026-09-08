@@ -43,6 +43,12 @@ const factualLead =
 const personalAssertion = /^(?:my\b|i\s+(?:am|'m|was|have|had)\b|i\s+need\b)/iu
 const hedge =
   /\b(?:i\s+(?:think|believe|guess)|it\s+seems?|apparently|possibly|probably|may be|might be|if i remember|i'm not sure)\b/iu
+const pureCopularOpinion =
+  /^(?:the|this|that)\s+(?:[\p{L}][\p{L}'-]*\s+){0,4}[\p{L}][\p{L}'-]*\s+(?:is|are|was|were)\s+(?:(?:really|very|so)\s+)?(?:awful|bad|beautiful|boring|cool|dumb|great|horrible|lame|stupid|terrible|ugly)(?:\s+and\s+(?:(?:really|very|so)\s+)?(?:awful|bad|beautiful|boring|cool|dumb|great|horrible|lame|stupid|terrible|ugly))*[.!]?$/iu
+// Keep discovery permissive when an evaluative sentence also contains a source,
+// date, material, construction or other concrete factual clause.
+const explicitFactualContext =
+  /\d|\b(?:according to|the placard|the sign|staff said|made|built|constructed|created|designed|dated|weighs?|contains?|depicts?|installed)\b/iu
 
 function hasAssertion(text: string): boolean {
   const sentences = text
@@ -94,6 +100,12 @@ export function classifyConversationLearningCandidate(
     text.length > 4000 ||
     promptInjection.test(text) ||
     personalAssertion.test(text) ||
+    (pureCopularOpinion.test(text) &&
+      !explicitFactualContext.test(text) &&
+      !correction.test(text) &&
+      !alias.test(text) &&
+      !temporary.test(text) &&
+      !location.test(text)) ||
     !hasAssertion(text)
   )
     return null

@@ -74,4 +74,48 @@ describe('conversation learning candidate discovery', () => {
       ),
     ).toBeNull()
   })
+
+  it.each(['The display is ugly.', 'This exhibit is boring and terrible.', 'The guide is stupid.'])(
+    'does not turn subjective opinion or abuse into a factual candidate: %s',
+    (message) => {
+      expect(classifyConversationLearningCandidate(message)).toBeNull()
+    },
+  )
+
+  it('retains a factual assertion when negative sentiment accompanies it', () => {
+    expect(
+      classifyConversationLearningCandidate(
+        'The display is ugly, but the placard says the locomotive was built in 1904.',
+      ),
+    ).toMatchObject({
+      kind: 'FACTUAL_ADDITION',
+      verification: 'UNVERIFIED',
+    })
+    expect(
+      classifyConversationLearningCandidate('The ugly locomotive weighs 12 tons.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+    expect(
+      classifyConversationLearningCandidate(
+        'The guide is terrible, but the east entrance is on the first floor.',
+      ),
+    ).toMatchObject({ kind: 'LOCATION' })
+    expect(
+      classifyConversationLearningCandidate('The placard says the boring exhibit weighs 12 tons.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+    expect(
+      classifyConversationLearningCandidate('Actually, the ugly display is from 1904, not 1910.'),
+    ).toMatchObject({ kind: 'FACTUAL_CORRECTION' })
+    expect(
+      classifyConversationLearningCandidate('The locomotive built in 1904 is ugly.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+    expect(
+      classifyConversationLearningCandidate('The sign says this display is ugly.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+    expect(
+      classifyConversationLearningCandidate('The statue made of bronze is ugly.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+    expect(
+      classifyConversationLearningCandidate('The locomotive built last year is ugly.'),
+    ).toMatchObject({ kind: 'FACTUAL_ADDITION' })
+  })
 })
