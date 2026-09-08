@@ -39,4 +39,6 @@ Search failure preserves the ordinary supported answer and honest knowledge gap.
 
 Implementation tests use injected provider responses and disposable/mock accounting boundaries. No live search, production enablement, or deployment is established by those tests. Real-provider answer quality, latency, and observed billing remain separate release checks under an authorized budget.
 
+The [native acceptance record](evidence/guest-general-web-native-2026-09-08.json) additionally exercises the actual chat router, PostgreSQL cost reservations and usage records, saved evidence, exact request replay without further charges, and revoked permission. It uses injected Responses/Anthropic transport and fixture embedding, analytics, and rate-limit behavior; it does not establish provider answer quality or tenant-middleware isolation.
+
 Official references: [web search](https://developers.openai.com/api/docs/guides/tools-web-search), [pricing](https://developers.openai.com/api/docs/pricing#tools), [GPT-5 Mini](https://developers.openai.com/api/docs/models/gpt-5-mini).
