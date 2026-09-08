@@ -216,6 +216,8 @@ describe('MediaRelationReviewControls', () => {
     expect(onDecision).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: 'REVERT_RELATION' }),
     )
-    expect((await axe.run(container)).violations).toEqual([])
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 })

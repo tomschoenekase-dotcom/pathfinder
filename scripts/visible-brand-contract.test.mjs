@@ -35,6 +35,7 @@ const technicalAllowlist = new Map([
     new Set([
       "export const SUPPORT_TRIAGE_APPLY_ACTION = 'pathfinder.apply_support_triage' as const",
       "'pathfinder.apply_support_information_request' as const",
+      "'pathfinder.apply_intake_v1_package_draft' as const",
       "export const SUPPORT_COMPLETION_APPLY_ACTION = 'pathfinder.apply_support_completion' as const",
       "export const SUPPORT_PACKAGE_DRAFT_APPLY_ACTION = 'pathfinder.apply_support_package_draft' as const",
       "'pathfinder.apply_support_package_approval' as const",
@@ -48,6 +49,8 @@ const technicalAllowlist = new Map([
     new Set([
       "| 'pathfinder.apply_support_triage'",
       "| 'pathfinder.apply_support_information_request'",
+      "| 'pathfinder.apply_intake_v1_package_draft'",
+      "name: 'pathfinder.apply_intake_v1_package_draft',",
       "name: 'pathfinder.apply_support_triage',",
       "name: 'pathfinder.apply_support_information_request',",
       "| 'pathfinder.apply_support_completion'",
@@ -70,6 +73,8 @@ const technicalAllowlist = new Map([
       "case 'pathfinder.apply_support_triage': {",
       "'pathfinder.apply_support_triage',",
       "case 'pathfinder.apply_support_information_request': {",
+      "case 'pathfinder.apply_intake_v1_package_draft': {",
+      "'pathfinder.apply_intake_v1_package_draft',",
       "'pathfinder.apply_support_information_request',",
       "case 'pathfinder.apply_support_completion': {",
       "'pathfinder.apply_support_completion',",

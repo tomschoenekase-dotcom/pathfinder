@@ -1,6 +1,6 @@
 # Railway staging configuration
 
-> **Migration instruction status: STAGING-ONLY AUTHORIZED â€” PRODUCTION COMMANDS REMAIN STOPPED.**
+> **Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.**
 > Tom approved this isolated Railway staging release on 2026-08-19 with a hard USD 10 ceiling. The
 > production stop in [`database-incident-stop.md`](database-incident-stop.md) remains binding.
 
@@ -211,7 +211,7 @@ identity and full release SHA are independently recorded:
 pnpm db:migrate:staging
 ```
 
-The provider secret storeâ€”not a shell history, repository file, command argument, or logâ€”must set
+The provider secret store—not a shell history, repository file, command argument, or log—must set
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `RAILWAY_ENVIRONMENT=staging`, the provider release SHA, the
 matching PathFinder release SHA, exact pooled/direct host and database confirmations, matching
 runtime/operator database resource identities, `PATHFINDER_ALLOW_STAGING_MIGRATIONS=1`,
@@ -271,12 +271,12 @@ Use `PATHFINDER_CONFIRM_STAGING_DATA_POLICY=preserve-existing`. That path remain
 operator supplies all of the following secret-free evidence from a separately stored logical backup
 and a disposable restore rehearsal completed no more than 24 hours earlier:
 
-- `PATHFINDER_STAGING_BACKUP_RELEASE_SHA` â€” the exact release being admitted;
-- `PATHFINDER_STAGING_BACKUP_DATABASE_RESOURCE` â€” the same database resource being migrated;
+- `PATHFINDER_STAGING_BACKUP_RELEASE_SHA` — the exact release being admitted;
+- `PATHFINDER_STAGING_BACKUP_DATABASE_RESOURCE` — the same database resource being migrated;
 - `PATHFINDER_STAGING_BACKUP_STORAGE_RESOURCE` and the identical
-  `PATHFINDER_CONFIRM_STAGING_BACKUP_STORAGE_RESOURCE` â€” a non-production storage resource distinct
+  `PATHFINDER_CONFIRM_STAGING_BACKUP_STORAGE_RESOURCE` — a non-production storage resource distinct
   from the database resource;
-- `PATHFINDER_STAGING_BACKUP_LEDGER_COUNT` â€” the migration ledger count observed in the backup and
+- `PATHFINDER_STAGING_BACKUP_LEDGER_COUNT` — the migration ledger count observed in the backup and
   required to match the live predeploy ledger;
 - canonical UTC `PATHFINDER_STAGING_BACKUP_CREATED_AT` and
   `PATHFINDER_STAGING_BACKUP_RESTORE_VERIFIED_AT` timestamps;
@@ -448,7 +448,7 @@ and each revision-bearing frame-policy response to a healthy deployment that
 reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
 production authorization, or M4 approval.
 
-## Post-resolution external exercise archive â€” INERT, DO NOT EXECUTE
+## Post-resolution external exercise archive — INERT, DO NOT EXECUTE
 
 Every remaining section in this file is retained only as historical design input for a future
 runbook. Its imperatives, queries, canaries, promotion steps, and proof checklists are suspended by
