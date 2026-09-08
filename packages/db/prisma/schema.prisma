@@ -1586,6 +1586,7 @@ model Place {
   itemContents       ItemContent[]
   events             EventContent[]
   venueMediaLinks    VenueMediaPlaceLink[]
+  routeLocations     VenueLocation[]
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId])
@@ -3917,6 +3918,7 @@ model VenueLocation {
   venueId               String                    @map("venue_id")
   floorId               String?                   @map("floor_id") @db.Uuid
   parentLocationId      String?                   @map("parent_location_id") @db.Uuid
+  primaryPlaceId        String?                   @map("primary_place_id")
   stableKey             String                    @map("stable_key") @db.VarChar(100)
   kind                  VenueLocationKind
   displayName           String                    @map("display_name") @db.VarChar(191)
@@ -3937,6 +3939,7 @@ model VenueLocation {
   venue                 Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   floor                 VenueFloor?               @relation(fields: [floorId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   parent                VenueLocation?            @relation("VenueLocationHierarchy", fields: [parentLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  primaryPlace          Place?                    @relation(fields: [primaryPlaceId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   children              VenueLocation[]           @relation("VenueLocationHierarchy")
   outboundConnections   VenueLocationConnection[] @relation("LocationConnectionFrom")
   inboundConnections    VenueLocationConnection[] @relation("LocationConnectionTo")
@@ -3945,6 +3948,7 @@ model VenueLocation {
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, kind, isActive])
   @@index([floorId])
+  @@index([tenantId, venueId, primaryPlaceId], map: "venue_locations_primary_place_scope_idx")
   @@map("venue_locations")
 }
 

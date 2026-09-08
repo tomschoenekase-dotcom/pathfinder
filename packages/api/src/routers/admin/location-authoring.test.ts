@@ -16,6 +16,8 @@ const { mocks, transactionClient } = vi.hoisted(() => {
     connectionCreate: vi.fn(),
     connectionUpdateMany: vi.fn(),
     proposalsFind: vi.fn(),
+    placesFind: vi.fn(),
+    placeFind: vi.fn(),
     proposalFind: vi.fn(),
     actionCreate: vi.fn(),
     timelineCreate: vi.fn(),
@@ -46,6 +48,7 @@ const { mocks, transactionClient } = vi.hoisted(() => {
         updateMany: mocks.connectionUpdateMany,
       },
       approvalRequest: { findMany: mocks.proposalsFind, findFirst: mocks.proposalFind },
+      place: { findMany: mocks.placesFind, findFirst: mocks.placeFind },
       agentAction: { create: mocks.actionCreate },
       agentTimelineEvent: { create: mocks.timelineCreate },
       auditLog: { create: vi.fn() },
@@ -94,6 +97,7 @@ const location = {
   visibility: 'PUBLIC',
   floorId: null,
   parentLocationId: null,
+  primaryPlaceId: null,
   latitude: null,
   longitude: null,
   mapX: 12.5,
@@ -204,6 +208,8 @@ beforeEach(() => {
   mocks.connectionCreate.mockResolvedValue(connection)
   mocks.connectionUpdateMany.mockResolvedValue({ count: 1 })
   mocks.proposalsFind.mockResolvedValue([])
+  mocks.placesFind.mockResolvedValue([])
+  mocks.placeFind.mockResolvedValue(null)
   mocks.proposalFind.mockResolvedValue(null)
   mocks.locationFind.mockResolvedValue(null)
   mocks.locationCreate.mockResolvedValue(location)
@@ -227,11 +233,58 @@ describe('location authoring', () => {
         .admin.getVenueLocationAuthoring({ tenantId: 'tenant-1', venueId: 'venue-1' }),
     ).resolves.toEqual({
       venue: { id: 'venue-1', name: 'Museum' },
+      places: [],
       floors: [],
       locations: [],
       connections: [],
       proposals: [],
     })
+  })
+
+  it('binds only a current public Place in exact scope and preserves an omitted update mapping', async () => {
+    const primaryPlaceId = 'place-1'
+    mocks.placeFind.mockResolvedValue({ id: primaryPlaceId })
+    await app.createCaller(context()).admin.createVenueLocationDraft({
+      ...createInput,
+      primaryPlaceId,
+    })
+    expect(mocks.placeFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: primaryPlaceId,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          isActive: true,
+          visibility: 'PUBLIC',
+        }),
+      }),
+    )
+    expect(mocks.locationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ primaryPlaceId }) }),
+    )
+
+    mocks.locationFind.mockResolvedValue({ ...location, primaryPlaceId })
+    mocks.placeFind.mockResolvedValue(null)
+    await app.createCaller(context()).admin.updateVenueLocationDraft({
+      ...draftFields(),
+      locationId: operationId,
+      expectedUpdatedAt: revision,
+      reason: 'Keep the reviewed content mapping.',
+    })
+    expect(mocks.locationUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({ primaryPlaceId: expect.anything() }),
+      }),
+    )
+
+    mocks.locationFind.mockResolvedValue(null)
+    await expect(
+      app.createCaller(context()).admin.createVenueLocationDraft({
+        ...createInput,
+        operationId: '77777777-7777-4777-8777-777777777777',
+        primaryPlaceId: 'other-venue-place',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
   it('creates an inactive, strictly audited location draft and replays only exact input', async () => {

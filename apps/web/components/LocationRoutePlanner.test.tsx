@@ -98,6 +98,68 @@ describe('LocationRoutePlanner', () => {
     )
   })
 
+  it('shows approved destination attribution and preserves directions when the image fails', async () => {
+    const restroom = {
+      ...locations[1]!,
+      kind: 'RESTROOM',
+      media: {
+        photoUrl: '/api/venue-media/fixture?venue=museum',
+        photoAttribution: {
+          altText: 'Accessible garden restroom entrance',
+          caption: 'Entrance beside the courtyard',
+          sourceName: 'Museum visitor team',
+          sourceUrl: 'https://museum.example/photos',
+        },
+      },
+    }
+    catalogQuery.mockResolvedValue({ locations: [locations[0], restroom] })
+    reachableQuery.mockResolvedValue({ destination: restroom, ranking: { alreadyHere: false } })
+    render(
+      <LocationRoutePlanner
+        venueId="venue-1"
+        anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Plan a route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find a reachable restroom' }))
+    const image = await screen.findByRole('img', { name: 'Accessible garden restroom entrance' })
+    expect(screen.getByRole('link', { name: 'Museum visitor team' }).getAttribute('href')).toBe(
+      'https://museum.example/photos',
+    )
+    fireEvent.error(image)
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.getByText('Take the lift to the upper floor.')).toBeTruthy()
+  })
+
+  it('clears destination media when the visitor changes the requested route', async () => {
+    const restroom = {
+      ...locations[1]!,
+      kind: 'RESTROOM',
+      media: {
+        photoUrl: '/api/venue-media/fixture?venue=museum',
+        photoAttribution: {
+          altText: 'Garden restroom',
+          caption: null,
+          sourceName: 'Museum',
+          sourceUrl: null,
+        },
+      },
+    }
+    catalogQuery.mockResolvedValue({ locations: [locations[0], restroom] })
+    reachableQuery.mockResolvedValue({ destination: restroom, ranking: { alreadyHere: false } })
+    render(
+      <LocationRoutePlanner
+        venueId="venue-1"
+        anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Plan a route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find a reachable restroom' }))
+    await screen.findByRole('img', { name: 'Garden restroom' })
+    fireEvent.click(screen.getByLabelText(/Use only connections marked accessible/i))
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+
   it('does not invent a route when no reviewed restroom is reachable', async () => {
     catalogQuery.mockResolvedValue({
       locations: [locations[0], { ...locations[1], kind: 'RESTROOM' }],

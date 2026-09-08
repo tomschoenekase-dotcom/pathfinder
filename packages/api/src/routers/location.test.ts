@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const entitlement = vi.hoisted(() => vi.fn())
 const routeEligibility = vi.hoisted(() => vi.fn())
+const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
 vi.mock('@pathfinder/db', () => ({ resolveProductEntitlement: entitlement }))
 vi.mock('../lib/media-relation-route-loader', () => ({
   filterEligibleMediaRouteConnections: routeEligibility,
 }))
+vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
 
 import type { TRPCContext } from '../context'
 import { router } from '../core'
@@ -79,8 +81,17 @@ describe('public structured location resolver', () => {
     vi.clearAllMocks()
     entitlement.mockResolvedValue({ enabled: true })
     routeEligibility.mockImplementation(async ({ connections }) => connections)
+    readApprovedGuestPlaceMedia.mockResolvedValue(new Map())
+    findFirst.mockResolvedValue({ id: 'current-mapping' })
     queryRaw.mockResolvedValue([
-      { tenantId: 'tenant-1', venueId: 'venue-1', experienceScope: 'PUBLIC' },
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        experienceScope: 'PUBLIC',
+        venueSlug: 'museum',
+        showPhotos: false,
+        showLinks: false,
+      },
     ])
   })
 
@@ -436,6 +447,114 @@ describe('public structured location resolver', () => {
         walkingMinutes: null,
       },
     })
+  })
+
+  it('attaches approved media only for a currently public primary Place and preserves routing on failure', async () => {
+    queryRaw.mockResolvedValue([
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        experienceScope: 'PUBLIC',
+        venueSlug: 'museum',
+        showPhotos: true,
+        showLinks: false,
+      },
+    ])
+    const destination = {
+      ...locations[1],
+      id: 'restroom',
+      stableKey: 'restroom',
+      kind: 'RESTROOM',
+      primaryPlace: { id: 'place-1', isActive: true, visibility: 'PUBLIC' },
+    }
+    findMany.mockResolvedValue([locations[0], destination])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'connection-restroom',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: 'Follow the reviewed corridor.',
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+    ])
+    const media = {
+      photoUrl: '/api/venue-media/derivative-1?venue=museum',
+      photoAttribution: {
+        altText: 'Reviewed restroom entrance',
+        caption: null,
+        sourceName: 'Museum',
+        sourceUrl: null,
+      },
+    }
+    readApprovedGuestPlaceMedia.mockResolvedValueOnce(new Map([['place-1', media]]))
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toMatchObject({
+      destination: { id: 'restroom', media },
+    })
+    expect(readApprovedGuestPlaceMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        venueSlug: 'museum',
+        placeIds: ['place-1'],
+        showPhotos: true,
+        showLinks: false,
+      }),
+    )
+
+    findFirst.mockResolvedValueOnce(null)
+    readApprovedGuestPlaceMedia.mockResolvedValueOnce(new Map([['place-1', media]]))
+    const remappedDuringRead = await caller.location.reachableDestination(reachableInput)
+    expect(remappedDuringRead.destination).toMatchObject({ id: 'restroom' })
+    expect(remappedDuringRead.destination).not.toHaveProperty('media')
+
+    readApprovedGuestPlaceMedia.mockRejectedValueOnce(new Error('optional read unavailable'))
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toMatchObject({
+      destination: { id: 'restroom' },
+    })
+  })
+
+  it('does not read media when the mapped Place is no longer public', async () => {
+    queryRaw.mockResolvedValue([
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        experienceScope: 'PUBLIC',
+        venueSlug: 'museum',
+        showPhotos: true,
+        showLinks: true,
+      },
+    ])
+    findMany.mockResolvedValue([
+      locations[0],
+      {
+        ...locations[1],
+        id: 'restroom',
+        stableKey: 'restroom',
+        kind: 'RESTROOM',
+        primaryPlace: { id: 'place-1', isActive: true, visibility: 'PRIVATE' },
+      },
+    ])
+    connectionFindMany.mockResolvedValue([
+      {
+        id: 'connection-restroom',
+        fromLocationId: 'location-entrance',
+        toLocationId: 'restroom',
+        kind: 'WALKWAY',
+        bidirectional: true,
+        accessible: true,
+        directions: null,
+        verifiedAt: new Date('2026-09-07T00:00:00Z'),
+        _count: { mediaRelationApplications: 0 },
+      },
+    ])
+    await expect(caller.location.reachableDestination(reachableInput)).resolves.toMatchObject({
+      destination: { id: 'restroom' },
+    })
+    expect(readApprovedGuestPlaceMedia).not.toHaveBeenCalled()
   })
 
   it('removes a media-derived destination when its source review loses eligibility', async () => {

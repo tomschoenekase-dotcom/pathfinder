@@ -4,6 +4,7 @@ export type RouteLocation = {
   kind: string
   displayName: string
   floor: { id: string; stableKey: string; name: string; level: number | null } | null
+  primaryPlace?: { id: string; isActive: boolean; visibility: string } | null
 }
 
 export type RouteConnection = {

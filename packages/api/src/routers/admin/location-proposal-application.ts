@@ -130,6 +130,7 @@ export const adminLocationAuthoringApplicationRouter = router({
               venueId: input.venueId,
               floorId: draft.floorId,
               parentLocationId: draft.parentLocationId,
+              primaryPlaceId: draft.primaryPlaceId ?? null,
             })
             const now = new Date()
             const created = await tx.venueLocation.create({
@@ -144,6 +145,7 @@ export const adminLocationAuthoringApplicationRouter = router({
                 visibility: draft.visibility,
                 floorId: draft.floorId,
                 parentLocationId: draft.parentLocationId,
+                primaryPlaceId: draft.primaryPlaceId ?? null,
                 latitude: draft.coordinates?.latitude ?? null,
                 longitude: draft.coordinates?.longitude ?? null,
                 mapX: draft.mapAnchor?.x ?? null,
@@ -203,6 +205,7 @@ export const adminLocationAuthoringApplicationRouter = router({
                 sourceReferences: [{ type: 'ApprovalRequest', id: request.id }],
                 afterState: {
                   stableKey: draft.stableKey,
+                  primaryPlaceId: draft.primaryPlaceId ?? null,
                   isActive: false,
                   approvalDecisionId: decision.id,
                   reason: input.reason,

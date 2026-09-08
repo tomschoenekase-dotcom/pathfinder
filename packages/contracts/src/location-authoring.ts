@@ -45,6 +45,9 @@ export const VenueLocationDraftFieldsSchema = z
     visibility: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
     floorId: z.string().uuid().nullable().default(null),
     parentLocationId: z.string().uuid().nullable().default(null),
+    // Optional preserves v1 proposal snapshots and older update clients. Create paths normalize
+    // omission to null; update paths distinguish omission from an explicit clear.
+    primaryPlaceId: z.string().min(1).max(191).nullable().optional(),
     coordinates: z
       .object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) })
       .strict()

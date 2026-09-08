@@ -28,7 +28,18 @@ const locations = [
 const source: LocationRoutePlannerDataSource = {
   catalog: async () => ({ locations }),
   reachableDestination: async (input) => ({
-    destination: locations[2]!,
+    destination: {
+      ...locations[2]!,
+      media: {
+        photoUrl: '/api/venue-media/fixture-route-photo?venue=fixture-garden',
+        photoAttribution: {
+          altText: 'Synthetic diagram of the garden restroom entrance',
+          caption: 'Fixture image for the reviewed destination',
+          sourceName: 'Garden Museum fixture',
+          sourceUrl: null,
+        },
+      },
+    },
     ranking: {
       basis: 'STRAIGHT_LINE_AMONG_REACHABLE',
       straightLineMeters: 85,

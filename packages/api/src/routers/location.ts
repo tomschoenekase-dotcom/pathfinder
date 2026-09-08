@@ -10,6 +10,7 @@ import { findDeterministicRoutePlan, projectRouteLocation } from './location-rou
 import { loadPublicLocationScope } from './location-public-scope'
 import { selectReachableLocation } from './location-reachable'
 import { filterEligibleMediaRouteConnections } from '../lib/media-relation-route-loader'
+import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 
 const safeExternalMap = z
   .string()
@@ -47,6 +48,7 @@ async function loadPublicRouteLocations(
       latitude: true,
       longitude: true,
       floor: { select: { id: true, stableKey: true, name: true, level: true } },
+      primaryPlace: { select: { id: true, isActive: true, visibility: true } },
     },
   })
   if (locations.length > 500)
@@ -156,8 +158,49 @@ export const locationRouter = router({
         accessibleOnly: input.accessibleOnly,
       })
       if (!selected) return { destination: null, ranking: null }
+      const primaryPlace = selected.location.primaryPlace
+      let destinationMedia
+      if (
+        scope.showPhotos &&
+        primaryPlace?.isActive === true &&
+        primaryPlace.visibility === 'PUBLIC'
+      ) {
+        try {
+          const approvedMedia = await readApprovedGuestPlaceMedia({
+            reader: ctx.db,
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            venueSlug: scope.venueSlug,
+            placeIds: [primaryPlace.id],
+            showPhotos: scope.showPhotos,
+            showLinks: scope.showLinks,
+          })
+          const candidateMedia = approvedMedia.get(primaryPlace.id)
+          if (candidateMedia) {
+            const currentMapping = await ctx.db.venueLocation.findFirst({
+              where: {
+                id: selected.location.id,
+                tenantId: scope.tenantId,
+                venueId: scope.venueId,
+                primaryPlaceId: primaryPlace.id,
+                visibility: 'PUBLIC',
+                isActive: true,
+                verifiedAt: { lte: new Date() },
+                primaryPlace: { is: { isActive: true, visibility: 'PUBLIC' } },
+              },
+              select: { id: true },
+            })
+            if (currentMapping) destinationMedia = candidateMedia
+          }
+        } catch {
+          // Optional media must never suppress a reviewed route destination.
+        }
+      }
       return {
-        destination: projectRouteLocation(selected.location),
+        destination: {
+          ...projectRouteLocation(selected.location),
+          ...(destinationMedia ? { media: destinationMedia } : {}),
+        },
         ranking: {
           basis: selected.rankingBasis,
           straightLineMeters: selected.straightLineMeters,

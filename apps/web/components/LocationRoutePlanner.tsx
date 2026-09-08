@@ -14,6 +14,9 @@ import { getVisitorRestroomCopy } from './visitor-restroom-copy'
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type LocationCatalog = RouterOutputs['location']['catalog']['locations']
 type LocationRoute = RouterOutputs['location']['route']
+type DestinationMedia = NonNullable<
+  RouterOutputs['location']['reachableDestination']['destination']
+>['media']
 
 export type LocationRoutePlannerDataSource = {
   reachableDestination?: (
@@ -95,6 +98,8 @@ export function LocationRoutePlanner({
   const [toLocationId, setToLocationId] = useState('')
   const [accessibleOnly, setAccessibleOnly] = useState(false)
   const [route, setRoute] = useState<LocationRoute | null>(null)
+  const [destinationMedia, setDestinationMedia] = useState<DestinationMedia>(undefined)
+  const [failedPhotoUrl, setFailedPhotoUrl] = useState<string | null>(null)
   const [isRouting, setIsRouting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,6 +114,8 @@ export function LocationRoutePlanner({
     setIsRouting(false)
     setExpanded(false)
     setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
     setError(null)
     if (!anonymousToken) {
       activeRequest.current = null
@@ -157,6 +164,8 @@ export function LocationRoutePlanner({
     requestGeneration.current += 1
     setIsRouting(false)
     setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
     setNotice(null)
     setError(null)
   }
@@ -177,9 +186,12 @@ export function LocationRoutePlanner({
     setIsRouting(true)
     setNotice(null)
     setRoute(null)
+    setDestinationMedia(undefined)
+    setFailedPhotoUrl(null)
     setError(null)
     try {
       let destinationId = toLocationId
+      let selectedMedia: DestinationMedia = undefined
       if (kind) {
         const suggestion = await runBoundedClientRequest({
           parentSignal: controller.signal,
@@ -198,8 +210,10 @@ export function LocationRoutePlanner({
         if (generation !== requestGeneration.current) return
         if (!suggestion.destination) throw new Error('No reviewed reachable destination')
         destinationId = suggestion.destination.id
+        selectedMedia = suggestion.destination.media
         setToLocationId(destinationId)
         if (suggestion.ranking?.alreadyHere) {
+          setDestinationMedia(selectedMedia)
           setNotice(alreadyHereLabel)
           return
         }
@@ -230,7 +244,10 @@ export function LocationRoutePlanner({
                 { signal },
               ),
       })
-      if (generation === requestGeneration.current) setRoute(result)
+      if (generation === requestGeneration.current) {
+        setRoute(result)
+        setDestinationMedia(selectedMedia)
+      }
     } catch {
       if (generation === requestGeneration.current)
         setError(accessibleOnly ? noAccessibleRouteMessage : noRouteMessage)
@@ -383,6 +400,37 @@ export function LocationRoutePlanner({
                 ))}
               </ol>
             </div>
+          ) : null}
+          {destinationMedia && destinationMedia.photoUrl !== failedPhotoUrl ? (
+            <figure className="mt-4 min-w-0">
+              {/* Same-origin delivery rechecks current approved media. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={destinationMedia.photoUrl}
+                alt={destinationMedia.photoAttribution.altText}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={() => setFailedPhotoUrl(destinationMedia.photoUrl)}
+                className="max-h-52 w-full rounded-xl object-contain"
+              />
+              <figcaption className="mt-2 break-words text-xs leading-5 text-[var(--chat-text-muted)]">
+                {destinationMedia.photoAttribution.caption
+                  ? `${destinationMedia.photoAttribution.caption} · `
+                  : null}
+                {destinationMedia.photoAttribution.sourceUrl ? (
+                  <a
+                    href={destinationMedia.photoAttribution.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]"
+                  >
+                    {destinationMedia.photoAttribution.sourceName}
+                  </a>
+                ) : (
+                  destinationMedia.photoAttribution.sourceName
+                )}
+              </figcaption>
+            </figure>
           ) : null}
         </form>
       ) : null}

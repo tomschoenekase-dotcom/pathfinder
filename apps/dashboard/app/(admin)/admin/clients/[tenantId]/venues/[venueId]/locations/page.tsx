@@ -16,6 +16,7 @@ export default async function VenueLocationsPage({ params }: Props) {
         venueId={venueId}
         venueName={workspace.venue.name}
         floors={workspace.floors}
+        places={workspace.places}
         initialLocations={workspace.locations}
         connections={workspace.connections}
         proposals={workspace.proposals}
