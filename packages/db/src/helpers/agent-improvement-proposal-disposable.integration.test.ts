@@ -1036,6 +1036,45 @@ describe.skipIf(!enabled)('agent improvement proposal disposable lifecycle', () 
           autonomousPromotionEligible: false,
         }),
       })
+      const overfitApprovalCount = await db.approvalRequest.count({ where: { tenantId, venueId } })
+      const overfitActivationCount = await db.agentWorkflowActivationEvent.count({
+        where: { tenantId, venueId },
+      })
+      await expect(
+        requestAgentWorkflowActivationApproval(
+          {
+            requestOperationId: randomUUID(),
+            tenantId,
+            venueId,
+            agentIdentityId: identityId,
+            registryKey: registered.version.registryKey,
+            workflowVersionId: registered.version.id,
+            promotionAssessmentId: overlapAssessment.assessment.id,
+            expectedHeadRevision: 0,
+            canaryPolicy: {
+              numerator: 1,
+              denominator: 1,
+              salt: `overfit-${suffix}`,
+              startsAt: new Date(Date.now() - 60_000).toISOString(),
+              endsAt: new Date(Date.now() + 3_600_000).toISOString(),
+              maxSelectedRuns: 1,
+              eligibleRunTypes: ['QUALITY_REVIEW'],
+              eligibleOperations: ['operator_task'],
+              skippedBaseline: { kind: 'NO_WORKFLOW' as const },
+              supportedActionClasses: ['RUN_TERMINAL_WRITE' as const],
+            },
+            reason: 'Overfit evidence cannot enter activation review.',
+            actor,
+          },
+          new Set(['resources:read']),
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(
+        overfitApprovalCount,
+      )
+      expect(await db.agentWorkflowActivationEvent.count({ where: { tenantId, venueId } })).toBe(
+        overfitActivationCount,
+      )
 
       const heldoutCase = await db.evalCase.create({
         data: {
