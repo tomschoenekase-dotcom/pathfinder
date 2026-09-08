@@ -159,6 +159,16 @@ Allow: /admin/public$
     })
   })
 
+  it('rejects excessive markup complexity before synchronous document parsing', () => {
+    expect(() =>
+      extractWebsitePage({
+        url: 'https://example.org/',
+        contentType: 'text/html',
+        body: '<div>'.repeat(50_001),
+      }),
+    ).toThrow('extraction complexity limit')
+  })
+
   it('handles deeply nested HTML without recursive traversal', () => {
     const depth = 20_000
     const result = extractWebsitePage({

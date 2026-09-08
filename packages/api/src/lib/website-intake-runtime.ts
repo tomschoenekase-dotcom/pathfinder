@@ -218,6 +218,19 @@ function elementIsHidden(element: HtmlElement) {
   )
 }
 
+function assertHtmlComplexity(body: string) {
+  // Bound markup before synchronous parsing and metadata scans.
+  // Counting every opening bracket is intentionally conservative, including
+  // brackets in attributes/scripts; rejected input is never silently truncated.
+  let markupStarts = 0
+  for (let offset = body.indexOf('<'); offset !== -1; offset = body.indexOf('<', offset + 1)) {
+    markupStarts += 1
+    if (markupStarts > 50_000) {
+      throw new WebsiteIntakePolicyError('Website markup exceeded its extraction complexity limit')
+    }
+  }
+}
+
 function readableHtmlBody(body: string) {
   const document = parse(body)
   let bodyElement: HtmlElement | undefined
@@ -332,6 +345,7 @@ export function extractWebsitePage(input: { url: string; body: string; contentTy
       extractionProfile: 'plain-text-v1' as const,
     }
   }
+  assertHtmlComplexity(input.body)
   const links = [...input.body.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/giu)]
     .map((match) => match[1])
     .filter((value): value is string => Boolean(value))
