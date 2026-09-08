@@ -103,6 +103,45 @@ describe('quarantined intake file upload', () => {
     expect(screen.getByLabelText('Choose files')).toBeTruthy()
   })
 
+  it('uses the saved museum category for optional plaque guidance without mandatory counts', () => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        venueCategory=" Museum "
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+      />,
+    )
+    expect(
+      screen.getByRole('heading', { name: 'A useful museum walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/entrance to a key gallery/i)).toBeTruthy()
+    expect(screen.getByText(/No fixed number of files is required/i)).toBeTruthy()
+    expect(
+      screen.getByText(/exhibit plaque, or label photos work well instead of video/i),
+    ).toBeTruthy()
+    expect(screen.getByText(/visitor map or guide, or a short staff answer/i)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/at least \d+|minimum of \d+/iu)
+    expect(screen.getByLabelText('Choose files')).toBeTruthy()
+  })
+
+  it.each([null, 'Hotel'])('keeps generic guidance for category %s', (venueCategory) => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        venueCategory={venueCategory}
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+      />,
+    )
+    expect(
+      screen.getByRole('heading', { name: 'A useful walkthrough, if you have one' }),
+    ).toBeTruthy()
+    expect(screen.queryByText(/exhibit plaque/i)).toBeNull()
+  })
+
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))

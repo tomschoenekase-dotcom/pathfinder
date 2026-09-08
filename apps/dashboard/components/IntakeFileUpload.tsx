@@ -55,6 +55,7 @@ const INTAKE_UPLOAD_LIST_TIMEOUT_MS = 15_000
 
 export function IntakeFileUploadWorkspace({
   venueId,
+  venueCategory,
   uploads,
   categoryCounts,
   nextCursor,
@@ -63,6 +64,7 @@ export function IntakeFileUploadWorkspace({
   checkWaitingCount,
 }: {
   venueId: string
+  venueCategory?: string | null | undefined
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
@@ -75,6 +77,7 @@ export function IntakeFileUploadWorkspace({
   return (
     <IntakeFileUpload
       venueId={venueId}
+      venueCategory={venueCategory}
       uploads={uploads}
       categoryCounts={categoryCounts}
       nextCursor={nextCursor}
@@ -276,6 +279,7 @@ class ClientIntakeFileError extends Error {}
 
 export function IntakeFileUpload({
   venueId,
+  venueCategory,
   uploads,
   categoryCounts,
   nextCursor = null,
@@ -298,6 +302,7 @@ export function IntakeFileUpload({
   checkWaitingCount,
 }: {
   venueId: string
+  venueCategory?: string | null | undefined
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
@@ -850,14 +855,29 @@ export function IntakeFileUpload({
         </label>
       </div>
 
-      <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
-        <h3 id="capture-guidance-title">A useful walkthrough, if you have one</h3>
-        <p>A short optional video of the entrance, visitor route, and useful signs is plenty.</p>
-        <p>
-          Photos of those spots, a map or guide, or a short staff answer work well too. Please avoid
-          filming visitors or sharing private details.
-        </p>
-      </div>
+      {venueCategory?.trim().toLocaleLowerCase() === 'museum' ? (
+        <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
+          <h3 id="capture-guidance-title">A useful museum walkthrough, if you have one</h3>
+          <p>
+            A short optional video from the entrance to a key gallery can show the visitor route,
+            useful signs, and amenities. No fixed number of files is required.
+          </p>
+          <p>
+            Entrance, route, amenity, gallery, exhibit plaque, or label photos work well instead of
+            video. An existing visitor map or guide, or a short staff answer, is useful too. Please
+            avoid filming visitors or sharing private details.
+          </p>
+        </div>
+      ) : (
+        <div className={styles.captureGuidance} aria-labelledby="capture-guidance-title">
+          <h3 id="capture-guidance-title">A useful walkthrough, if you have one</h3>
+          <p>A short optional video of the entrance, visitor route, and useful signs is plenty.</p>
+          <p>
+            Photos of those spots, a map or guide, or a short staff answer work well too. Please
+            avoid filming visitors or sharing private details.
+          </p>
+        </div>
+      )}
 
       {hasMaterialAttention ? (
         <section

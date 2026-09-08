@@ -331,6 +331,7 @@ export const portalRouter = router({
             select: {
               id: true,
               name: true,
+              category: true,
               isActive: true,
               _count: {
                 select: {
@@ -609,7 +610,7 @@ export const portalRouter = router({
           }
 
           return {
-            venue: { id: venue.id, name: venue.name },
+            venue: { id: venue.id, name: venue.name, category: venue.category },
             lifecycle,
             projection: resolveRemoteOnboardingProjection(evidence),
             materials,

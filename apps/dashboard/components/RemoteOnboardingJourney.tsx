@@ -18,7 +18,7 @@ import { IntakeV1SubmissionWorkspace } from './IntakeV1SubmissionWorkspace'
 import styles from './RemoteOnboardingJourney.module.css'
 
 type JourneyData = {
-  venue: { id: string; name: string }
+  venue: { id: string; name: string; category: string | null }
   lifecycle: ClientPortalLifecycleView
   projection: RemoteOnboardingProjection
   materials: {
@@ -264,6 +264,7 @@ export function RemoteOnboardingJourney({
         <div id="materials" className={styles.materials}>
           <IntakeFileUploadWorkspace
             venueId={data.venue.id}
+            venueCategory={data.venue.category}
             uploads={uploads}
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}

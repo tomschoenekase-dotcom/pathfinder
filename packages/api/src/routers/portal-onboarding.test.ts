@@ -46,6 +46,7 @@ function setEmptyJourney() {
   venueFindFirst.mockResolvedValue({
     id: 'venue-1',
     name: 'Museum',
+    category: 'Museum',
     isActive: false,
     _count: { places: 0, knowledgeEntries: 0 },
   })
@@ -89,7 +90,7 @@ describe('remote onboarding journey read model', () => {
       },
     })
     expect(result).toMatchObject({
-      venue: { id: 'venue-1', name: 'Museum' },
+      venue: { id: 'venue-1', name: 'Museum', category: 'Museum' },
       projection: {
         version: 4,
         primaryAction: {
@@ -125,7 +126,26 @@ describe('remote onboarding journey read model', () => {
         select: { id: true, subject: true, missingInformation: true, artifacts: true },
       }),
     )
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue-1', tenantId: 'tenant-1' },
+      select: expect.objectContaining({ id: true, name: true, category: true }),
+    })
     expect(evalRunFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('projects a null venue category without inferring it from the venue name', async () => {
+    setEmptyJourney()
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'venue-1',
+      name: 'Museum',
+      category: null,
+      isActive: false,
+      _count: { places: 0, knowledgeEntries: 0 },
+    })
+
+    const result = await app.createCaller(ctx).portal.getOnboardingJourney({ venueId: 'venue-1' })
+
+    expect(result.venue).toEqual({ id: 'venue-1', name: 'Museum', category: null })
   })
 
   it('prioritizes accessible questions and reports frozen QA outcomes independently', async () => {

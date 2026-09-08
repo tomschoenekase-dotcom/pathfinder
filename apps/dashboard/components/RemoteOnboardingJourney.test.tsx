@@ -7,8 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./IntakeFileUpload', () => ({
-  IntakeFileUploadWorkspace: () => (
-    <div>Types of data to submit · Videos or audio · 50 GB total</div>
+  IntakeFileUploadWorkspace: ({ venueCategory }: { venueCategory?: string | null }) => (
+    <div data-venue-category={venueCategory ?? 'generic'}>
+      Types of data to submit · Videos or audio · 50 GB total
+    </div>
   ),
 }))
 vi.mock('./IntakeProposalWorkspace', () => ({
@@ -29,7 +31,7 @@ vi.mock('./IntakeProposalReview', () => ({
 import { RemoteOnboardingJourney } from './RemoteOnboardingJourney'
 
 const data = {
-  venue: { id: 'venue-1', name: 'Museum' },
+  venue: { id: 'venue-1', name: 'Museum', category: null },
   lifecycle: {
     version: 1 as const,
     state: 'COLLECTING' as const,
@@ -100,6 +102,25 @@ function markupRoot(html: string) {
 }
 
 describe('RemoteOnboardingJourney', () => {
+  it('passes the saved venue category to capture guidance without inferring from its name', () => {
+    const museum = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          ownerId="test-owner"
+          data={{ ...data, venue: { ...data.venue, category: 'Museum' } }}
+        />,
+      ),
+    )
+    const unnamed = markupRoot(
+      renderToStaticMarkup(<RemoteOnboardingJourney ownerId="test-owner" data={data} />),
+    )
+    expect(museum.querySelector('[data-venue-category]')?.getAttribute('data-venue-category')).toBe(
+      'Museum',
+    )
+    expect(
+      unnamed.querySelector('[data-venue-category]')?.getAttribute('data-venue-category'),
+    ).toBe('generic')
+  })
   it('keeps disclosed source links touch-sized', () => {
     const css = readFileSync(
       resolve(process.cwd(), 'components/RemoteOnboardingJourney.module.css'),

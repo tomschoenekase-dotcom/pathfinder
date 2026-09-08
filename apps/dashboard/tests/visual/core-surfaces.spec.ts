@@ -186,11 +186,15 @@ test('remote onboarding gives optional capture guidance before file selection', 
   await expect(
     page.locator('[data-fixture="remote-onboarding"][data-fixture-state="share"]'),
   ).toBeVisible()
-  const guidance = page.getByRole('heading', { name: 'A useful walkthrough, if you have one' })
+  const guidance = page.getByRole('heading', {
+    name: 'A useful museum walkthrough, if you have one',
+  })
   await expect(guidance).toBeVisible()
   await expect(
-    page.getByText(/Photos of those spots, a map or guide, or a short staff answer/i),
+    page.getByText(/exhibit plaque, or label photos work well instead of video/i),
   ).toBeVisible()
+  await expect(page.getByText(/visitor map or guide, or a short staff answer/i)).toBeVisible()
+  await expect(page.getByText(/No fixed number of files is required/i)).toBeVisible()
   await expect(page.getByLabel('Choose files')).toBeVisible()
 
   await expectViewportIntegrity(page)

@@ -319,7 +319,11 @@ function scenario(state: FixtureState): {
 
   return {
     data: {
-      venue: { id: 'fixture-great-lakes-museum', name: 'Great Lakes Discovery Museum' },
+      venue: {
+        id: 'fixture-great-lakes-museum',
+        name: 'Great Lakes Discovery Museum',
+        category: 'Museum',
+      },
       lifecycle,
       projection,
       materials: fixture.materials,

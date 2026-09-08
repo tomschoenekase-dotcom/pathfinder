@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08",
+  "baselineCommit": "91a3d97dab3c4ac6893f25c360336e1f7f5a1a11",
+  "scope": "P01-03 saved museum category to optional capture guidance",
+  "implementation": [
+    "Tenant-scoped onboarding venue select/projects saved category, with null preserved rather than inferred from name.",
+    "Canonical Journey passes category into existing upload workspace. Normalized Museum category shows entrance/gallery/route/amenity and plaque/label suggestions.",
+    "Video remains optional; photos, existing map/guide and staff answers remain alternatives with no fixed required file count. Null/other category keeps generic guidance."
+  ],
+  "validation": {
+    "portalTestsPassed": 7,
+    "uploadComponentTestsPassed": 33,
+    "journeyComponentTestsPassed": 15,
+    "apiTypecheck": "passed",
+    "dashboardTypecheck": "passed",
+    "ownedLint": "passed",
+    "browserTestsPassed": 2,
+    "viewports": [
+      [390, 844],
+      [1440, 900]
+    ],
+    "axeAndOverflowChecks": "passed",
+    "rootInspectedBothScreens": true,
+    "serviceStopped": true
+  },
+  "sourceSha256Lf": {
+    "packages/api/src/routers/portal.ts": "0347b835547ef28d7d6e5f40b2e100ff632be67ec8030d2a9f962c0ad3f65c55",
+    "packages/api/src/routers/portal-onboarding.test.ts": "f305978a558cbb22fe46d54bffa12cdc35358f7d752f00c92ac8bc72dbfd7bb1",
+    "apps/dashboard/components/RemoteOnboardingJourney.tsx": "c5eba97adb41278b34f5e48ffdb58c4f587ee6e6109d47ac433b79ca577a5765",
+    "apps/dashboard/components/RemoteOnboardingJourney.test.tsx": "2a54b35c782231774fd4caf6c1c477bfee19bf4826596ab723c2b09c834028bf",
+    "apps/dashboard/components/IntakeFileUpload.tsx": "a79e46c8abfd9addf9bb72555fe53d4264a0025f65a08d4c4c4221826b237c50",
+    "apps/dashboard/components/IntakeFileUpload.test.tsx": "d5fa7ce748d58180bdb1d7a96cfed0e0254ed52b7748c8fea9f60ebc6ba85ee4",
+    "apps/dashboard/app/dev-fixtures/remote-onboarding/page.tsx": "de62155b6372bf7d00337178363426731de790e155b9ca58ab0f4b51e8879ce1",
+    "apps/dashboard/tests/visual/core-surfaces.spec.ts": "df9203f4b99b15058c4ba4c51fc76052c0b5ff9d75d2e2f85a9061c960465756"
+  },
+  "screenshots": {
+    "artifacts/mobile-visual/museum-capture-guidance-20260908/results/core-surfaces-remote-onboa-82f69-dance-before-file-selection-desktop-1440x900/remote-onboarding-capture-guidance.png": "673322017097aa45085fb5535faaa82638e9a9b2b6d9ee71c072658e5b6d3929",
+    "artifacts/mobile-visual/museum-capture-guidance-20260908/results/core-surfaces-remote-onboa-82f69-dance-before-file-selection-phone-390x844/remote-onboarding-capture-guidance.png": "a7e6d77f4368524c5998ac2a64333015d24de4ca22a7c2153bee89b15c784742"
+  },
+  "limitations": [
+    "Browser uses guarded synthetic fixture; scoped portal projection tested separately.",
+    "No real upload, external extraction, provider, deployment or final branding action.",
+    "This fulfills museum-specific guidance, not every P01-03 acceptance criterion or the full campaign."
+  ]
+}
