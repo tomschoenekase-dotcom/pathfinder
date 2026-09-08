@@ -8,6 +8,7 @@ import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { IntakeProposalReview } from './IntakeProposalReview'
 import { IntakeBuilderLifecyclePanel } from './admin/IntakeBuilderLifecyclePanel'
 import { StaffInterviewCapture, type StaffInterviewDraft } from './StaffInterviewCapture'
@@ -342,9 +343,15 @@ export const IntakeProposalWorkspace = forwardRef<
     saveStateRef.current = 'LOADING'
     setSaveState('LOADING')
     let active = true
+    const controller = new AbortController()
     void Promise.all(
       (['WEBSITE', 'INTERVIEW', 'NOTES'] as const).map(async (sourceKind) => {
-        const draft = await client.intake.getSubmissionDraft.query({ venueId, sourceKind })
+        const draft = await runBoundedClientRequest({
+          parentSignal: controller.signal,
+          timeoutMs: 15_000,
+          request: (signal) =>
+            client.intake.getSubmissionDraft.query({ venueId, sourceKind }, { signal }),
+        })
         return [sourceKind, draft] as const
       }),
     )
@@ -372,6 +379,7 @@ export const IntakeProposalWorkspace = forwardRef<
       })
     return () => {
       active = false
+      controller.abort()
     }
   }, [client, clientFacing, venueId])
 

@@ -67,6 +67,7 @@ export function ProspectCampaignWorkbench({
   const confirmationDialogRef = useRef<HTMLElement>(null)
   const refreshGeneration = useRef(0)
   const refreshAbort = useRef<AbortController | null>(null)
+  const interactionAbort = useRef(new AbortController())
 
   const refresh = useCallback(async () => {
     if (fixture) return
@@ -123,8 +124,13 @@ export function ProspectCampaignWorkbench({
     }
   }, [campaignId, client, fixture])
   useEffect(() => {
+    interactionAbort.current.abort()
+    interactionAbort.current = new AbortController()
+    setBusy(false)
+    setRefreshError('')
     void refresh()
     return () => {
+      interactionAbort.current.abort()
       refreshGeneration.current += 1
       refreshAbort.current?.abort()
       refreshAbort.current = null
@@ -290,28 +296,51 @@ export function ProspectCampaignWorkbench({
   }
 
   async function loadDeliveryBody(sendItemId: string) {
+    const controller = interactionAbort.current
     setBusy(true)
     try {
-      const body = await client.admin.getProspectDeliveryMessageBody.query({
-        campaignId,
-        sendItemId,
-        detailVersion: 2,
+      const body = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.getProspectDeliveryMessageBody.query(
+            {
+              campaignId,
+              sendItemId,
+              detailVersion: 2,
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
       setDeliveryBodies((current) => ({ ...current, [sendItemId]: body.textBodySnapshot }))
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('The frozen message could not be loaded. Try again.')
     } finally {
-      setBusy(false)
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
     }
   }
 
   async function loadMoreMembers() {
     if (!memberCursor) return
+    const controller = interactionAbort.current
     setBusy(true)
     try {
-      const page = await client.admin.listProspectCampaignMembers.query({
-        campaignId,
-        cursor: memberCursor,
-        detailVersion: 2,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.listProspectCampaignMembers.query(
+            {
+              campaignId,
+              cursor: memberCursor,
+              detailVersion: 2,
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
       setCampaign((current) =>
         current
           ? {
@@ -326,27 +355,43 @@ export function ProspectCampaignWorkbench({
           : current,
       )
       setMemberCursor(page.nextCursor)
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('More campaign recipients could not be loaded. Try again.')
     } finally {
-      setBusy(false)
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
     }
   }
 
   async function loadMoreDeliveries() {
     if (deliveryCursor === null) return
+    const controller = interactionAbort.current
     setBusy(true)
     try {
-      const page = await client.admin.listProspectCampaignDeliveries.query({
-        campaignId,
-        ...(deliveryCursor ? { cursor: deliveryCursor } : {}),
-        detailVersion: 2,
+      const page = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.admin.listProspectCampaignDeliveries.query(
+            {
+              campaignId,
+              ...(deliveryCursor ? { cursor: deliveryCursor } : {}),
+              detailVersion: 2,
+            },
+            { signal },
+          ),
       })
+      if (controller.signal.aborted || interactionAbort.current !== controller) return
       setDeliveries((current) => [
         ...current,
         ...page.items.filter((item) => !current.some((loaded) => loaded.id === item.id)),
       ])
       setDeliveryCursor(page.nextCursor)
+    } catch {
+      if (!controller.signal.aborted && interactionAbort.current === controller)
+        setRefreshError('More delivery evidence could not be loaded. Try again.')
     } finally {
-      setBusy(false)
+      if (!controller.signal.aborted && interactionAbort.current === controller) setBusy(false)
     }
   }
 

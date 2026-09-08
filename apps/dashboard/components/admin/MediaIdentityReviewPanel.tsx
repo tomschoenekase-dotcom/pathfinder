@@ -50,8 +50,21 @@ export function MediaIdentityReviewPanel({
     () =>
       dataSource ?? {
         preview: (input, signal) =>
-          client.mediaIngestion.previewIdentityCandidates.query(input, { signal }),
-        get: (input, signal) => client.mediaIngestion.getIdentityReview.query(input, { signal }),
+          runBoundedClientRequest({
+            parentSignal: signal,
+            timeoutMs: REQUEST_TIMEOUT_MS,
+            request: (requestSignal) =>
+              client.mediaIngestion.previewIdentityCandidates.query(input, {
+                signal: requestSignal,
+              }),
+          }),
+        get: (input, signal) =>
+          runBoundedClientRequest({
+            parentSignal: signal,
+            timeoutMs: REQUEST_TIMEOUT_MS,
+            request: (requestSignal) =>
+              client.mediaIngestion.getIdentityReview.query(input, { signal: requestSignal }),
+          }),
         save: (input, signal) => client.mediaIngestion.saveIdentityReview.mutate(input, { signal }),
       },
     [client, dataSource],
@@ -417,19 +430,25 @@ export function MediaIdentityReviewPanel({
           <MediaIntakeEvidenceReader
             key={review.id}
             scope={{ tenantId: scope.tenantId, venueId: scope.venueId, runId: review.id }}
-            readPage={(input, options) =>
-              client.mediaIngestion.readIdentityEvidence.query(
-                {
-                  tenantId: input.tenantId,
-                  venueId: input.venueId,
-                  projectId: scope.projectId,
-                  sourceGeneration: scope.sourceGeneration,
-                  revisionId: input.runId,
-                  offset: input.offset,
-                },
-                options,
-              )
-            }
+            readPage={(input, options) => {
+              const parentSignal = options?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+              return runBoundedClientRequest({
+                parentSignal,
+                timeoutMs: REQUEST_TIMEOUT_MS,
+                request: (signal) =>
+                  client.mediaIngestion.readIdentityEvidence.query(
+                    {
+                      tenantId: input.tenantId,
+                      venueId: input.venueId,
+                      projectId: scope.projectId,
+                      sourceGeneration: scope.sourceGeneration,
+                      revisionId: input.runId,
+                      offset: input.offset,
+                    },
+                    { signal },
+                  ),
+              })
+            }}
           />
           <p className="text-xs leading-5 text-pf-deep/75">
             Source method and coverage appear only when retained evidence records them. Missing

@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import axe from 'axe-core'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ProspectCampaignWorkbench } from './ProspectCampaignWorkbench'
@@ -190,11 +190,10 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(screen.getByText('Exact frozen subject')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load full frozen message' }))
     expect(await screen.findByText('Exact frozen body')).toBeTruthy()
-    expect(mocks.deliveryBody).toHaveBeenCalledWith({
-      campaignId: 'campaign-1',
-      sendItemId: 'item-1',
-      detailVersion: 2,
-    })
+    expect(mocks.deliveryBody).toHaveBeenCalledWith(
+      { campaignId: 'campaign-1', sendItemId: 'item-1', detailVersion: 2 },
+      { signal: expect.any(AbortSignal) },
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve exact batch' }))
     const dialog = screen.getByRole('dialog')
@@ -202,6 +201,18 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(within(dialog).getByText('internal@example.com')).toBeTruthy()
     expect(within(dialog).getByText(/Exact count: 1/)).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: /do not send/i })).toBeTruthy()
+  })
+
+  it('shows a recoverable error when a frozen-message read exceeds its deadline', async () => {
+    vi.useFakeTimers()
+    mocks.deliveryBody.mockImplementationOnce(() => new Promise(() => undefined))
+    render(<ProspectCampaignWorkbench campaignId="campaign-1" fixture={fixture('STAGED')} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load full frozen message' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_001)
+    })
+    expect(screen.getByText(/frozen message could not be loaded/i)).toBeTruthy()
+    vi.useRealTimers()
   })
 
   it('shows a zero-cost rehearsal that cannot authorize sending', () => {
@@ -336,7 +347,10 @@ describe('ProspectCampaignWorkbench release safety', () => {
     expect(screen.getByText('Stage 1 approved draft')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Browse deliveries' }))
     expect(await screen.findByText('Exact frozen subject', { selector: 'p' })).toBeTruthy()
-    expect(mocks.deliveries).toHaveBeenCalledWith({ campaignId: 'campaign-1', detailVersion: 2 })
+    expect(mocks.deliveries).toHaveBeenCalledWith(
+      { campaignId: 'campaign-1', detailVersion: 2 },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('aborts every in-flight evidence transport on unmount', async () => {

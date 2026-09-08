@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { browserUuid } from '../lib/browser-uuid'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 import { useTRPCClient } from '../lib/trpc'
 import {
   IntakeProposalWorkspace,
@@ -16,6 +17,8 @@ import {
   type IntakeV1ReviewSource,
 } from './IntakeV1ReviewPanel'
 import { IntakeV1ProcessingStatus } from './IntakeV1ProcessingStatus'
+
+const QUERY_TIMEOUT_MS = 15_000
 
 type Cursor = { createdAt: string; id: string }
 type Candidate = {
@@ -168,6 +171,7 @@ export function IntakeV1SubmissionWorkspace({
   const draftController = useRef<IntakeProposalWorkspaceController>(null)
   const mountedRef = useRef(true)
   const generationRef = useRef(0)
+  const queryScope = useRef(new AbortController())
   const clientRef = useRef(client)
   const venueRef = useRef(venueId)
   const ownerIdRef = useRef(ownerId)
@@ -217,6 +221,8 @@ export function IntakeV1SubmissionWorkspace({
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+    queryScope.current = controller
     const generation = ++generationRef.current
     mutationRef.current = null
     preservedKeysRef.current = null
@@ -233,8 +239,12 @@ export function IntakeV1SubmissionWorkspace({
     setUploadCursor(null)
     setLoadingMore(false)
     setLoadingReceipt(true)
-    void client.intake.getLatestV1
-      .query({ venueId, revisionLimit: 1 })
+    void runBoundedClientRequest({
+      parentSignal: controller.signal,
+      timeoutMs: QUERY_TIMEOUT_MS,
+      request: (signal) =>
+        client.intake.getLatestV1.query({ venueId, revisionLimit: 1 }, { signal }),
+    })
       .then((result) => {
         if (!scopeCurrent(generation)) return
         const next = result as LatestSubmission | null
@@ -253,6 +263,9 @@ export function IntakeV1SubmissionWorkspace({
       .finally(() => {
         if (scopeCurrent(generation)) setLoadingReceipt(false)
       })
+    return () => {
+      controller.abort()
+    }
   }, [client, scopeCurrent, ownerId, venueId])
 
   const persistRetry = useCallback(
@@ -300,9 +313,24 @@ export function IntakeV1SubmissionWorkspace({
     try {
       const [drafts, sourcePage, uploadPage, latestResult] = await Promise.all([
         draftController.current.prepareV1Drafts(),
-        client.intake.listV1Candidates.query({ venueId, limit: 25 }),
-        client.intake.listV1UploadCandidates.query({ venueId, limit: 25 }),
-        client.intake.getLatestV1.query({ venueId, revisionLimit: 1 }),
+        runBoundedClientRequest({
+          parentSignal: queryScope.current.signal,
+          timeoutMs: QUERY_TIMEOUT_MS,
+          request: (signal) =>
+            client.intake.listV1Candidates.query({ venueId, limit: 25 }, { signal }),
+        }),
+        runBoundedClientRequest({
+          parentSignal: queryScope.current.signal,
+          timeoutMs: QUERY_TIMEOUT_MS,
+          request: (signal) =>
+            client.intake.listV1UploadCandidates.query({ venueId, limit: 25 }, { signal }),
+        }),
+        runBoundedClientRequest({
+          parentSignal: queryScope.current.signal,
+          timeoutMs: QUERY_TIMEOUT_MS,
+          request: (signal) =>
+            client.intake.getLatestV1.query({ venueId, revisionLimit: 1 }, { signal }),
+        }),
       ])
       if (!scopeCurrent(generation)) return
       const nextLatest = latestResult as LatestSubmission | null
@@ -407,8 +435,21 @@ export function IntakeV1SubmissionWorkspace({
     try {
       const page =
         kind === 'source'
-          ? await client.intake.listV1Candidates.query({ venueId, limit: 25, cursor })
-          : await client.intake.listV1UploadCandidates.query({ venueId, limit: 25, cursor })
+          ? await runBoundedClientRequest({
+              parentSignal: queryScope.current.signal,
+              timeoutMs: QUERY_TIMEOUT_MS,
+              request: (signal) =>
+                client.intake.listV1Candidates.query({ venueId, limit: 25, cursor }, { signal }),
+            })
+          : await runBoundedClientRequest({
+              parentSignal: queryScope.current.signal,
+              timeoutMs: QUERY_TIMEOUT_MS,
+              request: (signal) =>
+                client.intake.listV1UploadCandidates.query(
+                  { venueId, limit: 25, cursor },
+                  { signal },
+                ),
+            })
       if (!scopeCurrent(generation)) return
       const additions = (page.items as Array<Candidate | UploadCandidate>).map((item) => ({
         key: kind === 'source' ? sourceKey(item.id) : uploadKey(item.id),
@@ -526,11 +567,19 @@ export function IntakeV1SubmissionWorkspace({
         setRetryUncertain(false)
         persistRetry(null)
         try {
-          const exact = (await client.intake.getV1.query({
-            venueId,
-            submissionId: result.submissionId,
-            revisionCursor: result.revision + 1,
-            revisionLimit: 1,
+          const exact = (await runBoundedClientRequest({
+            parentSignal: queryScope.current.signal,
+            timeoutMs: QUERY_TIMEOUT_MS,
+            request: (signal) =>
+              client.intake.getV1.query(
+                {
+                  venueId,
+                  submissionId: result.submissionId,
+                  revisionCursor: result.revision + 1,
+                  revisionLimit: 1,
+                },
+                { signal },
+              ),
           })) as LatestSubmission
           if (!scopeCurrent(generation)) return
           const revision = exact.revisions.find(
@@ -561,9 +610,11 @@ export function IntakeV1SubmissionWorkspace({
           persistRetry(null)
           let refreshed: LatestSubmission | null = null
           try {
-            refreshed = (await client.intake.getLatestV1.query({
-              venueId,
-              revisionLimit: 1,
+            refreshed = (await runBoundedClientRequest({
+              parentSignal: queryScope.current.signal,
+              timeoutMs: QUERY_TIMEOUT_MS,
+              request: (signal) =>
+                client.intake.getLatestV1.query({ venueId, revisionLimit: 1 }, { signal }),
             })) as LatestSubmission | null
             if (!scopeCurrent(generation)) return
           } catch {

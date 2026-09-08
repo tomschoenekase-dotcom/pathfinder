@@ -473,12 +473,10 @@ describe('IntakeV1SubmissionWorkspace', () => {
 
     await screen.findByText('Version 1 received')
     expect(screen.getByText(/2 selected items saved for review/u)).toBeTruthy()
-    expect(mocks.get).toHaveBeenCalledWith({
-      venueId: 'venue-1',
-      submissionId: 'submission-1',
-      revisionCursor: 2,
-      revisionLimit: 1,
-    })
+    expect(mocks.get).toHaveBeenCalledWith(
+      { venueId: 'venue-1', submissionId: 'submission-1', revisionCursor: 2, revisionLimit: 1 },
+      { signal: expect.any(AbortSignal) },
+    )
     expect(mocks.processing).toHaveBeenLastCalledWith({
       ownerId: 'user-1',
       venueId: 'venue-1',
@@ -539,6 +537,15 @@ describe('IntakeV1SubmissionWorkspace', () => {
       screen.queryByRole('heading', { name: 'Choose what goes into this version.' }),
     ).toBeNull()
     expect(mocks.submit).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Review my materials' }))
+    await waitFor(() =>
+      expect(mocks.sources).toHaveBeenCalledWith(
+        { venueId: 'venue-2', limit: 25 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    )
+    const replacementSignal = mocks.sources.mock.calls.at(-1)?.[1]?.signal as AbortSignal
+    expect(replacementSignal.aborted).toBe(false)
   })
 
   it('drops a late mutation result after the client is replaced', async () => {

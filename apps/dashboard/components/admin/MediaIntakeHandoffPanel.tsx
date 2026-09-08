@@ -199,7 +199,12 @@ export function MediaIntakeHandoffPanel({
       const loaded = await bounded((signal) =>
         adapter
           ? adapter.preview(scope, signal)
-          : client.mediaIngestion.previewIntakeHandoff.query(scope, { signal }),
+          : runBoundedClientRequest({
+              parentSignal: signal,
+              timeoutMs: 15_000,
+              request: (requestSignal) =>
+                client.mediaIngestion.previewIntakeHandoff.query(scope, { signal: requestSignal }),
+            }),
       )
       if (scopeGeneration.current !== generation) return
       const review = loaded.sourceGeneration
@@ -212,10 +217,15 @@ export function MediaIntakeHandoffPanel({
                   },
                   signal,
                 ) ?? Promise.resolve(null))
-              : client.mediaIngestion.getIdentityReview.query(
-                  { ...scope, sourceGeneration: loaded.sourceGeneration! },
-                  { signal },
-                ),
+              : runBoundedClientRequest({
+                  parentSignal: signal,
+                  timeoutMs: 15_000,
+                  request: (requestSignal) =>
+                    client.mediaIngestion.getIdentityReview.query(
+                      { ...scope, sourceGeneration: loaded.sourceGeneration! },
+                      { signal: requestSignal },
+                    ),
+                }),
           )
         : null
       if (scopeGeneration.current !== generation) return
@@ -325,7 +335,12 @@ export function MediaIntakeHandoffPanel({
       const next = await bounded((signal) =>
         adapter?.previewTemporal
           ? adapter.previewTemporal(input, signal)
-          : client.mediaIngestion.previewTemporalReview.query(input, { signal }),
+          : runBoundedClientRequest({
+              parentSignal: signal,
+              timeoutMs: 15_000,
+              request: (requestSignal) =>
+                client.mediaIngestion.previewTemporalReview.query(input, { signal: requestSignal }),
+            }),
       )
       if (
         scopeGeneration.current !== generation ||
@@ -360,7 +375,12 @@ export function MediaIntakeHandoffPanel({
       const next = await bounded((signal) =>
         adapter
           ? adapter.preview(input, signal)
-          : client.mediaIngestion.previewIntakeHandoff.query(input, { signal }),
+          : runBoundedClientRequest({
+              parentSignal: signal,
+              timeoutMs: 15_000,
+              request: (requestSignal) =>
+                client.mediaIngestion.previewIntakeHandoff.query(input, { signal: requestSignal }),
+            }),
       )
       if (scopeGeneration.current !== generation) return
       if (

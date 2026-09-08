@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
@@ -90,11 +90,10 @@ describe('IntakeV1ProcessingStatus', () => {
     expect(screen.getByText('Research saved')).toBeTruthy()
     expect(screen.getByText('Not scheduled for this earlier version')).toBeTruthy()
     expect(screen.getByText(/does not mean a visitor package was built/i)).toBeTruthy()
-    expect(mocks.query).toHaveBeenCalledWith({
-      venueId: 'venue-1',
-      submissionId: 'submission-1',
-      revision: 2,
-    })
+    expect(mocks.query).toHaveBeenCalledWith(
+      { venueId: 'venue-1', submissionId: 'submission-1', revision: 2 },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('refreshes only on demand and recovers from a failed read', async () => {
@@ -131,6 +130,8 @@ describe('IntakeV1ProcessingStatus', () => {
         revision={2}
       />,
     )
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1))
+    const oldSignal = mocks.query.mock.calls[0]?.[1]?.signal as AbortSignal
     const replacementQuery = vi.fn().mockResolvedValue({
       ...read([{ memberId: 'replacement', processingKind: 'REVIEW_READY', status: 'COMPLETED' }]),
       submissionId: 'submission-2',
@@ -145,16 +146,39 @@ describe('IntakeV1ProcessingStatus', () => {
         revision={3}
       />,
     )
+    expect(oldSignal.aborted).toBe(true)
     expect(await screen.findByText('Ready for review')).toBeTruthy()
     old.resolve(
       read([{ memberId: 'stale', processingKind: 'WEBSITE_RESEARCH', status: 'PENDING' }]),
     )
     await waitFor(() => expect(screen.queryByText('Waiting to process')).toBeNull())
-    expect(replacementQuery).toHaveBeenCalledWith({
-      venueId: 'venue-2',
-      submissionId: 'submission-2',
-      revision: 3,
+    expect(replacementQuery).toHaveBeenCalledWith(
+      { venueId: 'venue-2', submissionId: 'submission-2', revision: 3 },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts a stalled processing read at the bounded deadline', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | undefined
+    mocks.query.mockImplementationOnce((_input, options) => {
+      signal = options.signal
+      return new Promise(() => undefined)
     })
+    render(
+      <IntakeV1ProcessingStatus
+        ownerId="user-1"
+        venueId="venue-1"
+        submissionId="submission-1"
+        revision={2}
+      />,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_001)
+    })
+    expect(signal?.aborted).toBe(true)
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be refreshed/i)
+    vi.useRealTimers()
   })
 
   it('drops a stale response when only the trusted owner changes on the same client', async () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   CHAT_FONT_OPTIONS,
@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 
 type Venue = {
   id: string
@@ -143,6 +144,7 @@ export function ChatDesignForm({
   updateDesign,
 }: ChatDesignFormProps) {
   const client = useTRPCClient()
+  const queryScope = useRef(new AbortController())
   const revisions = useRef(
     new Map(venues.map((candidate) => [candidate.id, new Date(candidate.updatedAt)])),
   )
@@ -179,6 +181,13 @@ export function ChatDesignForm({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [isLoadingAssets, setIsLoadingAssets] = useState(false)
+  useEffect(() => {
+    if (queryScope.current.signal.aborted) queryScope.current = new AbortController()
+    const controller = queryScope.current
+    setIsLoadingAssets(false)
+    setAssetLoadError(null)
+    return () => controller.abort()
+  }, [client, selectedVenueId])
   const [assetLoadError, setAssetLoadError] = useState<string | null>(null)
   const mutationInFlight = useRef(false)
 
@@ -245,13 +254,32 @@ export function ChatDesignForm({
 
   async function loadMoreAssets() {
     if (!venue?.id || !brandingPage.nextCursor || isLoadingAssets) return
+    const cursor = brandingPage.nextCursor
+    const controller = queryScope.current
+    const initiatingClient = client
+    const initiatingVenueId = venue.id
     setIsLoadingAssets(true)
     setAssetLoadError(null)
     try {
-      const next = await client.venue.listApprovedBrandingAssets.query({
-        venueId: venue.id,
-        cursor: brandingPage.nextCursor,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.venue.listApprovedBrandingAssets.query(
+            {
+              venueId: venue.id,
+              cursor,
+            },
+            { signal },
+          ),
       })
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        venue.id !== initiatingVenueId
+      )
+        return
       setBrandingPages((current) => {
         const page = current[venue.id] ?? { items: [], nextCursor: null }
         const seen = new Set(page.items.map((asset) => asset.derivativeId))
@@ -264,11 +292,24 @@ export function ChatDesignForm({
         }
       })
     } catch (error) {
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        venue.id !== initiatingVenueId
+      )
+        return
       setAssetLoadError(
         error instanceof Error ? error.message : 'More reviewed assets could not be loaded.',
       )
     } finally {
-      setIsLoadingAssets(false)
+      if (
+        !controller.signal.aborted &&
+        queryScope.current === controller &&
+        client === initiatingClient &&
+        venue.id === initiatingVenueId
+      )
+        setIsLoadingAssets(false)
     }
   }
 

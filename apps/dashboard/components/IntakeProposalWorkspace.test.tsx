@@ -250,7 +250,10 @@ describe('IntakeProposalWorkspace', () => {
     rendered.rerender(<IntakeProposalWorkspace venueId="venue-2" proposals={[]} />)
     await new Promise((resolve) => setTimeout(resolve, 750))
     expect(mocks.draftSave).not.toHaveBeenCalled()
-    expect(mocks.draftQuery).toHaveBeenCalledWith({ venueId: 'venue-2', sourceKind: 'NOTES' })
+    expect(mocks.draftQuery).toHaveBeenCalledWith(
+      { venueId: 'venue-2', sourceKind: 'NOTES' },
+      { signal: expect.any(AbortSignal) },
+    )
   })
 
   it('flushes a pending private draft once and returns its exact saved revision', async () => {

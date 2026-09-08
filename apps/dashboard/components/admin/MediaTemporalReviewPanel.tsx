@@ -162,15 +162,20 @@ export function MediaTemporalReviewPanel({
     const page = await run(generation, (signal) =>
       adapter
         ? adapter.readEvidence({ ...scope, receiptId: saved.receiptId, offset }, signal)
-        : client.mediaIngestion.readTemporalReviewEvidence.query(
-            {
-              tenantId: scope.tenantId,
-              venueId: scope.venueId,
-              receiptId: saved.receiptId,
-              offset,
-            },
-            { signal },
-          ),
+        : runBoundedClientRequest({
+            parentSignal: signal,
+            timeoutMs: 15_000,
+            request: (requestSignal) =>
+              client.mediaIngestion.readTemporalReviewEvidence.query(
+                {
+                  tenantId: scope.tenantId,
+                  venueId: scope.venueId,
+                  receiptId: saved.receiptId,
+                  offset,
+                },
+                { signal: requestSignal },
+              ),
+          }),
     )
     if (scopeGeneration.current !== generation) return
     if (

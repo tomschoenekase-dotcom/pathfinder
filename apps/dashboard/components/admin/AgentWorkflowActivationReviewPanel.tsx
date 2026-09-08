@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import { AgentWorkflowCanaryPolicySchema } from '@pathfinder/contracts/agent-workflow-activation'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const QUERY_TIMEOUT_MS = 15_000
 
 export type AgentWorkflowActivationReviewPage = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['admin']['getAgentWorkflowActivationReview']['query']>
@@ -127,6 +130,7 @@ export function AgentWorkflowActivationReviewPanel({
   const generation = useRef(0)
   const identitySequence = useRef(0)
   const mounted = useRef(true)
+  const queryScope = useRef(new AbortController())
   const busyRef = useRef(false)
   const frozenRequest = useRef<Record<string, unknown> | null>(null)
   const frozenApply = useRef<{
@@ -152,6 +156,8 @@ export function AgentWorkflowActivationReviewPanel({
   const [feedback, setFeedback] = useState<string | null>(null)
 
   useEffect(() => {
+    queryScope.current.abort()
+    queryScope.current = new AbortController()
     mounted.current = true
     scopeRef.current = scope
     generation.current += 1
@@ -181,6 +187,7 @@ export function AgentWorkflowActivationReviewPanel({
   useEffect(
     () => () => {
       mounted.current = false
+      queryScope.current.abort()
       generation.current += 1
       identitySequence.current += 1
     },
@@ -234,10 +241,18 @@ export function AgentWorkflowActivationReviewPanel({
     if (!id) return
     const started = generation.current
     try {
-      const identity = await client.admin.getAgentIdentity.query({
-        tenantId,
-        venueId,
-        agentIdentityId: id,
+      const identity = await runBoundedClientRequest({
+        parentSignal: queryScope.current.signal,
+        timeoutMs: QUERY_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getAgentIdentity.query(
+            {
+              tenantId,
+              venueId,
+              agentIdentityId: id,
+            },
+            { signal },
+          ),
       })
       if (
         mounted.current &&
@@ -392,11 +407,19 @@ export function AgentWorkflowActivationReviewPanel({
     busyRef.current = true
     setBusy(true)
     try {
-      const result = await client.admin.getAgentWorkflowActivationReview.query({
-        tenantId,
-        venueId,
-        limit: 20,
-        ...(kind === 'candidates' ? { candidateBefore: cursor } : { requestBefore: cursor }),
+      const result = await runBoundedClientRequest({
+        parentSignal: queryScope.current.signal,
+        timeoutMs: QUERY_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.getAgentWorkflowActivationReview.query(
+            {
+              tenantId,
+              venueId,
+              limit: 20,
+              ...(kind === 'candidates' ? { candidateBefore: cursor } : { requestBefore: cursor }),
+            },
+            { signal },
+          ),
       })
       if (started !== generation.current || scopeRef.current !== scope) return
       setPage((current) =>

@@ -7,6 +7,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 
 import { useTRPCClient } from '../lib/trpc'
+import { runBoundedClientRequest } from '../lib/bounded-client-request'
 
 type ProcessingRead = inferRouterOutputs<AppRouter>['intake']['getV1Processing']
 type ProcessingMember = ProcessingRead['members'][number]
@@ -38,6 +39,7 @@ export function IntakeV1ProcessingStatus({
   const client = useTRPCClient()
   const mountedRef = useRef(true)
   const generationRef = useRef(0)
+  const requestRef = useRef<AbortController | null>(null)
   const clientRef = useRef(client)
   const scopeRef = useRef({ ownerId, venueId, submissionId, revision })
   clientRef.current = client
@@ -50,11 +52,15 @@ export function IntakeV1ProcessingStatus({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      requestRef.current?.abort()
       generationRef.current += 1
     }
   }, [])
 
   const load = useCallback(async () => {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
     const generation = ++generationRef.current
     const requestedClient = client
     const requestedScope = { ownerId, venueId, submissionId, revision }
@@ -73,10 +79,18 @@ export function IntakeV1ProcessingStatus({
     setLoading(true)
     setError(null)
     try {
-      const next: ProcessingRead = await client.intake.getV1Processing.query({
-        venueId,
-        submissionId,
-        revision,
+      const next: ProcessingRead = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: 15_000,
+        request: (signal) =>
+          client.intake.getV1Processing.query(
+            {
+              venueId,
+              submissionId,
+              revision,
+            },
+            { signal },
+          ),
       })
       if (!scopeCurrent()) return
       if (next.submissionId !== submissionId || next.revision !== revision)
@@ -88,6 +102,7 @@ export function IntakeV1ProcessingStatus({
       }
     } finally {
       if (scopeCurrent()) setLoading(false)
+      if (requestRef.current === controller) requestRef.current = null
     }
   }, [client, ownerId, revision, submissionId, venueId])
 

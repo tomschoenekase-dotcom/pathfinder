@@ -11,6 +11,9 @@ import {
 } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+
+const QUERY_TIMEOUT_MS = 15_000
 
 type GuestDesign = {
   id: string
@@ -95,11 +98,15 @@ export function GuestDesignWorkspace({
   const [notice, setNotice] = useState<string | null>(null)
   const inFlight = useRef(false)
   const generation = useRef(0)
+  const queryScope = useRef(new AbortController())
   const scope = `${tenantId}:${venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
 
   useEffect(() => {
+    queryScope.current.abort()
+    const controller = new AbortController()
+    queryScope.current = controller
     generation.current += 1
     inFlight.current = false
     setChatTheme(theme(initial.chatTheme))
@@ -118,8 +125,10 @@ export function GuestDesignWorkspace({
     setShowLinks(initial.chatShowLinks ?? false)
     setRevision(initial.updatedAt)
     setBusy(false)
+    setLoadingAssets(false)
     setNotice(null)
-  }, [initial, initialBrandingAssets, tenantId, venueId])
+    return () => controller.abort()
+  }, [client, initial, initialBrandingAssets, tenantId, venueId])
 
   const normalizedAccent = accent.trim()
   const invalidAccent = normalizedAccent !== '' && !isHexColor(normalizedAccent)
@@ -136,24 +145,56 @@ export function GuestDesignWorkspace({
 
   async function loadMoreAssets() {
     if (!brandingAssets.nextCursor || loadingAssets) return
+    const cursor = brandingAssets.nextCursor
+    const controller = queryScope.current
+    const initiatingClient = client
+    const initiatingScope = scope
     setLoadingAssets(true)
     setNotice(null)
     try {
-      const next = await client.admin.listGuestBrandingAssets.query({
-        tenantId,
-        venueId,
-        cursor: brandingAssets.nextCursor,
+      const next = await runBoundedClientRequest({
+        parentSignal: controller.signal,
+        timeoutMs: QUERY_TIMEOUT_MS,
+        request: (signal) =>
+          client.admin.listGuestBrandingAssets.query(
+            {
+              tenantId,
+              venueId,
+              cursor,
+            },
+            { signal },
+          ),
       })
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        scopeRef.current !== initiatingScope
+      )
+        return
       setBrandingAssets((current) => ({
         items: [...current.items, ...next.items],
         nextCursor: next.nextCursor,
       }))
     } catch (error) {
+      if (
+        controller.signal.aborted ||
+        queryScope.current !== controller ||
+        client !== initiatingClient ||
+        scopeRef.current !== initiatingScope
+      )
+        return
       setNotice(
         error instanceof Error ? error.message : 'More reviewed assets could not be loaded.',
       )
     } finally {
-      setLoadingAssets(false)
+      if (
+        !controller.signal.aborted &&
+        queryScope.current === controller &&
+        client === initiatingClient &&
+        scopeRef.current === initiatingScope
+      )
+        setLoadingAssets(false)
     }
   }
 

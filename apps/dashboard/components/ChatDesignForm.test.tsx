@@ -5,15 +5,23 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({ updateChatDesign: vi.fn(), listBrandingAssets: vi.fn() }))
+const mocks = vi.hoisted(() => {
+  const updateChatDesign = vi.fn()
+  const listBrandingAssets = vi.fn()
+  return {
+    updateChatDesign,
+    listBrandingAssets,
+    client: {
+      venue: {
+        updateChatDesign: { mutate: updateChatDesign },
+        listApprovedBrandingAssets: { query: listBrandingAssets },
+      },
+    },
+  }
+})
 
 vi.mock('../lib/trpc', () => ({
-  useTRPCClient: () => ({
-    venue: {
-      updateChatDesign: { mutate: mocks.updateChatDesign },
-      listApprovedBrandingAssets: { query: mocks.listBrandingAssets },
-    },
-  }),
+  useTRPCClient: () => mocks.client,
 }))
 
 import { ChatDesignForm } from './ChatDesignForm'
@@ -356,9 +364,35 @@ describe('ChatDesignForm', () => {
         }),
       ),
     )
-    expect(mocks.listBrandingAssets).toHaveBeenCalledWith({
-      venueId: brandedVenue.id,
-      cursor: first.derivativeId,
+    expect(mocks.listBrandingAssets).toHaveBeenCalledWith(
+      { venueId: brandedVenue.id, cursor: first.derivativeId },
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts the current venue transport on switch and the replacement transport on unmount', async () => {
+    const signals: AbortSignal[] = []
+    mocks.listBrandingAssets.mockImplementation((_input, options) => {
+      signals.push(options.signal)
+      return new Promise(() => undefined)
     })
+    const cursor = '11111111-1111-4111-8111-111111111111'
+    const rendered = render(
+      <ChatDesignForm
+        venues={venues}
+        brandingAssetsByVenue={{
+          [venues[0]!.id]: { items: [], nextCursor: cursor },
+          [venues[1]!.id]: { items: [], nextCursor: cursor },
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    await waitFor(() => expect(signals).toHaveLength(1))
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: venues[1]!.id } })
+    expect(signals[0]?.aborted).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more reviewed assets' }))
+    await waitFor(() => expect(signals).toHaveLength(2))
+    rendered.unmount()
+    expect(signals[1]?.aborted).toBe(true)
   })
 })
