@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08",
+  "baselineCommit": "5b8fd3221df7e6d563dde9c03156bb89176b12c5",
+  "scope": "P04 connected founder directive boundary repair and native fixture journey",
+  "fixes": [
+    "Current founder attention actionItems/attentionItems counters accepted as exact optional nonnegative integers; old snapshot omission/hashes preserved.",
+    "Founder directive HTTP forwards required validated action discriminator to proposal/materialization commands, preserving credentials and exact human approval."
+  ],
+  "native": {
+    "database": "pathfinder_disposable_founder_persona_06264692cb03",
+    "port": "55491",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-founder-persona-06264692cb03",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "expectedMigrations": 234,
+    "expectedTables": 255,
+    "migrationsPassed": true,
+    "databaseReadbackPassed": true,
+    "testPassed": true,
+    "sourceHashes": {
+      "packages/api/src/founder-persona-directive-journey.disposable.integration.test.ts": "99efcab6636e1dcc2599b2901bdfb3ad857738555b19fdb506c661ea5ee3327d",
+      "packages/api/src/root.ts": "715c585b97797954ef05965b9ed2e1830169ec1169e8b12df097928297b74db6",
+      "packages/api/src/routers/admin/attention-console-router.ts": "352da0e212b60ccb6c9c443fe7b55798396880e4d5eadb5c2d3a04ea928c4c49",
+      "packages/api/src/routers/admin/attention-console.ts": "3fe5dfa965d902b355d437048cee3f265226cb82bdec4a74566be65bd12616e3",
+      "packages/api/src/routers/admin/agent-approval-decisions.ts": "4a8f517c60386ae1fd042073933c7db327a1fc1725e01c694eae45cb911cbd15",
+      "packages/api/src/routers/admin/agent-operations.ts": "9f5458eb2fa1383b8d2e3461a7fc7d204f448df98e9e34cf4fad19df37374b06",
+      "packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts": "9c52dcc44c16220ac7bf908d46a3af75c2e7bcbb0e6e72cebeb71106d51c32e8",
+      "packages/api/src/platform-worker-policy/operating-view-http.ts": "8f2afe9ac49cf9a8dbcd1ecc5a6e7c2eadfa067e1160b48b9870a1cfffab8d99",
+      "packages/api/src/routers/admin/attention-operating-view.ts": "483be2a69007c608dc90bb35ac9df532622110ac850196668567ed81cf5b2248",
+      "packages/contracts/src/platform-worker-policy.ts": "cae5847f1be790e101d5ca2698acc1914317a3a2919611cc03b65bc864c21462",
+      "packages/api/src/middleware/require-auth.ts": "a5a99ba947e49aeffad7f8f2397d5fcba44f1638dfbf7a9b6444f4ac48b53355",
+      "packages/api/src/middleware/require-platform-admin.ts": "663f453f0ecedc24e77a852e2fe3b3d10e91348abe82e80ef09492f5d2bd3ce9",
+      "packages/db/src/helpers/founder-directive-task-actions.ts": "faeef8a5eddce0e71c7619a6b2175c7b1f4a08339b10afcdce07abdfc66fb2c8",
+      "packages/db/src/helpers/founder-operating-exchanges.ts": "991477ec9b916b12fb887872e0ead581664d32029afb6e50c67cd87d7c4826b7",
+      "packages/db/src/helpers/agent-run-execution-actions.ts": "fc483600a97c352fa3571708a041626ac6e05c092ed4a55b1f205b945566f8ac",
+      "packages/db/prisma/schema.prisma": "7334f4b155cad1a80d0100e0a491eba002116eef984ca8bd088e28958b57ec0e",
+      "scripts/lib/disposable-prisma-migration.mjs": "fcc3403fca23cdfdb02ffe6488f8fd5b9cf2eed2285d23a371b696dbe129de0e"
+    },
+    "stopped": true
+  },
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "journey": [
+    "Actual appRouter founder conversation and exact replay.",
+    "Credentialed operating-view reads retained exchange id/hash; distinct directive-task capability proposes exact scope.",
+    "Wrong scope rejected before proposal, proposal replay, actual admin approval, separate materialization and replay.",
+    "Direct deterministic fixture claims canonical execution lease and records an internal result; actual admin run/artifact/trace and refreshed founder conversation show COMPLETED."
+  ],
+  "checks": {
+    "dbExchangeTests": 8,
+    "apiConversationTests": 13,
+    "httpTests": 4,
+    "types": "API and DB passed",
+    "ownedLint": "passed"
+  },
+  "sourceSha256Lf": {
+    "packages/api/src/founder-persona-directive-journey.disposable.integration.test.ts": "99efcab6636e1dcc2599b2901bdfb3ad857738555b19fdb506c661ea5ee3327d",
+    "packages/api/src/root.ts": "f313e07e9775bbe9f1ac98c283dee46863f29c5cf655d3eb702ea68f4e9686cd",
+    "packages/api/src/routers/admin/attention-console-router.ts": "e4efb7222c504e32e0e82920e66d0c8f1ee4ab189f93fad81f7ec12d874f3618",
+    "packages/api/src/routers/admin/attention-console.ts": "3fe5dfa965d902b355d437048cee3f265226cb82bdec4a74566be65bd12616e3",
+    "packages/api/src/routers/admin/agent-approval-decisions.ts": "85aa2067be8b55afd8df2071eea2d0b8646860075672d8d80a227804f55903b7",
+    "packages/api/src/routers/admin/agent-operations.ts": "9c89fe5e4a5727a939ae808eff02b60b454159ba781d432bc5a42ec170139396",
+    "packages/api/src/platform-worker-policy/founder-directive-tasks-http.ts": "9c52dcc44c16220ac7bf908d46a3af75c2e7bcbb0e6e72cebeb71106d51c32e8",
+    "packages/api/src/platform-worker-policy/operating-view-http.ts": "133d19c793a9977fbf78702ab7ddeb2ccfc7a671da02c7e2ba28d6d8af92402e",
+    "packages/api/src/routers/admin/attention-operating-view.ts": "9629291ffba69bf30ac9750b9b9050db49f661e857999ad63b74e1f634d11825",
+    "packages/contracts/src/platform-worker-policy.ts": "8365f79cbbd11be1ef394c4d3ba1e3962715e84c4e29b9c4b4f2aca1d0a0a040",
+    "packages/api/src/middleware/require-auth.ts": "ebe3fb33b8b0d48eee9917002ab367ac65d99eab61c0f18edc2a818b8411b725",
+    "packages/api/src/middleware/require-platform-admin.ts": "ade86b704f6740235a62f0598b2bbf202773c274cd7ab57b1cbe2a340293e4ce",
+    "packages/db/src/helpers/founder-directive-task-actions.ts": "9969155fd32059fc2242e8267852d1e88c79accff54c001c2a404464adb4a795",
+    "packages/db/src/helpers/founder-operating-exchanges.ts": "991477ec9b916b12fb887872e0ead581664d32029afb6e50c67cd87d7c4826b7",
+    "packages/db/src/helpers/agent-run-execution-actions.ts": "fc483600a97c352fa3571708a041626ac6e05c092ed4a55b1f205b945566f8ac",
+    "packages/db/prisma/schema.prisma": "7334f4b155cad1a80d0100e0a491eba002116eef984ca8bd088e28958b57ec0e",
+    "scripts/lib/disposable-prisma-migration.mjs": "adeebb0be5b7a8307da4ac214028270fe77367f904c65f6c0920d508baa9bad7",
+    "packages/api/src/platform-worker-policy/founder-directive-tasks-http.test.ts": "306acb3c24d58e99b305aa8e8a51f72588bffeca863e63ac5c44fd3dff303f1c",
+    "packages/db/src/helpers/founder-operating-exchanges.test.ts": "66c21b3a742862de42c0c6905a27f2f39c66df23d63a262a00931275fe51519e"
+  },
+  "retainedInitialFailures": [
+    "b323161f1479: real strict snapshot counter mismatch fixed.",
+    "8d3d2d0d1613: fixture read proposal list instead of operating-view; corrected.",
+    "a6d8eded396f: real HTTP removed action discriminator; fixed.",
+    "123becff81c9: wrong-scope fixture assertion hit existing-exchange conflict first; reordered.",
+    "e159e8a9493f: fixture supplied nonexistent optional external worker id; removed with explicit direct-fixture limitation."
+  ],
+  "limitations": [
+    "No registered external worker, model inference, Redis delivery, process-restart, customer contact or deployment claim.",
+    "Fixture artifact validates retained result/readback plumbing; it does not measure substantive agent analysis quality.",
+    "No new UI screenshot claim. Representative founder workload and full P04-08/campaign acceptance remain incomplete."
+  ]
+}

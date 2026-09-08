@@ -80,6 +80,44 @@ function fixture(existing: Record<string, unknown> | null = null) {
 }
 
 describe('founder operating exchange actions', () => {
+  it('retains current attention counters while preserving legacy omission', async () => {
+    const current = {
+      ...input,
+      snapshot: {
+        ...input.snapshot,
+        metrics: { ...input.snapshot.metrics, actionItems: 4 },
+        changesSinceLastReview: { ...input.snapshot.changesSinceLastReview, attentionItems: 2 },
+      },
+    }
+    const now = fixture()
+    await recordFounderOperatingExchange(current, now.client as never)
+    expect(now.exchange.create.mock.calls[0]?.[0].data.snapshot).toEqual(current.snapshot)
+    const legacy = fixture()
+    await recordFounderOperatingExchange(input, legacy.client as never)
+    expect(legacy.exchange.create.mock.calls[0]?.[0].data.snapshot).toEqual(input.snapshot)
+  })
+
+  it.each([-1, 0.5])('rejects invalid new counters (%s) before mutation', async (count) => {
+    const f = fixture()
+    await expect(
+      recordFounderOperatingExchange(
+        {
+          ...input,
+          snapshot: {
+            ...input.snapshot,
+            metrics: { ...input.snapshot.metrics, actionItems: count },
+            changesSinceLastReview: {
+              ...input.snapshot.changesSinceLastReview,
+              attentionItems: count,
+            },
+          },
+        },
+        f.client as never,
+      ),
+    ).rejects.toThrow()
+    expect(f.client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('records an immutable answer hash and a strict bounded audit entry', async () => {
     const { client, exchange, transaction } = fixture()
     const result = await recordFounderOperatingExchange(input, client as never)

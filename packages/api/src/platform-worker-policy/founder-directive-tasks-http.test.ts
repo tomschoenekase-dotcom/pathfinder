@@ -65,6 +65,7 @@ describe('platform worker founder directive task HTTP boundary', () => {
     expect(verify).toHaveBeenCalledWith(secret, 'founder-directive-tasks:propose')
     expect(propose).toHaveBeenCalledWith(
       expect.objectContaining({
+        action: 'propose',
         proposedPrompt: proposal.proposedPrompt,
         actor: {
           type: 'AGENT',
@@ -99,6 +100,9 @@ describe('platform worker founder directive task HTTP boundary', () => {
     )
     expect(response.status).toBe(201)
     expect(verify).toHaveBeenCalledWith(secret, 'founder-directive-tasks:materialize')
+    expect(materialize).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'materialize', expectedApprovalDecisionId: 'decision-1' }),
+    )
     expect(enqueue).toHaveBeenCalledWith(
       { tenantId: 'tenant-1', runId: 'run-1' },
       expect.objectContaining({ enabled: expect.any(Boolean) }),

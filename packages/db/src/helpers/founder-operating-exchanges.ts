@@ -39,6 +39,7 @@ const snapshot = z
       .strict(),
     metrics: z
       .object({
+        actionItems: z.number().int().nonnegative().optional(),
         decisions: z.number().int().nonnegative(),
         criticalRisks: z.number().int().nonnegative(),
         workingAgents: z.number().int().nonnegative(),
@@ -48,6 +49,7 @@ const snapshot = z
       .strict(),
     changesSinceLastReview: z
       .object({
+        attentionItems: z.number().int().nonnegative().optional(),
         criticalRisks: z.number().int().nonnegative(),
         decisions: z.number().int().nonnegative(),
         completedAgents: z.number().int().nonnegative(),

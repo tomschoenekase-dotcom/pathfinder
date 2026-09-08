@@ -128,11 +128,9 @@ export async function handlePlatformWorkerFounderDirectiveTasksRequest(
     }
 
     if (parsed.action === 'propose') {
-      const { action: _, ...payload } = parsed
-      void _
       const result = await withTenantIsolationBypass(() =>
         (dependencies.propose ?? proposeFounderDirectiveTaskAction)({
-          ...payload,
+          ...parsed,
           actor: {
             type: 'AGENT',
             id: credential.workerId,
@@ -144,11 +142,9 @@ export async function handlePlatformWorkerFounderDirectiveTasksRequest(
       return response(result.replayed ? 200 : 201, result, requestId)
     }
 
-    const { action: _, ...payload } = parsed
-    void _
     const result = await withTenantIsolationBypass(() =>
       (dependencies.materialize ?? materializeFounderDirectiveTaskAction)({
-        ...payload,
+        ...parsed,
         actor: {
           type: 'AGENT',
           id: credential.workerId,
