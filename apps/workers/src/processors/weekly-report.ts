@@ -2,7 +2,10 @@ import { z } from 'zod'
 
 import {
   AI_MODEL_KEYS,
-  generateText,
+  AiRequestBudgetCeilingExceededError,
+  AiRoutingError,
+  generateTextForCapability,
+  routeAiCapability,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
@@ -16,6 +19,7 @@ import {
   GENERATION_EXECUTION_LEASE_MS,
   isAiAdmissionControlError,
   renewWeeklyReportExecution,
+  resolveRuntimeAiWorkloadConfiguration,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -623,11 +627,30 @@ export async function processWeeklyReportJob(
       }
       const renewLease = () =>
         renewWeeklyReportExecution({ ...claimIdentity, leaseToken: acquiredLeaseToken })
+      const configurationScope = {
+        workloadId: AI_MODEL_KEYS.WEEKLY_REPORT,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+      }
+      const configuration = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+      const route = routeAiCapability({
+        capability: 'BACKGROUND_ANALYSIS',
+        workloadId: AI_MODEL_KEYS.WEEKLY_REPORT,
+        configuration,
+      })
+      const configurationSnapshot = JSON.stringify(configuration)
       const response = await withExecutionLeaseHeartbeat({
         intervalMs: Math.floor(GENERATION_EXECUTION_LEASE_MS / 3),
         renew: renewLease,
         operation: (signal) =>
-          generateText({
+          generateTextForCapability({
+            route,
+            timeoutMs: configuration.timeoutMs,
+            maxAttempts: configuration.maxAttempts,
+            requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+            ...(configuration.maxOutputTokens !== null
+              ? { maxOutputTokens: configuration.maxOutputTokens }
+              : {}),
             signal,
             admissionGuard: async () => {
               await assertVenueAiAvailable(db, {
@@ -635,8 +658,14 @@ export async function processWeeklyReportJob(
                 venueId: payload.venueId,
               })
               if (!(await renewLease())) throw new ExecutionLeaseOwnershipLostError()
+              const current = await resolveRuntimeAiWorkloadConfiguration(configurationScope, db)
+              if (JSON.stringify(current) !== configurationSnapshot) {
+                throw new AiRoutingError(
+                  'CAPABILITY_UNAVAILABLE',
+                  'Weekly report configuration changed',
+                )
+              }
             },
-            modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
             system: [],
             messages: [{ role: 'user', content: prompt }],
             parseResponse: parseReport,
@@ -706,7 +735,11 @@ export async function processWeeklyReportJob(
       })
       throw error
     }
-    if (isAiAdmissionControlError(error)) {
+    if (
+      isAiAdmissionControlError(error) ||
+      error instanceof AiRoutingError ||
+      error instanceof AiRequestBudgetCeilingExceededError
+    ) {
       if (executionLeaseToken !== null) {
         const released = await deferWeeklyReportExecution({
           reportId: payload.reportId,

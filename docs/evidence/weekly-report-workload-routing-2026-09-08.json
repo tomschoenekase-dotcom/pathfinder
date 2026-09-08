@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "3a88878735ddebb47d3792d740884e5c3323d425",
+  "requirements": ["V2-P12-06"],
+  "proved": [
+    "Scoped effective configuration routes BACKGROUND_ANALYSIS with configured limits and cumulative request ceiling.",
+    "Actual dark-provider gateway fallback and changed-configuration denial retain fenced deferral, zero-data path and DRAFT/no-send behavior."
+  ],
+  "checks": {
+    "focusedTestsPassed": 31,
+    "combinedWorkerTestsPassed": 63,
+    "freshNonIncrementalWorkerTypes": "passed direct exit0",
+    "scopedLint": "passed with repository config"
+  },
+  "artifacts": [
+    "artifacts/worker-routing-combined-20260908.log",
+    "artifacts/worker-routing-types-20260908.log",
+    "artifacts/worker-routing-lint-final-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/processors/weekly-report.ts",
+      "sha256": "4631b27e5f369c4f27665519f20b9a0abb607a604f121950f14a4854ca2ca6b8"
+    },
+    {
+      "path": "apps/workers/src/processors/weekly-report.test.ts",
+      "sha256": "5c1cad1679dec978169a6bdd30c5ef7db43a28543178a2fd3c4a393a91f71f08"
+    }
+  ],
+  "limits": [
+    "Provider-dark worker composition; no live configuration override, provider observation, customer send, spend or deployment.",
+    "Admission snapshot comparison is not an atomic provider-I/O revision lock or rollback of already dispatched work.",
+    "Database worker transitions are mocked. Native canonical lease helper proof is separate and does not prove complete worker-to-provider execution."
+  ],
+  "nativePersistenceProof": {
+    "artifact": "docs/evidence/generation-lease-config-deferral-native-postgres-2026-09-08.json",
+    "proofId": "aa3e3a79e124",
+    "passedTests": 26,
+    "scope": "Unchanged canonical generation lease/defer helper; independently executed before this worker integration."
+  }
+}

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import { resolveAiWorkloadConfiguration, type AnthropicMessagesClient } from '@pathfinder/ai'
 import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   assertGlobalAiAvailable: vi.fn(),
   deferWeeklyReportExecution: vi.fn(),
   renewWeeklyReportExecution: vi.fn(),
+  resolveRuntimeAiWorkloadConfiguration: vi.fn(),
   reportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock('@pathfinder/db', () => ({
   acquireWeeklyReportRecoveryExecution: mocks.acquireWeeklyReportRecoveryExecution,
   deferWeeklyReportExecution: mocks.deferWeeklyReportExecution,
   renewWeeklyReportExecution: mocks.renewWeeklyReportExecution,
+  resolveRuntimeAiWorkloadConfiguration: mocks.resolveRuntimeAiWorkloadConfiguration,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
@@ -112,6 +114,9 @@ describe('processWeeklyReportJob', () => {
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
     mocks.deferWeeklyReportExecution.mockResolvedValue(true)
     mocks.renewWeeklyReportExecution.mockResolvedValue(true)
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({ workloadId: 'weekly-report' }),
+    )
     mocks.acquireWeeklyReportExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: 'report_lease_1',
@@ -158,6 +163,111 @@ describe('processWeeklyReportJob', () => {
       content: [{ type: 'text', text: JSON.stringify(validReport) }],
       usage: { input_tokens: 120, output_tokens: 50 },
     })
+  })
+
+  it('defers a claimed report when its effective configuration changes before dispatch', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'weekly-report' })
+    mocks.resolveRuntimeAiWorkloadConfiguration
+      .mockResolvedValueOnce(configuration)
+      .mockResolvedValue({ ...configuration, maxOutputTokens: 100 })
+
+    await expect(processWeeklyReportJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.deferWeeklyReportExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        leaseToken: 'report_lease_1',
+      }),
+    )
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('uses configured fallback, output ceiling, and timeout through the real gateway', async () => {
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(
+      resolveAiWorkloadConfiguration({
+        workloadId: 'weekly-report',
+        overrides: [
+          {
+            activation: 'ENABLED',
+            scope: { level: 'WORKLOAD', workloadId: 'weekly-report' },
+            values: {
+              fallback: { enabled: true, modelKeys: ['analytics-weekly-themes'] },
+              maxAttempts: 1,
+              maxOutputTokens: 321,
+              timeoutMs: 4321,
+              requestBudgetCeilingE8Usd: '1000000000',
+            },
+            unsafeChangesEnabled: true,
+            reason: 'Synthetic configured weekly-report fallback',
+          },
+        ],
+      }),
+    )
+    anthropicCreate.mockRejectedValueOnce(
+      Object.assign(new Error('primary unavailable'), { status: 503 }),
+    )
+
+    await processWeeklyReportJob(payload)
+
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: 'claude-sonnet-4-6', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+    expect(anthropicCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: 'claude-haiku-4-5-20251001', max_tokens: 321 }),
+      expect.objectContaining({ timeout: 4321 }),
+    )
+  })
+
+  it('defers without dispatch when the configured request ceiling cannot admit an attempt', async () => {
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'weekly-report' })
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue({
+      ...configuration,
+      requestBudgetCeilingE8Usd: '1',
+    })
+
+    await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
+      code: 'REQUEST_BUDGET_CEILING_EXCEEDED',
+    })
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.deferWeeklyReportExecution).toHaveBeenCalledOnce()
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not enter fallback when configuration changes during a provider failure', async () => {
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'weekly-report',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'weekly-report' },
+          values: {
+            fallback: { enabled: true, modelKeys: ['analytics-weekly-themes'] },
+            maxAttempts: 1,
+            maxOutputTokens: 321,
+          },
+          unsafeChangesEnabled: true,
+          reason: 'Synthetic failure-time weekly-report configuration change',
+        },
+      ],
+    })
+    mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue(configuration)
+    anthropicCreate.mockImplementationOnce(async () => {
+      mocks.resolveRuntimeAiWorkloadConfiguration.mockResolvedValue({
+        ...configuration,
+        requestBudgetCeilingE8Usd: '1',
+      })
+      throw Object.assign(new Error('primary unavailable'), { status: 503 })
+    })
+
+    await expect(processWeeklyReportJob(payload)).rejects.toThrow('configuration changed')
+    expect(anthropicCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.deferWeeklyReportExecution).toHaveBeenCalledOnce()
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
   })
 
   it('creates a draft and records tenant- and venue-attributed usage', async () => {
