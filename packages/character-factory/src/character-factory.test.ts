@@ -334,7 +334,10 @@ describe('agent-callable production engine', () => {
       ),
     ).rejects.toThrow('safe relative')
     const tamperedBundle = { ...bundle, bytes: Uint8Array.from(bundle.bytes) }
-    tamperedBundle.bytes[tamperedBundle.bytes.length - 2] ^= 1
+    const tamperIndex = tamperedBundle.bytes.length - 2
+    const originalByte = tamperedBundle.bytes[tamperIndex]
+    if (originalByte === undefined) throw new Error('Expected a retained bundle byte to tamper')
+    tamperedBundle.bytes[tamperIndex] = originalByte ^ 1
     await expect(readCharacterExportArtifact(tamperedBundle)).rejects.toThrow('integrity')
   })
 })
