@@ -95,6 +95,55 @@ function context(isPlatformAdmin = true): TRPCContext {
 }
 
 describe('admin attention console', () => {
+  it('carries exact action scope into recommendation-only evidence without pooling venues', async () => {
+    const identity = { id: 'agent-scoped', name: 'Scoped worker' }
+    const action = {
+      id: 'action-scoped',
+      tenantId: 'tenant-scoped',
+      venueId: 'venue-a',
+      agentRunId: 'run-scoped',
+      agentIdentityId: identity.id,
+      agentIdentity: identity,
+      actionName: 'support.draft',
+      status: 'SUCCEEDED',
+      createdAt: new Date(),
+    }
+    mocks.actions.mockResolvedValue([action, { ...action, id: 'other-action', venueId: 'venue-b' }])
+    mocks.outcomes.mockResolvedValue([
+      {
+        id: 'outcome-scoped',
+        tenantId: action.tenantId,
+        venueId: action.venueId,
+        agentRunId: action.agentRunId,
+        agentIdentityId: identity.id,
+        agentIdentity: identity,
+        relatedAgentActionId: action.id,
+        signalKind: 'QUALITY_EVALUATION',
+        verdict: 'POSITIVE',
+        taskClass: 'support',
+        summary: 'Reviewed draft result.',
+        createdAt: new Date(),
+      },
+    ])
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+    const projection = result.agentTrustEvidence.actionClassEvidence
+    expect(projection).toMatchObject({ recommendationOnly: true, authorityChange: false })
+    expect(projection?.groups.find((group) => group.venueId === 'venue-a')).toMatchObject({
+      recommendation: 'REVIEW_SCOPED_CANARY_EVIDENCE',
+      linkedOutcomeIds: ['outcome-scoped'],
+    })
+    expect(projection?.groups.find((group) => group.venueId === 'venue-b')).toMatchObject({
+      recommendation: 'COLLECT_MORE_EVIDENCE',
+      linkedOutcomeIds: [],
+    })
+    expect(mocks.actions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 11,
+        select: expect.objectContaining({ tenantId: true, venueId: true, agentRunId: true }),
+      }),
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.jobs.mockResolvedValue([])

@@ -16,6 +16,37 @@ const input = () => ({
 })
 
 describe('founder agent trust evidence', () => {
+  it('projects current exact action scope but does not infer it for legacy evidence', () => {
+    const action = {
+      id: 'action-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentRunId: 'run-1',
+      agentIdentityId: identity.id,
+      agentIdentity: identity,
+      actionName: 'support.draft',
+      status: 'SUCCEEDED' as const,
+    }
+    const current = deriveAgentTrustEvidence({ ...input(), actions: page([action]) })
+    expect(current.actionClassEvidence).toMatchObject({
+      recommendationOnly: true,
+      authorityChange: false,
+      groups: [
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          actionName: 'support.draft',
+          recommendation: 'COLLECT_MORE_EVIDENCE',
+        },
+      ],
+    })
+    const { tenantId, ...legacyAction } = action
+    expect(tenantId).toBe('tenant-1')
+    expect(
+      deriveAgentTrustEvidence({ ...input(), actions: page([legacyAction]) }),
+    ).not.toHaveProperty('actionClassEvidence')
+  })
+
   it('does not treat completed execution as quality or permission evidence', () => {
     const result = deriveAgentTrustEvidence({
       ...input(),

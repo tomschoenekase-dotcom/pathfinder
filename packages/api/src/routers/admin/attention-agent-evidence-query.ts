@@ -6,6 +6,9 @@ const agentActionEvidenceQuery = (take: number) =>
     take,
     select: {
       id: true,
+      tenantId: true,
+      venueId: true,
+      agentRunId: true,
       agentIdentityId: true,
       actionName: true,
       status: true,
@@ -25,6 +28,8 @@ const approvalDecisionEvidenceQuery = (take: number) =>
       createdAt: true,
       approvalRequest: {
         select: {
+          tenantId: true,
+          venueId: true,
           agentIdentityId: true,
           proposedAction: true,
           agentIdentity: { select: { id: true, name: true } },

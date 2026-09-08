@@ -14,6 +14,7 @@ import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
 import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
 import { FounderTwoMinuteBoard } from './FounderTwoMinuteBoard'
+import { ActionClassTrustEvidence } from './ActionClassTrustEvidence'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -567,6 +568,7 @@ export function OperationsAttentionConsole({
             </ul>
           </div>
         ) : null}
+        <ActionClassTrustEvidence evidence={data.agentTrustEvidence.actionClassEvidence} />
         <p className="mt-3 text-xs leading-5 text-slate-600">
           Counts use canonical bounded run, action, approval, and explicit outcome evidence
           {data.agentTrustEvidence.boundedSnapshot.hasMore ? '; additional evidence exists' : ''}.

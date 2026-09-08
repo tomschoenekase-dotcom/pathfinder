@@ -1,7 +1,12 @@
+import { deriveActionClassEvidence } from './attention-action-class-evidence'
+
 type Verdict = 'POSITIVE' | 'MIXED' | 'NEGATIVE' | 'INCONCLUSIVE'
 
 type Identity = { id: string; name: string }
 type Outcome = {
+  id?: string
+  tenantId?: string
+  venueId?: string | null
   agentRunId: string
   agentIdentityId: string
   verdict: Verdict
@@ -23,14 +28,21 @@ type Run = {
 }
 type CompletedRun = Run & { _count: { outcomeObservations: number } }
 type Action = {
+  id?: string
+  tenantId?: string
+  venueId?: string | null
+  agentRunId?: string
   agentIdentityId: string
   status: 'SUCCEEDED' | 'FAILED' | 'DENIED' | 'CANCELLED'
   actionName: string
   agentIdentity: Identity
 }
 type Approval = {
+  id?: string
   decision: 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED'
   approvalRequest: {
+    tenantId?: string
+    venueId?: string | null
     agentIdentityId: string
     proposedAction: string
     agentIdentity: Identity
@@ -61,6 +73,57 @@ export function deriveAgentTrustEvidence(input: {
   actions: Page<Action>
   approvalDecisions: Page<Approval>
 }) {
+  // Historical snapshots lack exact action scope. They remain readable, but cannot
+  // support new action-class recommendations by guessing the missing identities.
+  const scopedActions = input.actions.items.flatMap((item) =>
+    item.id && item.tenantId && item.venueId !== undefined && item.agentRunId
+      ? [
+          {
+            ...item,
+            id: item.id,
+            tenantId: item.tenantId,
+            venueId: item.venueId,
+            agentRunId: item.agentRunId,
+          },
+        ]
+      : [],
+  )
+  const scopedOutcomes = input.outcomes.items.flatMap((item) =>
+    item.id && item.tenantId && item.venueId !== undefined
+      ? [
+          {
+            ...item,
+            id: item.id,
+            tenantId: item.tenantId,
+            venueId: item.venueId,
+            relatedAgentActionId: item.relatedAgentActionId ?? null,
+          },
+        ]
+      : [],
+  )
+  const scopedApprovals = input.approvalDecisions.items.flatMap((item) =>
+    item.id && item.approvalRequest.tenantId && item.approvalRequest.venueId !== undefined
+      ? [
+          {
+            ...item.approvalRequest,
+            id: item.id,
+            tenantId: item.approvalRequest.tenantId,
+            venueId: item.approvalRequest.venueId,
+            decision: item.decision,
+          },
+        ]
+      : [],
+  )
+  const actionClassEvidence =
+    scopedActions.length === input.actions.items.length &&
+    scopedOutcomes.length === input.outcomes.items.length &&
+    scopedApprovals.length === input.approvalDecisions.items.length
+      ? deriveActionClassEvidence({
+          actions: { ...input.actions, items: scopedActions },
+          outcomes: { ...input.outcomes, items: scopedOutcomes },
+          approvalDecisions: { ...input.approvalDecisions, items: scopedApprovals },
+        })
+      : undefined
   const verdicts = verdictCounts(input.outcomes.items)
   const completedWithObservation = input.completedAgents.items.filter(
     (item) => item._count.outcomeObservations > 0,
@@ -182,6 +245,7 @@ export function deriveAgentTrustEvidence(input: {
     )
 
   return {
+    ...(actionClassEvidence ? { actionClassEvidence } : {}),
     schemaVersion: 3 as const,
     state,
     verdicts,
