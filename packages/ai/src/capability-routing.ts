@@ -111,6 +111,12 @@ export function routeAiCapability(params: {
   qualityPreference?: 'ECONOMY' | 'BALANCED' | 'PREMIUM'
 }): AiRoutePlan {
   const capability = AiCapability.parse(params.capability)
+  if (params.configuration.workloadId !== params.workloadId) {
+    throw new AiRoutingError(
+      'CAPABILITY_MISMATCH',
+      `Configuration for ${params.configuration.workloadId} cannot route ${params.workloadId}`,
+    )
+  }
   if (!AI_WORKLOAD_CAPABILITIES[params.workloadId].includes(capability as never)) {
     throw new AiRoutingError(
       'CAPABILITY_MISMATCH',
