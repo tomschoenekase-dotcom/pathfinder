@@ -50,6 +50,11 @@ describe('agent question actions', () => {
     ).resolves.toMatchObject({ replayed: true, questionId: 'question-answered' })
     expect(transaction.agentQuestion.updateMany).not.toHaveBeenCalled()
     expect(transaction.agentRun.updateMany).toHaveBeenCalledOnce()
+    expect(transaction.agentRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'QUEUED', cancelRequestedAt: null }),
+      }),
+    )
     expect(transaction.agentTimelineEvent.create).not.toHaveBeenCalled()
     expect(transaction.agentMessage.create).not.toHaveBeenCalled()
     expect(transaction.auditLog.create).not.toHaveBeenCalled()
@@ -225,6 +230,7 @@ describe('agent question actions', () => {
         tenantId: 'tenant-1',
         venueId: 'venue-1',
         status: 'AWAITING_INPUT',
+        cancelRequestedAt: null,
       },
       data: {
         status: 'QUEUED',

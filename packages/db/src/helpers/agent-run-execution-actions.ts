@@ -299,6 +299,29 @@ export async function claimAgentRunExecution(
               take: 6,
               select: { id: true, body: true, authorId: true, createdAt: true },
             },
+            onboardingLink: {
+              select: {
+                tenantId: true,
+                venueId: true,
+                agentQuestionId: true,
+                supportRequestId: true,
+                answeredSupportMessageId: true,
+                resumedAt: true,
+                answeredSupportMessage: {
+                  select: {
+                    id: true,
+                    tenantId: true,
+                    venueId: true,
+                    supportRequestId: true,
+                    authorKind: true,
+                    authorId: true,
+                    visibility: true,
+                    body: true,
+                    createdAt: true,
+                  },
+                },
+              },
+            },
           },
         },
         messages: {

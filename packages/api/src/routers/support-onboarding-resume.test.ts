@@ -227,6 +227,29 @@ describe('support onboarding question resumption', () => {
     expect(mocks.warn).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])(
+    'returns a saved linked response without dispatch when ineligible (replay=%s)',
+    async (replayed) => {
+      mocks.respond.mockResolvedValue(savedReply(replayed))
+      mocks.resume.mockResolvedValue({ ...linkedResume(replayed), runEligibleToResume: false })
+
+      const result = await app.createCaller(context).support.respondToInformation(input)
+
+      expect(result).toMatchObject({
+        replayed,
+        message: { id: 'message_1', body: input.body },
+        onboardingResume: {
+          linked: true,
+          replayed,
+          executionTriggered: false,
+          dispatchStatus: 'NOT_NEEDED',
+        },
+      })
+      expect(mocks.enqueue).not.toHaveBeenCalled()
+      expect(mocks.warn).not.toHaveBeenCalled()
+    },
+  )
+
   it('rejects linked-question resumption failures and never dispatches', async () => {
     mocks.resume.mockRejectedValueOnce(new Error('canonical resume persistence failed'))
 

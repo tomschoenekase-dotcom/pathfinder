@@ -456,6 +456,7 @@ export async function answerAgentQuestionAction(
           tenantId: input.tenantId,
           venueId: input.venueId,
           status: 'AWAITING_INPUT',
+          cancelRequestedAt: null,
         },
         data: {
           status: 'QUEUED',
@@ -485,6 +486,7 @@ export async function answerAgentQuestionAction(
           tenantId: input.tenantId,
           venueId: input.venueId,
           status: 'QUEUED',
+          cancelRequestedAt: null,
         },
         select: { id: true },
       })

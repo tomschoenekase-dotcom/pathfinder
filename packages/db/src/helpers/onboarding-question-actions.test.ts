@@ -14,6 +14,52 @@ function client(transaction: Record<string, unknown>) {
 const operationId = '86d4ee39-a7c7-44ab-bf24-75c187cff002'
 const updatedAt = new Date('2026-08-18T17:30:00.000Z')
 
+function resumeTransaction(runStatus = 'AWAITING_INPUT', remainingBlockers = 0) {
+  return {
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    $queryRaw: vi
+      .fn()
+      .mockResolvedValue([{ id: 'run-1', status: runStatus, cancelRequestedAt: null }]),
+    onboardingQuestionLink: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'link-1',
+        agentQuestionId: 'question-1',
+        expectedQuestionUpdatedAt: updatedAt,
+        answeredSupportMessageId: null,
+        resumedAt: null,
+        createdAt: updatedAt,
+      }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    supportMessage: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'message-2', body: 'Client answer.' }),
+    },
+    agentQuestion: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'question-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        blocking: true,
+        status: 'PENDING',
+        updatedAt,
+      }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      count: vi.fn().mockResolvedValue(remainingBlockers),
+    },
+    agentRun: {
+      findFirst: vi.fn().mockResolvedValue({ status: runStatus, cancelRequestedAt: null }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline-1' }) },
+    agentMessage: { create: vi.fn().mockResolvedValue({ id: 'agent-message-1' }) },
+    onboardingMilestoneEvent: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(async ({ data }) => data),
+    },
+    auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+  }
+}
+
 function creationInput() {
   return {
     operationId,
@@ -145,6 +191,9 @@ describe('onboarding question coordination actions', () => {
   it('claims one exact client response and makes only its blocked run resumable', async () => {
     const transaction = {
       $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([{ id: 'run-1', status: 'AWAITING_INPUT', cancelRequestedAt: null }]),
       onboardingQuestionLink: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'link-1',
@@ -172,6 +221,7 @@ describe('onboarding question coordination actions', () => {
           updatedAt,
         }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        count: vi.fn().mockResolvedValue(0),
       },
       agentRun: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'timeline-1' }) },
@@ -201,14 +251,25 @@ describe('onboarding question coordination actions', () => {
       agentRunId: 'run-1',
       questionId: 'question-1',
     })
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.agentQuestion.updateMany.mock.invocationCallOrder[0]!,
+    )
     expect(transaction.agentRun.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'run-1',
         tenantId: 'tenant-1',
         venueId: 'venue-1',
         status: 'AWAITING_INPUT',
+        cancelRequestedAt: null,
       },
-      data: { status: 'QUEUED' },
+      data: {
+        status: 'QUEUED',
+        executionBridgeSessionId: null,
+        executionWorkerId: null,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+        lastHeartbeatAt: null,
+      },
     })
     expect(transaction.agentMessage.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -229,6 +290,9 @@ describe('onboarding question coordination actions', () => {
   it('returns a same-message replay for idempotent redispatch and rejects a stale answer claim', async () => {
     const replayTransaction = {
       $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([{ id: 'run-1', status: 'QUEUED', cancelRequestedAt: null }]),
       onboardingQuestionLink: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'link-1',
@@ -238,8 +302,10 @@ describe('onboarding question coordination actions', () => {
           resumedAt: new Date('2026-08-18T17:45:00.000Z'),
         }),
       },
+      supportMessage: { findFirst: vi.fn().mockResolvedValue({ id: 'message-2' }) },
       agentQuestion: { findFirst: vi.fn().mockResolvedValue({ agentRunId: 'run-1' }) },
     }
+    Object.assign(replayTransaction.agentQuestion, { count: vi.fn().mockResolvedValue(0) })
     const base = {
       tenantId: 'tenant-1',
       venueId: 'venue-1',
@@ -256,5 +322,105 @@ describe('onboarding question coordination actions', () => {
         client(replayTransaction) as never,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+    replayTransaction.supportMessage.findFirst.mockResolvedValue(null)
+    await expect(
+      resumeOnboardingQuestionFromSupportAction(
+        { ...base, actor: { actorId: 'different-client', auditRole: 'MANAGER' } },
+        client(replayTransaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
+
+  it('records the client answer but keeps the run blocked while another blocker remains', async () => {
+    const transaction = resumeTransaction('AWAITING_INPUT', 1)
+    const result = await resumeOnboardingQuestionFromSupportAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        supportRequestId: 'request-1',
+        supportMessageId: 'message-2',
+        actor: { actorId: 'client-1', auditRole: 'MANAGER' },
+      },
+      client(transaction) as never,
+    )
+    expect(result).toMatchObject({ replayed: false, runEligibleToResume: false })
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+    expect(transaction.onboardingQuestionLink.updateMany).toHaveBeenCalledTimes(1)
+    expect(transaction.agentMessage.create).toHaveBeenCalledTimes(1)
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          afterState: expect.objectContaining({ runEligibleToResume: false }),
+        }),
+      }),
+    )
+  })
+
+  it.each(['RUNNING', 'COMPLETED', 'CANCELLED'])(
+    'records an exact answer without claiming %s work is resumable',
+    async (runStatus) => {
+      const transaction = resumeTransaction(runStatus, 0)
+      await expect(
+        resumeOnboardingQuestionFromSupportAction(
+          {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            supportRequestId: 'request-1',
+            supportMessageId: 'message-2',
+            actor: { actorId: 'client-1', auditRole: 'MANAGER' },
+          },
+          client(transaction) as never,
+        ),
+      ).resolves.toMatchObject({ runEligibleToResume: false })
+      expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+    },
+  )
+
+  it('records the answer without reviving a queued run with cancellation intent', async () => {
+    const transaction = resumeTransaction('QUEUED', 0)
+    transaction.$queryRaw.mockResolvedValue([
+      { id: 'run-1', status: 'QUEUED', cancelRequestedAt: updatedAt },
+    ])
+    await expect(
+      resumeOnboardingQuestionFromSupportAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          supportRequestId: 'request-1',
+          supportMessageId: 'message-2',
+          actor: { actorId: 'client-1', auditRole: 'MANAGER' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ runEligibleToResume: false })
+    expect(transaction.agentRun.updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each(['RUNNING', 'COMPLETED', 'CANCELLED'])(
+    'reports same-message replay as ineligible when the run is %s',
+    async (runStatus) => {
+      const transaction = resumeTransaction(runStatus, 0)
+      transaction.onboardingQuestionLink.findFirst.mockResolvedValue({
+        id: 'link-1',
+        agentQuestionId: 'question-1',
+        expectedQuestionUpdatedAt: updatedAt,
+        answeredSupportMessageId: 'message-2',
+        resumedAt: new Date('2026-08-18T17:45:00.000Z'),
+        createdAt: updatedAt,
+      })
+      transaction.agentQuestion.findFirst.mockResolvedValue({ agentRunId: 'run-1' } as never)
+      await expect(
+        resumeOnboardingQuestionFromSupportAction(
+          {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            supportRequestId: 'request-1',
+            supportMessageId: 'message-2',
+            actor: { actorId: 'client-1', auditRole: 'MANAGER' },
+          },
+          client(transaction) as never,
+        ),
+      ).resolves.toMatchObject({ replayed: true, runEligibleToResume: false })
+    },
+  )
 })

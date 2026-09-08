@@ -1,4 +1,4 @@
-const EXECUTION_CONTEXT_VERSION = 2
+const EXECUTION_CONTEXT_VERSION = 3
 const DEFAULT_CONTEXT_MAX_CHARS = 8_000
 
 type ExecutionQuestion = {
@@ -12,6 +12,26 @@ type ExecutionQuestion = {
   evidence: unknown
   callbackMetadata: unknown
   discussionMessages?: ExecutionDiscussionMessage[]
+  onboardingLink?: ExecutionOnboardingLink | null
+}
+type ExecutionOnboardingLink = {
+  tenantId: string
+  venueId: string
+  agentQuestionId: string
+  supportRequestId: string
+  answeredSupportMessageId: string | null
+  resumedAt: Date | null
+  answeredSupportMessage: {
+    id: string
+    tenantId: string
+    venueId: string
+    supportRequestId: string
+    authorKind: string
+    authorId: string
+    visibility: string
+    body: string
+    createdAt: Date
+  } | null
 }
 type ExecutionDiscussionMessage = {
   id: string
@@ -48,6 +68,30 @@ function boundedJson(value: unknown, maxChars: number) {
   return boundedText(JSON.stringify(value), maxChars)
 }
 
+function exactClientResponse(run: AgentRunExecutionContextSource, question: ExecutionQuestion) {
+  const link = question.onboardingLink
+  const message = link?.answeredSupportMessage
+  if (
+    !link ||
+    !message ||
+    !link.resumedAt ||
+    !link.answeredSupportMessageId ||
+    run.venueId === null ||
+    link.tenantId !== run.tenantId ||
+    link.venueId !== run.venueId ||
+    link.agentQuestionId !== question.id ||
+    message.id !== link.answeredSupportMessageId ||
+    message.tenantId !== link.tenantId ||
+    message.venueId !== link.venueId ||
+    message.supportRequestId !== link.supportRequestId ||
+    message.authorKind !== 'CLIENT' ||
+    message.visibility !== 'CLIENT_VISIBLE' ||
+    question.answeredById !== message.authorId
+  )
+    return null
+  return message
+}
+
 /** Builds descriptive resume data for a claimed run. It never grants action authority. */
 export function buildBoundedAgentRunExecutionContext(
   run: AgentRunExecutionContextSource,
@@ -70,6 +114,7 @@ export function buildBoundedAgentRunExecutionContext(
     },
     currentResolvedQuestions: questions.map((question) => {
       const selectedDiscussion = (question.discussionMessages ?? []).slice(0, 5).reverse()
+      const clientResponse = exactClientResponse(run, question)
       return {
         questionId: question.id,
         category: question.category,
@@ -80,6 +125,18 @@ export function buildBoundedAgentRunExecutionContext(
         updatedAt: question.updatedAt.toISOString(),
         evidence: boundedJson(question.evidence, 120),
         callbackMetadata: boundedJson(question.callbackMetadata, 120),
+        ...(clientResponse
+          ? {
+              clientResponse: {
+                supportRequestId: question.onboardingLink!.supportRequestId,
+                supportMessageId: clientResponse.id,
+                authorId: clientResponse.authorId,
+                body: boundedText(clientResponse.body, 420),
+                createdAt: clientResponse.createdAt.toISOString(),
+                truncated: clientResponse.body.length > 420,
+              },
+            }
+          : {}),
         discussion: selectedDiscussion.map((message) => ({
           messageId: message.id,
           authorId: message.authorId,
@@ -104,6 +161,9 @@ export function buildBoundedAgentRunExecutionContext(
       ).length,
       truncatedQuestionMetadata: questions.filter(
         (question) => JSON.stringify(question.callbackMetadata).length > 120,
+      ).length,
+      truncatedClientResponses: questions.filter(
+        (question) => (exactClientResponse(run, question)?.body.length ?? 0) > 420,
       ).length,
       truncatedDiscussionBodies: questions
         .flatMap((question) => (question.discussionMessages ?? []).slice(0, 5))
@@ -147,6 +207,18 @@ export function buildBoundedAgentRunExecutionContext(
       Math.max(80, reducible.question.length - 40),
     )
   }
+  while (JSON.stringify(context).length > maxChars) {
+    const reducible = [...context.currentResolvedQuestions]
+      .reverse()
+      .find((question) => 'clientResponse' in question && question.clientResponse.body.length > 80)
+    if (!reducible || !('clientResponse' in reducible)) break
+    if (!reducible.clientResponse.truncated) context.omissions.truncatedClientResponses += 1
+    reducible.clientResponse.body = boundedText(
+      reducible.clientResponse.body,
+      Math.max(80, reducible.clientResponse.body.length - 80),
+    )
+    reducible.clientResponse.truncated = true
+  }
   const serialized = JSON.stringify(context)
   if (serialized.length <= maxChars) return serialized
   return JSON.stringify({
@@ -156,7 +228,24 @@ export function buildBoundedAgentRunExecutionContext(
     currentResolvedQuestions: context.currentResolvedQuestions.map((question) => ({
       questionId: question.questionId,
       answer: boundedText(question.answer, 80),
+      ...('clientResponse' in question
+        ? {
+            clientResponse: {
+              ...question.clientResponse,
+              body: boundedText(question.clientResponse.body, 80),
+              truncated:
+                question.clientResponse.truncated || question.clientResponse.body.length > 80,
+            },
+          }
+        : {}),
     })),
-    omissions: { contextExceededRequestedBudget: true },
+    omissions: {
+      contextExceededRequestedBudget: true,
+      truncatedClientResponses: context.currentResolvedQuestions.filter(
+        (question) =>
+          'clientResponse' in question &&
+          (question.clientResponse.truncated || question.clientResponse.body.length > 80),
+      ).length,
+    },
   })
 }

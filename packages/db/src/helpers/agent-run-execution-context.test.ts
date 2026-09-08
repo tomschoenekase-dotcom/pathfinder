@@ -5,6 +5,166 @@ import { buildBoundedAgentRunExecutionContext } from './agent-run-execution-cont
 const date = (value: string) => new Date(value)
 
 describe('bounded agent run execution context', () => {
+  const linkedClientQuestion = (overrides: Record<string, unknown> = {}) => ({
+    id: 'question-client',
+    question: 'Which entrance should visitors use?',
+    answer: 'Client response recorded in support message support-message-1.',
+    category: 'onboarding',
+    answeredAt: date('2026-09-08T18:01:00.000Z'),
+    updatedAt: date('2026-09-08T18:01:00.000Z'),
+    answeredById: 'client-1',
+    evidence: [],
+    callbackMetadata: null,
+    onboardingLink: {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentQuestionId: 'question-client',
+      supportRequestId: 'support-request-1',
+      answeredSupportMessageId: 'support-message-1',
+      resumedAt: date('2026-09-08T18:01:00.000Z'),
+      answeredSupportMessage: {
+        id: 'support-message-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        supportRequestId: 'support-request-1',
+        authorKind: 'CLIENT',
+        authorId: 'client-1',
+        visibility: 'CLIENT_VISIBLE',
+        body: `Use the east entrance. ${'x'.repeat(20_000)}`,
+        createdAt: date('2026-09-08T18:00:00.000Z'),
+      },
+    },
+    ...overrides,
+  })
+
+  it('retains exact linked client response provenance and bounded content under budget pressure', () => {
+    const source = {
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      attemptNumber: 1,
+      scopeSnapshot: { oversized: 's'.repeat(20_000) },
+      messages: [],
+      questions: [linkedClientQuestion()],
+    }
+    const roomy = JSON.parse(buildBoundedAgentRunExecutionContext(source))
+    expect(roomy.contextVersion).toBe(3)
+    expect(roomy.currentResolvedQuestions[0]).toMatchObject({
+      answer: 'Client response recorded in support message support-message-1.',
+      clientResponse: {
+        supportRequestId: 'support-request-1',
+        supportMessageId: 'support-message-1',
+        authorId: 'client-1',
+        body: expect.stringMatching(/^Use the east entrance\..*\[truncated\]$/su),
+        createdAt: '2026-09-08T18:00:00.000Z',
+        truncated: true,
+      },
+    })
+    expect(roomy.currentResolvedQuestions[0].clientResponse.body.length).toBe(420)
+    expect(roomy.omissions.truncatedClientResponses).toBe(1)
+
+    const shortQuestion = linkedClientQuestion()
+    shortQuestion.onboardingLink.answeredSupportMessage.body = 'Client detail '.repeat(25)
+    const shortSource = { ...source, scopeSnapshot: {}, questions: [shortQuestion] }
+    const unpressuredShort = JSON.parse(buildBoundedAgentRunExecutionContext(shortSource))
+    const reduced = JSON.parse(
+      buildBoundedAgentRunExecutionContext(
+        shortSource,
+        JSON.stringify(unpressuredShort).length - 100,
+      ),
+    )
+    expect(reduced.omissions.contextExceededRequestedBudget).toBeUndefined()
+    expect(reduced.currentResolvedQuestions[0].clientResponse.body.length).toBeLessThan(350)
+    expect(reduced.currentResolvedQuestions[0].clientResponse.truncated).toBe(true)
+    expect(reduced.omissions.truncatedClientResponses).toBe(1)
+
+    const pressured = JSON.parse(buildBoundedAgentRunExecutionContext(source, 300))
+    expect(pressured.omissions.contextExceededRequestedBudget).toBe(true)
+    expect(pressured.currentResolvedQuestions[0]).toMatchObject({
+      questionId: 'question-client',
+      answer: expect.stringContaining('support message'),
+      clientResponse: {
+        supportRequestId: 'support-request-1',
+        supportMessageId: 'support-message-1',
+        authorId: 'client-1',
+        body: expect.stringMatching(/^Use the east entrance\..*\[truncated\]$/su),
+        createdAt: '2026-09-08T18:00:00.000Z',
+        truncated: true,
+      },
+    })
+  })
+
+  it.each([
+    ['missing link', { onboardingLink: null }],
+    [
+      'unresumed link',
+      { onboardingLink: { ...linkedClientQuestion().onboardingLink, resumedAt: null } },
+    ],
+    [
+      'wrong link scope',
+      { onboardingLink: { ...linkedClientQuestion().onboardingLink, tenantId: 'tenant-other' } },
+    ],
+    [
+      'wrong message scope',
+      {
+        onboardingLink: {
+          ...linkedClientQuestion().onboardingLink,
+          answeredSupportMessage: {
+            ...linkedClientQuestion().onboardingLink.answeredSupportMessage,
+            venueId: 'venue-other',
+          },
+        },
+      },
+    ],
+    [
+      'internal message',
+      {
+        onboardingLink: {
+          ...linkedClientQuestion().onboardingLink,
+          answeredSupportMessage: {
+            ...linkedClientQuestion().onboardingLink.answeredSupportMessage,
+            visibility: 'INTERNAL_ONLY',
+          },
+        },
+      },
+    ],
+    [
+      'non-client author kind',
+      {
+        onboardingLink: {
+          ...linkedClientQuestion().onboardingLink,
+          answeredSupportMessage: {
+            ...linkedClientQuestion().onboardingLink.answeredSupportMessage,
+            authorKind: 'PLATFORM_ADMIN',
+          },
+        },
+      },
+    ],
+    ['answer author mismatch', { answeredById: 'client-other' }],
+    [
+      'message identity mismatch',
+      {
+        onboardingLink: {
+          ...linkedClientQuestion().onboardingLink,
+          answeredSupportMessageId: 'support-message-other',
+        },
+      },
+    ],
+  ])('omits client response for %s', (_label, overrides) => {
+    const parsed = JSON.parse(
+      buildBoundedAgentRunExecutionContext({
+        id: 'run-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        attemptNumber: 1,
+        scopeSnapshot: {},
+        messages: [],
+        questions: [linkedClientQuestion(overrides)],
+      }),
+    )
+    expect(parsed.currentResolvedQuestions[0]).not.toHaveProperty('clientResponse')
+  })
+
   it('includes bounded discussion provenance and reports the selection sentinel honestly', () => {
     const messages = Array.from({ length: 6 }, (_, index) => ({
       id: `discussion-${6 - index}`,
@@ -38,7 +198,7 @@ describe('bounded agent run execution context', () => {
       1_300,
     )
     const context = JSON.parse(serialized)
-    expect(context.contextVersion).toBe(2)
+    expect(context.contextVersion).toBe(3)
     expect(context.currentResolvedQuestions[0].answer).toBe('Use the east greenhouse.')
     expect(context.currentResolvedQuestions[0].discussion.at(-1)).toMatchObject({
       messageId: 'discussion-6',
