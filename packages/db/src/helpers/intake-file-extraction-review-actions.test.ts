@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  tenantIsolationMiddleware,
+  type TenantIsolationMiddlewareParams,
+} from '../middleware/tenant-isolation'
 
 import {
   IntakeFileExtractionReviewActionError,
@@ -127,6 +131,19 @@ describe('intake file extraction review action', () => {
       providerDispatched: false,
       contactSent: false,
     })
+  })
+
+  it('keeps the review replay lookup inside the production tenant guard', async () => {
+    findReview.mockImplementation(
+      async (args: NonNullable<TenantIsolationMiddlewareParams['args']>) =>
+        tenantIsolationMiddleware(
+          { model: 'IntakeFileExtractionReview', action: 'findUnique', args },
+          async () => null,
+        ),
+    )
+    await expect(
+      reviewIntakeFileExtractionAction(accepted() as never, client as never),
+    ).resolves.toMatchObject({ proposalCreated: true })
   })
 
   it('records rejection without creating a proposal or evidence', async () => {

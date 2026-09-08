@@ -188,7 +188,7 @@ async function startFixtureServer(): Promise<FixtureState> {
     const sourceSha256 = createHash('sha256').update(bytes).digest('hex')
     const objectGeneration = randomUUID()
     const storageVersionId = 'connected-source-version-1'
-    const actor = { type: 'HUMAN' as const, id: staffUserId, role: 'STAFF' as const }
+    const actor = { type: 'HUMAN' as const, id: ownerUserId, role: 'OWNER' as const }
     const reserved = await reserveIntakeUploadAction({
       tenantId,
       venueId,
@@ -758,6 +758,182 @@ test.describe('connected onboarding on disposable PostgreSQL', () => {
       ).toBe(0)
     } finally {
       await admin.close()
+    }
+  })
+  test('submits the verified owner file once through the real router and retains processing identity', async ({
+    browser,
+  }, testInfo) => {
+    const state = fixture!
+    state.sessions.set(state.tokens.owner, {
+      userId: ownerUserId,
+      activeTenantId: tenantId,
+      role: 'OWNER',
+      isPlatformAdmin: false,
+    })
+    const context = await connectedContext(browser, state.tokens.owner, { width: 390, height: 844 })
+    try {
+      const page = await context.newPage()
+      await page.goto('/dev-fixtures/remote-onboarding?state=share')
+      await expect(page.getByText('Loading saved work…')).toBeHidden()
+      await page.getByRole('button', { name: 'Review my materials', exact: true }).click()
+      const file = page.getByRole('checkbox', { name: /Connected visitor services handbook/ })
+      await expect(file).toBeChecked()
+      const notes = page.getByRole('checkbox', { name: /Shared notes draft/ })
+      if (await notes.count()) await notes.uncheck()
+      const submitted = page.waitForResponse((response) =>
+        response.url().includes('/api/trpc/intake.submitV1'),
+      )
+      await page
+        .getByRole('button', { name: 'Submit this version', exact: true })
+        .evaluate((button: HTMLButtonElement) => {
+          button.click()
+          button.click()
+        })
+      const response = await submitted
+      expect(await response.text()).not.toContain('"error"')
+      await expect(page.getByText('Version 1 received', { exact: true })).toBeVisible()
+      await expect(page.getByText('Material processing', { exact: true })).toBeVisible()
+      await expect(
+        page.getByText(
+          'Processing details could not be refreshed. Your saved submission is unchanged.',
+        ),
+      ).toHaveCount(0)
+      const saved = await withTenantIsolationBypass(async () => {
+        const submissions = await db.intakeV1Submission.findMany({
+          where: { tenantId, venueId, ownerUserId },
+          include: { revisions: { include: { members: true } } },
+        })
+        expect(submissions).toHaveLength(1)
+        const revision = submissions[0]!.revisions[0]!
+        expect(revision.members).toHaveLength(1)
+        expect(revision.members[0]).toMatchObject({
+          kind: 'INTAKE_UPLOAD',
+          intakeUploadId: state.uploadId,
+        })
+        const dispatches = await db.intakeV1ProcessingDispatch.findMany({
+          where: { tenantId, venueId, revisionId: revision.id },
+        })
+        expect(dispatches).toHaveLength(1)
+        expect(dispatches[0]).toMatchObject({
+          kind: 'FILE_EXTRACTION',
+          status: 'PENDING',
+          sourceHash: revision.members[0]!.immutableHash,
+        })
+        expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId } })).toBe(0)
+        return {
+          submissionId: submissions[0]!.id,
+          manifestHash: revision.manifestHash,
+          dispatchId: dispatches[0]!.id,
+          memberId: revision.members[0]!.id,
+        }
+      })
+      // Invoke the registered handler against the same persisted dispatch. The exact retained
+      // fixture receipt is reused; this does not exercise hosted storage or a Redis delivery.
+      const { handleIntakeV1FileExtraction } =
+        await import('../../../workers/src/intake-v1-file-extraction-runtime')
+      const { INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB } = await import('@pathfinder/jobs')
+      const job = {
+        name: INTAKE_V1_FILE_EXTRACTION_PROCESS_JOB,
+        id: 'connected-v1',
+        data: { dispatchId: saved.dispatchId },
+      }
+      await handleIntakeV1FileExtraction(job as Parameters<typeof handleIntakeV1FileExtraction>[0])
+      await handleIntakeV1FileExtraction(job as Parameters<typeof handleIntakeV1FileExtraction>[0])
+      await expect(
+        withTenantIsolationBypass(() =>
+          db.intakeV1ProcessingDispatch.findFirstOrThrow({
+            where: { id: saved.dispatchId, tenantId, venueId },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: 'COMPLETED', fileExtractionReceiptId: state.receiptId })
+      const { appRouter } = await import('@pathfinder/api')
+      const caller = (token: string) =>
+        appRouter.createCaller({ db, headers: new Headers(), session: state.sessions.get(token)! })
+      const admin = caller(state.tokens.admin)
+      const owner = caller(state.tokens.owner)
+      const selection = {
+        tenantId,
+        venueId,
+        submissionId: saved.submissionId,
+        revision: 1,
+        selectedMemberIds: [saved.memberId],
+      }
+      const beforeReview = await admin.admin.previewIntakeV1Package(selection)
+      expect(beforeReview.ready).toBe(false)
+      expect(beforeReview.members[0]).toMatchObject({ state: 'REVIEW_REQUIRED' })
+      await expect(owner.admin.previewIntakeV1Package(selection)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      })
+      await admin.admin.reviewIntakeFileExtraction({
+        tenantId,
+        venueId,
+        sourceRunId: state.runId,
+        receiptId: state.receiptId,
+        operationId: randomUUID(),
+        expectedExtractedTextHash: state.extractedTextHash,
+        decision: 'ACCEPTED_FOR_PROPOSAL',
+        proposalTitle: 'Visitor services handbook',
+        proposalNotes: beyondPreviewFact,
+        rationale: 'Reviewed the exact retained source beyond its first page.',
+      })
+      const ready = await admin.admin.previewIntakeV1Package(selection)
+      expect(ready).toMatchObject({ ready: true, published: false })
+      const command = {
+        ...selection,
+        operationId: randomUUID(),
+        expectedManifestHash: ready.manifestHash,
+        expectedCandidateHash: ready.candidateHash!,
+        expectedPayloadHash: ready.payloadHash!,
+        partialAcknowledged: false,
+      }
+      // This fixture has no inference provider. Exercise the real gate instead of
+      // presenting reviewed source material as a saved or published package.
+      await expect(admin.admin.createIntakeV1PackageDraft(command)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The embedding provider is not configured; no draft was saved.',
+      })
+      await expect(admin.admin.createIntakeV1PackageDraft(command)).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      })
+      expect(
+        await withTenantIsolationBypass(() =>
+          db.venuePackage.count({ where: { tenantId, venueId } }),
+        ),
+      ).toBe(0)
+      const request = {
+        operationId: randomUUID(),
+        venueId,
+        category: 'GENERAL' as const,
+        subject: 'Is the new handbook visible to visitors?',
+        body: 'Please confirm what is waiting for review and how I will print our QR.',
+        attachments: [],
+      }
+      const support = await owner.support.createRequest(request)
+      expect((await owner.support.createRequest(request)).request.id).toBe(support.request.id)
+      expect(
+        (await owner.support.getRequest({ venueId, requestId: support.request.id })).venueId,
+      ).toBe(venueId)
+      const lifecycle = (await owner.portal.getVenueLifecycles()).find(
+        (item) => item.venueId === venueId,
+      )
+      expect(lifecycle).toBeDefined()
+      expect(['READY', 'LIVE']).not.toContain(lifecycle!.lifecycle.state)
+      expect(
+        await withTenantIsolationBypass(() =>
+          db.venueKnowledgeEntry.count({ where: { tenantId, venueId } }),
+        ),
+      ).toBe(0)
+      await page.reload()
+      await expect(page.getByText('Version 1 received', { exact: true })).toBeVisible()
+      await expect(page.getByText('Ready for review', { exact: true })).toBeVisible()
+      await expectNoHorizontalOverflow(page)
+      await captureEvidence(page, testInfo, 'file-v1-receipt-390')
+      await testInfo.attach('saved-file-v1-identity', {
+        body: JSON.stringify(saved),
+        contentType: 'application/json',
+      })
+    } finally {
+      await context.close()
     }
   })
 })

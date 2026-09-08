@@ -163,7 +163,10 @@ export async function reviewIntakeFileExtractionAction(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-file-extraction-review:${input.tenantId}:${input.venueId}:${input.receiptId}`}, 0))`
 
     const replay = await tx.intakeFileExtractionReview.findUnique({
-      where: { tenantId_requestId: { tenantId: input.tenantId, requestId: input.operationId } },
+      where: {
+        tenantId: input.tenantId,
+        tenantId_requestId: { tenantId: input.tenantId, requestId: input.operationId },
+      },
       select: storedReviewSelect,
     })
     if (replay) {
