@@ -39,6 +39,18 @@ function send(body = note.body) {
 }
 
 describe('AgentQuestionDiscussion', () => {
+  it('can load with a fresh signal after StrictMode effect cleanup and replay', async () => {
+    query.mockResolvedValue({ items: [note], nextCursor: null })
+    const view = render(
+      <React.StrictMode>
+        <AgentQuestionDiscussion {...scope} />
+      </React.StrictMode>,
+    )
+    open(view.container)
+    expect(await screen.findByText(note.body)).toBeTruthy()
+    expect(query.mock.calls[0][1].signal.aborted).toBe(false)
+  })
+
   beforeEach(() => {
     query.mockResolvedValue({ items: [], nextCursor: null })
   })
@@ -53,7 +65,7 @@ describe('AgentQuestionDiscussion', () => {
     expect(query).not.toHaveBeenCalled()
     open(first.container)
     expect(await screen.findByText(note.body)).toBeTruthy()
-    expect(query).toHaveBeenCalledWith({ ...scope, limit: 20 })
+    expect(query).toHaveBeenCalledWith({ ...scope, limit: 20 }, { signal: expect.any(AbortSignal) })
     first.unmount()
     const second = render(<AgentQuestionDiscussion {...scope} />)
     open(second.container)
@@ -102,6 +114,19 @@ describe('AgentQuestionDiscussion', () => {
     expect(screen.queryByText('No discussion notes yet.')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh notes' }))
     expect(await screen.findByText('No discussion notes yet.')).toBeTruthy()
+  })
+
+  it('cancels an in-flight read when the discussion unmounts', async () => {
+    let signal!: AbortSignal
+    query.mockImplementationOnce((_input: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise(() => {})
+    })
+    const { container } = render(<AgentQuestionDiscussion {...scope} />)
+    open(container)
+    await waitFor(() => expect(signal).toBeInstanceOf(AbortSignal))
+    cleanup()
+    expect(signal.aborted).toBe(true)
   })
 
   it('paginates with the returned stable cursor and deduplicates overlapping rows', async () => {

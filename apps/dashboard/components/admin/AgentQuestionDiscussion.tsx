@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { useTRPCClient } from '../../lib/trpc'
+
+const DISCUSSION_READ_TIMEOUT_MS = 15_000
 
 type Props = { tenantId: string; venueId: string; questionId: string }
 type Note = { id: string; authorId: string; body: string; createdAt: Date | string }
@@ -23,6 +26,7 @@ function DiscussionThread({ tenantId, venueId, questionId }: Props) {
   const clientRef = useRef(client)
   clientRef.current = client
   const mounted = useRef(true)
+  const readScope = useRef(new AbortController())
   const reading = useRef(false)
   const writing = useRef(false)
   const [open, setOpen] = useState(false)
@@ -38,8 +42,11 @@ function DiscussionThread({ tenantId, venueId, questionId }: Props) {
 
   useEffect(() => {
     mounted.current = true
+    if (readScope.current.signal.aborted) readScope.current = new AbortController()
+    const controller = readScope.current
     return () => {
       mounted.current = false
+      controller.abort()
     }
   }, [])
 
@@ -49,12 +56,20 @@ function DiscussionThread({ tenantId, venueId, questionId }: Props) {
     setLoading(true)
     setLoadError(false)
     try {
-      const result = await clientRef.current.admin.listAgentQuestionDiscussion.query({
-        tenantId,
-        venueId,
-        questionId,
-        limit: 20,
-        ...(older && cursor ? { cursor } : {}),
+      const result = await runBoundedClientRequest({
+        parentSignal: readScope.current.signal,
+        timeoutMs: DISCUSSION_READ_TIMEOUT_MS,
+        request: (signal) =>
+          clientRef.current.admin.listAgentQuestionDiscussion.query(
+            {
+              tenantId,
+              venueId,
+              questionId,
+              limit: 20,
+              ...(older && cursor ? { cursor } : {}),
+            },
+            { signal },
+          ),
       })
       if (!mounted.current) return
       setNotes((current) => {
