@@ -1,3 +1,4 @@
+import { guestVisitRetrievalQuery } from '../lib/guest-visit-retrieval-query'
 import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
@@ -556,6 +557,7 @@ const chatReadRouter = router({
     let modelMs = 0
     let persistenceMs = 0
     const trimmedInput = input.message
+    const retrievalQuery = guestVisitRetrievalQuery(trimmedInput, input.visitContext)
     const venue = ctx.chatVenue
     const includeSecondLayer = ctx.experienceScope === 'SECOND_LAYER'
 
@@ -583,6 +585,7 @@ const chatReadRouter = router({
       requestId: operationId,
       visitorId: input.visitorId ?? null,
       message: trimmedInput,
+      ...(input.visitContext ? { visitContext: input.visitContext } : {}),
       language: input.language ?? null,
       lat: input.lat ?? null,
       lng: input.lng ?? null,
@@ -730,7 +733,7 @@ const chatReadRouter = router({
           .then(() => null)
           .catch((error: unknown) => guestChatTurnError(error))
       : generateGuestQueryEmbedding(
-          trimmedInput,
+          retrievalQuery,
           embeddingAccounting.sink,
           () =>
             assertVenueAiAvailable(ctx.db, {
@@ -962,7 +965,7 @@ const chatReadRouter = router({
         }),
         retrieveGuestKnowledge({
           reader: ctx.db,
-          query: trimmedInput,
+          query: retrievalQuery,
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
@@ -990,7 +993,7 @@ const chatReadRouter = router({
       relevantKnowledgeEntries = (
         await retrieveGuestKnowledge({
           reader: ctx.db,
-          query: trimmedInput,
+          query: retrievalQuery,
           queryEmbedding: null,
           venueId: input.venueId,
           tenantId: venue.tenantId,
@@ -1159,6 +1162,7 @@ const chatReadRouter = router({
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
         },
         relevantPlaces,
+        ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         knowledgeEntries: relevantKnowledgeEntries,
         activeUpdates,

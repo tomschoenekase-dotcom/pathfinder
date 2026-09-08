@@ -65,6 +65,28 @@ describe('guest chat turn actions', () => {
     )
   })
 
+  it('binds nonempty visit context while preserving the absent-request identity for empty context', () => {
+    expect(guestChatRequestHash({ ...request, visitContext: {} })).toBe(
+      guestChatRequestHash(request),
+    )
+    expect(guestChatRequestHash({ ...request, visitContext: { remainingMinutes: null } })).toBe(
+      guestChatRequestHash(request),
+    )
+    const context = { visitedPlaceIds: ['place-1'], interests: ['trains'], remainingMinutes: 15 }
+    expect(guestChatRequestHash({ ...request, visitContext: context })).not.toBe(
+      guestChatRequestHash(request),
+    )
+    expect(
+      guestChatRequestHash({ ...request, visitContext: { ...context, interests: ['aviation'] } }),
+    ).not.toBe(guestChatRequestHash({ ...request, visitContext: context }))
+    expect(
+      guestChatRequestHash({
+        ...request,
+        visitContext: { ...context, visitedPlaceIds: ['place-2'] },
+      }),
+    ).not.toBe(guestChatRequestHash({ ...request, visitContext: context }))
+  })
+
   it('rejects malformed direct input before opening a transaction', async () => {
     const client = transactionClient({})
     await expect(

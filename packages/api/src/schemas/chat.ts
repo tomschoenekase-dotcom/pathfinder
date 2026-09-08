@@ -1,3 +1,4 @@
+import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { z } from 'zod'
 
 export const SUPPORTED_CHAT_LANGUAGES = [
@@ -70,6 +71,7 @@ export const ChatSendInput = z
     secondLayerKey: z.string().uuid().optional(),
     message: z.string().trim().min(1).max(1000),
     responseIntent: z.enum(['DEFAULT', 'EXPAND']).optional(),
+    visitContext: GuestVisitContextInput.optional(),
     ...guestCoordinatesShape,
     language: SupportedChatLanguageInput.optional(),
   })

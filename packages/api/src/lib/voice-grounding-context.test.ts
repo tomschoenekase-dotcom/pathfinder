@@ -235,6 +235,33 @@ describe('voice grounding production retrieval parity', () => {
     },
   )
 
+  it('retrieves explicitly preferred exhibits for a broad recommendation without inventing visited status', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        place: {
+          findMany: async (args) => {
+            const clauses = args.where!.OR as Array<Record<string, { contains: string }>>
+            expect(clauses).toContainEqual({ name: { contains: 'trains', mode: 'insensitive' } })
+            expect(args.where).toMatchObject({
+              tenantId: 'tenant',
+              venueId: 'venue',
+              visibility: 'PUBLIC',
+            })
+            return [place({ id: 'train-hall', name: 'Train Hall' })]
+          },
+        },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What should I see next?',
+      visitContext: { visitedPlaceIds: [], interests: ['trains'] },
+    })
+    expect(result.context).toContain('Train Hall')
+    expect(result.visitContext?.visitedPlaces).toEqual([])
+    expect(result.provider.called).toBe(false)
+  })
+
   it('never emits a partial item or claims an omitted oversized source was included', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {

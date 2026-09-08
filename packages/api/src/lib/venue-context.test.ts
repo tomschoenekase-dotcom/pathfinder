@@ -67,11 +67,25 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v17')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v18')
   })
 
   it('matches the broad production prompt contract manifest', () => {
     const prompts = [
+      {
+        id: 'bounded-explicit-visit-preferences',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces: [{ ...relevantPlaces[0]!, id: 'visited-1' }],
+          userLat: null,
+          userLng: null,
+          visitContext: {
+            visitedPlaceIds: ['visited-1', 'unauthorized-omitted'],
+            interests: ['trains'],
+            remainingMinutes: 15,
+          },
+        }),
+      },
       {
         id: 'authorized-general-web-background',
         prompt: buildVenueSystemPrompt({

@@ -51,6 +51,11 @@ describe.skipIf(!enabled)('conversation learning durable native fixture', () => 
       lng: null,
       retainLocation: false,
       experienceScope: 'PUBLIC' as const,
+      visitContext: {
+        visitedPlaceIds: ['rose-cottage'],
+        interests: ['miniature architecture'],
+        remainingMinutes: 25,
+      },
     }
     const reservation = await reserveGuestChatTurnAction({ request })
     if (reservation.state !== 'RESERVED') throw new Error('turn did not reserve')
@@ -80,6 +85,41 @@ describe.skipIf(!enabled)('conversation learning durable native fixture', () => 
         nextPending: { kind: 'NONE' },
       },
     })
+    const replayedReservation = await reserveGuestChatTurnAction({ request })
+    expect(replayedReservation).toMatchObject({
+      state: 'COMPLETE',
+      turnId: reservation.turnId,
+      sessionId: finalized.sessionId,
+      replayed: true,
+    })
+    await expect(
+      reserveGuestChatTurnAction({
+        request: {
+          ...request,
+          visitContext: {
+            ...request.visitContext,
+            interests: ['railroad history'],
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      finalizeGuestChatTurnAction({
+        input: {
+          ...request,
+          visitContext: {
+            ...request.visitContext,
+            interests: ['railroad history'],
+          },
+          turnId: reservation.turnId,
+          claimId: claim.claimId,
+          assistantResponse: 'Thank you.',
+          replayMetadata: { places: [], citations: [] },
+          fallbackCode: null,
+          nextPending: { kind: 'NONE' },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
     const turnId = reservation.turnId
     const sessionId = finalized.sessionId
     const turn = await db.guestChatTurn.findFirstOrThrow({

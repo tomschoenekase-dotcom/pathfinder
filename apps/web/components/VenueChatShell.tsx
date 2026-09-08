@@ -22,6 +22,7 @@ import { LocationBanner } from './LocationBanner'
 import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
+import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { VoiceControl, type FinalizedVoiceTranscriptLine } from './VoiceControl'
 import { getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
@@ -98,6 +99,8 @@ export function VenueChatShell(props: {
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
+  visitContext?: GuestVisitContextInput
+  visitPreferences?: ReactNode
   routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
 }) {
@@ -133,6 +136,8 @@ export function VenueChatShell(props: {
     onVisitorAction,
     onMessageFeedback,
     voiceControl,
+    visitContext,
+    visitPreferences,
     routePlanner,
     connectionState = 'online',
   } = props
@@ -299,6 +304,7 @@ export function VenueChatShell(props: {
                 anonymousToken={anonymousToken}
                 language={language}
                 disabled={isSending}
+                {...(visitContext ? { visitContext } : {})}
                 {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
                 {...(onVoiceTranscriptLine ? { onTranscriptLine: onVoiceTranscriptLine } : {})}
               />
@@ -308,12 +314,15 @@ export function VenueChatShell(props: {
           )}
           <ChatWindow
             conversationTools={
-              <LocationBanner
-                permission={location.permission}
-                onRefresh={location.refresh}
-                show={venue.guideMode !== 'non_location'}
-                language={language}
-              />
+              <>
+                {visitPreferences}
+                <LocationBanner
+                  permission={location.permission}
+                  onRefresh={location.refresh}
+                  show={venue.guideMode !== 'non_location'}
+                  language={language}
+                />
+              </>
             }
             messages={messages}
             language={language}

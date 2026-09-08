@@ -13,6 +13,8 @@ import {
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useSession } from '../hooks/useSession'
+import { useGuestVisitContext } from '../hooks/useGuestVisitContext'
+import { GuestVisitPreferences } from './GuestVisitPreferences'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
 import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
@@ -150,6 +152,11 @@ export function VenueChatExperience({
   const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
   const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
     useSession(venue?.id ?? '', experienceStorageScope)
+  const {
+    context: visitContext,
+    updateContext: updateVisitContext,
+    clearVisit,
+  } = useGuestVisitContext(venue?.id ?? '', experienceStorageScope)
   const visitorId = useVisitorId()
   const {
     endSession,
@@ -619,6 +626,11 @@ export function VenueChatExperience({
       ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
       message,
+      ...(visitContext.interests.length ||
+      visitContext.visitedPlaceIds.length ||
+      visitContext.remainingMinutes != null
+        ? { visitContext }
+        : {}),
       ...(responseIntent === 'EXPAND' ? { responseIntent } : {}),
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
       ...(language === 'English' ? {} : { language }),
@@ -697,7 +709,7 @@ export function VenueChatExperience({
     abandonPendingOptimistic()
   }
 
-  function handleNewConversation() {
+  function handleNewConversation(freshVisit = false) {
     if (
       !isOnline ||
       !venue ||
@@ -707,13 +719,17 @@ export function VenueChatExperience({
       reconciliationRequiredRef.current
     )
       return
-    if (messages.length && !window.confirm(recoveryCopy[10])) return
+    const resetCopy = freshVisit
+      ? 'Start a fresh visit? This clears the chat from this screen and your visit preferences. Saved Torchiko records are not deleted.'
+      : recoveryCopy[10]
+    if ((messages.length || freshVisit) && !window.confirm(resetCopy)) return
     const previousToken = anonymousToken
     const previousStartedAt = sessionStartedAtRef.current
     if (!startNewConversation()) {
       setSendError('We could not start a new conversation in this browser.')
       return
     }
+    if (freshVisit) clearVisit()
     conversationEpochRef.current += 1
     activeOperationRef.current = null
     pendingTurnRef.current = null
@@ -807,7 +823,17 @@ export function VenueChatExperience({
         : {})}
       stopResponseLabel={stopCopy.stop}
       conversationLocked={reconciliationRequiredRef.current || recoveryMode === 'check-history'}
-      onNewConversation={handleNewConversation}
+      onNewConversation={() => handleNewConversation()}
+      visitContext={visitContext}
+      visitPreferences={
+        <GuestVisitPreferences
+          context={visitContext}
+          onChange={updateVisitContext}
+          onFreshVisit={() => handleNewConversation(true)}
+          disabled={!isOnline || isSending || !anonymousToken || reconciliationRequiredRef.current}
+          places={messages.flatMap((message) => message.places ?? [])}
+        />
+      }
       onVoiceCharacterState={setStableCharacterState}
       onVoiceTranscriptLine={handleVoiceTranscriptLine}
       onPlaceView={(placeId) => {

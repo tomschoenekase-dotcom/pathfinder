@@ -622,6 +622,46 @@ describe('chat router', () => {
       )
     })
 
+    it('uses explicit interests in recommendation retrieval without changing the visitor message', async () => {
+      setupHappyPath('Try the train exhibit.')
+      const message = 'What should I see next?'
+      await caller.chat.send({
+        ...sendInput,
+        message,
+        visitContext: { visitedPlaceIds: [], interests: ['trains'] },
+      })
+      expect(embeddingCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ input: ['trains\nWhat should I see next?'] }),
+        expect.anything(),
+      )
+      expect(guestTurnActions.reserve).toHaveBeenCalledWith(
+        expect.objectContaining({ request: expect.objectContaining({ message }) }),
+      )
+    })
+
+    it('carries bounded visit preferences through the turn while keeping unresolved IDs out of the model prompt', async () => {
+      setupHappyPath('Try the quiet gallery.')
+      const visitContext = {
+        visitedPlaceIds: ['private-place-id'],
+        interests: ['quiet spaces'],
+        remainingMinutes: 20,
+      }
+
+      await caller.chat.send({ ...sendInput, visitContext })
+
+      expect(guestTurnActions.reserve).toHaveBeenCalledWith(
+        expect.objectContaining({ request: expect.objectContaining({ visitContext }) }),
+      )
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.objectContaining({ visitContext }) }),
+      )
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).toContain('quiet spaces')
+      expect(prompt).toContain('"remainingMinutes":20')
+      expect(prompt).not.toContain('private-place-id')
+      expect(prompt).toContain('"visitedPlaces":[]')
+    })
+
     it.each(['PUBLIC', 'SECOND_LAYER'] as const)(
       'captures %s candidates from the completed authorized turn without visitor analytics leakage',
       async (scope) => {

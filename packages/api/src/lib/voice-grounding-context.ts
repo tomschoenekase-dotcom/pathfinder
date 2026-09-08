@@ -1,3 +1,6 @@
+import { guestVisitRetrievalQuery } from './guest-visit-retrieval-query'
+import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+import { projectGuestVisitContext } from './guest-visit-context'
 import type { GuestKnowledgeReader } from './guest-knowledge-retrieval'
 import { guestQueryConcepts, retrieveGuestKnowledge } from './guest-knowledge-retrieval'
 import {
@@ -30,20 +33,22 @@ export async function buildVoiceGroundingContext(input: {
   tenantId: string
   venueId: string
   query: string
+  visitContext?: GuestVisitContextInput
   asOf?: Date
   nativeSnapshot?: Parameters<typeof applyNativeGuestContentRead>[0]['snapshot']
 }) {
   const assemblyStarted = performance.now()
+  const retrievalQuery = guestVisitRetrievalQuery(input.query, input.visitContext)
   const retrieved = await retrieveGuestKnowledge({
     reader: input.reader,
     tenantId: input.tenantId,
     venueId: input.venueId,
-    query: input.query,
+    query: retrievalQuery,
     includeSecondLayer: false,
     queryEmbedding: null,
     ...(input.asOf ? { asOf: input.asOf } : {}),
   })
-  const terms = [...new Set(guestQueryConcepts(input.query).flat())]
+  const terms = [...new Set(guestQueryConcepts(retrievalQuery).flat())]
   const lexicalWhere = (fields: string[]) => ({
     OR: terms.flatMap((term) =>
       fields.map((field) => ({ [field]: { contains: term, mode: 'insensitive' } })),
@@ -140,6 +145,12 @@ export async function buildVoiceGroundingContext(input: {
   const context = included.map((candidate) => candidate.text).join('\n\n')
   return {
     context,
+    visitContext: projectGuestVisitContext(
+      input.visitContext,
+      authorized.places.filter((place) =>
+        included.some((entry) => entry.id === `place:${place.id}`),
+      ),
+    ),
     sourceIds: included.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),
     omittedSourceIds: candidates

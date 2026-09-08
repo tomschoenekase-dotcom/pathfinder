@@ -105,6 +105,7 @@ vi.mock('./VoiceControl', () => ({
 }))
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
+    conversationTools,
     emptyState,
     errorMessage,
     messages,
@@ -120,6 +121,7 @@ vi.mock('./ChatWindow', () => ({
     onPlaceCardClick,
     onPlaceCardView,
   }: {
+    conversationTools?: React.ReactNode
     emptyState: React.ReactNode
     errorMessage?: string | null
     messages: Array<{ content: string; places?: Array<{ id: string }> }>
@@ -136,6 +138,7 @@ vi.mock('./ChatWindow', () => ({
     onPlaceCardView?: (placeId: string) => void
   }) => (
     <div>
+      {conversationTools}
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
@@ -496,16 +499,16 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum Guide' })
     fireEvent.click(screen.getByText('Send test message'))
     await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
 
     await screen.findByRole('button', { name: 'Check conversation' })
     expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     fireEvent.click(screen.getByText('Send different message'))
     expect(mocks.client.chat.stream?.subscribe).toHaveBeenCalledOnce()
     expect(handlers).toBeTruthy()
@@ -545,20 +548,20 @@ describe('VenueChatExperience presentation boundary', () => {
 
     await screen.findByRole('button', { name: 'Check conversation' })
     expect(screen.getByText(/current history could not be confirmed/u)).toBeTruthy()
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/Conversation refreshed/u)
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(false)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    )
     fireEvent.click(screen.getByText('Send different message'))
     expect(subscribe).toHaveBeenCalledTimes(2)
     expect(handlers).toBeTruthy()
@@ -587,9 +590,9 @@ describe('VenueChatExperience presentation boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
     expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
 
     mocks.connectionState = 'reconnected'
     view.rerender(<VenueChatExperience venueSlug="museum" />)
@@ -903,7 +906,7 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(brandLink?.getAttribute('href')).toBe('https://torchiko.com')
     expect(brandLink?.className).toContain('min-h-11')
     expect(brandLink?.className).toContain('min-w-11')
-    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain('min-h-11')
+    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('min-h-11')
   })
 
   it('localizes the persistent Arabic chat shell and accessibility labels', async () => {
@@ -1208,6 +1211,36 @@ describe('VenueChatExperience presentation boundary', () => {
     })
   })
 
+  it('keeps explicit preferences on clear chat and removes them only after a successful fresh visit', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174001'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await screen.findByRole('button', { name: 'Clear chat' })
+    fireEvent.change(screen.getByLabelText(/Interests/), { target: { value: 'trains' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
+    expect((screen.getByLabelText(/Interests/) as HTMLInputElement).value).toBe('trains')
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    await waitFor(() =>
+      expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          visitContext: expect.objectContaining({ interests: ['trains'] }),
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Start a fresh visit' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
+    mocks.startNewConversation.mockReturnValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Start a fresh visit' }))
+    expect((screen.getByLabelText(/Interests/) as HTMLInputElement).value).toBe('trains')
+    fireEvent.click(screen.getByRole('button', { name: 'Start a fresh visit' }))
+    expect((screen.getByLabelText(/Interests/) as HTMLInputElement).value).toBe('')
+  })
+
   it('starts a new conversation, clears visible history, and ends the prior analytics session', async () => {
     const token = '123e4567-e89b-42d3-a456-426614174001'
     const nextToken = '123e4567-e89b-42d3-a456-426614174011'
@@ -1226,7 +1259,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
     await screen.findByText('Messages: 1')
-    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
 
     expect(mocks.startNewConversation).toHaveBeenCalledOnce()
     expect(screen.getByText('Messages: 0')).toBeTruthy()
@@ -1283,7 +1316,7 @@ describe('VenueChatExperience presentation boundary', () => {
       }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
     view.rerender(
       <VenueChatExperience venueSlug="museum" presentation="standalone" entrySource="qr" />,
     )
@@ -1315,7 +1348,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     await waitFor(() => {
       expect(
-        (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+        (screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled,
       ).toBe(true)
     })
     expect(mocks.startNewConversation).not.toHaveBeenCalled()
@@ -1401,7 +1434,7 @@ describe('VenueChatExperience presentation boundary', () => {
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
     await screen.findByText('Messages: 1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear chat' }))
 
     expect(screen.getByText('Messages: 1')).toBeTruthy()
     expect(screen.getByText('We could not start a new conversation in this browser.')).toBeTruthy()
@@ -1467,9 +1500,9 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(
       await screen.findByText('This browser cannot create a private chat session.'),
     ).toBeTruthy()
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
   })
 
   it('does not apply late history from a previous venue load', async () => {

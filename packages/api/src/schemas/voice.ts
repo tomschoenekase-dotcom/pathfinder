@@ -1,3 +1,4 @@
+import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { RealtimeVoiceTier } from '@pathfinder/ai'
 import { z } from 'zod'
 
@@ -27,6 +28,7 @@ export const VoiceSessionStartInput = z
       .max(35)
       .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u),
     tier: RealtimeVoiceTier.default('ECONOMY'),
+    visitContext: GuestVisitContextInput.optional(),
   })
   .strict()
 
@@ -35,6 +37,7 @@ export const VoiceSessionConnectedInput = VoiceSessionIdentity
 export const VoiceGroundingInput = VoiceSessionIdentity.extend({
   toolCallId: z.string().trim().min(1).max(191),
   query: z.string().trim().min(2).max(500),
+  visitContext: GuestVisitContextInput.optional(),
 }).strict()
 
 export const VoiceTranscriptSegmentInput = VoiceSessionIdentity.extend({

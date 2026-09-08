@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 
 import { db } from '../client'
 import { lockGuestChatTurnMutation } from './venue-content-lock'
@@ -27,6 +28,7 @@ const requestObjectSchema = scopeSchema
     lng: z.number().finite().min(-180).max(180).nullable(),
     retainLocation: z.boolean(),
     experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
+    visitContext: GuestVisitContextInput.optional(),
   })
   .strict()
 
@@ -178,6 +180,20 @@ function isP2002(error: unknown): boolean {
 }
 
 function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>): string {
+  const visitContext = value.visitContext
+  const visitedPlaceIds = visitContext?.visitedPlaceIds ?? []
+  const interests = visitContext?.interests ?? []
+  const canonicalVisitContext =
+    visitContext &&
+    (visitedPlaceIds.length > 0 || interests.length > 0 || visitContext.remainingMinutes != null)
+      ? {
+          visitedPlaceIds,
+          interests,
+          ...(visitContext.remainingMinutes != null
+            ? { remainingMinutes: visitContext.remainingMinutes }
+            : {}),
+        }
+      : undefined
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -192,6 +208,7 @@ function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>):
         lng: value.lng,
         retainLocation: value.retainLocation,
         experienceScope: value.experienceScope ?? 'PUBLIC',
+        ...(canonicalVisitContext ? { visitContext: canonicalVisitContext } : {}),
       }),
     )
     .digest('hex')

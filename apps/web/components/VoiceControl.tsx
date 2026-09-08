@@ -1,5 +1,7 @@
 'use client'
 
+import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Volume2 } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
@@ -188,15 +190,19 @@ export function VoiceControl({
   disabled,
   onCharacterState,
   onTranscriptLine,
+  visitContext,
 }: {
   venueId: string
   anonymousToken: string | null
   language: SupportedChatLanguage
   disabled: boolean
+  visitContext?: GuestVisitContextInput
   onCharacterState?: (state: CharacterState) => void
   onTranscriptLine?: (line: FinalizedVoiceTranscriptLine) => void
 }) {
   const client = useTRPCClient()
+  const visitContextRef = useRef(visitContext)
+  visitContextRef.current = visitContext
   const [available, setAvailable] = useState(false)
   const [availabilityScopeKey, setAvailabilityScopeKey] = useState<string | null>(null)
   const [premiumAvailable, setPremiumAvailable] = useState(false)
@@ -652,6 +658,7 @@ export function VoiceControl({
                       voiceSessionId,
                       toolCallId: callId,
                       query,
+                      ...(visitContextRef.current ? { visitContext: visitContextRef.current } : {}),
                     })
                     return {
                       callId,
@@ -659,6 +666,7 @@ export function VoiceControl({
                         grounded: result.context.length > 0,
                         context: result.context,
                         sourceIds: result.sourceIds,
+                        visitContext: result.visitContext,
                       },
                     }
                   } catch {
@@ -840,6 +848,7 @@ export function VoiceControl({
         anonymousToken,
         locale,
         tier: premiumAvailable ? 'PREMIUM' : 'ECONOMY',
+        ...(visitContextRef.current ? { visitContext: visitContextRef.current } : {}),
       })
       voiceSessionId = authorization.voiceSessionId
       if (!isCurrentAttempt()) {

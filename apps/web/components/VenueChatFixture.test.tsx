@@ -130,9 +130,9 @@ describe('VenueChatFixture', () => {
       (screen.getByRole('button', { name: 'Reconnect to send message' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true)
-    expect(
-      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
 
     view.rerender(
       <VenueChatFixture
@@ -171,9 +171,7 @@ describe('VenueChatFixture', () => {
     fireEvent.load(images[0]!)
     expect(header.getAttribute('data-branding-banner-state')).toBe('ready')
     expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain('text-white')
-    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain(
-      'text-white',
-    )
+    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain('text-white')
 
     fireEvent.error(images[0]!)
     fireEvent.error(images[1]!)
@@ -182,7 +180,7 @@ describe('VenueChatFixture', () => {
     expect(screen.getByRole('heading', { name: 'Museum Guide' }).className).toContain(
       'text-[var(--chat-text)]',
     )
-    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain(
+    expect(screen.getByRole('button', { name: 'Clear chat' }).className).toContain(
       'text-[var(--chat-text)]',
     )
   })

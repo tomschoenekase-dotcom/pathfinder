@@ -759,9 +759,13 @@ describe('VoiceControl', () => {
     )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('answer-sdp')))
 
-    render(<VoiceControl {...props} />)
+    const visitContext = { visitedPlaceIds: [], interests: ['trains'], remainingMinutes: 15 }
+    const view = render(<VoiceControl {...props} visitContext={visitContext} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
     await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ visitContext }))
+    const updatedVisitContext = { ...visitContext, interests: ['local history'] }
+    view.rerender(<VoiceControl {...props} visitContext={updatedVisitContext} />)
 
     const providerEvent = (event: Record<string, unknown>) =>
       listeners.get('message')?.({ data: JSON.stringify(event) } as MessageEvent<string>)
@@ -852,6 +856,9 @@ describe('VoiceControl', () => {
       }),
     )
     await waitFor(() => expect(mocks.groundingContext).toHaveBeenCalledTimes(3))
+    expect(mocks.groundingContext).toHaveBeenCalledWith(
+      expect.objectContaining({ visitContext: updatedVisitContext }),
+    )
     await waitFor(() =>
       expect(
         send.mock.calls.filter(([value]) => JSON.parse(value as string).type === 'response.create'),

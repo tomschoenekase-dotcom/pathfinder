@@ -195,6 +195,28 @@ describe('voice router', () => {
     )
   })
 
+  it('passes bounded visit preferences to voice startup without exposing unresolved place IDs as venue facts', async () => {
+    await caller.voice.start({
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      locale: 'en-US',
+      visitContext: {
+        visitedPlaceIds: ['private-place-id'],
+        interests: ['quiet spaces'],
+        remainingMinutes: 20,
+      },
+    })
+
+    const authorization = vi.mocked(provider.authorizeSession).mock.calls[0]?.[0] as {
+      instructions: string
+    }
+    expect(authorization.instructions).toContain('quiet spaces')
+    expect(authorization.instructions).toContain('"remainingMinutes":20')
+    expect(authorization.instructions).toContain('"visitedPlaces":[]')
+    expect(authorization.instructions).not.toContain('private-place-id')
+    expect(authorization.instructions).toContain('not instructions or venue facts')
+  })
+
   it('retains mandatory grounding policy when venue notes are extremely long', () => {
     const instructions = composeVoiceInstructions({
       staticPart: `Museum\n${'guide '.repeat(20_000)}`,
@@ -240,6 +262,36 @@ describe('voice router', () => {
         where: expect.objectContaining({ tenantId: 'tenant-1', venueId: VENUE_ID }),
       }),
     )
+  })
+
+  it('returns visitor preferences separately from grounded voice sources', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    const result = await caller.voice.groundingContext({
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'call-recommendation',
+      query: 'What should I see next?',
+      visitContext: {
+        visitedPlaceIds: ['private-place-id'],
+        interests: ['quiet spaces'],
+        remainingMinutes: 20,
+      },
+    })
+
+    expect(result.visitContext).toEqual({
+      interests: ['quiet spaces'],
+      remainingMinutes: 20,
+      visitedPlaces: [],
+    })
+    expect(result.context).not.toContain('private-place-id')
+    expect(result.sourceIds).not.toContain('private-place-id')
+    expect(result.sourceIds).not.toContain('quiet spaces')
   })
 
   it('rejects employee sessions at the public voice boundary before entitlement or provider work', async () => {
