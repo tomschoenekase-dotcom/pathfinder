@@ -97,13 +97,19 @@ export async function projectGuestPlaceIdentity(params: {
   const floorMatched = candidates.filter((candidate) =>
     candidate.floor ? includesPhrase(query, normalized(candidate.floor)) : false,
   )
-  const isAmbiguous =
-    !isExplicitNonIdentityRequest(query) &&
-    (floorMatched.length === 0 ? candidates.length > 1 : floorMatched.length > 1)
+  // Missing location data cannot rule out another exhibit on the requested
+  // floor. Narrow only candidates with a known, contradictory floor.
+  const compatibleCandidates =
+    floorMatched.length > 0
+      ? candidates.filter(
+          (candidate) => candidate.floor === null || floorMatched.includes(candidate),
+        )
+      : candidates
+  const isAmbiguous = !isExplicitNonIdentityRequest(query) && compatibleCandidates.length > 1
   const ambiguity = isAmbiguous
     ? {
         requestedName: duplicate[1][0]!.name,
-        candidates: floorMatched.length > 1 ? floorMatched : candidates,
+        candidates: compatibleCandidates,
       }
     : null
   return { places: candidates, ambiguity }

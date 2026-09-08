@@ -69,6 +69,42 @@ describe('projectGuestPlaceIdentity', () => {
     expect(result.places[0]?.floor).toBe('First floor')
   })
 
+  it('keeps a duplicate with an unknown floor in the clarification candidates', async () => {
+    const findMany = vi.fn().mockResolvedValue([duplicateLocationRows[0]])
+    const result = await projectGuestPlaceIdentity({
+      reader: { venueLocation: { findMany } } as never,
+      query: 'Tell me about Case 12 on the first floor',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      places,
+    })
+    expect(result.ambiguity?.candidates.map(({ id }) => id)).toEqual([
+      'first-case-12',
+      'second-case-12',
+    ])
+    expect(result.ambiguity?.candidates[1]).toMatchObject({
+      floor: null,
+      location: 'South gallery',
+    })
+  })
+
+  it('excludes only duplicates whose recorded floor contradicts the supplied floor', async () => {
+    const findMany = vi.fn().mockResolvedValue(duplicateLocationRows)
+    const result = await projectGuestPlaceIdentity({
+      reader: { venueLocation: { findMany } } as never,
+      query: 'Tell me about Case 12 on the first floor',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      places: [...places, { id: 'unknown-case-12', name: 'Case 12', areaName: null }],
+    })
+    expect(result.ambiguity?.candidates.map(({ id }) => id)).toEqual([
+      'first-case-12',
+      'unknown-case-12',
+    ])
+  })
+
   it('does not trigger for distinct names or weak clues, and preserves a nonduplicate null area', async () => {
     const findMany = vi.fn().mockResolvedValue([])
     const reader = { venueLocation: { findMany } } as never
