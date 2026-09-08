@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { answerAgentQuestionAction, askAgentQuestionAction } from './agent-question-actions'
 
 function client(transaction: Record<string, unknown>) {
-  transaction.$queryRaw ??= vi.fn().mockResolvedValue([{ id: 'run-1' }])
+  transaction.$queryRaw ??= vi.fn(async (parts: readonly string[]) =>
+    parts.join('').includes('AS outstanding') ? [{ outstanding: false }] : [{ id: 'run-1' }],
+  )
   transaction.$executeRaw ??= vi.fn().mockResolvedValue(1)
   transaction.agentQuestionOperation ??= {
     findUnique: vi.fn().mockResolvedValue(null),
@@ -281,6 +283,50 @@ describe('agent question actions', () => {
           expectedUpdatedAt: pending.updatedAt,
           outcome: 'ANSWERED',
           answer: 'Capacity is 137.',
+          actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ runEligibleToResume: false })
+    expect(updateRun).not.toHaveBeenCalled()
+  })
+
+  it('does not queue an answered parent while a delegated dependency is still outstanding', async () => {
+    const pending = {
+      id: 'question-before-child',
+      agentRunId: 'run-1',
+      agentIdentityId: 'agent-1',
+      blocking: true,
+      status: 'PENDING',
+      answer: null,
+      answeredById: null,
+      updatedAt: new Date('2026-09-07T12:00:00.000Z'),
+    }
+    const updateRun = vi.fn()
+    const transaction = {
+      agentQuestion: {
+        findFirst: vi.fn().mockResolvedValue(pending),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      agentRun: { updateMany: updateRun },
+      $queryRaw: vi.fn(async (parts: readonly string[]) =>
+        parts.join('').includes('AS outstanding') ? [{ outstanding: true }] : [{ id: 'run-1' }],
+      ),
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    }
+
+    await expect(
+      answerAgentQuestionAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          questionId: pending.id,
+          expectedUpdatedAt: pending.updatedAt,
+          outcome: 'ANSWERED',
+          answer: 'Answer arrived before the specialist result.',
           actor: { actorType: 'HUMAN', actorId: 'founder-1', auditRole: 'PLATFORM_ADMIN' },
         },
         client(transaction) as never,

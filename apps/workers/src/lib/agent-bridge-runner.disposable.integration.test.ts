@@ -9,6 +9,7 @@ import {
   createPathfinderMcpRegistry,
   type PathfinderMcpDomainActions,
 } from '@pathfinder/api/mcp/registry'
+import { createPathfinderMcpAgentActions } from '@pathfinder/api/mcp/agent-actions'
 import { createPathfinderMcpReadActions } from '@pathfinder/api/mcp/read-actions'
 import { AgentRunFailureCode } from '@pathfinder/contracts/agent-bridge'
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
@@ -652,6 +653,7 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           'updates:draft',
           'support:triage',
           'agent-improvements:propose',
+          'delegations:create',
         ],
         expiresAt: new Date(Date.now() + 60 * 60_000),
       })
@@ -676,7 +678,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         get: () => unavailableWrite,
       })
       const mcpRegistry = createPathfinderMcpRegistry(
-        createPathfinderMcpReadActions(db as never, unavailableWriteActions),
+        createPathfinderMcpReadActions(
+          db as never,
+          createPathfinderMcpAgentActions(db as never, unavailableWriteActions as never),
+        ),
       )
       const workerSpecs = [
         ['researcher-a', 'researcher', 'knowledge:draft', 'CODEX'],
@@ -1723,12 +1728,28 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         instructions: 'Research first-party evidence for the accessible east entrance.',
         reason: 'The builder requires one retained source-grounded research result.',
       }
-      const [researchDelegation, researchReplay] = await Promise.all([
-        delegateAgentTaskAction(researchDelegationInput),
-        delegateAgentTaskAction(researchDelegationInput),
-      ])
-      expect([researchDelegation.replayed, researchReplay.replayed].sort()).toEqual([false, true])
-      expect(researchReplay.run.id).toBe(researchDelegation.run.id)
+      const researchDispatch = await mcpRegistry.callTool(
+        'pathfinder.delegate_specialist',
+        {
+          clientId: tenantId,
+          venueId,
+          operationId: researchDelegationInput.operationId,
+          parentAgentRunId: researchDelegationInput.parentAgentRunId,
+          requestingAgentIdentityId: researchDelegationInput.requestingAgentIdentityId,
+          specialistAgentIdentityId: researchDelegationInput.specialistAgentIdentityId,
+          instructions: researchDelegationInput.instructions,
+          reason: researchDelegationInput.reason,
+          executionLeaseToken: orchestratorClaim.task!.leaseToken,
+          waitForResult: true,
+        },
+        { credential },
+      )
+      const researchRunId = (researchDispatch.structuredContent.data as { id: string }).id
+      const researchDelegation = { run: { id: researchRunId } }
+      expect(researchDispatch.structuredContent.data).toMatchObject({
+        parentAgentRunId: orchestratorRun.id,
+        parentWaitingForResult: true,
+      })
       const researchClaim = await claimAgentBridgeTask({
         sessionId: firstResearcherWorker.sessionId,
         venueId,
@@ -1863,7 +1884,72 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
             cancelRequestedAt: true,
           },
         }),
-      ).toEqual(parentExecutionBeforeCallback)
+      ).toEqual({
+        ...parentExecutionBeforeCallback,
+        status: 'QUEUED',
+        executionLeaseToken: null,
+        executionWorkerId: null,
+        executionBridgeSessionId: null,
+      })
+      const replayedResearchDispatch = await mcpRegistry.callTool(
+        'pathfinder.delegate_specialist',
+        {
+          clientId: tenantId,
+          venueId,
+          operationId: researchDelegationInput.operationId,
+          parentAgentRunId: researchDelegationInput.parentAgentRunId,
+          requestingAgentIdentityId: researchDelegationInput.requestingAgentIdentityId,
+          specialistAgentIdentityId: researchDelegationInput.specialistAgentIdentityId,
+          instructions: researchDelegationInput.instructions,
+          reason: researchDelegationInput.reason,
+          executionLeaseToken: orchestratorClaim.task!.leaseToken,
+          waitForResult: true,
+        },
+        { credential },
+      )
+      expect(replayedResearchDispatch.structuredContent.data).toMatchObject({
+        id: researchDelegation.run.id,
+        replayed: true,
+        parentWaitingForResult: false,
+      })
+      const resumedAnalystWorkerKey = `analyst-resumed-${suffix}`
+      const resumedAnalystSessionId = randomUUID()
+      await registerAgentWorkerAction(
+        {
+          workerKey: resumedAnalystWorkerKey,
+          runtimeType: 'CODEX',
+          label: resumedAnalystWorkerKey,
+          protocolVersion: 'mcp-2026-07-28',
+          softwareVersion: 'fixture/2-fresh',
+          capabilities: ['agent-runs:execute', 'agent-improvements:propose'],
+          agentRoles: ['analyst'],
+          modelProvider: 'codex-bridge',
+          modelName: 'subscription-default',
+          safeHealth: { state: 'ready' },
+        },
+        credential,
+        { leaseSeconds: 300 },
+      )
+      await registerAgentBridgeSession({
+        sessionId: resumedAnalystSessionId,
+        venueId,
+        provider: 'CODEX_SUBSCRIPTION',
+        label: resumedAnalystWorkerKey,
+        runnerVersion: 'fixture/2-fresh',
+        supportedModels: ['subscription-default'],
+        credential,
+      })
+      const resumedOrchestratorClaim = await claimAgentBridgeTask({
+        sessionId: resumedAnalystSessionId,
+        venueId,
+        workerKey: resumedAnalystWorkerKey,
+        credential,
+      })
+      expect(resumedOrchestratorClaim.task).toMatchObject({
+        id: orchestratorRun.id,
+        attemptNumber: 2,
+        prompt: expect.stringContaining(`agent-run:${researchDelegation.run.id} completed.`),
+      })
       const researchResultInput = {
         resource: 'agent-run-result' as const,
         clientId: tenantId,
@@ -2272,10 +2358,10 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
       ])
       expect(parentAfterTerminalControls).toEqual(parentBeforeTerminalControls)
       await completeAgentBridgeTask({
-        sessionId: analystWorker.sessionId,
+        sessionId: resumedAnalystSessionId,
         venueId,
         runId: orchestratorRun.id,
-        leaseToken: orchestratorClaim.task!.leaseToken,
+        leaseToken: resumedOrchestratorClaim.task!.leaseToken,
         summary:
           'Coordinated the retained research, builder proposal, and visitor-notification draft.',
         artifacts: [
@@ -2335,6 +2421,8 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         specialistAgentIdentityId: identities.researcher,
         instructions: 'Run the ancestry cancellation control.',
         reason: 'Create one canonical active child before cancelling the root.',
+        executionLeaseToken: cancellationControlClaim.task!.leaseToken,
+        waitForResult: true,
       })
       const ancestryChildClaim = await claimAgentBridgeTask({
         sessionId: firstResearcherWorker.sessionId,
@@ -2363,13 +2451,33 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
         }),
       ).toBe(descendantsBeforeCycleAttempt)
-      await requestAgentRunCancellationAction({
-        tenantId,
-        venueId,
-        agentRunId: cancelledParent.id,
-        reason: 'Exercise canonical downstream cancellation fence.',
-        actor: operator,
-      })
+      await Promise.all([
+        requestAgentRunCancellationAction({
+          tenantId,
+          venueId,
+          agentRunId: cancelledParent.id,
+          reason: 'Exercise canonical downstream cancellation fence.',
+          actor: operator,
+        }),
+        completeAgentBridgeTask({
+          sessionId: firstResearcherWorker.sessionId,
+          venueId,
+          runId: ancestryChild.run.id,
+          leaseToken: ancestryChildClaim.task!.leaseToken,
+          summary: 'Concurrent dependency result must not revive a cancelled parent.',
+          artifacts: [{ type: 'cancellation-race-control' }],
+          modelName: 'subscription-default',
+          costE8Usd: 0n,
+          costStatus: 'UNREPORTED',
+          credential,
+        }),
+      ])
+      await expect(
+        db.agentRun.findUniqueOrThrow({
+          where: { id: cancelledParent.id },
+          select: { status: true, cancelRequestedAt: true },
+        }),
+      ).resolves.toMatchObject({ status: 'CANCELLED', cancelRequestedAt: expect.any(Date) })
       const cancelledDescendantsBefore = await db.agentRun.count({
         where: { parentAgentRunId: { in: [cancelledParent.id, ancestryChild.run.id] } },
       })

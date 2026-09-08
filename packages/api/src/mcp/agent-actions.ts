@@ -71,6 +71,7 @@ export function createPathfinderMcpAgentActions(
           instructions: input.instructions,
           reason: input.reason,
           ...(input.executionLeaseToken ? { executionLeaseToken: input.executionLeaseToken } : {}),
+          waitForResult: input.waitForResult,
         },
         db,
       )
@@ -92,6 +93,7 @@ export function createPathfinderMcpAgentActions(
           status: result.run.status,
           replayed: result.replayed,
           executionTriggered: dispatch.enqueued,
+          parentWaitingForResult: result.parentWaitingForResult,
         },
       }
     },

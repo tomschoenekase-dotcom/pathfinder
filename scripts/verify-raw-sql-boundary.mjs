@@ -324,6 +324,12 @@ const approvedOperations = [
     policy: 'system-probe',
   },
   {
+    file: 'packages/db/src/helpers/agent-run-execution-actions.ts',
+    method: '$queryRaw',
+    hash: 'e1cdea708ae6e588875c34ce0d590300a395cef38ea0fe5df20c3e249a6b18f6',
+    policy: 'tenant-and-venue',
+  },
+  {
     file: 'packages/db/src/helpers/agent-workflow-activation-actions.ts',
     method: '$queryRaw',
     hash: '36f9a1731ba9589cae5e734475d2123bfc5cae5fae3d83eb8f29a5e49e781ec0',
@@ -435,6 +441,12 @@ const approvedOperations = [
     file: 'packages/db/src/helpers/agent-question-actions.ts',
     method: '$queryRaw',
     hash: '1df6ea64e4eec249ead41436d458f0e4c30ac605ee3b18f0702f9b51add6a27a',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/agent-question-actions.ts',
+    method: '$queryRaw',
+    hash: '9719ce3dac8ab21ca2d891e58ac74e3aa020bd9d5cad8d41fd23c66422291323',
     policy: 'tenant-and-venue',
   },
   // Compact temporal review receipts serialize one tenant request, lock the exact current

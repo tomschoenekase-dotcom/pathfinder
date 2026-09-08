@@ -521,6 +521,26 @@ export async function answerAgentQuestionAction(
   const transactionResult = client.$transaction(async (transaction) => {
     async function resumeEligibility(agentRunId: string | null, blocking: boolean) {
       if (!agentRunId || !blocking) return false
+      const hasOutstandingDelegatedDependency = async () => {
+        const rows = await transaction.$queryRaw<Array<{ outstanding: boolean }>>`
+          SELECT EXISTS (
+            SELECT 1 FROM agent_timeline_events waiting
+            WHERE waiting.tenant_id=${input.tenantId}
+              AND waiting.venue_id=${input.venueId}
+              AND waiting.agent_run_id=${agentRunId}
+              AND waiting.event_type='DELEGATED_DEPENDENCY_WAITING'
+              AND jsonb_typeof(waiting.data->'childAgentRunId')='string'
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_timeline_events ready
+                WHERE ready.tenant_id=waiting.tenant_id
+                  AND ready.venue_id=waiting.venue_id
+                  AND ready.agent_run_id=waiting.agent_run_id
+                  AND ready.event_type='DELEGATED_DEPENDENCY_READY'
+                  AND ready.data->>'childAgentRunId'=waiting.data->>'childAgentRunId'
+              )
+          ) AS outstanding`
+        return rows[0]?.outstanding !== false
+      }
       const remainingBlockingQuestions = () =>
         transaction.agentQuestion.count({
           where: {
@@ -532,7 +552,7 @@ export async function answerAgentQuestionAction(
           },
         })
       const remaining = await remainingBlockingQuestions()
-      if (remaining !== 0) return false
+      if (remaining !== 0 || (await hasOutstandingDelegatedDependency())) return false
       const transitioned = await transaction.agentRun.updateMany({
         where: {
           id: agentRunId,
@@ -551,7 +571,11 @@ export async function answerAgentQuestionAction(
         },
       })
       if (transitioned.count === 1) {
-        if ((await remainingBlockingQuestions()) === 0) return true
+        if (
+          (await remainingBlockingQuestions()) === 0 &&
+          !(await hasOutstandingDelegatedDependency())
+        )
+          return true
         await transaction.agentRun.updateMany({
           where: {
             id: agentRunId,
@@ -573,7 +597,11 @@ export async function answerAgentQuestionAction(
         },
         select: { id: true },
       })
-      return Boolean(alreadyQueued && (await remainingBlockingQuestions()) === 0)
+      return Boolean(
+        alreadyQueued &&
+        (await remainingBlockingQuestions()) === 0 &&
+        !(await hasOutstandingDelegatedDependency()),
+      )
     }
     const existing = await transaction.agentQuestion.findFirst({
       where: { id: input.questionId, tenantId: input.tenantId, venueId: input.venueId },

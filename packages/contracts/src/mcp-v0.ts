@@ -1372,6 +1372,7 @@ export const McpDelegateSpecialistInput = McpRequestedScope.extend({
   instructions: z.string().trim().min(1).max(10_000),
   reason: z.string().trim().min(1).max(1_000),
   executionLeaseToken: z.string().uuid().optional(),
+  waitForResult: z.boolean().default(false),
 }).strict()
 export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
 
@@ -3464,6 +3465,12 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
           format: 'uuid',
           description:
             'Exact current parent-run lease token required for workflow-bound delegation.',
+        },
+        waitForResult: {
+          type: 'boolean',
+          default: false,
+          description:
+            'Pause the current parent lease until this exact child reaches a terminal state.',
         },
       },
       [

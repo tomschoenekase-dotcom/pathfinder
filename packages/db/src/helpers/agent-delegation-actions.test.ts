@@ -134,6 +134,82 @@ describe('agent delegation action', () => {
     expect(workflowMocks.guard).not.toHaveBeenCalled()
   })
 
+  it('atomically suspends an explicitly dependent parent using its exact live lease', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const createEvent = vi.fn().mockResolvedValue({ id: 'waiting-event' })
+    const transaction = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'parent-1' }]),
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+          id: 'parent-1',
+          parentAgentRunId: null,
+          agentIdentityId: 'primary-1',
+          cancelRequestedAt: null,
+        }),
+        create: vi.fn().mockResolvedValue({
+          id: 'child-1',
+          parentAgentRunId: 'parent-1',
+          agentIdentityId: 'specialist-1',
+          requestPrompt: input.instructions,
+          status: 'QUEUED',
+          createdAt: new Date(),
+        }),
+        updateMany,
+      },
+      agentWorkflowRunBinding: { findMany: vi.fn().mockResolvedValue([]) },
+      agentIdentity: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'specialist-1',
+          agentType: 'EVALUATION',
+          accessScope: 'VENUE',
+          accessCapabilities: ['evaluation.read'],
+          autonomyLevel: 'READ_ONLY',
+          autonomousActions: [],
+          defaultProvider: 'anthropic',
+          defaultModel: 'central:agent-run',
+        }),
+      },
+      agentTimelineEvent: {
+        createMany: vi.fn().mockResolvedValue({ count: 2 }),
+        create: createEvent,
+      },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+    const leaseToken = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+    await expect(
+      delegateAgentTaskAction(
+        { ...input, executionLeaseToken: leaseToken, waitForResult: true },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ run: { id: 'child-1' } })
+    expect(workflowMocks.guard).toHaveBeenCalledWith(transaction, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentRunId: 'parent-1',
+      executionLeaseToken: leaseToken,
+      actionClass: 'AGENT_DELEGATION',
+    })
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ executionLeaseToken: leaseToken, status: 'RUNNING' }),
+        data: { status: 'AWAITING_INPUT' },
+      }),
+    )
+    expect(createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'DELEGATED_DEPENDENCY_WAITING',
+          data: { childAgentRunId: 'child-1' },
+        }),
+      }),
+    )
+  })
+
   it('locks the union, guards the parent, creates the child, then binds the captured keys', async () => {
     workflowMocks.resolve.mockResolvedValue(['child-key'])
     const transaction = {
@@ -464,6 +540,7 @@ describe('agent delegation action', () => {
     const transaction = {
       $executeRaw: vi.fn(),
       agentRun: { findFirst: vi.fn().mockResolvedValue(replay) },
+      agentTimelineEvent: { findFirst: vi.fn().mockResolvedValue(null) },
     }
     const client = {
       $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
@@ -472,11 +549,49 @@ describe('agent delegation action', () => {
     await expect(delegateAgentTaskAction(input, client as never)).resolves.toEqual({
       run: replay,
       replayed: true,
+      parentWaitingForResult: false,
     })
     expect(transaction.$executeRaw).toHaveBeenCalledOnce()
     expect(transaction.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
       transaction.agentRun.findFirst.mock.invocationCallOrder[0]!,
     )
     expect(transaction.agentRun.findFirst).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects replay that changes a nonblocking delegation into a dependency wait', async () => {
+    const transaction = {
+      $executeRaw: vi.fn(),
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'child-1',
+          venueId: 'venue-1',
+          parentAgentRunId: 'parent-1',
+          agentIdentityId: 'specialist-1',
+          initiatedByType: 'AGENT',
+          initiatedById: 'primary-1',
+          requestPrompt: input.instructions,
+          status: 'QUEUED',
+          createdAt: new Date(),
+        }),
+      },
+      agentTimelineEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+    }
+    const client = {
+      $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(transaction)),
+    }
+
+    await expect(
+      delegateAgentTaskAction(
+        {
+          ...input,
+          waitForResult: true,
+          executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Delegation operation was already used with different dependency semantics',
+    })
   })
 })

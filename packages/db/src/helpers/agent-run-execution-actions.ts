@@ -198,6 +198,83 @@ export async function appendDelegatedTerminalResult(
       actorId: input.childAgentIdentityId,
     },
   })
+  if (!input.venueId) return
+  await transaction.$queryRaw`
+    SELECT id FROM agent_runs
+    WHERE id=${input.parentAgentRunId} AND tenant_id=${input.tenantId}
+      AND venue_id=${input.venueId}
+    FOR UPDATE`
+  const waiting = await transaction.agentTimelineEvent.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.parentAgentRunId,
+      eventType: 'DELEGATED_DEPENDENCY_WAITING',
+      data: { path: ['childAgentRunId'], equals: input.childAgentRunId },
+    },
+    select: { id: true },
+  })
+  if (!waiting) return
+  const alreadyWoken = await transaction.agentTimelineEvent.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.parentAgentRunId,
+      eventType: 'DELEGATED_DEPENDENCY_READY',
+      data: { path: ['childAgentRunId'], equals: input.childAgentRunId },
+    },
+    select: { id: true },
+  })
+  if (alreadyWoken) return
+  const unresolvedOperatorBlocker = await transaction.agentQuestion.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.parentAgentRunId,
+      blocking: true,
+      status: { in: ['PENDING', 'EXPIRED'] },
+    },
+    select: { id: true },
+  })
+  if (!unresolvedOperatorBlocker) {
+    const woken = await transaction.agentRun.updateMany({
+      where: {
+        id: input.parentAgentRunId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        status: 'AWAITING_INPUT',
+        cancelRequestedAt: null,
+      },
+      data: {
+        status: 'QUEUED',
+        executionBridgeSessionId: null,
+        executionWorkerId: null,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+        lastHeartbeatAt: null,
+      },
+    })
+    if (woken.count !== 1) return
+  }
+  await transaction.agentTimelineEvent.create({
+    data: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      agentRunId: input.parentAgentRunId,
+      actorType: 'SYSTEM',
+      actorId: 'agent-runtime',
+      eventType: 'DELEGATED_DEPENDENCY_READY',
+      message: unresolvedOperatorBlocker
+        ? 'The delegated dependency reached a terminal state; the parent still has an operator blocker.'
+        : 'The delegated dependency reached a terminal state and the parent task is ready.',
+      data: {
+        childAgentRunId: input.childAgentRunId,
+        resultReference,
+        outcome: input.outcome,
+        queued: !unresolvedOperatorBlocker,
+      },
+    },
+  })
 }
 
 /** Atomically claims a queued run or takes over a running run whose lease expired. */

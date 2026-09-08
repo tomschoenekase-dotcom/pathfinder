@@ -58,6 +58,15 @@ function client(transaction: object) {
               ],
         ),
         ...transaction,
+        agentTimelineEvent: {
+          findFirst: vi.fn(async () => null),
+          create: vi.fn(async () => ({ id: 'event-default' })),
+          ...((transaction as { agentTimelineEvent?: object }).agentTimelineEvent ?? {}),
+        },
+        agentQuestion: {
+          findFirst: vi.fn(async () => null),
+          ...((transaction as { agentQuestion?: object }).agentQuestion ?? {}),
+        },
       }),
     ),
   }
@@ -522,6 +531,170 @@ describe('agent run execution actions', () => {
           'agent-run:child-1 completed. Untrusted delegated terminal result: Draft artifact is ready.',
       }),
     })
+  })
+
+  it('wakes only the parent explicitly suspended for the exact terminal child', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const timelineFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'waiting-1' })
+      .mockResolvedValueOnce(null)
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany,
+      },
+      agentTimelineEvent: { create: timelineCreate, findFirst: timelineFindFirst },
+      agentQuestion: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+    }
+
+    await completeAgentRunExecution(
+      {
+        tenantId: 'tenant-1',
+        runId: 'child-1',
+        leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        summary: 'Dependency result is ready.',
+      },
+      client(transaction) as never,
+    )
+
+    expect(updateMany).toHaveBeenCalledTimes(2)
+    expect(updateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'parent-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        status: 'AWAITING_INPUT',
+        cancelRequestedAt: null,
+      },
+      data: {
+        status: 'QUEUED',
+        executionBridgeSessionId: null,
+        executionWorkerId: null,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+        lastHeartbeatAt: null,
+      },
+    })
+    expect(timelineCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'DELEGATED_DEPENDENCY_READY',
+          data: expect.objectContaining({ childAgentRunId: 'child-1', queued: true }),
+        }),
+      }),
+    )
+  })
+
+  it('retains an operator-blocked parent when its delegated dependency becomes ready', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany,
+      },
+      agentTimelineEvent: {
+        create: timelineCreate,
+        findFirst: vi.fn().mockResolvedValueOnce({ id: 'waiting-1' }).mockResolvedValueOnce(null),
+      },
+      agentQuestion: { findFirst: vi.fn().mockResolvedValue({ id: 'question-1' }) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+    }
+
+    await completeAgentRunExecution(
+      {
+        tenantId: 'tenant-1',
+        runId: 'child-1',
+        leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        summary: 'Dependency result is ready.',
+      },
+      client(transaction) as never,
+    )
+
+    expect(updateMany).toHaveBeenCalledOnce()
+    expect(transaction.agentQuestion.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ['PENDING', 'EXPIRED'] } }),
+      }),
+    )
+    expect(timelineCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'DELEGATED_DEPENDENCY_READY',
+          data: expect.objectContaining({ queued: false }),
+        }),
+      }),
+    )
+  })
+
+  it('does not wake a cancelled parent from a late delegated callback', async () => {
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany,
+      },
+      agentTimelineEvent: {
+        create: timelineCreate,
+        findFirst: vi.fn().mockResolvedValueOnce({ id: 'waiting-1' }).mockResolvedValueOnce(null),
+      },
+      agentQuestion: { findFirst: vi.fn().mockResolvedValue(null) },
+      agentMessage: { create: vi.fn().mockResolvedValue({ id: 'message-1' }) },
+    }
+
+    await completeAgentRunExecution(
+      {
+        tenantId: 'tenant-1',
+        runId: 'child-1',
+        leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        summary: 'Late result after parent cancellation.',
+      },
+      client(transaction) as never,
+    )
+
+    expect(updateMany).toHaveBeenCalledTimes(2)
+    expect(
+      timelineCreate.mock.calls.some(
+        ([call]) => call.data.eventType === 'DELEGATED_DEPENDENCY_READY',
+      ),
+    ).toBe(false)
   })
 
   it('does not write or complete when a delegated parent is missing from the exact scope', async () => {

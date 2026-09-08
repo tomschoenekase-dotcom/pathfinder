@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ askQuestion: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  askQuestion: vi.fn(),
+  delegate: vi.fn(),
+  enqueue: vi.fn(),
+}))
 
 vi.mock('@pathfinder/db', () => ({
   askAgentQuestionAction: mocks.askQuestion,
-  delegateAgentTaskAction: vi.fn(),
+  delegateAgentTaskAction: mocks.delegate,
   db: {},
 }))
-vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: vi.fn() }))
+vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: mocks.enqueue }))
 vi.mock('@pathfinder/billing', () => ({ proposeBillingAgentCommand: vi.fn() }))
 vi.mock('@pathfinder/config', () => ({ env: { AGENT_RUNNER_ENABLED: false } }))
 
@@ -78,5 +82,54 @@ describe('MCP operator question action', () => {
 
     expect(mocks.askQuestion.mock.calls[0]?.[0]).not.toHaveProperty('expiresAt')
     expect(result.data).toMatchObject({ expiresAt: null })
+  })
+})
+
+describe('MCP specialist dependency action', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('passes explicit wait semantics through the production delegation and dispatch path', async () => {
+    mocks.delegate.mockResolvedValue({
+      run: {
+        id: 'child-1',
+        parentAgentRunId: 'parent-1',
+        agentIdentityId: 'specialist-1',
+        status: 'QUEUED',
+      },
+      replayed: false,
+      parentWaitingForResult: true,
+    })
+    mocks.enqueue.mockResolvedValue({ enqueued: true })
+    const actions = createPathfinderMcpAgentActions({} as never, {} as never)
+
+    const result = await actions.delegateSpecialist(
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        parentAgentRunId: 'parent-1',
+        requestingAgentIdentityId: 'agent-1',
+        specialistAgentIdentityId: 'specialist-1',
+        instructions: 'Return one retained research artifact.',
+        reason: 'The parent requires this exact result.',
+        executionLeaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        waitForResult: true,
+      },
+      context as never,
+    )
+
+    expect(mocks.delegate).toHaveBeenCalledWith(
+      expect.objectContaining({ waitForResult: true }),
+      expect.anything(),
+    )
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', runId: 'child-1' },
+      { enabled: false },
+    )
+    expect(result.data).toMatchObject({
+      id: 'child-1',
+      executionTriggered: true,
+      parentWaitingForResult: true,
+    })
   })
 })

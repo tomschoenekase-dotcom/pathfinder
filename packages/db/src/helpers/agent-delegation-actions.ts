@@ -33,6 +33,7 @@ const inputSchema = z
     instructions: z.string().trim().min(1).max(10_000),
     reason: z.string().trim().min(1).max(1_000),
     executionLeaseToken: z.string().uuid().optional(),
+    waitForResult: z.boolean().default(false),
   })
   .strict()
 
@@ -79,7 +80,53 @@ export async function delegateAgentTaskAction(
           'Delegation operation was already used for different work',
         )
       }
-      return { run: replay, replayed: true }
+      const dependencyWait = await transaction.agentTimelineEvent.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          agentRunId: input.parentAgentRunId,
+          eventType: 'DELEGATED_DEPENDENCY_WAITING',
+          data: { path: ['childAgentRunId'], equals: replay.id },
+        },
+        select: { id: true },
+      })
+      if (Boolean(dependencyWait) !== input.waitForResult)
+        throw new AgentDelegationError(
+          'CONFLICT',
+          'Delegation operation was already used with different dependency semantics',
+        )
+      const [parent, dependencyReady] = input.waitForResult
+        ? await Promise.all([
+            transaction.agentRun.findFirst({
+              where: {
+                id: input.parentAgentRunId,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+              },
+              select: { status: true, cancelRequestedAt: true },
+            }),
+            transaction.agentTimelineEvent.findFirst({
+              where: {
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                agentRunId: input.parentAgentRunId,
+                eventType: 'DELEGATED_DEPENDENCY_READY',
+                data: { path: ['childAgentRunId'], equals: replay.id },
+              },
+              select: { id: true },
+            }),
+          ])
+        : [null, null]
+      return {
+        run: replay,
+        replayed: true,
+        parentWaitingForResult: Boolean(
+          dependencyWait &&
+          !dependencyReady &&
+          parent?.status === 'AWAITING_INPUT' &&
+          !parent.cancelRequestedAt,
+        ),
+      }
     }
     const childRegistryKeys = await resolveActiveAgentWorkflowRegistryKeys(transaction, input)
     const parentBindings = await transaction.agentWorkflowRunBinding.findMany({
@@ -306,6 +353,47 @@ export async function delegateAgentTaskAction(
         actorId: parent.agentIdentityId,
       },
     })
-    return { run: child, replayed: false }
+    if (input.waitForResult) {
+      if (!input.executionLeaseToken)
+        throw new AgentDelegationError(
+          'FORBIDDEN',
+          'A blocking specialist dependency requires the exact parent execution lease token',
+        )
+      await assertEligibleWorkflowRunLease(transaction, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        agentRunId: parent.id,
+        executionLeaseToken: input.executionLeaseToken,
+        actionClass: 'AGENT_DELEGATION',
+      })
+      const suspended = await transaction.agentRun.updateMany({
+        where: {
+          id: parent.id,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'RUNNING',
+          cancelRequestedAt: null,
+          executionLeaseToken: input.executionLeaseToken,
+        },
+        data: {
+          status: 'AWAITING_INPUT',
+        },
+      })
+      if (suspended.count !== 1)
+        throw new AgentDelegationError('FORBIDDEN', 'Parent execution lease was lost')
+      await transaction.agentTimelineEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          agentRunId: parent.id,
+          actorType: 'AGENT',
+          actorId: parent.agentIdentityId,
+          eventType: 'DELEGATED_DEPENDENCY_WAITING',
+          message: 'The parent task is waiting for one delegated specialist result.',
+          data: { childAgentRunId: child.id },
+        },
+      })
+    }
+    return { run: child, replayed: false, parentWaitingForResult: input.waitForResult }
   })
 }
