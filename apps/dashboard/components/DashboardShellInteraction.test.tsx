@@ -6,9 +6,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 let pathname = '/'
+let searchParams = new URLSearchParams()
 let platformRole: string | undefined
 
-vi.mock('next/navigation', () => ({ usePathname: () => pathname }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => pathname,
+  useSearchParams: () => searchParams,
+}))
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={String(href)} {...props}>
@@ -31,6 +35,7 @@ describe('DashboardShell interaction semantics', () => {
     cleanup()
     vi.restoreAllMocks()
     pathname = '/'
+    searchParams = new URLSearchParams()
     platformRole = undefined
   })
 
@@ -54,17 +59,142 @@ describe('DashboardShell interaction semantics', () => {
 
   it('renders setup information as current text instead of a no-op link', () => {
     pathname = '/onboarding/setup'
+    searchParams = new URLSearchParams({ venue: 'venue B' })
     render(<DashboardShell>Setup form</DashboardShell>)
     expect(screen.queryByRole('link', { name: 'Your information' })).toBeNull()
     expect(screen.getByText('Your information').closest('[aria-current="page"]')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Questions & help' }).getAttribute('href')).toBe(
+      '/support',
+    )
   })
 
-  it('links venue onboarding information directly to the materials target', () => {
-    pathname = '/venues/venue-1/onboarding'
+  it('keeps an encoded venue through recognized onboarding navigation', () => {
+    pathname = '/venues/venue%20%2F%201/onboarding'
     render(<DashboardShell>Journey</DashboardShell>)
     expect(screen.getByRole('link', { name: 'Your information' }).getAttribute('href')).toBe(
-      '/venues/venue-1/onboarding#materials',
+      '/venues/venue%20%2F%201/onboarding#materials',
     )
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+      '/?venue=venue%20%2F%201',
+    )
+    expect(screen.getByRole('link', { name: 'Questions & help' }).getAttribute('href')).toBe(
+      '/support?venue=venue%20%2F%201&returnTo=%2Fvenues%2Fvenue%2520%252F%25201%2Fonboarding',
+    )
+    expect(
+      screen.getByRole('link', { name: 'Your information' }).getAttribute('aria-current'),
+    ).toBe('page')
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('returns from a venue QR kit using its path scope instead of a conflicting query', () => {
+    pathname = '/venues/venue%20B/qr-kit'
+    searchParams = new URLSearchParams({ venue: 'venue A' })
+    render(<DashboardShell>QR kit</DashboardShell>)
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+      '/?venue=venue%20B',
+    )
+    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+      '/support?venue=venue%20B',
+    )
+    expect(screen.queryByRole('link', { name: 'Your information' })).toBeNull()
+  })
+
+  it('keeps the selected venue when leaving a reviewed preview', () => {
+    pathname = '/venues/venue-beta/preview/package-1'
+    render(<DashboardShell>Preview</DashboardShell>)
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+      '/?venue=venue-beta',
+    )
+    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+      '/support?venue=venue-beta',
+    )
+  })
+
+  it('does not mistake the new venue route for a venue ID', () => {
+    pathname = '/venues/new'
+    render(<DashboardShell>New venue</DashboardShell>)
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe('/')
+  })
+
+  it('moves focus to the refreshed page on a same-path venue change', async () => {
+    searchParams = new URLSearchParams({ venue: 'venue-alpha' })
+    const { rerender } = render(
+      <DashboardShell>
+        <h1>Alpha overview</h1>
+      </DashboardShell>,
+    )
+    searchParams = new URLSearchParams({ venue: 'venue-beta' })
+    rerender(
+      <DashboardShell>
+        <h1>Beta overview</h1>
+      </DashboardShell>,
+    )
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Beta overview' })),
+    )
+  })
+
+  it('retains a selected venue from Help when returning to Today', () => {
+    pathname = '/support'
+    searchParams = new URLSearchParams({ venue: 'venue B' })
+    render(<DashboardShell>Help</DashboardShell>)
+
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('href')).toBe(
+      '/?venue=venue%20B',
+    )
+    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('href')).toBe(
+      '/support?venue=venue%20B',
+    )
+    expect(screen.getByRole('link', { name: 'Help & changes' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+  })
+
+  it('keeps venue-scoped onboarding links keyboard reachable in the mobile drawer', async () => {
+    pathname = '/venues/venue-1/onboarding'
+    render(<DashboardShell>Journey</DashboardShell>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const today = screen.getByRole('link', { name: 'Today' })
+    expect(today.getAttribute('href')).toBe('/?venue=venue-1')
+    await waitFor(() => expect(document.activeElement).toBe(today))
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation' }))
+  })
+
+  it('closes the mobile drawer when a scoped query changes on the same page', async () => {
+    pathname = '/support'
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    const rendered = render(<DashboardShell>Help</DashboardShell>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    expect(screen.getByRole('dialog', { name: 'Client portal navigation' })).toBeTruthy()
+
+    searchParams = new URLSearchParams({ venue: 'venue-2' })
+    rendered.rerender(<DashboardShell>Help</DashboardShell>)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('focuses the destination after route navigation closes an open drawer', async () => {
+    pathname = '/venues/venue-beta/onboarding'
+    const { rerender } = render(
+      <DashboardShell>
+        <h1>Materials</h1>
+      </DashboardShell>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    pathname = '/support'
+    searchParams = new URLSearchParams({ venue: 'venue-beta' })
+    rerender(
+      <DashboardShell>
+        <h1>How can we help?</h1>
+      </DashboardShell>,
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'How can we help?' }))
   })
 
   it('keeps the compact admin-view return action touch-sized', () => {

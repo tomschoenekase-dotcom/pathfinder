@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 
 import { browserUuid } from '../lib/browser-uuid'
 import { BoundedClientRequestError, runBoundedClientRequest } from '../lib/bounded-client-request'
@@ -36,6 +36,16 @@ type BootstrapState = {
 }
 
 const CLIENT_ASSISTANT_READ_TIMEOUT_MS = 15_000
+
+function venueIdFromRoute(pathname: string): string | null {
+  const routeVenueId = /^\/venues\/([^/]+)(?:\/|$)/u.exec(pathname)?.[1]
+  if (!routeVenueId) return null
+  try {
+    return decodeURIComponent(routeVenueId)
+  } catch {
+    return null
+  }
+}
 
 function mapHistory(history: BootstrapState['history']): ClientTochiMessage[] {
   return history.flatMap((turn) => {
@@ -111,27 +121,44 @@ function mapReply(reply: {
 export function ClientTochiWorkspace() {
   const client = useTRPCClient()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null)
   const venueRequestRef = useRef<AbortController | null>(null)
   const venueRequestGenerationRef = useRef(0)
+  const workspaceGenerationRef = useRef(0)
 
-  const routeVenueId = /^\/venues\/([^/]+)(?:\/|$)/u.exec(pathname)?.[1]
+  const routeVenueId = venueIdFromRoute(pathname)
+  const requestedVenueId = routeVenueId ?? searchParams.get('venue')
+  const requestedVenueRef = useRef(requestedVenueId)
+  const requestedClientRef = useRef(client)
+  const bootstrapRequestChanged =
+    requestedVenueRef.current !== requestedVenueId || requestedClientRef.current !== client
 
   useEffect(() => {
     const controller = new AbortController()
     if (!client.clientAssistant) return () => undefined
-    const queryVenueId = routeVenueId ?? new URLSearchParams(window.location.search).get('venue')
+    const generation = workspaceGenerationRef.current + 1
+    workspaceGenerationRef.current = generation
+    venueRequestGenerationRef.current = generation
+    venueRequestRef.current?.abort()
+    venueRequestRef.current = null
+    requestedVenueRef.current = requestedVenueId
+    requestedClientRef.current = client
     setBootstrap(null)
     void runBoundedClientRequest({
       parentSignal: controller.signal,
       timeoutMs: CLIENT_ASSISTANT_READ_TIMEOUT_MS,
       request: (signal) =>
-        client.clientAssistant.bootstrap.query(queryVenueId ? { venueId: queryVenueId } : {}, {
-          signal,
-        }),
+        client.clientAssistant.bootstrap.query(
+          requestedVenueId ? { venueId: requestedVenueId } : {},
+          {
+            signal,
+          },
+        ),
     })
       .then((result) => {
-        if (!controller.signal.aborted) setBootstrap(result as BootstrapState)
+        if (!controller.signal.aborted && workspaceGenerationRef.current === generation)
+          setBootstrap(result as BootstrapState)
       })
       .catch((error: unknown) => {
         if (error instanceof BoundedClientRequestError && error.code === 'CANCELLED') return
@@ -140,10 +167,11 @@ export function ClientTochiWorkspace() {
     return () => {
       controller.abort()
     }
-  }, [client, routeVenueId])
+  }, [client, requestedVenueId])
 
   useEffect(
     () => () => {
+      workspaceGenerationRef.current += 1
       venueRequestGenerationRef.current += 1
       venueRequestRef.current?.abort()
     },
@@ -152,18 +180,23 @@ export function ClientTochiWorkspace() {
 
   const venueId = bootstrap?.selectedVenueId
   const venue = bootstrap?.venues.find((candidate) => candidate.id === venueId)
-  if (!bootstrap?.available || !bootstrap.preference.enabled || !venueId) return null
+  if (bootstrapRequestChanged || !bootstrap?.available || !bootstrap.preference.enabled || !venueId)
+    return null
 
   async function updatePreference(enabled: boolean, minimized: boolean) {
     if (!bootstrap || !venueId) throw new Error('Client assistance is not ready')
+    const generation = workspaceGenerationRef.current
+    const expectedRevision = bootstrap.preference.revision
     const saved = await client.clientAssistant.setPreference.mutate({
       venueId,
       enabled,
       minimized,
-      expectedRevision: bootstrap.preference.revision,
+      expectedRevision,
     })
     setBootstrap((current) =>
-      current
+      workspaceGenerationRef.current === generation &&
+      current?.selectedVenueId === venueId &&
+      current.preference.revision === expectedRevision
         ? {
             ...current,
             preference: {
@@ -188,7 +221,8 @@ export function ClientTochiWorkspace() {
       onVenueChange={async (nextVenueId) => {
         venueRequestRef.current?.abort()
         const controller = new AbortController()
-        const generation = venueRequestGenerationRef.current + 1
+        const generation = workspaceGenerationRef.current + 1
+        workspaceGenerationRef.current = generation
         venueRequestGenerationRef.current = generation
         venueRequestRef.current = controller
         try {

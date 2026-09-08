@@ -32,11 +32,16 @@ const secondTrpcClient = vi.hoisted(() => ({
   },
 }))
 const currentClient = vi.hoisted(() => ({ value: trpcClient }))
+let pathname = '/'
+let searchParams = new URLSearchParams()
 
 vi.mock('../lib/browser-uuid', () => ({
   browserUuid: () => '11111111-1111-4111-8111-111111111111',
 }))
-vi.mock('next/navigation', () => ({ usePathname: () => '/' }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => pathname,
+  useSearchParams: () => searchParams,
+}))
 vi.mock('../lib/trpc', () => ({
   useTRPCClient: () => currentClient.value,
 }))
@@ -63,6 +68,8 @@ describe('ClientTochiWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     currentClient.value = trpcClient
+    pathname = '/'
+    searchParams = new URLSearchParams()
     mocks.bootstrap.mockResolvedValue(bootstrap)
     mocks.opened.mockResolvedValue({ ok: true })
   })
@@ -91,6 +98,234 @@ describe('ClientTochiWorkspace', () => {
     view.unmount()
 
     expect(signal.aborted).toBe(true)
+  })
+
+  it('reboots the bounded workspace when a venue query changes on the same path', async () => {
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    mocks.bootstrap.mockResolvedValueOnce(bootstrap).mockResolvedValueOnce({
+      ...bootstrap,
+      venues: [
+        { id: 'venue-1', name: 'Harbor Museum' },
+        { id: 'venue-2', name: 'River Museum' },
+      ],
+      selectedVenueId: 'venue-2',
+    })
+    const view = render(<ClientTochiWorkspace />)
+    await screen.findByRole('button', { name: 'Ask Tochi' })
+    expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-1' }, expect.any(Object))
+
+    searchParams = new URLSearchParams({ venue: 'venue-2' })
+    view.rerender(<ClientTochiWorkspace />)
+
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-2' }, expect.any(Object)),
+    )
+    await screen.findByRole('button', { name: 'Ask Tochi' })
+  })
+
+  it('gives a decoded route venue precedence over an unrelated venue query', async () => {
+    pathname = '/venues/venue%20%2F%201/onboarding'
+    searchParams = new URLSearchParams({ venue: 'venue-other' })
+    mocks.bootstrap.mockResolvedValueOnce({
+      ...bootstrap,
+      venues: [{ id: 'venue / 1', name: 'Encoded Route Venue' }],
+      selectedVenueId: 'venue / 1',
+    })
+
+    render(<ClientTochiWorkspace />)
+
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenCalledWith({ venueId: 'venue / 1' }, expect.any(Object)),
+    )
+  })
+
+  it('rejects a stale venue bootstrap and cannot send into the previous venue', async () => {
+    let resolveFirst: ((value: typeof bootstrap) => void) | undefined
+    let resolveSecond:
+      | ((
+          value: typeof bootstrap & {
+            venues: Array<{ id: string; name: string }>
+            selectedVenueId: string
+          },
+        ) => void)
+      | undefined
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    mocks.bootstrap
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof bootstrap>((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<
+            typeof bootstrap & {
+              venues: Array<{ id: string; name: string }>
+              selectedVenueId: string
+            }
+          >((resolve) => {
+            resolveSecond = resolve
+          }),
+      )
+    const view = render(<ClientTochiWorkspace />)
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-1' }, expect.any(Object)),
+    )
+
+    searchParams = new URLSearchParams({ venue: 'venue-2' })
+    view.rerender(<ClientTochiWorkspace />)
+    expect(screen.queryByRole('button', { name: 'Ask Tochi' })).toBeNull()
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-2' }, expect.any(Object)),
+    )
+    await act(async () => resolveFirst?.(bootstrap))
+    expect(screen.queryByRole('button', { name: 'Ask Tochi' })).toBeNull()
+
+    await act(async () =>
+      resolveSecond?.({
+        ...bootstrap,
+        venues: [
+          { id: 'venue-1', name: 'Harbor Museum' },
+          { id: 'venue-2', name: 'River Museum' },
+        ],
+        selectedVenueId: 'venue-2',
+      }),
+    )
+    mocks.send.mockResolvedValue({ id: 'turn-venue-2', answer: 'Current venue only.' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Tochi' }))
+    fireEvent.change(screen.getByLabelText('Message Tochi'), {
+      target: { value: 'What is current?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await screen.findByText('Current venue only.')
+    expect(mocks.send).toHaveBeenCalledWith({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      venueId: 'venue-2',
+      message: 'What is current?',
+    })
+    expect(mocks.send).not.toHaveBeenCalledWith(expect.objectContaining({ venueId: 'venue-1' }))
+  })
+
+  it('cannot let a late manual venue selection overwrite a newer route venue', async () => {
+    const multiVenueBootstrap = {
+      ...bootstrap,
+      venues: [
+        { id: 'venue-1', name: 'Harbor Museum' },
+        { id: 'venue-2', name: 'River Museum' },
+        { id: 'venue-3', name: 'Garden Museum' },
+      ],
+    }
+    let resolveManual:
+      | ((value: typeof multiVenueBootstrap & { selectedVenueId: string }) => void)
+      | undefined
+    let resolveRoute:
+      | ((value: typeof multiVenueBootstrap & { selectedVenueId: string }) => void)
+      | undefined
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    mocks.bootstrap
+      .mockResolvedValueOnce(multiVenueBootstrap)
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof multiVenueBootstrap & { selectedVenueId: string }>((resolve) => {
+            resolveManual = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof multiVenueBootstrap & { selectedVenueId: string }>((resolve) => {
+            resolveRoute = resolve
+          }),
+      )
+    const view = render(<ClientTochiWorkspace />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Tochi' }))
+    fireEvent.change(screen.getByLabelText('Venue context'), { target: { value: 'venue-2' } })
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-2' }, expect.any(Object)),
+    )
+
+    searchParams = new URLSearchParams({ venue: 'venue-3' })
+    view.rerender(<ClientTochiWorkspace />)
+    await waitFor(() =>
+      expect(mocks.bootstrap).toHaveBeenLastCalledWith({ venueId: 'venue-3' }, expect.any(Object)),
+    )
+    await act(async () => resolveRoute?.({ ...multiVenueBootstrap, selectedVenueId: 'venue-3' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Tochi' }))
+    expect(await screen.findByText(/Portal guidance for Garden Museum/)).toBeTruthy()
+
+    await act(async () => resolveManual?.({ ...multiVenueBootstrap, selectedVenueId: 'venue-2' }))
+    expect(screen.getByText(/Portal guidance for Garden Museum/)).toBeTruthy()
+    mocks.send.mockResolvedValue({ id: 'turn-venue-3', answer: 'Garden only.' })
+    fireEvent.change(screen.getByLabelText('Message Tochi'), {
+      target: { value: 'What is current?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await screen.findByText('Garden only.')
+    expect(mocks.send).toHaveBeenLastCalledWith({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      venueId: 'venue-3',
+      message: 'What is current?',
+    })
+  })
+
+  it('cannot let a late preference save overwrite a newer route bootstrap', async () => {
+    let resolvePreference:
+      | ((value: { enabled: boolean; minimized: boolean; revision: number }) => void)
+      | undefined
+    searchParams = new URLSearchParams({ venue: 'venue-1' })
+    mocks.bootstrap.mockResolvedValueOnce(bootstrap).mockResolvedValueOnce({
+      ...bootstrap,
+      venues: [
+        { id: 'venue-1', name: 'Harbor Museum' },
+        { id: 'venue-2', name: 'River Museum' },
+      ],
+      selectedVenueId: 'venue-2',
+      preference: { enabled: true, minimized: false, revision: 8 },
+    })
+    mocks.setPreference.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePreference = resolve
+        }),
+    )
+    const view = render(<ClientTochiWorkspace />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Tochi' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize Tochi' }))
+    await waitFor(() => expect(mocks.setPreference).toHaveBeenCalledOnce())
+
+    searchParams = new URLSearchParams({ venue: 'venue-2' })
+    view.rerender(<ClientTochiWorkspace />)
+    expect(await screen.findByRole('button', { name: 'Ask Tochi' })).toBeTruthy()
+    await act(async () => resolvePreference?.({ enabled: true, minimized: true, revision: 3 }))
+
+    expect(screen.getByRole('button', { name: 'Ask Tochi' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Tochi' })).toBeNull()
+  })
+
+  it('does not present the prior bootstrap while the client instance is replaced', async () => {
+    let resolveReplacement: ((value: typeof bootstrap) => void) | undefined
+    mocks.bootstrap.mockResolvedValueOnce(bootstrap)
+    secondTrpcClient.clientAssistant.bootstrap.query.mockImplementationOnce(
+      () =>
+        new Promise<typeof bootstrap>((resolve) => {
+          resolveReplacement = resolve
+        }),
+    )
+    const view = render(<ClientTochiWorkspace />)
+    await screen.findByRole('button', { name: 'Ask Tochi' })
+
+    currentClient.value = secondTrpcClient
+    view.rerender(<ClientTochiWorkspace />)
+    expect(screen.queryByRole('button', { name: 'Ask Tochi' })).toBeNull()
+    await waitFor(() =>
+      expect(secondTrpcClient.clientAssistant.bootstrap.query).toHaveBeenCalledWith(
+        {},
+        expect.any(Object),
+      ),
+    )
+    await act(async () => resolveReplacement?.(bootstrap))
+    expect(await screen.findByRole('button', { name: 'Ask Tochi' })).toBeTruthy()
   })
 
   it('sends through the bounded tenant API and renders a safe route action', async () => {

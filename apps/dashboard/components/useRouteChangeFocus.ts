@@ -2,11 +2,15 @@
 
 import { type RefObject, useEffect, useRef } from 'react'
 
-export function useRouteChangeFocus(pathname: string, contentRef: RefObject<HTMLElement | null>) {
+export function useRouteChangeFocus(
+  pathname: string,
+  contentRef: RefObject<HTMLElement | null>,
+  enabled = true,
+) {
   const previousPathname = useRef(pathname)
 
   useEffect(() => {
-    if (previousPathname.current === pathname) return
+    if (!enabled || previousPathname.current === pathname) return
     previousPathname.current = pathname
 
     const content = contentRef.current
@@ -18,5 +22,5 @@ export function useRouteChangeFocus(pathname: string, contentRef: RefObject<HTML
     const target = heading ?? content
     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
     target.focus()
-  }, [contentRef, pathname])
+  }, [contentRef, enabled, pathname])
 }

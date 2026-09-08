@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
@@ -53,7 +53,33 @@ const onboardingNavigationItems = [
 ] as const
 
 function isActivePath(pathname: string, href: string) {
-  return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`)
+  const path = href.split(/[?#]/u, 1)[0] || '/'
+  return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(path + '/')
+}
+
+function venueIdFromPath(pathname: string): string | null {
+  if (pathname === '/venues/new' || pathname === '/venues/new/') return null
+  const match = /^\/venues\/([^/]+)(?:\/|$)/u.exec(pathname)
+  if (!match) return null
+  try {
+    const venueId = decodeURIComponent(match[1]!)
+    return venueId.trim() && venueId.length <= 191 ? venueId : null
+  } catch {
+    return null
+  }
+}
+
+function venueIdFromQuery(value: string | null): string | null {
+  return value?.trim() && value.length <= 191 ? value : null
+}
+
+function scopedHref(path: '/' | '/support', venueId: string, returnTo?: string) {
+  return (
+    path +
+    '?venue=' +
+    encodeURIComponent(venueId) +
+    (returnTo ? '&returnTo=' + encodeURIComponent(returnTo) : '')
+  )
 }
 
 export function DashboardShell({
@@ -63,12 +89,7 @@ export function DashboardShell({
   paymentAvailable = false,
 }: DashboardShellProps) {
   const pathname = usePathname()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [adminViewPending, setAdminViewPending] = useState(false)
-  const [adminViewError, setAdminViewError] = useState<string | null>(null)
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
-  const sidebarRef = useRef<HTMLElement>(null)
-  const mainRef = useRef<HTMLElement>(null)
+  const searchParams = useSearchParams()
   const { organization } = useOrganization()
   const { user } = useUser()
   const isPlatformAdmin =
@@ -78,26 +99,109 @@ export function DashboardShell({
     impersonatedTenantName ??
     organization?.name ??
     (isPlatformAdmin ? 'Client workspace' : 'Your organization')
-  const onboardingPath =
-    pathname === '/onboarding/setup' || /^\/venues\/[^/]+\/onboarding(?:\/|$)/u.test(pathname)
-  const venueOnboardingPath = /^\/venues\/[^/]+\/onboarding(?:\/|$)/u.test(pathname)
+  return (
+    <DashboardShellView
+      pathname={pathname}
+      selectedVenueId={searchParams.get('venue')}
+      routeKey={pathname + '?' + searchParams.toString()}
+      orgName={orgName}
+      isPlatformAdmin={isPlatformAdmin}
+      weeklyReportsAvailable={weeklyReportsAvailable}
+      paymentAvailable={paymentAvailable}
+      signOutControl={
+        <SignOutButton>
+          <button
+            type="button"
+            className="mt-6 flex min-h-11 w-full items-center gap-3 border-l-2 border-transparent px-3.5 text-sm font-medium text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Sign out
+          </button>
+        </SignOutButton>
+      }
+      assistantControl={
+        <ClientTochiBoundary>
+          <ClientTochiWorkspace />
+        </ClientTochiBoundary>
+      }
+    >
+      {children}
+    </DashboardShellView>
+  )
+}
+
+type DashboardShellViewProps = {
+  children: ReactNode
+  pathname: string
+  selectedVenueId: string | null
+  routeKey?: string
+  orgName: string
+  isPlatformAdmin: boolean
+  weeklyReportsAvailable?: boolean
+  paymentAvailable?: boolean
+  signOutControl?: ReactNode
+  assistantControl?: ReactNode
+}
+
+// The authenticated wrapper supplies identity and controls. This shared view lets
+// local fixtures exercise navigation without substituting application auth.
+export function DashboardShellView({
+  children,
+  pathname,
+  selectedVenueId,
+  routeKey = pathname + '?venue=' + encodeURIComponent(selectedVenueId ?? ''),
+  orgName,
+  isPlatformAdmin,
+  weeklyReportsAvailable = false,
+  paymentAvailable = false,
+  signOutControl,
+  assistantControl,
+}: DashboardShellViewProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [adminViewPending, setAdminViewPending] = useState(false)
+  const [adminViewError, setAdminViewError] = useState<string | null>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
+  const pathVenueId = venueIdFromPath(pathname)
+  const onboardingVenueId = /\/onboarding(?:\/|$)/u.test(pathname) ? pathVenueId : null
+  const onboardingPath = pathname === '/onboarding/setup' || onboardingVenueId !== null
+  const venueId =
+    pathVenueId ?? (pathname === '/onboarding/setup' ? null : venueIdFromQuery(selectedVenueId))
   const visibleNavigationItems = onboardingPath
     ? onboardingNavigationItems.map((item) =>
         item.href === '#materials'
-          ? venueOnboardingPath
-            ? { ...item, href: `${pathname}#materials` }
+          ? onboardingVenueId
+            ? { ...item, href: pathname + '#materials' }
             : { ...item, href: null }
-          : item,
+          : item.href === '/'
+            ? { ...item, href: venueId ? scopedHref('/', venueId) : item.href }
+            : item.href === '/support'
+              ? {
+                  ...item,
+                  href: venueId
+                    ? scopedHref('/support', venueId, onboardingVenueId ? pathname : undefined)
+                    : item.href,
+                }
+              : item,
       )
-    : navigationItems.filter(
-        (item) =>
-          (!('reportsOnly' in item) || weeklyReportsAvailable) &&
-          (!('paymentOnly' in item) || paymentAvailable),
-      )
+    : navigationItems
+        .filter(
+          (item) =>
+            (!('reportsOnly' in item) || weeklyReportsAvailable) &&
+            (!('paymentOnly' in item) || paymentAvailable),
+        )
+        .map((item) =>
+          item.href === '/' && venueId
+            ? { ...item, href: scopedHref('/', venueId) }
+            : item.href === '/support' && venueId
+              ? { ...item, href: scopedHref('/support', venueId) }
+              : item,
+        )
+  // Wait until the mobile drawer releases inert content before moving focus.
+  useRouteChangeFocus(routeKey, mainRef, !menuOpen)
 
-  useRouteChangeFocus(pathname, mainRef)
-
-  useEffect(() => setMenuOpen(false), [pathname])
+  useEffect(() => setMenuOpen(false), [routeKey])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -190,15 +294,7 @@ export function DashboardShell({
           </Link>
         ) : null}
       </nav>
-      <SignOutButton>
-        <button
-          type="button"
-          className="mt-6 flex min-h-11 w-full items-center gap-3 border-l-2 border-transparent px-3.5 text-sm font-medium text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          Sign out
-        </button>
-      </SignOutButton>
+      {signOutControl}
     </>
   )
 
@@ -236,12 +332,12 @@ export function DashboardShell({
           className="fixed inset-0 z-30 bg-pf-deep/50 lg:hidden"
         />
       ) : null}
-      <aside
+      <div
         ref={sidebarRef}
         id="client-portal-navigation"
+        role={menuOpen ? 'dialog' : 'complementary'}
         {...(menuOpen
           ? {
-              role: 'dialog' as const,
               'aria-modal': true,
               'aria-label': 'Client portal navigation',
             }
@@ -263,7 +359,7 @@ export function DashboardShell({
           <p className="mt-1 text-xs text-pf-light/80">Client portal</p>
         </div>
         {navigation}
-      </aside>
+      </div>
       <main
         ref={mainRef}
         id="client-main-content"
@@ -297,9 +393,7 @@ export function DashboardShell({
         ) : null}
         {children}
       </main>
-      <ClientTochiBoundary>
-        <ClientTochiWorkspace />
-      </ClientTochiBoundary>
+      {assistantControl}
     </div>
   )
 }

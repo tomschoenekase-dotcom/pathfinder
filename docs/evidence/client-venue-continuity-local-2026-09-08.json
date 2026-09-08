@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "baseCommit": "14be680d5171e2a84dfb2b892167c265f98aac0b",
+  "status": "verified-local",
+  "behavior": [
+    "Venue path takes precedence over query for Today/Help navigation, including onboarding, QR, and reviewed preview; generic setup and new-venue routes are not mistaken for a selected venue.",
+    "Query-only navigation closes the mobile drawer and restores destination focus after inert content is released. Dialog/complementary semantics are valid at mobile/desktop widths.",
+    "Client assistant follows query-only venue changes and decoded route IDs; current client/request identity hides stale UI and generation fences prevent old bootstrap, manual selection, or preference completions overwriting new context."
+  ],
+  "checks": {
+    "focusedUnitTests": 71,
+    "unitFiles": 7,
+    "browserTests": 4,
+    "browserSkipped": 0,
+    "viewports": [320, 820, 1024, 1440],
+    "axeViolations": 0,
+    "pageErrors": 0,
+    "horizontalOverflow": false,
+    "typecheck": "passed",
+    "scopedLint": "passed",
+    "keyboard": "Enter follows scoped Help; destination heading receives focus; Escape restores drawer trigger; reduced motion enabled"
+  },
+  "browser": {
+    "artifactDirectory": "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1",
+    "scope": "Actual shared DashboardShellView, RemoteOnboardingJourney, SupportWorkspace, DashboardOverviewView, VenueQrKit with explicit allowlisted synthetic navigation adapter and stubbed tRPC transport. Same-tenant provider identity remains stable across route changes.",
+    "mutation": "Exactly one support.createRequest per viewport with exact venue/category/subject/body/empty attachments; no other mutation.",
+    "notProven": [
+      "File upload bytes/storage/extraction in this browser journey",
+      "Clerk authentication or real server transport in the browser",
+      "Persisted support mutation/database",
+      "Physical QR scan or printer",
+      "Client assistant provider or browser-integrated conversation"
+    ]
+  },
+  "service": {
+    "runner": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-client-navigation-ui-fixture.mjs",
+    "runId": "989f8c5e",
+    "sessionId": 72283,
+    "port": 3001,
+    "childPid": 23692,
+    "listenerPid": 26428,
+    "stopped": true,
+    "portAbsent": true,
+    "terminalExitCode": 1,
+    "exitMeaning": "Owned devserver intentionally stopped after passing browser run.",
+    "configuration": "OS/toolchain allowlist; no environment-file autoload; no provider/account keys; development fixtures only; outbound workers/schedulers disabled."
+  },
+  "diagnostics": [
+    "0d851bb6: test ran before absolute base URL correction; no UI acceptance.",
+    "884e4cbb: guessed onboarding heading corrected to actual Share venue materials.",
+    "5fd64ba5: browser found invalid aside role=dialog; repaired semantic container.",
+    "90d94565: retained complementary landmark for desktop header region.",
+    "4055118d and 6d644948: destination focus test exposed fixture provider remounting at every target; fixture corrected to stable same-tenant key. Focus also defers while drawer keeps main inert."
+  ],
+  "visualReview": {
+    "imagesInspected": [
+      "phone-320-onboarding-navigation.png",
+      "phone-320-today.png",
+      "phone-320.png",
+      "tablet-820.png",
+      "laptop-1024.png",
+      "desktop-1440-today.png"
+    ],
+    "assessment": "Navigation remains a compact dark sidebar/drawer, client content readable at all four widths, long venue name wraps, QR and primary actions fit. No new decorative composition introduced; existing plain Torchiko placeholders retained. Final Tochi/wordmark remains held."
+  },
+  "sourceHashes": {
+    "apps/dashboard/components/DashboardShell.tsx": "4ab51f45aa9dc2905bb4368cec6766a1179fe645fd42480daeb8f0975ca9aabe",
+    "apps/dashboard/components/DashboardShellInteraction.test.tsx": "e0b7b41471fa1e5f2950f950fd5ba328e41c4fe9001a9768b3760bc2796c67b5",
+    "apps/dashboard/components/useRouteChangeFocus.ts": "9e7b9fe89bb4eb9cb21bd778c0485c169f55555fd827658b98b1a276f315db46",
+    "apps/dashboard/components/ClientTochiWorkspace.tsx": "809f8b8824036eeed5b12be6febfb287cefdd73a933f726c9b9f74d8b0da0d2a",
+    "apps/dashboard/components/ClientTochiWorkspace.test.tsx": "cf5d4a24f8d4da8756a9f5d51684ba0d831aab33bd04440e2be92ac589b81e99",
+    "apps/dashboard/components/admin/AdminSectionShell.tsx": "2eadd2ffc366e16f501c2b81fc43a63e6a5d6b232283c0f118ce58976784e981",
+    "apps/dashboard/components/admin/AdminSectionShell.test.tsx": "5adfb8adf056d9fdc43c6e6b9f99c4d70b38c042b88d9e2b34ce197052e7a7a6",
+    "apps/dashboard/app/(app)/page.tsx": "c8d04c541d4c41cce22575dd7c05bd9f85dfe8df1da94b443e467babd3ce48ae",
+    "apps/dashboard/app/(app)/page.test.tsx": "58b8eab98060470a9b1e99422eca55f110c84ad34cfbc761ca1917299c0153bc",
+    "apps/dashboard/app/(app)/support/page.tsx": "f11b5755a354111873f82f6f15bfad0e4e7bbaad410463e1d903eead85306600",
+    "apps/dashboard/app/(app)/support/page.test.tsx": "31749578f297d6c8ebe0051aaae43d3ec6e56581b6a01179c16419aa949af8f2",
+    "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.tsx": "3c21d3405447ab00bf3d738805ed0daf2a1b06d7532fd031966b26b151499e4a",
+    "apps/dashboard/app/(app)/venues/[venueId]/qr-kit/page.test.tsx": "52477f056df7efa57440dbb8f3d77fa4227a79d1c8f6514f9c46c92c9c6a8460",
+    "apps/dashboard/components/DashboardOverview.tsx": "9b34358776b74fc30caf1bc254f1da6c9cf9695209d9e7f46b66d51676ca59d9",
+    "apps/dashboard/components/DashboardOverview.test.tsx": "0eac26ce1d9394a6cc1464687cd8f6d4ea553115845d16e38a548e07d07938f1",
+    "apps/dashboard/components/SupportWorkspace.tsx": "1e67c4b54297618d215f4e71d0db953db18888cd35f57f17ce1081ea27f33d6d",
+    "apps/dashboard/components/VenueQrKit.tsx": "1f99a56d727cbd39d90f7dcda85ec0647ec79095f75d1ad865d9209e54488815",
+    "apps/dashboard/app/dev-fixtures/client-navigation/page.tsx": "4c5406a8df387864591fc53001e71b4f2af2fc974a64c523f8b4ef38835d8f92",
+    "apps/dashboard/app/dev-fixtures/client-navigation/ClientNavigationFixture.tsx": "bc737686de07b4c67bdaacbdf5be161313205f120d4a39513e73dc93fddea0ba",
+    "apps/dashboard/tests/visual/client-navigation-continuity.spec.ts": "69c6c4e80645acf9993b47ee43e28b26f0f9349bbd44f5d3e264c6ddbd1f06e4"
+  },
+  "sourceHashNormalization": "sha256 over LF UTF-8 source",
+  "artifactHashes": {
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5482d-t-Today-and-QR-at-phone-320-phone-390x844/phone-320-onboarding-navigation.png": "d2b8696b7435935f532c4744911e327eea5f4db36c463aed5c6a4b64c4dd156e",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5482d-t-Today-and-QR-at-phone-320-phone-390x844/phone-320-today.png": "1da679d8950c5e7871fd1f823691727534ed7bb193a8dac7efef2944e8aef93d",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5482d-t-Today-and-QR-at-phone-320-phone-390x844/phone-320.png": "781cb8277bf42ffb6c45d56e561d4b6b1cf687ad7b1d69a21bc826c59d02efdb",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5c3d1-oday-and-QR-at-desktop-1440-phone-390x844/desktop-1440-onboarding-navigation.png": "0722410ae4b2b05267de0856bafdbb0741882092ead8f6feba5b0898cd0afef3",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5c3d1-oday-and-QR-at-desktop-1440-phone-390x844/desktop-1440-today.png": "6e58e1868347a650bc636969978cdbf284fb2a5dc3933a9b9693bb21a77b56d9",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-5c3d1-oday-and-QR-at-desktop-1440-phone-390x844/desktop-1440.png": "c772b5f62942033c68a96e9eeaaf3f1ac7ee7b10689f9b19ef490a7cbaad4d71",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ce242--Today-and-QR-at-tablet-820-phone-390x844/tablet-820-onboarding-navigation.png": "531cfe7f16614b9db249a1f3d68811c95262f282437fc51d3700753e6780f92f",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ce242--Today-and-QR-at-tablet-820-phone-390x844/tablet-820-today.png": "a29b5e05be31ac0f2da13a42b1389d27b83c53f4ac46531a6c9e93ce0906d6c3",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ce242--Today-and-QR-at-tablet-820-phone-390x844/tablet-820.png": "b66ba01303b7c131561c4e792aecac53621dc6b9c21ed30c4c21b48facb342b3",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ff9a6-Today-and-QR-at-laptop-1024-phone-390x844/laptop-1024-onboarding-navigation.png": "f380b3cd2d348c3c7dbfc2e4a2c0e1b47bfd0190edc3b233304a37897b0598df",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ff9a6-Today-and-QR-at-laptop-1024-phone-390x844/laptop-1024-today.png": "ac477eff073cba1e1090ab3c49f91ed5e5d7ed4180dec12c49969f822e7b7927",
+    "artifacts/mobile-visual/2026-09-08T14-27-48.702Z-dcc317e1/results/client-navigation-continui-ff9a6-Today-and-QR-at-laptop-1024-phone-390x844/laptop-1024.png": "305205e0264a82f65445f3a9b57f8e46dc21ffe69742bde211c8a7d3aab01cd4"
+  }
+}
