@@ -8,6 +8,7 @@ import type { AppRouter } from '@pathfinder/api'
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
 import { WebsiteSourceDiscoveryPanel } from './WebsiteSourceDiscoveryPanel'
+import { WebsitePageTextReader } from './WebsitePageTextReader'
 
 const BUILDER_READ_TIMEOUT_MS = 15_000
 
@@ -786,6 +787,7 @@ export function IntakeBuilderLifecyclePanel({
   return (
     <IntakeBuilderLifecycleView
       lifecycle={lifecycle}
+      websiteTextScope={{ tenantId, venueId, runId }}
       onRunWebsiteResearch={() => void runWebsiteResearch()}
       researchBusy={researchBusy}
       researchError={researchError}
@@ -855,6 +857,7 @@ export function IntakeBuilderLifecyclePanel({
 
 export function IntakeBuilderLifecycleView({
   lifecycle,
+  websiteTextScope,
   ariaLabel = 'Builder lifecycle',
   onRunWebsiteResearch,
   researchBusy = false,
@@ -916,6 +919,7 @@ export function IntakeBuilderLifecycleView({
   onReadFullExtraction,
 }: {
   lifecycle: Lifecycle
+  websiteTextScope?: { tenantId: string; venueId: string; runId: string }
   ariaLabel?: string
   onRunWebsiteResearch?: () => void
   researchBusy?: boolean
@@ -1078,6 +1082,21 @@ export function IntakeBuilderLifecycleView({
 
       {lifecycle.websiteSourceDiscovery ? (
         <WebsiteSourceDiscoveryPanel review={lifecycle.websiteSourceDiscovery} />
+      ) : null}
+
+      {lifecycle.websiteResearch?.outcome === 'SUCCEEDED' && websiteTextScope ? (
+        <WebsitePageTextReader
+          key={JSON.stringify([
+            websiteTextScope.tenantId,
+            websiteTextScope.venueId,
+            websiteTextScope.runId,
+            lifecycle.websiteResearch.receiptId,
+          ])}
+          tenantId={websiteTextScope.tenantId}
+          venueId={websiteTextScope.venueId}
+          runId={websiteTextScope.runId}
+          receiptId={lifecycle.websiteResearch.receiptId}
+        />
       ) : null}
 
       {lifecycle.fileUpload ? (

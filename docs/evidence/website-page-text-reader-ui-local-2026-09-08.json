@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-08",
+  "parentCommit": "e1c65d98",
+  "scope": "Existing admin intake panel retained website text reader",
+  "behavior": [
+    "Only successful website research exposes the reader; opening lazily lists exact receipt metadata.",
+    "Selected URL is readable in full; capture time, static extraction profile, retained/full counts and truncation stay visible.",
+    "Escaped plain text, bounded segments, previous/next, exact case-sensitive search, explicit legacy empty and redacted error/retry.",
+    "JSON tuple scope keys remount on tenant/venue/run/receipt changes; abort/generation fences reject late responses after source changes.",
+    "Applied search remains tied to its cursor when the draft input changes; changing source clears old text and empty notices."
+  ],
+  "checks": {
+    "componentTests": 20,
+    "dashboardTypecheck": "passed",
+    "ownedEslint": "passed",
+    "browserTests": 1,
+    "viewports": [320, 820, 1024, 1440],
+    "scopedAxe": "main; zero violations including contrast at each width",
+    "horizontalOverflow": 0,
+    "pageErrors": 0,
+    "keyboard": "Open by focus and Enter",
+    "reducedMotion": true,
+    "browserOutput": "apps\\dashboard\\artifacts\\website-page-text-final-20260908\\results",
+    "browserTransport": "synthetic tRPC interception; real React component and provider",
+    "databaseProof": "Separate real parser/crawler/receipt/appRouter/auth database proof pinned to 950a8ff4; see website-page-text-native-postgres-2026-09-08.json"
+  },
+  "visualReview": "Root inspected all four final screenshots. Restrained existing admin typography, dividers and desktop columns; mobile stacks controls and scrolls text. Full wrapping URL repaired selector clipping. No branding, mascot or decorative SaaS redesign.",
+  "services": {
+    "sessionsStopped": [70031, 82778],
+    "port3001Free": true,
+    "ports3002And55489Free": true
+  },
+  "earlierAttempts": "Worker reported initial fixture heading-order Axe failure, asynchronous cursor assertion timing, and overly broad alert locator; final passing spec repairs these. Do not treat earlier attempts as passing proof.",
+  "limitations": [
+    "Rendered fixture isolates the production reader with synthetic transport; full live admin/browser/database/session-provider path is not claimed.",
+    "Final JSON key collision and source-empty-notice resets were verified by focused component tests after the screenshots; these state changes do not alter the inspected layout.",
+    "Next development indicator is visible in fixture captures; no production indicator or hosted behavior claim.",
+    "No deployment, provider calls, client UI/mascot/wordmark changes, PDF/video/OCR support, or approved knowledge creation."
+  ],
+  "sourceHashesLfNormalized": {
+    "apps/dashboard/components/admin/WebsitePageTextReader.tsx": "3ef5191e4543bb766e8919aa606f2197b60094db341b80d241214d6bdf456619",
+    "apps/dashboard/components/admin/WebsitePageTextReader.test.tsx": "ff03fd714b99154b32d3be888caa6bdab9e4956c30e648eea985839a22d98985",
+    "apps/dashboard/components/admin/IntakeBuilderLifecyclePanel.tsx": "7787be5357097c4791b8d636dcdc2b15f16b9555dc71ea0e05d54b6e8b194326",
+    "apps/dashboard/app/dev-fixtures/website-page-text/page.tsx": "96585048fa2f7551583bcc32a13e5f1cab6185be9b317c6ea1907fc01abe6f94",
+    "apps/dashboard/tests/browser/website-page-text.spec.ts": "c39697354af085d51b320219690c003e031c41726c8a4160e1cabefd88134770"
+  },
+  "screenshotHashes": {
+    "apps/dashboard/artifacts/website-page-text-final-20260908/results/website-page-text-renders--8edc6-s-accessible-at-four-widths-desktop-chromium/website-page-text-desktop-1440.png": "98cdefcecce6c6b039bb4f9c5183a18e730a6ddead7c50d331c77966649fe2e9",
+    "apps/dashboard/artifacts/website-page-text-final-20260908/results/website-page-text-renders--8edc6-s-accessible-at-four-widths-desktop-chromium/website-page-text-laptop-1024.png": "51399f0a642c692ea18d139210bfdc93f56a44465d14021ca0627387a0ca6652",
+    "apps/dashboard/artifacts/website-page-text-final-20260908/results/website-page-text-renders--8edc6-s-accessible-at-four-widths-desktop-chromium/website-page-text-phone-320.png": "90d48817520a6cb64a71735696eeac187d282cfcbc7c14d9218d40b4a5eddc56",
+    "apps/dashboard/artifacts/website-page-text-final-20260908/results/website-page-text-renders--8edc6-s-accessible-at-four-widths-desktop-chromium/website-page-text-tablet-820.png": "130a395b3c657ca3c5008dc7e6f7030af4e0578e506bc277fcafebf12907af14"
+  }
+}
