@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:55:53.677714+00:00",
+  "baseProductRevision": "67d7489f0a2ee1bcfc4b0cfe2f48333145774ec0",
+  "result": {
+    "database": "pathfinder_disposable_agent_bridge_2b1bfceaba71",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-agent-child-callback-2b1bfceaba71",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "nativeTests": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focusedTestsPassed": 25,
+  "typechecks": ["db passed", "workers passed"],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.disposable.integration.test.ts",
+      "sha256": "0dbc675bea5ecf3e792baf164ca59822d5d9eebc1f44c724151dfffbd197270d",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "apps/workers/src/lib/agent-bridge-runner.ts",
+      "sha256": "2143b71279b5349475f566bda4f1d9428916ec49221973c34c14f768faa5f555",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-delegation-actions.ts",
+      "sha256": "e61797971d3636f173bb98b1cd945bca22a85ef6123c3466d7d0d5e8fb380b25",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-cancellation-actions.ts",
+      "sha256": "ff4bb71db3183c4d14bdddc8dc4b79bfdbb1e6f19c432fab739bc92bb110ef1b",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-update-actions.ts",
+      "sha256": "1dd8ca6385aacd820ae864744b84db612bd7a176dcbe0923c326703130bfd36e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-actions.ts",
+      "sha256": "41371afa8afc577d8cd4c6fd3e29a8bd8abdf86cf6393c6264d0a75469cbf3fe",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/agent-run-execution-context.ts",
+      "sha256": "055f7ff65c4875c9f9131d83c68f16ae73f009586fcb50c58a1d1e58865ccd37",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "implemented": [
+    "Successful delegated child completion atomically records DELEGATED_TASK_COMPLETED and a RESULT message on the exact-scoped parent.",
+    "Parent message begins with the child run reference and labels the summary as untrusted result data.",
+    "Parent state, worker/lease, cancellation and authority are unchanged."
+  ],
+  "nativeControls": [
+    "Stale old-worker completion creates no parent callback.",
+    "Winning completion and duplicate retry leave exactly one parent timeline callback and one RESULT message.",
+    "Parent status, attempt, lease token/expiry, worker/session and cancellation snapshot remain unchanged.",
+    "Existing specialist research/build/notification-draft chain still passes, preserving builder approval hold and inactive draft."
+  ],
+  "limits": [
+    "Native bridge chain uses in-process deterministic adapters and synthetic scoped credentials, not live providers.",
+    "Subsequent parent claim context inclusion is focused unit proof; this native callback extension does not replace the parent OS process. Earlier distinct fresh-process proof remains separately attributed.",
+    "Only successful child completion receives this new callback. Terminal child failure/cancellation notification and broader autonomous dependency wake-up are not proved or added.",
+    "No parent requeue, approval, publication, external send, production action or schema change."
+  ]
+}

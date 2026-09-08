@@ -121,6 +121,44 @@ describe('agent run execution actions', () => {
     )
   })
 
+  it('includes a durable delegated result reference in a subsequent parent claim context', async () => {
+    const callbackContent =
+      'agent-run:child-1 completed. Untrusted delegated result summary: Draft artifact is ready.'
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          ...baseRun,
+          messages: [
+            {
+              id: 'callback-1',
+              role: 'AGENT',
+              messageType: 'RESULT',
+              content: callbackContent,
+              actorId: 'specialist-1',
+              createdAt: new Date('2026-09-08T12:00:00.000Z'),
+            },
+          ],
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      agentTimelineEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+    }
+
+    const claimed = await claimAgentRunExecution(
+      { tenantId: 'tenant-1', runId: 'run-1' },
+      client(transaction) as never,
+    )
+
+    expect(JSON.parse(claimed.executionContext).relevantMessages).toEqual([
+      expect.objectContaining({
+        messageType: 'RESULT',
+        content: callbackContent,
+        actorId: 'specialist-1',
+      }),
+    ])
+    expect(claimed.executionPrompt).toContain('agent-run:child-1')
+  })
+
   it('rejects complete workflow context over the caller budget before mutating the run', async () => {
     const transaction = {
       agentRun: {
@@ -385,6 +423,182 @@ describe('agent run execution actions', () => {
       client(transaction) as never,
     )
     expect(result.cancelRequested).toBe(true)
+  })
+
+  it('atomically records a delegated child result callback without mutating parent state', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' })
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany,
+      },
+      agentTimelineEvent: { create: timelineCreate },
+      agentMessage: { create: messageCreate },
+    }
+
+    await expect(
+      completeAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'child-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          summary: 'Draft artifact is ready.',
+          artifacts: [{ kind: 'draft', id: 'artifact-1' }],
+        },
+        client(transaction) as never,
+      ),
+    ).resolves.toMatchObject({ status: 'COMPLETED' })
+
+    expect(transaction.agentRun.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { id: 'parent-1', tenantId: 'tenant-1', venueId: 'venue-1' },
+      select: { id: true },
+    })
+    expect(updateMany).toHaveBeenCalledOnce()
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'child-1' }) }),
+    )
+    expect(timelineCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          agentRunId: 'parent-1',
+          eventType: 'DELEGATED_TASK_COMPLETED',
+          data: {
+            childAgentRunId: 'child-1',
+            resultReference: 'agent-run:child-1',
+            artifactCount: 1,
+          },
+        }),
+      }),
+    )
+    expect(messageCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        agentRunId: 'parent-1',
+        agentIdentityId: 'specialist-1',
+        messageType: 'RESULT',
+        content:
+          'agent-run:child-1 completed. Untrusted delegated result summary: Draft artifact is ready.',
+      }),
+    })
+  })
+
+  it('does not write or complete when a delegated parent is missing from the exact scope', async () => {
+    const updateMany = vi.fn()
+    const timelineCreate = vi.fn()
+    const messageCreate = vi.fn()
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'cross-scope-parent',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce(null),
+        updateMany,
+      },
+      agentTimelineEvent: { create: timelineCreate },
+      agentMessage: { create: messageCreate },
+    }
+
+    await expect(
+      completeAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'child-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          summary: 'Must not commit.',
+        },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'LEASE_LOST' })
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(timelineCreate).not.toHaveBeenCalled()
+    expect(messageCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not write a delegated callback when the child completion CAS loses', async () => {
+    const timelineCreate = vi.fn()
+    const messageCreate = vi.fn()
+    const transaction = {
+      agentRun: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            venueId: 'venue-1',
+            agentIdentityId: 'specialist-1',
+            parentAgentRunId: 'parent-1',
+            attemptNumber: 1,
+            maxAttempts: 3,
+            cancelRequestedAt: null,
+          })
+          .mockResolvedValueOnce({ id: 'parent-1' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      agentTimelineEvent: { create: timelineCreate },
+      agentMessage: { create: messageCreate },
+    }
+
+    await expect(
+      completeAgentRunExecution(
+        {
+          tenantId: 'tenant-1',
+          runId: 'child-1',
+          leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          summary: 'Stale completion.',
+        },
+        client(transaction) as never,
+      ),
+    ).rejects.toMatchObject({ code: 'LEASE_LOST' })
+    expect(timelineCreate).not.toHaveBeenCalled()
+    expect(messageCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not create a parent callback for a root run', async () => {
+    const timelineCreate = vi.fn().mockResolvedValue({ id: 'event-1' })
+    const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' })
+    const transaction = {
+      agentRun: {
+        findFirst: vi.fn().mockResolvedValue({
+          venueId: 'venue-1',
+          agentIdentityId: 'root-agent',
+          parentAgentRunId: null,
+          attemptNumber: 1,
+          maxAttempts: 3,
+          cancelRequestedAt: null,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      agentTimelineEvent: { create: timelineCreate },
+      agentMessage: { create: messageCreate },
+    }
+
+    await completeAgentRunExecution(
+      {
+        tenantId: 'tenant-1',
+        runId: 'root-1',
+        leaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        summary: 'Root completed.',
+      },
+      client(transaction) as never,
+    )
+    expect(timelineCreate).toHaveBeenCalledOnce()
+    expect(messageCreate).toHaveBeenCalledOnce()
   })
 
   it('requeues a retryable failure while attempts remain and clears the lease', async () => {

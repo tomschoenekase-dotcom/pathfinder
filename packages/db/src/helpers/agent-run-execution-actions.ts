@@ -109,6 +109,7 @@ async function lockAndValidateTerminalLease(
     select: {
       venueId: true,
       agentIdentityId: true,
+      parentAgentRunId: true,
       attemptNumber: true,
       maxAttempts: true,
       cancelRequestedAt: true,
@@ -458,6 +459,21 @@ export async function completeAgentRunExecution(
     const transaction = rawTransaction as unknown as typeof db
     const now = new Date()
     const run = await lockAndValidateTerminalLease(transaction, input)
+    if (run.parentAgentRunId) {
+      const parent = await transaction.agentRun.findFirst({
+        where: {
+          id: run.parentAgentRunId,
+          tenantId: input.tenantId,
+          venueId: run.venueId,
+        },
+        select: { id: true },
+      })
+      if (!parent)
+        throw new AgentRunExecutionError(
+          'LEASE_LOST',
+          'Delegated run parent is unavailable in the exact completion scope',
+        )
+    }
     const changed = await transaction.agentRun.updateMany({
       where: {
         id: input.runId,
@@ -510,6 +526,37 @@ export async function completeAgentRunExecution(
         actorId: run.agentIdentityId,
       },
     })
+    if (run.parentAgentRunId) {
+      const resultReference = `agent-run:${input.runId}`
+      await transaction.agentTimelineEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: run.venueId,
+          agentRunId: run.parentAgentRunId,
+          actorType: 'AGENT',
+          actorId: run.agentIdentityId,
+          eventType: 'DELEGATED_TASK_COMPLETED',
+          message: 'A delegated specialist task completed and retained its result.',
+          data: {
+            childAgentRunId: input.runId,
+            resultReference,
+            artifactCount: input.artifacts.length,
+          },
+        },
+      })
+      await transaction.agentMessage.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: run.venueId!,
+          agentRunId: run.parentAgentRunId,
+          agentIdentityId: run.agentIdentityId,
+          role: 'AGENT',
+          messageType: 'RESULT',
+          content: `${resultReference} completed. Untrusted delegated result summary: ${input.summary}`,
+          actorId: run.agentIdentityId,
+        },
+      })
+    }
     return { status: 'COMPLETED' as const, completedAt: now }
   })
 }

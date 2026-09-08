@@ -1735,6 +1735,17 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         id: researchDelegation.run.id,
         attemptNumber: 2,
       })
+      const parentExecutionBeforeCallback = await db.agentRun.findUniqueOrThrow({
+        where: { id: orchestratorRun.id },
+        select: {
+          status: true,
+          attemptNumber: true,
+          executionLeaseToken: true,
+          executionWorkerId: true,
+          executionBridgeSessionId: true,
+          cancelRequestedAt: true,
+        },
+      })
       await expect(
         completeAgentBridgeTask({
           sessionId: firstResearcherWorker.sessionId,
@@ -1749,6 +1760,15 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
           credential,
         }),
       ).rejects.toThrow()
+      expect(
+        await db.agentTimelineEvent.count({
+          where: {
+            agentRunId: orchestratorRun.id,
+            eventType: 'DELEGATED_TASK_COMPLETED',
+            data: { path: ['childAgentRunId'], equals: researchDelegation.run.id },
+          },
+        }),
+      ).toBe(0)
       await completeAgentBridgeTask({
         sessionId: takeoverResearcherWorker.sessionId,
         venueId,
@@ -1767,6 +1787,68 @@ describe.skipIf(!enabled)('agent bridge runner disposable lifecycle', () => {
         costStatus: 'UNREPORTED',
         credential,
       })
+      await expect(
+        completeAgentBridgeTask({
+          sessionId: takeoverResearcherWorker.sessionId,
+          venueId,
+          runId: researchDelegation.run.id,
+          leaseToken: researchTakeoverClaim.task!.leaseToken,
+          summary: 'Duplicate researcher completion must not duplicate the callback.',
+          artifacts: [],
+          modelName: 'subscription-default',
+          costE8Usd: 0n,
+          costStatus: 'UNREPORTED',
+          credential,
+        }),
+      ).rejects.toThrow()
+      const [researchCallbackEvents, researchCallbackMessages] = await Promise.all([
+        db.agentTimelineEvent.findMany({
+          where: {
+            agentRunId: orchestratorRun.id,
+            eventType: 'DELEGATED_TASK_COMPLETED',
+            data: { path: ['childAgentRunId'], equals: researchDelegation.run.id },
+          },
+          select: { data: true },
+        }),
+        db.agentMessage.findMany({
+          where: {
+            agentRunId: orchestratorRun.id,
+            messageType: 'RESULT',
+            content: { startsWith: `agent-run:${researchDelegation.run.id} completed.` },
+          },
+          select: { content: true, actorId: true },
+        }),
+      ])
+      expect(researchCallbackEvents).toEqual([
+        {
+          data: expect.objectContaining({
+            childAgentRunId: researchDelegation.run.id,
+            resultReference: `agent-run:${researchDelegation.run.id}`,
+            artifactCount: 1,
+          }),
+        },
+      ])
+      expect(researchCallbackMessages).toEqual([
+        {
+          actorId: identities.researcher,
+          content: expect.stringMatching(
+            new RegExp(`^agent-run:${researchDelegation.run.id} completed\\.`),
+          ),
+        },
+      ])
+      expect(
+        await db.agentRun.findUniqueOrThrow({
+          where: { id: orchestratorRun.id },
+          select: {
+            status: true,
+            attemptNumber: true,
+            executionLeaseToken: true,
+            executionWorkerId: true,
+            executionBridgeSessionId: true,
+            cancelRequestedAt: true,
+          },
+        }),
+      ).toEqual(parentExecutionBeforeCallback)
       const retainedResearch = await db.agentRun.findUniqueOrThrow({
         where: { id: researchDelegation.run.id },
         select: { id: true, parentAgentRunId: true, status: true, artifacts: true },
