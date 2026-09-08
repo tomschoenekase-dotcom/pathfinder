@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "artifact": "ai-workload-execution-inventory",
+  "generatedAt": "2026-09-08T21:07:38.3320519Z",
+  "purpose": "Reviewable evidence of configured, dedicated, deterministic, and frozen AI workload execution paths. Complements packages/ai/src/workload-inventory.ts; does not define a second registry.",
+  "providerAvailability": "UNKNOWN",
+  "limitations": [
+    "Static source inventory only.",
+    "No environment, credentials, provider calls, or live availability claims."
+  ],
+  "families": [
+    {
+      "id": "research",
+      "executionClass": "deterministic-source-collection",
+      "configuredWorkload": null,
+      "route": "Website intake source collection is bounded and draft-only; no AI model call in the actual handler chain.",
+      "sourcePaths": [
+        {
+          "path": "apps/workers/src/processors/intake-v1-source-processing.ts",
+          "rawSha256": "6a45abe8e2fb9549f08c7dc39406ec3e8910f28217b9abcf9ba69958db9fd6dd"
+        },
+        {
+          "path": "apps/workers/src/intake-v1-website-research-runtime.ts",
+          "rawSha256": "3a0397a4bb74337eb987760c8e0359d191deca6991e66cc087376dada6670f0f"
+        },
+        {
+          "path": "packages/api/src/lib/website-intake-research-service.ts",
+          "rawSha256": "f591c445c28e2b3aa0f1d1f23e1c0d6b09b475a2347002feb77045a63340f578"
+        },
+        {
+          "path": "packages/api/src/lib/website-intake.ts",
+          "rawSha256": "556aa6678316459841823c615835e68835af1a688f6eded7a24675361b09815c"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "extraction",
+      "executionClass": "deterministic-document-extraction",
+      "configuredWorkload": null,
+      "route": "Verified UTF-8/PDF extraction and retained-text reader; no AI model call in the actual handler chain.",
+      "sourcePaths": [
+        {
+          "path": "apps/workers/src/processors/intake-v1-file-extraction.ts",
+          "rawSha256": "367f28a6ec2005be6b7612587d20de6e99818d6e4219d9f695113cd68e8b3af2"
+        },
+        {
+          "path": "apps/workers/src/intake-v1-file-extraction-runtime.ts",
+          "rawSha256": "5c14fe149b2d7dde882c2498df5fcd00d0e368a2f682023ac1378c570539ecf6"
+        },
+        {
+          "path": "packages/api/src/lib/intake-file-extraction-service.ts",
+          "rawSha256": "02b378a10832c47a544ccc8fe6ea1c4290a5eb6ee154836c9bd3ec203a8b7454"
+        },
+        {
+          "path": "packages/api/src/lib/intake-file-extraction-reader.ts",
+          "rawSha256": "ec4d19ad9518de21c5331870660ede13f6681c1dbccda8f92704de651d1dcecc"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "reconciliation",
+      "executionClass": "central-agent-configured-plus-review-persistence",
+      "configuredWorkload": "agent-run",
+      "route": "Scoped agent-run is the AI admission path; knowledge correction action persists an evidence-linked PENDING_REVIEW proposal and never changes canonical knowledge.",
+      "sourcePaths": [
+        {
+          "path": "apps/workers/src/processors/agent-run.ts",
+          "rawSha256": "f55ee894890de66457794f1859083b602cdb7d4fe386b51f220041b6e5303421"
+        },
+        {
+          "path": "packages/api/src/mcp/composition.ts",
+          "rawSha256": "372dde3843999bd9ff3221a3de9daf24761baf288d30567e9943d0b69a4d07df"
+        },
+        {
+          "path": "packages/db/src/helpers/knowledge-correction-actions.ts",
+          "rawSha256": "e7b69b7bfb5d249ebd94eee39d58ddef8f986b6b825928ac6818a8f6eecf18a8"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "embeddings",
+      "executionClass": "central-embedding-registry",
+      "configuredWorkload": [
+        "guest-query-embedding",
+        "place-content-embedding",
+        "knowledge-content-embedding",
+        "analytics-clustering-embedding"
+      ],
+      "route": "Embedding model registry/profile is reused by guest query, semantic analysis, knowledge/place workers, and analytics enrichment.",
+      "sourcePaths": [
+        {
+          "path": "packages/ai/src/embedding-model-registry.ts",
+          "rawSha256": "dd2ec59af43229515f935533b89e73c8edc31109f44e83236e0fc7598c02757b"
+        },
+        {
+          "path": "packages/ai/src/openai-embeddings.ts",
+          "rawSha256": "150a95b08b28eba4109662e308bad2b95e9a850dc79eb7b245939f7d2d09c6c2"
+        },
+        {
+          "path": "packages/api/src/lib/guest-query-embedding.ts",
+          "rawSha256": "799158546c26105dc376b59a7aeb881446eba219cd94017f3e7df141bd8e6d34"
+        },
+        {
+          "path": "packages/api/src/lib/venue-package-semantic-analysis.ts",
+          "rawSha256": "c9b8d29e269614e76fbceaa1b90b1da5a5ec859901ff2f1bde8616dee1f34996"
+        },
+        {
+          "path": "apps/workers/src/processors/analytics-enrichment.ts",
+          "rawSha256": "c0b88ddd95577b291b599c02ef4d6c4187614ff4335709ca2c37b6cd15adadc5"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "visitor-text",
+      "executionClass": "central-configured-capability-route",
+      "configuredWorkload": ["guest-chat", "guest-chat-openai"],
+      "route": "Chat resolves scoped runtime guest-chat configuration, routes STANDARD, rechecks configuration snapshot/admission, and calls generateTextForCapability.",
+      "sourcePaths": [
+        {
+          "path": "packages/ai/src/workload-configuration.ts",
+          "rawSha256": "e57ecdeec8dfe26d23f782243d0182e96e3d5902937256e52aa100fa5ae93836"
+        },
+        {
+          "path": "packages/ai/src/capability-routing.ts",
+          "rawSha256": "6f9230c7f6818f925c6f1ab4aa041d5b64154d210faa6721d002f8d638e65d88"
+        },
+        {
+          "path": "packages/api/src/routers/chat.ts",
+          "rawSha256": "8ab909ef634701f586a03fea84ef63e35761c3ee20cfdd36df4a385e98694c0c"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "realtime-voice",
+      "executionClass": "dedicated-route-registry",
+      "configuredWorkload": null,
+      "route": "Dedicated realtime voice route resolves economy/premium provider/model and voice router authorizes it; central inventory explicitly omits this registry.",
+      "sourcePaths": [
+        {
+          "path": "packages/ai/src/realtime-voice.ts",
+          "rawSha256": "6e1ae7cb47398c9212eaa78d42613d66225d83139f5c0ef166079e3264d3c292"
+        },
+        {
+          "path": "packages/api/src/routers/voice.ts",
+          "rawSha256": "d1c0ce1ccc3d383fd893abcbd63e9a6be599f4e677d721ccb05aa2320ae3aa8f"
+        },
+        {
+          "path": "packages/ai/src/workload-inventory.ts",
+          "rawSha256": "2a0b1ef55e3a98f272ee27f62f2732a8d5865694bedb1c30d2c48ec78894ddc5"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "character-generation",
+      "executionClass": "no-central-character-route-observed",
+      "configuredWorkload": null,
+      "route": "No centrally registered character-generation model route observed. Media ingestion uses separate OpenAI media/Gemini video analysis routes and is not treated as character generation.",
+      "sourcePaths": [
+        {
+          "path": "packages/ai/src/workload-inventory.ts",
+          "rawSha256": "2a0b1ef55e3a98f272ee27f62f2732a8d5865694bedb1c30d2c48ec78894ddc5"
+        },
+        {
+          "path": "apps/workers/src/processors/media-ingestion.ts",
+          "rawSha256": "52acf2558b4cb4856c360186d681dc5e216fc37523bdb73bd316fd05d4c0c454"
+        },
+        {
+          "path": "packages/ai/src/openai-media.ts",
+          "rawSha256": "00a7be031b23c905ce5c58cc8660ccba727eac9b8bf27f13f1316789c0c06eae"
+        },
+        {
+          "path": "packages/ai/src/gemini-video.ts",
+          "rawSha256": "841ddbb9a35e1946ca82766715c6bcff7805e2654f4c6304633142700b67b61e"
+        }
+      ],
+      "confirmedGap": null
+    },
+    {
+      "id": "evaluation",
+      "executionClass": "central-configured-and-frozen-evaluation",
+      "configuredWorkload": [
+        "company-brain-retrieval-evaluation",
+        "guest-answer-attribution-evaluation"
+      ],
+      "route": "Evaluation helper paths resolve central workloads; evaluation-run freezes exact guest-chat/openai model identity and snapshot hash for a run.",
+      "sourcePaths": [
+        {
+          "path": "packages/api/src/lib/evaluation/company-brain-retrieval.ts",
+          "rawSha256": "cc8cff64bafa19e33a8b85b8e7e30c8564b913d3b2db374876ec2c6081601911"
+        },
+        {
+          "path": "packages/api/src/lib/evaluation/guest-answer-attribution.ts",
+          "rawSha256": "fa3d5cf60408c15455c273dada7b8de14e2fb7e2287e083898705aa31f02bdb8"
+        },
+        {
+          "path": "apps/workers/src/processors/evaluation-run.ts",
+          "rawSha256": "34c5c30ffba0d8a244d2b5b6878571649359d674e2292957787337b46c35ca32"
+        },
+        {
+          "path": "packages/ai/src/model-registry.ts",
+          "rawSha256": "3ba378a0f4f787a8c5fadbb620cad4793dba80d3e3ebca090e28ea53ee842a25"
+        }
+      ],
+      "confirmedGap": null
+    }
+  ],
+  "centralProjectionSources": [
+    {
+      "path": "packages/ai/src/workload-inventory.ts",
+      "rawSha256": "2a0b1ef55e3a98f272ee27f62f2732a8d5865694bedb1c30d2c48ec78894ddc5"
+    },
+    {
+      "path": "packages/ai/src/workload-configuration.ts",
+      "rawSha256": "e57ecdeec8dfe26d23f782243d0182e96e3d5902937256e52aa100fa5ae93836"
+    },
+    {
+      "path": "packages/ai/src/capability-routing.ts",
+      "rawSha256": "6f9230c7f6818f925c6f1ab4aa041d5b64154d210faa6721d002f8d638e65d88"
+    },
+    {
+      "path": "packages/ai/src/model-registry.ts",
+      "rawSha256": "3ba378a0f4f787a8c5fadbb620cad4793dba80d3e3ebca090e28ea53ee842a25"
+    }
+  ],
+  "recentIntegrations": [
+    {
+      "path": "apps/workers/src/processors/answer-analysis.ts",
+      "rawSha256": "dbd554dbbe2f04ac4cfe67ca5c11d9729914611e488c19fdf6f47ea8eee20cea",
+      "revision": "d53b4a2876cfbc7384503cb72f809a13df1ae1cd",
+      "status": "LOCAL_IMPLEMENTATION_VERIFIED",
+      "evidence": "docs/evidence/answer-analysis-workload-routing-2026-09-08.json",
+      "limits": "22 dark-provider worker tests and separate 26 native persistence helper tests; provider availability remains unknown."
+    }
+  ]
+}
