@@ -3,7 +3,9 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./usage-error-code": "./src/usage-error-code.ts"
+    "./usage-error-code": "./src/usage-error-code.ts",
+    "./guest-web-search": "./src/guest-web-search.ts",
+    "./guest-web-search-accounting": "./src/guest-web-search-accounting.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
@@ -6,11 +6,14 @@ import { TRPCError } from '@trpc/server'
 import {
   AiGatewayError,
   AiRoutingError,
+  AI_MODEL_REGISTRY,
+  withAiRequestBudgetCeiling,
   generateTextForCapability,
   routeAiCapability,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
+import { searchGuestWebWithAccounting } from '@pathfinder/ai/guest-web-search-accounting'
 import { emitEvent } from '@pathfinder/analytics'
 import { CustomPersonalityBoundsSchema } from '@pathfinder/contracts'
 import {
@@ -53,6 +56,9 @@ import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { buildGuestCitations } from '../lib/guest-citations'
+import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
+import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-configuration'
+import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1129,36 +1135,40 @@ const chatReadRouter = router({
       formality: (venue.customFormality ?? -1) / 100,
       ...(venue.customInstruction ? { customInstruction: venue.customInstruction } : {}),
     })
-    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
-      venue: {
-        ...venue,
-        ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
-      },
-      relevantPlaces,
-      knowledgeEntries: relevantKnowledgeEntries,
-      activeUpdates,
-      publishedUniversalContent,
-      userLat: liveLocation?.lat ?? null,
-      userLng: liveLocation?.lng ?? null,
-      featuredPlace,
-      ...(input.language ? { language: input.language } : {}),
-      guideMode,
-      responseIntent: input.responseIntent ?? 'DEFAULT',
-      ...(selectedEngagementQuestion || allowAiInventedQuestion
-        ? {
-            engagementQuestion: {
-              ...(selectedEngagementQuestion
-                ? {
-                    questionType: selectedEngagementQuestion.questionType,
-                    prompt: selectedEngagementQuestion.prompt,
-                    choiceOptions: selectedEngagementQuestion.choiceOptions,
-                  }
-                : {}),
-              allowAiInvented: allowAiInventedQuestion,
-            },
-          }
-        : {}),
-    })
+    let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
+    const preparePrompt = () =>
+      buildVenueSystemPromptParts({
+        ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
+        venue: {
+          ...venue,
+          ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
+        },
+        relevantPlaces,
+        knowledgeEntries: relevantKnowledgeEntries,
+        activeUpdates,
+        publishedUniversalContent,
+        userLat: liveLocation?.lat ?? null,
+        userLng: liveLocation?.lng ?? null,
+        featuredPlace,
+        ...(input.language ? { language: input.language } : {}),
+        guideMode,
+        responseIntent: input.responseIntent ?? 'DEFAULT',
+        ...(selectedEngagementQuestion || allowAiInventedQuestion
+          ? {
+              engagementQuestion: {
+                ...(selectedEngagementQuestion
+                  ? {
+                      questionType: selectedEngagementQuestion.questionType,
+                      prompt: selectedEngagementQuestion.prompt,
+                      choiceOptions: selectedEngagementQuestion.choiceOptions,
+                    }
+                  : {}),
+                allowAiInvented: allowAiInventedQuestion,
+              },
+            }
+          : {}),
+      })
+    let { staticPart, dynamicPart } = preparePrompt()
     const history = projectGuestModelHistory(
       mergeGuestConversationEntries({
         textRows: historyDesc,
@@ -1207,6 +1217,122 @@ const chatReadRouter = router({
         unhealthyProviders,
       })
       generationRouteConfigurationVersion = route.configurationVersion
+      const webSearchInvocationId = randomUUID()
+      // Require the underlying durable reservation before a cumulative wrapper
+      // can replace a null reservation with its own invocation-local reference.
+      const governedBudgetGate: typeof chatAccounting.budgetGate = {
+        ...chatAccounting.budgetGate,
+        reserve: async (attempt) => {
+          const reservation = await chatAccounting.budgetGate.reserve(attempt)
+          if (attempt.invocationId === webSearchInvocationId && !reservation)
+            throw new Error('Web search requires durable accounting')
+          return reservation
+        },
+      }
+      const sharedBudgetGate =
+        configuration.requestBudgetCeilingE8Usd === null
+          ? governedBudgetGate
+          : withAiRequestBudgetCeiling(
+              governedBudgetGate,
+              BigInt(configuration.requestBudgetCeilingE8Usd),
+            )
+      // Search is an optional first subcall of this durable generation operation.
+      // Once dispatched, uncertain turns retain the existing no-duplicate replay fence.
+      if (
+        isFeatureEnabled('guestGeneralWebFallback') &&
+        ctx.experienceScope === 'PUBLIC' &&
+        venue.chatShowLinks &&
+        !unhealthyProviders.includes('openai')
+      ) {
+        try {
+          const webConfiguration = await resolveGuestGeneralWebConfiguration(
+            {
+              tenantId: venue.tenantId,
+              venueId: venue.id,
+              globalEnabled: true,
+            },
+            ctx.db,
+          )
+          const decision = decideGuestGeneralWebSearch({
+            globalEnabled: true,
+            tenantEnabled: webConfiguration !== null,
+            providerAvailable: Boolean(process.env.OPENAI_API_KEY),
+            localContextSufficient:
+              relevantKnowledgeEntries.length > 0 ||
+              (queryEmbedding !== null &&
+                relevantPlaces.some(
+                  (place) =>
+                    typeof place.distance === 'number' &&
+                    place.distance <= LOW_CONFIDENCE_DISTANCE_THRESHOLD,
+                )),
+            query: trimmedInput,
+          })
+          if (webConfiguration && decision.kind === 'SEARCH') {
+            const spec = AI_MODEL_REGISTRY[webConfiguration.modelKey]
+            // Web search can fill the model context; the ordinary 200k text
+            // reservation is insufficient. This verified snapshot has 400k context.
+            if (spec.model !== 'gpt-5-mini-2025-08-07')
+              throw new Error('Unverified web search model')
+            const result = await searchGuestWebWithAccounting({
+              request: {
+                query: decision.normalizedQuery,
+                allowedDomains: webConfiguration.allowedDomains,
+                model: spec.model,
+                timeoutMs: webConfiguration.timeoutMs,
+                maxOutputTokens: webConfiguration.maxOutputTokens,
+                maxToolCalls: 1,
+                maxResults: 3,
+              },
+              pricing: {
+                model: spec.model,
+                version: 'openai-web-search-2026-09-08',
+                maximumInputTokens: 400_000,
+                inputUnitsPerMillionTokens: 25_000_000n,
+                cachedInputUnitsPerMillionTokens: 2_500_000n,
+                outputUnitsPerMillionTokens: 200_000_000n,
+                toolCallUnits: 1_000_000n,
+              },
+              invocationId: webSearchInvocationId,
+              budgetGate: withAiRequestBudgetCeiling(
+                sharedBudgetGate,
+                BigInt(webConfiguration.requestBudgetCeilingE8Usd),
+              ),
+              admissionGuard: () =>
+                assertVenueAiAvailable(ctx.db, { tenantId: venue.tenantId, venueId: venue.id }),
+              beforeDispatch: async () => {
+                const fresh = await resolveGuestGeneralWebConfiguration(
+                  {
+                    tenantId: venue.tenantId,
+                    venueId: venue.id,
+                    globalEnabled: isFeatureEnabled('guestGeneralWebFallback'),
+                  },
+                  ctx.db,
+                )
+                if (JSON.stringify(fresh) !== JSON.stringify(webConfiguration))
+                  throw new Error('Web search permission changed')
+                await markGuestChatProviderDispatchedAction({
+                  client: ctx.db,
+                  operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+                })
+                generationDispatched = true
+              },
+              usageSink: chatAccounting.sink,
+            })
+            const projected = projectGuestGeneralWebContext({
+              result,
+              capturedAt: new Date().toISOString(),
+              queryHash: createHash('sha256').update(decision.normalizedQuery).digest('hex'),
+            })
+            if (dynamicPart.length + projected.prompt.length + 2 > 150_000)
+              throw new Error('General web context exceeds the retained prompt boundary')
+            generalWebProjection = projected
+            ;({ staticPart, dynamicPart } = preparePrompt())
+          }
+        } catch (error) {
+          if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
+          logger.warn({ action: 'guest-general-web-unavailable', venueId: venue.id })
+        }
+      }
       const result = await generateTextForCapability({
         route,
         timeoutMs: configuration.timeoutMs,
@@ -1219,8 +1345,7 @@ const chatReadRouter = router({
             tenantId: venue.tenantId,
             venueId: input.venueId,
           }),
-        budgetGate: chatAccounting.budgetGate,
-        requestBudgetCeilingE8Usd: configuration.requestBudgetCeilingE8Usd,
+        budgetGate: sharedBudgetGate,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
@@ -1244,6 +1369,7 @@ const chatReadRouter = router({
             }
           : {}),
         onBeforeFirstDispatch: async () => {
+          if (generationDispatched) return
           try {
             await markGuestChatProviderDispatchedAction({
               client: ctx.db,
@@ -1373,6 +1499,8 @@ const chatReadRouter = router({
         })),
       ],
     })
+    if (generalWebProjection && !fallbackFailureCode)
+      citations.push(...generalWebProjection.citations)
     const answerEvidence = buildGuestAnswerEvidenceBundle({
       assistantResponse,
       staticSystemPrompt: staticPart,
@@ -1381,6 +1509,7 @@ const chatReadRouter = router({
         ? { routeConfigurationVersion: generationRouteConfigurationVersion }
         : {}),
       sources: [
+        ...(generalWebProjection?.evidenceSources ?? []),
         {
           sourceId: `venue:${venue.id}`,
           kind: 'VENUE_PROFILE',

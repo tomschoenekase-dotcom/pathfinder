@@ -67,11 +67,21 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v14')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v15')
   })
 
   it('matches the broad production prompt contract manifest', () => {
     const prompts = [
+      {
+        id: 'authorized-general-web-background',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces: [],
+          userLat: null,
+          userLng: null,
+          generalWebContext: 'GENERAL BACKGROUND ONLY: A nebula is a cloud of gas and dust.',
+        }),
+      },
       {
         id: 'persisted-voice-context-qualified-newest-ten',
         prompt: JSON.stringify(

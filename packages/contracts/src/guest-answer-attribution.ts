@@ -35,6 +35,7 @@ export const GuestAnswerEvidenceSourceSchema = z
       'KNOWLEDGE',
       'OPERATIONAL_UPDATE',
       'PUBLISHED_CONTENT',
+      'GENERAL_WEB_REFERENCE',
     ]),
     label: z.string().trim().min(1).max(500),
     rank: z.number().int().min(0).max(100).nullable(),

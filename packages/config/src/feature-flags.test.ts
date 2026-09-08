@@ -73,6 +73,22 @@ describe('V1 website research worker boundary', () => {
   })
 })
 
+describe('guest general-web fallback boundary', () => {
+  it('is an exact default-off server capability', () => {
+    expect(FEATURE_FLAGS.guestGeneralWebFallback).toEqual({
+      environmentVariable: 'GUEST_GENERAL_WEB_FALLBACK_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(isFeatureEnabled('guestGeneralWebFallback', {})).toBe(false)
+    expect(
+      isFeatureEnabled('guestGeneralWebFallback', { GUEST_GENERAL_WEB_FALLBACK_ENABLED: 'TRUE' }),
+    ).toBe(false)
+    expect(
+      isFeatureEnabled('guestGeneralWebFallback', { GUEST_GENERAL_WEB_FALLBACK_ENABLED: 'true' }),
+    ).toBe(true)
+  })
+})
+
 describe('Tochi and Character Mode rollout boundaries', () => {
   it('keeps every new product surface behind an exact default-off kill switch', () => {
     expect(FEATURE_FLAGS.clientTochi).toEqual({

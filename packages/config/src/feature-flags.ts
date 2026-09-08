@@ -123,6 +123,10 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'INTAKE_V1_FILE_EXTRACTION_WORKERS_ENABLED',
     defaultEnabled: false,
   },
+  guestGeneralWebFallback: {
+    environmentVariable: 'GUEST_GENERAL_WEB_FALLBACK_ENABLED',
+    defaultEnabled: false,
+  },
 } as const
 
 export type CrmFeatureClassification = 'public' | 'pilot' | 'internal' | 'off'

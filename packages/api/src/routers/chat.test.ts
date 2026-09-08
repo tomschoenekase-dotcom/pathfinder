@@ -38,6 +38,9 @@ vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
 const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
 vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
 
+const searchGuestWebWithAccounting = vi.hoisted(() => vi.fn())
+vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWithAccounting }))
+
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
@@ -98,6 +101,7 @@ const aiCostBudgetFindFirst = vi.fn()
 const operationalEventUpsert = vi.fn()
 const venueFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
+const tenantFeatureFlagFindUnique = vi.fn()
 const venueKnowledgeEntryFindMany = vi.fn()
 const dbTransaction = vi.fn()
 
@@ -110,7 +114,10 @@ const mockDb = {
     findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
   },
   venue: { findFirst: venueFindFirst },
-  tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
+  tenantFeatureFlag: {
+    findMany: tenantFeatureFlagFindMany,
+    findUnique: tenantFeatureFlagFindUnique,
+  },
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: {
@@ -850,6 +857,291 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    const generalWebVenue = { ...venueRow, chatShowLinks: true }
+    const generalWebResult = {
+      provider: 'openai' as const,
+      model: 'gpt-5-mini-2025-08-07',
+      responseId: 'response-general-web-1',
+      text: 'Photosynthesis converts light energy into chemical energy.',
+      references: [
+        {
+          title: 'Photosynthesis background',
+          url: 'https://science.example.org/photosynthesis',
+          cited: true,
+        },
+      ],
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 20,
+        outputTokens: 40,
+        totalTokens: 160,
+        webSearchToolCalls: 1,
+      },
+    }
+    const generalWebMetadata = (overrides: Record<string, unknown> = {}) => ({
+      venueIds: [VENUE_ID],
+      allowedDomains: ['science.example.org'],
+      modelKey: 'guest-chat-openai',
+      maxOutputTokens: 512,
+      timeoutMs: 4_000,
+      requestBudgetCeilingE8Usd: '25000',
+      ...overrides,
+    })
+    const generalWebInput = { ...sendInput, message: 'What is photosynthesis?' }
+
+    function responseGenerationDispatches() {
+      return guestTurnActions.dispatch.mock.calls.filter(
+        ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+      )
+    }
+
+    function enableGeneralWebFallback() {
+      vi.stubEnv('GUEST_GENERAL_WEB_FALLBACK_ENABLED', 'true')
+      vi.stubEnv('OPENAI_API_KEY', 'sk_test_guest_general_web')
+      tenantFeatureFlagFindUnique.mockResolvedValue({
+        enabled: true,
+        metadata: generalWebMetadata(),
+      })
+      searchGuestWebWithAccounting.mockImplementation(
+        async ({ beforeDispatch }: { beforeDispatch: () => Promise<void> }) => {
+          await beforeDispatch()
+          return generalWebResult
+        },
+      )
+    }
+
+    it('keeps general web disabled without a tenant configuration lookup or search', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      vi.stubEnv('GUEST_GENERAL_WEB_FALLBACK_ENABLED', 'false')
+      vi.stubEnv('OPENAI_API_KEY', 'sk_test_guest_general_web')
+      semanticSearch.places.mockResolvedValueOnce([])
+
+      await caller.chat.send(generalWebInput)
+
+      expect(tenantFeatureFlagFindUnique).not.toHaveBeenCalled()
+      expect(searchGuestWebWithAccounting).not.toHaveBeenCalled()
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
+
+    it('keeps general web off when guest links are unavailable for the venue', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', {
+        ...generalWebVenue,
+        chatShowLinks: false,
+      })
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+
+      await caller.chat.send(generalWebInput)
+
+      expect(tenantFeatureFlagFindUnique).not.toHaveBeenCalled()
+      expect(searchGuestWebWithAccounting).not.toHaveBeenCalled()
+    })
+
+    it('keeps general web off for a second-layer conversation', async () => {
+      const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+      const memberCaller = testRouter.createCaller({
+        ...ctx,
+        session: {
+          userId: 'user_1',
+          activeTenantId: TENANT_ID,
+          role: 'STAFF',
+          isPlatformAdmin: false,
+        },
+      })
+      setupHappyPath(
+        'Photosynthesis uses light energy.',
+        {
+          ...generalWebVenue,
+          secondLayerEnabled: true,
+          secondLayerAccessKey: secondLayerKey,
+        },
+        'SECOND_LAYER',
+      )
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+
+      await memberCaller.chat.send({ ...generalWebInput, secondLayerKey })
+
+      expect(tenantFeatureFlagFindUnique).not.toHaveBeenCalled()
+      expect(searchGuestWebWithAccounting).not.toHaveBeenCalled()
+    })
+
+    it('suppresses general web search when current venue knowledge satisfies the query', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      venueKnowledgeEntryFindMany.mockResolvedValue([
+        {
+          id: 'knowledge-photosynthesis',
+          title: 'Photosynthesis background',
+          category: 'science',
+          content: 'Photosynthesis converts light energy into chemical energy.',
+          sourceType: 'FOUNDER_PROVIDED',
+          sourceName: 'Reviewed guide',
+          sourceUrl: null,
+          updatedAt: new Date('2026-08-01T00:00:00Z'),
+          lastReviewedAt: new Date('2026-08-01T00:00:00Z'),
+        },
+      ])
+
+      await caller.chat.send(generalWebInput)
+
+      expect(tenantFeatureFlagFindUnique).toHaveBeenCalledOnce()
+      expect(searchGuestWebWithAccounting).not.toHaveBeenCalled()
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
+
+    it('uses an admitted general search after empty retrieval, rechecks before dispatch, and persists its bounded projection', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+
+      const result = await caller.chat.send(generalWebInput)
+
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request: expect.objectContaining({
+            query: 'What is photosynthesis?',
+            allowedDomains: ['science.example.org'],
+            maxResults: 3,
+            maxToolCalls: 1,
+          }),
+          beforeDispatch: expect.any(Function),
+        }),
+      )
+      expect(tenantFeatureFlagFindUnique).toHaveBeenCalledTimes(2)
+      expect(tenantFeatureFlagFindUnique).toHaveBeenNthCalledWith(1, {
+        where: {
+          tenantId_flagKey: {
+            tenantId: TENANT_ID,
+            flagKey: 'guest-general-web-fallback-v1',
+          },
+        },
+        select: { enabled: true, metadata: true },
+      })
+      expect(responseGenerationDispatches()).toHaveLength(1)
+      expect(responseGenerationDispatches()[0]).toEqual([
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            requestId: expect.any(String),
+          }),
+        }),
+      ])
+      expect(getConcatenatedSystemPrompt()).toContain(
+        'GENERAL BACKGROUND ONLY — NOT VENUE AUTHORITY',
+      )
+      expect(getConcatenatedSystemPrompt()).toContain(generalWebResult.text)
+      expect(result.citations).toContainEqual({
+        label: 'General reference: Photosynthesis background',
+        href: 'https://science.example.org/photosynthesis',
+        detail: 'General background',
+      })
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({
+              answerEvidence: expect.objectContaining({
+                sources: expect.arrayContaining([
+                  expect.objectContaining({ kind: 'GENERAL_WEB_REFERENCE' }),
+                ]),
+              }),
+            }),
+          }),
+        }),
+      )
+    })
+
+    it('does not invoke a web provider when the nested budget wrapper has no durable reservation', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      const providerCreate = vi.fn().mockRejectedValue(new Error('unexpected provider invocation'))
+      const beforeDispatch = vi.fn()
+      const accounting = await vi.importActual<
+        typeof import('@pathfinder/ai/guest-web-search-accounting')
+      >('@pathfinder/ai/guest-web-search-accounting')
+      searchGuestWebWithAccounting.mockImplementation(async (params) =>
+        accounting.searchGuestWebWithAccounting({
+          ...params,
+          request: {
+            ...params.request,
+            client: { responses: { create: providerCreate } },
+          },
+          beforeDispatch: async () => {
+            beforeDispatch()
+            await params.beforeDispatch()
+          },
+        }),
+      )
+
+      await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
+        response: 'Photosynthesis uses light energy.',
+      })
+
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(beforeDispatch).not.toHaveBeenCalled()
+      expect(providerCreate).not.toHaveBeenCalled()
+      expect(responseGenerationDispatches()).toHaveLength(1)
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
+
+    it('continues ordinary grounded generation if optional general search fails after its dispatch fence', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      searchGuestWebWithAccounting.mockImplementationOnce(
+        async ({ beforeDispatch }: { beforeDispatch: () => Promise<void> }) => {
+          await beforeDispatch()
+          throw new Error('synthetic general search failure')
+        },
+      )
+
+      await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
+        response: 'Photosynthesis uses light energy.',
+      })
+
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(responseGenerationDispatches()).toHaveLength(1)
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
+
+    it('prevents optional general-search dispatch when the exact tenant configuration is revoked', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      tenantFeatureFlagFindUnique
+        .mockResolvedValueOnce({
+          enabled: true,
+          metadata: generalWebMetadata(),
+        })
+        .mockResolvedValueOnce(null)
+
+      await caller.chat.send(generalWebInput)
+
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(tenantFeatureFlagFindUnique).toHaveBeenCalledTimes(2)
+      expect(responseGenerationDispatches()).toHaveLength(1)
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
+
+    it('does not dispatch general search for malformed tenant metadata', async () => {
+      setupHappyPath('Photosynthesis uses light energy.', generalWebVenue)
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      tenantFeatureFlagFindUnique.mockResolvedValueOnce({
+        enabled: true,
+        metadata: generalWebMetadata({ allowedDomains: ['https://science.example.org'] }),
+      })
+
+      await caller.chat.send(generalWebInput)
+
+      expect(tenantFeatureFlagFindUnique).toHaveBeenCalledOnce()
+      expect(searchGuestWebWithAccounting).not.toHaveBeenCalled()
+      expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
+    })
 
     it('persists and returns safe provenance for retrieved entities explicitly named in the answer', async () => {
       setupHappyPath('The Elephants habitat is open today.')

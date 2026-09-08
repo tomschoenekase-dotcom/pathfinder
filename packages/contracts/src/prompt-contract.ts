@@ -2,6 +2,6 @@
  * Durable production guest-chat prompt identity. The hash is guarded by the
  * broad representative manifest in venue-context.test.ts.
  */
-export const GUEST_CHAT_PROMPT_VERSION = 'guest-chat-prompt-v14' as const
+export const GUEST_CHAT_PROMPT_VERSION = 'guest-chat-prompt-v15' as const
 export const GUEST_CHAT_PROMPT_CONTRACT_HASH =
-  '9601f59f3220f0756b561d2b32cc8eea8efa4dde024653cce488f01dd44e7e34' as const
+  '5dae56d5e4765c104c95e56c1e2e46cc01ca6f85cfdc0f1c01e0c4e6c3d0f9d5' as const
