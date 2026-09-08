@@ -259,6 +259,46 @@ export async function executeIntakeFileExtraction(input: {
   createdBy: string
   storage?: IntakeUploadStorageTransport
 }) {
+  // An operation identifies immutable historical extraction evidence. Recover it before
+  // touching storage or requiring the source to remain in its pre-review lifecycle state.
+  const replay = await input.db.intakeFileExtractionReceipt.findUnique({
+    where: { tenantId_requestId: { tenantId: input.tenantId, requestId: input.operationId } },
+    select: {
+      id: true,
+      tenantId: true,
+      venueId: true,
+      runId: true,
+      requestId: true,
+      createdBy: true,
+      outcome: true,
+      createdAt: true,
+    },
+  })
+  if (replay) {
+    if (
+      replay.tenantId !== input.tenantId ||
+      replay.venueId !== input.venueId ||
+      replay.runId !== input.runId ||
+      replay.requestId !== input.operationId ||
+      replay.createdBy !== input.createdBy
+    ) {
+      throw new IntakeFileExtractionError(
+        'CONFLICT',
+        'The operation ID is already bound to another extraction request.',
+      )
+    }
+    return {
+      receiptId: replay.id,
+      outcome: replay.outcome,
+      createdAt: replay.createdAt,
+      replayed: true,
+      reviewRequired: replay.outcome === 'SUCCEEDED',
+      packageDraftCreated: false as const,
+      autoApproved: false as const,
+      autoApplied: false as const,
+      autoPublished: false as const,
+    }
+  }
   const run = await input.db.intakeRun.findFirst({
     where: {
       id: input.runId,
@@ -336,27 +376,30 @@ export async function executeIntakeFileExtraction(input: {
       ? toUploadExtractionResult(await extractPdfDocumentText(read.bytes))
       : normalizeText(read.bytes)
   try {
-    return await recordIntakeFileExtractionReceiptAction({
-      operationId: input.operationId,
-      ...identity,
-      requestHash: requestHash({ ...identity, profile }),
-      outcome: extraction.outcome,
-      extractor: profile.extractor,
-      extractorVersion: profile.extractorVersion,
-      ...(extraction.outcome === 'SUCCEEDED'
-        ? {
-            extractedText: extraction.text,
-            extractedTextHash: extraction.textHash,
-            extractedCharacterCount: extraction.characterCount,
-            extractedLineCount: extraction.lineCount,
-          }
-        : {
-            extractedCharacterCount: 0,
-            extractedLineCount: 0,
-            errorCode: extraction.errorCode,
-          }),
-      createdBy: input.createdBy,
-    })
+    return await recordIntakeFileExtractionReceiptAction(
+      {
+        operationId: input.operationId,
+        ...identity,
+        requestHash: requestHash({ ...identity, profile }),
+        outcome: extraction.outcome,
+        extractor: profile.extractor,
+        extractorVersion: profile.extractorVersion,
+        ...(extraction.outcome === 'SUCCEEDED'
+          ? {
+              extractedText: extraction.text,
+              extractedTextHash: extraction.textHash,
+              extractedCharacterCount: extraction.characterCount,
+              extractedLineCount: extraction.lineCount,
+            }
+          : {
+              extractedCharacterCount: 0,
+              extractedLineCount: 0,
+              errorCode: extraction.errorCode,
+            }),
+        createdBy: input.createdBy,
+      },
+      input.db,
+    )
   } catch (error) {
     if (error instanceof IntakeFileExtractionActionError) {
       throw new IntakeFileExtractionError(

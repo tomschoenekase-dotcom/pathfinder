@@ -59,6 +59,9 @@ function pdfWithText(text: string, pageCount = 1) {
 
 function database(bytes: Uint8Array, overrides: Record<string, unknown> = {}) {
   return {
+    intakeFileExtractionReceipt: {
+      findUnique: vi.fn(async (): Promise<Record<string, unknown> | null> => null),
+    },
     intakeRun: {
       findFirst: vi.fn(async () => ({
         upload: {
@@ -108,6 +111,94 @@ describe('deterministic intake file extraction', () => {
     })
   })
 
+  it.each(['SUCCEEDED', 'FAILED'])(
+    'replays %s without storage or re-extraction after lifecycle changes',
+    async (outcome) => {
+      const bytes = Buffer.from('already recorded')
+      const db = database(bytes)
+      db.intakeFileExtractionReceipt.findUnique.mockResolvedValue({
+        id: operationId,
+        requestId: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        createdBy: 'admin-a',
+        outcome,
+        createdAt: new Date('2026-09-08T12:00:00Z'),
+      })
+      const transport = storage(bytes)
+      const result = await executeIntakeFileExtraction({
+        db: db as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        operationId,
+        createdBy: 'admin-a',
+        storage: transport,
+      })
+      expect(result).toMatchObject({
+        receiptId: operationId,
+        outcome,
+        replayed: true,
+        reviewRequired: outcome === 'SUCCEEDED',
+        autoApproved: false,
+        autoApplied: false,
+        autoPublished: false,
+      })
+      expect(db.intakeRun.findFirst).not.toHaveBeenCalled()
+      expect(transport.send).not.toHaveBeenCalled()
+      expect(recordReceipt).not.toHaveBeenCalled()
+      expect(db.intakeFileExtractionReceipt.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId_requestId: { tenantId: 'tenant-a', requestId: operationId } },
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            runId: true,
+            requestId: true,
+            createdBy: true,
+            outcome: true,
+            createdAt: true,
+          },
+        }),
+      )
+    },
+  )
+
+  it.each(['tenantId', 'venueId', 'runId', 'requestId', 'createdBy'])(
+    'rejects an operation replay with changed %s before storage',
+    async (field) => {
+      const bytes = Buffer.from('already recorded')
+      const db = database(bytes)
+      db.intakeFileExtractionReceipt.findUnique.mockResolvedValue({
+        id: operationId,
+        requestId: operationId,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+        createdBy: 'admin-a',
+        outcome: 'SUCCEEDED',
+        createdAt: new Date(),
+        [field]: 'other',
+      })
+      const transport = storage(bytes)
+      await expect(
+        executeIntakeFileExtraction({
+          db: db as never,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+          operationId,
+          createdBy: 'admin-a',
+          storage: transport,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(transport.send).not.toHaveBeenCalled()
+      expect(recordReceipt).not.toHaveBeenCalled()
+    },
+  )
+
   it('deduplicates and contains asynchronous PDF loading-task cleanup failures', async () => {
     const destroy = vi.fn(async () => {
       throw new Error('private cleanup failure')
@@ -120,8 +211,9 @@ describe('deterministic intake file extraction', () => {
 
   it('rechecks exact bytes and records normalized UTF-8 text without authority', async () => {
     const bytes = Buffer.from('\uFEFFLine one\r\nLine two\r', 'utf8')
+    const db = database(bytes)
     const result = await executeIntakeFileExtraction({
-      db: database(bytes) as never,
+      db: db as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-a',
@@ -143,13 +235,15 @@ describe('deterministic intake file extraction', () => {
         extractedCharacterCount: 18,
         extractedLineCount: 3,
       }),
+      db,
     )
   })
 
   it('extracts text from an exact verified PDF without OCR or authority', async () => {
     const bytes = pdfWithText('Welcome to the museum')
+    const db = database(bytes, { mimeType: 'application/pdf' })
     const result = await executeIntakeFileExtraction({
-      db: database(bytes, { mimeType: 'application/pdf' }) as never,
+      db: db as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-a',
@@ -172,13 +266,15 @@ describe('deterministic intake file extraction', () => {
         extractedCharacterCount: 21,
         extractedLineCount: 1,
       }),
+      db,
     )
   })
 
   it('records a bounded failure when a verified PDF has no extractable text', async () => {
     const bytes = pdfWithText('')
+    const db = database(bytes, { mimeType: 'application/pdf' })
     await executeIntakeFileExtraction({
-      db: database(bytes, { mimeType: 'application/pdf' }) as never,
+      db: db as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-a',
@@ -194,13 +290,15 @@ describe('deterministic intake file extraction', () => {
         extractedCharacterCount: 0,
         extractedLineCount: 0,
       }),
+      db,
     )
   })
 
   it('stops before page extraction when a verified PDF exceeds the page boundary', async () => {
     const bytes = pdfWithText('Bounded text', 201)
+    const db = database(bytes, { mimeType: 'application/pdf' })
     await executeIntakeFileExtraction({
-      db: database(bytes, { mimeType: 'application/pdf' }) as never,
+      db: db as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-a',
@@ -216,13 +314,15 @@ describe('deterministic intake file extraction', () => {
         extractedCharacterCount: 0,
         extractedLineCount: 0,
       }),
+      db,
     )
   })
 
   it('records a fixed parse failure without retaining parser details', async () => {
     const bytes = Buffer.from('%PDF-1.4\nnot-a-valid-document')
+    const db = database(bytes, { mimeType: 'application/pdf' })
     await executeIntakeFileExtraction({
-      db: database(bytes, { mimeType: 'application/pdf' }) as never,
+      db: db as never,
       tenantId: 'tenant-a',
       venueId: 'venue-a',
       runId: 'run-a',
@@ -236,6 +336,7 @@ describe('deterministic intake file extraction', () => {
         outcome: 'FAILED',
         errorCode: 'PDF_PARSE_FAILED',
       }),
+      db,
     )
     expect(recordReceipt.mock.calls[0]?.[0]).not.toHaveProperty('errorMessage')
   })
