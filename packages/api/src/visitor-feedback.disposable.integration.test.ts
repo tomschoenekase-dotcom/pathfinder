@@ -5,11 +5,12 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 const rateLimit = vi.hoisted(() => vi.fn())
 vi.mock('./lib/rate-limit', () => ({ checkRateLimit: rateLimit }))
 
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, publishOperationalEvent, withTenantIsolationBypass } from '@pathfinder/db'
 
 import type { TRPCContext } from './context'
 import { router } from './core'
 import { visitorHazardDeduplicationKey } from './lib/visitor-signal-candidate'
+import { adminVisitorFeedbackHazardEvidenceRouter } from './routers/admin/visitor-feedback-hazard-evidence'
 import { feedbackRouter } from './routers/feedback'
 
 const enabled =
@@ -20,6 +21,19 @@ const caller = router({ feedback: feedbackRouter }).createCaller({
   db,
   headers: new Headers(),
   session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+} satisfies TRPCContext)
+
+const adminEvidenceCaller = router({
+  admin: adminVisitorFeedbackHazardEvidenceRouter,
+}).createCaller({
+  db,
+  headers: new Headers(),
+  session: {
+    userId: 'visitor-feedback-fixture-operator',
+    activeTenantId: null,
+    role: null,
+    isPlatformAdmin: true,
+  },
 } satisfies TRPCContext)
 
 async function seedSession(params: {
@@ -260,6 +274,86 @@ describe.skipIf(!enabled)('visitor feedback hazard escalation on disposable Post
         recommendedAction:
           'Review the current feedback record and its cited public conversation immediately, then follow the venue safety escalation procedure.',
       })
+      const currentEvidence = await adminEvidenceCaller.admin.visitorFeedbackHazardEvidence({
+        eventId: event.id,
+      })
+      expect(currentEvidence).toMatchObject({
+        effect: 'READ_ONLY',
+        currentFeedback: {
+          id: feedback.id,
+          rating: 'HELPFUL',
+          reason: 'The answer is correct.',
+          sessionId: publicSession.session.id,
+          linkedMessage: { id: publicSession.assistant.id, content: 'The east entrance is open.' },
+        },
+        boundaries: { signalUnverified: true, feedbackMutable: true, currentFeedbackOnly: true },
+      })
+      const evidenceAudit = await db.auditLog.findFirstOrThrow({
+        where: {
+          tenantId,
+          action: 'VISITOR_FEEDBACK_HAZARD_EVIDENCE_READ',
+          targetType: 'OperationalEvent',
+          targetId: event.id,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { afterState: true },
+      })
+      expect(JSON.stringify(evidenceAudit)).not.toContain('The answer is correct.')
+      expect(JSON.stringify(evidenceAudit)).not.toContain(hazardInput.reason)
+
+      const mismatchedVenue = await db.venue.create({
+        data: {
+          tenantId,
+          slug: `visitor-feedback-scope-${suffix}`,
+          name: 'Visitor feedback scope control venue',
+        },
+      })
+      const mismatchedSession = await seedSession({
+        tenantId,
+        venueId: mismatchedVenue.id,
+        experienceScope: 'PUBLIC',
+      })
+      const mismatchedFeedback = await db.messageFeedback.create({
+        data: {
+          tenantId,
+          venueId: mismatchedVenue.id,
+          sessionId: mismatchedSession.session.id,
+          messageId: mismatchedSession.assistant.id,
+          rating: 'NOT_HELPFUL',
+          reason: 'This scoped control belongs to another venue.',
+        },
+      })
+      const mismatchedEvent = await publishOperationalEvent({
+        client: db,
+        event: {
+          tenantId,
+          venueId: venue.id,
+          eventType: 'visitor-feedback.potential-urgent-hazard',
+          sourceSubsystem: 'visitor-feedback-fixture-scope-control',
+          severity: 'CRITICAL',
+          title: 'Potential visitor-reported safety hazard',
+          summary:
+            'An unverified visitor feedback report may describe an immediate venue safety hazard.',
+          actionRequired: true,
+          linkedObjectType: 'MessageFeedback',
+          linkedObjectId: mismatchedFeedback.id,
+          recommendedAction:
+            'Review the current feedback record and its cited public conversation.',
+          deduplicationKey: `visitor-feedback-evidence-scope-${suffix}`,
+        },
+      })
+      await expect(
+        adminEvidenceCaller.admin.visitorFeedbackHazardEvidence({ eventId: mismatchedEvent.id }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(
+        db.auditLog.count({
+          where: {
+            tenantId,
+            action: 'VISITOR_FEEDBACK_HAZARD_EVIDENCE_READ',
+            targetId: mismatchedEvent.id,
+          },
+        }),
+      ).resolves.toBe(0)
 
       await expect(
         caller.feedback.submit({
@@ -325,6 +419,13 @@ describe.skipIf(!enabled)('visitor feedback hazard escalation on disposable Post
         `VISITOR_FEEDBACK_PROOF ${JSON.stringify({
           eventIds: [event.id, siblingEvent.id],
           feedbackId: feedback.id,
+          evidence: {
+            currentFeedback: {
+              id: currentEvidence.currentFeedback.id,
+              rating: currentEvidence.currentFeedback.rating,
+            },
+            scopeControlEventId: mismatchedEvent.id,
+          },
           providerEvidence: 'synthetic-provider-dark-receipts',
           groups: groups.length,
           occurrences: groups.map((group) => group.occurrenceCount).sort((a, b) => a - b),

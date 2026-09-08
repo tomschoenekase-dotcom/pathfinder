@@ -396,7 +396,7 @@ export default async function AgentTrustEvidenceFixturePage({
   searchParams: Promise<{ focus?: string }>
 }) {
   const { focus } = await searchParams
-  const fixtureData =
+  const fixtureData: Data =
     focus === 'decision'
       ? {
           ...data,
@@ -429,7 +429,36 @@ export default async function AgentTrustEvidenceFixturePage({
             metrics: { ...data.briefing.metrics, criticalRisks: 1, actionItems: 1 },
           },
         }
-      : data
+      : focus === 'visitor-feedback-hazard'
+        ? {
+            ...data,
+            events: {
+              items: [
+                {
+                  id: '11111111-1111-4111-8111-111111111111',
+                  tenantId: 'tenant_fixture',
+                  venueId: 'venue_fixture',
+                  eventType: 'visitor-feedback.potential-urgent-hazard',
+                  sourceSubsystem: 'visitor-feedback',
+                  severity: 'CRITICAL',
+                  title: 'Potential visitor-reported safety hazard',
+                  summary:
+                    'An unverified visitor feedback report may describe an immediate venue safety hazard.',
+                  recommendedAction:
+                    'Review the current feedback record and its cited public conversation immediately.',
+                  state: 'OPEN',
+                  actionRequired: true,
+                  linkedObjectType: 'MessageFeedback',
+                  linkedObjectId: 'feedback_fixture',
+                  occurrenceCount: 2,
+                  createdAt: new Date('2026-09-07T20:00:00.000Z'),
+                  lastOccurredAt: new Date('2026-09-07T20:05:00.000Z'),
+                },
+              ],
+              nextCursor: null,
+            },
+          }
+        : data
   return (
     <TRPCProvider scopeKey="agent-trust-evidence-fixture">
       <main data-fixture="agent-trust-evidence" className="min-h-screen bg-slate-100 p-4 sm:p-8">

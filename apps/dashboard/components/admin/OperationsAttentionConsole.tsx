@@ -9,6 +9,7 @@ import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { FounderDecisionContext } from './FounderDecisionContext'
 import { FounderAbsenceReadiness } from './FounderAbsenceReadiness'
 import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
+import { VisitorFeedbackHazardEvidence } from './VisitorFeedbackHazardEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
 import { FounderQuestionTriageBoard } from './FounderQuestionTriageBoard'
@@ -830,6 +831,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   {event.eventType === 'guest-chat.route-degraded' &&
                   event.linkedObjectType === 'guest-chat-turn' ? (
                     <GuestChatIncidentEvidence eventId={event.id} />
+                  ) : null}
+                  {event.eventType === 'visitor-feedback.potential-urgent-hazard' &&
+                  event.linkedObjectType === 'MessageFeedback' ? (
+                    <VisitorFeedbackHazardEvidence eventId={event.id} />
                   ) : null}
                   <OperationalEventActions eventId={event.id} state={event.state} />
                 </li>

@@ -31,6 +31,9 @@ vi.mock('./TerminalRedrivePreview', () => ({
 vi.mock('./GuestChatIncidentEvidence', () => ({
   GuestChatIncidentEvidence: () => <span>Guest chat incident evidence control</span>,
 }))
+vi.mock('./VisitorFeedbackHazardEvidence', () => ({
+  VisitorFeedbackHazardEvidence: () => <span>Visitor feedback hazard evidence control</span>,
+}))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -846,6 +849,61 @@ describe('operations attention console', () => {
     expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/knowledge-proposals',
     )
+  })
+
+  it('offers on-demand evidence only for the exact visitor-feedback hazard alert', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          events: {
+            items: [
+              {
+                id: 'event_hazard',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'visitor-feedback.potential-urgent-hazard',
+                sourceSubsystem: 'visitor-feedback',
+                severity: 'CRITICAL',
+                title: 'Potential visitor-reported safety hazard',
+                summary:
+                  'An unverified visitor feedback report may describe an immediate venue safety hazard.',
+                recommendedAction:
+                  'Review the current feedback record and its cited public conversation.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'MessageFeedback',
+                linkedObjectId: 'feedback_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+              {
+                id: 'event_other',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'visitor-feedback.potential-urgent-hazard',
+                sourceSubsystem: 'visitor-feedback',
+                severity: 'CRITICAL',
+                title: 'Unlinked visitor feedback event',
+                summary: 'No exact feedback reference is present.',
+                recommendedAction: null,
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'ConversationInsight',
+                linkedObjectId: 'insight_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Visitor feedback hazard evidence control')).toHaveLength(1)
   })
 
   it('routes AI cost events to the tenant budget controls instead of chat logs', () => {

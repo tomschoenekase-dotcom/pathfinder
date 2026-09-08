@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T03:16:00.974821+00:00",
+  "baseProductRevision": "d1cbdea9d3e2ea2a733f7ec531db4dd4062ecdea",
+  "result": {
+    "database": "pathfinder_disposable_visitor_feedback_bbf4c7e2158a",
+    "port": "55489",
+    "proof": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationsPassed": true,
+    "testPassed": true,
+    "stopped": true
+  },
+  "migrationCount": 229,
+  "publicTableCount": 254,
+  "timezone": "UTC",
+  "testCounts": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "migrationSnapshotNote": "Measured against the working tree containing both additive location mapping and answered-owner migrations; integration commits are recorded in the campaign checkpoint.",
+  "measuredSources": [
+    {
+      "path": "packages/api/src/routers/admin/visitor-feedback-hazard-evidence.ts",
+      "sha256": "d6d12fc137fc74f7c7130a15bb6c5a3f18dee6ca5a489517373cdce0a0d94413",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/visitor-feedback.disposable.integration.test.ts",
+      "sha256": "b137c881d19267dcab9f9172546f2051079114ac01630fd740e2cdd43a254da2",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/routers/feedback.ts",
+      "sha256": "db0be381a3ae3c20eb5828a305f7b170ae84036c51f5e3c87d7989564da80a2e",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/api/src/lib/visitor-signal-candidate.ts",
+      "sha256": "5ee4a1f4029ffbfc65a0cbe48280380008510dec61b9de00af8c2a58d8fdf1c6",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/operational-events.ts",
+      "sha256": "ddeaee7b969ccc3ec8486e44fb97089769ef01cd54edac7c38057238253c89c9",
+      "matchesRetainedBytes": true
+    },
+    {
+      "path": "packages/db/src/helpers/conversation-insights.ts",
+      "sha256": "fb69aa8b6a715c0723bb81bdd56c27734c65cc87ea5ede4e4db1ff94211f0dae",
+      "matchesRetainedBytes": true
+    }
+  ],
+  "limitsAndInterpretation": [
+    "Current changed feedback is read through the real platform-admin router and its evidence access is audited without raw reasons.",
+    "A canonical alert linking a different venue feedback record fails closed; no evidence audit is created.",
+    "Native feedback and event persistence are real; chat/provider receipts are synthetic. No external delivery or live provider inference.",
+    "Browser evidence uses intercepted synthetic tRPC responses with the real console component. Inspected at 320, 820, 1024 and 1440 px; keyboard focus, overflow and axe checks passed.",
+    "Visual critique: restrained existing orange evidence rule, readable label/value hierarchy, no added decorative cards; full console density predates this slice."
+  ],
+  "proofLog": "{\"timestamp\":\"2026-09-08T03:14:37.770Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\n{\"timestamp\":\"2026-09-08T03:14:37.892Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\n{\"timestamp\":\"2026-09-08T03:14:37.894Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\n{\"timestamp\":\"2026-09-08T03:14:37.911Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\n{\"timestamp\":\"2026-09-08T03:14:37.911Z\",\"level\":\"info\",\"service\":\"pathfinder\",\"action\":\"tenant_isolation.bypass\",\"caller\":\"[redacted]\"}\nVISITOR_FEEDBACK_PROOF {\"eventIds\":[\"05551cb3-b8e7-47e7-b6ee-7ba8cd8a1ee7\",\"17dfecba-82e9-4942-8f90-b260609d6b6b\"],\"feedbackId\":\"cmts3j1d2000j8tgork40e43e\",\"evidence\":{\"currentFeedback\":{\"id\":\"cmts3j1d2000j8tgork40e43e\",\"rating\":\"HELPFUL\"},\"scopeControlEventId\":\"42610bfe-3abe-430b-9432-9571f2304af5\"},\"providerEvidence\":\"synthetic-provider-dark-receipts\",\"groups\":3,\"occurrences\":[1,1,2],\"unchangedAttraction\":{\"id\":\"cmts3j1bp00028tgovc0pgpz1\",\"name\":\"East Garden\",\"isActive\":true,\"visibility\":\"PUBLIC\"},\"effects\":{\"operationalUpdates\":0,\"venueKnowledgeEntries\":0}}\nJSON report written to C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-visitor-feedback-evidence-bbf4c7e2158a/vitest.json\n",
+  "retainedFiles": [
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a\\result.json",
+      "sha256": "e9154963b88dfec10c57dee2677be15df616b04f1ae37330477c367087d1732b"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a\\vitest.json",
+      "sha256": "6edc5bec8466336251b39ff8ecc3ce145597eb7590229bad62e476c4578185a0"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a\\vitest.log",
+      "sha256": "0e1b62029474cdf5c809bbdf8fcfcb8c1e597b469beab18b708eeb1a60e5a38d"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a\\database-readback.log",
+      "sha256": "69c45df7f1fa2dee4879d1a01157a28625f35fb011d56d0cfd9cab7a7215778a"
+    },
+    {
+      "path": "C:\\Users\\tomsc\\Downloads\\Torchiko-native-pg-fixture-20260907\\proof-visitor-feedback-evidence-bbf4c7e2158a\\stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "visualArtifacts": [
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-desktop-1440x900/visitor-feedback-hazard-1440.png",
+      "sha256": "4667d0f6eb4138efc660679e3dc6235738325ea93bc7a933abb8d3bf5dbed616"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-desktop-1440x900/visitor-feedback-panel-1024.png",
+      "sha256": "c211ca1abe29401bcddbb5bd324de22314c9a99f288762467e2c3422b33c6444"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-desktop-1440x900/visitor-feedback-panel-1440.png",
+      "sha256": "c3672eba49d3b772d48bffd4f09054547c2ed7720f2b6b07ccb4edba11b5835f"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-phone-390x844/visitor-feedback-hazard-320.png",
+      "sha256": "f7265e0ee4f624a28fea9de554a5b7b3947f95985ba2f6daa215647d7ee37709"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-phone-390x844/visitor-feedback-panel-320.png",
+      "sha256": "bb23f814c66a82c7ad65694a7e29fa779b0941c668d37f3cade538c6073f9633"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-tablet-820x1180/visitor-feedback-hazard-820.png",
+      "sha256": "0bb1bd26977d840186522e1e6b8efc357feee51e1be9d2c7a4b1f464e8ca7b05"
+    },
+    {
+      "path": "artifacts/visitor-feedback-evidence-detail-20260908/visitor-feedback-hazard-ev-7d60f-s-readable-across-viewports-tablet-820x1180/visitor-feedback-panel-820.png",
+      "sha256": "879440567d14f34514ec3db0406ea7cedda4f2030c51a3e216e7dc05f3d66839"
+    }
+  ]
+}

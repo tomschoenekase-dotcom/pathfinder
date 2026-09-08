@@ -56,6 +56,7 @@ import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
 import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
 import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
+import { adminVisitorFeedbackHazardEvidenceRouter } from './visitor-feedback-hazard-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminLocationAuthoringRouter } from './location-authoring'
 import { adminLocationAvailabilityRouter } from './location-availability'
@@ -154,6 +155,7 @@ export const adminRouter = mergeRouters(
   adminTochiRolloutRouter,
   adminTerminalRedrivePreviewRouter,
   adminOperationalEvidenceRouter,
+  adminVisitorFeedbackHazardEvidenceRouter,
   adminCustomerAccessExecutionRouter,
   adminCharacterFactoryRouter,
 )
