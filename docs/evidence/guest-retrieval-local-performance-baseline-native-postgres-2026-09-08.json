@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T20:45:55.547Z",
+  "baseProductRevision": "d3e501959badff7adf0c44fcde7a750f3109db36",
+  "result": {
+    "database": "pathfinder_disposable_guest_retrieval_performance_2bb3863a7c0b",
+    "port": 55491,
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationCount": 238,
+    "publicTableCount": 258,
+    "timezone": "UTC",
+    "testPassed": true,
+    "serviceStopped": true
+  },
+  "measurement": {
+    "version": "provider-dark-native-retrieval-performance-v1",
+    "sourceId": "29e2d4a6-6df1-4b50-a989-d036105a78e3",
+    "sourceVersion": "2026-09-08T20:45:55.547Z",
+    "cases": {
+      "smallCorpus": {
+        "corpusRows": 1,
+        "initialReadKind": "first-retrieval-in-fresh-node-process",
+        "initialReadMs": 51.104199999999764,
+        "repeatedReads": {
+          "sampleCount": 12,
+          "p50Ms": 6.373000000000047,
+          "p95Ms": 16.157500000000255,
+          "samplesMs": [
+            16.157500000000255, 6.373000000000047, 7.136999999999716, 6.875, 6.385099999999966,
+            6.562799999999697, 6.190600000000359, 6.346000000000004, 6.724999999999909,
+            6.366100000000188, 6.234400000000278, 6.030300000000352
+          ]
+        }
+      },
+      "largeCorpus": {
+        "corpusRows": 1001,
+        "initialReadKind": "first-retrieval-after-corpus-expansion-in-same-process",
+        "initialReadMs": 21.58140000000003,
+        "repeatedReads": {
+          "sampleCount": 12,
+          "p50Ms": 10.231200000000172,
+          "p95Ms": 12.054899999999634,
+          "samplesMs": [
+            12.054899999999634, 11.548999999999978, 10.282600000000002, 9.483799999999974,
+            10.605399999999918, 10.231200000000172, 8.392300000000432, 10.668999999999869,
+            8.166699999999764, 9.876999999999953, 10.143500000000131, 10.576900000000023
+          ]
+        }
+      }
+    },
+    "boundedHistory": {
+      "inputRows": 1000,
+      "outputRows": 10,
+      "projectionMs": 0.6700999999998203
+    },
+    "correctionCurrent": true,
+    "providerCalled": false,
+    "interpretation": "Only the small-corpus initial read is the first retrieval in a fresh Node process. The large-corpus initial read follows small-corpus reads and fixture expansion. Repeated reads may benefit from PostgreSQL and operating-system buffers. No application response cache is present or claimed."
+  },
+  "interpretation": [
+    "Only the small-corpus initial sample is the first production retrieval call in a fresh Node test process after disposable database migration and fixture insertion.",
+    "The large-corpus initial sample follows the small-corpus reads and expansion from 1 to 1001 scoped source rows in the same process; it is not labeled a cold-process or cold-database measurement.",
+    "Each corpus case retains 12 repeated samples with p50 and p95. Repeated samples may benefit from PostgreSQL shared buffers and operating-system file buffers. The application has no response cache in this measured path, and this evidence does not claim one.",
+    "The long-history measurement covers the production merge and model-history projection helpers over 1000 synthetic entries and verifies the newest combined window remains bounded to 10 entries. It does not include a provider request.",
+    "No pass/fail timing threshold was applied; the timings are a local engineering baseline rather than an SLO."
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/api/src/guest-retrieval-performance.disposable.integration.test.ts",
+      "sha256": "479f4854193b1cb2889ca57843fb5c3b842d462e0a344e4d427eb24e7439958e"
+    },
+    {
+      "path": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+      "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+    },
+    {
+      "path": "packages/api/src/lib/guest-conversation-history.ts",
+      "sha256": "518130ea6a1717f5ded3e7b9d4585005afc23655e0383409a6f089baf00b3bf3"
+    }
+  ],
+  "retainedArtifacts": [
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b/measurement.json",
+      "sha256": "74cbbdd1ba005dfab762fa562b0c823724e883e4a4dd53e55dd289a349af99a6"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b/result.json",
+      "sha256": "5114773f7791cb8c944ddc52590e393971bf9c55f98f148c7710fa4c0664db3e"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b/vitest.json",
+      "sha256": "3b8a21f2dcb6ab4f2e457201b0d184237dda7fd12e6e3aa924c2ea5d6b31544f"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b/database-readback.log",
+      "sha256": "f97c7677c8263912344607a935f9f74fa3a49fd3fc1853af1f594fbbbe9e329b"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-retrieval-performance-2bb3863a7c0b/stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "runner": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-native-guest-retrieval-performance-proof-port55491.mjs",
+  "limits": [
+    "Single local Windows host, one fresh process, one synthetic disposable tenant/database, and 12 repeated samples.",
+    "Fixture insertion and migrations are excluded from retrieval timings; network and hosted-service latency are not measured.",
+    "No embedding, model, storage, billing, or external provider was called, so provider latency, synthesis quality, token usage, and customer economics remain unknown.",
+    "The result does not compare preparation strategies, prove amortized cost improvement, establish a contractual SLO, or complete V2-P12-02/V2-P12-04/W06."
+  ]
+}
