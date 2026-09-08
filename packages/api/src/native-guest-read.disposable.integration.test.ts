@@ -166,12 +166,46 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         )
         expect(result.context.length).toBeLessThanOrEqual(12_000)
       }
-      await db.venueKnowledgeEntry.update({
+      const semanticCandidateBeforeCorrection = {
+        ...(await db.venueKnowledgeEntry.findUniqueOrThrow({ where: { id: knowledgeId } })),
+        distance: 0.01,
+      }
+      const semanticBeforeCorrection = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'north gallery capacity',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [semanticCandidateBeforeCorrection],
+      })
+      expect(semanticBeforeCorrection.entries.find(({ id }) => id === knowledgeId)?.content).toBe(
+        'The north gallery capacity is 137 visitors.',
+      )
+
+      const correctedKnowledge = await db.venueKnowledgeEntry.update({
         where: { id: knowledgeId },
         data: {
           content: 'The north gallery capacity is now 83 visitors.',
         },
       })
+      const semanticAfterCorrection = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'north gallery capacity',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [semanticCandidateBeforeCorrection],
+      })
+      expect(semanticAfterCorrection.entries.find(({ id }) => id === knowledgeId)?.content).toBe(
+        'The north gallery capacity is now 83 visitors.',
+      )
+      expect(JSON.stringify(semanticAfterCorrection.entries)).not.toContain('137 visitors')
+      expect(
+        semanticAfterCorrection.trace.retrievedSources.find(({ id }) => id === knowledgeId)
+          ?.version,
+      ).toBe(correctedKnowledge.updatedAt.toISOString())
       const corrected = await read('north gallery capacity')
       expect(corrected.context).toContain('83 visitors')
       expect(corrected.context).not.toContain('137 visitors')

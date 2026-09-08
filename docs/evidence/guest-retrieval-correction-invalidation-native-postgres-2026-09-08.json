@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-08T20:33:07.947Z",
+  "baseProductRevision": "43fdfa207c5dd86059a11c4eaa977fae9265e4a8",
+  "result": {
+    "database": "pathfinder_disposable_native_guest_read_c9bb429b61bb",
+    "port": 55491,
+    "proof": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-correction-invalidation-c9bb429b61bb",
+    "backend": "native-windows-postgresql16.15-pgvector0.8.6",
+    "migrationCount": 238,
+    "publicTableCount": 258,
+    "timezone": "UTC",
+    "migrationsPassed": true,
+    "testsPassed": 3,
+    "testsFailed": 0,
+    "testsSkipped": 0,
+    "serviceStopped": true
+  },
+  "proved": [
+    "A semantic candidate captured while the current public source said 137 visitors was returned by the initial retrieval.",
+    "After the canonical PostgreSQL row changed to 83 visitors, a repeated retrieval using that unchanged stale semantic candidate returned 83 and excluded 137.",
+    "The repeated retrieval trace identified the canonical source with its current updatedAt version.",
+    "The existing subsequent SECOND_LAYER withdrawal, sibling-scope exclusion, thousand-row corpus bounds, combined route closure, and provider-dark controls remained passing."
+  ],
+  "measuredSources": [
+    {
+      "path": "packages/api/src/native-guest-read.disposable.integration.test.ts",
+      "sha256": "966cd538339c06c02f3be5aca87e7eb967d712e66f8f99aa689d67c690cceb41"
+    },
+    {
+      "path": "packages/api/src/lib/guest-knowledge-retrieval.ts",
+      "sha256": "c98fe19683cd7c0b157f00717a0f227fc17b217b280504965ca1fdd773e2b53e"
+    },
+    {
+      "path": "packages/api/src/lib/voice-grounding-context.ts",
+      "sha256": "7d2c187adc4dcc6fd74243e5808fdce097aefa10d368712c30113c00c59aa2d7"
+    },
+    {
+      "path": "packages/api/src/routers/chat.ts",
+      "sha256": "ce013d98671a586aa111c05bd23acfcb37258688c13be930ef099be47e8716b6"
+    },
+    {
+      "path": "packages/api/src/routers/location.ts",
+      "sha256": "975506b027c4cca52a7a3d5218bd1f04a2e3ec7b275cd741ae2f7c4e1d3ad5d4"
+    },
+    {
+      "path": "packages/api/src/routers/location-reachable.ts",
+      "sha256": "af431e3846ca3127dc545134f67fff0a53abdae9001955e4ea218efaa6f6eb0c"
+    },
+    {
+      "path": "packages/api/src/routers/location-route.ts",
+      "sha256": "700cd35054fac33cdf9f986a2656d8b7701263e0f655a1a03086164ac629424f"
+    },
+    {
+      "path": "packages/db/src/helpers/semantic-search.ts",
+      "sha256": "65b5a575bbd844b8e6b33bd68e8d4ea32d6fb3759424edb247a58a17e917f56a"
+    }
+  ],
+  "retainedArtifacts": [
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-correction-invalidation-c9bb429b61bb/result.json",
+      "sha256": "8311599f8d65a12030eb421b54809e41784312c954f7e4a0b61b9623519289e8"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-correction-invalidation-c9bb429b61bb/vitest.json",
+      "sha256": "bbd1b8e395a1e709895f8f9c9f4ec042e237f7da1c7c58efa3ac93bcaf3b7a15"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-correction-invalidation-c9bb429b61bb/database-readback.log",
+      "sha256": "f97c7677c8263912344607a935f9f74fa3a49fd3fc1853af1f594fbbbe9e329b"
+    },
+    {
+      "path": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/proof-native-guest-correction-invalidation-c9bb429b61bb/stop.log",
+      "sha256": "3a6747065de8c2dbc66a6baa73d5ab09c2c03eb8851704f973ac4b886e6805f2"
+    }
+  ],
+  "runner": "C:/Users/tomsc/Downloads/Torchiko-native-pg-fixture-20260907/run-native-guest-correction-invalidation-proof-port55491.mjs",
+  "limits": [
+    "Synthetic disposable tenant and native PostgreSQL database only.",
+    "The stale semantic candidate is injected through the retrieval callback; no embedding or model provider was called.",
+    "This proves current-source correction invalidation and bounded retrieval behavior, not a latency baseline, cache-speed improvement, provider answer quality, customer economics, or completion of W06.",
+    "No hosted service, physical device, live account, storage provider, or deployment was exercised."
+  ]
+}
