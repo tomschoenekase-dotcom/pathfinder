@@ -238,7 +238,12 @@ describe('guest retrieval production-path evaluation', () => {
     }
     let receivedScope: unknown
     const result = await retrieveGuestKnowledge({
-      reader: { venueKnowledgeEntry: { findMany: async () => [policy] } },
+      reader: {
+        venueKnowledgeEntry: {
+          findMany: async (args: { where: { id?: unknown } }) =>
+            args.where.id ? [semantic] : [policy],
+        },
+      },
       query: 'What is the expired tickets archived exhibits access policy?',
       tenantId: 'museum-tenant',
       venueId: 'museum',

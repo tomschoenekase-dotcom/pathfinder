@@ -914,6 +914,23 @@ describe('chat router', () => {
           distance: 0.05,
         },
       ])
+      venueKnowledgeEntryFindMany.mockImplementation(async (args: { where: { id?: unknown } }) =>
+        args.where.id
+          ? [
+              {
+                id: 'knowledge_internal_1',
+                title: 'Blue-door procedure',
+                category: 'Operations',
+                content: 'INTERNAL_CANARY_BLUE_DOOR',
+                sourceType: 'FOUNDER_PROVIDED',
+                sourceName: 'Staff handbook',
+                sourceUrl: null,
+                updatedAt: new Date('2026-08-01T00:00:00Z'),
+                lastReviewedAt: null,
+              },
+            ]
+          : [],
+      )
 
       await memberCaller.chat.send({ ...sendInput, secondLayerKey })
 

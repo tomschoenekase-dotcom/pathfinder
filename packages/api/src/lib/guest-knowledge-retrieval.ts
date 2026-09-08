@@ -3,6 +3,7 @@ import type { SemanticKnowledgeEntry } from '@pathfinder/db'
 const STRICT_LIMIT = 20
 const BROAD_LIMIT = 60
 const RESULT_LIMIT = 5
+const SEMANTIC_LIMIT = 20
 const MAX_RESULT_CONTENT_CHARS = 4_000
 
 const STOP_WORDS = new Set([
@@ -69,6 +70,7 @@ const CONCEPTS: readonly (readonly string[])[] = [
   ['bag', 'bags', 'backpack', 'luggage', 'bolsa', 'mochila', 'equipaje'],
   ['gallery', 'galeria', 'galería', 'galerie'],
   ['north', 'norte', 'nord'],
+  ['arrival', 'arrive', 'entrance', 'entry', 'llegada', 'llegar', 'entrada', 'acceso'],
   [
     'restroom',
     'restrooms',
@@ -186,6 +188,7 @@ function lexicalScore(row: GuestKnowledgeRow, concepts: string[][]): number {
     else if (concept.some((term) => category.includes(term))) score += 5
     else if (concept.some((term) => content.includes(term))) score += 2
   }
+  if (score === 0) return 0
   const reviewed = row.lastReviewedAt?.getTime() ?? 0
   return score + Math.min(1, reviewed / 10 ** 15)
 }
@@ -407,11 +410,55 @@ export async function retrieveGuestKnowledge(params: {
       latest.eventOrder === row.contentPublication?.eventOrder,
     )
   }
-  const scoredLexical = [...new Map([...strict, ...broad].map((row) => [row.id, row])).values()]
-    .filter(hasCurrentPublicationAuthority)
+  // Revalidate bounded semantic identities after the parallel searches. This
+  // also covers sources that disappeared from the public lexical scope and
+  // corrections whose old content survives in an earlier semantic result.
+  const semanticCandidates = semantic.slice(0, SEMANTIC_LIMIT)
+  const semanticRows = semanticCandidates.length
+    ? await reader.venueKnowledgeEntry.findMany({
+        where: { ...scope, id: { in: semanticCandidates.map((entry) => entry.id) } },
+        select: selectShape(),
+        take: SEMANTIC_LIMIT,
+      })
+    : []
+  const currentSemanticRows = new Map(semanticRows.map((row) => [row.id, row]))
+  const changedSemanticIds = new Set(
+    semanticCandidates
+      .filter((entry) => {
+        const current = currentSemanticRows.get(entry.id)
+        return (
+          current &&
+          (current.title !== entry.title ||
+            current.category !== entry.category ||
+            current.content !== entry.content)
+        )
+      })
+      .map((entry) => entry.id),
+  )
+  // Concurrent retrieval lanes can observe different publication heads. A
+  // rejected authority observation must win over another lane's older hit.
+  const authorityExcludedIds = new Set(
+    [...strict, ...broad, ...semanticRows]
+      .filter((row) => !hasCurrentPublicationAuthority(row))
+      .map((row) => row.id),
+  )
+  for (const entry of semanticCandidates) {
+    if (!currentSemanticRows.has(entry.id)) authorityExcludedIds.add(entry.id)
+  }
+  const scoredLexical = [
+    ...new Map(
+      [...strict, ...broad, ...semanticRows.filter((row) => changedSemanticIds.has(row.id))].map(
+        (row) => [row.id, row],
+      ),
+    ).values(),
+  ]
+    .filter((row) => !authorityExcludedIds.has(row.id))
     .filter((row) => !activatedLegacyIds.has(row.id))
     .map((row) => ({ row, score: lexicalScore(row, concepts) }))
-  const policyExcludedIds = scoredLexical.filter(({ score }) => score <= 0).map(({ row }) => row.id)
+  const policyExcludedIds = [
+    ...authorityExcludedIds,
+    ...scoredLexical.filter(({ score }) => score <= 0).map(({ row }) => row.id),
+  ]
   const lexical = scoredLexical
     .filter(({ score }) => score > 0)
     .sort(
@@ -422,11 +469,18 @@ export async function retrieveGuestKnowledge(params: {
     )
   const merged = new Map<string, SemanticKnowledgeEntry>()
   const policyExcluded = new Set(policyExcludedIds)
-  for (const entry of semantic) {
-    if (!policyExcluded.has(entry.id) && !activatedLegacyIds.has(entry.id)) {
+  for (const entry of semanticCandidates) {
+    const current = currentSemanticRows.get(entry.id)
+    if (
+      current &&
+      !changedSemanticIds.has(entry.id) &&
+      !policyExcluded.has(entry.id) &&
+      !activatedLegacyIds.has(entry.id)
+    ) {
       merged.set(entry.id, {
-        ...entry,
-        content: boundedRelevantContent(entry.content, concepts),
+        ...current,
+        distance: entry.distance,
+        content: boundedRelevantContent(current.content, concepts),
       })
     }
   }
@@ -441,10 +495,15 @@ export async function retrieveGuestKnowledge(params: {
   }
   const candidates = [...merged.values()]
   const entries = candidates.slice(0, RESULT_LIMIT)
-  const lexicalVersions = new Map(lexical.map(({ row }) => [row.id, row.updatedAt.toISOString()]))
+  const lexicalVersions = new Map(
+    [...lexical.map(({ row }) => row), ...semanticRows].map((row) => [
+      row.id,
+      row.updatedAt.toISOString(),
+    ]),
+  )
   const originalContent = new Map([
-    ...semantic.map((entry) => [entry.id, entry.content] as const),
     ...lexical.map(({ row }) => [row.id, row.content] as const),
+    ...semanticRows.map((row) => [row.id, row.content] as const),
   ])
   const truncatedSourceIds = entries
     .filter((entry) => originalContent.get(entry.id) !== entry.content)
@@ -462,6 +521,7 @@ export async function retrieveGuestKnowledge(params: {
         ...new Set([
           ...policyExcludedIds,
           ...activatedLegacyIds,
+          ...semantic.slice(SEMANTIC_LIMIT).map((entry) => entry.id),
           ...candidates.slice(RESULT_LIMIT).map((entry) => entry.id),
         ]),
       ],
@@ -470,10 +530,13 @@ export async function retrieveGuestKnowledge(params: {
       partialCoverage:
         strict.length === STRICT_LIMIT ||
         broad.length === BROAD_LIMIT ||
+        semantic.length >= SEMANTIC_LIMIT ||
         truncatedSourceIds.length > 0,
       truncatedSourceIds,
       publicationAuthority: entries.flatMap((entry) => {
-        const row = lexical.find((candidate) => candidate.row.id === entry.id)?.row
+        const row =
+          currentSemanticRows.get(entry.id) ??
+          lexical.find((candidate) => candidate.row.id === entry.id)?.row
         return row?.contentModuleId && row.contentRevisionId && row.contentPublicationId
           ? [
               {

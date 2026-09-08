@@ -42,17 +42,20 @@ import {
   acquireEmbeddingWork,
   approveNativeVenueDeploymentAction,
   claimEvaluationRunAttempt,
+  createUniversalContentAction,
   createOrReplayEvaluationRun,
   createNativeVenueDeploymentAction,
   db,
   finishEvaluationRunAttempt,
   markEvaluationRunQueued,
   projectNativeVenueStateAction,
+  publishUniversalContentAction,
   recordNativeDeploymentEvaluationEvidenceAction,
   resolveNativeGuestReadSnapshotAction,
   revertNativeVenueDeploymentAction,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
+  withdrawUniversalContentAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { nativeGuestReadTenantFlagKey } from '@pathfinder/config/feature-flags'
@@ -63,6 +66,7 @@ import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { adminNativeVenueDeploymentsRouter } from './routers/admin/native-venue-deployments'
 import { createSafeOperationalMcpRegistry } from './mcp/composition'
 import { buildVoiceGroundingContext } from './lib/voice-grounding-context'
+import { retrieveGuestKnowledge } from './lib/guest-knowledge-retrieval'
 
 const enabled =
   process.env.RUN_NATIVE_GUEST_READ_DB_INTEGRATION === '1' &&
@@ -157,6 +161,84 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(withdrawn.context).not.toContain('83 visitors')
       expect(withdrawn.context).not.toContain('999')
       expect(withdrawn.provider).toEqual({ called: false, qualityVerified: false })
+
+      const publicationActor = {
+        type: 'HUMAN' as const,
+        id: `publication-owner-${suffix}`,
+        role: 'PLATFORM_ADMIN' as const,
+      }
+      const publishedDraft = await createUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: randomUUID(),
+        actor: publicationActor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'POLICY',
+            title: 'Atrium evening access',
+            rule: 'Evening visitors enter the atrium through the north doors.',
+            appliesTo: [],
+          },
+        },
+      })
+      await publishUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: publishedDraft.moduleId,
+        revisionId: publishedDraft.revisionId,
+        expectedLatestVersion: 1,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      const publishedProjection = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, contentModuleId: publishedDraft.moduleId },
+      })
+      const capturedSemanticCandidate = {
+        ...publishedProjection,
+        distance: 0.01,
+      }
+      const semanticBeforeWithdrawal = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'atrium evening access',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [capturedSemanticCandidate],
+      })
+      expect(semanticBeforeWithdrawal.entries.map(({ id }) => id)).toContain(publishedProjection.id)
+      await withdrawUniversalContentAction({
+        db,
+        tenantId,
+        venueId,
+        moduleId: publishedDraft.moduleId,
+        expectedPublishedRevisionId: publishedDraft.revisionId,
+        requestId: randomUUID(),
+        actor: publicationActor,
+      })
+      await expect(
+        db.venueKnowledgeEntry.findUniqueOrThrow({
+          where: { id: publishedProjection.id },
+          select: { isEnabled: true },
+        }),
+      ).resolves.toEqual({ isEnabled: false })
+      const semanticAfterWithdrawal = await retrieveGuestKnowledge({
+        reader: db,
+        query: 'atrium evening access',
+        tenantId,
+        venueId,
+        includeSecondLayer: false,
+        queryEmbedding: Array(1_536).fill(0),
+        semanticSearch: async () => [capturedSemanticCandidate],
+      })
+      expect(semanticAfterWithdrawal.entries.map(({ id }) => id)).not.toContain(
+        publishedProjection.id,
+      )
+      expect(semanticAfterWithdrawal.trace.excludedSourceIds).toContain(publishedProjection.id)
     })
   })
 
@@ -681,6 +763,11 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
       expect(voiceGrounding.context).not.toContain('Public semantic native knowledge says')
       expect(voiceGrounding.context).not.toContain('Staff arrival secret')
       expect(voiceGrounding.context).not.toContain('Expired arrival notice')
+      expect(voiceGrounding.sourceIds).toContain(`update:update-public-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(`update:update-internal-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(`update:update-expired-${suffix}`)
+      expect(voiceGrounding.sourceIds).not.toContain(employeeKnowledgeId)
+      expect(voiceGrounding.sourceIds).not.toContain(`place:${employeePlaceId}`)
       expect(voiceGrounding.provider.called).toBe(false)
       expect(voiceGrounding.nativeProjection).toMatchObject({
         path: 'NATIVE',
@@ -689,6 +776,124 @@ describe.skipIf(!enabled)('native guest content read disposable rehearsal', () =
         stateHash: release.desiredStateHash,
       })
       expect(voiceGrounding.trace.finalIncludedSourceIds).toEqual(voiceGrounding.sourceIds)
+
+      const spanishVoiceGrounding = await buildVoiceGroundingContext({
+        reader: db as never,
+        tenantId,
+        venueId,
+        query: '¿Qué debo saber sobre la llegada a la galería pública?',
+        asOf: now,
+        nativeSnapshot: await resolveNativeGuestReadSnapshotAction({
+          client: db,
+          tenantId,
+          venueId,
+        }),
+      })
+      expect(spanishVoiceGrounding.sourceIds).toContain(publicKnowledgeId)
+      expect(spanishVoiceGrounding.context).toContain('Native override: use the east entrance.')
+      expect(spanishVoiceGrounding.context).toContain('west entrance is closed today')
+      expect(spanishVoiceGrounding.context).not.toContain('Public semantic native knowledge says')
+      expect(spanishVoiceGrounding.context).not.toContain('Staff arrival secret')
+      expect(spanishVoiceGrounding.context).not.toContain('Expired arrival notice')
+      expect(spanishVoiceGrounding.provider).toEqual({ called: false, qualityVerified: false })
+      expect(spanishVoiceGrounding.sourceIds).not.toContain(employeeKnowledgeId)
+      expect(spanishVoiceGrounding.sourceIds).not.toContain(`place:${employeePlaceId}`)
+
+      const operationalCorpus = await db.operationalUpdate.findMany({
+        where: { tenantId, venueId },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          placeId: true,
+          title: true,
+          body: true,
+          startsAt: true,
+          expiresAt: true,
+          status: true,
+          isActive: true,
+        },
+      })
+      const holdoutIdentity = {
+        version: 'native-guest-integrated-visitor-holdout-v1',
+        corpus: {
+          releaseId: release.id,
+          manifestHash: release.manifestHash,
+          desiredStateHash: release.desiredStateHash,
+          operationalUpdatesHash: createHash('sha256')
+            .update(JSON.stringify(operationalCorpus))
+            .digest('hex'),
+          asOf: now.toISOString(),
+        },
+        configuration: {
+          evaluationRunIdentityHash: run.identityHash,
+          runConfigVersion: 'pathfinder-native-evaluation-run-config-v1',
+          contentSnapshotVersion: 'pathfinder-native-evaluation-content-v1',
+        },
+        prompt: {
+          version: GUEST_CHAT_PROMPT_VERSION,
+          hash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
+        },
+      }
+      const holdoutResult = {
+        ...holdoutIdentity,
+        identityHash: createHash('sha256').update(JSON.stringify(holdoutIdentity)).digest('hex'),
+        cases: [
+          {
+            id: 'english-current-correction-expiry',
+            query: 'What is the native public arrival gallery update?',
+            retrievedSourceIds: voiceGrounding.retrievedSourceIds,
+            includedSourceIds: voiceGrounding.sourceIds,
+            omittedSourceIds: voiceGrounding.omittedSourceIds,
+            exclusions: [
+              { sourceId: employeeKnowledgeId, reason: 'second-layer-not-public' },
+              { sourceId: `update:update-internal-${suffix}`, reason: 'private-place-update' },
+              { sourceId: `update:update-expired-${suffix}`, reason: 'expired-before-as-of' },
+            ],
+            knowledgeRetrieval: voiceGrounding.trace.preOverlayKnowledgeRetrieval,
+            measurements: voiceGrounding.measurements,
+            assertions: {
+              correctedNativeValueIncluded: true,
+              replacedLegacyValueExcluded: true,
+              activeUpdateIncluded: true,
+              expiredUpdateExcluded: true,
+              privateUpdateExcluded: true,
+            },
+          },
+          {
+            id: 'spanish-grounded-retrieval',
+            query: '¿Qué debo saber sobre la llegada a la galería pública?',
+            retrievedSourceIds: spanishVoiceGrounding.retrievedSourceIds,
+            includedSourceIds: spanishVoiceGrounding.sourceIds,
+            omittedSourceIds: spanishVoiceGrounding.omittedSourceIds,
+            exclusions: [
+              { sourceId: employeeKnowledgeId, reason: 'second-layer-not-public' },
+              { sourceId: `update:update-internal-${suffix}`, reason: 'private-place-update' },
+              { sourceId: `update:update-expired-${suffix}`, reason: 'expired-before-as-of' },
+            ],
+            knowledgeRetrieval: spanishVoiceGrounding.trace.preOverlayKnowledgeRetrieval,
+            measurements: spanishVoiceGrounding.measurements,
+            assertions: {
+              supportedLanguageQueryRetrievedPublicKnowledge: true,
+              correctedNativeValueIncluded: true,
+              activeUpdateIncluded: true,
+              expiredUpdateExcluded: true,
+              privateUpdateExcluded: true,
+            },
+          },
+        ],
+        provider: {
+          called: false,
+          synthesisQualityVerified: false,
+          reason: 'Retrieval and prompt preparation only; no real-provider observation.',
+        },
+        unresolvedCapabilities: [
+          'visitor-media-selection-not-integrated-with-voice-grounding-context',
+          'accessible-spatial-routing-not-integrated-with-voice-grounding-context',
+        ],
+      }
+      expect(holdoutResult.cases.every((item) => item.measurements.retrievalMs >= 0)).toBe(true)
+      expect(holdoutResult.cases.every((item) => item.includedSourceIds.length > 0)).toBe(true)
+      process.stdout.write(`${JSON.stringify({ proof: holdoutResult })}\n`)
 
       const anthropicCreate = vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: 'Provider-dark guest response.' }],
