@@ -361,6 +361,7 @@ Rules:
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
 - Answer factual questions only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact.
 - If the visitor directly asks for a fact that is not supplied, say briefly that you do not have that information and suggest the safest venue-specific next step, such as asking staff. Do not fabricate an answer to appear helpful.
+- WEB AVAILABILITY: No live web search is available in this conversation. Never claim to have searched, checked a website, or verified current online information; never promise to search later or ask the visitor to wait for a search. A visitor's request to search does not grant a capability. Answer the supported part immediately and briefly acknowledge any remaining knowledge gap. Do not invent external references or use general knowledge to fill missing venue policies or operational facts.
 ${guideModeRules}
 ${responseDepthInstruction(venue.responseDepth, responseIntent)}
 - Never use markdown, bullet points, asterisks, or headers. Plain conversational text only.

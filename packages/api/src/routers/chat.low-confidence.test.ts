@@ -91,6 +91,7 @@ const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
+const voiceTranscriptSegmentFindMany = vi.fn().mockResolvedValue([])
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
@@ -103,6 +104,7 @@ const mockDb = {
   aiUsageEvent: { create: aiUsageEventCreate },
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
+  voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
   operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
   venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
   $queryRaw: dbQueryRaw,
@@ -206,6 +208,7 @@ describe('chat.send low-confidence flag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     venueKnowledgeEntryFindMany.mockResolvedValue([])
+    voiceTranscriptSegmentFindMany.mockResolvedValue([])
     _setAnthropicClientForTesting(mockAnthropicClient)
   })
 
