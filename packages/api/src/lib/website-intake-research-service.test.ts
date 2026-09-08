@@ -127,6 +127,44 @@ describe('website intake research execution', () => {
     })
   })
 
+  it('persists prose as review material with no fabricated canonical evidence', async () => {
+    const deps = dependencies()
+    deps.extractPage = vi.fn(async () => ({
+      links: [],
+      facts: [],
+      readableText: 'The quiet room is beside the east entrance.',
+      extractionProfile: 'static-html-v1' as const,
+    }))
+    await executeWebsiteIntakeResearch({
+      db: database() as never,
+      request: request(),
+      dependencies: deps,
+      now: () => now,
+    })
+    const retained = recordReceipt.mock.calls[0]?.[0]
+    expect(retained).toMatchObject({
+      outcome: 'SUCCEEDED',
+      evidence: [],
+      discrepancies: [],
+      candidateSnapshot: { kind: 'TYPED_INTERMEDIATE', draftInput: null },
+      researchSnapshot: {
+        citations: [],
+        evidence: [],
+        discrepancies: [],
+        pageTextEvidence: [
+          {
+            sourceUrl: 'https://example.org/',
+            text: 'The quiet room is beside the east entrance.',
+            extractionProfile: 'static-html-v1',
+            truncated: false,
+          },
+        ],
+      },
+    })
+    expect(retained?.requestHash).toBe(COLLECTION_V1_REQUEST_HASH)
+    expect(retained?.researchSnapshot).not.toHaveProperty('discovery')
+  })
+
   it('replays an exact operation before performing network work', async () => {
     const deps = dependencies()
     const db = database({

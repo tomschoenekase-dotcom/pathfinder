@@ -6,6 +6,9 @@ import { db, recordWebsiteResearchReceiptAction, withTenantIsolationBypass } fro
 
 import { executeWebsiteIntakeResearch } from './website-intake-research-service'
 import type { WebsiteIntakeDependencies } from './website-intake'
+import { extractWebsitePage } from './website-intake-runtime'
+import { appRouter } from '../root'
+import type { TRPCContext } from '../context'
 
 const enabled =
   process.env.RUN_WEBSITE_DISCOVERY_DB_INTEGRATION === '1' &&
@@ -52,6 +55,8 @@ function dependencies(
       url === rootUrl
         ? {
             links: [pdfUrl, detailUrl],
+            readableText: 'The quiet room is beside the east entrance. ' + '🌿'.repeat(20_001),
+            extractionProfile: 'static-html-v1' as const,
             facts: [
               {
                 fieldPath: 'venue.name',
@@ -63,6 +68,8 @@ function dependencies(
           }
         : {
             links: [],
+            readableText: 'A lift connects the foyer and greenhouse gallery.',
+            extractionProfile: 'static-html-v1' as const,
             facts: [
               {
                 fieldPath: 'venue.accessibility.arrival',
@@ -89,6 +96,7 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
       const otherVenueId = `venue-other-${suffix}`
       const runId = `run-discovery-${suffix}`
       const unsupportedRunId = `run-unsupported-${suffix}`
+      const actualRunId = `run-text-${suffix}`
       const operationId = randomUUID()
       const unsupportedOperationId = randomUUID()
 
@@ -110,6 +118,16 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
         })
         await db.intakeRun.createMany({
           data: [
+            {
+              id: actualRunId,
+              tenantId,
+              venueId,
+              sourceKind: 'WEBSITE',
+              status: 'AWAITING_REVIEW',
+              displayName: 'Static document body proof',
+              websiteUri: rootUrl,
+              requestedBy: 'website-discovery-proof-admin',
+            },
             {
               id: runId,
               tenantId,
@@ -209,7 +227,26 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
           },
         ],
       })
-      expect(mixedReceipt.researchSnapshot).not.toBeNull()
+      expect(mixedReceipt.researchSnapshot).toMatchObject({
+        pageTextEvidence: [
+          {
+            sourceUrl: rootUrl,
+            exactByteHash: sha256(rootBytes),
+            capturedAt: observedAt.toISOString(),
+            extractionProfile: 'static-html-v1',
+            retainedCodePointCount: 20_000,
+            truncated: true,
+          },
+          {
+            sourceUrl: detailUrl,
+            exactByteHash: sha256(detailBytes),
+            capturedAt: observedAt.toISOString(),
+            text: 'A lift connects the foyer and greenhouse gallery.',
+            truncated: false,
+          },
+        ],
+      })
+      const retainedResearchBeforeReplay = mixedReceipt.researchSnapshot
       expect(mixedReceipt.candidateSnapshot).toEqual({
         kind: 'TYPED_INTERMEDIATE',
         draftInput: null,
@@ -242,6 +279,10 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
         }),
       ).resolves.toMatchObject({ outcome: 'SUCCEEDED', replayed: true })
       expect(fetch).toHaveBeenCalledTimes(2)
+      const replayReceipt = await db.intakeWebsiteResearchReceipt.findFirstOrThrow({
+        where: { id: operationId, tenantId, venueId, runId },
+      })
+      expect(replayReceipt.researchSnapshot).toEqual(retainedResearchBeforeReplay)
       await expect(
         executeWebsiteIntakeResearch({
           db,
@@ -251,6 +292,119 @@ describe.skipIf(!enabled)('website source discovery disposable lifecycle', () =>
         }),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
       expect(fetch).toHaveBeenCalledTimes(2)
+
+      // Production HTML parser -> crawler -> canonical receipt -> actual admin router/reader.
+      const actualOperationId = randomUUID()
+      const documentText =
+        'x'.repeat(4_100) + ' The east entrance has a quiet room. ' + '🌿'.repeat(6_000)
+      const actualBody = `<html><head><title>Source title</title></head><body><script>discard me</script><main><p>${documentText}</p><footer>Lift access until 5pm.</footer></main></body></html>`
+      const actualDependencies = dependencies(
+        vi.fn(async () => ({
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+          body: actualBody,
+        })),
+      )
+      actualDependencies.extractPage = vi.fn(async (input) => extractWebsitePage(input))
+      const actualRequest = {
+        ...request({ operationId: actualOperationId, tenantId, venueId, runId: actualRunId }),
+        maxBytesPerPage: 100_000,
+      }
+      await expect(
+        executeWebsiteIntakeResearch({
+          db,
+          request: actualRequest,
+          dependencies: actualDependencies,
+          now: () => observedAt,
+        }),
+      ).resolves.toMatchObject({ outcome: 'SUCCEEDED', autoApplied: false, autoPublished: false })
+      const context = (
+        isPlatformAdmin: boolean,
+        userId: string | null = 'website-discovery-proof-admin',
+      ): TRPCContext => ({
+        db,
+        headers: new Headers(),
+        session:
+          userId === null
+            ? { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false }
+            : {
+                userId,
+                activeTenantId: tenantId,
+                role: isPlatformAdmin ? null : 'STAFF',
+                isPlatformAdmin,
+              },
+      })
+      const admin = appRouter.createCaller(context(true)).admin
+      const readerScope = { tenantId, venueId, runId: actualRunId, receiptId: actualOperationId }
+      const inventory = await admin.listWebsitePageText(readerScope)
+      expect(inventory.status).toBe('RECORDED')
+      expect(inventory.pages).toHaveLength(1)
+      expect(inventory.pages[0]).not.toHaveProperty('text')
+      const metadata = inventory.pages[0]!
+      const readInput = {
+        ...readerScope,
+        sourceUrl: metadata.sourceUrl,
+        expectedExactByteHash: metadata.exactByteHash,
+        expectedRetainedTextHash: metadata.retainedTextHash,
+        pageSize: 4_000,
+      }
+      const first = await admin.readWebsitePageText(readInput)
+      expect(first.status).toBe('RECORDED')
+      if (first.status !== 'RECORDED') throw new Error('Retained body was not readable')
+      expect(first.exactByteHash).toBe(sha256(actualBody))
+      expect(first.page.text).not.toContain('discard me')
+      const second = await admin.readWebsitePageText({ ...readInput, cursor: first.nextCursor! })
+      expect(second.status === 'RECORDED' && second.page.text).toContain(
+        'The east entrance has a quiet room.',
+      )
+      const searched = await admin.readWebsitePageText({ ...readInput, search: 'Lift access' })
+      expect(searched.status === 'RECORDED' && searched.page.text).toContain(
+        'Lift access until 5pm.',
+      )
+      await expect(
+        admin.readWebsitePageText({ ...readInput, expectedRetainedTextHash: '0'.repeat(64) }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        admin.readWebsitePageText({ ...readInput, cursor: 'forged' }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      await expect(
+        admin.readWebsitePageText({ ...readInput, pageSize: 4_001 }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      for (const altered of [
+        { tenantId: 'wrong-tenant' },
+        { venueId: otherVenueId },
+        { runId },
+        { receiptId: operationId },
+      ]) {
+        await expect(
+          admin.listWebsitePageText({ ...readerScope, ...altered }),
+        ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+        await expect(admin.readWebsitePageText({ ...readInput, ...altered })).rejects.toMatchObject(
+          { code: 'NOT_FOUND' },
+        )
+      }
+      await expect(
+        appRouter.createCaller(context(false)).admin.listWebsitePageText(readerScope),
+      ).rejects.toThrow()
+      await expect(
+        appRouter.createCaller(context(false, null)).admin.readWebsitePageText(readInput),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+      expect(
+        await db.intakeEvidenceRecord.count({ where: { tenantId, venueId, runId: actualRunId } }),
+      ).toBe(1) // title only
+      expect(
+        await db.intakePackageHandoff.count({ where: { tenantId, venueId, runId: actualRunId } }),
+      ).toBe(0)
+      await expect(
+        executeWebsiteIntakeResearch({
+          db,
+          request: actualRequest,
+          dependencies: actualDependencies,
+          now: () => observedAt,
+        }),
+      ).resolves.toMatchObject({ replayed: true })
+      expect(actualDependencies.fetchPage).toHaveBeenCalledOnce()
+      expect(await admin.readWebsitePageText(readInput)).toEqual(first)
 
       const unsupportedFetch = vi.fn()
       await expect(

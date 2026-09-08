@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
 import { WebsiteIntakeBounds } from '@pathfinder/contracts/intake-engine'
@@ -562,5 +563,92 @@ describe('website intake proposal foundation', () => {
 
     expect(result.packageBinding).toEqual({ kind: 'TYPED_INTERMEDIATE', draftInput: null })
     expect(result.proposal.packageDraftId).toBeUndefined()
+  })
+})
+
+describe('website page text retention', () => {
+  const hash = (value: string) => createHash('sha256').update(value).digest('hex')
+
+  it('retains bounded Unicode prose with crawler-owned provenance without inventing claims', async () => {
+    const fullText = '🌿'.repeat(20_001)
+    const deps = dependencies({
+      fetchPage: vi.fn(async () => ({
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+        body: 'raw source',
+      })),
+      extractPage: vi.fn(async () => ({
+        links: [],
+        facts: [],
+        readableText: fullText,
+        extractionProfile: 'plain-text-v1' as const,
+      })),
+    })
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    expect(deps.extractPage).toHaveBeenCalledWith({
+      url: 'https://example.org/',
+      body: 'raw source',
+      contentType: 'text/plain',
+    })
+    expect(result.intermediate.pageTextEvidence).toEqual([
+      {
+        sourceUrl: 'https://example.org/',
+        exactByteHash: hash('raw source'),
+        capturedAt: NOW.toISOString(),
+        extractionProfile: 'plain-text-v1',
+        text: '🌿'.repeat(20_000),
+        normalizedTextHash: hash(fullText),
+        retainedTextHash: hash('🌿'.repeat(20_000)),
+        fullCodePointCount: 20_001,
+        retainedCodePointCount: 20_000,
+        truncated: true,
+      },
+    ])
+    expect(result.intermediate.citations).toEqual([])
+    expect(result.intermediate.evidence).toEqual([])
+    expect(result.intermediate.discrepancies).toEqual([])
+    expect(result.packageBinding).toEqual({ kind: 'TYPED_INTERMEDIATE', draftInput: null })
+    expect(result.execution).toEqual({
+      autoPublish: false,
+      autoApply: false,
+      lifecycleCommands: [],
+    })
+  })
+
+  it('caps a run at 100,000 code points and retains explicit omission metadata for later pages', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async ({ url }) => ({
+        links:
+          url === 'https://example.org/'
+            ? Array.from({ length: 5 }, (_, index) => `https://example.org/page-${index}`)
+            : [],
+        facts: [],
+        readableText: 'x'.repeat(21_000),
+        extractionProfile: 'static-html-v1' as const,
+      })),
+    })
+    const result = await buildWebsiteIntakeProposal(request(), deps)
+    const pages = result.intermediate.pageTextEvidence!
+    expect(pages).toHaveLength(6)
+    expect(pages.reduce((total, page) => total + page.retainedCodePointCount, 0)).toBe(100_000)
+    expect(pages[5]).toMatchObject({
+      text: '',
+      fullCodePointCount: 21_000,
+      retainedCodePointCount: 0,
+      truncated: true,
+      retainedTextHash: hash(''),
+    })
+  })
+
+  it('preserves legacy extractors without fabricating page text', async () => {
+    const result = await buildWebsiteIntakeProposal(request(), dependencies())
+    expect(result.intermediate).not.toHaveProperty('pageTextEvidence')
+  })
+
+  it('rejects unversioned extracted prose', async () => {
+    const deps = dependencies({
+      extractPage: vi.fn(async () => ({ links: [], facts: [], readableText: 'unversioned' })),
+    })
+    await expect(buildWebsiteIntakeProposal(request(), deps)).rejects.toThrow('extraction profile')
   })
 })

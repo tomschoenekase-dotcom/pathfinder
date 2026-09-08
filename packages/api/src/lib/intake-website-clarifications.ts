@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { WebsitePageTextEvidenceCollection } from '@pathfinder/contracts/intake-engine'
 
 import { AgentQuestionActionError, askAgentQuestionAction } from '@pathfinder/db'
 
@@ -55,6 +56,7 @@ const Research = z
     schemaVersion: z.literal(1),
     sourceId: z.string().trim().min(1).max(191),
     pages: z.array(z.unknown()),
+    pageTextEvidence: WebsitePageTextEvidenceCollection.optional(),
     citations: z.array(Citation),
     evidence: z.array(z.unknown()),
     discrepancies: z.array(Discrepancy),

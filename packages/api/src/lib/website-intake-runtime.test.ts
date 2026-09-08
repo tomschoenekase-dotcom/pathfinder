@@ -122,5 +122,51 @@ Allow: /admin/public$
         expect.objectContaining({ fieldPath: 'venue.description', value: 'A welcoming venue' }),
       ]),
     )
+    expect(result.extractionProfile).toBe('static-html-v1')
+  })
+
+  it('extracts readable body text with entities, block boundaries, and footer details', () => {
+    const result = extractWebsitePage({
+      url: 'https://example.org/',
+      contentType: 'text/html; charset=utf-8',
+      body: `<!doctype html><html><head><title>Not body copy</title></head><body>
+        <main><h1>Cafe\u0301 &amp; Hall</h1><p>Weddings <strong>and events</strong>.</p>
+        <div hidden>Hidden offer</div><p aria-hidden="TRUE">Hidden directions</p>
+        <script>Visible-looking script text</script><style>.x { content: 'no'; }</style>
+        <template>Template text</template><noscript>Fallback text</noscript></main>
+        <footer><p>123 Main St.</p><p>Call 555-0100</p></footer>
+      </body></html>`,
+    })
+
+    expect(result.readableText).toBe(
+      'Café & Hall\nWeddings and events.\n123 Main St.\nCall 555-0100',
+    )
+    expect(result.extractionProfile).toBe('static-html-v1')
+  })
+
+  it('keeps plain text literal and does not derive HTML facts or links', () => {
+    const result = extractWebsitePage({
+      url: 'https://example.org/menu.txt',
+      contentType: 'text/plain; charset=UTF-8',
+      body: '  Use <b>literal</b> &amp; entities.\r\n\r\nCall  555-0100  ',
+    })
+
+    expect(result).toEqual({
+      links: [],
+      facts: [],
+      readableText: 'Use <b>literal</b> &amp; entities.\n\nCall 555-0100',
+      extractionProfile: 'plain-text-v1',
+    })
+  })
+
+  it('handles deeply nested HTML without recursive traversal', () => {
+    const depth = 20_000
+    const result = extractWebsitePage({
+      url: 'https://example.org/',
+      contentType: 'text/html',
+      body: `${'<div>'.repeat(depth)}Deep venue details${'</div>'.repeat(depth)}`,
+    })
+
+    expect(result.readableText).toBe('Deep venue details')
   })
 })

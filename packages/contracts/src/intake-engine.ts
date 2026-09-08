@@ -180,6 +180,51 @@ const WebsiteSourceDiscoveryUrl = z
     }
   })
 
+/** Static source material for review; never an approved claim or publication grant. */
+export const WebsitePageTextEvidence = z
+  .object({
+    sourceUrl: WebsiteSourceDiscoveryUrl,
+    exactByteHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    capturedAt: z.string().datetime({ offset: true }),
+    extractionProfile: z.enum(['static-html-v1', 'plain-text-v1']),
+    text: z.string().max(40_000),
+    normalizedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    retainedTextHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    fullCodePointCount: z.number().int().min(0).max(10_000_000),
+    retainedCodePointCount: z.number().int().min(0).max(20_000),
+    truncated: z.boolean(),
+  })
+  .strict()
+  .superRefine((page, context) => {
+    if (
+      [...page.text].length !== page.retainedCodePointCount ||
+      page.retainedCodePointCount > page.fullCodePointCount ||
+      page.truncated !== page.retainedCodePointCount < page.fullCodePointCount ||
+      (!page.truncated && page.normalizedTextHash !== page.retainedTextHash)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Page text retention metadata is inconsistent.',
+      })
+    }
+  })
+export type WebsitePageTextEvidence = z.infer<typeof WebsitePageTextEvidence>
+
+export const WebsitePageTextEvidenceCollection = z
+  .array(WebsitePageTextEvidence)
+  .max(100)
+  .superRefine((pages, context) => {
+    if (
+      pages.reduce((sum, page) => sum + page.retainedCodePointCount, 0) > 100_000 ||
+      new Set(pages.map((page) => page.sourceUrl)).size !== pages.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Page text must use unique sources and a bounded run total.',
+      })
+    }
+  })
+
 const WebsiteSourceDiscoveryMimeType = z
   .string()
   .min(3)

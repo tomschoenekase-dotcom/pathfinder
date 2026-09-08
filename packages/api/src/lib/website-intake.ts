@@ -7,6 +7,8 @@ import {
   IntakeProposal,
   type IntakeDiscrepancy,
   WebsiteSourceDiscovery,
+  WebsitePageTextEvidenceCollection,
+  type WebsitePageTextEvidence,
   type WebsiteIntakeBounds,
   WebsiteIntakeBounds as WebsiteIntakeBoundsSchema,
 } from '@pathfinder/contracts/intake-engine'
@@ -69,6 +71,8 @@ export type ExtractedWebsiteFact = {
 export type ExtractedWebsitePage = {
   links: readonly string[]
   facts: readonly ExtractedWebsiteFact[]
+  readableText?: string
+  extractionProfile?: WebsitePageTextEvidence['extractionProfile']
 }
 
 export type WebsiteIntakeDependencies = {
@@ -82,7 +86,11 @@ export type WebsiteIntakeDependencies = {
     }) => Promise<boolean>
   }
   fetchPage: (request: WebsiteIntakeFetchRequest) => Promise<WebsiteIntakeFetchResponse>
-  extractPage: (input: { url: string; body: string }) => Promise<ExtractedWebsitePage>
+  extractPage: (input: {
+    url: string
+    body: string
+    contentType?: string
+  }) => Promise<ExtractedWebsitePage>
   mapToVenuePackage?: (input: WebsiteIntakeIntermediate) => Promise<VenuePackagePayloadType>
   now?: () => Date
 }
@@ -117,6 +125,7 @@ export type WebsiteIntakeIntermediate = {
   citations: readonly WebsiteIntakeCitation[]
   evidence: readonly IntakeEvidence[]
   discrepancies: readonly IntakeDiscrepancy[]
+  pageTextEvidence?: WebsitePageTextEvidence[]
   discovery?: WebsiteSourceDiscovery
 }
 
@@ -525,6 +534,8 @@ export async function buildWebsiteIntakeProposal(
   ]
   const admittedReferences = new Set([start.canonicalUrl])
   const seen = new Set<string>()
+  const pageTextEvidence: WebsitePageTextEvidence[] = []
+  let retainedTextCodePoints = 0
   const pages: Array<{ url: string; depth: number; byteSize: number; normalizedHash: string }> = []
   const citations: WebsiteIntakeCitation[] = []
   let attemptedFetches = 0
@@ -715,8 +726,39 @@ export async function buildWebsiteIntakeProposal(
     const extracted = await dependencies.extractPage({
       url: admitted.canonicalUrl,
       body: body.toString('utf8'),
+      contentType,
     })
     remainingTime()
+    if ((extracted.readableText === undefined) !== (extracted.extractionProfile === undefined)) {
+      throw new WebsiteIntakePolicyError('Extractor text requires its extraction profile')
+    }
+    if (extracted.readableText !== undefined && extracted.extractionProfile !== undefined) {
+      if (extracted.readableText.length > 20_000_000) {
+        throw new WebsiteIntakePolicyError('Extractor text exceeded its size limit')
+      }
+      const retained: string[] = []
+      const retentionLimit = Math.min(20_000, 100_000 - retainedTextCodePoints)
+      let fullCodePointCount = 0
+      for (const codePoint of extracted.readableText) {
+        if (fullCodePointCount < retentionLimit) retained.push(codePoint)
+        fullCodePointCount += 1
+      }
+      const text = retained.join('')
+      const retainedCodePointCount = retained.length
+      pageTextEvidence.push({
+        sourceUrl: admitted.canonicalUrl,
+        exactByteHash: normalizedHash,
+        capturedAt: now().toISOString(),
+        extractionProfile: extracted.extractionProfile,
+        text,
+        normalizedTextHash: sha256(extracted.readableText),
+        retainedTextHash: sha256(text),
+        fullCodePointCount,
+        retainedCodePointCount,
+        truncated: retainedCodePointCount < fullCodePointCount,
+      })
+      retainedTextCodePoints += retainedCodePointCount
+    }
     if (extracted.links.length > MAX_EXTRACTED_LINKS_PER_PAGE) {
       throw new WebsiteIntakePolicyError('Extractor returned too many links')
     }
@@ -822,6 +864,9 @@ export async function buildWebsiteIntakeProposal(
     schemaVersion: 1,
     sourceId: request.sourceId,
     pages,
+    ...(pageTextEvidence.length > 0
+      ? { pageTextEvidence: WebsitePageTextEvidenceCollection.parse(pageTextEvidence) }
+      : {}),
     citations: uniqueCitations,
     evidence,
     discrepancies,

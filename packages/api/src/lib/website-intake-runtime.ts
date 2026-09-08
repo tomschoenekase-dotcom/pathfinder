@@ -2,6 +2,8 @@ import { lookup } from 'node:dns/promises'
 import { request as httpRequest, type IncomingHttpHeaders, type RequestOptions } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
+import { parse, type DefaultTreeAdapterMap } from 'parse5'
+
 import {
   WebsiteIntakePolicyError,
   type ExtractedWebsiteFact,
@@ -161,6 +163,117 @@ function decodeHtml(value: string) {
     .trim()
 }
 
+const NON_CONTENT_ELEMENTS = new Set(['script', 'style', 'template', 'noscript', 'head'])
+const BLOCK_ELEMENTS = new Set([
+  'address',
+  'article',
+  'aside',
+  'blockquote',
+  'br',
+  'dd',
+  'details',
+  'dialog',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'hgroup',
+  'hr',
+  'li',
+  'main',
+  'nav',
+  'ol',
+  'p',
+  'pre',
+  'section',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+])
+
+type HtmlNode = DefaultTreeAdapterMap['node']
+type HtmlElement = DefaultTreeAdapterMap['element']
+
+function elementIsHidden(element: HtmlElement) {
+  return element.attrs.some(
+    ({ name, value }) =>
+      name.toLowerCase() === 'hidden' ||
+      (name.toLowerCase() === 'aria-hidden' && value.trim().toLowerCase() === 'true'),
+  )
+}
+
+function readableHtmlBody(body: string) {
+  const document = parse(body)
+  let bodyElement: HtmlElement | undefined
+  const search: HtmlNode[] = [document]
+  while (search.length) {
+    const node = search.pop()
+    if (!node) continue
+    if ('tagName' in node && node.tagName === 'body') {
+      bodyElement = node
+      break
+    }
+    if ('childNodes' in node) search.push(...node.childNodes)
+  }
+  if (!bodyElement) return ''
+
+  const output: string[] = []
+  const stack: Array<{ node: HtmlNode; exiting: boolean }> = [{ node: bodyElement, exiting: false }]
+  while (stack.length) {
+    const entry = stack.pop()
+    if (!entry) continue
+    const { node, exiting } = entry
+    if ('tagName' in node) {
+      const tagName = node.tagName.toLowerCase()
+      if (NON_CONTENT_ELEMENTS.has(tagName) || elementIsHidden(node)) continue
+      if (BLOCK_ELEMENTS.has(tagName)) output.push('\n')
+      if (!exiting && tagName !== 'br' && tagName !== 'hr') {
+        stack.push({ node, exiting: true })
+        for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
+          const child = node.childNodes[index]
+          if (child) stack.push({ node: child, exiting: false })
+        }
+      }
+      continue
+    }
+    if ('value' in node) output.push(node.value)
+  }
+
+  return output
+    .join('')
+    .normalize('NFC')
+    .replace(/[\t\f\v ]+/gu, ' ')
+    .replace(/ *\r?\n */gu, '\n')
+    .replace(/\n{2,}/gu, '\n')
+    .trim()
+}
+
+function readablePlainText(body: string) {
+  return body
+    .normalize('NFC')
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[\t\f\v ]+/gu, ' ')
+    .replace(/ *\n */gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim()
+}
+
 function stringValue(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) return value.trim()
   if (Array.isArray(value)) {
@@ -210,7 +323,15 @@ function jsonLdFacts(document: unknown): ExtractedWebsiteFact[] {
   return facts
 }
 
-export function extractWebsitePage(input: { url: string; body: string }) {
+export function extractWebsitePage(input: { url: string; body: string; contentType?: string }) {
+  if (/^text\/plain(?:\s*;|\s*$)/iu.test(input.contentType ?? '')) {
+    return {
+      links: [],
+      facts: [],
+      readableText: readablePlainText(input.body),
+      extractionProfile: 'plain-text-v1' as const,
+    }
+  }
   const links = [...input.body.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/giu)]
     .map((match) => match[1])
     .filter((value): value is string => Boolean(value))
@@ -252,6 +373,8 @@ export function extractWebsitePage(input: { url: string; body: string }) {
         facts.slice(0, 500).map((fact) => [`${fact.fieldPath}:${fact.value}`, fact]),
       ).values(),
     ],
+    readableText: readableHtmlBody(input.body),
+    extractionProfile: 'static-html-v1' as const,
   }
 }
 
