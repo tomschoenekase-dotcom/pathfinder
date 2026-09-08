@@ -1,8 +1,10 @@
 'use client'
 
+import { useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 
 import { buildGuideItemEntryUrl, buildQrEntryUrl } from '../lib/guest-chat-url'
+import { buildQrSvgFilename, downloadQrSvg } from '../lib/qr-export'
 import { CopyUrlButton } from './CopyUrlButton'
 
 type GuideItem = {
@@ -20,13 +22,26 @@ type VenueQrKitProps = {
 }
 
 function QrCard({ label, url, revision }: { label: string; url: string; revision: string }) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  function handleDownload() {
+    setExportError(null)
+    try {
+      downloadQrSvg(svgRef.current, buildQrSvgFilename(label))
+    } catch {
+      setExportError('This QR code could not be downloaded. Try Print QR sheets instead.')
+    }
+  }
+
   return (
     <article className="break-inside-avoid rounded-3xl border border-pf-light bg-white p-6 shadow-sm print:shadow-none">
       <QRCodeSVG
+        ref={svgRef}
         value={url}
         size={208}
         level="M"
-        marginSize={2}
+        marginSize={4}
         title={`QR code for ${label}`}
         className="mx-auto h-auto w-full max-w-52"
       />
@@ -35,9 +50,25 @@ function QrCard({ label, url, revision }: { label: string; url: string; revision
         {url}
       </p>
       <p className="mt-2 text-center text-xs text-pf-deep/80">Content revision: {revision}</p>
-      <div className="mt-4 flex justify-center print:hidden">
+      <p className="mt-3 text-center text-xs leading-5 text-pf-deep/70 print:hidden">
+        Save this QR code for signs and handouts. It stays sharp when resized.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-center gap-2 print:hidden">
         <CopyUrlButton url={url} />
+        <button
+          type="button"
+          onClick={handleDownload}
+          aria-label={`Download SVG for ${label}`}
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-deep/25 px-4 text-sm font-medium text-pf-deep hover:border-pf-primary hover:text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+        >
+          Download SVG
+        </button>
       </div>
+      {exportError ? (
+        <p className="mt-3 text-center text-sm text-pf-deep print:hidden" role="alert">
+          {exportError}
+        </p>
+      ) : null}
     </article>
   )
 }
