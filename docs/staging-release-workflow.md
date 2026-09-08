@@ -96,7 +96,10 @@ revision. The staging dashboard DNS may be activated independently because it ta
 staging services and resources listed above.
 
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
-default branch. Before that first reviewed production promotion, run the same checked-in
+default branch. It accepts only successful same-repository pushes to the exact staging branch.
+Its secret-bearing job checks out the trusted default-branch `github.sha`; the triggering candidate
+SHA is used only as the expected deployment identity. Pull requests, forks, and candidate checkout
+cannot enter that privileged readback path. This follows [GitHub's workflow-run event contract](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run). Before that first reviewed production promotion, run the same checked-in
 `verify:staging-health` command from `railway-staging.md` after Railway reports the staging deployment
 healthy. Railway's own health check remains active. The dashboard's Railway `Wait for CI` switch is
 temporarily disabled because this branch is not receiving a completing GitHub check suite; restore

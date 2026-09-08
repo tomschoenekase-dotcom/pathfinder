@@ -9,6 +9,10 @@ import {
   encodeProspectCursor,
   prospectCursorWhere,
 } from './prospect-crm-pagination'
+import {
+  listProspectActivities,
+  readProspectOnboardingDeliveryAttempt,
+} from './prospect-crm-delivery-read'
 export const adminProspectCrmCoreRouter = router({
   getProspect: adminProcedure
     .input(z.object({ organizationId: z.string().min(1).max(191) }).strict())
@@ -284,40 +288,7 @@ export const adminProspectCrmCoreRouter = router({
         })
         .strict(),
     )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const attempt = await db.prospectOnboardingDeliveryAttempt.findFirst({
-          where: {
-            organizationId: input.organizationId,
-            prospectVenueId: input.prospectVenueId,
-            sourceMessageId: input.messageId,
-            sourceMessage: {
-              organizationId: input.organizationId,
-              venueId: input.prospectVenueId,
-            },
-          },
-          select: {
-            id: true,
-            status: true,
-            organizationId: true,
-            prospectVenueId: true,
-            contactId: true,
-            sourceMessageId: true,
-            sourceReviewId: true,
-            recipientEmailSnapshot: true,
-            templateVersion: true,
-            subject: true,
-            textBody: true,
-            createdBy: true,
-            createdAt: true,
-          },
-        })
-        if (!attempt) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Invitation draft not found' })
-        }
-        return attempt
-      }),
-    ),
+    .query(({ input }) => readProspectOnboardingDeliveryAttempt(input)),
 
   listProspectActivities: adminProcedure
     .input(
@@ -330,40 +301,7 @@ export const adminProspectCrmCoreRouter = router({
         })
         .strict(),
     )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        if (Boolean(input.beforeOccurredAt) !== Boolean(input.beforeId)) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Both activity cursor fields are required',
-          })
-        }
-        const occurredAt = input.beforeOccurredAt ? new Date(input.beforeOccurredAt) : null
-        const rows = await db.prospectActivity.findMany({
-          where: {
-            organizationId: input.organizationId,
-            ...(occurredAt && input.beforeId
-              ? {
-                  OR: [
-                    { occurredAt: { lt: occurredAt } },
-                    { occurredAt, id: { lt: input.beforeId } },
-                  ],
-                }
-              : {}),
-          },
-          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-        })
-        const last = rows[input.limit - 1]
-        return {
-          items: rows.slice(0, input.limit),
-          nextCursor:
-            rows.length > input.limit && last
-              ? { beforeOccurredAt: last.occurredAt.toISOString(), beforeId: last.id }
-              : null,
-        }
-      }),
-    ),
+    .query(({ input }) => listProspectActivities(input)),
 
   listProspectThreads: adminProcedure
     .input(

@@ -125,7 +125,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-questions.ts', 4],
   // The reviewed improvement loop appends exact-scope outcome and validation evidence;
   // neither route can promote behavior or change worker authority.
-  ['packages/api/src/routers/admin/agent-outcomes.ts', 7],
+  ['packages/api/src/routers/admin/agent-outcomes.ts', 5],
+  // Exact workflow version registration/read procedures split from outcomes; authority unchanged.
+  ['packages/api/src/routers/admin/agent-workflow-version-router.ts', 2],
   // Platform-admin promotion assessments retain exact tenant+venue scope and append only
   // evidence-derived review records; they do not activate or change workflow authority.
   ['packages/api/src/routers/admin/agent-workflow-promotion-assessments.ts', 2],
@@ -200,7 +202,9 @@ const approvedCallCounts = new Map([
   // Human platform-admin-only prospect CRM reads/writes, including exact onboarding delivery
   // readback. Platform-owned prospect records stay outside tenant scope; conversion validates one
   // exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 6],
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 4],
+  // Exact prospect delivery plan/attempt reads split from CRM core; no new effect authority.
+  ['packages/api/src/routers/admin/prospect-crm-delivery-read.ts', 2],
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
