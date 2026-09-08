@@ -260,7 +260,7 @@ export function DashboardOverviewView({
             <div className="relative flex min-h-44 items-center justify-center border-t border-white/10 bg-white/[0.025] px-6 py-7 sm:min-h-52 md:border-l md:border-t-0">
               <TorchikoCore
                 state={coreStateFor(lifecycle)}
-                className="max-w-[15rem] brightness-125 saturate-[0.85] sm:max-w-[18rem] md:max-w-[22rem]"
+                className={`max-w-[15rem] brightness-125 saturate-[0.85] sm:max-w-[18rem] md:max-w-[22rem] ${showLiveTools ? 'mb-16' : ''}`}
               />
               {showLiveTools ? (
                 <div className="absolute bottom-6 left-6 right-6 border-t border-white/15 pt-4 sm:left-10 sm:right-10 lg:left-8 lg:right-8">

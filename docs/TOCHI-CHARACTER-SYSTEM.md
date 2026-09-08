@@ -150,7 +150,7 @@ Planned keys:
 
 No Tochi asset pack, character registry, semantic controller, Rive/Lottie/Three runtime, or voice infrastructure exists. React 19, Next.js, CSS modules, SVG, Tailwind, Lucide, `next/dynamic`, and existing reduced-motion patterns are sufficient.
 
-The existing `TorchikoCore` is a brand-level final fallback. It is not the development Tochi pack because it cannot exercise layered eyes, embers, look-at, or all semantic states.
+As of 2026-09-08, the `TorchikoCore` compatibility component renders a neutral text-only Torchiko fallback. It preserves existing layout and state hooks without selecting final mascot art or retaining the retired flame-ended mark.
 
 An external 20 MB FBX found outside the repository is not used: its provenance/license is unknown, it references a missing texture, and it is unsuitable for a lightweight browser placeholder.
 
