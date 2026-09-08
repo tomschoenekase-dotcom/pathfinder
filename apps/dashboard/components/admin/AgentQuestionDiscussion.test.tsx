@@ -48,7 +48,7 @@ describe('AgentQuestionDiscussion', () => {
     )
     open(view.container)
     expect(await screen.findByText(note.body)).toBeTruthy()
-    expect(query.mock.calls[0][1].signal.aborted).toBe(false)
+    expect(query.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
   })
 
   beforeEach(() => {
