@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-09-08",
+  "sourceBaseRevision": "3a88878735ddebb47d3792d740884e5c3323d425",
+  "requirements": ["V2-P12-06"],
+  "proved": [
+    "Exact tenant/venue effective configuration is revalidated at existing admission boundary.",
+    "Actual dark-provider gateway after-reservation change releases undispatched reservation; change after primary503 prevents a repeated provider call.",
+    "Configuration denial follows existing retryable durable-failure contract; existing lease/cancellation/bridge behavior retained."
+  ],
+  "checks": {
+    "focusedTestsPassed": 10,
+    "combinedWorkerTestsPassed": 63,
+    "freshNonIncrementalWorkerTypes": "passed direct exit0",
+    "scopedLint": "passed with repository config"
+  },
+  "artifacts": [
+    "artifacts/worker-routing-combined-20260908.log",
+    "artifacts/worker-routing-types-20260908.log",
+    "artifacts/worker-routing-lint-final-20260908.log",
+    "artifacts/agent-run-configuration-before-20260908.log"
+  ],
+  "measuredSources": [
+    {
+      "path": "apps/workers/src/processors/agent-run.ts",
+      "sha256": "55c0dc1598b9ff888ba16a1dd2d454304cde209f37d454b23a6db2651b833250"
+    },
+    {
+      "path": "apps/workers/src/processors/agent-run.test.ts",
+      "sha256": "de74645ef04437c56caba51e7f3a2c32ff582f316b39ec7c8f35f54be3a6c8c0"
+    }
+  ],
+  "limits": [
+    "Provider-dark worker composition; no live configuration override, provider observation, customer send, spend or deployment.",
+    "Admission snapshot comparison is not an atomic provider-I/O revision lock or rollback of already dispatched work.",
+    "Database worker transitions are mocked. Native canonical lease helper proof is separate and does not prove complete worker-to-provider execution."
+  ]
+}
