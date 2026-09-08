@@ -100,6 +100,52 @@ describe('semantic operational update draft finalizer', () => {
     )
   })
 
+  it('retains the checked temporal evidence in the transactional audit', async () => {
+    const { tx, update } = fixture()
+    const temporalEvidence = {
+      reference: {
+        reviewReceiptId: 'receipt',
+        expectedSnapshotHash: 'c'.repeat(64),
+        claimId: 'closure',
+      },
+      claimHash: 'd'.repeat(64),
+      authorityBasis: 'REVIEW_ASSERTED',
+      authorityVerified: false,
+    }
+    mocks.preview.mockResolvedValueOnce({
+      proposalStatus: 'APPROVED',
+      previewHash,
+      operationalUpdateDraft: draft,
+      temporalEvidence,
+    })
+    await semanticOperationalUpdateDraftFinalizer({
+      actorId: 'admin-a',
+      expectedPreviewHash: previewHash,
+      previewInput,
+    })({ tx: tx as never, update: update as never, preview: {} as never })
+    expect(mocks.preview).toHaveBeenCalledWith({ db: tx, ...previewInput })
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        afterState: expect.objectContaining({ temporalEvidence }),
+      }),
+      tx,
+    )
+  })
+
+  it('stops linkage if revalidation rejects expired evidence inside the transaction', async () => {
+    const { tx, create, update } = fixture()
+    mocks.preview.mockRejectedValueOnce(new Error('Reviewed source expired.'))
+    await expect(
+      semanticOperationalUpdateDraftFinalizer({
+        actorId: 'admin-a',
+        expectedPreviewHash: previewHash,
+        previewInput,
+      })({ tx: tx as never, update: update as never, preview: {} as never }),
+    ).rejects.toThrow('expired')
+    expect(create).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+
   it('rejects preview drift or a non-draft effect before linkage', async () => {
     const { tx, create, update } = fixture()
     mocks.preview.mockResolvedValueOnce({

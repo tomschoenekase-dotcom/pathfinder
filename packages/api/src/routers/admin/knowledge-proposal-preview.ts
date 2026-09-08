@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
 
 import { router } from '../../core'
 import { SemanticUpdaterDesiredKnowledge } from '../../lib/semantic-venue-updater'
@@ -22,6 +23,7 @@ export const adminKnowledgeProposalPreviewRouter = router({
           expectedUpdatedAt: z.coerce.date(),
           relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
           desired: SemanticUpdaterDesiredKnowledge,
+          temporalEvidence: KnowledgeProposalTemporalEvidenceReference.optional(),
           validFrom: z.string().datetime().optional(),
           validUntil: z.string().datetime().optional(),
           operationalUpdateType: z

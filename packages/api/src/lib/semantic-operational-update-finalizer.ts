@@ -65,6 +65,7 @@ export function semanticOperationalUpdateDraftFinalizer(params: {
           operationalUpdateLinked: true,
           operationalUpdateId: update.id,
           operationalUpdateStatus: 'DRAFT',
+          ...(current.temporalEvidence ? { temporalEvidence: current.temporalEvidence } : {}),
           previewHash: params.expectedPreviewHash,
           autoScheduled: false,
           autoPublished: false,

@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { KnowledgeProposalTemporalEvidenceReference } from '../../lib/knowledge-proposal-temporal-evidence'
 
 import { createOperationalUpdateAction } from '@pathfinder/db'
 import { CreateSemanticUniversalContentDraftInput } from '@pathfinder/contracts/universal-content-actions'
@@ -129,6 +130,7 @@ export const adminKnowledgeProposalDraftRouter = router({
           expectedPreviewHash: z.string().regex(/^[a-f0-9]{64}$/u),
           relation: z.enum(['NEW_FACT', 'CORRECTS', 'SUPERSEDES']),
           desired: SemanticOperationalUpdateDesiredKnowledge,
+          temporalEvidence: KnowledgeProposalTemporalEvidenceReference.optional(),
           validFrom: z.string().datetime(),
           validUntil: z.string().datetime(),
           operationalUpdateType: z.enum([
@@ -152,6 +154,7 @@ export const adminKnowledgeProposalDraftRouter = router({
         expectedUpdatedAt: input.expectedUpdatedAt,
         relation: input.relation,
         desired: input.desired,
+        temporalEvidence: input.temporalEvidence,
         validFrom: input.validFrom,
         validUntil: input.validUntil,
         operationalUpdateType: input.operationalUpdateType,

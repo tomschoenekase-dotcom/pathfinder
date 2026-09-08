@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 
 import type { TRPCContext } from '../context'
 import {
+  resolveKnowledgeProposalTemporalEvidence,
+  type KnowledgeProposalTemporalEvidenceReference,
+} from './knowledge-proposal-temporal-evidence'
+import {
   buildSemanticVenueUpdate,
   type CurrentVenueKnowledge,
   type SemanticUpdaterInput,
@@ -25,6 +29,7 @@ export type SemanticVenueUpdatePreviewParameters = Pick<
   venueId: string
   proposalId: string
   expectedUpdatedAt: Date
+  temporalEvidence?: KnowledgeProposalTemporalEvidenceReference | undefined
 }
 
 type PreviewInput = SemanticVenueUpdatePreviewParameters & { db: TRPCContext['db'] }
@@ -91,6 +96,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       id: true,
       status: true,
       targetKnowledgeEntryId: true,
+      conversationInsightId: true,
       proposedChange: true,
       reason: true,
       confidence: true,
@@ -109,6 +115,44 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
       'NOT_REVIEWABLE',
       'Only pending-review or approved knowledge proposals can be previewed.',
     )
+  }
+
+  const isVisitorTemporal =
+    Boolean(proposal.conversationInsightId) && Boolean(input.validFrom || input.validUntil)
+  if (isVisitorTemporal && !input.temporalEvidence) {
+    throw new SemanticVenueUpdaterError(
+      'NOT_REVIEWABLE',
+      'A visitor temporal proposal requires a separately reviewed dated source receipt.',
+    )
+  }
+  let temporalEvidence: Awaited<
+    ReturnType<typeof resolveKnowledgeProposalTemporalEvidence>
+  > | null = null
+  if (input.temporalEvidence) {
+    if (!input.validFrom || !input.validUntil) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        'Temporal evidence requires finite dates.',
+      )
+    }
+    try {
+      temporalEvidence = await resolveKnowledgeProposalTemporalEvidence({
+        db: input.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        reference: input.temporalEvidence,
+        desiredContent: input.desired.content,
+        desiredTitle: input.desired.title,
+        desiredCategory: input.desired.category,
+        validFrom: input.validFrom,
+        validUntil: input.validUntil,
+      })
+    } catch (error) {
+      throw new SemanticVenueUpdaterError(
+        'NOT_REVIEWABLE',
+        error instanceof Error ? error.message : 'The reviewed dated source is unavailable.',
+      )
+    }
   }
 
   const current = await input.db.venueKnowledgeEntry.findMany({
@@ -142,6 +186,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
         reason: proposal.reason,
         evidenceMessageIds: proposal.evidenceMessageIds,
         updatedAt: proposal.updatedAt.toISOString(),
+        ...(temporalEvidence ? { temporalEvidence } : {}),
       }),
     )
     .digest('hex')
@@ -159,7 +204,8 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
         {
           id: `knowledge-proposal:${proposal.id}`,
           sourceType: 'KNOWLEDGE_PROPOSAL',
-          authority: proposal.status === 'APPROVED' ? 'TRUSTED_PARTNER' : 'UNVERIFIED',
+          authority:
+            !temporalEvidence && proposal.status === 'APPROVED' ? 'TRUSTED_PARTNER' : 'UNVERIFIED',
           confidence: Number(proposal.confidence),
           normalizedHash,
           retrievedAt: proposal.createdAt.toISOString(),
@@ -189,6 +235,7 @@ export async function previewSemanticVenueUpdateFromProposal(input: PreviewInput
     proposalId: proposal.id,
     proposalStatus: proposal.status,
     proposalUpdatedAt: proposal.updatedAt,
+    temporalEvidence,
     proposalEvidenceRefs: messageIds.map((id) => `guest-message:${id}`),
     ...classification,
   }
