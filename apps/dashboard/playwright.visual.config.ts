@@ -1,9 +1,16 @@
 import { defineConfig } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 
 const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
 const visitorBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.0.1:3000'
 const externalServers =
   process.env.PLAYWRIGHT_DASHBOARD_BASE_URL || process.env.PLAYWRIGHT_VISITOR_BASE_URL
+// Playwright clears outputDir before a run. Keep each invocation's proof separate
+// so later visual work cannot erase screenshots referenced by retained evidence.
+// Config is loaded again in worker processes. Inherit one ID for this invocation.
+const artifactRunId =
+  (process.env.TORCHIKO_VISUAL_ARTIFACT_RUN_ID ??= `${new Date().toISOString().replaceAll(':', '-')}-${randomUUID().slice(0, 8)}`)
+const artifactDirectory = `../../artifacts/mobile-visual/${artifactRunId}`
 
 export default defineConfig({
   testDir: './tests/visual',
@@ -12,11 +19,8 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   timeout: 60_000,
-  outputDir: '../../test-results/mobile-visual',
-  reporter: [
-    ['list'],
-    ['html', { open: 'never', outputFolder: '../../playwright-report/mobile-visual' }],
-  ],
+  outputDir: `${artifactDirectory}/results`,
+  reporter: [['list'], ['html', { open: 'never', outputFolder: `${artifactDirectory}/report` }]],
   use: {
     colorScheme: 'light',
     deviceScaleFactor: 1,
