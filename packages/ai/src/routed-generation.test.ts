@@ -576,6 +576,104 @@ describe('routed text generation', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('fails closed when a stale route model identity no longer matches dispatch', async () => {
+    const create = vi.fn()
+    setAnthropicClientForTesting({ messages: { create } })
+    const usageSink = vi.fn().mockResolvedValue(undefined)
+    const admissionGuard = vi.fn().mockResolvedValue(undefined)
+    const reserve = vi.fn().mockResolvedValue(null)
+    const budgetGate: AiBudgetGate = {
+      reserve,
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact: vi.fn().mockResolvedValue(undefined),
+      settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
+    const configuration = resolveAiWorkloadConfiguration({ workloadId: 'guest-chat' })
+    const route = routeAiCapability({
+      capability: 'STANDARD',
+      workloadId: 'guest-chat',
+      configuration,
+    })
+    route.candidates[0] = { ...route.candidates[0]!, model: 'stale-protected-model' }
+
+    await expect(
+      generateTextForCapability({
+        route,
+        system: [{ type: 'text', text: 'Guide' }],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 1,
+        usageSink,
+        admissionGuard,
+        budgetGate,
+      }),
+    ).rejects.toThrow('Text model identity mismatch for guest-chat')
+
+    expect(create).not.toHaveBeenCalled()
+    expect(admissionGuard).not.toHaveBeenCalled()
+    expect(reserve).not.toHaveBeenCalled()
+    expect(usageSink).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on a stale fallback after the primary provider fails', async () => {
+    const primaryCreate = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('quota'), { status: 429 }))
+    const fallbackCreate = vi.fn()
+    setOpenAiResponsesClientForTesting({ responses: { create: primaryCreate } })
+    setAnthropicClientForTesting({ messages: { create: fallbackCreate } })
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: {
+            primaryModelKey: 'guest-chat-openai',
+            maxAttempts: 1,
+            fallback: { enabled: true, modelKeys: ['agent-run'] },
+          },
+          unsafeChangesEnabled: true,
+          reason: 'stale fallback proof',
+        },
+      ],
+    })
+    const route = routeAiCapability({
+      capability: 'STANDARD',
+      workloadId: 'guest-chat',
+      configuration,
+    })
+    route.candidates[1] = { ...route.candidates[1]!, model: 'stale-protected-model' }
+    const usageSink = vi.fn().mockResolvedValue(undefined)
+    const admissionGuard = vi.fn().mockResolvedValue(undefined)
+    const reserve = vi.fn().mockResolvedValue(null)
+    const budgetGate: AiBudgetGate = {
+      reserve,
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact: vi.fn().mockResolvedValue(undefined),
+      settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      generateTextForCapability({
+        route,
+        system: [{ type: 'text', text: 'Guide' }],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 1,
+        usageSink,
+        admissionGuard,
+        budgetGate,
+      }),
+    ).rejects.toThrow('Text model identity mismatch for agent-run')
+
+    expect(primaryCreate).toHaveBeenCalledTimes(1)
+    expect(fallbackCreate).not.toHaveBeenCalled()
+    expect(admissionGuard).toHaveBeenCalledTimes(2)
+    expect(reserve).toHaveBeenCalledTimes(1)
+    expect(usageSink).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a governed request ceiling before any provider dispatch', async () => {
     const create = vi.fn()
     setAnthropicClientForTesting({ messages: { create } })
