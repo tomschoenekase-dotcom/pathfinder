@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
+import { UnrecoverableError } from 'bullmq'
 
 const mocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
@@ -122,6 +123,7 @@ describe('media ingestion provider output validation', () => {
     })
   })
   it('never falls back around the invocation budget ceiling', () => {
+    expect(shouldPropagateFullVideoFailure(new UnrecoverableError('operation limit'))).toBe(true)
     expect(shouldPropagateFullVideoFailure(new AiRequestBudgetCeilingExceededError(10n, 11n))).toBe(
       true,
     )
