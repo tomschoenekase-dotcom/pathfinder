@@ -202,7 +202,15 @@ export async function createClientOnboardingQuestionAction(
         status: 'WAITING_FOR_CLIENT',
         subject: input.subject,
         missingInformation: [question.question],
-        artifacts: { onboardingQuestion: true },
+        artifacts: {
+          onboardingQuestion: true,
+          onboardingQuestionContext: {
+            version: 1,
+            why: input.why,
+            ...(input.whatWasFound ? { whatWasFound: input.whatWasFound } : {}),
+            effect: input.effect,
+          },
+        },
         version: 1,
         clientVersion: 1,
         clientActivityAt: now,

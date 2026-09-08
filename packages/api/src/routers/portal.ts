@@ -33,6 +33,24 @@ import { TRPCError } from '@trpc/server'
 
 type CountRow = { venueId: string; status: string; _count: { _all: number } }
 
+const onboardingQuestionContextSchema = z
+  .object({
+    version: z.literal(1),
+    why: z.string().trim().min(1).max(2000),
+    whatWasFound: z.string().trim().min(1).max(2000).optional(),
+    effect: z.string().trim().min(1).max(1000),
+  })
+  .strict()
+
+function clientOnboardingQuestionContext(artifacts: unknown) {
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) return null
+  const artifactRecord = artifacts as Record<string, unknown>
+  if (artifactRecord.onboardingQuestion !== true) return null
+  const candidate = artifactRecord.onboardingQuestionContext
+  const parsed = onboardingQuestionContextSchema.safeParse(candidate)
+  return parsed.success ? parsed.data : null
+}
+
 function countsByVenue(rows: CountRow[]): Map<string, Map<string, number>> {
   const result = new Map<string, Map<string, number>>()
   for (const row of rows) {
@@ -407,7 +425,7 @@ export const portalRouter = router({
               },
               orderBy: [{ clientActivityAt: 'desc' }, { id: 'desc' }],
               take: 4,
-              select: { id: true, subject: true, missingInformation: true },
+              select: { id: true, subject: true, missingInformation: true, artifacts: true },
             }),
             db.venuePackage.findFirst({
               where: {
@@ -599,12 +617,16 @@ export const portalRouter = router({
             review: evidence.review,
             questions: {
               open: openQuestionCount,
-              items: questionRows.slice(0, 3).map((request) => ({
-                requestId: request.id,
-                subject: request.subject,
-                prompts: request.missingInformation.slice(0, 3),
-                additionalPromptCount: Math.max(0, request.missingInformation.length - 3),
-              })),
+              items: questionRows.slice(0, 3).map((request) => {
+                const context = clientOnboardingQuestionContext(request.artifacts)
+                return {
+                  requestId: request.id,
+                  subject: request.subject,
+                  prompts: request.missingInformation.slice(0, 3),
+                  additionalPromptCount: Math.max(0, request.missingInformation.length - 3),
+                  ...(context ? { context } : {}),
+                }
+              }),
               additionalQuestionCount: Math.max(0, openQuestionCount - 3),
             },
             preview,

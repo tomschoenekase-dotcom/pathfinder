@@ -39,6 +39,12 @@ type JourneyData = {
       subject: string
       prompts: string[]
       additionalPromptCount: number
+      context?: {
+        version: 1
+        why: string
+        whatWasFound?: string | undefined
+        effect: string
+      }
     }>
     additionalQuestionCount: number
   }
@@ -302,6 +308,24 @@ export function RemoteOnboardingJourney({
               {data.questions.items.map((question) => (
                 <li key={question.requestId} className={styles.questionItem}>
                   <h3>{question.subject}</h3>
+                  {question.context ? (
+                    <dl className={styles.questionContext}>
+                      <div>
+                        <dt>Why we’re asking</dt>
+                        <dd>{question.context.why}</dd>
+                      </div>
+                      {question.context.whatWasFound ? (
+                        <div>
+                          <dt>What Torchiko found</dt>
+                          <dd>{question.context.whatWasFound}</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt>What your answer helps</dt>
+                        <dd>{question.context.effect}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
                   <ul>
                     {question.prompts.map((prompt) => (
                       <li key={prompt}>{prompt}</li>
@@ -313,6 +337,9 @@ export function RemoteOnboardingJourney({
                       {question.additionalPromptCount === 1 ? '' : 's'} in this conversation
                     </p>
                   ) : null}
+                  <p className={styles.questionGuidance}>
+                    If you are not sure, say so in the conversation so Torchiko can follow up.
+                  </p>
                   <Link
                     href={`/support?${new URLSearchParams({
                       venue: data.venue.id,

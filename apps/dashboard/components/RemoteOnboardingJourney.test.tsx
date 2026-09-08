@@ -297,6 +297,12 @@ describe('RemoteOnboardingJourney', () => {
                 subject: 'Saturday hours',
                 prompts: ['What time do you close?'],
                 additionalPromptCount: 0,
+                context: {
+                  version: 1,
+                  why: 'The current visitor information gives two closing times.',
+                  whatWasFound: 'The public calendar says 4 p.m.; the guide says 5 p.m.',
+                  effect: 'Your answer lets Torchiko keep Saturday guidance accurate.',
+                },
               },
             ],
             additionalQuestionCount: 0,
@@ -312,6 +318,18 @@ describe('RemoteOnboardingJourney', () => {
     expect(href.searchParams.get('venue')).toBe('venue-1')
     expect(href.searchParams.get('request')).toBe('request-7')
     expect(href.searchParams.get('returnTo')).toBe('/venues/venue-1/onboarding#questions')
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'The current visitor information gives two closing times.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'The public calendar says 4 p.m.; the guide says 5 p.m.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'Your answer lets Torchiko keep Saturday guidance accurate.',
+    )
+    expect(root.querySelector('#questions')?.textContent).toContain(
+      'If you are not sure, say so in the conversation so Torchiko can follow up.',
+    )
   })
 
   it('makes a bounded hidden-question remainder transparent with singular and plural copy', () => {

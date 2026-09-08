@@ -120,6 +120,11 @@ describe('remote onboarding journey read model', () => {
         where: { tenantId: 'tenant-1', venueId: 'venue-1' },
       })
     }
+    expect(supportFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: { id: true, subject: true, missingInformation: true, artifacts: true },
+      }),
+    )
     expect(evalRunFindFirst).not.toHaveBeenCalled()
   })
 
@@ -146,6 +151,15 @@ describe('remote onboarding journey read model', () => {
         id: 'request-1',
         subject: 'Accessible entrance',
         missingInformation: ['Which entrance has a step-free route?', 'Is it open every day?'],
+        artifacts: {
+          onboardingQuestion: true,
+          onboardingQuestionContext: {
+            version: 1,
+            why: 'The current sources disagree about the step-free route.',
+            whatWasFound: 'The website names the east entrance but not its public hours.',
+            effect: 'Your answer lets Torchiko give accurate arrival guidance.',
+          },
+        },
       },
     ])
     packageFindFirst
@@ -191,6 +205,12 @@ describe('remote onboarding journey read model', () => {
         subject: 'Accessible entrance',
         prompts: ['Which entrance has a step-free route?', 'Is it open every day?'],
         additionalPromptCount: 0,
+        context: {
+          version: 1,
+          why: 'The current sources disagree about the step-free route.',
+          whatWasFound: 'The website names the east entrance but not its public hours.',
+          effect: 'Your answer lets Torchiko give accurate arrival guidance.',
+        },
       },
     ])
     expect(result.qa).toEqual({
@@ -232,6 +252,71 @@ describe('remote onboarding journey read model', () => {
         evalCase: { select: { caseKey: true } },
       },
     })
+  })
+
+  it('omits legacy and malformed question context without exposing artifact metadata', async () => {
+    setEmptyJourney()
+    supportCount.mockResolvedValue(3)
+    supportFindMany.mockResolvedValue([
+      {
+        id: 'legacy-request',
+        subject: 'Legacy question',
+        missingInformation: ['Which entrance should visitors use?'],
+        artifacts: { onboardingQuestion: true },
+      },
+      {
+        id: 'malformed-request',
+        subject: 'Malformed context',
+        missingInformation: ['Are the hours current?'],
+        artifacts: {
+          onboardingQuestion: true,
+          onboardingQuestionContext: {
+            version: 2,
+            why: 'do-not-project-this-version',
+            effect: 'Unknown schema version.',
+            internalCredential: 'private-artifact-sentinel',
+          },
+        },
+      },
+      {
+        id: 'unmarked-request',
+        subject: 'Unmarked context',
+        missingInformation: ['Is this information current?'],
+        artifacts: {
+          onboardingQuestionContext: {
+            version: 1,
+            why: 'valid-shape-but-not-canonical',
+            effect: 'No marker means no client projection.',
+          },
+        },
+      },
+    ])
+
+    const result = await app.createCaller(ctx).portal.getOnboardingJourney({ venueId: 'venue-1' })
+
+    expect(result.questions.items).toEqual([
+      {
+        requestId: 'legacy-request',
+        subject: 'Legacy question',
+        prompts: ['Which entrance should visitors use?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'malformed-request',
+        subject: 'Malformed context',
+        prompts: ['Are the hours current?'],
+        additionalPromptCount: 0,
+      },
+      {
+        requestId: 'unmarked-request',
+        subject: 'Unmarked context',
+        prompts: ['Is this information current?'],
+        additionalPromptCount: 0,
+      },
+    ])
+    expect(JSON.stringify(result)).not.toMatch(
+      /do-not-project-this-version|private-artifact-sentinel|internalCredential|valid-shape-but-not-canonical/u,
+    )
   })
 
   it('does not make an intentional client cancellation block onboarding', async () => {

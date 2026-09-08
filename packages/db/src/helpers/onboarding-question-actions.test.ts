@@ -85,6 +85,15 @@ describe('onboarding question coordination actions', () => {
           status: 'WAITING_FOR_CLIENT',
           createdByKind: 'OPERATOR',
           missingInformation: ['Which entrance provides the step-free route?'],
+          artifacts: {
+            onboardingQuestion: true,
+            onboardingQuestionContext: {
+              version: 1,
+              why: 'This changes the arrival guidance shown to visitors.',
+              whatWasFound: 'The website names an accessible entrance but not its public hours.',
+              effect: 'The blocked accessibility review can continue.',
+            },
+          },
         }),
       }),
     )

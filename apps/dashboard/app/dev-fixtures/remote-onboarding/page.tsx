@@ -228,6 +228,13 @@ function scenario(state: FixtureState): {
               'Is that entrance available during every public hour?',
             ],
             additionalPromptCount: 0,
+            context: {
+              version: 1,
+              why: 'The current visitor information does not identify one confirmed step-free route.',
+              whatWasFound:
+                'The website mentions an accessible entrance at https://museum.example/visit/accessibility/step-free-arrival/east-entrance/current-public-hours-and-entry-instructions, but the visitor guide does not name it.',
+              effect: 'Your answer helps Torchiko give visitors one clear arrival route.',
+            },
           },
         ],
         additionalQuestionCount: 0,
