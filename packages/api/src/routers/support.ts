@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { env } from '@pathfinder/config'
+import { logger } from '@pathfinder/config/logger'
 
 import {
   appendSupportMessageAction,
@@ -568,23 +569,36 @@ export const supportRouter = router({
           },
           ctx.db,
         )
-        const dispatch =
-          resume.runEligibleToResume && resume.agentRunId && resume.questionId
-            ? await enqueueAgentRun(
+        let dispatchStatus: 'NOT_NEEDED' | 'DISABLED' | 'ENQUEUED' | 'UNCONFIRMED' = 'NOT_NEEDED'
+        if (resume.runEligibleToResume && resume.agentRunId && resume.questionId) {
+          dispatchStatus = 'DISABLED'
+          if (env.AGENT_RUNNER_ENABLED) {
+            try {
+              const dispatch = await enqueueAgentRun(
                 { tenantId: ctx.session.activeTenantId, runId: resume.agentRunId },
-                {
-                  enabled: env.AGENT_RUNNER_ENABLED,
-                  dispatchKey: `client-answer-${resume.questionId}`,
-                },
+                { enabled: true, dispatchKey: `client-answer-${resume.questionId}` },
               )
-            : { enqueued: false }
+              dispatchStatus = dispatch.enqueued ? 'ENQUEUED' : 'UNCONFIRMED'
+            } catch {
+              // The client reply and linked question resumption have committed. A lost queue
+              // acknowledgement must not make that durable response appear to have failed.
+              dispatchStatus = 'UNCONFIRMED'
+              logger.warn({
+                action: 'support.onboarding-resume.dispatch.unconfirmed',
+                tenantId: ctx.session.activeTenantId,
+                venueId: input.venueId,
+              })
+            }
+          }
+        }
         return {
           ...result,
           message: serializeClientMessage(result.message, actor.actorId),
           onboardingResume: {
             linked: resume.linked,
             replayed: resume.replayed,
-            executionTriggered: dispatch.enqueued,
+            executionTriggered: dispatchStatus === 'ENQUEUED',
+            dispatchStatus,
           },
         }
       } catch (error) {

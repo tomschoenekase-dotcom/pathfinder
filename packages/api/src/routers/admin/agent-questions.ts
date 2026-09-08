@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { env } from '@pathfinder/config'
+import { logger } from '@pathfinder/config/logger'
 
 import {
   AgentQuestionActionError,
@@ -104,17 +105,32 @@ const adminAgentQuestionCoreRouter = router({
             },
             db,
           )
-          const dispatch =
-            response.runEligibleToResume && response.agentRunId
-              ? await enqueueAgentRun(
+          let dispatchStatus: 'NOT_NEEDED' | 'DISABLED' | 'ENQUEUED' | 'UNCONFIRMED' = 'NOT_NEEDED'
+          if (response.runEligibleToResume && response.agentRunId) {
+            dispatchStatus = 'DISABLED'
+            if (env.AGENT_RUNNER_ENABLED) {
+              try {
+                const dispatch = await enqueueAgentRun(
                   { tenantId: input.tenantId, runId: response.agentRunId },
-                  {
-                    enabled: env.AGENT_RUNNER_ENABLED,
-                    dispatchKey: `answer-${response.questionId}`,
-                  },
+                  { enabled: true, dispatchKey: `answer-${response.questionId}` },
                 )
-              : { enqueued: false }
-          return { ...response, executionTriggered: dispatch.enqueued }
+                dispatchStatus = dispatch.enqueued ? 'ENQUEUED' : 'UNCONFIRMED'
+              } catch {
+                // The answer transaction has already committed. A lost queue acknowledgement
+                // must not turn that durable response into an apparent persistence failure.
+                // Exact answer replay rechecks run eligibility and uses the same queue job ID.
+                dispatchStatus = 'UNCONFIRMED'
+                logger.warn({
+                  action: 'admin.agent-question.resume-dispatch.unconfirmed',
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  questionId: response.questionId,
+                  agentRunId: response.agentRunId,
+                })
+              }
+            }
+          }
+          return { ...response, executionTriggered: dispatchStatus === 'ENQUEUED', dispatchStatus }
         } catch (error) {
           if (error instanceof AgentQuestionActionError) {
             throw new TRPCError({
